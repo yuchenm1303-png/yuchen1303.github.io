@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
@@ -33,6 +34,9 @@ internal fun DrawScope.drawOrdinaryComposeGlassMaterial(
         val h = rect.height.coerceAtLeast(1f)
         val radiusPx = node.radius.dp.toPx()
         val cornerRadius = CornerRadius(radiusPx, radiusPx)
+        val shapePath = Path().apply {
+            addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
+        }
         val intensityScale = node.glassIntensity.coerceIn(0.25f, 1.45f)
         val pulse = 0.94f + node.breathe * 0.030f
 
@@ -154,32 +158,34 @@ internal fun DrawScope.drawOrdinaryComposeGlassMaterial(
         )
         val localSize = Size(w, h)
 
-        drawRect(brush = baseField, size = localSize)
-        drawRect(brush = quietField, size = localSize)
-        drawPath(path = edgeBandPath, brush = edgeBandBrush, blendMode = BlendMode.Screen)
+        clipPath(shapePath) {
+            drawRect(brush = baseField, size = localSize)
+            drawRect(brush = quietField, size = localSize)
+            drawPath(path = edgeBandPath, brush = edgeBandBrush, blendMode = BlendMode.Screen)
 
-        if (pathFlow > 0.001f) {
-            clipRect(left = 0f, top = 0f, right = w, bottom = (h * 0.52f).coerceAtLeast(1f)) {
-                drawPath(path = edgeBandPath, brush = flowBrush, blendMode = BlendMode.Screen)
+            if (pathFlow > 0.001f) {
+                clipRect(left = 0f, top = 0f, right = w, bottom = (h * 0.52f).coerceAtLeast(1f)) {
+                    drawPath(path = edgeBandPath, brush = flowBrush, blendMode = BlendMode.Screen)
+                }
             }
-        }
-        if (bottomMass > 0.001f) {
-            clipRect(left = 0f, top = h * 0.45f, right = w, bottom = h) {
-                drawPath(path = bottomMassBandPath, brush = bottomMassBrush, blendMode = BlendMode.Multiply)
+            if (bottomMass > 0.001f) {
+                clipRect(left = 0f, top = h * 0.45f, right = w, bottom = h) {
+                    drawPath(path = bottomMassBandPath, brush = bottomMassBrush, blendMode = BlendMode.Multiply)
+                }
             }
-        }
 
-        drawRoundRect(
-            brush = rimField,
-            topLeft = Offset(0.75.dp.toPx(), 0.75.dp.toPx()),
-            size = Size(
-                (w - 1.5.dp.toPx()).coerceAtLeast(1f),
-                (h - 1.5.dp.toPx()).coerceAtLeast(1f)
-            ),
-            cornerRadius = cornerRadius,
-            style = Stroke(maxOf(0.34.dp.toPx(), 0.48.dp.toPx() * outerRim)),
-            blendMode = BlendMode.Screen
-        )
+            drawRoundRect(
+                brush = rimField,
+                topLeft = Offset(0.75.dp.toPx(), 0.75.dp.toPx()),
+                size = Size(
+                    (w - 1.5.dp.toPx()).coerceAtLeast(1f),
+                    (h - 1.5.dp.toPx()).coerceAtLeast(1f)
+                ),
+                cornerRadius = cornerRadius,
+                style = Stroke(maxOf(0.34.dp.toPx(), 0.48.dp.toPx() * outerRim)),
+                blendMode = BlendMode.Screen
+            )
+        }
     }
 }
 
@@ -217,7 +223,11 @@ internal fun DrawScope.drawOrdinaryComposeGlassPressOptics(
         val optical = (0.10f + p * 1.10f).coerceIn(0f, 1.18f)
         val rainbowAlpha = (0.040f + p * 0.170f).coerceIn(0f, 0.24f) * chroma
         val rimInset = 0.62.dp.toPx()
-        val cornerRadius = CornerRadius(node.radius.dp.toPx(), node.radius.dp.toPx())
+        val radiusPx = node.radius.dp.toPx()
+        val cornerRadius = CornerRadius(radiusPx, radiusPx)
+        val shapePath = Path().apply {
+            addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
+        }
         val rimSize = Size(
             (w - rimInset * 2f).coerceAtLeast(1f),
             (h - rimInset * 2f).coerceAtLeast(1f)
@@ -225,120 +235,122 @@ internal fun DrawScope.drawOrdinaryComposeGlassPressOptics(
         val sweepX = -0.36f + rimFlow * 1.66f
         val localSize = Size(w, h)
 
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.080f * optical),
-                    Color(0xFF8DFFF3).copy(alpha = 0.044f * optical * chroma),
-                    Color(0xFFFF8FE7).copy(alpha = 0.026f * optical * chroma),
-                    Color.Transparent
+        clipPath(shapePath) {
+            drawRoundRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.080f * optical),
+                        Color(0xFF8DFFF3).copy(alpha = 0.044f * optical * chroma),
+                        Color(0xFFFF8FE7).copy(alpha = 0.026f * optical * chroma),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = maxSide * (0.48f + 0.28f * p)
                 ),
-                center = center,
-                radius = maxSide * (0.48f + 0.28f * p)
-            ),
-            size = localSize,
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color(0xFFFF7AD9).copy(alpha = rainbowAlpha * 0.70f),
-                    Color(0xFFFFD166).copy(alpha = rainbowAlpha * 0.52f),
-                    Color(0xFF7CFFEA).copy(alpha = rainbowAlpha * 0.80f),
-                    Color(0xFF8EA2FF).copy(alpha = rainbowAlpha * 0.66f),
-                    Color.Transparent
+                size = localSize,
+                cornerRadius = cornerRadius,
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFFFF7AD9).copy(alpha = rainbowAlpha * 0.70f),
+                        Color(0xFFFFD166).copy(alpha = rainbowAlpha * 0.52f),
+                        Color(0xFF7CFFEA).copy(alpha = rainbowAlpha * 0.80f),
+                        Color(0xFF8EA2FF).copy(alpha = rainbowAlpha * 0.66f),
+                        Color.Transparent
+                    ),
+                    start = Offset(w * (sweepX - 0.46f), h * -0.10f),
+                    end = Offset(w * (sweepX + 0.58f), h * 1.08f)
                 ),
-                start = Offset(w * (sweepX - 0.46f), h * -0.10f),
-                end = Offset(w * (sweepX + 0.58f), h * 1.08f)
-            ),
-            size = localSize,
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color(0xFF04112A).copy(alpha = 0.018f * optical),
-                    Color(0xFF00030A).copy(alpha = 0.072f * p)
+                size = localSize,
+                cornerRadius = cornerRadius,
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0xFF04112A).copy(alpha = 0.018f * optical),
+                        Color(0xFF00030A).copy(alpha = 0.072f * p)
+                    ),
+                    center = center,
+                    radius = maxSide * (0.76f + 0.20f * p)
                 ),
-                center = center,
-                radius = maxSide * (0.76f + 0.20f * p)
-            ),
-            size = localSize,
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Multiply
-        )
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.160f * p),
-                    Color(0xFF9DFFF1).copy(alpha = 0.080f * p * chroma),
-                    Color(0xFFFF8FE7).copy(alpha = 0.052f * p * chroma),
-                    Color.Transparent
+                size = localSize,
+                cornerRadius = cornerRadius,
+                blendMode = BlendMode.Multiply
+            )
+            drawRoundRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.160f * p),
+                        Color(0xFF9DFFF1).copy(alpha = 0.080f * p * chroma),
+                        Color(0xFFFF8FE7).copy(alpha = 0.052f * p * chroma),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = maxSide * (0.32f + 0.12f * p)
                 ),
-                center = center,
-                radius = maxSide * (0.32f + 0.12f * p)
-            ),
-            size = localSize,
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color(0xFFFF72D2).copy(alpha = 0.32f * p * chroma),
-                    Color(0xFFFFF0A8).copy(alpha = 0.30f * p * chroma),
-                    Color(0xFF76FFF1).copy(alpha = 0.34f * p * chroma),
-                    Color(0xFF9AA8FF).copy(alpha = 0.26f * p * chroma),
-                    Color.Transparent
+                size = localSize,
+                cornerRadius = cornerRadius,
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0xFFFF72D2).copy(alpha = 0.32f * p * chroma),
+                        Color(0xFFFFF0A8).copy(alpha = 0.30f * p * chroma),
+                        Color(0xFF76FFF1).copy(alpha = 0.34f * p * chroma),
+                        Color(0xFF9AA8FF).copy(alpha = 0.26f * p * chroma),
+                        Color.Transparent
+                    ),
+                    start = Offset(w * (sweepX - 0.24f), 0f),
+                    end = Offset(w * (sweepX + 0.30f), h * 0.98f)
                 ),
-                start = Offset(w * (sweepX - 0.24f), 0f),
-                end = Offset(w * (sweepX + 0.30f), h * 0.98f)
-            ),
-            topLeft = Offset(rimInset, rimInset),
-            size = rimSize,
-            cornerRadius = cornerRadius,
-            style = Stroke(0.64.dp.toPx() + 1.16.dp.toPx() * p),
-            blendMode = BlendMode.Plus
-        )
-        drawRoundRect(
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = 0.105f + 0.090f * p),
-                    Color(0xFFE9FFFF).copy(alpha = 0.020f + 0.056f * p),
-                    Color.Transparent,
-                    Color(0xFF000819).copy(alpha = 0.030f + 0.070f * p)
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(0.64.dp.toPx() + 1.16.dp.toPx() * p),
+                blendMode = BlendMode.Plus
+            )
+            drawRoundRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.105f + 0.090f * p),
+                        Color(0xFFE9FFFF).copy(alpha = 0.020f + 0.056f * p),
+                        Color.Transparent,
+                        Color(0xFF000819).copy(alpha = 0.030f + 0.070f * p)
+                    ),
+                    startY = 0f,
+                    endY = h
                 ),
-                startY = 0f,
-                endY = h
-            ),
-            topLeft = Offset(rimInset, rimInset),
-            size = rimSize,
-            cornerRadius = cornerRadius,
-            style = Stroke(0.48.dp.toPx() + 0.72.dp.toPx() * p),
-            blendMode = BlendMode.Screen
-        )
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color(0xFFFFF7FF).copy(alpha = 0.100f * p),
-                    Color(0xFFFF8BD9).copy(alpha = 0.038f * p * chroma),
-                    Color.Transparent
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = cornerRadius,
+                style = Stroke(0.48.dp.toPx() + 0.72.dp.toPx() * p),
+                blendMode = BlendMode.Screen
+            )
+            drawRoundRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFF7FF).copy(alpha = 0.100f * p),
+                        Color(0xFFFF8BD9).copy(alpha = 0.038f * p * chroma),
+                        Color.Transparent
+                    ),
+                    center = Offset(w * 0.14f, h * 0.08f),
+                    radius = maxSide * 0.32f
                 ),
-                center = Offset(w * 0.14f, h * 0.08f),
-                radius = maxSide * 0.32f
-            ),
-            topLeft = Offset(1.15.dp.toPx(), 1.15.dp.toPx()),
-            size = Size(
-                (w - 2.30.dp.toPx()).coerceAtLeast(1f),
-                (h - 2.30.dp.toPx()).coerceAtLeast(1f)
-            ),
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
+                topLeft = Offset(1.15.dp.toPx(), 1.15.dp.toPx()),
+                size = Size(
+                    (w - 2.30.dp.toPx()).coerceAtLeast(1f),
+                    (h - 2.30.dp.toPx()).coerceAtLeast(1f)
+                ),
+                cornerRadius = cornerRadius,
+                blendMode = BlendMode.Screen
+            )
+        }
     }
 }
 
