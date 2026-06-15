@@ -65,7 +65,10 @@ fun PrismaticCapsuleBottomBar(
     onTabChange: (AppTab) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    GlassSceneScope(GlassSceneGroup.GlobalBottomBar) {
+    GlassSceneScope(
+        group = GlassSceneGroup.GlobalBottomBar,
+        modifier = modifier.zIndex(300f).fillMaxWidth().height(56.dp)
+    ) {
         val tabs = remember { AppTab.entries.toList() }
         val density = LocalDensity.current
         val currentIndex = tabs.indexOf(currentTab).coerceAtLeast(0)
@@ -113,7 +116,7 @@ fun PrismaticCapsuleBottomBar(
             glassIntensity = glassIntensity * 1.015f,
             motionIntensity = motionIntensity,
             radius = 999,
-            modifier = modifier.zIndex(300f).fillMaxWidth().height(56.dp),
+            modifier = Modifier.fillMaxSize(),
             role = GlassRole.Nav
         ) {
             BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
