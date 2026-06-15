@@ -255,3 +255,127 @@ data class ChatAttachment(
     val sizeBytes: Int? = null,
     val previewUri: String? = null
 )
+
+enum class ComposerAttachmentStatus {
+    Preparing,
+    Ready,
+    Uploading,
+    Failed
+}
+
+@Immutable
+data class ComposerAttachment(
+    val id: String,
+    val localUri: String,
+    val mimeType: String = "image/jpeg",
+    val fileName: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val sizeBytes: Int? = null,
+    val base64Data: String? = null,
+    val previewUri: String? = null,
+    val progress: Float = 0f,
+    val status: ComposerAttachmentStatus = ComposerAttachmentStatus.Preparing,
+    val errorText: String? = null
+) {
+    val isReady: Boolean
+        get() = status == ComposerAttachmentStatus.Ready && !base64Data.isNullOrBlank()
+
+    fun toChatAttachment(): ChatAttachment? {
+        val data = base64Data?.takeIf { it.isNotBlank() } ?: return null
+        return ChatAttachment(
+            id = id,
+            mimeType = mimeType,
+            base64Data = data,
+            fileName = fileName,
+            width = width,
+            height = height,
+            sizeBytes = sizeBytes,
+            previewUri = previewUri
+        )
+    }
+}
+
+@Immutable
+data class ChatMessage(
+    val id: String,
+    val text: String,
+    val role: MessageRole,
+    val status: MessageStatus = MessageStatus.Sent,
+    val source: String? = null,
+    val model: String? = null,
+    val modelLabel: String? = null,
+    val version: String? = null,
+    val errorText: String? = null,
+    val webSources: List<WebSource> = emptyList(),
+    val structuredData: StructuredDataCard? = null,
+    val searchUsed: Boolean = false,
+    val searchProvider: String? = null,
+    val attachments: List<ChatAttachment> = emptyList(),
+    val createdAt: Long = System.currentTimeMillis()
+) {
+    val hasImageAttachments: Boolean
+        get() = attachments.any { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }
+}
+
+@Immutable
+data class StatSummary(val title: String, val value: String)
+
+@Immutable
+data class ToolEntry(val title: String, val subtitle: String, val icon: String = "✦")
+
+@Immutable
+data class LedgerRecord(
+    val id: String,
+    val title: String,
+    val amount: Float,
+    val type: LedgerRecordType,
+    val category: String,
+    val dateLabel: String
+)
+
+@Immutable
+data class AssistantUiState(
+    val currentTab: AppTab = AppTab.Assistant,
+    val quality: RenderQuality = RenderQuality.Balanced,
+    val showPreviewConversation: Boolean = true,
+    val glassPreset: GlassPreset = GlassPreset.Liquid,
+    val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
+    val customBackgroundPath: String? = null,
+    val glassIntensity: Float = 1f,
+    val motionIntensity: Float = 1f,
+    val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle(),
+    val modelCardGlassStyle: ModelCardGlassStyle = ModelCardGlassStyle(),
+    val backdropParams: BackdropDebugParams = BackdropDebugParams(),
+    val glassBorderStyle: GlassBorderStyle = GlassBorderStyle(),
+    val navigationHomeAddress: String = "",
+    val navigationSchoolAddress: String = "",
+    val navigationCompanyAddress: String = "",
+    val navigationDormAddress: String = "",
+    val stats: List<StatSummary> = emptyList(),
+    val messages: List<ChatMessage> = emptyList(),
+    val tools: List<ToolEntry> = emptyList(),
+    val composerText: String = "",
+    val composerAttachments: List<ComposerAttachment> = emptyList(),
+    val selectedModel: ChatModel = ChatModel.Auto,
+    val selectedModelLabel: String = ChatModel.Auto.label,
+    val onlineEnabled: Boolean = false,
+    val agentEnabled: Boolean = true,
+    val isSending: Boolean = false,
+    val selectedToolTitle: String? = null,
+    val ledgerRecords: List<LedgerRecord> = emptyList(),
+    val ledgerBudgetText: String = "1500",
+    val ledgerDraftTitle: String = "",
+    val ledgerDraftAmount: String = "",
+    val ledgerDraftType: LedgerRecordType = LedgerRecordType.Expense,
+    val ledgerDraftCategory: String = "餐饮"
+)
+
+@Immutable
+data class RainbowPrismStyle(
+    val overall: Float = 1.00f,
+    val edgeHighlight: Float = 1.00f,
+    val sweepMin: Float = 0.15f,
+    val sweepMax: Float = 0.65f,
+    val rainbowHalo: Float = 0.80f
+)
