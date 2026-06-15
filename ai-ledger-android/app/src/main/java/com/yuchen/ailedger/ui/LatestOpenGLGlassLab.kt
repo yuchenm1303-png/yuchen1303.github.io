@@ -40,7 +40,7 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
 
-/** 只同步网页参数面板；不修改新版 OpenGL 的整圈统一映射结构。 */
+/** 只同步当前 fc725b/V29.5 映射和色散参数，不保留失效实验字段。 */
 @Composable
 internal fun LatestOpenGLGlassLab(
     state: AssistantUiState,
@@ -136,7 +136,7 @@ internal fun LatestOpenGLGlassLab(
         }
     }
 
-    LatestGroup("主体折射 Body Refraction", "原整圈统一主体折射参数") {
+    LatestGroup("主体折射 Body Refraction", "fc725b/V25.3 主体折射参数") {
         LatestSlider("主体可见强度", "bodyVisibility", style.newOpenGlBodyVisibility, 0f..20f) {
             onBorderChange(style.copy(newOpenGlBodyVisibility = it))
         }
@@ -154,9 +154,6 @@ internal fun LatestOpenGLGlassLab(
         }
         LatestSlider("主体向内衰减集中度", "bodyLensConcentration", style.newOpenGlBodyLensConcentration, -10f..10f) {
             onBorderChange(style.copy(newOpenGlBodyLensConcentration = it))
-        }
-        LatestSlider("主体圆角增强", "bodyLensCornerBoost", style.newOpenGlBodyLensCornerBoost, 0f..200f) {
-            onBorderChange(style.copy(newOpenGlBodyLensCornerBoost = it))
         }
         LatestSlider("主体额外折射距离", "bodyLensExtraDistance", style.newOpenGlBodyLensExtraDistance, 0f..200f) {
             onBorderChange(style.copy(newOpenGlBodyLensExtraDistance = it))
@@ -190,7 +187,7 @@ internal fun LatestOpenGLGlassLab(
         }
     }
 
-    LatestGroup("整圈统一映射圆肩 Outer-Peak Shoulder", "原映射公式不变；参数实时上传") {
+    LatestGroup("整圈统一映射圆肩 Outer-Peak Shoulder", "fc725b/V29.5 映射公式；参数实时上传") {
         LatestSlider("圆肩可见宽度", "shoulderWidthPx / Android dp", style.newOpenGlShoulderWidthDp, 4f..96f) {
             onBorderChange(style.copy(newOpenGlShoulderWidthDp = it))
         }
@@ -274,7 +271,6 @@ private fun GlassBorderStyle.copyLatestWebGlassDefaults(): GlassBorderStyle = co
     newOpenGlBodyLensBasePull = 300f,
     newOpenGlBodyLensPullDp = 600f,
     newOpenGlBodyLensConcentration = 10f,
-    newOpenGlBodyLensCornerBoost = 0f,
     newOpenGlBodyLensExtraDistance = 200f,
     newOpenGlBodyLensReachDp = 180f,
     newOpenGlBodyLensDark = 0.23041475f,

@@ -64,7 +64,7 @@ fun GlassDebugFloatingPanel(
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
                 OpenGlGlassLab(state, params, legacyBorder) { legacyBorder = it }
             }
-            GlassLabFoldout("新版 OpenGL", "V29.8 整圈统一映射 + 精确切向校正圆肩", false, state) {
+            GlassLabFoldout("新版 OpenGL", "fc725b/V29.5 整圈统一映射 + 当前色散", false, state) {
                 LatestOpenGLGlassLab(state, params, border, onBackdropChange, onBorderChange)
             }
             GlassLabFoldout("玻璃调试", "背景采样与全局背景参数", false, state) {
