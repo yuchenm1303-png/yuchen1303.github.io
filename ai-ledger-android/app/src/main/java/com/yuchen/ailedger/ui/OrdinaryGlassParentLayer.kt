@@ -32,11 +32,11 @@ import kotlin.math.min
  *
  * ParentDraw 只保留一个 Host 绘制节点：
  * 1. 一次计算所有可见普通玻璃；
- * 2. 绘制阴影、背景采样、静态底材和按压底场；
- * 3. 绘制页面内容；
- * 4. 复用同一批可见节点绘制静态外沿与按压前景。
+ * 2. 在业务内容下绘制阴影、背景采样和完整静态材质；
+ * 3. 绘制页面业务内容；
+ * 4. 仅为活跃按压节点绘制内容上方光学层。
  *
- * Overlay 会排除后序玻璃的可见区域，保持 Compose 子级原有 z-order。
+ * 按压 Overlay 会排除后序玻璃的可见区域，保持 Compose 子级原有 z-order。
  * Shadow 不再建立 registry 或空绘制层，直接回退子级绘制。
  */
 enum class OrdinaryGlassRenderMode {
@@ -354,23 +354,19 @@ fun OrdinaryGlassSceneHost(
                             sampleOffset = node.coordinates.offsetRelativeTo(backdropOrigin),
                             spec = backdropSpec
                         )
-                        drawOrdinaryParentBaseMaterial(node = node, rect = rect)
-                        if (node.hasActivePressOptics()) {
-                            drawOrdinaryParentPressUnderlay(node = node, rect = rect)
-                        }
+                        drawOrdinaryParentMaterial(node = node, rect = rect)
                     }
 
                     drawContent()
 
                     sceneState.forEachVisibleIndexed { index, node, rect, bounds ->
-                        withLaterVisibleBoundsExcluded(
-                            sceneState = sceneState,
-                            itemIndex = index,
-                            itemBounds = bounds
-                        ) {
-                            drawOrdinaryParentStaticOverlay(node = node, rect = rect)
-                            if (node.hasActivePressOptics()) {
-                                drawOrdinaryParentPressOverlay(node = node, rect = rect)
+                        if (node.hasActivePressOptics()) {
+                            withLaterVisibleBoundsExcluded(
+                                sceneState = sceneState,
+                                itemIndex = index,
+                                itemBounds = bounds
+                            ) {
+                                drawOrdinaryParentPressOptics(node = node, rect = rect)
                             }
                         }
                     }
@@ -421,7 +417,7 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
 }
 
 /**
- * 父级 Overlay 在页面内容之后绘制，但不能越过后序玻璃节点。
+ * 父级按压 Overlay 在页面内容之后绘制，但不能越过后序玻璃节点。
  * 只对真实相交的后序区域追加 Difference clip，未重叠列表不增加裁剪层。
  */
 private fun DrawScope.withLaterVisibleBoundsExcluded(
