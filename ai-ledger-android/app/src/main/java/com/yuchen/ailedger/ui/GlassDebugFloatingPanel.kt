@@ -109,7 +109,7 @@ private fun OrdinaryParentDrawValidationToggle(
             )
             Text(
                 if (enabled) "已接管页面、滚动子场景和持久底栏；关闭立即恢复子级绘制。"
-                else "默认关闭；Shell、OpenGL、聊天气泡、Frost、Inset 始终排除。",
+                else "当前已关闭；Shell、OpenGL、聊天气泡、Frost、Inset 始终排除。",
                 color = Color.White.copy(alpha = 0.46f),
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
