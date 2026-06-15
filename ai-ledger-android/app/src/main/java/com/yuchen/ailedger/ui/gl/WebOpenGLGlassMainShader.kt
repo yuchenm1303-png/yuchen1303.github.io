@@ -33,7 +33,7 @@ internal object WebOpenGLGlassMainShader {
             float bodyRawPull=
                 abs(uBodyLensA.y)*0.052
                 +abs(uBodyLensA.x)*0.20
-                +max(uBodyLensB.x,0.0)*0.12;
+                +uBodyLensB.x*0.12;
             vec3 lensParams=vec3(
                 bodyReach,
                 bodyConcentration,
@@ -119,7 +119,9 @@ internal object WebOpenGLGlassMainShader {
                 );
                 shoulderActive=true;
             }
-            vec2 bodyUv=globalUv(bodyOpticalCoord);
+            vec2 uvRoot=max(uRootResolution,vec2(1.0));
+            vec2 uvTexel=0.5/uvRoot;
+            vec2 bodyUv=globalUvAt(bodyOpticalCoord,uvRoot,uvTexel);
     """
 
     const val BODY_SUFFIX = """
@@ -157,10 +159,18 @@ internal object WebOpenGLGlassMainShader {
                     vec2 splitPx=normal*dispersionDistance
                         *(0.72+0.28*edgeEnvelope);
                     vec3 redSample=clearBackdrop(
-                        globalUv(bodyOpticalCoord+splitPx)
+                        globalUvAt(
+                            bodyOpticalCoord+splitPx,
+                            uvRoot,
+                            uvTexel
+                        )
                     );
                     vec3 blueSample=clearBackdrop(
-                        globalUv(bodyOpticalCoord-splitPx)
+                        globalUvAt(
+                            bodyOpticalCoord-splitPx,
+                            uvRoot,
+                            uvTexel
+                        )
                     );
                     vec3 prismColor=vec3(
                         redSample.r,
@@ -228,7 +238,7 @@ internal object WebOpenGLGlassMainShader {
             }
 
             float bodyAlpha=uMaterial.y
-                *sat(uMaterial.x/20.0)
+                *(uMaterial.x/20.0)
                 *uIntensity;
             float finalAlpha=sat(mask*bodyAlpha);
             vec3 finalColor=clamp(color,0.0,1.0);

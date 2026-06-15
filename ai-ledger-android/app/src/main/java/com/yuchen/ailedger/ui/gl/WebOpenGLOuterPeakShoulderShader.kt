@@ -40,7 +40,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
         }
         float shoulderTangentialSignal(
             vec2 p,
-            vec2 edgeNormal,
             vec2 tangent,
             vec2 z,
             float bodyCurve
@@ -59,7 +58,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
         }
         float shoulderTangentialTravel(
             vec2 p,
-            vec2 edgeNormal,
             vec2 tangent,
             vec2 z,
             float captureWidth,
@@ -72,9 +70,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
             }
             float amplitude=captureWidth*0.30*(flowStrength/2.4);
             return amplitude
-                *shoulderTangentialSignal(
-                    p,edgeNormal,tangent,z,bodyCurve
-                )
+                *shoulderTangentialSignal(p,tangent,z,bodyCurve)
                 *pow(envelope,0.82);
         }
         vec4 evaluateShoulderSource(
@@ -97,7 +93,6 @@ internal object WebOpenGLOuterPeakShoulderShader {
             vec2 tangent=vec2(-edgeNormal.y,edgeNormal.x);
             float tangentTravel=shoulderTangentialTravel(
                 p,
-                edgeNormal,
                 tangent,
                 z,
                 captureWidth,
@@ -119,7 +114,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
             }
             sourceDepth=max(-sourceSd,0.0);
             sourceNormal=perimeterNormalAt(sourcePoint,z,r);
-            float fresnelBase=1.0-sat(cos(theta));
+            float fresnelBase=1.0-cos(theta);
             float fresnel2=fresnelBase*fresnelBase;
             float fresnel=0.04+0.96*fresnel2*fresnel2*fresnelBase;
             return vec4(sourcePoint,envelope,fresnel);
