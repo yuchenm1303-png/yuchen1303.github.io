@@ -152,6 +152,8 @@ fun GlassPanel(
     val safeViewportTopInset = if (role == GlassRole.Shell && viewportTopInset > 0.dp) viewportTopInset else 0.dp
     val safeViewportTopInsetPx = with(density) { safeViewportTopInset.toPx().toInt().toFloat() }
     val useNewOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && role == GlassRole.Shell && !viewportOwnsShell && cardBackdrop != null
+    val parentOwnsOrdinaryGlass = role != GlassRole.Shell &&
+        LocalOrdinaryGlassRenderMode.current == OrdinaryGlassRenderMode.ParentDraw
 
     val shellPressEnabled = role == GlassRole.Shell && motionIntensity > 0.02f
     val shellPress = remember { Animatable(0f) }
@@ -300,9 +302,14 @@ fun GlassPanel(
             modifier = Modifier
                 .matchParentSize()
                 .padding(top = safeViewportTopInset)
-                .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedGlassIntensity, role = role)
+                .ordinaryGlassFrame(
+                    radius = effectiveRadius,
+                    glassIntensity = pressedGlassIntensity,
+                    role = role,
+                    parentOwnsOrdinaryGlass = parentOwnsOrdinaryGlass
+                )
         ) {
-            if (!useNewOpenGlBackdrop && !viewportOwnsShell && backdrop != null) {
+            if (!parentOwnsOrdinaryGlass && !useNewOpenGlBackdrop && !viewportOwnsShell && backdrop != null) {
                 SampledWeatherGlassBackdrop(
                     modifier = Modifier.matchParentSize(),
                     radius = effectiveRadius,
@@ -314,7 +321,7 @@ fun GlassPanel(
                     liftAlpha = ordinaryBackdropAlpha(role, pressedGlassIntensity)
                 )
             }
-            if (!useNewOpenGlBackdrop) {
+            if (!parentOwnsOrdinaryGlass && !useNewOpenGlBackdrop) {
                 Box(
                     Modifier
                         .matchParentSize()
@@ -381,6 +388,8 @@ fun PressableGlass(
     val cardBackdrop = LocalBlurredBackdrop.current
     val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
     val useNewOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && role == GlassRole.Shell && !viewportOwnsShell && cardBackdrop != null
+    val parentOwnsOrdinaryGlass = role != GlassRole.Shell &&
+        LocalOrdinaryGlassRenderMode.current == OrdinaryGlassRenderMode.ParentDraw
 
     ReportOrdinaryGlassNode(
         coordinates = coordinates,
@@ -465,18 +474,23 @@ fun PressableGlass(
                 shadowElevation = pressCompression * (0.16f + 0.66f * elasticity)
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .glassOuterFrame(radius = effectiveRadius, glassIntensity = pressedIntensity, role = role)
+            .ordinaryGlassFrame(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                role = role,
+                parentOwnsOrdinaryGlass = parentOwnsOrdinaryGlass
+            )
     ) {
         if (useNewOpenGlBackdrop) {
             NewOpenGLGlassCardLayer(radius = effectiveRadius, glassIntensity = pressedIntensity, coordinateSource = coordinates, modifier = Modifier.matchParentSize())
-        } else if (!viewportOwnsShell && backdrop != null) {
+        } else if (!parentOwnsOrdinaryGlass && !viewportOwnsShell && backdrop != null) {
             SampledWeatherGlassBackdrop(Modifier.matchParentSize(), effectiveRadius, coordinates, backdrop.quality, backdrop.motionIntensity, backdrop.theme, blurForRole(role), ordinaryBackdropAlpha(role, pressedIntensity))
         }
-        if (!useNewOpenGlBackdrop) {
+        if (!parentOwnsOrdinaryGlass && !useNewOpenGlBackdrop) {
             Box(Modifier.matchParentSize().glassSkin(quality, effectiveRadius, shimmer + 0.030f * pressCompression, breathe, pressedIntensity, role = role, includeShadow = false))
         }
         content()
-        if (ordinaryPressEnabled && opticsPress > 0.001f) {
+        if (!parentOwnsOrdinaryGlass && ordinaryPressEnabled && opticsPress > 0.001f) {
             Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, sweepValue, effectiveRadius, pressCenter, role, elasticity))
         }
     }
@@ -606,6 +620,17 @@ private fun roleShadowElevation(role: GlassRole): Dp = when (role) {
     GlassRole.Shell -> 5.dp
     GlassRole.Card, GlassRole.Floating, GlassRole.Nav -> 4.dp
     GlassRole.Chip, GlassRole.Flex -> 3.dp
+}
+
+private fun Modifier.ordinaryGlassFrame(
+    radius: Int,
+    glassIntensity: Float,
+    role: GlassRole,
+    parentOwnsOrdinaryGlass: Boolean
+): Modifier = if (parentOwnsOrdinaryGlass && role != GlassRole.Shell) {
+    clip(RoundedCornerShape(radius.dp))
+} else {
+    glassOuterFrame(radius = radius, glassIntensity = glassIntensity, role = role)
 }
 
 private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float, role: GlassRole): Modifier {
