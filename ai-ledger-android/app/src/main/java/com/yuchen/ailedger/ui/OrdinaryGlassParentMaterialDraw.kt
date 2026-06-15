@@ -10,7 +10,11 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.dp
 
-internal fun DrawScope.drawOrdinaryParentBaseMaterial(
+/**
+ * 对齐 Glass.kt 中独立 glassSkin 空 Box 的真实绘制顺序：
+ * 静态底材、边缘带和外沿全部位于业务 content 下方。
+ */
+internal fun DrawScope.drawOrdinaryParentMaterial(
     node: OrdinaryGlassRenderNode,
     rect: Rect
 ) {
@@ -55,29 +59,19 @@ internal fun DrawScope.drawOrdinaryParentBaseMaterial(
                     )
                 }
             }
-        }
-    }
-}
 
-internal fun DrawScope.drawOrdinaryParentStaticOverlay(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect
-) {
-    if (node.role == GlassRole.Shell || rect.width <= 1f || rect.height <= 1f) return
-    withOrdinaryParentTransform(node, rect) {
-        val cache = ensureOrdinaryParentGeometry(node, rect)
-        ensureOrdinaryParentMaterialBrushes(node, rect, cache)
-        val inset = 0.75.dp.toPx()
-        drawRoundRect(
-            brush = requireNotNull(cache.rimField),
-            topLeft = Offset(inset, inset),
-            size = Size(
-                (cache.localSize.width - inset * 2f).coerceAtLeast(1f),
-                (cache.localSize.height - inset * 2f).coerceAtLeast(1f)
-            ),
-            cornerRadius = cache.cornerRadius,
-            style = Stroke(cache.rimStrokePx),
-            blendMode = BlendMode.Screen
-        )
+            val inset = 0.75.dp.toPx()
+            drawRoundRect(
+                brush = requireNotNull(cache.rimField),
+                topLeft = Offset(inset, inset),
+                size = Size(
+                    (cache.localSize.width - inset * 2f).coerceAtLeast(1f),
+                    (cache.localSize.height - inset * 2f).coerceAtLeast(1f)
+                ),
+                cornerRadius = cache.cornerRadius,
+                style = Stroke(cache.rimStrokePx),
+                blendMode = BlendMode.Screen
+            )
+        }
     }
 }
