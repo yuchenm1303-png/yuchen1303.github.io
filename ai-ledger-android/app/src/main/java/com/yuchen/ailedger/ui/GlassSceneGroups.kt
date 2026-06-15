@@ -72,8 +72,14 @@ fun GlassSceneScope(
         CompositionLocalProvider(
             LocalGlassSceneContext provides GlassSceneContext(
                 group = group,
-                parentGroup = parent.group.takeUnless { it == GlassSceneGroup.Unassigned }
-            )
+                parentGroup = parent.group.takeUnless {
+                    it == GlassSceneGroup.Unassigned
+                }
+            ),
+            // Fallback 必须同时退出外层父级材质接管，否则子级会关闭自身绘制，
+            // 但又因 Unassigned 不注册父级节点，最终形成透明空壳。
+            LocalOrdinaryGlassSceneState provides null,
+            LocalOrdinaryGlassRenderMode provides OrdinaryGlassRenderMode.Shadow
         ) {
             content()
         }
