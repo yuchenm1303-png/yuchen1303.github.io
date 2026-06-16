@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -710,18 +709,22 @@ private fun FrostMetric(label: String, value: String, alpha: Float, modifier: Mo
 }
 
 @Composable
-private fun GlassPanelSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
+private fun GlassPanelSlider(
+    title: String,
+    subtitle: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(title, color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(clamped.formatGlassPanelValue(), color = Color.White.copy(alpha = 0.66f), fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(44.dp))
-        }
-        Slider(value = clamped, onValueChange = onValueChange, valueRange = range)
-    }
+    InsetGlassParameterSlider(
+        title = title,
+        description = subtitle,
+        value = clamped,
+        valueRange = range,
+        onValueChange = onValueChange,
+        valueText = clamped.formatGlassPanelValue()
+    )
 }
 
 private fun Float.formatGlassPanelValue(): String = "${((this * 100).roundToInt() / 100f)}"
