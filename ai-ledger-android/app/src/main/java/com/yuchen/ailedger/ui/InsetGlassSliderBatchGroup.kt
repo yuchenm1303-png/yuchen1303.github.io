@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -22,9 +24,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -40,84 +42,109 @@ private const val BatchInsetInnerShadow = 0.67f
 private const val BatchInsetFloorDim = 0.23f
 private const val BatchPreloadMarginDp = 64f
 
-internal data class InsetGlassBatchSlot(
-    val rect: Rect,
-    val coordinateSource: GlassCoordinateSource
-)
+private class CachedInsetGlassBatchSlot {
+    var geometrySignature: Long = Long.MIN_VALUE
+    var mask: Path = Path()
+    var corner: CornerRadius = CornerRadius.Zero
+    var localSize: Size = Size.Zero
+    var innerTopLeft: Offset = Offset.Zero
+    var innerSize: Size = Size.Zero
+    var innerBrush: Brush? = null
+    var outerTopLeft: Offset = Offset.Zero
+    var outerSize: Size = Size.Zero
+    var fallbackBrush: Brush? = null
+}
 
-private data class CachedInsetGlassBatchSlot(
-    val slot: InsetGlassBatchSlot,
-    val mask: Path,
-    val corner: CornerRadius,
-    val innerTopLeft: Offset,
-    val innerSize: Size,
-    val innerBrush: Brush,
-    val outerTopLeft: Offset,
-    val outerSize: Size,
-    val fallbackBrush: Brush
-)
+internal class InsetGlassBatchSlot(
+    var rect: Rect
+) {
+    val cache = CachedInsetGlassBatchSlot()
+}
 
 /**
  * 仅服务于凹槽参数滑块的父级批绘制状态。
  * 不接入普通玻璃 registry，也不触发 OpenGL geometry sync。
+ *
+ * 槽位列表只在增删时重建；滚动和布局位移只更新对应槽位 Rect，节点级 Path / Brush
+ * 以局部尺寸为签名缓存，因此位置变化不会重建材质对象。
  */
 internal class InsetGlassSliderBatchState {
     private val childCoordinates = LinkedHashMap<Any, LayoutCoordinates>()
-    private val childCoordinateSources = LinkedHashMap<Any, GlassCoordinateSource>()
+    private val slots = LinkedHashMap<Any, InsetGlassBatchSlot>()
+    private var cachedSnapshot: List<InsetGlassBatchSlot> = emptyList()
     private var hostCoordinates: LayoutCoordinates? = null
     private var hostSize: IntSize = IntSize.Zero
+    internal val hostCoordinateSource = GlassCoordinateSource()
 
-    internal val slots = mutableStateMapOf<Any, InsetGlassBatchSlot>()
+    internal var drawVersion by mutableLongStateOf(0L)
+        private set
+
+    internal fun snapshotForDraw(): List<InsetGlassBatchSlot> = cachedSnapshot
 
     internal fun updateHost(coordinates: LayoutCoordinates) {
         val firstPlacement = hostCoordinates == null
         val sizeChanged = hostSize != coordinates.size
         hostCoordinates = coordinates
         hostSize = coordinates.size
+        hostCoordinateSource.coordinates = coordinates
         if (firstPlacement || sizeChanged) syncAll()
     }
 
     internal fun updateSlot(key: Any, coordinates: LayoutCoordinates) {
         childCoordinates[key] = coordinates
-        childCoordinateSources.getOrPut(key) { GlassCoordinateSource() }.coordinates = coordinates
         syncSlot(key)
     }
 
     internal fun removeSlot(key: Any) {
         childCoordinates.remove(key)
-        childCoordinateSources.remove(key)
-        slots.remove(key)
+        if (slots.remove(key) != null) rebuildSnapshot()
     }
 
     internal fun clear() {
         childCoordinates.clear()
-        childCoordinateSources.clear()
         slots.clear()
+        cachedSnapshot = emptyList()
         hostCoordinates = null
         hostSize = IntSize.Zero
+        hostCoordinateSource.coordinates = null
+        bumpDrawVersion()
     }
 
     private fun syncAll() {
-        childCoordinates.keys.forEach(::syncSlot)
+        childCoordinates.keys.toList().forEach(::syncSlot)
     }
 
     private fun syncSlot(key: Any) {
         val host = hostCoordinates ?: return
         val child = childCoordinates[key] ?: return
-        val coordinateSource = childCoordinateSources[key] ?: return
         if (!host.isAttached || !child.isAttached) {
-            slots.remove(key)
+            if (slots.remove(key) != null) rebuildSnapshot()
             return
         }
-        val rect = host.localBoundingBoxOf(child, clipBounds = true)
+
+        val rect = host.localBoundingBoxOf(child, clipBounds = false)
         if (rect.width <= 0f || rect.height <= 0f) {
-            slots.remove(key)
+            if (slots.remove(key) != null) rebuildSnapshot()
             return
         }
+
         val current = slots[key]
-        if (current == null || current.rect != rect || current.coordinateSource !== coordinateSource) {
-            slots[key] = InsetGlassBatchSlot(rect, coordinateSource)
+        if (current == null) {
+            slots[key] = InsetGlassBatchSlot(rect)
+            rebuildSnapshot()
+        } else if (current.rect != rect) {
+            current.rect = rect
+            bumpDrawVersion()
         }
+    }
+
+    private fun rebuildSnapshot() {
+        cachedSnapshot = slots.values.toList()
+        bumpDrawVersion()
+    }
+
+    private fun bumpDrawVersion() {
+        drawVersion = if (drawVersion == Long.MAX_VALUE) 1L else drawVersion + 1L
     }
 }
 
@@ -125,9 +152,8 @@ internal val LocalInsetGlassSliderBatchState =
     staticCompositionLocalOf<InsetGlassSliderBatchState?> { null }
 
 /**
- * 每个展开参数组使用一个 Host。静态玻璃底面在父级一次绘制，
- * 子滑块只绘制进度轨和文字，避免大量重复背景裁切与 Canvas 节点。
- * 折叠动画期间暂时回退到单槽本地绘制，严格服从动画裁剪边界。
+ * 每个参数场景只建立一个 Host。静态凹槽由父级一次绘制，子滑块只保留文字和动态进度轨。
+ * 折叠动画期间局部回退到单槽绘制，避免变化中的裁剪边界使用旧几何。
  */
 @Composable
 internal fun InsetGlassSliderBatchGroup(
@@ -158,111 +184,41 @@ internal fun InsetGlassSliderBatchGroup(
 private fun BoxScope.InsetGlassSliderBatchChrome(
     state: InsetGlassSliderBatchState
 ) {
-    val slotEntries = state.slots.values
-        .asSequence()
-        .filter { it.rect.width > 0f && it.rect.height > 0f }
-        .toList()
-
-    if (slotEntries.isEmpty()) return
-
     val cachedBackdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameTicker = LocalBackdropFrameTicker.current
-    val density = LocalDensity.current
-
-    val radiusPx = with(density) { BatchInsetRadius.dp.toPx() }
-    val insetPx = with(density) { (1.5f + BatchInsetDepth * 6f).dp.toPx() }
-    val innerStrokeWidthPx = with(density) { (1.2f + BatchInsetDepth * 3f).dp.toPx() }
-    val outerInsetPx = with(density) { 1.dp.toPx() }
-    val outerStrokeWidthPx = with(density) { 0.9.dp.toPx() }
-    val preloadMarginPx = with(density) { BatchPreloadMarginDp.dp.toPx() }
-
-    val cachedSlots = remember(
-        slotEntries,
-        radiusPx,
-        insetPx,
-        outerInsetPx
-    ) {
-        slotEntries.map { slot ->
-            val rect = slot.rect
-            val corner = CornerRadius(radiusPx, radiusPx)
-            CachedInsetGlassBatchSlot(
-                slot = slot,
-                mask = Path().apply {
-                    addRoundRect(
-                        RoundRect(
-                            left = rect.left,
-                            top = rect.top,
-                            right = rect.right,
-                            bottom = rect.bottom,
-                            radiusX = radiusPx,
-                            radiusY = radiusPx
-                        )
-                    )
-                },
-                corner = corner,
-                innerTopLeft = Offset(rect.left + insetPx, rect.top + insetPx),
-                innerSize = Size(
-                    (rect.width - insetPx * 2f).coerceAtLeast(1f),
-                    (rect.height - insetPx * 2f).coerceAtLeast(1f)
-                ),
-                innerBrush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = BatchInsetInnerShadow * 0.42f),
-                        Color.Transparent,
-                        Color.White.copy(alpha = BatchInsetRimHighlight * 0.26f)
-                    ),
-                    startY = rect.top,
-                    endY = rect.bottom
-                ),
-                outerTopLeft = Offset(rect.left + outerInsetPx, rect.top + outerInsetPx),
-                outerSize = Size(
-                    (rect.width - outerInsetPx * 2f).coerceAtLeast(1f),
-                    (rect.height - outerInsetPx * 2f).coerceAtLeast(1f)
-                ),
-                fallbackBrush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF1A2B58),
-                        Color(0xFF5B4A8E),
-                        Color(0xFFB85D78)
-                    ),
-                    startY = rect.top,
-                    endY = rect.bottom
-                )
-            )
-        }
-    }
 
     Canvas(modifier = Modifier.matchParentSize()) {
+        state.drawVersion
+        val slots = state.snapshotForDraw()
+        if (slots.isEmpty()) return@Canvas
+
         val backdrop = cachedBackdrop
         if (backdrop != null) frameTicker?.frameNanos
 
-        val anchor = cachedSlots.first()
-        val anchorSampleOffset = if (backdrop != null) {
-            anchor.slot.coordinateSource.offsetRelativeTo(backdropOrigin)
-        } else {
-            Offset.Unspecified
-        }
-        val estimatedHostOffset = if (anchorSampleOffset.hasFiniteCoordinates()) {
-            anchorSampleOffset - anchor.slot.rect.topLeft
+        val radiusPx = BatchInsetRadius.dp.toPx()
+        val insetPx = (1.5f + BatchInsetDepth * 6f).dp.toPx()
+        val innerStrokeWidthPx = (1.2f + BatchInsetDepth * 3f).dp.toPx()
+        val outerInsetPx = 1.dp.toPx()
+        val outerStrokeWidthPx = 0.9.dp.toPx()
+        val preloadMarginPx = BatchPreloadMarginDp.dp.toPx()
+        val hostSampleOffset = if (backdrop != null) {
+            state.hostCoordinateSource.offsetRelativeTo(backdropOrigin)
         } else {
             Offset.Unspecified
         }
 
-        cachedSlots.forEach slotLoop@ { cache ->
-            val slot = cache.slot
+        slots.forEach { slot ->
             val rect = slot.rect
-            val estimatedSampleOffset = if (estimatedHostOffset.hasFiniteCoordinates()) {
-                estimatedHostOffset + rect.topLeft
-            } else if (backdrop != null) {
-                slot.coordinateSource.offsetRelativeTo(backdropOrigin)
+            val sampleOffset = if (hostSampleOffset.hasFiniteCoordinates()) {
+                hostSampleOffset + rect.topLeft
             } else {
                 Offset.Unspecified
             }
 
             val visible = if (backdrop != null) {
                 isSlotNearViewport(
-                    sampleOffset = estimatedSampleOffset,
+                    sampleOffset = sampleOffset,
                     slotSize = rect.size,
                     viewportWidth = backdrop.fullWidthPx.toFloat(),
                     viewportHeight = backdrop.fullHeightPx.toFloat(),
@@ -274,61 +230,152 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
                     rect.left <= size.width + preloadMarginPx &&
                     rect.top <= size.height + preloadMarginPx
             }
-            if (!visible) return@slotLoop
+            if (!visible) return@forEach
 
-            val exactSampleOffset = when {
-                backdrop == null -> Offset.Unspecified
-                cache === anchor -> anchorSampleOffset
-                else -> slot.coordinateSource.offsetRelativeTo(backdropOrigin)
-            }
+            val cache = ensureBatchSlotCache(
+                cache = slot.cache,
+                slotSize = rect.size,
+                radiusPx = radiusPx,
+                insetPx = insetPx,
+                innerStrokeWidthPx = innerStrokeWidthPx,
+                outerInsetPx = outerInsetPx,
+                outerStrokeWidthPx = outerStrokeWidthPx
+            )
 
-            clipPath(cache.mask) {
-                if (backdrop != null && exactSampleOffset.hasFiniteCoordinates()) {
-                    drawSlotBackdrop(
-                        backdrop = backdrop,
-                        sampleOffset = exactSampleOffset,
-                        destination = rect,
-                        alpha = BatchInsetBackdropAlpha
-                    )
-                } else {
+            withTransform({ translate(rect.left, rect.top) }) {
+                clipPath(cache.mask) {
+                    if (backdrop != null && sampleOffset.hasFiniteCoordinates()) {
+                        drawSlotBackdrop(
+                            backdrop = backdrop,
+                            sampleOffset = sampleOffset,
+                            slotSize = cache.localSize,
+                            alpha = BatchInsetBackdropAlpha
+                        )
+                    } else {
+                        drawRect(
+                            brush = requireNotNull(cache.fallbackBrush),
+                            size = cache.localSize
+                        )
+                    }
                     drawRect(
-                        brush = cache.fallbackBrush,
-                        topLeft = rect.topLeft,
-                        size = rect.size
+                        color = Color.Black.copy(alpha = BatchInsetFloorDim),
+                        size = cache.localSize
                     )
                 }
-                drawRect(
-                    color = Color.Black.copy(alpha = BatchInsetFloorDim),
-                    topLeft = rect.topLeft,
-                    size = rect.size
+
+                drawRoundRect(
+                    color = Color.Black.copy(alpha = BatchInsetInnerShadow * 0.45f),
+                    size = cache.localSize,
+                    cornerRadius = cache.corner,
+                    blendMode = BlendMode.Multiply
+                )
+                drawRoundRect(
+                    brush = requireNotNull(cache.innerBrush),
+                    topLeft = cache.innerTopLeft,
+                    size = cache.innerSize,
+                    cornerRadius = cache.corner,
+                    style = Stroke(width = innerStrokeWidthPx),
+                    blendMode = BlendMode.Screen
+                )
+                drawRoundRect(
+                    color = Color.White.copy(alpha = BatchInsetRimHighlight * 0.18f),
+                    topLeft = cache.outerTopLeft,
+                    size = cache.outerSize,
+                    cornerRadius = cache.corner,
+                    style = Stroke(width = outerStrokeWidthPx),
+                    blendMode = BlendMode.Screen
                 )
             }
-
-            drawRoundRect(
-                color = Color.Black.copy(alpha = BatchInsetInnerShadow * 0.45f),
-                topLeft = rect.topLeft,
-                size = rect.size,
-                cornerRadius = cache.corner,
-                blendMode = BlendMode.Multiply
-            )
-            drawRoundRect(
-                brush = cache.innerBrush,
-                topLeft = cache.innerTopLeft,
-                size = cache.innerSize,
-                cornerRadius = cache.corner,
-                style = Stroke(width = innerStrokeWidthPx),
-                blendMode = BlendMode.Screen
-            )
-            drawRoundRect(
-                color = Color.White.copy(alpha = BatchInsetRimHighlight * 0.18f),
-                topLeft = cache.outerTopLeft,
-                size = cache.outerSize,
-                cornerRadius = cache.corner,
-                style = Stroke(width = outerStrokeWidthPx),
-                blendMode = BlendMode.Screen
-            )
         }
     }
+}
+
+private fun ensureBatchSlotCache(
+    cache: CachedInsetGlassBatchSlot,
+    slotSize: Size,
+    radiusPx: Float,
+    insetPx: Float,
+    innerStrokeWidthPx: Float,
+    outerInsetPx: Float,
+    outerStrokeWidthPx: Float
+): CachedInsetGlassBatchSlot {
+    val width = slotSize.width.coerceAtLeast(1f)
+    val height = slotSize.height.coerceAtLeast(1f)
+    val signature = batchGeometrySignature(
+        width,
+        height,
+        radiusPx,
+        insetPx,
+        innerStrokeWidthPx,
+        outerInsetPx,
+        outerStrokeWidthPx
+    )
+    if (cache.geometrySignature == signature) return cache
+
+    cache.localSize = Size(width, height)
+    cache.corner = CornerRadius(radiusPx, radiusPx)
+    cache.mask = Path().apply {
+        addRoundRect(
+            RoundRect(
+                left = 0f,
+                top = 0f,
+                right = width,
+                bottom = height,
+                radiusX = radiusPx,
+                radiusY = radiusPx
+            )
+        )
+    }
+    cache.innerTopLeft = Offset(insetPx, insetPx)
+    cache.innerSize = Size(
+        (width - insetPx * 2f).coerceAtLeast(1f),
+        (height - insetPx * 2f).coerceAtLeast(1f)
+    )
+    cache.innerBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color.Black.copy(alpha = BatchInsetInnerShadow * 0.42f),
+            Color.Transparent,
+            Color.White.copy(alpha = BatchInsetRimHighlight * 0.26f)
+        ),
+        startY = 0f,
+        endY = height
+    )
+    cache.outerTopLeft = Offset(outerInsetPx, outerInsetPx)
+    cache.outerSize = Size(
+        (width - outerInsetPx * 2f).coerceAtLeast(1f),
+        (height - outerInsetPx * 2f).coerceAtLeast(1f)
+    )
+    cache.fallbackBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF1A2B58),
+            Color(0xFF5B4A8E),
+            Color(0xFFB85D78)
+        ),
+        startY = 0f,
+        endY = height
+    )
+    cache.geometrySignature = signature
+    return cache
+}
+
+private fun batchGeometrySignature(
+    width: Float,
+    height: Float,
+    radius: Float,
+    inset: Float,
+    innerStroke: Float,
+    outerInset: Float,
+    outerStroke: Float
+): Long {
+    var result = 1125899906842597L
+    result = result * 31L + width.toBits()
+    result = result * 31L + height.toBits()
+    result = result * 31L + radius.toBits()
+    result = result * 31L + inset.toBits()
+    result = result * 31L + innerStroke.toBits()
+    result = result * 31L + outerInset.toBits()
+    result = result * 31L + outerStroke.toBits()
+    return result
 }
 
 private fun Offset.hasFiniteCoordinates(): Boolean = x.isFinite() && y.isFinite()
@@ -350,15 +397,15 @@ private fun isSlotNearViewport(
 private fun DrawScope.drawSlotBackdrop(
     backdrop: BlurredBackdropBitmap,
     sampleOffset: Offset,
-    destination: Rect,
+    slotSize: Size,
     alpha: Float
 ) {
     val rootWidth = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
     val rootHeight = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
     val localLeft = max(0f, -sampleOffset.x)
     val localTop = max(0f, -sampleOffset.y)
-    val localRight = min(destination.width, rootWidth - sampleOffset.x)
-    val localBottom = min(destination.height, rootHeight - sampleOffset.y)
+    val localRight = min(slotSize.width, rootWidth - sampleOffset.x)
+    val localBottom = min(slotSize.height, rootHeight - sampleOffset.y)
     val visibleWidth = localRight - localLeft
     val visibleHeight = localBottom - localTop
     if (visibleWidth <= 0f || visibleHeight <= 0f) return
@@ -382,10 +429,7 @@ private fun DrawScope.drawSlotBackdrop(
         image = backdrop.image,
         srcOffset = IntOffset(sourceX, sourceY),
         srcSize = IntSize(sourceWidth, sourceHeight),
-        dstOffset = IntOffset(
-            (destination.left + localLeft).roundToInt(),
-            (destination.top + localTop).roundToInt()
-        ),
+        dstOffset = IntOffset(localLeft.roundToInt(), localTop.roundToInt()),
         dstSize = IntSize(
             visibleWidth.roundToInt().coerceAtLeast(1),
             visibleHeight.roundToInt().coerceAtLeast(1)
