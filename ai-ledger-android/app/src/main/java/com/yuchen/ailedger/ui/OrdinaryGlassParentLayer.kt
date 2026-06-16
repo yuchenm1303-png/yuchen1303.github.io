@@ -79,14 +79,14 @@ class OrdinaryGlassRenderNode(
         edgeStrength: Float,
         pressable: Boolean
     ) {
-        this.sceneGroup = sceneGroup
-        this.role = role
-        this.quality = quality
-        this.radius = radius
-        this.glassIntensity = glassIntensity
-        this.backdropAlpha = backdropAlpha
-        this.edgeStrength = edgeStrength
-        this.pressable = pressable
+        if (this.sceneGroup != sceneGroup) this.sceneGroup = sceneGroup
+        if (this.role != role) this.role = role
+        if (this.quality != quality) this.quality = quality
+        if (this.radius != radius) this.radius = radius
+        if (this.glassIntensity != glassIntensity) this.glassIntensity = glassIntensity
+        if (this.backdropAlpha != backdropAlpha) this.backdropAlpha = backdropAlpha
+        if (this.edgeStrength != edgeStrength) this.edgeStrength = edgeStrength
+        if (this.pressable != pressable) this.pressable = pressable
     }
 
     fun updateMotion(
@@ -98,13 +98,13 @@ class OrdinaryGlassRenderNode(
         elasticity: Float,
         pressCenter: Offset
     ) {
-        this.shimmer = shimmer
-        this.breathe = breathe
-        this.pressProgress = pressProgress
-        this.lensProgress = lensProgress
-        this.sweepProgress = sweepProgress
-        this.elasticity = elasticity
-        this.pressCenter = pressCenter
+        if (this.shimmer != shimmer) this.shimmer = shimmer
+        if (this.breathe != breathe) this.breathe = breathe
+        if (this.pressProgress != pressProgress) this.pressProgress = pressProgress
+        if (this.lensProgress != lensProgress) this.lensProgress = lensProgress
+        if (this.sweepProgress != sweepProgress) this.sweepProgress = sweepProgress
+        if (this.elasticity != elasticity) this.elasticity = elasticity
+        if (this.pressCenter != pressCenter) this.pressCenter = pressCenter
     }
 
     internal fun hasActivePressOptics(): Boolean {
@@ -151,11 +151,14 @@ class OrdinaryGlassItemRegistry {
     }
 }
 
-private class VisibleOrdinaryGlassItem(
+internal class VisibleOrdinaryGlassItem(
     var node: OrdinaryGlassRenderNode,
     var rect: Rect,
-    var transformedBounds: Rect
-)
+    var transformedBounds: Rect,
+    var sampleOffset: Offset
+) {
+    val transform = OrdinaryGlassVisualTransform()
+}
 
 @Stable
 class OrdinaryGlassSceneState(
@@ -174,39 +177,51 @@ class OrdinaryGlassSceneState(
         activePressCount = 0
     }
 
-    internal fun appendVisible(
+    internal fun appendVisibleIfIntersecting(
         node: OrdinaryGlassRenderNode,
         rect: Rect,
-        transformedBounds: Rect
+        sampleOffset: Offset,
+        viewport: Rect
     ) {
-        if (visibleCount < visiblePool.size) {
-            val item = visiblePool[visibleCount]
-            item.node = node
-            item.rect = rect
-            item.transformedBounds = transformedBounds
+        val item = if (visibleCount < visiblePool.size) {
+            visiblePool[visibleCount]
         } else {
-            visiblePool.add(VisibleOrdinaryGlassItem(node, rect, transformedBounds))
+            VisibleOrdinaryGlassItem(
+                node = node,
+                rect = rect,
+                transformedBounds = rect,
+                sampleOffset = sampleOffset
+            ).also(visiblePool::add)
         }
+
+        item.node = node
+        item.rect = rect
+        item.sampleOffset = sampleOffset
+        updateOrdinaryGlassVisualTransform(node = node, out = item.transform)
+        item.transformedBounds = ordinaryGlassTransformedBounds(
+            transform = item.transform,
+            rect = rect
+        )
+        if (item.transformedBounds.intersectionOrNull(viewport) == null) return
+
         visibleCount += 1
         if (node.hasActivePressOptics()) activePressCount += 1
     }
 
-    internal fun forEachVisible(block: (OrdinaryGlassRenderNode, Rect) -> Unit) {
+    internal fun forEachVisible(block: (VisibleOrdinaryGlassItem) -> Unit) {
         var index = 0
         while (index < visibleCount) {
-            val item = visiblePool[index]
-            block(item.node, item.rect)
+            block(visiblePool[index])
             index += 1
         }
     }
 
     internal fun forEachVisibleIndexed(
-        block: (Int, OrdinaryGlassRenderNode, Rect, Rect) -> Unit
+        block: (Int, VisibleOrdinaryGlassItem) -> Unit
     ) {
         var index = 0
         while (index < visibleCount) {
-            val item = visiblePool[index]
-            block(index, item.node, item.rect, item.transformedBounds)
+            block(index, visiblePool[index])
             index += 1
         }
     }
@@ -239,7 +254,7 @@ internal fun BindOrdinaryGlassRenderNode(
 
 /**
  * GlassPanel / PressableGlass 的唯一普通玻璃上报入口。
- * Shell、Fallback 与 Shadow 都在这里硬排除。
+ * Shell、Fallback 与 Shadow 都在这里硬排除，并且不会创建任何节点或绘制缓存。
  */
 @Composable
 internal fun ReportOrdinaryGlassNode(
@@ -261,38 +276,38 @@ internal fun ReportOrdinaryGlassNode(
 ) {
     val sceneGroup = LocalGlassSceneGroup
     val sceneState = LocalOrdinaryGlassSceneState.current
-    val node = remember(coordinates) {
-        OrdinaryGlassRenderNode(coordinates = coordinates)
-    }
     val enabled = role != GlassRole.Shell &&
         sceneGroup != GlassSceneGroup.Unassigned &&
         sceneState?.renderMode == OrdinaryGlassRenderMode.ParentDraw
+    if (!enabled) return
 
-    SideEffect {
-        if (enabled) {
-            node.updateStatic(
-                sceneGroup = sceneGroup,
-                role = role,
-                quality = quality,
-                radius = radius,
-                glassIntensity = glassIntensity,
-                backdropAlpha = backdropAlpha,
-                edgeStrength = edgeStrength,
-                pressable = pressable
-            )
-            node.updateMotion(
-                shimmer = shimmer,
-                breathe = breathe,
-                pressProgress = pressProgress,
-                lensProgress = lensProgress,
-                sweepProgress = sweepProgress,
-                elasticity = elasticity,
-                pressCenter = pressCenter
-            )
-        }
+    val node = remember(coordinates) {
+        OrdinaryGlassRenderNode(coordinates = coordinates)
     }
 
-    BindOrdinaryGlassRenderNode(node = node, enabled = enabled)
+    SideEffect {
+        node.updateStatic(
+            sceneGroup = sceneGroup,
+            role = role,
+            quality = quality,
+            radius = radius,
+            glassIntensity = glassIntensity,
+            backdropAlpha = backdropAlpha,
+            edgeStrength = edgeStrength,
+            pressable = pressable
+        )
+        node.updateMotion(
+            shimmer = shimmer,
+            breathe = breathe,
+            pressProgress = pressProgress,
+            lensProgress = lensProgress,
+            sweepProgress = sweepProgress,
+            elasticity = elasticity,
+            pressCenter = pressCenter
+        )
+    }
+
+    BindOrdinaryGlassRenderNode(node = node, enabled = true)
 }
 
 @Composable
@@ -347,32 +362,32 @@ fun OrdinaryGlassSceneHost(
                     backdropTicker?.frameNanos
                     collectVisibleOrdinaryGlassItems(
                         sceneState = sceneState,
-                        viewportSize = size
+                        viewportSize = size,
+                        backdropOrigin = backdropOrigin,
+                        resolveSampleOffset = backdrop != null && backdropSpec != null
                     )
 
-                    sceneState.forEachVisible { node, rect ->
-                        drawOrdinaryParentShadow(node = node, rect = rect)
+                    sceneState.forEachVisible { item ->
+                        drawOrdinaryParentShadow(item = item)
                         drawOrdinaryParentBackdrop(
-                            node = node,
-                            rect = rect,
+                            item = item,
                             backdrop = backdrop,
-                            sampleOffset = node.coordinates.offsetRelativeTo(backdropOrigin),
                             spec = backdropSpec
                         )
-                        drawOrdinaryParentMaterial(node = node, rect = rect)
+                        drawOrdinaryParentMaterial(item = item)
                     }
 
                     drawContent()
 
                     if (sceneState.hasVisibleActivePress()) {
-                        sceneState.forEachVisibleIndexed { index, node, rect, bounds ->
-                            if (node.hasActivePressOptics()) {
+                        sceneState.forEachVisibleIndexed { index, item ->
+                            if (item.node.hasActivePressOptics()) {
                                 withLaterVisibleBoundsExcluded(
                                     sceneState = sceneState,
                                     itemIndex = index,
-                                    itemBounds = bounds
+                                    itemBounds = item.transformedBounds
                                 ) {
-                                    drawOrdinaryParentPressOptics(node = node, rect = rect)
+                                    drawOrdinaryParentPressOptics(item = item)
                                 }
                             }
                         }
@@ -386,7 +401,9 @@ fun OrdinaryGlassSceneHost(
 
 private fun DrawScope.collectVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
-    viewportSize: Size
+    viewportSize: Size,
+    backdropOrigin: GlassCoordinateSource,
+    resolveSampleOffset: Boolean
 ) {
     sceneState.registry.version
     sceneState.coordinates.placementVersion
@@ -413,12 +430,16 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
             offset = localTopLeft,
             size = Size(itemSize.width.toFloat(), itemSize.height.toFloat())
         )
-        val transformedBounds = ordinaryGlassTransformedBounds(node = node, rect = rect)
-        if (transformedBounds.intersectionOrNull(viewport) == null) continue
-        sceneState.appendVisible(
+        val sampleOffset = if (resolveSampleOffset) {
+            node.coordinates.offsetRelativeTo(backdropOrigin)
+        } else {
+            Offset.Zero
+        }
+        sceneState.appendVisibleIfIntersecting(
             node = node,
             rect = rect,
-            transformedBounds = transformedBounds
+            sampleOffset = sampleOffset,
+            viewport = viewport
         )
     }
 }
