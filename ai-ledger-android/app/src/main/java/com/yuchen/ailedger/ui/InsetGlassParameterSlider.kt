@@ -22,8 +22,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,7 +36,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -46,9 +48,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val LaboratoryInsetRadius = 18f
 private const val LaboratoryInsetDepth = 0.52f
@@ -58,6 +63,53 @@ private const val LaboratoryInsetInnerShadow = 0.67f
 private const val LaboratoryInsetFloorDim = 0.23f
 private const val SliderCommitGuardDelayMs = 240L
 private const val SliderCommitFallbackDelayMs = 1_200L
+
+/**
+ * 将高频 pointer delta 合并为每显示帧最多一次上层参数更新。
+ * 本地进度仍逐事件跟手，松手时同步提交最终值，不降低视觉响应。
+ */
+private class SliderFrameValueDispatcher {
+    private var pendingValue = 0f
+    private var hasPendingValue = false
+    private var latestCallback: ((Float) -> Unit)? = null
+    private var dispatchJob: Job? = null
+
+    fun offer(
+        scope: CoroutineScope,
+        value: Float,
+        callback: (Float) -> Unit
+    ) {
+        pendingValue = value
+        hasPendingValue = true
+        latestCallback = callback
+        if (dispatchJob?.isActive == true) return
+
+        dispatchJob = scope.launch {
+            withFrameNanos { }
+            val shouldDispatch = hasPendingValue
+            val nextValue = pendingValue
+            val nextCallback = latestCallback
+            hasPendingValue = false
+            dispatchJob = null
+            if (shouldDispatch && nextCallback != null) nextCallback(nextValue)
+        }
+    }
+
+    fun flush(value: Float, callback: (Float) -> Unit) {
+        dispatchJob?.cancel()
+        dispatchJob = null
+        pendingValue = value
+        hasPendingValue = false
+        latestCallback = callback
+        callback(value)
+    }
+
+    fun cancelPending() {
+        dispatchJob?.cancel()
+        dispatchJob = null
+        hasPendingValue = false
+    }
+}
 
 /**
  * 设置页与玻璃实验室共用的凹槽参数滑块。
@@ -75,18 +127,84 @@ internal fun InsetGlassParameterSlider(
     valueText: String = value.formatInsetSliderValue(),
     leadingMark: String = "▸"
 ) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        InsetGlassSliderLabels(
+            title = title,
+            description = description
+        )
+        InsetGlassSliderControl(
+            value = value,
+            valueRange = valueRange,
+            valueText = valueText,
+            leadingMark = leadingMark,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+/** 标题与说明不读取拖动状态，可被 Compose 在滑动帧中稳定跳过。 */
+@Composable
+private fun InsetGlassSliderLabels(
+    title: String,
+    description: String
+) {
+    Column(
+        modifier = Modifier.padding(horizontal = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Text(
+            text = title,
+            color = Color.White.copy(alpha = 0.82f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = description,
+            color = Color.White.copy(alpha = 0.42f),
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun InsetGlassSliderControl(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    valueText: String,
+    leadingMark: String,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val start = minOf(valueRange.start, valueRange.endInclusive)
     val end = maxOf(valueRange.start, valueRange.endInclusive)
     val span = (end - start).coerceAtLeast(0.000001f)
     val clampedValue = value.coerceIn(start, end)
     val acknowledgementTolerance = maxOf(span * 0.0005f, 0.0001f)
+    val semanticRange = remember(start, end) { start..end }
     val currentOnValueChange by rememberUpdatedState(onValueChange)
     val currentExternalValue by rememberUpdatedState(clampedValue)
     val batchState = LocalInsetGlassSliderBatchState.current
     val batchSlotKey = remember { Any() }
+    val frameDispatcher = remember { SliderFrameValueDispatcher() }
+    val coroutineScope = rememberCoroutineScope()
+    val slotShape = remember { RoundedCornerShape(LaboratoryInsetRadius.dp) }
+    val valueSuffix = remember(valueText) { valueText.sliderValueSuffix() }
 
-    DisposableEffect(batchState, batchSlotKey) {
-        onDispose { batchState?.removeSlot(batchSlotKey) }
+    DisposableEffect(batchState, batchSlotKey, frameDispatcher) {
+        onDispose {
+            batchState?.removeSlot(batchSlotKey)
+            frameDispatcher.cancelPending()
+        }
     }
 
     var dragValue by remember { mutableFloatStateOf(clampedValue) }
@@ -104,7 +222,7 @@ internal fun InsetGlassParameterSlider(
     val progress = ((displayValue - start) / span).coerceIn(0f, 1f)
     val currentDisplayValue by rememberUpdatedState(displayValue)
     val displayValueText = if (dragging || pendingCommit != null) {
-        displayValue.formatInsetSliderValue() + valueText.sliderValueSuffix()
+        displayValue.formatInsetSliderValue() + valueSuffix
     } else {
         valueText
     }
@@ -146,131 +264,120 @@ internal fun InsetGlassParameterSlider(
             .coerceIn(start, end)
         if (next != dragValue) {
             dragValue = next
-            currentOnValueChange(next)
+            frameDispatcher.offer(
+                scope = coroutineScope,
+                value = next,
+                callback = currentOnValueChange
+            )
         }
     }
 
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 2.dp),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
+    val baseSlotModifier = modifier
+        .height(38.dp)
+        .onSizeChanged {
+            val nextWidth = (it.width.toFloat() - reservedWidthPx).coerceAtLeast(1f)
+            if (trackWidthPx != nextWidth) trackWidthPx = nextWidth
+        }
+        .then(
+            if (batchState != null) {
+                Modifier.onPlaced { coordinates ->
+                    batchState.updateSlot(batchSlotKey, coordinates)
+                }
+            } else {
+                Modifier
+            }
+        )
+        .semantics {
+            progressBarRangeInfo = ProgressBarRangeInfo(displayValue, semanticRange)
+            setProgress { requested ->
+                val resolved = requested.coerceIn(start, end)
+                dragValue = resolved
+                dragging = false
+                pendingCommit = resolved
+                frameDispatcher.flush(resolved, currentOnValueChange)
+                true
+            }
+        }
+        .draggable(
+            state = dragState,
+            orientation = Orientation.Horizontal,
+            onDragStarted = {
+                frameDispatcher.cancelPending()
+                dragValue = currentDisplayValue
+                pendingCommit = null
+                commitGuardReady = true
+                dragging = true
+            },
+            onDragStopped = {
+                val finalValue = dragValue.coerceIn(start, end)
+                pendingCommit = finalValue
+                dragging = false
+                frameDispatcher.flush(finalValue, currentOnValueChange)
+            }
+        )
+
+    if (batchState != null) {
+        Box(modifier = baseSlotModifier.clip(slotShape)) {
+            InsetGlassSliderTrackContent(
+                progress = progress,
+                leadingMark = leadingMark,
+                valueText = displayValueText
+            )
+        }
+    } else {
+        LaboratoryInsetGlassSlot(
+            radius = LaboratoryInsetRadius,
+            grooveDepth = LaboratoryInsetDepth,
+            floorBackdropAlpha = LaboratoryInsetBackdropAlpha,
+            rimHighlightAlpha = LaboratoryInsetRimHighlight,
+            innerShadowAlpha = LaboratoryInsetInnerShadow,
+            floorDimAlpha = LaboratoryInsetFloorDim,
+            modifier = baseSlotModifier
         ) {
-            Text(
-                text = title,
-                color = Color.White.copy(alpha = 0.82f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = description,
-                color = Color.White.copy(alpha = 0.42f),
-                fontSize = 10.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+            InsetGlassSliderTrackContent(
+                progress = progress,
+                leadingMark = leadingMark,
+                valueText = displayValueText
             )
         }
+    }
+}
 
-        val baseSlotModifier = Modifier
-            .fillMaxWidth()
-            .height(38.dp)
-            .onSizeChanged {
-                trackWidthPx = (it.width.toFloat() - reservedWidthPx).coerceAtLeast(1f)
-            }
-            .then(
-                if (batchState != null) {
-                    Modifier.onGloballyPositioned { coordinates ->
-                        batchState.updateSlot(batchSlotKey, coordinates)
-                    }
-                } else {
-                    Modifier
-                }
-            )
-            .semantics {
-                progressBarRangeInfo = ProgressBarRangeInfo(displayValue, start..end)
-                setProgress { requested ->
-                    val resolved = requested.coerceIn(start, end)
-                    dragValue = resolved
-                    dragging = false
-                    pendingCommit = resolved
-                    currentOnValueChange(resolved)
-                    true
-                }
-            }
-            .draggable(
-                state = dragState,
-                orientation = Orientation.Horizontal,
-                onDragStarted = {
-                    dragValue = currentDisplayValue
-                    pendingCommit = null
-                    commitGuardReady = true
-                    dragging = true
-                },
-                onDragStopped = {
-                    val finalValue = dragValue.coerceIn(start, end)
-                    pendingCommit = finalValue
-                    dragging = false
-                    currentOnValueChange(finalValue)
-                }
-            )
-
-        val slotContent: @Composable () -> Unit = {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
-            ) {
-                Text(
-                    text = leadingMark,
-                    color = Color.White.copy(alpha = 0.58f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black
-                )
-                LaboratoryRecessedProgressTrack(
-                    progress = progress,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(12.dp)
-                )
-                Text(
-                    text = displayValueText,
-                    color = Color.White.copy(alpha = 0.58f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.width(48.dp)
-                )
-            }
-        }
-
-        if (batchState != null) {
-            Box(
-                modifier = baseSlotModifier.clip(RoundedCornerShape(LaboratoryInsetRadius.dp))
-            ) {
-                slotContent()
-            }
-        } else {
-            LaboratoryInsetGlassSlot(
-                radius = LaboratoryInsetRadius,
-                grooveDepth = LaboratoryInsetDepth,
-                floorBackdropAlpha = LaboratoryInsetBackdropAlpha,
-                rimHighlightAlpha = LaboratoryInsetRimHighlight,
-                innerShadowAlpha = LaboratoryInsetInnerShadow,
-                floorDimAlpha = LaboratoryInsetFloorDim,
-                modifier = baseSlotModifier,
-                content = slotContent
-            )
-        }
+@Composable
+private fun InsetGlassSliderTrackContent(
+    progress: Float,
+    leadingMark: String,
+    valueText: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Text(
+            text = leadingMark,
+            color = Color.White.copy(alpha = 0.58f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black
+        )
+        LaboratoryRecessedProgressTrack(
+            progress = progress,
+            modifier = Modifier
+                .weight(1f)
+                .height(12.dp)
+        )
+        Text(
+            text = valueText,
+            color = Color.White.copy(alpha = 0.58f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
+            modifier = Modifier.width(48.dp)
+        )
     }
 }
 
@@ -286,7 +393,18 @@ private fun LaboratoryInsetGlassSlot(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
-    Box(modifier = modifier.clip(RoundedCornerShape(radius.dp))) {
+    val shape = remember(radius) { RoundedCornerShape(radius.dp) }
+    val innerBrush = remember(innerShadowAlpha, rimHighlightAlpha) {
+        Brush.verticalGradient(
+            listOf(
+                Color.Black.copy(alpha = innerShadowAlpha * 0.42f),
+                Color.Transparent,
+                Color.White.copy(alpha = rimHighlightAlpha * 0.26f)
+            )
+        )
+    }
+
+    Box(modifier = modifier.clip(shape)) {
         FrostInfoGlassPanel(
             radius = radius,
             backdropAlpha = floorBackdropAlpha,
@@ -304,13 +422,7 @@ private fun LaboratoryInsetGlassSlot(
                 blendMode = BlendMode.Multiply
             )
             drawRoundRect(
-                brush = Brush.verticalGradient(
-                    listOf(
-                        Color.Black.copy(alpha = innerShadowAlpha * 0.42f),
-                        Color.Transparent,
-                        Color.White.copy(alpha = rimHighlightAlpha * 0.26f)
-                    )
-                ),
+                brush = innerBrush,
                 topLeft = Offset(inset, inset),
                 size = Size(size.width - inset * 2f, size.height - inset * 2f),
                 cornerRadius = r,
@@ -336,23 +448,29 @@ private fun LaboratoryRecessedProgressTrack(
     progress: Float,
     modifier: Modifier = Modifier
 ) {
+    val activeBrush = remember {
+        Brush.horizontalGradient(
+            listOf(
+                Color(0xFFBFFAFF).copy(alpha = 0.95f),
+                Color(0xFF8DF9EA).copy(alpha = 0.72f)
+            )
+        )
+    }
     Canvas(modifier = modifier.clip(RoundedCornerShape(999.dp))) {
         val radius = size.height / 2f
         drawRoundRect(
             color = Color.White.copy(alpha = 0.09f),
             cornerRadius = CornerRadius(radius, radius)
         )
-        drawRoundRect(
-            brush = Brush.horizontalGradient(
-                listOf(
-                    Color(0xFFBFFAFF).copy(alpha = 0.95f),
-                    Color(0xFF8DF9EA).copy(alpha = 0.72f)
-                )
-            ),
-            size = Size(size.width * progress.coerceIn(0f, 1f), size.height),
-            cornerRadius = CornerRadius(radius, radius),
-            blendMode = BlendMode.Screen
-        )
+        val activeWidth = size.width * progress.coerceIn(0f, 1f)
+        if (activeWidth > 0f) {
+            drawRoundRect(
+                brush = activeBrush,
+                size = Size(activeWidth, size.height),
+                cornerRadius = CornerRadius(radius, radius),
+                blendMode = BlendMode.Screen
+            )
+        }
     }
 }
 
