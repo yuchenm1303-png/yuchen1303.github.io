@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AssistantViewModel
 import com.yuchen.ailedger.LedgerViewModel
+import com.yuchen.ailedger.data.FullScreenOpenGlPreferences
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.AssistantUiState
 import kotlinx.coroutines.delay
@@ -50,6 +52,11 @@ fun StockFirstToolsHomeScreen(
     onOpenTool: (String) -> Unit
 ) {
     val assistantViewModel: AssistantViewModel = viewModel()
+    val context = LocalContext.current
+    val fullScreenOpenGlPreferences = remember(context) {
+        FullScreenOpenGlPreferences.get(context)
+    }
+    val fullScreenOpenGlEnabled = fullScreenOpenGlPreferences.enabled
     val pageVisible = LocalPageVisible.current
     val pageState = if (pageVisible) {
         state
@@ -99,32 +106,62 @@ fun StockFirstToolsHomeScreen(
             }
             item {
                 ToolsEntrance(delayMs = 255, initialOffsetY = 20, initialScale = 0.966f) {
-                    StockToolEntryCard(STOCK_MARKET_TOOL_TITLE, "A股首页、热度榜、龙虎榜、板块和自选", pageState) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
+                    StockToolEntryCard(
+                        STOCK_MARKET_TOOL_TITLE,
+                        "A股首页、热度榜、龙虎榜、板块和自选",
+                        pageState,
+                        fullScreenOpenGlEnabled
+                    ) { onOpenTool(STOCK_MARKET_TOOL_TITLE) }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 315, initialOffsetY = 22, initialScale = 0.964f) {
-                    StockToolEntryCard("账单中心", "手动记账、预算、分类和最近明细", pageState) { onOpenTool("账单中心") }
+                    StockToolEntryCard(
+                        "账单中心",
+                        "手动记账、预算、分类和最近明细",
+                        pageState,
+                        fullScreenOpenGlEnabled
+                    ) { onOpenTool("账单中心") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 375, initialOffsetY = 24, initialScale = 0.964f) {
-                    StockToolEntryCard("数据统计", "按周、月、年查看趋势", pageState) { onOpenTool("数据统计") }
+                    StockToolEntryCard(
+                        "数据统计",
+                        "按周、月、年查看趋势",
+                        pageState,
+                        fullScreenOpenGlEnabled
+                    ) { onOpenTool("数据统计") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 435, initialOffsetY = 24, initialScale = 0.962f) {
-                    StockToolEntryCard("提醒闹钟", "创建提醒和闹钟", pageState) { onOpenTool("提醒闹钟") }
+                    StockToolEntryCard(
+                        "提醒闹钟",
+                        "创建提醒和闹钟",
+                        pageState,
+                        fullScreenOpenGlEnabled
+                    ) { onOpenTool("提醒闹钟") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 495, initialOffsetY = 26, initialScale = 0.962f) {
-                    StockToolEntryCard("应用控制", "打开微信、支付宝等应用", pageState) { onOpenTool("应用控制") }
+                    StockToolEntryCard(
+                        "应用控制",
+                        "打开微信、支付宝等应用",
+                        pageState,
+                        fullScreenOpenGlEnabled
+                    ) { onOpenTool("应用控制") }
                 }
             }
             item {
                 ToolsEntrance(delayMs = 555, initialOffsetY = 26, initialScale = 0.96f) {
-                    StockToolEntryCard("快捷指令", "保存常用任务", pageState) { onOpenTool("快捷指令") }
+                    StockToolEntryCard(
+                        "快捷指令",
+                        "保存常用任务",
+                        pageState,
+                        fullScreenOpenGlEnabled
+                    ) { onOpenTool("快捷指令") }
                 }
             }
         }
@@ -251,27 +288,56 @@ private fun StockQuickPill(title: String, subtitle: String, target: String, stat
 }
 
 @Composable
-private fun StockToolEntryCard(title: String, subtitle: String, state: AssistantUiState, onClick: () -> Unit) {
-    PressableGlass(
-        state.quality,
-        state.glassIntensity * if (title == STOCK_MARKET_TOOL_TITLE) 1.02f else 0.92f,
-        state.motionIntensity,
-        24,
-        Modifier.fillMaxWidth().height(76.dp),
-        if (title == STOCK_MARKET_TOOL_TITLE) GlassRole.Floating else GlassRole.Card,
-        onClick = onClick
-    ) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 15.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(13.dp)
+private fun StockToolEntryCard(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    fullScreenOpenGlEnabled: Boolean,
+    onClick: () -> Unit
+) {
+    val intensity = state.glassIntensity * if (title == STOCK_MARKET_TOOL_TITLE) 1.02f else 0.92f
+    val cardModifier = Modifier.fillMaxWidth().height(76.dp)
+
+    if (fullScreenOpenGlEnabled) {
+        OpenGlShellGlass(
+            quality = state.quality,
+            glassIntensity = intensity,
+            motionIntensity = state.motionIntensity,
+            radius = 24,
+            modifier = cardModifier,
+            mood = OpenGlShellMood.List,
+            forceOpenGl = true,
+            onClick = onClick
         ) {
-            Text(if (title == STOCK_MARKET_TOOL_TITLE) "股" else title.take(1), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text("进入", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+            StockToolEntryContent(title, subtitle)
         }
+    } else {
+        PressableGlass(
+            state.quality,
+            intensity,
+            state.motionIntensity,
+            24,
+            cardModifier,
+            if (title == STOCK_MARKET_TOOL_TITLE) GlassRole.Floating else GlassRole.Card,
+            onClick = onClick
+        ) {
+            StockToolEntryContent(title, subtitle)
+        }
+    }
+}
+
+@Composable
+private fun StockToolEntryContent(title: String, subtitle: String) {
+    Row(
+        Modifier.fillMaxSize().padding(horizontal = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
+        Text(if (title == STOCK_MARKET_TOOL_TITLE) "股" else title.take(1), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text("进入", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
