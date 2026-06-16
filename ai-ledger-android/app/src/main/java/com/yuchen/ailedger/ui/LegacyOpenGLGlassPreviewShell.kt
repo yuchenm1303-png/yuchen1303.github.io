@@ -7,11 +7,17 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 
+/**
+ * 旧版 OpenGL 的统一宿主结构。
+ * 实验室原版样本和设置页顶部状态卡片必须共同经过这里，避免参数一致但
+ * 纹理采样、裁剪或几何链不同，产生不同光学外观。
+ */
 @Composable
 fun LegacyOpenGLGlassPreviewShell(
     quality: RenderQuality,
@@ -19,15 +25,20 @@ fun LegacyOpenGLGlassPreviewShell(
     motionIntensity: Float = 1f,
     radius: Int,
     modifier: Modifier = Modifier,
+    coordinateSource: GlassCoordinateSource? = null,
+    pressProgress: Float = 0f,
+    pressCenter: Offset = Offset(0.5f, 0.5f),
+    viewportTopInsetPx: Float = 0f,
     content: @Composable () -> Unit
 ) {
-    val coordinates = remember { GlassCoordinateSource() }
+    val ownedCoordinates = remember { GlassCoordinateSource() }
+    val coordinates = coordinateSource ?: ownedCoordinates
     val sourceBackdrop = LocalGlassBackdrop.current
     val optimizedBackdrop = remember(sourceBackdrop) {
         sourceBackdrop?.copy(
             borderStyle = sourceBackdrop.borderStyle.copy(
-                // 背景本身已经是预模糊纹理；关闭旧 Shader 的 1+8 偏移采样，
-                // 避免大半径下出现九层背景重影。
+                // 旧 Shader 会执行中心样本 + 8 个偏移样本。
+                // 当前背景纹理已经预模糊，再开启偏移采样会形成清晰的九重背景。
                 openGlSampleRadiusScale = 0f
             )
         )
@@ -37,8 +48,7 @@ fun LegacyOpenGLGlassPreviewShell(
     CompositionLocalProvider(LocalGlassBackdrop provides optimizedBackdrop) {
         Box(
             modifier = modifier
-                // 旧 Shader 的抗锯齿带位于几何边界外侧；由 Compose 同半径裁剪
-                // 接管最终边缘覆盖，去除 TextureView 外扩毛刺。
+                // 旧 Shader 的抗锯齿带位于几何边界外侧，统一由 Compose 裁剪最终轮廓。
                 .clip(previewShape)
                 .onPlaced { coordinates.coordinates = it }
         ) {
@@ -46,7 +56,10 @@ fun LegacyOpenGLGlassPreviewShell(
                 radius = radius,
                 glassIntensity = glassIntensity,
                 coordinateSource = coordinates,
-                modifier = Modifier.matchParentSize()
+                modifier = Modifier.matchParentSize(),
+                pressProgress = pressProgress,
+                pressCenter = pressCenter,
+                viewportTopInsetPx = viewportTopInsetPx
             )
             content()
         }
