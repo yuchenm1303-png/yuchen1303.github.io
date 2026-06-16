@@ -85,8 +85,8 @@ private data class GlassScissorRect(
 
 /**
  * 单卡 Shell Renderer：只在状态脏时更新 uniform，并在纹理引用真正变化时上传。
- * 当 high 级与 medium 级复用同一 Bitmap 时，纹理单元 3 直接绑定 medium texture，
- * 不再为完全相同的像素分配第二份 GPU 存储。
+ * high 级纹理按需创建；两级模糊模式直接绑定 medium texture，并释放曾经分配的
+ * high 像素存储，保证切换模糊层级后不残留无效显存。
  */
 internal class WebOpenGLGlassRenderer {
     private val textureLock = Any()
@@ -269,16 +269,10 @@ internal class WebOpenGLGlassRenderer {
         GLES20.glUniform1i(blurHighTextureHandle, 3)
         GLES20.glUniform1f(textureReadyHandle, 0f)
 
-        val textures = IntArray(4)
-        GLES20.glGenTextures(4, textures, 0)
-        clearTextureId = textures[0]
-        blurLowTextureId = textures[1]
-        blurMediumTextureId = textures[2]
-        blurHighTextureId = textures[3]
-        configureTexture(0, GLES20.GL_TEXTURE0, clearTextureId)
-        configureTexture(1, GLES20.GL_TEXTURE1, blurLowTextureId)
-        configureTexture(2, GLES20.GL_TEXTURE2, blurMediumTextureId)
-        configureTexture(3, GLES20.GL_TEXTURE3, blurHighTextureId)
+        clearTextureId = createConfiguredTexture(0, GLES20.GL_TEXTURE0)
+        blurLowTextureId = createConfiguredTexture(1, GLES20.GL_TEXTURE1)
+        blurMediumTextureId = createConfiguredTexture(2, GLES20.GL_TEXTURE2)
+        blurHighTextureId = 0
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
 
         val buffers = IntArray(1)
@@ -395,8 +389,10 @@ internal class WebOpenGLGlassRenderer {
     }
 
     fun onRelease() {
-        val textures = intArrayOf(clearTextureId, blurLowTextureId, blurMediumTextureId, blurHighTextureId)
-        if (textures.any { it != 0 }) GLES20.glDeleteTextures(4, textures, 0)
+        deleteTexture(clearTextureId)
+        deleteTexture(blurLowTextureId)
+        deleteTexture(blurMediumTextureId)
+        deleteTexture(blurHighTextureId)
         if (quadBufferId != 0) GLES20.glDeleteBuffers(1, intArrayOf(quadBufferId), 0)
         if (program != 0) GLES20.glDeleteProgram(program)
         clearTextureId = 0
@@ -411,6 +407,13 @@ internal class WebOpenGLGlassRenderer {
         activeBlurLowBitmap = null
         activeBlurMediumBitmap = null
         activeBlurHighBitmap = null
+        synchronized(textureLock) {
+            pendingClearBitmap = null
+            pendingBlurLowBitmap = null
+            pendingBlurMediumBitmap = null
+            pendingBlurHighBitmap = null
+            textureSetPending = false
+        }
         previousGlassScissor = null
     }
 
@@ -563,6 +566,10 @@ internal class WebOpenGLGlassRenderer {
             low = pendingBlurLowBitmap ?: return
             medium = pendingBlurMediumBitmap ?: return
             high = pendingBlurHighBitmap ?: return
+            pendingClearBitmap = null
+            pendingBlurLowBitmap = null
+            pendingBlurMediumBitmap = null
+            pendingBlurHighBitmap = null
             textureSetPending = false
         }
 
@@ -581,16 +588,22 @@ internal class WebOpenGLGlassRenderer {
 
         val aliasHighToMedium = high === medium
         if (aliasHighToMedium) {
-            if (!highTextureAliasesMedium) {
+            if (!highTextureAliasesMedium || blurHighTextureId != 0) {
+                deleteTexture(blurHighTextureId)
+                blurHighTextureId = 0
+                textureWidths[3] = 0
+                textureHeights[3] = 0
                 bindTexture(GLES20.GL_TEXTURE3, blurMediumTextureId)
                 highTextureAliasesMedium = true
             }
             activeBlurHighBitmap = high
         } else {
-            if (highTextureAliasesMedium) {
+            if (blurHighTextureId == 0) {
+                blurHighTextureId = createConfiguredTexture(3, GLES20.GL_TEXTURE3)
+            } else if (highTextureAliasesMedium) {
                 bindTexture(GLES20.GL_TEXTURE3, blurHighTextureId)
-                highTextureAliasesMedium = false
             }
+            highTextureAliasesMedium = false
             if (high !== activeBlurHighBitmap) {
                 uploadTexture(3, GLES20.GL_TEXTURE3, blurHighTextureId, high)
                 activeBlurHighBitmap = high
@@ -606,6 +619,7 @@ internal class WebOpenGLGlassRenderer {
 
     private fun uploadTexture(index: Int, textureUnit: Int, textureId: Int, bitmap: Bitmap) {
         bindTexture(textureUnit, textureId)
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
         if (textureWidths[index] == bitmap.width && textureHeights[index] == bitmap.height) {
             GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
         } else {
@@ -615,12 +629,10 @@ internal class WebOpenGLGlassRenderer {
         }
     }
 
-    private fun bindTexture(textureUnit: Int, textureId: Int) {
-        GLES20.glActiveTexture(textureUnit)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
-    }
-
-    private fun configureTexture(index: Int, textureUnit: Int, textureId: Int) {
+    private fun createConfiguredTexture(index: Int, textureUnit: Int): Int {
+        val textures = IntArray(1)
+        GLES20.glGenTextures(1, textures, 0)
+        val textureId = textures[0]
         bindTexture(textureUnit, textureId)
         GLES20.glTexParameteri(
             GLES20.GL_TEXTURE_2D,
@@ -644,6 +656,18 @@ internal class WebOpenGLGlassRenderer {
         )
         textureWidths[index] = 0
         textureHeights[index] = 0
+        return textureId
+    }
+
+    private fun bindTexture(textureUnit: Int, textureId: Int) {
+        GLES20.glActiveTexture(textureUnit)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+    }
+
+    private fun deleteTexture(textureId: Int) {
+        if (textureId != 0) {
+            GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
+        }
     }
 }
 
