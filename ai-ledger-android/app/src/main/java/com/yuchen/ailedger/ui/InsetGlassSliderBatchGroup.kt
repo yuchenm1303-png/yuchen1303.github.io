@@ -40,7 +40,7 @@ private const val BatchInsetRimHighlight = 0.34f
 private const val BatchInsetInnerShadow = 0.67f
 private const val BatchInsetFloorDim = 0.23f
 
-private data class InsetGlassBatchSlot(
+internal data class InsetGlassBatchSlot(
     val rect: Rect,
     val coordinateSource: GlassCoordinateSource
 )
@@ -92,7 +92,7 @@ internal class InsetGlassSliderBatchState {
         val rect = host.localBoundingBoxOf(child, clipBounds = false)
         if (rect.width <= 0f || rect.height <= 0f) return
         val current = slots[key]
-        if (current?.rect != rect || current.coordinateSource !== coordinateSource) {
+        if (current == null || current.rect != rect || current.coordinateSource !== coordinateSource) {
             slots[key] = InsetGlassBatchSlot(rect, coordinateSource)
         }
     }
