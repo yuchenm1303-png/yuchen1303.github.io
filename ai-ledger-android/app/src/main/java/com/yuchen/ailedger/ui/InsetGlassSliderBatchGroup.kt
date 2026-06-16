@@ -61,13 +61,6 @@ internal class InsetGlassBatchSlot(
     val cache = CachedInsetGlassBatchSlot()
 }
 
-/**
- * 仅服务于凹槽参数滑块的父级批绘制状态。
- * 不接入普通玻璃 registry，也不触发 OpenGL geometry sync。
- *
- * 槽位列表只在增删时重建；滚动和布局位移只更新对应槽位 Rect，节点级 Path / Brush
- * 以局部尺寸为签名缓存，因此位置变化不会重建材质对象。
- */
 internal class InsetGlassSliderBatchState {
     private val childCoordinates = LinkedHashMap<Any, LayoutCoordinates>()
     private val slots = LinkedHashMap<Any, InsetGlassBatchSlot>()
@@ -152,16 +145,14 @@ internal class InsetGlassSliderBatchState {
 internal val LocalInsetGlassSliderBatchState =
     staticCompositionLocalOf<InsetGlassSliderBatchState?> { null }
 
-/**
- * 每个参数场景只建立一个 Host。静态凹槽由父级一次绘制，子滑块只保留文字和动态进度轨。
- * 折叠动画期间局部回退到单槽绘制，避免变化中的裁剪边界使用旧几何。
- */
 @Composable
 internal fun InsetGlassSliderBatchGroup(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    if (LocalGlassFoldoutAnimationRunning.current) {
+    val batchBlocked = LocalGlassFoldoutAnimationRunning.current ||
+        !LocalSettingsStaticBatchReady.current
+    if (batchBlocked) {
         CompositionLocalProvider(LocalInsetGlassSliderBatchState provides null) {
             Box(modifier = modifier, content = content)
         }
