@@ -148,13 +148,14 @@ fun PrismaticCapsuleBottomBar(
                         }
                         .clip(selectorShape)
                 ) {
-                    GlassPanel(
+                    OpenGlShellGlass(
                         quality = quality,
                         glassIntensity = glassIntensity * (1.035f + 0.08f * edgeSafeTravel + 0.07f * pressEnergy + 0.045f * stopEnergy),
                         motionIntensity = motionIntensity,
                         radius = 999,
                         modifier = Modifier.fillMaxSize(),
-                        role = GlassRole.Floating
+                        mood = OpenGlShellMood.List,
+                        forceOpenGl = true
                     ) {
                         Box(
                             Modifier
