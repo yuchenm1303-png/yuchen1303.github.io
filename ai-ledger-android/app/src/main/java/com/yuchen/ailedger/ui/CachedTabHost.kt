@@ -25,8 +25,6 @@ val LocalPageLeaving = compositionLocalOf { false }
 val LocalPageActivationTick = compositionLocalOf { 0 }
 val LocalPageHeavyEffectsEnabled = compositionLocalOf { true }
 
-// Cold start stays strictly on demand. Once a tab is visited it remains cached in this host, but
-// unused Tools/Settings trees are no longer composed automatically while the first page is settling.
 private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
 private const val DEFAULT_PREWARM_DELAY_MS = 5200L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
@@ -123,8 +121,6 @@ fun CachedAppTabHost(
                         LocalPageLeaving provides leaving,
                         LocalPageActivationTick provides activationKey,
                         LocalPageHeavyEffectsEnabled provides (visualEffectsEnabled && heavyEffectsReady),
-                        // Keep this false for Shell cards. A true viewport flag means an external
-                        // OpenGL viewport owns the Shell, which skips the single-card Shell layer.
                         LocalOpenGLGlassViewportActive provides false,
                         LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
                         LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
@@ -133,7 +129,7 @@ fun CachedAppTabHost(
                     ) {
                         key(tab) {
                             if (tab == AppTab.Settings) {
-                                SettingsFrostBatchHost(Modifier.fillMaxSize()) {
+                                SettingsComposeGlassBatchHost(Modifier.fillMaxSize()) {
                                     InsetGlassSliderBatchGroup(Modifier.fillMaxSize()) {
                                         content(tab)
                                     }
