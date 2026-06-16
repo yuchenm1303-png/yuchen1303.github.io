@@ -262,8 +262,8 @@ private fun GlassBorderStyle.copyLatestWebGlassDefaults(): GlassBorderStyle = co
     newOpenGlBodyVisibility = 20f,
     newOpenGlBodyMaxAlpha = 1f,
     newOpenGlBodyOutputBrightness = 1.8115207f,
-    newOpenGlBodyLensBasePull = 300f,
-    newOpenGlBodyLensPullDp = 600f,
+    newOpenGlBodyLensBasePull = 0f,
+    newOpenGlBodyLensPullDp = 0f,
     newOpenGlBodyLensConcentration = 10f,
     newOpenGlBodyLensExtraDistance = 200f,
     newOpenGlBodyLensReachDp = 180f,
@@ -277,12 +277,12 @@ private fun GlassBorderStyle.copyLatestWebGlassDefaults(): GlassBorderStyle = co
     newOpenGlShoulderCaptureWidthDp = 96f,
     newOpenGlShoulderMaxAngleDeg = 89.5f,
     newOpenGlShoulderFalloffRoundness = 0f,
-    newOpenGlShoulderMaterialStrength = 4f,
+    newOpenGlShoulderMaterialStrength = 1.5f,
     newOpenGlShoulderTangentialFlowStrength = 0f,
-    newOpenGlDispersionStrength = 0.55f,
-    newOpenGlDispersionDistanceDp = 2.4f,
-    newOpenGlDispersionEdgeWidthDp = 26f,
-    newOpenGlDispersionConcentration = 1.55f
+    newOpenGlDispersionStrength = 1.5f,
+    newOpenGlDispersionDistanceDp = 3.272f,
+    newOpenGlDispersionEdgeWidthDp = 54.324f,
+    newOpenGlDispersionConcentration = 3.33f
 )
 
 @Composable
