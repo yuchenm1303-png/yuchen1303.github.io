@@ -133,8 +133,10 @@ fun CachedAppTabHost(
                     ) {
                         key(tab) {
                             if (tab == AppTab.Settings) {
-                                InsetGlassSliderBatchGroup(Modifier.fillMaxSize()) {
-                                    content(tab)
+                                SettingsFrostBatchHost(Modifier.fillMaxSize()) {
+                                    InsetGlassSliderBatchGroup(Modifier.fillMaxSize()) {
+                                        content(tab)
+                                    }
                                 }
                             } else {
                                 content(tab)
