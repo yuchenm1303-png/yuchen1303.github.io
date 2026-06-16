@@ -44,7 +44,7 @@ fun GlassDebugFloatingPanel(
     val params = state.backdropParams
     val border = state.glassBorderStyle
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
-    val parentDrawEnabled = OrdinaryGlassParentDrawController.globalEnabled
+    val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
     GlassSceneScope(
         group = GlassSceneGroup.SettingsDebugInnerScroll,
@@ -53,7 +53,7 @@ fun GlassDebugFloatingPanel(
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             OrdinaryParentDrawValidationToggle(
                 enabled = parentDrawEnabled,
-                onEnabledChange = { OrdinaryGlassParentDrawController.globalEnabled = it }
+                onEnabledChange = GlassFoldoutParentDrawGate::setUserEnabled
             )
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
                 OpenGlGlassLab(state, params, legacyBorder) { legacyBorder = it }
@@ -201,7 +201,10 @@ private fun GlassLabFoldout(
                 Text(if (expanded) "收起 ︿" else "展开 ﹀", color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
-        if (expanded) {
+        GlassFoldoutAnimatedContent(
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
             }
@@ -237,7 +240,10 @@ private fun Group(title: String, subtitle: String, state: AssistantUiState, cont
                     .clickable { expanded = !expanded }
             )
         }
-        if (expanded) {
+        GlassFoldoutAnimatedContent(
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
             }
