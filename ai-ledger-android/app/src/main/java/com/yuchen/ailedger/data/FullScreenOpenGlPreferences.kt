@@ -10,7 +10,7 @@ class FullScreenOpenGlPreferences private constructor(context: Context) {
         PREFERENCES_NAME,
         Context.MODE_PRIVATE
     )
-    private val enabledState = mutableStateOf(preferences.getBoolean(KEY_ENABLED, true))
+    private val enabledState = mutableStateOf(preferences.getBoolean(KEY_ENABLED, false))
 
     val enabled: Boolean
         get() = enabledState.value
