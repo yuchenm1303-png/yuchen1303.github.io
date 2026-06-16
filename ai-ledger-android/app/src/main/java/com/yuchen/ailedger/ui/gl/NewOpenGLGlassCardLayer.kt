@@ -11,9 +11,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.GlassCoordinateSource
+import com.yuchen.ailedger.ui.GlassSceneGroup
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
+import com.yuchen.ailedger.ui.LocalGlassSceneGroup
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -27,6 +29,20 @@ fun NewOpenGLGlassCardLayer(
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f
 ) {
+    // 设置页当前状态卡片保留旧版 OpenGL 材质；其他 Shell 继续使用新版 Renderer。
+    if (LocalGlassSceneGroup == GlassSceneGroup.SettingsPage) {
+        OpenGLGlassCardLayer(
+            radius = radius,
+            glassIntensity = glassIntensity,
+            coordinateSource = coordinateSource,
+            modifier = modifier,
+            pressProgress = pressProgress,
+            pressCenter = pressCenter,
+            viewportTopInsetPx = viewportTopInsetPx
+        )
+        return
+    }
+
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val rendererBorder = remember(border) { border.onlyWebOpenGLRendererFields() }
