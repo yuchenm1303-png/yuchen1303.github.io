@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -361,41 +360,15 @@ private fun LatestSlider(
     range: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    title,
-                    color = Color.White.copy(alpha = 0.76f),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.ExtraBold
-                )
-                Text(
-                    subtitle,
-                    color = Color.White.copy(alpha = 0.38f),
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Text(
-                String.format("%.3f", value),
-                color = Color.White.copy(alpha = 0.58f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black
-            )
-        }
-        Slider(
-            value = value.coerceIn(range.start, range.endInclusive),
-            onValueChange = onValueChange,
-            valueRange = range
-        )
-    }
+    val clamped = value.coerceIn(range.start, range.endInclusive)
+    InsetGlassParameterSlider(
+        title = title,
+        description = subtitle,
+        value = clamped,
+        valueRange = range,
+        onValueChange = onValueChange,
+        valueText = String.format("%.3f", clamped)
+    )
 }
 
 @Composable
