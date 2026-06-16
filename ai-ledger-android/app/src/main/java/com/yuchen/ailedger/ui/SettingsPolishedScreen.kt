@@ -49,11 +49,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.data.FullScreenOpenGlPreferences
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
@@ -481,9 +483,59 @@ private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) {
 
 @Composable
 private fun AdvancedContent(state: AssistantUiState) {
-    SettingInfoRow("玻璃渲染", "首页大玻璃使用 OpenGL，设置顶部状态也使用 Shell OpenGL")
-    SettingInfoRow("普通控件", "Card / Chip / Nav / Floating / Flex 完全隔离")
+    val context = LocalContext.current
+    val fullScreenOpenGlPreferences = remember(context) {
+        FullScreenOpenGlPreferences.get(context)
+    }
+    val fullScreenOpenGlEnabled = fullScreenOpenGlPreferences.enabled
+
+    FullScreenOpenGlSettingRow(
+        enabled = fullScreenOpenGlEnabled,
+        onEnabledChange = fullScreenOpenGlPreferences::setEnabled
+    )
+    SettingInfoRow(
+        "玻璃渲染",
+        if (fullScreenOpenGlEnabled) {
+            "首页大玻璃与功能页六个栏目使用 OpenGL"
+        } else {
+            "首页大玻璃使用 OpenGL，功能页栏目保持 Compose"
+        }
+    )
+    SettingInfoRow(
+        "功能页栏目",
+        if (fullScreenOpenGlEnabled) "6 个入口使用单卡 OpenGL" else "保持普通 Compose 玻璃"
+    )
+    SettingInfoRow("其他控件", "Chip / Nav / Floating / Flex 继续隔离")
     SettingInfoRow("账号控件", "纯 Compose + REST API，不接入 OpenGL registry")
+}
+
+@Composable
+private fun FullScreenOpenGlSettingRow(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(68.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.070f))
+            .padding(horizontal = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("全屏opengl", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            Text(
+                "开启后功能页六个功能栏目卡片使用 OpenGL 玻璃。",
+                color = Color.White.copy(alpha = 0.52f),
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Switch(checked = enabled, onCheckedChange = onEnabledChange)
+    }
 }
 
 @Composable
