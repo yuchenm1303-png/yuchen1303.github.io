@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -47,7 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
+import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.LocalNewOpenGlGlassStyleOverride
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.PI
@@ -85,6 +88,14 @@ fun PrismaticCapsuleBottomBar(
         val arrivalPulse = remember { Animatable(0f) }
         val prismPhase = remember { Animatable(0f) }
         var edgeSeed by remember { mutableFloatStateOf(0.37f) }
+        val disableBaseDispersion = remember {
+            { style: GlassBorderStyle ->
+                style.copy(
+                    newOpenGlDispersionStrength = 0f,
+                    newOpenGlDispersionDistanceDp = 0f
+                )
+            }
+        }
 
         LaunchedEffect(currentIndex) {
             edgeSeed = Random.nextFloat()
@@ -111,116 +122,124 @@ fun PrismaticCapsuleBottomBar(
         val activeEnergy = maxOf(edgeSafeTravel, pressEnergy, stopEnergy)
         val phase = prismPhase.value
 
-        OpenGlShellGlass(
-            quality = quality,
-            glassIntensity = glassIntensity * 1.015f,
-            motionIntensity = motionIntensity,
-            radius = 999,
-            modifier = Modifier.fillMaxSize(),
-            mood = OpenGlShellMood.List,
-            forceOpenGl = true
+        CompositionLocalProvider(
+            LocalNewOpenGlGlassStyleOverride provides disableBaseDispersion
         ) {
-            BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
-                val totalWidthPx = with(density) { maxWidth.toPx() }
-                val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
-                val maxStretch = 1.015f - 0.030f * edgeTarget
-                val stretch = 0.72f + 0.275f * edgeSafeTravel + 0.130f * pressEnergy - 0.018f * stopEnergy
-                val selectorWidthPx = slotWidthPx * stretch.coerceIn(0.68f, maxStretch)
-                val selectorWidth = with(density) { selectorWidthPx.toDp() }
-                val leadPx = travelDirection * slotWidthPx * 0.030f * edgeSafeTravel
-                val rawX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
-                val selectorX = rawX.coerceIn(0f, (totalWidthPx - selectorWidthPx).coerceAtLeast(0f))
-                val heightDp = 42.dp + 3.0.dp * stopEnergy - 6.2.dp * edgeSafeTravel - 4.6.dp * pressEnergy
-                val selectorShape = RoundedCornerShape(999.dp)
-                val selectedDrift = sin((phase + currentIndex * 0.17f) * 2f * PI.toFloat())
+            OpenGlShellGlass(
+                quality = quality,
+                glassIntensity = glassIntensity * 1.015f,
+                motionIntensity = motionIntensity,
+                radius = 999,
+                modifier = Modifier.fillMaxSize(),
+                mood = OpenGlShellMood.List,
+                forceOpenGl = true
+            ) {
+                BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
+                    val totalWidthPx = with(density) { maxWidth.toPx() }
+                    val slotWidthPx = totalWidthPx / tabs.size.coerceAtLeast(1)
+                    val maxStretch = 1.015f - 0.030f * edgeTarget
+                    val stretch = 0.72f + 0.275f * edgeSafeTravel + 0.130f * pressEnergy - 0.018f * stopEnergy
+                    val selectorWidthPx = slotWidthPx * stretch.coerceIn(0.68f, maxStretch)
+                    val selectorWidth = with(density) { selectorWidthPx.toDp() }
+                    val leadPx = travelDirection * slotWidthPx * 0.030f * edgeSafeTravel
+                    val rawX = slotWidthPx * animatedIndex + (slotWidthPx - selectorWidthPx) / 2f + leadPx
+                    val selectorX = rawX.coerceIn(0f, (totalWidthPx - selectorWidthPx).coerceAtLeast(0f))
+                    val heightDp = 42.dp + 3.0.dp * stopEnergy - 6.2.dp * edgeSafeTravel - 4.6.dp * pressEnergy
+                    val selectorShape = RoundedCornerShape(999.dp)
+                    val selectedDrift = sin((phase + currentIndex * 0.17f) * 2f * PI.toFloat())
 
-                Box(
-                    Modifier
-                        .align(Alignment.CenterStart)
-                        .width(selectorWidth)
-                        .height(heightDp)
-                        .graphicsLayer {
-                            translationX = selectorX
-                            translationY = 1.35f * pressEnergy - 2.35f * edgeSafeTravel - 0.90f * stopEnergy
-                            scaleX = 1f + 0.170f * edgeSafeTravel + 0.098f * pressEnergy - 0.024f * stopEnergy
-                            scaleY = 1f - 0.176f * edgeSafeTravel - 0.108f * pressEnergy + 0.080f * stopEnergy
-                            shadowElevation = 0.18f + 0.42f * activeEnergy.coerceIn(0f, 1f)
-                        }
-                        .clip(selectorShape)
-                ) {
-                    OpenGlShellGlass(
-                        quality = quality,
-                        glassIntensity = glassIntensity * (1.035f + 0.08f * edgeSafeTravel + 0.07f * pressEnergy + 0.045f * stopEnergy),
-                        motionIntensity = motionIntensity,
-                        radius = 999,
-                        modifier = Modifier.fillMaxSize(),
-                        mood = OpenGlShellMood.List,
-                        forceOpenGl = true
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .width(selectorWidth)
+                            .height(heightDp)
+                            .graphicsLayer {
+                                translationX = selectorX
+                                translationY = 1.35f * pressEnergy - 2.35f * edgeSafeTravel - 0.90f * stopEnergy
+                                scaleX = 1f + 0.170f * edgeSafeTravel + 0.098f * pressEnergy - 0.024f * stopEnergy
+                                scaleY = 1f - 0.176f * edgeSafeTravel - 0.108f * pressEnergy + 0.080f * stopEnergy
+                                shadowElevation = 0.18f + 0.42f * activeEnergy.coerceIn(0f, 1f)
+                            }
+                            .clip(selectorShape)
                     ) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .clip(selectorShape)
-                                .bottomSliderPrismOptics(
-                                    phase = phase,
-                                    energy = (0.18f + 0.44f * edgeSafeTravel + 0.27f * pressEnergy + 0.34f * stopEnergy).coerceIn(0f, 1.12f),
-                                    drift = selectedDrift,
-                                    edgeSeed = edgeSeed,
-                                    stopEnergy = stopEnergy,
-                                    travelDirection = travelDirection,
-                                    activeEnergy = activeEnergy
-                                )
-                        )
-                    }
-                }
-
-                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    tabs.forEachIndexed { index, tab ->
-                        val selected = tab == currentTab
-                        val pressed = pressedStates.getOrNull(index) == true
-                        val tabPress by animateFloatAsState(
-                            targetValue = if (pressed) 1f else 0f,
-                            animationSpec = spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow),
-                            label = "bottom-nav-tab-press-${tab.name}"
-                        )
-                        val selectedPop by animateFloatAsState(
-                            targetValue = if (selected) 1f else 0f,
-                            animationSpec = spring(dampingRatio = 0.56f, stiffness = Spring.StiffnessLow),
-                            label = "bottom-nav-tab-selected-${tab.name}"
-                        )
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(999.dp))
-                                .clickable(interactionSource = interactionSources[index], indication = null) { onTabChange(tab) },
-                            contentAlignment = Alignment.Center
+                        CompositionLocalProvider(
+                            LocalNewOpenGlGlassStyleOverride provides null
                         ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center,
-                                modifier = Modifier.graphicsLayer {
-                                    translationY = -1.4f * selectedPop + 0.8f * tabPress - 0.6f * stopEnergy * selectedPop
-                                    scaleX = 1f + 0.046f * selectedPop + 0.026f * tabPress
-                                    scaleY = 1f + 0.032f * selectedPop - 0.016f * tabPress
-                                    alpha = 0.54f + 0.46f * selectedPop
-                                }
+                            OpenGlShellGlass(
+                                quality = quality,
+                                glassIntensity = glassIntensity * (1.035f + 0.08f * edgeSafeTravel + 0.07f * pressEnergy + 0.045f * stopEnergy),
+                                motionIntensity = motionIntensity,
+                                radius = 999,
+                                modifier = Modifier.fillMaxSize(),
+                                mood = OpenGlShellMood.List,
+                                forceOpenGl = true
                             ) {
-                                Text(
-                                    tab.icon,
-                                    color = Color.White.copy(alpha = 0.72f + 0.26f * selectedPop),
-                                    fontSize = if (tab == AppTab.Assistant) 11.sp else 15.sp,
-                                    fontWeight = FontWeight.Black,
-                                    maxLines = 1
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .clip(selectorShape)
+                                        .bottomSliderPrismOptics(
+                                            phase = phase,
+                                            energy = (0.18f + 0.44f * edgeSafeTravel + 0.27f * pressEnergy + 0.34f * stopEnergy).coerceIn(0f, 1.12f),
+                                            drift = selectedDrift,
+                                            edgeSeed = edgeSeed,
+                                            stopEnergy = stopEnergy,
+                                            travelDirection = travelDirection,
+                                            activeEnergy = activeEnergy
+                                        )
                                 )
-                                Text(
-                                    tab.title,
-                                    color = Color.White.copy(alpha = 0.70f + 0.28f * selectedPop),
-                                    fontSize = 9.sp,
-                                    fontWeight = if (selected) FontWeight.Black else FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            }
+                        }
+                    }
+
+                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        tabs.forEachIndexed { index, tab ->
+                            val selected = tab == currentTab
+                            val pressed = pressedStates.getOrNull(index) == true
+                            val tabPress by animateFloatAsState(
+                                targetValue = if (pressed) 1f else 0f,
+                                animationSpec = spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow),
+                                label = "bottom-nav-tab-press-${tab.name}"
+                            )
+                            val selectedPop by animateFloatAsState(
+                                targetValue = if (selected) 1f else 0f,
+                                animationSpec = spring(dampingRatio = 0.56f, stiffness = Spring.StiffnessLow),
+                                label = "bottom-nav-tab-selected-${tab.name}"
+                            )
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .clickable(interactionSource = interactionSources[index], indication = null) { onTabChange(tab) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier.graphicsLayer {
+                                        translationY = -1.4f * selectedPop + 0.8f * tabPress - 0.6f * stopEnergy * selectedPop
+                                        scaleX = 1f + 0.046f * selectedPop + 0.026f * tabPress
+                                        scaleY = 1f + 0.032f * selectedPop - 0.016f * tabPress
+                                        alpha = 0.54f + 0.46f * selectedPop
+                                    }
+                                ) {
+                                    Text(
+                                        tab.icon,
+                                        color = Color.White.copy(alpha = 0.72f + 0.26f * selectedPop),
+                                        fontSize = if (tab == AppTab.Assistant) 11.sp else 15.sp,
+                                        fontWeight = FontWeight.Black,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        tab.title,
+                                        color = Color.White.copy(alpha = 0.70f + 0.28f * selectedPop),
+                                        fontSize = 9.sp,
+                                        fontWeight = if (selected) FontWeight.Black else FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
