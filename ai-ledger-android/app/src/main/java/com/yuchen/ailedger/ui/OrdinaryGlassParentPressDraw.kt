@@ -2,7 +2,6 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -28,9 +27,10 @@ private data class OrdinaryParentPressValues(
 )
 
 private fun DrawScope.resolveOrdinaryParentPressValues(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect
+    item: VisibleOrdinaryGlassItem
 ): OrdinaryParentPressValues? {
+    val node = item.node
+    val rect = item.rect
     val positivePress = node.pressProgress.coerceAtLeast(0f)
     val rebound = ordinaryParentSmoothStep((-node.pressProgress / 0.18f).coerceIn(0f, 1f))
     val safePress = maxOf(
@@ -81,12 +81,13 @@ private fun DrawScope.resolveOrdinaryParentPressValues(
  * 六层按压光学都位于业务 content 上方，只在按压活跃期间执行。
  */
 internal fun DrawScope.drawOrdinaryParentPressOptics(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect
+    item: VisibleOrdinaryGlassItem
 ) {
+    val node = item.node
+    val rect = item.rect
     if (!node.pressable || node.role == GlassRole.Shell || rect.width <= 1f || rect.height <= 1f) return
-    withOrdinaryParentTransform(node, rect) {
-        val values = resolveOrdinaryParentPressValues(node, rect)
+    withOrdinaryParentTransform(item) {
+        val values = resolveOrdinaryParentPressValues(item)
             ?: return@withOrdinaryParentTransform
         val rimInset = 0.62.dp.toPx()
         clipPath(values.shapePath) {
