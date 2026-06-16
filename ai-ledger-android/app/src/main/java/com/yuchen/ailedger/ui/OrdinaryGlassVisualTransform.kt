@@ -61,6 +61,8 @@ internal fun ordinaryGlassTransformedBounds(
     transform: OrdinaryGlassVisualTransform,
     rect: Rect
 ): Rect {
+    if (transform.isIdentity()) return rect
+
     val pivotX = rect.width * transform.originX
     val pivotY = rect.height * transform.originY
     val left = rect.left + pivotX * (1f - transform.scaleX)
