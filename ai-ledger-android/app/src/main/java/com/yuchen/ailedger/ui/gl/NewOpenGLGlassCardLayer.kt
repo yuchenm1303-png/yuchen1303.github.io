@@ -15,6 +15,7 @@ import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.legacyOpenGlReferenceStyle
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.GlassSceneGroup
+import com.yuchen.ailedger.ui.LegacyOpenGLGlassPreviewShell
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
@@ -35,23 +36,27 @@ fun NewOpenGLGlassCardLayer(
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f
 ) {
-    // 设置页顶部状态卡片使用实验室“原版 OpenGL”同一 Renderer、同一参数源。
+    // 设置页顶部状态卡片与实验室原版样本共用完整旧版宿主链：
+    // 同一参数源、同一单样本优化、同一 Compose 轮廓裁剪、同一旧 Renderer。
     if (LocalGlassSceneGroup == GlassSceneGroup.SettingsPage) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
             currentSpec?.copy(borderStyle = legacyOpenGlReferenceStyle())
         }
+
         if (legacySpec != null) {
             CompositionLocalProvider(LocalGlassBackdrop provides legacySpec) {
-                OpenGLGlassCardLayer(
-                    radius = radius,
+                LegacyOpenGLGlassPreviewShell(
+                    quality = legacySpec.quality,
                     glassIntensity = glassIntensity,
-                    coordinateSource = coordinateSource,
+                    motionIntensity = legacySpec.motionIntensity,
+                    radius = radius,
                     modifier = modifier,
+                    coordinateSource = coordinateSource,
                     pressProgress = pressProgress,
                     pressCenter = pressCenter,
                     viewportTopInsetPx = viewportTopInsetPx
-                )
+                ) {}
             }
         } else {
             OpenGLGlassCardLayer(
