@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 
@@ -45,14 +47,6 @@ internal object GlassFoldoutParentDrawGate {
         restoreEnabled = enabled
         if (holderCount == 0) {
             OrdinaryGlassParentDrawController.globalEnabled = enabled
-        }
-    }
-
-    @Synchronized
-    fun syncUserPreference() {
-        if (holderCount == 0) {
-            displayedEnabled = OrdinaryGlassParentDrawController.globalEnabled
-            restoreEnabled = displayedEnabled
         }
     }
 
@@ -93,16 +87,29 @@ internal fun GlassFoldoutAnimatedContent(
     val visibleState = remember { MutableTransitionState(expanded) }
     visibleState.targetState = expanded
     val animationRunning = visibleState.currentState != visibleState.targetState
+    var geometrySettling by remember { mutableStateOf(false) }
 
-    DisposableEffect(animationRunning) {
-        if (animationRunning) GlassFoldoutParentDrawGate.acquire()
+    LaunchedEffect(animationRunning) {
+        if (animationRunning) {
+            geometrySettling = true
+        } else if (geometrySettling) {
+            // 动画结束后保留两帧本地绘制，让父级 registry 收到最终几何。
+            withFrameNanos { }
+            withFrameNanos { }
+            geometrySettling = false
+        }
+    }
+
+    val guardedDrawing = animationRunning || geometrySettling
+    DisposableEffect(guardedDrawing) {
+        if (guardedDrawing) GlassFoldoutParentDrawGate.acquire()
         onDispose {
-            if (animationRunning) GlassFoldoutParentDrawGate.release()
+            if (guardedDrawing) GlassFoldoutParentDrawGate.release()
         }
     }
 
     CompositionLocalProvider(
-        LocalGlassFoldoutAnimationRunning provides animationRunning
+        LocalGlassFoldoutAnimationRunning provides guardedDrawing
     ) {
         AnimatedVisibility(
             visibleState = visibleState,
