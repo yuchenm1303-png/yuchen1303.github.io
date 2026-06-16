@@ -3,7 +3,6 @@ package com.yuchen.ailedger.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -238,31 +237,17 @@ private fun DrawScope.drawVisibleBatchBackdrop(
     val visibleHeight = localBottom - localTop
     if (visibleWidth <= 0f || visibleHeight <= 0f) return
 
-    val sourceX = ((sampleOffset.x + localLeft) * backdrop.scale)
-        .roundToInt()
-        .coerceIn(0, backdrop.image.width - 1)
-    val sourceY = ((sampleOffset.y + localTop) * backdrop.scale)
-        .roundToInt()
-        .coerceIn(0, backdrop.image.height - 1)
-    val sourceWidth = (visibleWidth * backdrop.scale)
-        .roundToInt()
-        .coerceAtLeast(1)
-        .coerceAtMost(backdrop.image.width - sourceX)
-    val sourceHeight = (visibleHeight * backdrop.scale)
-        .roundToInt()
-        .coerceAtLeast(1)
-        .coerceAtMost(backdrop.image.height - sourceY)
+    val sourceLeft = (sampleOffset.x + localLeft).roundToInt().coerceIn(0, backdrop.fullWidthPx - 1)
+    val sourceTop = (sampleOffset.y + localTop).roundToInt().coerceIn(0, backdrop.fullHeightPx - 1)
+    val sourceRight = (sampleOffset.x + localRight).roundToInt().coerceIn(sourceLeft + 1, backdrop.fullWidthPx)
+    val sourceBottom = (sampleOffset.y + localBottom).roundToInt().coerceIn(sourceTop + 1, backdrop.fullHeightPx)
 
     drawImage(
         image = backdrop.image,
-        srcOffset = IntOffset(sourceX, sourceY),
-        srcSize = IntSize(sourceWidth, sourceHeight),
+        srcOffset = IntOffset(sourceLeft, sourceTop),
+        srcSize = IntSize(sourceRight - sourceLeft, sourceBottom - sourceTop),
         dstOffset = IntOffset(localLeft.roundToInt(), localTop.roundToInt()),
-        dstSize = IntSize(
-            visibleWidth.roundToInt().coerceAtLeast(1),
-            visibleHeight.roundToInt().coerceAtLeast(1)
-        ),
-        alpha = alpha,
-        blendMode = BlendMode.SrcOver
+        dstSize = IntSize(visibleWidth.roundToInt().coerceAtLeast(1), visibleHeight.roundToInt().coerceAtLeast(1)),
+        alpha = alpha
     )
 }
