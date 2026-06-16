@@ -20,13 +20,17 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 private const val BatchInsetRadius = 18f
@@ -67,7 +71,6 @@ internal class InsetGlassSliderBatchState {
         childCoordinates.clear()
         slots.clear()
         hostCoordinates = null
-        coordinateSource.coordinates = null
     }
 
     private fun syncAll() {
@@ -122,46 +125,45 @@ private fun InsetGlassSliderBatchChrome(
     val cachedBackdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameTicker = LocalBackdropFrameTicker.current
+    val density = LocalDensity.current
+    val slotRects = state.slots.values
+        .filter { it.width > 0f && it.height > 0f }
+        .toList()
 
-    Canvas(modifier = modifier) {
-        frameTicker?.frameNanos
-        val slotRects = state.slots.values
-            .filter { it.width > 0f && it.height > 0f }
-        if (slotRects.isEmpty()) return@Canvas
-
-        val radiusPx = BatchInsetRadius.dp.toPx()
-        val slotMask = Path().apply {
+    val radiusPx = with(density) { BatchInsetRadius.dp.toPx() }
+    val insetPx = with(density) { (1.5f + BatchInsetDepth * 6f).dp.toPx() }
+    val innerStrokeWidthPx = with(density) { (1.2f + BatchInsetDepth * 3f).dp.toPx() }
+    val outerInsetPx = with(density) { 1.dp.toPx() }
+    val outerStrokeWidthPx = with(density) { 0.9.dp.toPx() }
+    val slotMask = remember(slotRects, radiusPx) {
+        Path().apply {
             slotRects.forEach { rect ->
                 addRoundRect(
                     RoundRect(
-                        rect = rect,
-                        cornerRadius = CornerRadius(radiusPx, radiusPx)
+                        left = rect.left,
+                        top = rect.top,
+                        right = rect.right,
+                        bottom = rect.bottom,
+                        radiusX = radiusPx,
+                        radiusY = radiusPx
                     )
                 )
             }
         }
+    }
+
+    Canvas(modifier = modifier) {
+        frameTicker?.frameNanos
+        if (slotRects.isEmpty()) return@Canvas
 
         clipPath(slotMask) {
             val backdrop = cachedBackdrop
             if (backdrop != null) {
                 val sampleOffset = state.coordinateSource.offsetRelativeTo(backdropOrigin)
-                val logicalWidth = (backdrop.image.width / backdrop.scale)
-                    .roundToInt()
-                    .coerceAtLeast(1)
-                val logicalHeight = (backdrop.image.height / backdrop.scale)
-                    .roundToInt()
-                    .coerceAtLeast(1)
-                drawImage(
-                    image = backdrop.image,
-                    srcOffset = IntOffset.Zero,
-                    srcSize = IntSize(backdrop.image.width, backdrop.image.height),
-                    dstOffset = IntOffset(
-                        x = (-sampleOffset.x).roundToInt(),
-                        y = (-sampleOffset.y).roundToInt()
-                    ),
-                    dstSize = IntSize(logicalWidth, logicalHeight),
-                    alpha = BatchInsetBackdropAlpha,
-                    blendMode = BlendMode.SrcOver
+                drawVisibleBatchBackdrop(
+                    backdrop = backdrop,
+                    sampleOffset = sampleOffset,
+                    alpha = BatchInsetBackdropAlpha
                 )
             } else {
                 drawRect(
@@ -177,10 +179,6 @@ private fun InsetGlassSliderBatchChrome(
             drawRect(Color.Black.copy(alpha = BatchInsetFloorDim))
         }
 
-        val inset = (1.5f + BatchInsetDepth * 6f).dp.toPx()
-        val innerStrokeWidth = (1.2f + BatchInsetDepth * 3f).dp.toPx()
-        val outerStrokeWidth = 0.9.dp.toPx()
-
         slotRects.forEach { rect ->
             val corner = CornerRadius(radiusPx, radiusPx)
             drawRoundRect(
@@ -191,8 +189,8 @@ private fun InsetGlassSliderBatchChrome(
                 blendMode = BlendMode.Multiply
             )
 
-            val innerWidth = (rect.width - inset * 2f).coerceAtLeast(1f)
-            val innerHeight = (rect.height - inset * 2f).coerceAtLeast(1f)
+            val innerWidth = (rect.width - insetPx * 2f).coerceAtLeast(1f)
+            val innerHeight = (rect.height - insetPx * 2f).coerceAtLeast(1f)
             drawRoundRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
@@ -203,25 +201,68 @@ private fun InsetGlassSliderBatchChrome(
                     startY = rect.top,
                     endY = rect.bottom
                 ),
-                topLeft = Offset(rect.left + inset, rect.top + inset),
+                topLeft = Offset(rect.left + insetPx, rect.top + insetPx),
                 size = Size(innerWidth, innerHeight),
                 cornerRadius = corner,
-                style = Stroke(width = innerStrokeWidth),
+                style = Stroke(width = innerStrokeWidthPx),
                 blendMode = BlendMode.Screen
             )
 
-            val outerInset = 1.dp.toPx()
             drawRoundRect(
                 color = Color.White.copy(alpha = BatchInsetRimHighlight * 0.18f),
-                topLeft = Offset(rect.left + outerInset, rect.top + outerInset),
+                topLeft = Offset(rect.left + outerInsetPx, rect.top + outerInsetPx),
                 size = Size(
-                    (rect.width - outerInset * 2f).coerceAtLeast(1f),
-                    (rect.height - outerInset * 2f).coerceAtLeast(1f)
+                    (rect.width - outerInsetPx * 2f).coerceAtLeast(1f),
+                    (rect.height - outerInsetPx * 2f).coerceAtLeast(1f)
                 ),
                 cornerRadius = corner,
-                style = Stroke(width = outerStrokeWidth),
+                style = Stroke(width = outerStrokeWidthPx),
                 blendMode = BlendMode.Screen
             )
         }
     }
+}
+
+private fun DrawScope.drawVisibleBatchBackdrop(
+    backdrop: BlurredBackdropBitmap,
+    sampleOffset: Offset,
+    alpha: Float
+) {
+    val rootWidth = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
+    val rootHeight = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
+    val localLeft = max(0f, -sampleOffset.x)
+    val localTop = max(0f, -sampleOffset.y)
+    val localRight = min(size.width, rootWidth - sampleOffset.x)
+    val localBottom = min(size.height, rootHeight - sampleOffset.y)
+    val visibleWidth = localRight - localLeft
+    val visibleHeight = localBottom - localTop
+    if (visibleWidth <= 0f || visibleHeight <= 0f) return
+
+    val sourceX = ((sampleOffset.x + localLeft) * backdrop.scale)
+        .roundToInt()
+        .coerceIn(0, backdrop.image.width - 1)
+    val sourceY = ((sampleOffset.y + localTop) * backdrop.scale)
+        .roundToInt()
+        .coerceIn(0, backdrop.image.height - 1)
+    val sourceWidth = (visibleWidth * backdrop.scale)
+        .roundToInt()
+        .coerceAtLeast(1)
+        .coerceAtMost(backdrop.image.width - sourceX)
+    val sourceHeight = (visibleHeight * backdrop.scale)
+        .roundToInt()
+        .coerceAtLeast(1)
+        .coerceAtMost(backdrop.image.height - sourceY)
+
+    drawImage(
+        image = backdrop.image,
+        srcOffset = IntOffset(sourceX, sourceY),
+        srcSize = IntSize(sourceWidth, sourceHeight),
+        dstOffset = IntOffset(localLeft.roundToInt(), localTop.roundToInt()),
+        dstSize = IntSize(
+            visibleWidth.roundToInt().coerceAtLeast(1),
+            visibleHeight.roundToInt().coerceAtLeast(1)
+        ),
+        alpha = alpha,
+        blendMode = BlendMode.SrcOver
+    )
 }
