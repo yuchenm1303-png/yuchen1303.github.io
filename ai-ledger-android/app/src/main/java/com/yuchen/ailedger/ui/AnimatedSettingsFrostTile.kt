@@ -3,11 +3,6 @@ package com.yuchen.ailedger.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -70,26 +65,14 @@ fun AnimatedSettingsFrostTile(
     onClick: () -> Unit
 ) {
     val motionOn = state.quality.enableMotion && state.motionIntensity > 0.02f
-    val seed = remember(title, icon) { ((title.sumOf { it.code } + icon.sumOf { it.code } * 7) % 1000) / 1000f }
-    val transition = rememberInfiniteTransition(label = "settings-frost-tile-$title")
-    val phaseA by transition.animateFloat(
-        initialValue = seed,
-        targetValue = seed + 1f,
-        animationSpec = infiniteRepeatable(tween(if (selected) 4300 else 8200, easing = LinearEasing), RepeatMode.Restart),
-        label = "settings-tile-phase-a-$title"
-    )
-    val phaseB by transition.animateFloat(
-        initialValue = seed + 0.37f,
-        targetValue = seed + 1.37f,
-        animationSpec = infiniteRepeatable(tween(if (selected) 6400 else 11600, easing = LinearEasing), RepeatMode.Restart),
-        label = "settings-tile-phase-b-$title"
-    )
-    val phaseC by transition.animateFloat(
-        initialValue = seed + 0.71f,
-        targetValue = seed + 1.71f,
-        animationSpec = infiniteRepeatable(tween(if (selected) 5100 else 10100, easing = LinearEasing), RepeatMode.Restart),
-        label = "settings-tile-phase-c-$title"
-    )
+    val seed = remember(title, icon) {
+        ((title.sumOf { it.code } + icon.sumOf { it.code } * 7) % 1000) / 1000f
+    }
+    val sharedClock = LocalSettingsFrostMotionClock.current
+    val elapsedNanos = if (motionOn) sharedClock?.frameNanos ?: 0L else 0L
+    val phaseA = settingsTilePhase(seed, elapsedNanos, if (selected) 4_300L else 8_200L)
+    val phaseB = settingsTilePhase(seed + 0.37f, elapsedNanos, if (selected) 6_400L else 11_600L)
+    val phaseC = settingsTilePhase(seed + 0.71f, elapsedNanos, if (selected) 5_100L else 10_100L)
     val pressAnim = remember { Animatable(0f) }
     val afterglowAnim = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -105,20 +88,65 @@ fun AnimatedSettingsFrostTile(
     val tB = if (motionOn) phaseB else seed + 0.37f
     val tC = if (motionOn) phaseC else seed + 0.71f
     val tau = (PI * 2.0).toFloat()
-    val selectedPulse = if (selected && motionOn) ((sin(tA * tau) + 1f) * 0.5f).coerceIn(0f, 1f) else selectedBase * 0.50f
-    val slowBreath = if (selected && motionOn) ((sin(tC * tau + 0.8f) + 1f) * 0.5f).coerceIn(0f, 1f) else selectedBase * 0.50f
-    val energy = (selectedBase * (0.88f + selectedPulse * 0.42f) + press * 0.90f + afterglow * 0.55f).coerceIn(0f, 1.70f)
+    val selectedPulse = if (selected && motionOn) {
+        ((sin(tA * tau) + 1f) * 0.5f).coerceIn(0f, 1f)
+    } else {
+        selectedBase * 0.50f
+    }
+    val slowBreath = if (selected && motionOn) {
+        ((sin(tC * tau + 0.8f) + 1f) * 0.5f).coerceIn(0f, 1f)
+    } else {
+        selectedBase * 0.50f
+    }
+    val energy = (
+        selectedBase * (0.88f + selectedPulse * 0.42f) +
+            press * 0.90f +
+            afterglow * 0.55f
+        ).coerceIn(0f, 1.70f)
     val radius = 17.44f
+    val frostAlpha = 0.095f + energy * 0.040f
+    val dimAlpha = 0.004f + press * 0.018f
+    val parentLayer = LocalSettingsFrostParentLayer.current
+    val useParentFrost = parentLayer != null &&
+        !selected &&
+        press < 0.001f &&
+        recoil < 0.001f &&
+        afterglow < 0.001f
+    val registeredLayer = parentLayer.takeIf { useParentFrost }
+    val frostItemId = remember(title, icon) { "settings-frost-$title-$icon" }
+
+    SettingsFrostParentRegistrationCleanup(registeredLayer, frostItemId)
 
     Box(
         modifier = modifier
             .height(116.dp)
-            .onSizeChanged { tileSize = Size(it.width.coerceAtLeast(1).toFloat(), it.height.coerceAtLeast(1).toFloat()) }
+            .registerSettingsFrostParentItem(
+                id = frostItemId,
+                layerState = registeredLayer,
+                radiusDp = radius,
+                backdropAlpha = 1f,
+                frostAlpha = frostAlpha,
+                dimAlpha = dimAlpha
+            )
+            .onSizeChanged {
+                tileSize = Size(
+                    it.width.coerceAtLeast(1).toFloat(),
+                    it.height.coerceAtLeast(1).toFloat()
+                )
+            }
             .graphicsLayer {
                 transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
-                scaleX = 1f + selectedBase * 0.018f + slowBreath * selectedBase * 0.014f + press * 0.026f - recoil * 0.008f
-                scaleY = 1f + selectedBase * 0.006f + slowBreath * selectedBase * 0.006f - press * 0.036f + recoil * 0.014f
-                translationY = selectedBase * (-0.8f - slowBreath * 0.9f) + press * 3.2f - recoil * 1.3f
+                scaleX = 1f + selectedBase * 0.018f +
+                    slowBreath * selectedBase * 0.014f +
+                    press * 0.026f -
+                    recoil * 0.008f
+                scaleY = 1f + selectedBase * 0.006f +
+                    slowBreath * selectedBase * 0.006f -
+                    press * 0.036f +
+                    recoil * 0.014f
+                translationY = selectedBase * (-0.8f - slowBreath * 0.9f) +
+                    press * 3.2f -
+                    recoil * 1.3f
                 translationX = (pressCenter.x - 0.5f) * press * 4.2f
             }
             .pointerInput(motionOn, selected, title) {
@@ -140,12 +168,19 @@ fun AnimatedSettingsFrostTile(
                             pressAnim.stop()
                             if (pressAnim.value < 0.18f) pressAnim.snapTo(0.18f)
                             pressAnim.animateTo(1.00f, tween(150, easing = SettingsTilePressEasing))
-                            pressAnim.animateTo(0.78f, spring(dampingRatio = 0.66f, stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
+                            pressAnim.animateTo(
+                                0.78f,
+                                spring(
+                                    dampingRatio = 0.66f,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                                )
+                            )
                         }
                     }
                     while (true) {
                         val event = awaitPointerEvent()
-                        val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                        val tracked = event.changes.firstOrNull { it.id == down.id }
+                            ?: event.changes.firstOrNull()
                         if (tracked != null) {
                             updateCenter(tracked.position)
                             if (!tracked.pressed) break
@@ -157,7 +192,13 @@ fun AnimatedSettingsFrostTile(
                         scope.launch {
                             pressAnim.stop()
                             pressAnim.animateTo(-0.10f, tween(130, easing = SettingsTileReleaseEasing))
-                            pressAnim.animateTo(0.030f, spring(dampingRatio = 0.48f, stiffness = androidx.compose.animation.core.Spring.StiffnessLow))
+                            pressAnim.animateTo(
+                                0.030f,
+                                spring(
+                                    dampingRatio = 0.48f,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+                                )
+                            )
                             pressAnim.animateTo(0f, tween(220, easing = FastOutSlowInEasing))
                         }
                         scope.launch {
@@ -171,13 +212,15 @@ fun AnimatedSettingsFrostTile(
             .clip(RoundedCornerShape(radius.dp)),
         contentAlignment = Alignment.Center
     ) {
-        FrostInfoGlassPanel(
-            radius = radius,
-            backdropAlpha = 1f,
-            frostAlpha = 0.095f + energy * 0.040f,
-            dimAlpha = 0.004f + press * 0.018f,
-            modifier = Modifier.fillMaxSize()
-        ) {}
+        if (!useParentFrost) {
+            FrostInfoGlassPanel(
+                radius = radius,
+                backdropAlpha = 1f,
+                frostAlpha = frostAlpha,
+                dimAlpha = dimAlpha,
+                modifier = Modifier.fillMaxSize()
+            ) {}
+        }
         SettingsTilePrismSurface(
             radius = radius,
             selected = selected,
@@ -206,6 +249,17 @@ fun AnimatedSettingsFrostTile(
     }
 }
 
+private fun settingsTilePhase(
+    initial: Float,
+    elapsedNanos: Long,
+    durationMillis: Long
+): Float {
+    if (elapsedNanos <= 0L || durationMillis <= 0L) return initial
+    val durationNanos = durationMillis * 1_000_000L
+    val fraction = (elapsedNanos % durationNanos).toDouble() / durationNanos.toDouble()
+    return initial + fraction.toFloat()
+}
+
 @Composable
 private fun SettingsTileContent(
     icon: String,
@@ -218,8 +272,10 @@ private fun SettingsTileContent(
 ) {
     val iconAlpha = (if (selected) 0.84f else 0.58f) + energy * 0.14f
     val titleAlpha = (0.92f + energy * 0.08f).coerceIn(0f, 1f)
-    val secondaryAlpha = ((if (selected) 0.66f else 0.48f) + energy * 0.10f).coerceIn(0f, 0.86f)
-    val valueAlpha = ((if (selected) 0.84f else 0.58f) + energy * 0.12f).coerceIn(0f, 0.98f)
+    val secondaryAlpha = ((if (selected) 0.66f else 0.48f) + energy * 0.10f)
+        .coerceIn(0f, 0.86f)
+    val valueAlpha = ((if (selected) 0.84f else 0.58f) + energy * 0.12f)
+        .coerceIn(0f, 0.98f)
 
     Column(
         modifier.padding(horizontal = 13.dp, vertical = 12.dp),
@@ -239,25 +295,72 @@ private fun SettingsTileContent(
                     textAlign = TextAlign.Center
                 )
             }
-            SettingsAnimatedTileHairline(Modifier.size(1.dp, 42.dp), alpha = if (selected) 0.30f + energy * 0.10f else 0.14f + energy * 0.06f)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = Color.White.copy(alpha = titleAlpha), fontSize = 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, color = Color.White.copy(alpha = secondaryAlpha), fontSize = 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            SettingsAnimatedTileHairline(
+                Modifier.size(1.dp, 42.dp),
+                alpha = if (selected) 0.30f + energy * 0.10f else 0.14f + energy * 0.06f
+            )
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    title,
+                    color = Color.White.copy(alpha = titleAlpha),
+                    fontSize = 20.sp,
+                    lineHeight = 23.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    subtitle,
+                    color = Color.White.copy(alpha = secondaryAlpha),
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
-        SettingsAnimatedTileHairline(Modifier.height(1.dp), alpha = if (selected) 0.24f + energy * 0.08f else 0.10f + energy * 0.04f)
+        SettingsAnimatedTileHairline(
+            Modifier.height(1.dp),
+            alpha = if (selected) 0.24f + energy * 0.08f else 0.10f + energy * 0.04f
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("当前", color = Color.White.copy(alpha = 0.34f + energy * 0.08f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            Text(
+                "当前",
+                color = Color.White.copy(alpha = 0.34f + energy * 0.08f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1
+            )
             Spacer(Modifier.weight(1f))
-            Text(value, color = Color.White.copy(alpha = valueAlpha), fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
+            Text(
+                value,
+                color = Color.White.copy(alpha = valueAlpha),
+                fontSize = 13.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End
+            )
         }
     }
 }
 
 @Composable
-private fun SettingsAnimatedTileHairline(modifier: Modifier = Modifier, alpha: Float = 0.12f) {
+private fun SettingsAnimatedTileHairline(
+    modifier: Modifier = Modifier,
+    alpha: Float = 0.12f
+) {
     Canvas(modifier = modifier) {
-        drawRect(color = Color.White.copy(alpha = alpha.coerceIn(0f, 1f)), size = size, blendMode = BlendMode.Screen)
+        drawRect(
+            color = Color.White.copy(alpha = alpha.coerceIn(0f, 1f)),
+            size = size,
+            blendMode = BlendMode.Screen
+        )
     }
 }
 
@@ -289,7 +392,13 @@ private fun SettingsTilePrismSurface(
         val c = phaseC * tau
         val selectedBase = if (selected) 1f else 0f
         val breath = ((sin(a + seed * 1.7f) + 1f) * 0.5f).coerceIn(0f, 1f)
-        val film = (0.68f + selectedBase * 0.96f + selectedPulse * selectedBase * 0.74f + press * 0.58f + afterglow * 0.40f).coerceIn(0f, 2.30f)
+        val film = (
+            0.68f +
+                selectedBase * 0.96f +
+                selectedPulse * selectedBase * 0.74f +
+                press * 0.58f +
+                afterglow * 0.40f
+            ).coerceIn(0f, 2.30f)
         val driftX = (0.55f + 0.30f * cos(a + seed * 2.1f)).coerceIn(0.08f, 0.94f) * w
         val driftY = (0.42f + 0.25f * sin(b * 0.82f + seed * 3.2f)).coerceIn(0.08f, 0.88f) * h
         val cx = center.x.coerceIn(0.06f, 0.94f) * w
@@ -297,8 +406,14 @@ private fun SettingsTilePrismSurface(
         val sweep = (phaseA * 0.76f + phaseB * 0.24f + seed).let { it - it.toInt() }
         val softSweep = (phaseC * 0.58f + seed * 0.42f).let { it - it.toInt() }
         val rimInset = 0.82.dp.toPx()
-        val rimRadius = CornerRadius((radiusPx - rimInset).coerceAtLeast(0f), (radiusPx - rimInset).coerceAtLeast(0f))
-        val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+        val rimRadius = CornerRadius(
+            (radiusPx - rimInset).coerceAtLeast(0f),
+            (radiusPx - rimInset).coerceAtLeast(0f)
+        )
+        val rimSize = Size(
+            (w - rimInset * 2f).coerceAtLeast(1f),
+            (h - rimInset * 2f).coerceAtLeast(1f)
+        )
 
         drawRoundRect(
             brush = Brush.radialGradient(
@@ -318,11 +433,18 @@ private fun SettingsTilePrismSurface(
         drawRoundRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF75FFF0).copy(alpha = (0.110f + selectedPulse * 0.090f) * selectedBase),
-                    Color(0xFF9CA8FF).copy(alpha = (0.090f + slowBreath * 0.075f) * selectedBase),
+                    Color(0xFF75FFF0).copy(
+                        alpha = (0.110f + selectedPulse * 0.090f) * selectedBase
+                    ),
+                    Color(0xFF9CA8FF).copy(
+                        alpha = (0.090f + slowBreath * 0.075f) * selectedBase
+                    ),
                     Color.Transparent
                 ),
-                center = Offset(w * (0.72f + 0.12f * cos(b)), h * (0.24f + 0.10f * sin(c))),
+                center = Offset(
+                    w * (0.72f + 0.12f * cos(b)),
+                    h * (0.24f + 0.10f * sin(c))
+                ),
                 radius = maxOf(w, h) * (0.48f + slowBreath * 0.12f)
             ),
             size = Size(w, h),
@@ -398,15 +520,27 @@ private fun SettingsTilePrismSurface(
                     Color.White.copy(alpha = 0.160f + selectedBase * 0.120f + press * 0.060f),
                     Color(0xFF8DF9EA).copy(alpha = 0.055f + selectedBase * 0.085f),
                     Color.Transparent,
-                    Color(0xFFFF88E8).copy(alpha = 0.035f + selectedBase * 0.060f + afterglow * 0.045f)
+                    Color(0xFFFF88E8).copy(
+                        alpha = 0.035f + selectedBase * 0.060f + afterglow * 0.045f
+                    )
                 ),
                 start = Offset(0f, 0f),
                 end = Offset(w, h)
             ),
             topLeft = Offset(1.45.dp.toPx(), 1.45.dp.toPx()),
-            size = Size((w - 2.90.dp.toPx()).coerceAtLeast(1f), (h - 2.90.dp.toPx()).coerceAtLeast(1f)),
-            cornerRadius = CornerRadius((radiusPx - 1.45.dp.toPx()).coerceAtLeast(0f), (radiusPx - 1.45.dp.toPx()).coerceAtLeast(0f)),
-            style = Stroke(width = 0.65.dp.toPx() + selectedBase * 0.42.dp.toPx() + energy * 0.16.dp.toPx()),
+            size = Size(
+                (w - 2.90.dp.toPx()).coerceAtLeast(1f),
+                (h - 2.90.dp.toPx()).coerceAtLeast(1f)
+            ),
+            cornerRadius = CornerRadius(
+                (radiusPx - 1.45.dp.toPx()).coerceAtLeast(0f),
+                (radiusPx - 1.45.dp.toPx()).coerceAtLeast(0f)
+            ),
+            style = Stroke(
+                width = 0.65.dp.toPx() +
+                    selectedBase * 0.42.dp.toPx() +
+                    energy * 0.16.dp.toPx()
+            ),
             blendMode = BlendMode.Screen
         )
     }
