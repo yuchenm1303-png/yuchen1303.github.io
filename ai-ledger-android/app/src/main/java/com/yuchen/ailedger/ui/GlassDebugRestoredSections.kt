@@ -103,7 +103,9 @@ private fun RestoredGlassLabFoldout(
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+            }
         }
     }
 }
@@ -244,7 +246,9 @@ private fun RestoredComposeGlassControlGroup(
             }
         }
         AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
+            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
+            }
         }
     }
 }
@@ -349,7 +353,9 @@ private fun RestoredModelCardControlGroup(
             }
         }
         AnimatedVisibility(visible = expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
+            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
+            }
         }
     }
 }
