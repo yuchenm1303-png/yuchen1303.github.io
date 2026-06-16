@@ -2,7 +2,6 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -18,11 +17,11 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 internal fun DrawScope.withOrdinaryParentTransform(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect,
+    item: VisibleOrdinaryGlassItem,
     block: DrawScope.() -> Unit
 ) {
-    val transform = ordinaryGlassVisualTransform(node)
+    val rect = item.rect
+    val transform = item.transform
     withTransform({
         translate(rect.left, rect.top + transform.translationY)
     }) {
@@ -30,7 +29,10 @@ internal fun DrawScope.withOrdinaryParentTransform(
             scale(
                 scaleX = transform.scaleX,
                 scaleY = transform.scaleY,
-                pivot = Offset(rect.width * transform.origin.x, rect.height * transform.origin.y)
+                pivot = Offset(
+                    rect.width * transform.originX,
+                    rect.height * transform.originY
+                )
             )
         }) {
             block()
@@ -39,11 +41,12 @@ internal fun DrawScope.withOrdinaryParentTransform(
 }
 
 internal fun DrawScope.drawOrdinaryParentShadow(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect
+    item: VisibleOrdinaryGlassItem
 ) {
+    val node = item.node
+    val rect = item.rect
     if (node.role == GlassRole.Shell || rect.width <= 1f || rect.height <= 1f) return
-    withOrdinaryParentTransform(node, rect) {
+    withOrdinaryParentTransform(item) {
         val w = rect.width.coerceAtLeast(1f)
         val h = rect.height.coerceAtLeast(1f)
         val shadowScale = ComposeGlassRuntimeDefaults.shadow * node.glassIntensity.coerceIn(0.25f, 1.45f)
@@ -83,15 +86,15 @@ internal fun DrawScope.drawOrdinaryParentShadow(
 }
 
 internal fun DrawScope.drawOrdinaryParentBackdrop(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect,
+    item: VisibleOrdinaryGlassItem,
     backdrop: BlurredBackdropBitmap?,
-    sampleOffset: Offset,
     spec: GlassBackdropSpec?
 ) {
+    val node = item.node
+    val rect = item.rect
     if (node.role == GlassRole.Shell || rect.width <= 1f || rect.height <= 1f) return
     val resolvedSpec = spec ?: return
-    withOrdinaryParentTransform(node, rect) {
+    withOrdinaryParentTransform(item) {
         val cache = ensureOrdinaryParentGeometry(node, rect)
         ensureOrdinaryParentBackdropBrushes(node, rect, resolvedSpec, cache)
         val localSize = cache.localSize
@@ -99,7 +102,7 @@ internal fun DrawScope.drawOrdinaryParentBackdrop(
             if (backdrop != null) {
                 drawOrdinaryParentBackdropImage(
                     backdrop = backdrop,
-                    sampleOffset = sampleOffset,
+                    sampleOffset = item.sampleOffset,
                     itemSize = localSize,
                     alpha = cache.sampledBackdropAlpha
                 )
