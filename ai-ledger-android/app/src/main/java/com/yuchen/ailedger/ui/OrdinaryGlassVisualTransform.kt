@@ -1,25 +1,34 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 
-internal data class OrdinaryGlassVisualTransform(
-    val scaleX: Float,
-    val scaleY: Float,
-    val translationY: Float,
-    val origin: Offset
-)
+/**
+ * 父级批绘制复用的可变变换容器。
+ * 每个可见池槽只创建一次，滚动和按压帧内不再为每张玻璃分配临时 data class。
+ */
+internal class OrdinaryGlassVisualTransform {
+    var scaleX: Float = 1f
+    var scaleY: Float = 1f
+    var translationY: Float = 0f
+    var originX: Float = 0.5f
+    var originY: Float = 0.5f
 
-internal fun ordinaryGlassVisualTransform(
-    node: OrdinaryGlassRenderNode
-): OrdinaryGlassVisualTransform {
+    fun setIdentity() {
+        scaleX = 1f
+        scaleY = 1f
+        translationY = 0f
+        originX = 0.5f
+        originY = 0.5f
+    }
+}
+
+internal fun updateOrdinaryGlassVisualTransform(
+    node: OrdinaryGlassRenderNode,
+    out: OrdinaryGlassVisualTransform
+) {
     if (!node.pressable || node.role == GlassRole.Shell) {
-        return OrdinaryGlassVisualTransform(
-            scaleX = 1f,
-            scaleY = 1f,
-            translationY = 0f,
-            origin = Offset(0.5f, 0.5f)
-        )
+        out.setIdentity()
+        return
     }
 
     val elasticity = node.elasticity.coerceIn(0f, 1f)
@@ -31,27 +40,22 @@ internal fun ordinaryGlassVisualTransform(
         (positivePress / 0.94f).coerceIn(0f, 1f)
     )
 
-    return OrdinaryGlassVisualTransform(
-        scaleX = 1f + compression * (0.006f + 0.049f * elasticity) -
-            rebound * 0.018f * elasticity,
-        scaleY = 1f - compression * (0.010f + 0.064f * elasticity) +
-            rebound * 0.030f * elasticity,
-        translationY = compression * (0.70f + 3.90f * elasticity) -
-            rebound * 1.55f * elasticity,
-        origin = Offset(
-            node.pressCenter.x.coerceIn(0f, 1f),
-            node.pressCenter.y.coerceIn(0f, 1f)
-        )
-    )
+    out.scaleX = 1f + compression * (0.006f + 0.049f * elasticity) -
+        rebound * 0.018f * elasticity
+    out.scaleY = 1f - compression * (0.010f + 0.064f * elasticity) +
+        rebound * 0.030f * elasticity
+    out.translationY = compression * (0.70f + 3.90f * elasticity) -
+        rebound * 1.55f * elasticity
+    out.originX = node.pressCenter.x.coerceIn(0f, 1f)
+    out.originY = node.pressCenter.y.coerceIn(0f, 1f)
 }
 
 internal fun ordinaryGlassTransformedBounds(
-    node: OrdinaryGlassRenderNode,
+    transform: OrdinaryGlassVisualTransform,
     rect: Rect
 ): Rect {
-    val transform = ordinaryGlassVisualTransform(node)
-    val pivotX = rect.width * transform.origin.x
-    val pivotY = rect.height * transform.origin.y
+    val pivotX = rect.width * transform.originX
+    val pivotY = rect.height * transform.originY
     val left = rect.left + pivotX * (1f - transform.scaleX)
     val top = rect.top + transform.translationY + pivotY * (1f - transform.scaleY)
     return Rect(
