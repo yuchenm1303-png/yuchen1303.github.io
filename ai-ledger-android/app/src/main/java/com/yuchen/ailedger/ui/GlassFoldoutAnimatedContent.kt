@@ -17,7 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onPlaced
 
 /**
  * 仅保存玻璃实验室中“普通 Compose 父级绘制”开关的用户状态。
@@ -60,7 +60,7 @@ internal fun GlassFoldoutAnimatedContent(
     Box(
         modifier = modifier
             .clipToBounds()
-            .onGloballyPositioned { coordinates ->
+            .onPlaced { coordinates ->
                 clipRegistry?.update(clipKey, coordinates)
             }
     ) {

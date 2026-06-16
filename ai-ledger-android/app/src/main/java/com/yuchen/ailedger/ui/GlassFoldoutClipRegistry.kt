@@ -185,12 +185,18 @@ private fun Rect.hasUsableFoldoutBounds(): Boolean =
     left.isFinite() && top.isFinite() && right.isFinite() && bottom.isFinite() &&
         width > 0.5f && height > 0.5f
 
-internal fun Rect.intersectionOrNull(other: Rect): Rect? {
+internal fun Rect.intersectionOrNull(
+    other: Rect,
+    minimumExtent: Float = 0f
+): Rect? {
     val clippedLeft = max(left, other.left)
     val clippedTop = max(top, other.top)
     val clippedRight = min(right, other.right)
     val clippedBottom = min(bottom, other.bottom)
-    return if (clippedRight > clippedLeft && clippedBottom > clippedTop) {
+    return if (
+        clippedRight - clippedLeft > minimumExtent &&
+        clippedBottom - clippedTop > minimumExtent
+    ) {
         Rect(clippedLeft, clippedTop, clippedRight, clippedBottom)
     } else {
         null
