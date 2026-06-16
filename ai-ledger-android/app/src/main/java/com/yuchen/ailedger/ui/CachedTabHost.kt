@@ -132,7 +132,13 @@ fun CachedAppTabHost(
                         LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
                     ) {
                         key(tab) {
-                            content(tab)
+                            if (tab == AppTab.Settings) {
+                                InsetGlassSliderBatchGroup(Modifier.fillMaxSize()) {
+                                    content(tab)
+                                }
+                            } else {
+                                content(tab)
+                            }
                         }
                     }
                 }
