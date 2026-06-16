@@ -127,12 +127,20 @@ internal val LocalInsetGlassSliderBatchState =
 /**
  * 每个展开参数组使用一个 Host。静态玻璃底面在父级一次绘制，
  * 子滑块只绘制进度轨和文字，避免大量重复背景裁切与 Canvas 节点。
+ * 折叠动画期间暂时回退到单槽本地绘制，严格服从动画裁剪边界。
  */
 @Composable
 internal fun InsetGlassSliderBatchGroup(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
+    if (LocalGlassFoldoutAnimationRunning.current) {
+        CompositionLocalProvider(LocalInsetGlassSliderBatchState provides null) {
+            Box(modifier = modifier, content = content)
+        }
+        return
+    }
+
     val state = remember { InsetGlassSliderBatchState() }
     DisposableEffect(state) {
         onDispose { state.clear() }
@@ -155,7 +163,6 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
         .filter { it.rect.width > 0f && it.rect.height > 0f }
         .toList()
 
-    // 空的嵌套 Host 不创建 Canvas，也不读取全局帧 ticker。
     if (slotEntries.isEmpty()) return
 
     val cachedBackdrop = LocalBlurredBackdrop.current
@@ -170,7 +177,6 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
     val outerStrokeWidthPx = with(density) { 0.9.dp.toPx() }
     val preloadMarginPx = with(density) { BatchPreloadMarginDp.dp.toPx() }
 
-    // 槽位几何变化时才重建 Path、Brush、CornerRadius 和 Size。
     val cachedSlots = remember(
         slotEntries,
         radiusPx,
@@ -229,11 +235,8 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
 
     Canvas(modifier = Modifier.matchParentSize()) {
         val backdrop = cachedBackdrop
-        // 不降低 ticker 频率：滚动时背景裁剪仍逐帧跟随。
         if (backdrop != null) frameTicker?.frameNanos
 
-        // 用一个锚点估算 Host 的屏幕原点。长分组先靠缓存 rect 做离屏判断，
-        // 只有进入屏幕附近的槽位才读取自己的精确 LayoutCoordinates。
         val anchor = cachedSlots.first()
         val anchorSampleOffset = if (backdrop != null) {
             anchor.slot.coordinateSource.offsetRelativeTo(backdropOrigin)
@@ -344,10 +347,6 @@ private fun isSlotNearViewport(
         sampleOffset.y <= viewportHeight + margin
 }
 
-/**
- * 每个槽位使用自己的实际屏幕坐标采样背景。
- * 仍然只由父级 Canvas 执行，避免 Host 级可见宽度裁切造成固定竖向断层。
- */
 private fun DrawScope.drawSlotBackdrop(
     backdrop: BlurredBackdropBitmap,
     sampleOffset: Offset,
