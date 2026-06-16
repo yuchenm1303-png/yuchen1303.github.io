@@ -111,13 +111,14 @@ fun PrismaticCapsuleBottomBar(
         val activeEnergy = maxOf(edgeSafeTravel, pressEnergy, stopEnergy)
         val phase = prismPhase.value
 
-        GlassPanel(
+        OpenGlShellGlass(
             quality = quality,
             glassIntensity = glassIntensity * 1.015f,
             motionIntensity = motionIntensity,
             radius = 999,
             modifier = Modifier.fillMaxSize(),
-            role = GlassRole.Nav
+            mood = OpenGlShellMood.List,
+            forceOpenGl = true
         ) {
             BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 6.dp, vertical = 4.dp)) {
                 val totalWidthPx = with(density) { maxWidth.toPx() }
