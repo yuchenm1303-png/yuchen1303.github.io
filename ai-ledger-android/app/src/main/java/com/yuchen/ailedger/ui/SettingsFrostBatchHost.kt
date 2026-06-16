@@ -16,11 +16,14 @@ import androidx.compose.ui.Modifier
 
 @Stable
 internal class SettingsFrostMotionClock {
+    private var originNanos = 0L
+
     var frameNanos by mutableLongStateOf(0L)
         private set
 
     fun update(frameTimeNanos: Long) {
-        frameNanos = frameTimeNanos
+        if (originNanos == 0L) originNanos = frameTimeNanos
+        frameNanos = (frameTimeNanos - originNanos).coerceAtLeast(0L)
     }
 }
 
@@ -41,10 +44,9 @@ internal fun SettingsFrostBatchHost(
     val layerState = rememberSettingsFrostParentLayerState()
     val motionClock = remember { SettingsFrostMotionClock() }
     val pageVisible = LocalPageVisible.current
-    val heavyEffectsEnabled = LocalPageHeavyEffectsEnabled.current
 
-    LaunchedEffect(pageVisible, heavyEffectsEnabled, motionClock) {
-        if (!pageVisible || !heavyEffectsEnabled) return@LaunchedEffect
+    LaunchedEffect(pageVisible, motionClock) {
+        if (!pageVisible) return@LaunchedEffect
         while (true) {
             withFrameNanos(motionClock::update)
         }
