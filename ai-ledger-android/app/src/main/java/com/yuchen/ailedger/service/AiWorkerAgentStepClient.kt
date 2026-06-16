@@ -11,8 +11,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 8_000
-private const val AGENT_STEP_READ_TIMEOUT_MS = 18_000
+private const val AGENT_STEP_READ_TIMEOUT_MS = 20_000
 private const val AGENT_VISION_ROUTE_ID = "qwen_vision"
+private const val AGENT_SESSION_PROTOCOL = "android_v2_stable"
 
 @Throws(IOException::class)
 fun AiWorkerClient.requestAgentStep(
@@ -56,22 +57,48 @@ private fun buildAgentStepPayload(
     executionMode: AgentExecutionMode,
 ): JSONObject {
     val cleanGoal = goal.trim().take(240)
-    val hasScreenshot = snapshot.hasVisualImage
     val forceVisual = executionMode != AgentExecutionMode.NormalChatDeviceTool
+    val hasVisualPayload = snapshot.hasVisualImage && forceVisual
+    val isNormalChatToolProbe = executionMode == AgentExecutionMode.NormalChatDeviceTool
     val modeKey = when (executionMode) {
         AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
         AgentExecutionMode.VisualForce -> "visual_force"
         AgentExecutionMode.ExplicitAgent -> "explicit_agent"
     }
     val modelId = when {
-        hasScreenshot -> AGENT_VISION_ROUTE_ID
-        executionMode == AgentExecutionMode.NormalChatDeviceTool -> ChatModel.DeepSeekV4.id
+        hasVisualPayload -> AGENT_VISION_ROUTE_ID
+        isNormalChatToolProbe -> ChatModel.DeepSeekV4.id
         modelPreference == ChatModel.Auto -> ChatModel.Kimi.id
         else -> modelPreference.id
     }
-    val loopIndex = agentMemory?.optJSONObject("loopSignals")?.optIntOrNull("loopIndex") ?: 0
-    val sessionId = agentMemory?.optJSONObject("loopSignals")?.optString("agentSessionId")?.takeIf { it.isNotBlank() }
-        ?: "android-agent-${System.currentTimeMillis()}"
+
+    val loopSignals = agentMemory?.optJSONObject("loopSignals")
+    val postActionFeedback = loopSignals?.optJSONObject("postActionFeedback")
+    val loopIndex = loopSignals?.optIntOrNull("loopIndex") ?: 0
+    val noProgressCount = postActionFeedback?.optIntOrNull("noProgressCount") ?: 0
+    val blockedActionCount = postActionFeedback
+        ?.optJSONArray("blockedActionSignatures")
+        ?.length()
+        ?: 0
+    val lastVerification = postActionFeedback
+        ?.optString("lastVerification")
+        .orEmpty()
+        .lowercase(Locale.ROOT)
+    val routeRefreshRequested = forceVisual && (
+        noProgressCount > 0 ||
+            blockedActionCount > 0 ||
+            lastVerification.contains("no_progress") ||
+            recentActions.takeLast(3).any { action ->
+                action.contains("visual_no_progress", ignoreCase = true) ||
+                    action.contains("paused_for_user_takeover", ignoreCase = true) ||
+                    action.contains("postActionFeedbackReset", ignoreCase = true)
+            }
+        )
+    val sessionId = loopSignals
+        ?.optString("agentSessionId")
+        ?.takeIf { it.isNotBlank() }
+        ?: "android-agent-v2-${System.currentTimeMillis()}"
+
     return JSONObject().apply {
         put("action", "agent_step")
         put("intent", "agent_step")
@@ -82,24 +109,31 @@ private fun buildAgentStepPayload(
         put("computerUseMode", forceVisual)
         put("forceVisualAgent", forceVisual)
         put("allowInternalDeviceTools", true)
-        put("normalChatDeviceToolMode", executionMode == AgentExecutionMode.NormalChatDeviceTool)
+        put("normalChatDeviceToolMode", isNormalChatToolProbe)
         put("executionMode", modeKey)
-        put("visionFirst", hasScreenshot && forceVisual)
+        put("visionFirst", hasVisualPayload)
         put("coordinateProtocol", "normalized_screen_0_1")
         put("agentGoal", cleanGoal)
         put("goal", cleanGoal)
         put("message", cleanGoal)
         put("agentSessionId", sessionId)
+        put("agentSessionProtocol", AGENT_SESSION_PROTOCOL)
         put("agentSessionStep", loopIndex)
-        put("recentAgentActions", JSONArray().apply { recentActions.takeLast(8).forEach { put(it) } })
+        put("fixedStepLimit", isNormalChatToolProbe)
+        put("maxAgentSteps", if (isNormalChatToolProbe) 2 else JSONObject.NULL)
+        put("routeRefreshRequested", routeRefreshRequested)
+        put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
+        put("replanAfterSettingsEntry", true)
+        put("crossActionNoProgressAccumulation", false)
+        put("recentAgentActions", JSONArray().apply { recentActions.takeLast(10).forEach { put(it) } })
         agentMemory?.let { put("agentMemory", it) }
         deviceContext?.let { put("deviceContext", it.json) }
         put("screenSnapshot", snapshot.toJson(includeImage = false))
-        put("hasScreenshot", hasScreenshot && forceVisual)
-        put("hasImage", hasScreenshot && forceVisual)
-        put("hasImages", false)
-        put("imageCount", if (hasScreenshot && forceVisual) 1 else 0)
-        if (forceVisual) {
+        put("hasScreenshot", hasVisualPayload)
+        put("hasImage", hasVisualPayload)
+        put("hasImages", hasVisualPayload)
+        put("imageCount", if (hasVisualPayload) 1 else 0)
+        if (hasVisualPayload) {
             snapshot.visual?.takeIf { it.hasImage }?.let { visual ->
                 put("screenshot", JSONObject().apply {
                     put("mimeType", visual.mimeType)
@@ -114,7 +148,7 @@ private fun buildAgentStepPayload(
             }
         }
         put("vision", JSONObject().apply {
-            put("enabled", hasScreenshot && forceVisual)
+            put("enabled", hasVisualPayload)
             put("provider", "qwen")
             put("route", AGENT_VISION_ROUTE_ID)
             put("coordinateSystem", "normalized_screen_0_1")
@@ -127,7 +161,14 @@ private fun buildAgentStepPayload(
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
-        put("clientVersion", if (hasScreenshot && forceVisual) "compose-native-agent-visual-batch-v13-action" else "compose-native-agent-tool-batch-v13-action")
+        put(
+            "clientVersion",
+            if (hasVisualPayload) {
+                "compose-native-agent-visual-batch-v14-unbounded"
+            } else {
+                "compose-native-agent-tool-batch-v14-unbounded"
+            },
+        )
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
             put("includeAgentState", true)
@@ -149,7 +190,8 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json, text/plain")
-        setRequestProperty("X-Client", "android-compose-agent")
+        setRequestProperty("X-Client", "android-compose-agent-v14")
+        setRequestProperty("X-Agent-Session-Protocol", AGENT_SESSION_PROTOCOL)
     }
     return try {
         val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
@@ -157,7 +199,14 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         val status = connection.responseCode
         val body = connection.agentReadBody(status)
         val data = body.agentJsonOrNull()
-        AgentRuntimeController.noteDiagnostic(buildCompactAgentDiagnostic(data, requestBytes.size, body.length, SystemClock.elapsedRealtime() - requestStart))
+        AgentRuntimeController.noteDiagnostic(
+            buildCompactAgentDiagnostic(
+                data,
+                requestBytes.size,
+                body.length,
+                SystemClock.elapsedRealtime() - requestStart,
+            ),
+        )
         if (status !in 200..299) {
             val message = data?.optString("error")?.takeIf { it.isNotBlank() }
                 ?: data?.optString("message")?.takeIf { it.isNotBlank() }
