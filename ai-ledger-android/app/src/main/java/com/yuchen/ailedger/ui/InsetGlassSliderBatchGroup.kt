@@ -155,7 +155,6 @@ private fun InsetGlassSliderBatchChrome(
         .toList()
 
     // 空的嵌套 Host 不创建 Canvas，也不读取全局帧 ticker。
-    // 槽位注册后 snapshot map 会自动触发重新组合。
     if (slotEntries.isEmpty()) return
 
     val cachedBackdrop = LocalBlurredBackdrop.current
@@ -170,8 +169,7 @@ private fun InsetGlassSliderBatchChrome(
     val outerStrokeWidthPx = with(density) { 0.9.dp.toPx() }
     val preloadMarginPx = with(density) { BatchPreloadMarginDp.dp.toPx() }
 
-    // 槽位几何变化时才重建 Path、Brush、CornerRadius 和 Size；
-    // 普通背景帧与滚动帧只执行绘制命令。
+    // 槽位几何变化时才重建 Path、Brush、CornerRadius 和 Size。
     val cachedSlots = remember(
         slotEntries,
         radiusPx,
@@ -231,13 +229,28 @@ private fun InsetGlassSliderBatchChrome(
     Canvas(modifier = modifier) {
         val backdrop = cachedBackdrop
         // 不降低 ticker 频率：滚动时背景裁剪仍逐帧跟随。
-        // 只有确实存在背景纹理和槽位时才读取它。
         if (backdrop != null) frameTicker?.frameNanos
+
+        // 用一个锚点估算 Host 的屏幕原点。长分组先靠缓存 rect 做离屏判断，
+        // 只有进入屏幕附近的槽位才读取自己的精确 LayoutCoordinates。
+        val anchor = cachedSlots.first()
+        val anchorSampleOffset = if (backdrop != null) {
+            anchor.slot.coordinateSource.offsetRelativeTo(backdropOrigin)
+        } else {
+            Offset.Unspecified
+        }
+        val estimatedHostOffset = if (anchorSampleOffset.isSpecified) {
+            anchorSampleOffset - anchor.slot.rect.topLeft
+        } else {
+            Offset.Unspecified
+        }
 
         cachedSlots.forEach slotLoop@ { cache ->
             val slot = cache.slot
             val rect = slot.rect
-            val sampleOffset = if (backdrop != null) {
+            val estimatedSampleOffset = if (estimatedHostOffset.isSpecified) {
+                estimatedHostOffset + rect.topLeft
+            } else if (backdrop != null) {
                 slot.coordinateSource.offsetRelativeTo(backdropOrigin)
             } else {
                 Offset.Unspecified
@@ -245,7 +258,7 @@ private fun InsetGlassSliderBatchChrome(
 
             val visible = if (backdrop != null) {
                 isSlotNearViewport(
-                    sampleOffset = sampleOffset,
+                    sampleOffset = estimatedSampleOffset,
                     slotSize = rect.size,
                     viewportWidth = backdrop.fullWidthPx.toFloat(),
                     viewportHeight = backdrop.fullHeightPx.toFloat(),
@@ -259,11 +272,17 @@ private fun InsetGlassSliderBatchChrome(
             }
             if (!visible) return@slotLoop
 
+            val exactSampleOffset = when {
+                backdrop == null -> Offset.Unspecified
+                cache === anchor -> anchorSampleOffset
+                else -> slot.coordinateSource.offsetRelativeTo(backdropOrigin)
+            }
+
             clipPath(cache.mask) {
-                if (backdrop != null) {
+                if (backdrop != null && exactSampleOffset.isSpecified) {
                     drawSlotBackdrop(
                         backdrop = backdrop,
-                        sampleOffset = sampleOffset,
+                        sampleOffset = exactSampleOffset,
                         destination = rect,
                         alpha = BatchInsetBackdropAlpha
                     )
