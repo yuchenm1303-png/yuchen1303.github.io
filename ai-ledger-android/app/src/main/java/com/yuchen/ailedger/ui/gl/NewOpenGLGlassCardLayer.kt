@@ -3,6 +3,7 @@ package com.yuchen.ailedger.ui.gl
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -18,6 +19,9 @@ import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import com.yuchen.ailedger.ui.LocalGlassSceneGroup
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+val LocalNewOpenGlGlassStyleOverride =
+    staticCompositionLocalOf<((GlassBorderStyle) -> GlassBorderStyle)?> { null }
 
 @Composable
 fun NewOpenGLGlassCardLayer(
@@ -44,7 +48,11 @@ fun NewOpenGLGlassCardLayer(
     }
 
     val backdrop = LocalBlurredBackdrop.current ?: return
-    val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
+    val baseBorder = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
+    val styleOverride = LocalNewOpenGlGlassStyleOverride.current
+    val border = remember(baseBorder, styleOverride) {
+        styleOverride?.invoke(baseBorder) ?: baseBorder
+    }
     val rendererBorder = remember(border) { border.onlyWebOpenGLRendererFields() }
     val backdropOrigin = LocalBackdropOrigin.current
     val density = LocalDensity.current
@@ -67,7 +75,6 @@ fun NewOpenGLGlassCardLayer(
     val rawPressY = pressCenter.y.coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = modifier) {
-        // 玻璃真实几何保持浮点连续值，避免形状动画被逐像素取整后出现跳步。
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
         val heightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
         val safeViewportTopInsetPx = effectiveViewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
@@ -77,7 +84,6 @@ fun NewOpenGLGlassCardLayer(
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
 
-        // TextureView/EGL Surface 始终使用稳定包络尺寸；玻璃形状只通过 uniform 连续变化。
         val safeSurfaceAnchor = surfaceAnchor.coerceIn(0f, 1f)
         val stableSurfaceWidthPx = max(widthPx, rootWidthPx)
         val stableSurfaceHeightPx = max(
@@ -89,7 +95,6 @@ fun NewOpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> WebOpenGLGlassCardHostView(context) },
             update = { view ->
-                // 先把本帧最新几何和采样坐标写入 Renderer，避免 Surface 布局期间吞掉中间状态。
                 val specDirty = view.setGlassSpec(
                     widthPx,
                     viewportHeightPx,
@@ -112,8 +117,6 @@ fun NewOpenGLGlassCardLayer(
                 )
                 val blurDirty = view.setBackdropBlurAmount(backdrop.blurAmount)
                 val styleDirty = view.setGlassStyle(rendererBorder, densityScale)
-
-                // Surface 只在稳定包络真正增大或根视口改变时调整，不参与玻璃形状逐帧动画。
                 val surfaceDirty = view.setStableSurfaceSize(
                     stableSurfaceWidthPx.roundToInt(),
                     stableSurfaceHeightPx.roundToInt(),
@@ -129,10 +132,6 @@ fun NewOpenGLGlassCardLayer(
     }
 }
 
-/**
- * Host 的样式判脏只看新版 Renderer 真正读取的字段。
- * 旧 OpenGL、Compose 普通玻璃和兼容字段变化不会再无意义唤醒 EGL。
- */
 private fun GlassBorderStyle.onlyWebOpenGLRendererFields(): GlassBorderStyle = GlassBorderStyle().copy(
     newOpenGlBodyVisibility = newOpenGlBodyVisibility,
     newOpenGlBodyMaxAlpha = newOpenGlBodyMaxAlpha,
