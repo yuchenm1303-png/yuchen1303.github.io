@@ -8,6 +8,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -111,7 +112,7 @@ internal fun GlassFoldoutAnimatedContent(
         ) {
             Box(
                 modifier = Modifier
-                    .matchParentSize()
+                    .fillMaxWidth()
                     .clipToBounds(),
                 content = content
             )
