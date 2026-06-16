@@ -42,10 +42,10 @@ private const val BatchInsetInnerShadow = 0.67f
 private const val BatchInsetFloorDim = 0.23f
 private const val BatchPreloadMarginDp = 64f
 
-private class CachedInsetGlassBatchSlot {
+internal class CachedInsetGlassBatchSlot {
     var geometrySignature: Long = Long.MIN_VALUE
     var mask: Path = Path()
-    var corner: CornerRadius = CornerRadius.Zero
+    var corner: CornerRadius = CornerRadius(0f, 0f)
     var localSize: Size = Size.Zero
     var innerTopLeft: Offset = Offset.Zero
     var innerSize: Size = Size.Zero
@@ -111,7 +111,8 @@ internal class InsetGlassSliderBatchState {
     }
 
     private fun syncAll() {
-        childCoordinates.keys.toList().forEach(::syncSlot)
+        val keys = childCoordinates.keys.toTypedArray()
+        keys.forEach(::syncSlot)
     }
 
     private fun syncSlot(key: Any) {
