@@ -3,7 +3,6 @@ package com.yuchen.ailedger.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -135,19 +134,15 @@ internal fun InsetGlassSliderBatchGroup(
 
     CompositionLocalProvider(LocalInsetGlassSliderBatchState provides state) {
         Box(modifier = modifier.onPlaced(state::updateHost)) {
-            InsetGlassSliderBatchChrome(
-                state = state,
-                modifier = Modifier.matchParentSize()
-            )
+            InsetGlassSliderBatchChrome(state = state)
             content()
         }
     }
 }
 
 @Composable
-private fun InsetGlassSliderBatchChrome(
-    state: InsetGlassSliderBatchState,
-    modifier: Modifier = Modifier
+private fun BoxScope.InsetGlassSliderBatchChrome(
+    state: InsetGlassSliderBatchState
 ) {
     val slotEntries = state.slots.values
         .asSequence()
@@ -226,7 +221,7 @@ private fun InsetGlassSliderBatchChrome(
         }
     }
 
-    Canvas(modifier = modifier) {
+    Canvas(modifier = Modifier.matchParentSize()) {
         val backdrop = cachedBackdrop
         // 不降低 ticker 频率：滚动时背景裁剪仍逐帧跟随。
         if (backdrop != null) frameTicker?.frameNanos
@@ -239,7 +234,7 @@ private fun InsetGlassSliderBatchChrome(
         } else {
             Offset.Unspecified
         }
-        val estimatedHostOffset = if (anchorSampleOffset.isSpecified) {
+        val estimatedHostOffset = if (anchorSampleOffset.hasFiniteCoordinates()) {
             anchorSampleOffset - anchor.slot.rect.topLeft
         } else {
             Offset.Unspecified
@@ -248,7 +243,7 @@ private fun InsetGlassSliderBatchChrome(
         cachedSlots.forEach slotLoop@ { cache ->
             val slot = cache.slot
             val rect = slot.rect
-            val estimatedSampleOffset = if (estimatedHostOffset.isSpecified) {
+            val estimatedSampleOffset = if (estimatedHostOffset.hasFiniteCoordinates()) {
                 estimatedHostOffset + rect.topLeft
             } else if (backdrop != null) {
                 slot.coordinateSource.offsetRelativeTo(backdropOrigin)
@@ -279,7 +274,7 @@ private fun InsetGlassSliderBatchChrome(
             }
 
             clipPath(cache.mask) {
-                if (backdrop != null && exactSampleOffset.isSpecified) {
+                if (backdrop != null && exactSampleOffset.hasFiniteCoordinates()) {
                     drawSlotBackdrop(
                         backdrop = backdrop,
                         sampleOffset = exactSampleOffset,
@@ -327,6 +322,8 @@ private fun InsetGlassSliderBatchChrome(
     }
 }
 
+private fun Offset.hasFiniteCoordinates(): Boolean = x.isFinite() && y.isFinite()
+
 private fun isSlotNearViewport(
     sampleOffset: Offset,
     slotSize: Size,
@@ -334,7 +331,7 @@ private fun isSlotNearViewport(
     viewportHeight: Float,
     margin: Float
 ): Boolean {
-    if (!sampleOffset.isSpecified) return false
+    if (!sampleOffset.hasFiniteCoordinates()) return false
     return sampleOffset.x + slotSize.width >= -margin &&
         sampleOffset.y + slotSize.height >= -margin &&
         sampleOffset.x <= viewportWidth + margin &&
