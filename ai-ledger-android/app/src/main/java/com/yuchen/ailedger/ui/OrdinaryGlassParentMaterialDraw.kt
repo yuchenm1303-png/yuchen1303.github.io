@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -15,11 +14,12 @@ import androidx.compose.ui.unit.dp
  * 静态底材、边缘带和外沿全部位于业务 content 下方。
  */
 internal fun DrawScope.drawOrdinaryParentMaterial(
-    node: OrdinaryGlassRenderNode,
-    rect: Rect
+    item: VisibleOrdinaryGlassItem
 ) {
+    val node = item.node
+    val rect = item.rect
     if (node.role == GlassRole.Shell || rect.width <= 1f || rect.height <= 1f) return
-    withOrdinaryParentTransform(node, rect) {
+    withOrdinaryParentTransform(item) {
         val cache = ensureOrdinaryParentGeometry(node, rect)
         ensureOrdinaryParentMaterialBrushes(node, rect, cache)
         val glass = ComposeGlassLabState.style
