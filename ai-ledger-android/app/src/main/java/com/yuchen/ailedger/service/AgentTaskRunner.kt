@@ -161,18 +161,7 @@ class AgentTaskRunner(
         executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
-
-        // 普通聊天不再提前发起第二次模型规划。统一交给正式聊天请求中的 AgentBrain，
-        // 避免复合目标被旧 device_tool 预检截断，也避免普通问答多一次网络往返。
-        if (executionMode == AgentExecutionMode.NormalChatDeviceTool) {
-            return AgentTaskRunResult(
-                completed = false,
-                stoppedForConfirmation = false,
-                message = "交回统一 AgentBrain 路由。",
-                logs = logs,
-                handled = false,
-            )
-        }
+        val isNormalChatToolProbe = executionMode == AgentExecutionMode.NormalChatDeviceTool
 
         if (executionMode == AgentExecutionMode.VisualForce && !AgentRuntimeController.isEnabled()) {
             val message = "视觉智能体已关闭；普通内部控制不受这个开关影响。"
@@ -183,22 +172,27 @@ class AgentTaskRunner(
         val recentActions = mutableListOf<String>()
         val loopFeedback = AgentLoopFeedback()
         val taskSessionId = "android-agent-v2-${System.currentTimeMillis()}"
+        val ownsTaskSession = !isNormalChatToolProbe
 
-        AiAgentAccessibilityService.beginTaskSession()
-        AgentRuntimeController.startTask(goal)
+        if (ownsTaskSession) {
+            AiAgentAccessibilityService.beginTaskSession()
+            AgentRuntimeController.startTask(goal)
+        }
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
 
         return try {
-            waitForOverlayAndUiFirstFrameBeforeCapture()
+            if (!isNormalChatToolProbe) waitForOverlayAndUiFirstFrameBeforeCapture()
 
-            // 完整智能体不再受固定步数上限约束。退出只由任务完成、用户停止、
-            // 风险确认、用户接管或同一动作真实无进展决定。
-            while (!isStopped(stopGeneration)) {
+            while (
+                !isStopped(stopGeneration) &&
+                (!isNormalChatToolProbe || logs.size < maxSteps)
+            ) {
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
-                var observation = captureOnce(forceVisual = true)
+                val wantsVisual = !isNormalChatToolProbe
+                var observation = captureOnce(forceVisual = wantsVisual)
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
-                if (!observation.enabled || !observation.serviceConnected) {
+                if (wantsVisual && (!observation.enabled || !observation.serviceConnected)) {
                     val message = if (AiAgentAccessibilityService.isConnected()) {
                         "智能体任务已停止，已跳过后台屏幕采集。"
                     } else {
@@ -210,7 +204,7 @@ class AgentTaskRunner(
 
                 observation = awaitPostActionSettle(
                     initialObservation = observation,
-                    forceVisual = true,
+                    forceVisual = wantsVisual,
                     loopFeedback = loopFeedback,
                     stopGeneration = stopGeneration,
                 )
@@ -220,6 +214,9 @@ class AgentTaskRunner(
                 val snapshotFingerprint = snapshotFingerprint(snapshot)
                 loopFeedback.consumePostActionSnapshot(snapshotFingerprint)?.let { recentActions += it }
                 if (loopFeedback.shouldPauseForRepeatedNoProgress()) {
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(false, false, "内部工具没有检测到有效进展，交回普通聊天。", logs, handled = false)
+                    }
                     val message = "当前动作重复执行后仍未检测到明确页面变化。智能体已暂停，你可以等待页面加载或手动接管，完成后点击继续。"
                     recentActions += "postActionCheck=paused_for_user_takeover · reason=repeated_same_action_no_progress"
                     pauseForUserAssistance(message, stopGeneration)
@@ -248,6 +245,7 @@ class AgentTaskRunner(
                     }
                 } catch (error: IOException) {
                     val message = "云端规划超时或失败：${error.message ?: "未知错误"}"
+                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, message, logs, handled = false)
                     AgentRuntimeController.failTask(message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
@@ -259,7 +257,7 @@ class AgentTaskRunner(
                     val finishStep = CloudAgentStep(type = "finish", reason = message, riskLevel = "low", requiresConfirmation = false)
                     val done = AgentExecutionResult(true, message, false)
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, finishStep, done)
-                    AgentRuntimeController.finishTask(message, completed = true)
+                    if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = true)
                     return AgentTaskRunResult(true, false, message, logs)
                 }
 
@@ -270,23 +268,31 @@ class AgentTaskRunner(
                     .firstOrNull()
 
                 if (step == null) {
-                    val message = "云端没有给出可执行动作，已暂停以避免后台持续截图和扫节点。"
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(false, false, "云端判断这不是可直接执行的内部设备工具。", logs, handled = false)
+                    }
+                    val message = "云端没有给出可执行动作，智能体已暂停等待用户接管。"
                     pauseForUserAssistance(message, stopGeneration)
                     if (isStopped(stopGeneration)) break
                     loopFeedback.resetAfterUserTakeover()
-                    recentActions += "userTakeover=resumed · reason=no_executable_step"
                     continue
                 }
 
                 if (step.type == "need_user_help") {
+                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, step.reason ?: "需要更多信息。", logs, handled = false)
                     pauseForUserAssistance(step.reason ?: "需要用户协助。", stopGeneration)
                     if (isStopped(stopGeneration)) break
                     loopFeedback.resetAfterUserTakeover()
                     continue
                 }
 
+                if (isNormalChatToolProbe && step.type !in CloudAgentStep.deviceToolTypes) {
+                    return AgentTaskRunResult(false, false, "当前目标需要完整视觉智能体，交回普通聊天统一路由。", logs, handled = false)
+                }
+
                 if (requiresAccessibilityRuntime(step) && !observation.serviceConnected) {
                     val message = "该步骤需要视觉/无障碍执行，请开启无障碍或打开首页 Agent 开关后再试。"
+                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, message, logs, handled = false)
                     AgentRuntimeController.failTask(message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
@@ -296,6 +302,7 @@ class AgentTaskRunner(
                 if (contextualStopMessage != null) {
                     val blockedStep = executableStep.copy(reason = cleanStepReason(contextualStopMessage))
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, blockedStep, null)
+                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, contextualStopMessage, logs, handled = true)
                     pauseForUserAssistance(contextualStopMessage, stopGeneration)
                     if (isStopped(stopGeneration)) break
                     loopFeedback.resetAfterUserTakeover()
@@ -303,6 +310,7 @@ class AgentTaskRunner(
                 }
 
                 val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, executableStep)) {
+                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, "该内部控制需要用户确认。", logs, handled = false)
                     val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, executableStep)
                     if (!confirmed) return stoppedByUserResult(logs)
                     true
@@ -313,6 +321,7 @@ class AgentTaskRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, executableStep)) {
+                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, "该动作需要完整智能体或用户接管。", logs, handled = false)
                     if (AgentSafetyPolicy.requiresUserProvidedInput(goal, executableStep)) {
                         pauseForUserAssistance(executableStep.reason ?: "当前步骤需要你接管处理：${executableStep.typeLabel}", stopGeneration)
                         if (isStopped(stopGeneration)) break
@@ -337,16 +346,14 @@ class AgentTaskRunner(
                     recentActions += buildRecentActionSummary(executableStep, deviceToolResult)
                     if (!deviceToolResult.ok) {
                         val message = deviceToolResult.message.ifBlank { "内部设备工具执行失败。" }
-                        AgentRuntimeController.finishTask(message, completed = false)
+                        if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = false)
                         return AgentTaskRunResult(false, false, message, logs)
                     }
 
-                    // 设置页入口只是导航步骤。即使底层工具本身执行完毕，也必须重新截图
-                    // 交回 AgentBrain 判断用户完整目标是否已经完成，不能提前结束 hybrid 任务。
-                    val mustReplanAfterEntryTool = executableStep.type in REPLAN_AFTER_ENTRY_TOOL_TYPES
+                    val mustReplanAfterEntryTool = !isNormalChatToolProbe && executableStep.type in REPLAN_AFTER_ENTRY_TOOL_TYPES
                     if (!deviceToolResult.shouldContinue && !mustReplanAfterEntryTool) {
                         val message = deviceToolResult.message.ifBlank { "内部设备工具执行完成。" }
-                        AgentRuntimeController.finishTask(message, completed = true)
+                        if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = true)
                         return AgentTaskRunResult(true, false, message, logs)
                     }
                     delayForStep(executableStep)
@@ -359,20 +366,32 @@ class AgentTaskRunner(
                 recentActions += buildRecentActionSummary(executableStep, result)
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "智能体动作结束。" }
-                    AgentRuntimeController.finishTask(message, completed = false)
+                    if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = false)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
 
                 delayForStep(executableStep)
             }
 
+            if (isNormalChatToolProbe && logs.size >= maxSteps) {
+                val lastMessage = logs.lastOrNull()?.execution?.message.orEmpty().ifBlank { "内部设备工具执行结束。" }
+                return AgentTaskRunResult(
+                    completed = logs.lastOrNull()?.execution?.ok == true,
+                    stoppedForConfirmation = false,
+                    message = lastMessage,
+                    logs = logs,
+                    handled = logs.isNotEmpty(),
+                )
+            }
             stoppedLoopResult(stopGeneration, logs)
         } catch (error: CancellationException) {
-            AgentRuntimeController.stopTaskByUser("本次智能体任务已取消。")
+            if (ownsTaskSession) AgentRuntimeController.stopTaskByUser("本次智能体任务已取消。")
             throw error
         } finally {
-            AiAgentAccessibilityService.endTaskSession()
-            AgentRuntimeController.resetCleanVisualCapture()
+            if (ownsTaskSession) {
+                AiAgentAccessibilityService.endTaskSession()
+                AgentRuntimeController.resetCleanVisualCapture()
+            }
         }
     }
 
@@ -430,22 +449,22 @@ class AgentTaskRunner(
                 put("loopIndex", loopIndex)
                 put("executedStepCount", loopIndex)
                 put("executionMode", executionMode.name)
-                put("stepLimitEnabled", false)
+                put("stepLimitEnabled", executionMode == AgentExecutionMode.NormalChatDeviceTool)
                 put("postActionFeedback", loopFeedback.toJson())
             })
             put("androidCapabilities", JSONObject().apply {
                 put("structuredDeviceToolExecutor", true)
-                put("normalChatUsesUnifiedAgentBrain", true)
+                put("normalChatDeviceToolWithoutAccessibility", true)
                 put("visualAgentSwitchMeansForceGui", true)
                 put("postActionVerification", true)
                 put("blockedActionSignatureFeedback", true)
                 put("crossActionNoProgressAccumulation", false)
                 put("postActionSettleRechecks", true)
                 put("stallPausesForUserTakeover", true)
-                put("fixedStepLimit", false)
+                put("fullVisualFixedStepLimit", false)
                 put("replanAfterSettingsEntry", true)
                 put("deviceToolTypes", JSONArray().apply { CloudAgentStep.deviceToolTypes.forEach { put(it) } })
-                put("policy", "Android executes concrete structured steps only. Full visual tasks have no fixed step cap and stop only on completion, user stop, confirmation, takeover, or repeated same-action no-progress.")
+                put("policy", "Full visual tasks have no fixed step cap. Normal-chat compatibility probes remain tightly bounded and cannot start visual execution or high-risk actions.")
             })
         }
     }
@@ -620,6 +639,7 @@ class AgentTaskRunner(
 
     private fun sanitizeCloudStep(step: CloudAgentStep, snapshot: AgentScreenSnapshot, executionMode: AgentExecutionMode): CloudAgentStep? {
         if (step.type !in CloudAgentStep.supportedTypes) return null
+        if (executionMode == AgentExecutionMode.NormalChatDeviceTool && step.type !in CloudAgentStep.deviceToolTypes) return null
         if (step.type == "tap_xy") {
             val x = step.x ?: return null
             val y = step.y ?: return null
