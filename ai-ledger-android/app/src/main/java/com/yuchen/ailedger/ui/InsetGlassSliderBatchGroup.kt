@@ -105,9 +105,15 @@ internal class InsetGlassSliderBatchState {
         val host = hostCoordinates ?: return
         val child = childCoordinates[key] ?: return
         val coordinateSource = childCoordinateSources[key] ?: return
-        if (!host.isAttached || !child.isAttached) return
-        val rect = host.localBoundingBoxOf(child, clipBounds = false)
-        if (rect.width <= 0f || rect.height <= 0f) return
+        if (!host.isAttached || !child.isAttached) {
+            slots.remove(key)
+            return
+        }
+        val rect = host.localBoundingBoxOf(child, clipBounds = true)
+        if (rect.width <= 0f || rect.height <= 0f) {
+            slots.remove(key)
+            return
+        }
         val current = slots[key]
         if (current == null || current.rect != rect || current.coordinateSource !== coordinateSource) {
             slots[key] = InsetGlassBatchSlot(rect, coordinateSource)
