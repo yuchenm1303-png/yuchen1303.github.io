@@ -93,7 +93,10 @@ private fun RestoredGlassLabFoldout(
                 Text(if (expanded) "收起 ︿" else "展开 ﹀", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.62f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
-        if (expanded) {
+        GlassFoldoutAnimatedContent(
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
             }
@@ -236,7 +239,10 @@ private fun RestoredComposeGlassControlGroup(
                 Text(if (expanded) "收起" else "展开", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
-        if (expanded) {
+        GlassFoldoutAnimatedContent(
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
             }
@@ -343,7 +349,10 @@ private fun RestoredModelCardControlGroup(
                 Text(if (expanded) "收起" else "展开", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.52f), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
-        if (expanded) {
+        GlassFoldoutAnimatedContent(
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) { content() }
             }
