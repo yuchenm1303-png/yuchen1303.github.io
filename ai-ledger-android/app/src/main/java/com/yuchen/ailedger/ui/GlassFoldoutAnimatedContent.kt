@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,60 +22,29 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 
 /**
- * 折叠动画期间，外部父级绘制不能继续使用正在变化的旧几何。
- * 该标记让凹槽等组件暂时回退到本地绘制，动画结束后再恢复批绘制。
+ * 折叠动画期间，凹槽批绘制暂时回退到本地绘制，
+ * 避免正在变化的父级几何被旧槽位坐标继续使用。
  */
 internal val LocalGlassFoldoutAnimationRunning =
     staticCompositionLocalOf { false }
 
 /**
- * 普通 Compose 玻璃动画保护门。
- * 只临时改变实际绘制模式，displayedEnabled 始终保存用户选择，
- * 因此调试开关不会在折叠动画期间视觉跳变。
+ * 仅保存玻璃实验室中“普通 Compose 父级绘制”开关的用户状态。
+ * 折叠动画绝不再修改全局绘制开关，避免展开首帧重建整个 registry。
  */
 internal object GlassFoldoutParentDrawGate {
-    private var holderCount = 0
-    private var restoreEnabled = false
-
     var displayedEnabled by mutableStateOf(OrdinaryGlassParentDrawController.globalEnabled)
         private set
 
-    @Synchronized
     fun setUserEnabled(enabled: Boolean) {
         displayedEnabled = enabled
-        restoreEnabled = enabled
-        if (holderCount == 0) {
-            OrdinaryGlassParentDrawController.globalEnabled = enabled
-        }
-    }
-
-    @Synchronized
-    fun acquire() {
-        if (holderCount == 0) {
-            restoreEnabled = OrdinaryGlassParentDrawController.globalEnabled
-            displayedEnabled = restoreEnabled
-            if (restoreEnabled) {
-                OrdinaryGlassParentDrawController.globalEnabled = false
-            }
-        }
-        holderCount += 1
-    }
-
-    @Synchronized
-    fun release() {
-        if (holderCount <= 0) return
-        holderCount -= 1
-        if (holderCount == 0) {
-            OrdinaryGlassParentDrawController.globalEnabled = restoreEnabled
-            displayedEnabled = restoreEnabled
-        }
+        OrdinaryGlassParentDrawController.globalEnabled = enabled
     }
 }
 
 /**
- * 保留原有 fade + expand/shrink 动画，同时建立严格裁剪边界。
- * 动画期间普通玻璃和凹槽使用本地绘制，避免父级 registry 的旧坐标
- * 在首帧或退出帧穿过折叠标题；动画稳定后自动恢复批绘制。
+ * 保留原有 fade + expand/shrink 动画，并建立严格的 Compose 裁剪边界。
+ * 动画期间只让凹槽批绘制局部回退，不触碰全局普通玻璃绘制模式。
  */
 @Composable
 internal fun GlassFoldoutAnimatedContent(
@@ -93,23 +61,17 @@ internal fun GlassFoldoutAnimatedContent(
         if (animationRunning) {
             geometrySettling = true
         } else if (geometrySettling) {
-            // 动画结束后保留两帧本地绘制，让父级 registry 收到最终几何。
+            // 动画完成后再等待两帧，让最终测量和槽位坐标稳定。
             withFrameNanos { }
             withFrameNanos { }
             geometrySettling = false
         }
     }
 
-    val guardedDrawing = animationRunning || geometrySettling
-    DisposableEffect(guardedDrawing) {
-        if (guardedDrawing) GlassFoldoutParentDrawGate.acquire()
-        onDispose {
-            if (guardedDrawing) GlassFoldoutParentDrawGate.release()
-        }
-    }
+    val localDrawingGuard = animationRunning || geometrySettling
 
     CompositionLocalProvider(
-        LocalGlassFoldoutAnimationRunning provides guardedDrawing
+        LocalGlassFoldoutAnimationRunning provides localDrawingGuard
     ) {
         AnimatedVisibility(
             visibleState = visibleState,
