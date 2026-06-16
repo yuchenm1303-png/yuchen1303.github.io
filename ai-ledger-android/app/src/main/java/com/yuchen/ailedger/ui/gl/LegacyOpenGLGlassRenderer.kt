@@ -69,12 +69,26 @@ private data class LegacyGlassScissorRect(
         )
 }
 
+/**
+ * 旧版 OpenGL 玻璃 Renderer。
+ *
+ * 保持原 Shader、uniform、采样和绘制顺序不变，只优化纹理资源生命周期：
+ * - blur / lens 分别按 Bitmap 引用判脏；
+ * - 两者引用同一 Bitmap 时只保留一份 GPU texture；
+ * - 从双纹理回到单纹理复用时立即释放闲置显存。
+ */
 internal class LegacyOpenGLGlassRenderer {
     private val textureLock = Any()
     private val specLock = Any()
 
     private var pendingBlurBitmap: Bitmap? = null
     private var pendingLensBitmap: Bitmap? = null
+    private var textureSetPending = false
+
+    private var activeBlurBitmap: Bitmap? = null
+    private var activeLensBitmap: Bitmap? = null
+    private var lensTextureAliasesBlur = false
+
     private var blurTextureId = 0
     private var lensTextureId = 0
     private val textureWidths = IntArray(2)
@@ -179,6 +193,7 @@ internal class LegacyOpenGLGlassRenderer {
         synchronized(textureLock) {
             pendingBlurBitmap = blurBitmap
             pendingLensBitmap = lensBitmap
+            textureSetPending = true
         }
     }
 
@@ -213,12 +228,8 @@ internal class LegacyOpenGLGlassRenderer {
         GLES20.glUniform1i(lensTextureHandle, 1)
         GLES20.glUniform1f(textureReadyHandle, 0f)
 
-        val textures = IntArray(2)
-        GLES20.glGenTextures(2, textures, 0)
-        blurTextureId = textures[0]
-        lensTextureId = textures[1]
-        configureTexture(0, GLES20.GL_TEXTURE0, blurTextureId)
-        configureTexture(1, GLES20.GL_TEXTURE1, lensTextureId)
+        blurTextureId = createConfiguredTexture(0, GLES20.GL_TEXTURE0)
+        lensTextureId = 0
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
 
         val buffers = IntArray(1)
@@ -355,10 +366,8 @@ internal class LegacyOpenGLGlassRenderer {
     }
 
     fun onRelease() {
-        val textures = intArrayOf(blurTextureId, lensTextureId)
-        if (textures.any { it != 0 }) {
-            GLES20.glDeleteTextures(2, textures, 0)
-        }
+        deleteTexture(blurTextureId)
+        deleteTexture(lensTextureId)
         if (quadBufferId != 0) {
             GLES20.glDeleteBuffers(1, intArrayOf(quadBufferId), 0)
         }
@@ -368,6 +377,14 @@ internal class LegacyOpenGLGlassRenderer {
         quadBufferId = 0
         program = 0
         texturesReady = false
+        lensTextureAliasesBlur = false
+        activeBlurBitmap = null
+        activeLensBitmap = null
+        synchronized(textureLock) {
+            pendingBlurBitmap = null
+            pendingLensBitmap = null
+            textureSetPending = false
+        }
         previousGlassScissor = null
     }
 
@@ -462,31 +479,57 @@ internal class LegacyOpenGLGlassRenderer {
     }
 
     private fun uploadPendingTexturesIfNeeded() {
-        var blur: Bitmap? = null
-        var lens: Bitmap? = null
+        val blurBitmap: Bitmap
+        val lensBitmap: Bitmap
         synchronized(textureLock) {
-            blur = pendingBlurBitmap
-            lens = pendingLensBitmap
+            if (!textureSetPending) return
+            blurBitmap = pendingBlurBitmap ?: return
+            lensBitmap = pendingLensBitmap ?: return
             pendingBlurBitmap = null
             pendingLensBitmap = null
+            textureSetPending = false
         }
-        val blurBitmap = blur ?: return
-        val lensBitmap = lens ?: return
 
-        uploadTexture(
-            index = 0,
-            textureUnit = GLES20.GL_TEXTURE0,
-            textureId = blurTextureId,
-            bitmap = blurBitmap
-        )
-        uploadTexture(
-            index = 1,
-            textureUnit = GLES20.GL_TEXTURE1,
-            textureId = lensTextureId,
-            bitmap = lensBitmap
-        )
+        if (blurBitmap !== activeBlurBitmap) {
+            uploadTexture(
+                index = 0,
+                textureUnit = GLES20.GL_TEXTURE0,
+                textureId = blurTextureId,
+                bitmap = blurBitmap
+            )
+            activeBlurBitmap = blurBitmap
+        }
+
+        val aliasLensToBlur = lensBitmap === blurBitmap
+        if (aliasLensToBlur) {
+            if (!lensTextureAliasesBlur || lensTextureId != 0) {
+                deleteTexture(lensTextureId)
+                lensTextureId = 0
+                textureWidths[1] = 0
+                textureHeights[1] = 0
+                bindTexture(GLES20.GL_TEXTURE1, blurTextureId)
+                lensTextureAliasesBlur = true
+            }
+            activeLensBitmap = lensBitmap
+        } else {
+            if (lensTextureId == 0) {
+                lensTextureId = createConfiguredTexture(1, GLES20.GL_TEXTURE1)
+            } else if (lensTextureAliasesBlur) {
+                bindTexture(GLES20.GL_TEXTURE1, lensTextureId)
+            }
+            lensTextureAliasesBlur = false
+            if (lensBitmap !== activeLensBitmap) {
+                uploadTexture(
+                    index = 1,
+                    textureUnit = GLES20.GL_TEXTURE1,
+                    textureId = lensTextureId,
+                    bitmap = lensBitmap
+                )
+                activeLensBitmap = lensBitmap
+            }
+        }
+
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-
         if (!texturesReady) {
             texturesReady = true
             GLES20.glUniform1f(textureReadyHandle, 1f)
@@ -499,8 +542,7 @@ internal class LegacyOpenGLGlassRenderer {
         textureId: Int,
         bitmap: Bitmap
     ) {
-        GLES20.glActiveTexture(textureUnit)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+        bindTexture(textureUnit, textureId)
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
         if (
             textureWidths[index] == bitmap.width &&
@@ -520,13 +562,11 @@ internal class LegacyOpenGLGlassRenderer {
         }
     }
 
-    private fun configureTexture(
-        index: Int,
-        textureUnit: Int,
-        textureId: Int
-    ) {
-        GLES20.glActiveTexture(textureUnit)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+    private fun createConfiguredTexture(index: Int, textureUnit: Int): Int {
+        val textures = IntArray(1)
+        GLES20.glGenTextures(1, textures, 0)
+        val textureId = textures[0]
+        bindTexture(textureUnit, textureId)
         GLES20.glTexParameteri(
             GLES20.GL_TEXTURE_2D,
             GLES20.GL_TEXTURE_MIN_FILTER,
@@ -549,6 +589,18 @@ internal class LegacyOpenGLGlassRenderer {
         )
         textureWidths[index] = 0
         textureHeights[index] = 0
+        return textureId
+    }
+
+    private fun bindTexture(textureUnit: Int, textureId: Int) {
+        GLES20.glActiveTexture(textureUnit)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId)
+    }
+
+    private fun deleteTexture(textureId: Int) {
+        if (textureId != 0) {
+            GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
+        }
     }
 }
 
