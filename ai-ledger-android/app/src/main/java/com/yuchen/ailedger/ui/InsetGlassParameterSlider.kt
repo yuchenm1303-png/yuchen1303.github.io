@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -58,9 +60,9 @@ private const val SliderCommitGuardDelayMs = 240L
 private const val SliderCommitFallbackDelayMs = 1_200L
 
 /**
- * 设置页参数滑块。
- * 材质、层次和进度轨完全沿用玻璃实验室凹槽样本，只调整文字排版与可交互宽度。
- * 纯 Compose/Canvas 实现，不进入任何 OpenGL registry，也不触发 geometry sync。
+ * 设置页与玻璃实验室共用的凹槽参数滑块。
+ * 进入 InsetGlassSliderBatchGroup 时，静态玻璃由父级批绘制；
+ * 未进入批绘制组时自动回退为单滑块绘制，视觉与交互保持一致。
  */
 @Composable
 internal fun InsetGlassParameterSlider(
@@ -80,6 +82,12 @@ internal fun InsetGlassParameterSlider(
     val acknowledgementTolerance = maxOf(span * 0.0005f, 0.0001f)
     val currentOnValueChange by rememberUpdatedState(onValueChange)
     val currentExternalValue by rememberUpdatedState(clampedValue)
+    val batchState = LocalInsetGlassSliderBatchState.current
+    val batchSlotKey = remember { Any() }
+
+    DisposableEffect(batchState, batchSlotKey) {
+        onDispose { batchState?.removeSlot(batchSlotKey) }
+    }
 
     var dragValue by remember { mutableFloatStateOf(clampedValue) }
     var dragging by remember { mutableStateOf(false) }
@@ -101,8 +109,6 @@ internal fun InsetGlassParameterSlider(
         valueText
     }
 
-    // 外部状态只在空闲时接管显示。拖动中以及松手后的提交确认期内，
-    // 始终保持本地最终值，避免旧的偏好流回灌造成一帧回跳。
     LaunchedEffect(clampedValue, dragging, pendingCommit, commitGuardReady, start, end) {
         if (dragging) return@LaunchedEffect
         val pending = pendingCommit
@@ -117,8 +123,6 @@ internal fun InsetGlassParameterSlider(
         }
     }
 
-    // 松手后的短保护窗口内，即便上层先同步了同值，也暂不释放本地最终位置。
-    // 这样可以覆盖 DataStore 旧快照恰好晚到的极端时序。
     LaunchedEffect(pendingCommit) {
         val expected = pendingCommit
         if (expected == null) {
@@ -173,47 +177,50 @@ internal fun InsetGlassParameterSlider(
             )
         }
 
-        LaboratoryInsetGlassSlot(
-            radius = LaboratoryInsetRadius,
-            grooveDepth = LaboratoryInsetDepth,
-            floorBackdropAlpha = LaboratoryInsetBackdropAlpha,
-            rimHighlightAlpha = LaboratoryInsetRimHighlight,
-            innerShadowAlpha = LaboratoryInsetInnerShadow,
-            floorDimAlpha = LaboratoryInsetFloorDim,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(38.dp)
-                .onSizeChanged {
-                    trackWidthPx = (it.width.toFloat() - reservedWidthPx).coerceAtLeast(1f)
-                }
-                .semantics {
-                    progressBarRangeInfo = ProgressBarRangeInfo(displayValue, start..end)
-                    setProgress { requested ->
-                        val resolved = requested.coerceIn(start, end)
-                        dragValue = resolved
-                        dragging = false
-                        pendingCommit = resolved
-                        currentOnValueChange(resolved)
-                        true
+        val baseSlotModifier = Modifier
+            .fillMaxWidth()
+            .height(38.dp)
+            .onSizeChanged {
+                trackWidthPx = (it.width.toFloat() - reservedWidthPx).coerceAtLeast(1f)
+            }
+            .then(
+                if (batchState != null) {
+                    Modifier.onGloballyPositioned { coordinates ->
+                        batchState.updateSlot(batchSlotKey, coordinates)
                     }
+                } else {
+                    Modifier
                 }
-                .draggable(
-                    state = dragState,
-                    orientation = Orientation.Horizontal,
-                    onDragStarted = {
-                        dragValue = currentDisplayValue
-                        pendingCommit = null
-                        commitGuardReady = true
-                        dragging = true
-                    },
-                    onDragStopped = {
-                        val finalValue = dragValue.coerceIn(start, end)
-                        pendingCommit = finalValue
-                        dragging = false
-                        currentOnValueChange(finalValue)
-                    }
-                )
-        ) {
+            )
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(displayValue, start..end)
+                setProgress { requested ->
+                    val resolved = requested.coerceIn(start, end)
+                    dragValue = resolved
+                    dragging = false
+                    pendingCommit = resolved
+                    currentOnValueChange(resolved)
+                    true
+                }
+            }
+            .draggable(
+                state = dragState,
+                orientation = Orientation.Horizontal,
+                onDragStarted = {
+                    dragValue = currentDisplayValue
+                    pendingCommit = null
+                    commitGuardReady = true
+                    dragging = true
+                },
+                onDragStopped = {
+                    val finalValue = dragValue.coerceIn(start, end)
+                    pendingCommit = finalValue
+                    dragging = false
+                    currentOnValueChange(finalValue)
+                }
+            )
+
+        val slotContent: @Composable () -> Unit = {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -245,10 +252,29 @@ internal fun InsetGlassParameterSlider(
                 )
             }
         }
+
+        if (batchState != null) {
+            Box(
+                modifier = baseSlotModifier.clip(RoundedCornerShape(LaboratoryInsetRadius.dp))
+            ) {
+                slotContent()
+            }
+        } else {
+            LaboratoryInsetGlassSlot(
+                radius = LaboratoryInsetRadius,
+                grooveDepth = LaboratoryInsetDepth,
+                floorBackdropAlpha = LaboratoryInsetBackdropAlpha,
+                rimHighlightAlpha = LaboratoryInsetRimHighlight,
+                innerShadowAlpha = LaboratoryInsetInnerShadow,
+                floorDimAlpha = LaboratoryInsetFloorDim,
+                modifier = baseSlotModifier,
+                content = slotContent
+            )
+        }
     }
 }
 
-/** 与玻璃实验室 LabInsetGlassSlot 完全一致的凹槽材质链。 */
+/** 单滑块回退路径，与实验室凹槽样本保持一致。 */
 @Composable
 private fun LaboratoryInsetGlassSlot(
     radius: Float,
@@ -304,7 +330,7 @@ private fun LaboratoryInsetGlassSlot(
     }
 }
 
-/** 与玻璃实验室 RecessedProgressTrack 完全一致的进度轨。 */
+/** 动态进度轨保留在子项，拖动单条滑块不会让整组静态玻璃重绘。 */
 @Composable
 private fun LaboratoryRecessedProgressTrack(
     progress: Float,
