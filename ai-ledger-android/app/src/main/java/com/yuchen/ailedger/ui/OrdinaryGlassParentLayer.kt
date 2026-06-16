@@ -180,23 +180,25 @@ class OrdinaryGlassSceneState(
     internal fun appendVisibleIfIntersecting(
         node: OrdinaryGlassRenderNode,
         rect: Rect,
-        sampleOffset: Offset,
-        viewport: Rect
+        viewport: Rect,
+        backdropOrigin: GlassCoordinateSource,
+        resolveSampleOffset: Boolean
     ) {
         val item = if (visibleCount < visiblePool.size) {
             visiblePool[visibleCount]
         } else {
-            VisibleOrdinaryGlassItem(
+            val created = VisibleOrdinaryGlassItem(
                 node = node,
                 rect = rect,
                 transformedBounds = rect,
-                sampleOffset = sampleOffset
-            ).also(visiblePool::add)
+                sampleOffset = Offset.Zero
+            )
+            visiblePool.add(created)
+            created
         }
 
         item.node = node
         item.rect = rect
-        item.sampleOffset = sampleOffset
         updateOrdinaryGlassVisualTransform(node = node, out = item.transform)
         item.transformedBounds = ordinaryGlassTransformedBounds(
             transform = item.transform,
@@ -204,6 +206,11 @@ class OrdinaryGlassSceneState(
         )
         if (item.transformedBounds.intersectionOrNull(viewport) == null) return
 
+        item.sampleOffset = if (resolveSampleOffset) {
+            node.coordinates.offsetRelativeTo(backdropOrigin)
+        } else {
+            Offset.Zero
+        }
         visibleCount += 1
         if (node.hasActivePressOptics()) activePressCount += 1
     }
@@ -430,16 +437,12 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
             offset = localTopLeft,
             size = Size(itemSize.width.toFloat(), itemSize.height.toFloat())
         )
-        val sampleOffset = if (resolveSampleOffset) {
-            node.coordinates.offsetRelativeTo(backdropOrigin)
-        } else {
-            Offset.Zero
-        }
         sceneState.appendVisibleIfIntersecting(
             node = node,
             rect = rect,
-            sampleOffset = sampleOffset,
-            viewport = viewport
+            viewport = viewport,
+            backdropOrigin = backdropOrigin,
+            resolveSampleOffset = resolveSampleOffset
         )
     }
 }
