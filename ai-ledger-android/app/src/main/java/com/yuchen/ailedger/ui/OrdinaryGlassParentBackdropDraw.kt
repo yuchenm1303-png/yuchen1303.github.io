@@ -22,6 +22,11 @@ internal fun DrawScope.withOrdinaryParentTransform(
 ) {
     val rect = item.rect
     val transform = item.transform
+    if (transform.isIdentity()) {
+        block()
+        return
+    }
+
     withTransform({
         translate(rect.left, rect.top + transform.translationY)
     }) {
