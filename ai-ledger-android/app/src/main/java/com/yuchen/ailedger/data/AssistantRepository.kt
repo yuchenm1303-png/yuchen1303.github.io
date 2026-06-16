@@ -7,6 +7,7 @@ import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.StatSummary
 import com.yuchen.ailedger.model.ToolEntry
+import com.yuchen.ailedger.model.latestOpenGlDefaultBorderStyle
 
 interface AssistantRepository {
     fun initialState(): AssistantUiState
@@ -15,6 +16,7 @@ interface AssistantRepository {
 class ProductionAssistantRepository : AssistantRepository {
     override fun initialState(): AssistantUiState {
         return AssistantUiState(
+            glassBorderStyle = latestOpenGlDefaultBorderStyle(),
             messages = listOf(
                 ChatMessage(
                     id = "assistant-welcome",
@@ -30,6 +32,7 @@ class ProductionAssistantRepository : AssistantRepository {
 class PreviewAssistantRepository : AssistantRepository {
     override fun initialState(): AssistantUiState {
         return AssistantUiState(
+            glassBorderStyle = latestOpenGlDefaultBorderStyle(),
             stats = listOf(
                 StatSummary("今日支出", "¥47.00"),
                 StatSummary("本月结余", "¥52.50")
