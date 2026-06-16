@@ -20,6 +20,9 @@ internal class OrdinaryGlassVisualTransform {
         originX = 0.5f
         originY = 0.5f
     }
+
+    fun isIdentity(): Boolean =
+        scaleX == 1f && scaleY == 1f && translationY == 0f
 }
 
 internal fun updateOrdinaryGlassVisualTransform(
@@ -39,6 +42,10 @@ internal fun updateOrdinaryGlassVisualTransform(
     val compression = ordinaryVisualSmoothStep(
         (positivePress / 0.94f).coerceIn(0f, 1f)
     )
+    if (compression == 0f && rebound == 0f) {
+        out.setIdentity()
+        return
+    }
 
     out.scaleX = 1f + compression * (0.006f + 0.049f * elasticity) -
         rebound * 0.018f * elasticity
