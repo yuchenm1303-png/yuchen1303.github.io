@@ -1,2 +1,2 @@
-trigger: cold-start-deep-optimization-2026-06-15
-source-commit: a0cfa7239faa9e4a2872bc2afe05da92821a7968
+trigger: legacy-opengl-deep-optimization-2026-06-16
+source-commit: 76bb0e539001dbc7aaa9f4934d89565f38be8079
