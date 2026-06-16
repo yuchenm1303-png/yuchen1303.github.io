@@ -8,11 +8,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.delay
+
+private const val SETTINGS_STATIC_BATCH_REVEAL_MS = 820L
 
 @Stable
 internal class SettingsFrostMotionClock {
@@ -30,12 +34,8 @@ internal class SettingsFrostMotionClock {
 internal val LocalSettingsFrostMotionClock =
     staticCompositionLocalOf<SettingsFrostMotionClock?> { null }
 
-/**
- * 设置页 Frost 专用单 Host：
- * 1. 静止卡片共享一个父级背景 Canvas；
- * 2. 所有卡片共享一个页面级动画时钟；
- * 3. 与普通玻璃 registry、OpenGL registry 和 geometry sync 完全隔离。
- */
+internal val LocalSettingsStaticBatchReady = staticCompositionLocalOf { true }
+
 @Composable
 internal fun SettingsFrostBatchHost(
     modifier: Modifier = Modifier,
@@ -44,6 +44,9 @@ internal fun SettingsFrostBatchHost(
     val layerState = rememberSettingsFrostParentLayerState()
     val motionClock = remember { SettingsFrostMotionClock() }
     val pageVisible = LocalPageVisible.current
+    val pageActive = LocalPageActive.current
+    val activationTick = LocalPageActivationTick.current
+    var staticBatchReady by remember { mutableStateOf(false) }
 
     LaunchedEffect(pageVisible, motionClock) {
         if (!pageVisible) return@LaunchedEffect
@@ -52,15 +55,26 @@ internal fun SettingsFrostBatchHost(
         }
     }
 
-    CompositionLocalProvider(LocalSettingsFrostMotionClock provides motionClock) {
-        SettingsFrostParentScope(layerState) {
-            Box(modifier = modifier) {
+    LaunchedEffect(pageActive, activationTick) {
+        staticBatchReady = false
+        if (!pageActive) return@LaunchedEffect
+        delay(SETTINGS_STATIC_BATCH_REVEAL_MS)
+        staticBatchReady = true
+    }
+
+    CompositionLocalProvider(
+        LocalSettingsFrostMotionClock provides motionClock,
+        LocalSettingsStaticBatchReady provides staticBatchReady,
+        LocalSettingsFrostParentLayer provides layerState.takeIf { staticBatchReady }
+    ) {
+        Box(modifier = modifier) {
+            if (staticBatchReady) {
                 SettingsFrostParentLayer(
                     layerState = layerState,
                     modifier = Modifier.matchParentSize()
                 )
-                content()
             }
+            content()
         }
     }
 }
