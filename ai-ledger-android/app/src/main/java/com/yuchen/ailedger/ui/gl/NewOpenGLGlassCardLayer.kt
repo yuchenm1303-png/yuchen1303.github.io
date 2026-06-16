@@ -2,6 +2,7 @@ package com.yuchen.ailedger.ui.gl
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
@@ -11,6 +12,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.model.legacyOpenGlReferenceStyle
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.GlassSceneGroup
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
@@ -33,17 +35,35 @@ fun NewOpenGLGlassCardLayer(
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f
 ) {
-    // 设置页当前状态卡片保留旧版 OpenGL 材质；其他 Shell 继续使用新版 Renderer。
+    // 设置页顶部状态卡片使用实验室“原版 OpenGL”同一 Renderer、同一参数源。
     if (LocalGlassSceneGroup == GlassSceneGroup.SettingsPage) {
-        OpenGLGlassCardLayer(
-            radius = radius,
-            glassIntensity = glassIntensity,
-            coordinateSource = coordinateSource,
-            modifier = modifier,
-            pressProgress = pressProgress,
-            pressCenter = pressCenter,
-            viewportTopInsetPx = viewportTopInsetPx
-        )
+        val currentSpec = LocalGlassBackdrop.current
+        val legacySpec = remember(currentSpec) {
+            currentSpec?.copy(borderStyle = legacyOpenGlReferenceStyle())
+        }
+        if (legacySpec != null) {
+            CompositionLocalProvider(LocalGlassBackdrop provides legacySpec) {
+                OpenGLGlassCardLayer(
+                    radius = radius,
+                    glassIntensity = glassIntensity,
+                    coordinateSource = coordinateSource,
+                    modifier = modifier,
+                    pressProgress = pressProgress,
+                    pressCenter = pressCenter,
+                    viewportTopInsetPx = viewportTopInsetPx
+                )
+            }
+        } else {
+            OpenGLGlassCardLayer(
+                radius = radius,
+                glassIntensity = glassIntensity,
+                coordinateSource = coordinateSource,
+                modifier = modifier,
+                pressProgress = pressProgress,
+                pressCenter = pressCenter,
+                viewportTopInsetPx = viewportTopInsetPx
+            )
+        }
         return
     }
 
