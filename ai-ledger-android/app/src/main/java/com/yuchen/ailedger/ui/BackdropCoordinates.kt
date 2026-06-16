@@ -8,13 +8,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.model.RenderQuality
 
-private const val GLASS_SCROLL_INVALIDATION_MIN_INTERVAL_NS = 33_000_000L
+private const val GLASS_SCROLL_INVALIDATION_MIN_INTERVAL_NS = 12_000_000L
 
 class BackdropCoordinateSource {
     private var lastRootOffset: Offset? = null
@@ -127,13 +126,13 @@ class BackdropFrameTicker {
     }
 }
 
+/**
+ * 非助手页面的滚动帧统一由 App 根级 NestedScrollConnection 驱动。
+ * 这里仅补齐程序化跳转和滚动停止后的最终采样位置，避免再启动第二条逐帧循环。
+ */
 @Composable
 fun SyncGlassBackdropToScroll(listState: LazyListState) {
     val ticker = LocalBackdropFrameTicker.current ?: return
-
-    // Instant jumps can change the sampling origin without entering a scrolling frame loop.
-    // During a real scroll the frame loop below is the single invalidation source, avoiding
-    // the old duplicate "offset collector + every-frame collector" fan-out.
     LaunchedEffect(listState, ticker) {
         snapshotFlow {
             Triple(
@@ -144,19 +143,6 @@ fun SyncGlassBackdropToScroll(listState: LazyListState) {
         }.collect { (_, _, isScrolling) ->
             if (!isScrolling) ticker.requestFrame(force = true)
         }
-    }
-
-    LaunchedEffect(listState, ticker) {
-        snapshotFlow { listState.isScrollInProgress }
-            .collect { isScrolling ->
-                if (isScrolling) {
-                    while (listState.isScrollInProgress) {
-                        withFrameNanos { frameTimeNanos ->
-                            ticker.requestFrame(nowNanos = frameTimeNanos, force = true)
-                        }
-                    }
-                }
-            }
     }
 }
 
