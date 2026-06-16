@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -252,10 +251,7 @@ private fun RestoredComposeGlassControlGroup(
 
 @Composable
 private fun RestoredComposeMetric(label: String, value: Float, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(label, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.44f), fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold)
         Text(value.restoredFormatLabValue(), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black)
     }
@@ -359,18 +355,22 @@ private fun RestoredModelCardControlGroup(
 }
 
 @Composable
-private fun RestoredLabSlider(title: String, subtitle: String, value: Float, range: ClosedFloatingPointRange<Float>, onValueChange: (Float) -> Unit) {
+private fun RestoredLabSlider(
+    title: String,
+    subtitle: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
     val clamped = value.coerceIn(range.start, range.endInclusive)
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(title, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.80f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                Text(subtitle, color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(clamped.restoredFormatLabValue(), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.58f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
-        Slider(value = clamped, onValueChange = onValueChange, valueRange = range)
-    }
+    InsetGlassParameterSlider(
+        title = title,
+        description = subtitle,
+        value = clamped,
+        valueRange = range,
+        onValueChange = onValueChange,
+        valueText = clamped.restoredFormatLabValue()
+    )
 }
 
 @Composable
