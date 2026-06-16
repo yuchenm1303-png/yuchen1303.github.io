@@ -19,7 +19,9 @@ import com.yuchen.ailedger.ui.LegacyOpenGLGlassPreviewShell
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
+import com.yuchen.ailedger.ui.LocalGlassFoldoutClipRegistry
 import com.yuchen.ailedger.ui.LocalGlassSceneGroup
+import com.yuchen.ailedger.ui.applyGlassFoldoutClip
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -36,8 +38,6 @@ fun NewOpenGLGlassCardLayer(
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f
 ) {
-    // 设置页顶部状态卡片与实验室原版样本共用完整旧版宿主链：
-    // 同一参数源、同一单样本优化、同一 Compose 轮廓裁剪、同一旧 Renderer。
     if (LocalGlassSceneGroup == GlassSceneGroup.SettingsPage) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
@@ -85,6 +85,8 @@ fun NewOpenGLGlassCardLayer(
     val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
     val localViewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
     val effectiveViewportTopInsetPx = max(viewportTopInsetPx, localViewportTopInsetPx)
+    val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
+    foldoutClipRegistry?.version
 
     val clearBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
     val blurLowBitmap = remember(backdrop.blurLowImage) { backdrop.blurLowImage.asAndroidBitmap() }
@@ -120,6 +122,10 @@ fun NewOpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> WebOpenGLGlassCardHostView(context) },
             update = { view ->
+                view.applyGlassFoldoutClip(
+                    registry = foldoutClipRegistry,
+                    coordinates = coordinateSource?.coordinates
+                )
                 val specDirty = view.setGlassSpec(
                     widthPx,
                     viewportHeightPx,

@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
@@ -56,7 +57,8 @@ internal class CachedInsetGlassBatchSlot {
 }
 
 internal class InsetGlassBatchSlot(
-    var rect: Rect
+    var rect: Rect,
+    var coordinates: LayoutCoordinates
 ) {
     val cache = CachedInsetGlassBatchSlot()
 }
@@ -124,11 +126,19 @@ internal class InsetGlassSliderBatchState {
 
         val current = slots[key]
         if (current == null) {
-            slots[key] = InsetGlassBatchSlot(rect)
+            slots[key] = InsetGlassBatchSlot(rect, child)
             rebuildSnapshot()
-        } else if (current.rect != rect) {
-            current.rect = rect
-            bumpDrawVersion()
+        } else {
+            var changed = false
+            if (current.rect != rect) {
+                current.rect = rect
+                changed = true
+            }
+            if (current.coordinates !== child) {
+                current.coordinates = child
+                changed = true
+            }
+            if (changed) bumpDrawVersion()
         }
     }
 
@@ -150,9 +160,7 @@ internal fun InsetGlassSliderBatchGroup(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val batchBlocked = LocalGlassFoldoutAnimationRunning.current ||
-        !LocalSettingsStaticBatchReady.current
-    if (batchBlocked) {
+    if (!LocalSettingsStaticBatchReady.current) {
         CompositionLocalProvider(LocalInsetGlassSliderBatchState provides null) {
             Box(modifier = modifier, content = content)
         }
@@ -179,11 +187,13 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
     val cachedBackdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameTicker = LocalBackdropFrameTicker.current
+    val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
 
     Canvas(modifier = Modifier.matchParentSize()) {
         state.drawVersion
         val slots = state.snapshotForDraw()
         if (slots.isEmpty()) return@Canvas
+        if (!state.hostCoordinateSource.isAttached()) return@Canvas
 
         val backdrop = cachedBackdrop
         if (backdrop != null) frameTicker?.frameNanos
@@ -194,6 +204,8 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
         val outerInsetPx = 1.dp.toPx()
         val outerStrokeWidthPx = 0.9.dp.toPx()
         val preloadMarginPx = BatchPreloadMarginDp.dp.toPx()
+        val hostRootOffset = state.hostCoordinateSource.rootOffset()
+        val viewport = Rect(0f, 0f, size.width, size.height)
         val hostSampleOffset = if (backdrop != null) {
             state.hostCoordinateSource.offsetRelativeTo(backdropOrigin)
         } else {
@@ -201,7 +213,15 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
         }
 
         slots.forEach { slot ->
+            if (!slot.coordinates.isAttached) return@forEach
             val rect = slot.rect
+            val foldoutClip = foldoutClipRegistry.resolveLocalClip(
+                descendant = slot.coordinates,
+                hostRootOffset = hostRootOffset,
+                viewport = viewport
+            ) ?: return@forEach
+            if (rect.intersectionOrNull(foldoutClip) == null) return@forEach
+
             val sampleOffset = if (hostSampleOffset.hasFiniteCoordinates()) {
                 hostSampleOffset + rect.topLeft
             } else {
@@ -234,49 +254,56 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
                 outerStrokeWidthPx = outerStrokeWidthPx
             )
 
-            withTransform({ translate(rect.left, rect.top) }) {
-                clipPath(cache.mask) {
-                    if (backdrop != null && sampleOffset.hasFiniteCoordinates()) {
-                        drawSlotBackdrop(
-                            backdrop = backdrop,
-                            sampleOffset = sampleOffset,
-                            slotSize = cache.localSize,
-                            alpha = BatchInsetBackdropAlpha
-                        )
-                    } else {
+            clipRect(
+                left = foldoutClip.left,
+                top = foldoutClip.top,
+                right = foldoutClip.right,
+                bottom = foldoutClip.bottom
+            ) {
+                withTransform({ translate(rect.left, rect.top) }) {
+                    clipPath(cache.mask) {
+                        if (backdrop != null && sampleOffset.hasFiniteCoordinates()) {
+                            drawSlotBackdrop(
+                                backdrop = backdrop,
+                                sampleOffset = sampleOffset,
+                                slotSize = cache.localSize,
+                                alpha = BatchInsetBackdropAlpha
+                            )
+                        } else {
+                            drawRect(
+                                brush = requireNotNull(cache.fallbackBrush),
+                                size = cache.localSize
+                            )
+                        }
                         drawRect(
-                            brush = requireNotNull(cache.fallbackBrush),
+                            color = Color.Black.copy(alpha = BatchInsetFloorDim),
                             size = cache.localSize
                         )
                     }
-                    drawRect(
-                        color = Color.Black.copy(alpha = BatchInsetFloorDim),
-                        size = cache.localSize
+
+                    drawRoundRect(
+                        color = Color.Black.copy(alpha = BatchInsetInnerShadow * 0.45f),
+                        size = cache.localSize,
+                        cornerRadius = cache.corner,
+                        blendMode = BlendMode.Multiply
+                    )
+                    drawRoundRect(
+                        brush = requireNotNull(cache.innerBrush),
+                        topLeft = cache.innerTopLeft,
+                        size = cache.innerSize,
+                        cornerRadius = cache.corner,
+                        style = Stroke(width = innerStrokeWidthPx),
+                        blendMode = BlendMode.Screen
+                    )
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = BatchInsetRimHighlight * 0.18f),
+                        topLeft = cache.outerTopLeft,
+                        size = cache.outerSize,
+                        cornerRadius = cache.corner,
+                        style = Stroke(width = outerStrokeWidthPx),
+                        blendMode = BlendMode.Screen
                     )
                 }
-
-                drawRoundRect(
-                    color = Color.Black.copy(alpha = BatchInsetInnerShadow * 0.45f),
-                    size = cache.localSize,
-                    cornerRadius = cache.corner,
-                    blendMode = BlendMode.Multiply
-                )
-                drawRoundRect(
-                    brush = requireNotNull(cache.innerBrush),
-                    topLeft = cache.innerTopLeft,
-                    size = cache.innerSize,
-                    cornerRadius = cache.corner,
-                    style = Stroke(width = innerStrokeWidthPx),
-                    blendMode = BlendMode.Screen
-                )
-                drawRoundRect(
-                    color = Color.White.copy(alpha = BatchInsetRimHighlight * 0.18f),
-                    topLeft = cache.outerTopLeft,
-                    size = cache.outerSize,
-                    cornerRadius = cache.corner,
-                    style = Stroke(width = outerStrokeWidthPx),
-                    blendMode = BlendMode.Screen
-                )
             }
         }
     }

@@ -64,6 +64,7 @@ class OrdinaryGlassRenderNode(
     var elasticity by mutableFloatStateOf(0f)
     var pressCenter by mutableStateOf(Offset(0.5f, 0.5f))
     var pressable by mutableStateOf(false)
+    var foldoutClipRegistry: GlassFoldoutClipRegistry? = null
     var drawOrder by mutableLongStateOf(0L)
         internal set
 
@@ -77,7 +78,8 @@ class OrdinaryGlassRenderNode(
         glassIntensity: Float,
         backdropAlpha: Float,
         edgeStrength: Float,
-        pressable: Boolean
+        pressable: Boolean,
+        foldoutClipRegistry: GlassFoldoutClipRegistry?
     ) {
         if (this.sceneGroup != sceneGroup) this.sceneGroup = sceneGroup
         if (this.role != role) this.role = role
@@ -87,6 +89,9 @@ class OrdinaryGlassRenderNode(
         if (this.backdropAlpha != backdropAlpha) this.backdropAlpha = backdropAlpha
         if (this.edgeStrength != edgeStrength) this.edgeStrength = edgeStrength
         if (this.pressable != pressable) this.pressable = pressable
+        if (this.foldoutClipRegistry !== foldoutClipRegistry) {
+            this.foldoutClipRegistry = foldoutClipRegistry
+        }
     }
 
     fun updateMotion(
@@ -155,7 +160,8 @@ internal class VisibleOrdinaryGlassItem(
     var node: OrdinaryGlassRenderNode,
     var rect: Rect,
     var transformedBounds: Rect,
-    var sampleOffset: Offset
+    var sampleOffset: Offset,
+    var clipRect: Rect
 ) {
     val transform = OrdinaryGlassVisualTransform()
 }
@@ -181,6 +187,7 @@ class OrdinaryGlassSceneState(
         node: OrdinaryGlassRenderNode,
         rect: Rect,
         viewport: Rect,
+        foldoutClip: Rect,
         backdropOrigin: GlassCoordinateSource,
         resolveSampleOffset: Boolean
     ) {
@@ -191,7 +198,8 @@ class OrdinaryGlassSceneState(
                 node = node,
                 rect = rect,
                 transformedBounds = rect,
-                sampleOffset = Offset.Zero
+                sampleOffset = Offset.Zero,
+                clipRect = viewport
             )
             visiblePool.add(created)
             created
@@ -199,12 +207,13 @@ class OrdinaryGlassSceneState(
 
         item.node = node
         item.rect = rect
+        item.clipRect = foldoutClip
         updateOrdinaryGlassVisualTransform(node = node, out = item.transform)
-        item.transformedBounds = ordinaryGlassTransformedBounds(
+        val transformedBounds = ordinaryGlassTransformedBounds(
             transform = item.transform,
             rect = rect
         )
-        if (item.transformedBounds.intersectionOrNull(viewport) == null) return
+        item.transformedBounds = transformedBounds.intersectionOrNull(foldoutClip) ?: return
 
         item.sampleOffset = if (resolveSampleOffset) {
             node.coordinates.offsetRelativeTo(backdropOrigin)
@@ -283,6 +292,7 @@ internal fun ReportOrdinaryGlassNode(
 ) {
     val sceneGroup = LocalGlassSceneGroup
     val sceneState = LocalOrdinaryGlassSceneState.current
+    val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
     val enabled = role != GlassRole.Shell &&
         sceneGroup != GlassSceneGroup.Unassigned &&
         sceneState?.renderMode == OrdinaryGlassRenderMode.ParentDraw
@@ -301,7 +311,8 @@ internal fun ReportOrdinaryGlassNode(
             glassIntensity = glassIntensity,
             backdropAlpha = backdropAlpha,
             edgeStrength = edgeStrength,
-            pressable = pressable
+            pressable = pressable,
+            foldoutClipRegistry = foldoutClipRegistry
         )
         node.updateMotion(
             shimmer = shimmer,
@@ -365,7 +376,6 @@ fun OrdinaryGlassSceneHost(
             modifier = modifier
                 .onPlaced { sceneState.coordinates.coordinates = it }
                 .drawWithContent {
-                    // 单一 Host 订阅背景刷新；不再存在第二个空转 Overlay Canvas。
                     backdropTicker?.frameNanos
                     collectVisibleOrdinaryGlassItems(
                         sceneState = sceneState,
@@ -375,13 +385,15 @@ fun OrdinaryGlassSceneHost(
                     )
 
                     sceneState.forEachVisible { item ->
-                        drawOrdinaryParentShadow(item = item)
-                        drawOrdinaryParentBackdrop(
-                            item = item,
-                            backdrop = backdrop,
-                            spec = backdropSpec
-                        )
-                        drawOrdinaryParentMaterial(item = item)
+                        withOrdinaryGlassFoldoutClip(item) {
+                            drawOrdinaryParentShadow(item = item)
+                            drawOrdinaryParentBackdrop(
+                                item = item,
+                                backdrop = backdrop,
+                                spec = backdropSpec
+                            )
+                            drawOrdinaryParentMaterial(item = item)
+                        }
                     }
 
                     drawContent()
@@ -389,12 +401,14 @@ fun OrdinaryGlassSceneHost(
                     if (sceneState.hasVisibleActivePress()) {
                         sceneState.forEachVisibleIndexed { index, item ->
                             if (item.node.hasActivePressOptics()) {
-                                withLaterVisibleBoundsExcluded(
-                                    sceneState = sceneState,
-                                    itemIndex = index,
-                                    itemBounds = item.transformedBounds
-                                ) {
-                                    drawOrdinaryParentPressOptics(item = item)
+                                withOrdinaryGlassFoldoutClip(item) {
+                                    withLaterVisibleBoundsExcluded(
+                                        sceneState = sceneState,
+                                        itemIndex = index,
+                                        itemBounds = item.transformedBounds
+                                    ) {
+                                        drawOrdinaryParentPressOptics(item = item)
+                                    }
                                 }
                             }
                         }
@@ -432,6 +446,12 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
         val itemSize = node.coordinates.itemSize()
         if (itemSize.width <= 0 || itemSize.height <= 0) continue
 
+        val foldoutClip = node.foldoutClipRegistry.resolveLocalClip(
+            descendant = node.coordinates.coordinates,
+            hostRootOffset = hostRoot,
+            viewport = viewport
+        ) ?: continue
+
         val localTopLeft = node.coordinates.rootOffset() - hostRoot
         val rect = Rect(
             offset = localTopLeft,
@@ -441,16 +461,28 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
             node = node,
             rect = rect,
             viewport = viewport,
+            foldoutClip = foldoutClip,
             backdropOrigin = backdropOrigin,
             resolveSampleOffset = resolveSampleOffset
         )
     }
 }
 
-/**
- * 父级按压 Overlay 在页面内容之后绘制，但不能越过后序玻璃节点。
- * 只对真实相交的后序区域追加 Difference clip，未重叠列表不增加裁剪层。
- */
+private inline fun DrawScope.withOrdinaryGlassFoldoutClip(
+    item: VisibleOrdinaryGlassItem,
+    block: DrawScope.() -> Unit
+) {
+    val clip = item.clipRect
+    clipRect(
+        left = clip.left,
+        top = clip.top,
+        right = clip.right,
+        bottom = clip.bottom
+    ) {
+        block()
+    }
+}
+
 private fun DrawScope.withLaterVisibleBoundsExcluded(
     sceneState: OrdinaryGlassSceneState,
     itemIndex: Int,

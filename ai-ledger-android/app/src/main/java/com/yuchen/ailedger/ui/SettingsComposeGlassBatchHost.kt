@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,7 +18,8 @@ private const val SETTINGS_COMPOSE_BATCH_REVEAL_MS = 820L
 /**
  * 设置页生产态 Compose 玻璃单宿主。
  * 页面进退场期间保留原本地 Frost/Inset 绘制；几何稳定后再切入父级批绘制。
- * 不创建逐帧时钟，不接入任何 OpenGL registry 或 geometry sync。
+ * 折叠动画裁剪表始终存在，只记录真实 LayoutCoordinates，不创建逐帧扫描。
+ * 不接入任何 OpenGL registry 或 geometry sync。
  */
 @Composable
 internal fun SettingsComposeGlassBatchHost(
@@ -25,9 +27,14 @@ internal fun SettingsComposeGlassBatchHost(
     content: @Composable BoxScope.() -> Unit
 ) {
     val frostLayerState = rememberSettingsFrostParentLayerState()
+    val foldoutClipRegistry = remember { GlassFoldoutClipRegistry() }
     val pageActive = LocalPageActive.current
     val activationTick = LocalPageActivationTick.current
     var staticBatchReady by remember { mutableStateOf(false) }
+
+    DisposableEffect(foldoutClipRegistry) {
+        onDispose { foldoutClipRegistry.clear() }
+    }
 
     LaunchedEffect(pageActive, activationTick) {
         staticBatchReady = false
@@ -37,6 +44,7 @@ internal fun SettingsComposeGlassBatchHost(
     }
 
     CompositionLocalProvider(
+        LocalGlassFoldoutClipRegistry provides foldoutClipRegistry,
         LocalSettingsStaticBatchReady provides staticBatchReady,
         LocalSettingsFrostParentLayer provides frostLayerState.takeIf { staticBatchReady }
     ) {

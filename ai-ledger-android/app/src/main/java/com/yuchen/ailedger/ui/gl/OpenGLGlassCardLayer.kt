@@ -26,6 +26,8 @@ import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
+import com.yuchen.ailedger.ui.LocalGlassFoldoutClipRegistry
+import com.yuchen.ailedger.ui.applyGlassFoldoutClip
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -81,6 +83,8 @@ fun OpenGLGlassCardLayer(
         LocalOpenGLGlassViewportTopInset.current.toPx()
     }
     val effectiveViewportTopInsetPx = max(viewportTopInsetPx, localViewportTopInsetPx)
+    val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
+    foldoutClipRegistry?.version
 
     val blurBitmap = remember(backdrop.image) { backdrop.image.asAndroidBitmap() }
     val lensBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
@@ -109,6 +113,10 @@ fun OpenGLGlassCardLayer(
             modifier = Modifier.matchParentSize(),
             factory = { context -> OpenGLGlassCardHostView(context) },
             update = { view ->
+                view.applyGlassFoldoutClip(
+                    registry = foldoutClipRegistry,
+                    coordinates = coordinateSource?.coordinates
+                )
                 view.setStableSurfaceAnchor(surfaceAnchor)
                 val surfaceDirty = view.setStableSurfaceSize(
                     width = widthPx.roundToInt(),
@@ -241,7 +249,6 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         right: Int,
         bottom: Int
     ) {
-        // anchor 链保持存在；旧实现同样不通过 translation 改变稳定 Surface。
         @Suppress("UNUSED_VARIABLE")
         val preservedAnchor = stableSurfaceAnchorY
         textureView.translationY = 0f
@@ -370,12 +377,7 @@ private class OpenGLGlassCardTextureView(
         latestRectOffsetY = rectOffsetY
         latestRadius = radius
         if (dirty) {
-            renderThread?.setGlassSpec(
-                nextWidth,
-                nextHeight,
-                rectOffsetY,
-                radius
-            )
+            renderThread?.setGlassSpec(nextWidth, nextHeight, rectOffsetY, radius)
         }
         return dirty
     }
@@ -398,12 +400,7 @@ private class OpenGLGlassCardTextureView(
         latestRootWidth = nextRootWidth
         latestRootHeight = nextRootHeight
         if (dirty) {
-            renderThread?.setSamplingSpec(
-                originX,
-                originY,
-                nextRootWidth,
-                nextRootHeight
-            )
+            renderThread?.setSamplingSpec(originX, originY, nextRootWidth, nextRootHeight)
         }
         return dirty
     }
@@ -420,24 +417,16 @@ private class OpenGLGlassCardTextureView(
         latestPressCenterX = safeCenterX
         latestPressCenterY = safeCenterY
         if (dirty) {
-            renderThread?.setPressSpec(
-                safeProgress,
-                safeCenterX,
-                safeCenterY
-            )
+            renderThread?.setPressSpec(safeProgress, safeCenterX, safeCenterY)
         }
         return dirty
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean {
-        val dirty =
-            blurBitmap !== latestBlurBitmap ||
-                lensBitmap !== latestLensBitmap
+        val dirty = blurBitmap !== latestBlurBitmap || lensBitmap !== latestLensBitmap
         latestBlurBitmap = blurBitmap
         latestLensBitmap = lensBitmap
-        if (dirty) {
-            renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
-        }
+        if (dirty) renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
         return dirty
     }
 
@@ -465,29 +454,13 @@ private class OpenGLGlassCardTextureView(
             width = width,
             height = height
         ).also { thread ->
-            thread.setGlassSpec(
-                latestWidth,
-                latestHeight,
-                latestRectOffsetY,
-                latestRadius
-            )
-            thread.setSamplingSpec(
-                latestOriginX,
-                latestOriginY,
-                latestRootWidth,
-                latestRootHeight
-            )
-            thread.setPressSpec(
-                latestPressProgress,
-                latestPressCenterX,
-                latestPressCenterY
-            )
+            thread.setGlassSpec(latestWidth, latestHeight, latestRectOffsetY, latestRadius)
+            thread.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
+            thread.setPressSpec(latestPressProgress, latestPressCenterX, latestPressCenterY)
             thread.setGlassStyle(latestStyle)
             val blur = latestBlurBitmap
             val lens = latestLensBitmap
-            if (blur != null && lens != null) {
-                thread.setBackdropTextures(blur, lens)
-            }
+            if (blur != null && lens != null) thread.setBackdropTextures(blur, lens)
             thread.start()
         }
     }
@@ -528,19 +501,11 @@ private class CardGlassEglThread(
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var preservedSwap = false
 
-    fun setGlassSpec(
-        width: Float,
-        height: Float,
-        rectOffsetY: Float,
-        radius: Float
-    ) = renderer.setGlassSpec(width, height, rectOffsetY, radius)
+    fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float) =
+        renderer.setGlassSpec(width, height, rectOffsetY, radius)
 
-    fun setSamplingSpec(
-        originX: Float,
-        originY: Float,
-        rootWidth: Float,
-        rootHeight: Float
-    ) = renderer.setSamplingSpec(originX, originY, rootWidth, rootHeight)
+    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) =
+        renderer.setSamplingSpec(originX, originY, rootWidth, rootHeight)
 
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float) =
         renderer.setPressSpec(progress, centerX, centerY)
@@ -548,8 +513,7 @@ private class CardGlassEglThread(
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) =
         renderer.setBackdropTextures(blurBitmap, lensBitmap)
 
-    fun setGlassStyle(style: GlassBorderStyle) =
-        renderer.setGlassStyle(style)
+    fun setGlassStyle(style: GlassBorderStyle) = renderer.setGlassStyle(style)
 
     fun requestRender() {
         synchronized(renderLock) {
@@ -622,9 +586,7 @@ private class CardGlassEglThread(
             ),
             0
         )
-        check(eglContext != EGL14.EGL_NO_CONTEXT) {
-            "Unable to create EGL context"
-        }
+        check(eglContext != EGL14.EGL_NO_CONTEXT) { "Unable to create EGL context" }
 
         eglSurface = EGL14.eglCreateWindowSurface(
             eglDisplay,
@@ -633,9 +595,7 @@ private class CardGlassEglThread(
             intArrayOf(EGL14.EGL_NONE),
             0
         )
-        check(eglSurface != EGL14.EGL_NO_SURFACE) {
-            "Unable to create EGL window surface"
-        }
+        check(eglSurface != EGL14.EGL_NO_SURFACE) { "Unable to create EGL window surface" }
         check(
             EGL14.eglMakeCurrent(
                 eglDisplay,

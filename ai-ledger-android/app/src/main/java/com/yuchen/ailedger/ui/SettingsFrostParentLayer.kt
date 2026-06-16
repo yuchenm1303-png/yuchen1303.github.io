@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
@@ -42,12 +43,15 @@ internal class SettingsFrostDrawCache {
 @Stable
 class SettingsFrostParentItem internal constructor(
     val id: String,
+    coordinates: LayoutCoordinates,
     rectInRoot: Rect,
     radiusDp: Float,
     backdropAlpha: Float,
     frostAlpha: Float,
     dimAlpha: Float
 ) {
+    var coordinates: LayoutCoordinates = coordinates
+        internal set
     var rectInRoot: Rect = rectInRoot
         internal set
     var radiusDp: Float = radiusDp
@@ -85,12 +89,14 @@ class SettingsFrostParentLayerState {
 
     fun upsert(
         id: String,
-        rectInRoot: Rect,
+        coordinates: LayoutCoordinates,
         radiusDp: Float,
         backdropAlpha: Float,
         frostAlpha: Float,
         dimAlpha: Float
     ) {
+        if (!coordinates.isAttached) return
+        val rectInRoot = coordinates.boundsInRoot()
         if (rectInRoot.width <= 1f || rectInRoot.height <= 1f) return
         val safeBackdrop = backdropAlpha.coerceIn(0f, 1f)
         val safeFrost = frostAlpha.coerceIn(0f, 0.85f)
@@ -99,6 +105,7 @@ class SettingsFrostParentLayerState {
         if (current == null) {
             entries[id] = SettingsFrostParentItem(
                 id = id,
+                coordinates = coordinates,
                 rectInRoot = rectInRoot,
                 radiusDp = radiusDp,
                 backdropAlpha = safeBackdrop,
@@ -110,6 +117,10 @@ class SettingsFrostParentLayerState {
         }
 
         var changed = false
+        if (current.coordinates !== coordinates) {
+            current.coordinates = coordinates
+            changed = true
+        }
         if (current.rectInRoot != rectInRoot) {
             current.rectInRoot = rectInRoot
             changed = true
@@ -177,7 +188,7 @@ fun Modifier.registerSettingsFrostParentItem(
     return onGloballyPositioned { coordinates ->
         layerState.upsert(
             id = id,
-            rectInRoot = coordinates.boundsInRoot(),
+            coordinates = coordinates,
             radiusDp = radiusDp,
             backdropAlpha = backdropAlpha,
             frostAlpha = frostAlpha,
@@ -194,6 +205,7 @@ fun SettingsFrostParentLayer(
     val cachedBackdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameTicker = LocalBackdropFrameTicker.current
+    val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
 
     Canvas(
         modifier = modifier.onGloballyPositioned(layerState::updateRoot)
@@ -205,53 +217,63 @@ fun SettingsFrostParentLayer(
         val backdrop = cachedBackdrop
         if (backdrop != null) frameTicker?.frameNanos
         val root = layerState.rootBounds()
+        if (root.width <= 1f || root.height <= 1f) return@Canvas
+        val viewport = Rect(0f, 0f, size.width, size.height)
         val backdropRoot = backdropOrigin?.rootOffset() ?: Offset.Zero
 
         items.forEach { item ->
+            if (!item.coordinates.isAttached) return@forEach
             val localRect = Rect(
                 left = item.rectInRoot.left - root.left,
                 top = item.rectInRoot.top - root.top,
                 right = item.rectInRoot.right - root.left,
                 bottom = item.rectInRoot.bottom - root.top
             )
-            if (
-                localRect.right <= 0f ||
-                localRect.left >= size.width ||
-                localRect.bottom <= 0f ||
-                localRect.top >= size.height
-            ) return@forEach
+            val foldoutClip = foldoutClipRegistry.resolveLocalClip(
+                descendant = item.coordinates,
+                hostRootOffset = root.topLeft,
+                viewport = viewport
+            ) ?: return@forEach
+            if (localRect.intersectionOrNull(foldoutClip) == null) return@forEach
 
             val cache = ensureSettingsFrostCache(item, localRect.size)
             val sampleOffset = item.rectInRoot.topLeft - backdropRoot
-            withTransform({ translate(localRect.left, localRect.top) }) {
-                clipPath(cache.mask) {
-                    if (backdrop != null) {
-                        drawParentBackdropImage(
-                            backdrop = backdrop,
-                            sampleOffset = sampleOffset,
-                            localSize = cache.localSize,
-                            alpha = item.backdropAlpha
-                        )
-                    } else {
-                        drawRect(
-                            brush = requireNotNull(cache.fallbackBrush),
-                            size = cache.localSize,
-                            blendMode = BlendMode.SrcOver
-                        )
-                    }
-                    if (item.frostAlpha > 0.001f) {
-                        drawRect(
-                            color = Color.White.copy(alpha = item.frostAlpha),
-                            size = cache.localSize,
-                            blendMode = BlendMode.SrcOver
-                        )
-                    }
-                    if (item.dimAlpha > 0.001f) {
-                        drawRect(
-                            color = Color.Black.copy(alpha = item.dimAlpha),
-                            size = cache.localSize,
-                            blendMode = BlendMode.SrcOver
-                        )
+            clipRect(
+                left = foldoutClip.left,
+                top = foldoutClip.top,
+                right = foldoutClip.right,
+                bottom = foldoutClip.bottom
+            ) {
+                withTransform({ translate(localRect.left, localRect.top) }) {
+                    clipPath(cache.mask) {
+                        if (backdrop != null) {
+                            drawParentBackdropImage(
+                                backdrop = backdrop,
+                                sampleOffset = sampleOffset,
+                                localSize = cache.localSize,
+                                alpha = item.backdropAlpha
+                            )
+                        } else {
+                            drawRect(
+                                brush = requireNotNull(cache.fallbackBrush),
+                                size = cache.localSize,
+                                blendMode = BlendMode.SrcOver
+                            )
+                        }
+                        if (item.frostAlpha > 0.001f) {
+                            drawRect(
+                                color = Color.White.copy(alpha = item.frostAlpha),
+                                size = cache.localSize,
+                                blendMode = BlendMode.SrcOver
+                            )
+                        }
+                        if (item.dimAlpha > 0.001f) {
+                            drawRect(
+                                color = Color.Black.copy(alpha = item.dimAlpha),
+                                size = cache.localSize,
+                                blendMode = BlendMode.SrcOver
+                            )
+                        }
                     }
                 }
             }
