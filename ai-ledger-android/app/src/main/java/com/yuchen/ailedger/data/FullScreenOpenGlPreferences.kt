@@ -2,9 +2,7 @@ package com.yuchen.ailedger.data
 
 import android.content.Context
 import androidx.compose.runtime.Stable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 
 @Stable
 class FullScreenOpenGlPreferences private constructor(context: Context) {
@@ -12,13 +10,14 @@ class FullScreenOpenGlPreferences private constructor(context: Context) {
         PREFERENCES_NAME,
         Context.MODE_PRIVATE
     )
+    private val enabledState = mutableStateOf(preferences.getBoolean(KEY_ENABLED, true))
 
-    var enabled by mutableStateOf(preferences.getBoolean(KEY_ENABLED, true))
-        private set
+    val enabled: Boolean
+        get() = enabledState.value
 
     fun setEnabled(value: Boolean) {
-        if (enabled == value) return
-        enabled = value
+        if (enabledState.value == value) return
+        enabledState.value = value
         preferences.edit().putBoolean(KEY_ENABLED, value).apply()
     }
 
