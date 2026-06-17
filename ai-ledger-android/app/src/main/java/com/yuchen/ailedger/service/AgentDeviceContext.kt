@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import com.yuchen.ailedger.data.AssistantLocalMemoryRuntime
 import java.security.MessageDigest
 import java.util.Locale
@@ -31,12 +32,23 @@ object AgentDeviceContextProvider {
         goal: String = "",
         installedAppIndex: InstalledAppIndex = InstalledAppIndex(context.applicationContext),
     ): AgentDeviceContextSnapshot {
+        val buildStartedAt = SystemClock.elapsedRealtime()
         val appContext = context.applicationContext
         val metrics = appContext.resources.displayMetrics
+
+        val inventoryStartedAt = SystemClock.elapsedRealtime()
         val allLaunchableApps = installedAppIndex.getLaunchableApps(forceReload = false)
+        val appInventoryMs = elapsedSince(inventoryStartedAt)
+
+        val candidateStartedAt = SystemClock.elapsedRealtime()
         val candidateApps = installedAppIndex.findCandidateApps(goal, limit = MAX_CANDIDATE_APPS)
+        val candidateResolveMs = elapsedSince(candidateStartedAt)
+
+        val hashStartedAt = SystemClock.elapsedRealtime()
         val inventoryApps = mergePriorityApps(candidateApps, allLaunchableApps, MAX_LAUNCHABLE_APPS)
         val inventoryHash = buildInventoryHash(inventoryApps)
+        val inventoryHashMs = elapsedSince(hashStartedAt)
+
         val currentPackage = screen.currentApp.ifBlank { "unknown" }
         val localMemory = AssistantLocalMemoryRuntime.current()
         val operationMemory = AgentOperationMemory.build(
@@ -46,9 +58,24 @@ object AgentDeviceContextProvider {
         )
         val contract = AgentTaskContractRuntime.current(goal)
         val targetResolver = TargetAppResolver(appContext, installedAppIndex)
+        val targetResolveStartedAt = SystemClock.elapsedRealtime()
         val targetResolution = targetResolver.resolve(contract)
+        val targetAppResolveMs = elapsedSince(targetResolveStartedAt)
+
         val shellBridge = DeviceShellBridge(appContext)
+        val shellStartedAt = SystemClock.elapsedRealtime()
         val shellStatus = runCatching { shellBridge.probe() }.getOrNull()
+        val shellProbeMs = elapsedSince(shellStartedAt)
+        val clientPerformance = JSONObject().apply {
+            put("schema", "android_agent_client_performance_v1")
+            put("appInventoryMs", appInventoryMs)
+            put("candidateResolveMs", candidateResolveMs)
+            put("inventoryHashMs", inventoryHashMs)
+            put("targetAppResolveMs", targetAppResolveMs)
+            put("shellProbeMs", shellProbeMs)
+        }
+
+        val jsonBuildStartedAt = SystemClock.elapsedRealtime()
         val json = JSONObject().apply {
             put("schema", "android_device_context_v6_app_capabilities")
             put("inventory", JSONObject().apply {
@@ -101,6 +128,7 @@ object AgentDeviceContextProvider {
             put("availableTools", JSONArray(CloudAgentStep.supportedTypes.toList()))
             put("localUserMemory", localMemory.toJson())
             put("operationMemory", operationMemory)
+            put("clientPerformance", clientPerformance)
             put("internalDeviceControl", JSONObject().apply {
                 put("enabled", true)
                 put("runtime", "DeviceControlRuntime")
@@ -138,6 +166,8 @@ object AgentDeviceContextProvider {
                 put("scope", "只上传当前任务所需的可启动应用名称、包名、能力标签、基础设备执行能力、用户显式保存的默认 App 偏好和任务状态；不上传联系人、文件、短信、通知历史、权限明细或后台应用列表。")
             })
         }
+        clientPerformance.put("jsonBuildMs", elapsedSince(jsonBuildStartedAt))
+
         val summary = buildString {
             append("设备：")
             append(Build.BRAND.orEmpty().ifBlank { "Android" })
@@ -159,6 +189,7 @@ object AgentDeviceContextProvider {
             if (allLaunchableApps.size > inventoryApps.size) append("，已上传优先清单 ${inventoryApps.size} 个")
             append("。")
         }
+        clientPerformance.put("deviceContextMs", elapsedSince(buildStartedAt))
         return AgentDeviceContextSnapshot(json = json, summary = summary)
     }
 
@@ -202,6 +233,9 @@ object AgentDeviceContextProvider {
         return clean.contains("launcher") || clean.contains("home") ||
             clean == "android" || clean == "com.android.systemui"
     }
+
+    private fun elapsedSince(startedAt: Long): Long =
+        (SystemClock.elapsedRealtime() - startedAt).coerceAtLeast(0L)
 
     private const val MAX_LAUNCHABLE_APPS = 160
     private const val MAX_CANDIDATE_APPS = 12
