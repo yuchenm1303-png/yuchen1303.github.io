@@ -1,3 +1,3 @@
-trigger: startup-extreme-lightweight-audit-2026-06-17
-source-commit: e77ca8fd8848ec8ae420efb4c9bbfbfaac289422
-scope: preference-ready-real-egl-first-frame-deferred-png-permission-refresh-metrics-lazy-pages
+trigger: backdrop-text-blur-production-audit-2026-06-17
+source-commit: 9a339e9f58de2ac32c62c62b3f89fd6fd7682cd9
+scope: gaussian-pyramid-linear-tone-adaptive-bright-background-compose-frost
