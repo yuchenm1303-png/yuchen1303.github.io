@@ -121,12 +121,14 @@ object AppCapabilityRegistry {
 }
 
 enum class AgentTaskPhase(val wireName: String) {
+    ResolveRequirements("resolve_requirements"),
     ResolveTargetApp("resolve_target_app"),
     OpenTargetApp("open_target_app"),
     VerifyTargetApp("verify_target_app"),
     VisualNavigation("visual_navigation"),
     VerifyResult("verify_result"),
     Completed("completed"),
+    UserAssistance("user_assistance"),
     Unknown("unknown");
 
     companion object {
@@ -170,7 +172,7 @@ data class AgentTaskExecutionContract(
                     "requiredCapabilities",
                     "required_capabilities",
                     "requiredAppCapabilities",
-                ).map(AppCapability::normalize).filter(String::isNotBlank).toSet(),
+                ).map(AppCapability::normalize).filter { it.isNotBlank() }.toSet(),
                 targetAppName = app?.first("appName", "label", "name")
                     ?: item.first("targetAppName", "requiredApp").orEmpty(),
                 targetPackageName = app?.first("packageName", "package", "pkg")
@@ -191,16 +193,21 @@ data class AgentTaskExecutionContract(
         }
 
         private fun JSONObject.first(vararg keys: String): String? =
-            keys.asSequence().map { optString(it).trim() }.firstOrNull(String::isNotBlank)
+            keys.asSequence().map { optString(it).trim() }.firstOrNull { it.isNotBlank() }
 
         private fun JSONObject.strings(vararg keys: String): List<String> {
             keys.forEach { key ->
                 optJSONArray(key)?.let { array ->
                     return buildList {
                         for (index in 0 until array.length()) {
-                            array.optString(index).trim().takeIf(String::isNotBlank)?.let(::add)
+                            array.optString(index).trim().takeIf { it.isNotBlank() }?.let(::add)
                         }
                     }
+                }
+                optString(key).trim().takeIf { it.isNotBlank() }?.let { text ->
+                    return text.split(',', '，', ';', '；')
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
                 }
             }
             return emptyList()
@@ -260,15 +267,15 @@ data class TargetAppResolution(
         put("schema", "target_app_resolution_v1")
         put("status", status)
         put("requiredCapabilities", JSONArray(requiredCapabilities.toList().sorted()))
-        selectedApp?.let { put("selectedApp", it.toJson()) }
-        put("candidates", JSONArray().apply { candidates.forEach { put(it.toJson()) } })
+        selectedApp?.let { put("selectedApp", appJson(it)) }
+        put("candidates", JSONArray().apply { candidates.forEach { put(appJson(it)) } })
         put("reason", reason)
     }
 
-    private fun InstalledAppEntry.toJson(): JSONObject = JSONObject().apply {
-        val profile = AppCapabilityRegistry.profile(this@toJson)
-        put("label", label)
-        put("packageName", packageName)
+    private fun appJson(app: InstalledAppEntry): JSONObject = JSONObject().apply {
+        val profile = AppCapabilityRegistry.profile(app)
+        put("label", app.label)
+        put("packageName", app.packageName)
         put("launchable", true)
         put("capabilityProfile", profile.toJson())
     }
@@ -297,8 +304,7 @@ class TargetAppResolver(
         }
         if (contract.targetAppName.isNotBlank()) {
             val named = appIndex.findCandidateApps(contract.targetAppName, 8)
-                .filter { required.isEmpty() || AppCapabilityRegistry.profile(it).supports(required) }
-            return choose(required, named, "已按明确应用名称解析。")
+            return choose(required, named, "已按用户明确指定的应用名称解析。")
         }
         if (required.isEmpty()) return TargetAppResolution("not_required", null, emptyList(), required, "任务未声明应用能力。")
         val preferred = preferences.getString("capability.${primary(required)}", null)
@@ -320,10 +326,14 @@ class TargetAppResolver(
         editor.apply()
     }
 
-    private fun choose(required: Set<String>, apps: List<InstalledAppEntry>, resolvedReason: String): TargetAppResolution = when (apps.size) {
-        0 -> TargetAppResolution("not_found", null, emptyList(), required, "设备上未识别到满足能力的可启动应用。")
+    private fun choose(
+        required: Set<String>,
+        apps: List<InstalledAppEntry>,
+        resolvedReason: String,
+    ): TargetAppResolution = when (apps.size) {
+        0 -> TargetAppResolution("not_found", null, emptyList(), required, "设备上未识别到满足条件的可启动应用。")
         1 -> TargetAppResolution("resolved", apps.first(), apps, required, resolvedReason)
-        else -> TargetAppResolution("ambiguous", null, apps, required, "存在多个满足能力的应用，需要用户选择一次。")
+        else -> TargetAppResolution("ambiguous", null, apps, required, "存在多个满足条件的应用，需要用户选择一次。")
     }
 
     private fun primary(required: Set<String>): String = listOf(
