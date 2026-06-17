@@ -4,8 +4,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 
+/** 单渲染线程复用，避免每块玻璃在每个绘制帧创建采样结果对象。 */
+private val AdaptiveSampleThreadLocal = ThreadLocal.withInitial { AdaptiveBackdropSample() }
+
 internal class AdaptiveBackdropSample {
-    var image: ImageBitmap? = null
+    lateinit var image: ImageBitmap
     var scale: Float = 1f
     var veilAlpha: Float = 1f
     var highlightAlpha: Float = 1f
@@ -29,6 +32,19 @@ internal fun ordinaryBackdropBlurRadiusDp(role: GlassRole): Float {
         (base * ComposeGlassLabState.style.blurScale).coerceIn(32f, 128f)
     }
 }
+
+internal fun resolveAdaptiveBackdropSample(
+    backdrop: BlurredBackdropBitmap,
+    sampleOffset: Offset,
+    sampleSize: Size,
+    requestedBlurDp: Float
+): AdaptiveBackdropSample = resolveAdaptiveBackdropSample(
+    backdrop = backdrop,
+    sampleOffset = sampleOffset,
+    sampleSize = sampleSize,
+    requestedBlurDp = requestedBlurDp,
+    out = AdaptiveSampleThreadLocal.get()
+)
 
 internal fun resolveAdaptiveBackdropSample(
     backdrop: BlurredBackdropBitmap,
