@@ -181,8 +181,8 @@ private fun buildAgentStepPayload(
         put("client", "android-compose")
         put(
             "clientVersion",
-            if (hasVisualPayload) "compose-native-agent-visual-contract-v15"
-            else "compose-native-agent-tool-contract-v15",
+            if (hasVisualPayload) "compose-native-agent-visual-contract-v16-performance"
+            else "compose-native-agent-tool-contract-v16-performance",
         )
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
@@ -193,6 +193,7 @@ private fun buildAgentStepPayload(
             put("includeStopConditions", true)
             put("includeTaskExecutionContract", true)
             put("includeTargetAppResolutionAck", true)
+            put("includePerformanceDebug", true)
         })
         put("now", System.currentTimeMillis())
     }
@@ -209,7 +210,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json, text/plain")
-        setRequestProperty("X-Client", "android-compose-agent-v15")
+        setRequestProperty("X-Client", "android-compose-agent-v16-performance")
         setRequestProperty("X-Agent-Session-Protocol", AGENT_SESSION_PROTOCOL)
     }
     return try {
@@ -251,23 +252,41 @@ private fun buildCompactAgentDiagnostic(
     totalMs: Long,
 ): String {
     val debug = data?.optJSONObject("debug")
-    val version = data?.optString("version").orEmpty()
-        .replace("qwen-deepseek-cn-web-data-", "")
-        .replace("agent-", "")
-        .take(24)
-    val source = data?.optString("source").orEmpty().take(32)
-    val step = data?.optJSONObject("agentStep")?.optString("type").orEmpty()
+    val step = data?.optJSONObject("agentStep")?.optString("type").orEmpty().take(8)
     val phase = AgentTaskExecutionContract.fromResponse(data)?.phase.orEmpty()
+        .replace("visual_navigation", "visual")
+        .replace("open_target_app", "open")
+        .replace("verify_target_app", "verify")
+        .take(8)
+    val clientContextMs = debug?.optLongOrZero("clientDeviceContextMs") ?: 0L
+    val bodyMs = debug?.optLongOrZero("readBodyMs") ?: 0L
+    val contractMs = debug?.optLongOrZero("taskContractJudgeMs") ?: 0L
+    val appResolveMs = debug?.optLongOrZero("appResolveMs") ?: 0L
+    val brainMs = debug?.optLongOrZero("agentBrainMs") ?: 0L
+    val visionMs = debug?.optLongOrZero("providerMs") ?: 0L
+    val serverTotalMs = debug?.optLongOrZero("totalMs") ?: 0L
+    val cold = debug?.optLongOrZero("coldStart") ?: 0L
     return buildString {
-        append("AgentDebug req=").append(bytesToKb(requestBytes))
-            .append("K resp=").append(bytesToKb(responseChars))
-            .append("K http=").append(totalMs)
-        if (step.isNotBlank()) append(" step=").append(step)
-        if (phase.isNotBlank()) append(" phase=").append(phase)
-        if (source.isNotBlank()) append(" src=").append(source)
-        if (version.isNotBlank()) append(" v=").append(version)
-        if (debug == null) append(" debug=无")
+        append("D q").append(bytesToKb(requestBytes))
+        append(" r").append(bytesToKb(responseChars))
+        append(" h").append(totalMs)
+        if (step.isNotBlank()) append(" s").append(step)
+        if (phase.isNotBlank()) append(" p").append(phase)
+        append(" | c").append(clientContextMs)
+        append(" b").append(bodyMs)
+        append(" k").append(contractMs)
+        append(" a").append(appResolveMs)
+        append(" n").append(brainMs)
+        append(" v").append(visionMs)
+        append(" t").append(serverTotalMs)
+        append(" C").append(cold)
     }
+}
+
+private fun JSONObject.optLongOrZero(key: String): Long {
+    if (!has(key) || isNull(key)) return 0L
+    return runCatching { getLong(key) }
+        .getOrElse { optString(key).toDoubleOrNull()?.toLong() ?: 0L }
 }
 
 private fun bytesToKb(bytes: Int): Int = if (bytes <= 0) 0 else ((bytes + 1023) / 1024)
