@@ -1,5 +1,6 @@
 Lcom/yuchen/ailedger/MainActivity;
 Lcom/yuchen/ailedger/AssistantViewModel;
+Lcom/yuchen/ailedger/data/AssistantPreferencesStore;
 Lcom/yuchen/ailedger/service/ChatNotificationManager;
 Lcom/yuchen/ailedger/ui/AccessibilitySilentComposeRootKt;
 Lcom/yuchen/ailedger/ui/AppKt;
