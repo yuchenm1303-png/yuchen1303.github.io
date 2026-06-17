@@ -49,6 +49,7 @@ data class BlurredBackdropBitmap(
     val blurLowImage: ImageBitmap = image,
     val blurMediumImage: ImageBitmap = image,
     val blurHighImage: ImageBitmap = image,
+    val luminanceMap: BackdropLuminanceMap = BackdropLuminanceMap.Neutral,
     val blurAmount: Float = 0f,
     val isReady: Boolean = true
 )
@@ -58,6 +59,7 @@ internal data class BackdropTextureSet(
     val blurLowImage: ImageBitmap,
     val blurMediumImage: ImageBitmap,
     val blurHighImage: ImageBitmap,
+    val luminanceMap: BackdropLuminanceMap,
     val fullWidthPx: Int,
     val fullHeightPx: Int,
     val blurScale: Float
@@ -71,6 +73,7 @@ internal data class BackdropTextureSet(
         blurLowImage = blurLowImage,
         blurMediumImage = blurMediumImage,
         blurHighImage = blurHighImage,
+        luminanceMap = luminanceMap,
         blurAmount = amount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT),
         isReady = true
     )
@@ -168,6 +171,11 @@ private object BackdropDiskCache {
         } else {
             decodeBitmap(File(directory, "high.png")) ?: return@runCatching null
         }
+        val luminanceMap = BackdropLuminanceMap.build(
+            source = medium.asAndroidBitmap(),
+            fullWidthPx = fullWidth,
+            fullHeightPx = fullHeight
+        )
 
         directory.setLastModified(System.currentTimeMillis())
         BackdropTextureSet(
@@ -175,6 +183,7 @@ private object BackdropDiskCache {
             blurLowImage = low,
             blurMediumImage = medium,
             blurHighImage = high,
+            luminanceMap = luminanceMap,
             fullWidthPx = fullWidth,
             fullHeightPx = fullHeight,
             blurScale = blurScale
