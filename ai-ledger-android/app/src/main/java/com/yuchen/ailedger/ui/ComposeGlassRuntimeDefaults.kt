@@ -1,17 +1,18 @@
 package com.yuchen.ailedger.ui
 
 /**
- * First locked-in Frost defaults for ordinary Compose glass.
+ * Frost 普通 Compose 玻璃的生产默认值。
  *
- * The lab exposes useful knobs only. Removed/low-value knobs stay fixed here:
- * frost, tint, edgeDepth, innerBevel, sideBevel, shadow.
+ * 背景纹理已经使用高斯近似预模糊，材质层不再依靠厚重白罩伪造模糊。这里保留足够的
+ * 体积吸收和上下边缘质量，同时降低白底网页上最容易产生“奶白塑料板”的 Milk/Highlight。
+ * 固定项仍然不进入 OpenGL，也不触发任何 OpenGL registry 或 geometry sync。
  */
 object ComposeGlassRuntimeDefaults {
-    const val backdrop = 1.22f
-    const val backdropBlur = 0.92f
-    const val backdropDim = 0.38f
-    const val backdropMilk = 0.86f
-    const val backdropHighlight = 0.72f
+    const val backdrop = 1.16f
+    const val backdropBlur = 1.02f
+    const val backdropDim = 0.31f
+    const val backdropMilk = 0.62f
+    const val backdropHighlight = 0.58f
 
     const val frost = 0.15f
     const val tint = 0.00f
