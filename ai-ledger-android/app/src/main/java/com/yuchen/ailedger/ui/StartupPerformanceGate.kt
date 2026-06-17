@@ -147,6 +147,20 @@ internal object StartupPerformanceGate {
         }
     }
 
+    /**
+     * The display-mode request is released at the business gate. Notification permission waits for
+     * another measured stable-frame window so the system dialog never lands in the same frame burst
+     * as a refresh-rate switch or the first background cache write.
+     */
+    suspend fun awaitNotificationPermissionWindow() {
+        awaitDeferredBusinessWindow()
+        awaitStableFrameWindow(
+            minimumElapsedMs = 220L,
+            requiredStableFrames = 4,
+            maximumWaitMs = 1_000L
+        )
+    }
+
     private suspend fun awaitStableFrameWindow(
         minimumElapsedMs: Long,
         requiredStableFrames: Int,
