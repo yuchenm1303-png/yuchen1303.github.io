@@ -14,7 +14,9 @@ import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.StartupPerformanceGate
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
@@ -58,12 +60,13 @@ class AssistantPreferencesStore(private val context: Context) {
     private val pendingMotionIntensity = AtomicReference<Float?>(null)
     private val pendingRainbowPrism = AtomicReference<RainbowPrismStyle?>(null)
 
-    // 参数滑块在拖动时可能每帧产生新值。CONFLATED 通道只保留最新值，
-    // 并等待数值稳定后再写盘，避免产生历史写入队列和多余磁盘 I/O。
+    // 写入通道和 Scope 本身保持轻量，但三个永久消费协程只在用户第一次真正修改
+    // 对应设置时启动，冷启动不再创建空闲 IO 协程。
     private val sliderWriterScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val glassIntensityWrites = Channel<Float>(Channel.CONFLATED)
     private val motionIntensityWrites = Channel<Float>(Channel.CONFLATED)
     private val rainbowPrismWrites = Channel<RainbowPrismStyle>(Channel.CONFLATED)
+    private val sliderWritersStarted = AtomicBoolean(false)
 
     private object Keys {
         val renderQuality = stringPreferencesKey("render_quality")
@@ -83,34 +86,6 @@ class AssistantPreferencesStore(private val context: Context) {
         val navigationSchoolAddress = stringPreferencesKey("navigation_school_address")
         val navigationCompanyAddress = stringPreferencesKey("navigation_company_address")
         val navigationDormAddress = stringPreferencesKey("navigation_dorm_address")
-    }
-
-    init {
-        sliderWriterScope.launch {
-            consumeSettledValues(glassIntensityWrites) { value ->
-                context.assistantPreferencesDataStore.edit {
-                    it[Keys.glassIntensity] = value.coerceIn(0.6f, 1.4f)
-                }
-            }
-        }
-        sliderWriterScope.launch {
-            consumeSettledValues(motionIntensityWrites) { value ->
-                context.assistantPreferencesDataStore.edit {
-                    it[Keys.motionIntensity] = value.coerceIn(0f, 1.4f)
-                }
-            }
-        }
-        sliderWriterScope.launch {
-            consumeSettledValues(rainbowPrismWrites) { style ->
-                context.assistantPreferencesDataStore.edit {
-                    it[Keys.rainbowOverall] = style.overall
-                    it[Keys.rainbowEdgeHighlight] = style.edgeHighlight
-                    it[Keys.rainbowSweepMin] = style.sweepMin
-                    it[Keys.rainbowSweepMax] = style.sweepMax
-                    it[Keys.rainbowHalo] = style.rainbowHalo
-                }
-            }
-        }
     }
 
     val preferencesFlow: Flow<AssistantPreferences> = context.assistantPreferencesDataStore.data
@@ -166,7 +141,10 @@ class AssistantPreferencesStore(private val context: Context) {
                 expectedMotion = expectedMotion,
                 expectedRainbow = expectedRainbow
             )
-            merged.also { AssistantLocalMemoryRuntime.update(it) }
+            merged.also {
+                AssistantLocalMemoryRuntime.update(it)
+                StartupPerformanceGate.markPreferencesReady()
+            }
         }
 
     suspend fun setRenderQuality(quality: RenderQuality) {
@@ -180,6 +158,7 @@ class AssistantPreferencesStore(private val context: Context) {
     }
 
     suspend fun setGlassPreset(glassPreset: GlassPreset) {
+        ensureSliderWritersStarted()
         val glass = glassPreset.glassIntensity.coerceIn(0.6f, 1.4f)
         val motion = glassPreset.motionIntensity.coerceIn(0f, 1.4f)
         pendingGlassIntensity.set(glass)
@@ -215,18 +194,21 @@ class AssistantPreferencesStore(private val context: Context) {
     }
 
     suspend fun setGlassIntensity(glassIntensity: Float) {
+        ensureSliderWritersStarted()
         val resolved = glassIntensity.coerceIn(0.6f, 1.4f)
         pendingGlassIntensity.set(resolved)
         glassIntensityWrites.send(resolved)
     }
 
     suspend fun setMotionIntensity(motionIntensity: Float) {
+        ensureSliderWritersStarted()
         val resolved = motionIntensity.coerceIn(0f, 1.4f)
         pendingMotionIntensity.set(resolved)
         motionIntensityWrites.send(resolved)
     }
 
     suspend fun setRainbowPrismStyle(style: RainbowPrismStyle) {
+        ensureSliderWritersStarted()
         val resolved = style.normalized()
         pendingRainbowPrism.set(resolved)
         rainbowPrismWrites.send(resolved)
@@ -240,6 +222,35 @@ class AssistantPreferencesStore(private val context: Context) {
                 "school" -> preferences[Keys.navigationSchoolAddress] = cleanAddress
                 "company" -> preferences[Keys.navigationCompanyAddress] = cleanAddress
                 "dorm" -> preferences[Keys.navigationDormAddress] = cleanAddress
+            }
+        }
+    }
+
+    private fun ensureSliderWritersStarted() {
+        if (!sliderWritersStarted.compareAndSet(false, true)) return
+        sliderWriterScope.launch {
+            consumeSettledValues(glassIntensityWrites) { value ->
+                context.assistantPreferencesDataStore.edit {
+                    it[Keys.glassIntensity] = value.coerceIn(0.6f, 1.4f)
+                }
+            }
+        }
+        sliderWriterScope.launch {
+            consumeSettledValues(motionIntensityWrites) { value ->
+                context.assistantPreferencesDataStore.edit {
+                    it[Keys.motionIntensity] = value.coerceIn(0f, 1.4f)
+                }
+            }
+        }
+        sliderWriterScope.launch {
+            consumeSettledValues(rainbowPrismWrites) { style ->
+                context.assistantPreferencesDataStore.edit {
+                    it[Keys.rainbowOverall] = style.overall
+                    it[Keys.rainbowEdgeHighlight] = style.edgeHighlight
+                    it[Keys.rainbowSweepMin] = style.sweepMin
+                    it[Keys.rainbowSweepMax] = style.sweepMax
+                    it[Keys.rainbowHalo] = style.rainbowHalo
+                }
             }
         }
     }
