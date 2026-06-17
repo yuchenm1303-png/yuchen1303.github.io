@@ -120,50 +120,35 @@ object AppCapabilityRegistry {
             .replace(Regex("[·・.。_\\-]+"), "")
 }
 
-enum class AgentTaskPhase {
-    ResolveRequirements,
-    ResolveTargetApp,
-    OpenTargetApp,
-    VerifyTargetApp,
-    VisualNavigation,
-    VerifyResult,
-    Completed,
-    UserAssistance,
-    Unknown;
+object AgentTaskPhase {
+    const val ResolveRequirements = "resolve_requirements"
+    const val ResolveTargetApp = "resolve_target_app"
+    const val OpenTargetApp = "open_target_app"
+    const val VerifyTargetApp = "verify_target_app"
+    const val VisualNavigation = "visual_navigation"
+    const val VerifyResult = "verify_result"
+    const val Completed = "completed"
+    const val UserAssistance = "user_assistance"
+    const val Unknown = "unknown"
 
-    companion object {
-        fun from(raw: String?): AgentTaskPhase = when (
-            raw.orEmpty().trim().lowercase().replace('-', '_')
-        ) {
-            "resolve_requirements" -> ResolveRequirements
-            "resolve_target_app" -> ResolveTargetApp
-            "open_target_app" -> OpenTargetApp
-            "verify_target_app" -> VerifyTargetApp
-            "visual_navigation" -> VisualNavigation
-            "verify_result" -> VerifyResult
-            "completed" -> Completed
-            "user_assistance" -> UserAssistance
-            else -> Unknown
-        }
+    fun normalize(raw: String?): String = when (
+        raw.orEmpty().trim().lowercase().replace('-', '_')
+    ) {
+        ResolveRequirements -> ResolveRequirements
+        ResolveTargetApp -> ResolveTargetApp
+        OpenTargetApp -> OpenTargetApp
+        VerifyTargetApp -> VerifyTargetApp
+        VisualNavigation -> VisualNavigation
+        VerifyResult -> VerifyResult
+        Completed -> Completed
+        UserAssistance -> UserAssistance
+        else -> Unknown
     }
 }
 
-val AgentTaskPhase.wireName: String
-    get() = when (this) {
-        AgentTaskPhase.ResolveRequirements -> "resolve_requirements"
-        AgentTaskPhase.ResolveTargetApp -> "resolve_target_app"
-        AgentTaskPhase.OpenTargetApp -> "open_target_app"
-        AgentTaskPhase.VerifyTargetApp -> "verify_target_app"
-        AgentTaskPhase.VisualNavigation -> "visual_navigation"
-        AgentTaskPhase.VerifyResult -> "verify_result"
-        AgentTaskPhase.Completed -> "completed"
-        AgentTaskPhase.UserAssistance -> "user_assistance"
-        AgentTaskPhase.Unknown -> "unknown"
-    }
-
 data class AgentTaskExecutionContract(
     val taskId: String,
-    val phase: AgentTaskPhase,
+    val phase: String,
     val requiredCapabilities: Set<String>,
     val targetAppName: String,
     val targetPackageName: String,
@@ -173,7 +158,7 @@ data class AgentTaskExecutionContract(
     fun toJson(): JSONObject = JSONObject().apply {
         put("schema", "agent_task_execution_contract_v1")
         put("taskId", taskId)
-        put("phase", phase.wireName)
+        put("phase", phase)
         put("requiredCapabilities", JSONArray(requiredCapabilities.toList().sorted()))
         put("targetApp", JSONObject().apply {
             put("appName", targetAppName)
@@ -189,7 +174,7 @@ data class AgentTaskExecutionContract(
             val app = item.optJSONObject("targetApp") ?: item.optJSONObject("resolvedTargetApp")
             return AgentTaskExecutionContract(
                 taskId = item.first("taskId", "task_id", "id").orEmpty(),
-                phase = AgentTaskPhase.from(item.first("phase", "currentPhase", "stage")),
+                phase = AgentTaskPhase.normalize(item.first("phase", "currentPhase", "stage")),
                 requiredCapabilities = item.strings(
                     "requiredCapabilities",
                     "required_capabilities",
