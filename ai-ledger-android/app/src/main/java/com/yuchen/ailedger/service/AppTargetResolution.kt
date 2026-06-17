@@ -120,24 +120,46 @@ object AppCapabilityRegistry {
             .replace(Regex("[·・.。_\\-]+"), "")
 }
 
-enum class AgentTaskPhase(val wireName: String) {
-    ResolveRequirements("resolve_requirements"),
-    ResolveTargetApp("resolve_target_app"),
-    OpenTargetApp("open_target_app"),
-    VerifyTargetApp("verify_target_app"),
-    VisualNavigation("visual_navigation"),
-    VerifyResult("verify_result"),
-    Completed("completed"),
-    UserAssistance("user_assistance"),
-    Unknown("unknown");
+enum class AgentTaskPhase {
+    ResolveRequirements,
+    ResolveTargetApp,
+    OpenTargetApp,
+    VerifyTargetApp,
+    VisualNavigation,
+    VerifyResult,
+    Completed,
+    UserAssistance,
+    Unknown;
 
     companion object {
-        fun from(raw: String?): AgentTaskPhase {
-            val key = raw.orEmpty().trim().lowercase().replace('-', '_')
-            return values().firstOrNull { it.wireName == key } ?: Unknown
+        fun from(raw: String?): AgentTaskPhase = when (
+            raw.orEmpty().trim().lowercase().replace('-', '_')
+        ) {
+            "resolve_requirements" -> ResolveRequirements
+            "resolve_target_app" -> ResolveTargetApp
+            "open_target_app" -> OpenTargetApp
+            "verify_target_app" -> VerifyTargetApp
+            "visual_navigation" -> VisualNavigation
+            "verify_result" -> VerifyResult
+            "completed" -> Completed
+            "user_assistance" -> UserAssistance
+            else -> Unknown
         }
     }
 }
+
+val AgentTaskPhase.wireName: String
+    get() = when (this) {
+        AgentTaskPhase.ResolveRequirements -> "resolve_requirements"
+        AgentTaskPhase.ResolveTargetApp -> "resolve_target_app"
+        AgentTaskPhase.OpenTargetApp -> "open_target_app"
+        AgentTaskPhase.VerifyTargetApp -> "verify_target_app"
+        AgentTaskPhase.VisualNavigation -> "visual_navigation"
+        AgentTaskPhase.VerifyResult -> "verify_result"
+        AgentTaskPhase.Completed -> "completed"
+        AgentTaskPhase.UserAssistance -> "user_assistance"
+        AgentTaskPhase.Unknown -> "unknown"
+    }
 
 data class AgentTaskExecutionContract(
     val taskId: String,
@@ -291,7 +313,9 @@ class TargetAppResolver(
     )
 
     fun resolve(contract: AgentTaskExecutionContract?): TargetAppResolution {
-        if (contract == null) return TargetAppResolution("not_required", null, emptyList(), emptySet(), "尚无云端任务合同。")
+        if (contract == null) {
+            return TargetAppResolution("not_required", null, emptyList(), emptySet(), "尚无云端任务合同。")
+        }
         val required = contract.requiredCapabilities
         val apps = appIndex.getLaunchableApps(false)
         if (contract.targetPackageName.isNotBlank()) {
@@ -306,7 +330,9 @@ class TargetAppResolver(
             val named = appIndex.findCandidateApps(contract.targetAppName, 8)
             return choose(required, named, "已按用户明确指定的应用名称解析。")
         }
-        if (required.isEmpty()) return TargetAppResolution("not_required", null, emptyList(), required, "任务未声明应用能力。")
+        if (required.isEmpty()) {
+            return TargetAppResolution("not_required", null, emptyList(), required, "任务未声明应用能力。")
+        }
         val preferred = preferences.getString("capability.${primary(required)}", null)
         val matched = apps.filter { AppCapabilityRegistry.profile(it).supports(required) }
             .sortedByDescending { app ->
