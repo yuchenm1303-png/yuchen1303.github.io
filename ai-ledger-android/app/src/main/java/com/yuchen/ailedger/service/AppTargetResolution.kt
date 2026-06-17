@@ -6,6 +6,30 @@ import java.text.Normalizer
 import org.json.JSONArray
 import org.json.JSONObject
 
+const val AGENT_TASK_PHASE_RESOLVE_REQUIREMENTS = "resolve_requirements"
+const val AGENT_TASK_PHASE_RESOLVE_TARGET_APP = "resolve_target_app"
+const val AGENT_TASK_PHASE_OPEN_TARGET_APP = "open_target_app"
+const val AGENT_TASK_PHASE_VERIFY_TARGET_APP = "verify_target_app"
+const val AGENT_TASK_PHASE_VISUAL_NAVIGATION = "visual_navigation"
+const val AGENT_TASK_PHASE_VERIFY_RESULT = "verify_result"
+const val AGENT_TASK_PHASE_COMPLETED = "completed"
+const val AGENT_TASK_PHASE_USER_ASSISTANCE = "user_assistance"
+const val AGENT_TASK_PHASE_UNKNOWN = "unknown"
+
+fun normalizeAgentTaskPhase(raw: String?): String = when (
+    raw.orEmpty().trim().lowercase().replace('-', '_')
+) {
+    AGENT_TASK_PHASE_RESOLVE_REQUIREMENTS -> AGENT_TASK_PHASE_RESOLVE_REQUIREMENTS
+    AGENT_TASK_PHASE_RESOLVE_TARGET_APP -> AGENT_TASK_PHASE_RESOLVE_TARGET_APP
+    AGENT_TASK_PHASE_OPEN_TARGET_APP -> AGENT_TASK_PHASE_OPEN_TARGET_APP
+    AGENT_TASK_PHASE_VERIFY_TARGET_APP -> AGENT_TASK_PHASE_VERIFY_TARGET_APP
+    AGENT_TASK_PHASE_VISUAL_NAVIGATION -> AGENT_TASK_PHASE_VISUAL_NAVIGATION
+    AGENT_TASK_PHASE_VERIFY_RESULT -> AGENT_TASK_PHASE_VERIFY_RESULT
+    AGENT_TASK_PHASE_COMPLETED -> AGENT_TASK_PHASE_COMPLETED
+    AGENT_TASK_PHASE_USER_ASSISTANCE -> AGENT_TASK_PHASE_USER_ASSISTANCE
+    else -> AGENT_TASK_PHASE_UNKNOWN
+}
+
 object AppCapability {
     const val STOCK_QUOTE = "stock_quote"
     const val STOCK_SEARCH = "stock_search"
@@ -120,32 +144,6 @@ object AppCapabilityRegistry {
             .replace(Regex("[·・.。_\\-]+"), "")
 }
 
-object AgentTaskPhase {
-    const val ResolveRequirements = "resolve_requirements"
-    const val ResolveTargetApp = "resolve_target_app"
-    const val OpenTargetApp = "open_target_app"
-    const val VerifyTargetApp = "verify_target_app"
-    const val VisualNavigation = "visual_navigation"
-    const val VerifyResult = "verify_result"
-    const val Completed = "completed"
-    const val UserAssistance = "user_assistance"
-    const val Unknown = "unknown"
-
-    fun normalize(raw: String?): String = when (
-        raw.orEmpty().trim().lowercase().replace('-', '_')
-    ) {
-        ResolveRequirements -> ResolveRequirements
-        ResolveTargetApp -> ResolveTargetApp
-        OpenTargetApp -> OpenTargetApp
-        VerifyTargetApp -> VerifyTargetApp
-        VisualNavigation -> VisualNavigation
-        VerifyResult -> VerifyResult
-        Completed -> Completed
-        UserAssistance -> UserAssistance
-        else -> Unknown
-    }
-}
-
 data class AgentTaskExecutionContract(
     val taskId: String,
     val phase: String,
@@ -174,7 +172,7 @@ data class AgentTaskExecutionContract(
             val app = item.optJSONObject("targetApp") ?: item.optJSONObject("resolvedTargetApp")
             return AgentTaskExecutionContract(
                 taskId = item.first("taskId", "task_id", "id").orEmpty(),
-                phase = AgentTaskPhase.normalize(item.first("phase", "currentPhase", "stage")),
+                phase = normalizeAgentTaskPhase(item.first("phase", "currentPhase", "stage")),
                 requiredCapabilities = item.strings(
                     "requiredCapabilities",
                     "required_capabilities",
