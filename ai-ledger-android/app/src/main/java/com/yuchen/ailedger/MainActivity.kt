@@ -17,21 +17,25 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.lifecycle.lifecycleScope
 import com.yuchen.ailedger.ui.AccessibilitySilentComposeRoot
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
 import com.yuchen.ailedger.ui.StartupMetrics
+import com.yuchen.ailedger.ui.StartupPerformanceGate
+import kotlinx.coroutines.launch
 
 private const val ENABLE_STARTUP_FRAME_MONITOR = false
 private const val ENABLE_STARTUP_METRICS_OVERLAY = false
 
 class MainActivity : ComponentActivity() {
-    private var accessibilityShieldApplied: Boolean = false
-    private val accessibilityShieldHandler = Handler(Looper.getMainLooper())
     private val accessibilityShieldRunnable = Runnable {
         applyAccessibilityPerformanceShield(window.decorView)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        StartupMetrics.configure(
+            enabled = ENABLE_STARTUP_FRAME_MONITOR || ENABLE_STARTUP_METRICS_OVERLAY
+        )
         if (ENABLE_STARTUP_FRAME_MONITOR) {
             StartupMetrics.markOnce("Activity onCreate")
             StartupMetrics.startFrameMonitor()
@@ -39,7 +43,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("super.onCreate 完成")
         prepareWindow(window)
-        requestHighRefreshRate(window)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("窗口透明布局完成")
         installImeFocusReset(window)
         installAccessibilityPerformanceShield(window.decorView)
@@ -52,6 +55,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         reinforceAccessibilityPerformanceShield(window.decorView)
+        scheduleHighRefreshRate(window)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("setContent 调用完成")
     }
 
@@ -61,7 +65,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        accessibilityShieldHandler.removeCallbacks(accessibilityShieldRunnable)
+        window.decorView.removeCallbacks(accessibilityShieldRunnable)
         super.onDestroy()
     }
 
@@ -84,18 +88,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun installAccessibilityPerformanceShield(root: View) {
-        // 首帧前立刻隐藏整棵 Compose 视图树，避免首次启用无障碍时系统递归遍历高复杂 UI。
-        // 智能体真正观察外部应用时走 AccessibilityService 的按需 Working 模式，不依赖本 App 自身语义树。
+        // IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS 在根节点即可屏蔽整棵后代树。
+        // 不再递归遍历 Compose 子 View，避免首帧后对复杂视图树进行重复主线程扫描。
         applyAccessibilityPerformanceShield(root)
-        accessibilityShieldApplied = true
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("首帧前无障碍性能屏蔽完成")
     }
 
     private fun reinforceAccessibilityPerformanceShield(root: View) {
         applyAccessibilityPerformanceShield(root)
+        root.removeCallbacks(accessibilityShieldRunnable)
         root.post(accessibilityShieldRunnable)
-        accessibilityShieldHandler.removeCallbacks(accessibilityShieldRunnable)
-        accessibilityShieldHandler.postDelayed(accessibilityShieldRunnable, ACCESSIBILITY_SHIELD_REAPPLY_DELAY_MS)
     }
 
     private fun applyAccessibilityPerformanceShield(root: View) {
@@ -104,12 +106,14 @@ class MainActivity : ComponentActivity() {
             root.isFocusedByDefault = false
             root.isScreenReaderFocusable = false
         }
-        if (root is ViewGroup) {
-            for (index in 0 until root.childCount) {
-                applyAccessibilityPerformanceShield(root.getChildAt(index))
-            }
+    }
+
+    private fun scheduleHighRefreshRate(window: Window) {
+        lifecycleScope.launch {
+            // 显示模式切换可能触发 Surface/RenderThread 调整，必须离开首帧和 OpenGL 编译窗口。
+            StartupPerformanceGate.awaitDeferredBusinessWindow()
+            if (!isFinishing && !isDestroyed) requestHighRefreshRate(window)
         }
-        accessibilityShieldApplied = true
     }
 
     private fun requestHighRefreshRate(window: Window) {
@@ -223,9 +227,5 @@ class MainActivity : ComponentActivity() {
             }
         }
         ticker.run()
-    }
-
-    private companion object {
-        private const val ACCESSIBILITY_SHIELD_REAPPLY_DELAY_MS = 240L
     }
 }
