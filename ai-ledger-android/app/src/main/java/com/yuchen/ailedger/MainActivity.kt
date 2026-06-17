@@ -1,5 +1,6 @@
 package com.yuchen.ailedger
 
+import android.Manifest
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
     private val accessibilityShieldRunnable = Runnable {
         applyAccessibilityPerformanceShield(window.decorView)
     }
+    private var notificationPermissionRequestDeferred = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         StartupMetrics.configure(
@@ -57,6 +59,32 @@ class MainActivity : ComponentActivity() {
         reinforceAccessibilityPerformanceShield(window.decorView)
         scheduleHighRefreshRate(window)
         if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("setContent 调用完成")
+    }
+
+    /**
+     * ActivityResultContracts.RequestPermission 最终会进入此入口。首装时通知权限弹窗不能与
+     * OpenGL 首帧、高刷模式切换和纹理缓存落盘同时发生，因此只对通知权限做稳定帧延后；
+     * 其他权限保持系统原有即时行为。
+     */
+    override fun requestPermissions(permissions: Array<out String>, requestCode: Int) {
+        val isNotificationOnly = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            permissions.size == 1 &&
+            permissions[0] == Manifest.permission.POST_NOTIFICATIONS
+        if (!isNotificationOnly) {
+            super.requestPermissions(permissions, requestCode)
+            return
+        }
+        if (notificationPermissionRequestDeferred) return
+
+        notificationPermissionRequestDeferred = true
+        val copiedPermissions = permissions.copyOf()
+        lifecycleScope.launch {
+            StartupPerformanceGate.awaitNotificationPermissionWindow()
+            if (!isFinishing && !isDestroyed) {
+                super@MainActivity.requestPermissions(copiedPermissions, requestCode)
+            }
+            notificationPermissionRequestDeferred = false
+        }
     }
 
     override fun onResume() {
