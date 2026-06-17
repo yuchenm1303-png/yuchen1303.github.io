@@ -129,8 +129,8 @@ private fun createPrefilteredBlurSource(
     var current = source
     var ownsCurrent = false
     while (
-        current.width / 2 >= targetWidth * 2 &&
-        current.height / 2 >= targetHeight * 2
+        current.width / 2 >= targetWidth &&
+        current.height / 2 >= targetHeight
     ) {
         val nextWidth = (current.width / 2).coerceAtLeast(targetWidth)
         val nextHeight = (current.height / 2).coerceAtLeast(targetHeight)
