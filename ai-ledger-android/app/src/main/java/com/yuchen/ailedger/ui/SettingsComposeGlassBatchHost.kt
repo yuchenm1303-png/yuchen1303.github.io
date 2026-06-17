@@ -5,21 +5,18 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import kotlinx.coroutines.delay
-
-private const val SETTINGS_COMPOSE_BATCH_REVEAL_MS = 820L
 
 /**
  * 设置页生产态 Compose 玻璃单宿主。
- * 页面进退场期间保留原本地 Frost/Inset 绘制；几何稳定后再切入父级批绘制。
- * 折叠动画裁剪表始终存在，只记录真实 LayoutCoordinates，不创建逐帧扫描。
- * 不接入任何 OpenGL registry 或 geometry sync。
+ *
+ * 批处理宿主从设置页第一次进入 Composition 起就保持同一棵稳定结构；几何数据由
+ * onPlaced/onGloballyPositioned 自然补齐，禁止再通过延时切换整套 Composition 分支。
+ * 这样不会在进入设置页约 820ms 后卸载并重新挂载 Slider、折叠区和本地交互状态。
+ *
+ * 折叠动画裁剪表始终存在，只记录真实 LayoutCoordinates，不创建逐帧扫描；
+ * 同时不接入任何 OpenGL registry 或 geometry sync。
  */
 @Composable
 internal fun SettingsComposeGlassBatchHost(
@@ -28,33 +25,21 @@ internal fun SettingsComposeGlassBatchHost(
 ) {
     val frostLayerState = rememberSettingsFrostParentLayerState()
     val foldoutClipRegistry = remember { GlassFoldoutClipRegistry() }
-    val pageActive = LocalPageActive.current
-    val activationTick = LocalPageActivationTick.current
-    var staticBatchReady by remember { mutableStateOf(false) }
 
     DisposableEffect(foldoutClipRegistry) {
         onDispose { foldoutClipRegistry.clear() }
     }
 
-    LaunchedEffect(pageActive, activationTick) {
-        staticBatchReady = false
-        if (!pageActive) return@LaunchedEffect
-        delay(SETTINGS_COMPOSE_BATCH_REVEAL_MS)
-        staticBatchReady = true
-    }
-
     CompositionLocalProvider(
         LocalGlassFoldoutClipRegistry provides foldoutClipRegistry,
-        LocalSettingsStaticBatchReady provides staticBatchReady,
-        LocalSettingsFrostParentLayer provides frostLayerState.takeIf { staticBatchReady }
+        LocalSettingsStaticBatchReady provides true,
+        LocalSettingsFrostParentLayer provides frostLayerState
     ) {
         Box(modifier = modifier) {
-            if (staticBatchReady) {
-                SettingsFrostParentLayer(
-                    layerState = frostLayerState,
-                    modifier = Modifier.matchParentSize()
-                )
-            }
+            SettingsFrostParentLayer(
+                layerState = frostLayerState,
+                modifier = Modifier.matchParentSize()
+            )
             content()
         }
     }
