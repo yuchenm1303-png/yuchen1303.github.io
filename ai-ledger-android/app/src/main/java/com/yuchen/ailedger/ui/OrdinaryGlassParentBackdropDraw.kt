@@ -23,17 +23,11 @@ internal fun DrawScope.withOrdinaryParentTransform(
     val rect = item.rect
     val transform = item.transform
     if (transform.isIdentity()) {
-        withTransform({
-            translate(rect.left, rect.top)
-        }) {
-            block()
-        }
+        withTransform({ translate(rect.left, rect.top) }) { block() }
         return
     }
 
-    withTransform({
-        translate(rect.left, rect.top + transform.translationY)
-    }) {
+    withTransform({ translate(rect.left, rect.top + transform.translationY) }) {
         withTransform({
             scale(
                 scaleX = transform.scaleX,
@@ -107,10 +101,21 @@ internal fun DrawScope.drawOrdinaryParentBackdrop(
         val cache = ensureOrdinaryParentGeometry(node, rect)
         ensureOrdinaryParentBackdropBrushes(node, rect, resolvedSpec, cache)
         val localSize = cache.localSize
+        val adaptiveSample = backdrop?.let {
+            resolveAdaptiveBackdropSample(
+                backdrop = it,
+                sampleOffset = item.sampleOffset,
+                sampleSize = localSize,
+                requestedBlurDp = ordinaryBackdropBlurRadiusDp(node.role)
+            )
+        }
+        val veilAlpha = adaptiveSample?.veilAlpha ?: 1f
+        val highlightAlpha = adaptiveSample?.highlightAlpha ?: 1f
         clipPath(cache.shapePath) {
-            if (backdrop != null) {
+            if (backdrop != null && adaptiveSample != null) {
                 drawOrdinaryParentBackdropImage(
                     backdrop = backdrop,
+                    sample = adaptiveSample,
                     sampleOffset = item.sampleOffset,
                     itemSize = localSize,
                     alpha = cache.sampledBackdropAlpha
@@ -127,20 +132,46 @@ internal fun DrawScope.drawOrdinaryParentBackdrop(
                     blendMode = BlendMode.Multiply
                 )
             }
-            drawRect(requireNotNull(cache.primaryVeil), size = localSize, blendMode = BlendMode.SrcOver)
+            val adaptiveDim = adaptiveSample?.dimBoost ?: 0f
+            if (adaptiveDim > 0.001f) {
+                drawRect(
+                    color = Color(0xFF66717C).copy(alpha = adaptiveDim),
+                    size = localSize,
+                    blendMode = BlendMode.Multiply
+                )
+            }
             drawRect(
-                Color(0xFF72859A).copy(alpha = cache.backdropBaseAlpha * 0.16f * cache.backdropMilk),
+                brush = requireNotNull(cache.primaryVeil),
+                size = localSize,
+                alpha = veilAlpha,
+                blendMode = BlendMode.SrcOver
+            )
+            drawRect(
+                Color(0xFF72859A).copy(
+                    alpha = cache.backdropBaseAlpha * 0.16f * cache.backdropMilk * veilAlpha
+                ),
                 size = localSize,
                 blendMode = BlendMode.SrcOver
             )
-            drawRect(requireNotNull(cache.secondaryVeil), size = localSize, blendMode = BlendMode.SrcOver)
-            drawRect(requireNotNull(cache.highlightVeil), size = localSize, blendMode = BlendMode.Screen)
+            drawRect(
+                brush = requireNotNull(cache.secondaryVeil),
+                size = localSize,
+                alpha = veilAlpha,
+                blendMode = BlendMode.SrcOver
+            )
+            drawRect(
+                brush = requireNotNull(cache.highlightVeil),
+                size = localSize,
+                alpha = highlightAlpha,
+                blendMode = BlendMode.Screen
+            )
         }
     }
 }
 
 private fun DrawScope.drawOrdinaryParentBackdropImage(
     backdrop: BlurredBackdropBitmap,
+    sample: AdaptiveBackdropSample,
     sampleOffset: Offset,
     itemSize: Size,
     alpha: Float
@@ -155,17 +186,19 @@ private fun DrawScope.drawOrdinaryParentBackdropImage(
     val visibleH = localBottom - localTop
     if (visibleW <= 0f || visibleH <= 0f) return
 
-    val srcX = ((sampleOffset.x + localLeft) * backdrop.scale)
-        .roundToInt().coerceIn(0, backdrop.image.width - 1)
-    val srcY = ((sampleOffset.y + localTop) * backdrop.scale)
-        .roundToInt().coerceIn(0, backdrop.image.height - 1)
-    val srcW = (visibleW * backdrop.scale)
-        .roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
-    val srcH = (visibleH * backdrop.scale)
-        .roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
+    val image = sample.image
+    val scale = sample.scale
+    val srcX = ((sampleOffset.x + localLeft) * scale)
+        .roundToInt().coerceIn(0, image.width - 1)
+    val srcY = ((sampleOffset.y + localTop) * scale)
+        .roundToInt().coerceIn(0, image.height - 1)
+    val srcW = (visibleW * scale)
+        .roundToInt().coerceAtLeast(1).coerceAtMost(image.width - srcX)
+    val srcH = (visibleH * scale)
+        .roundToInt().coerceAtLeast(1).coerceAtMost(image.height - srcY)
 
     drawImage(
-        image = backdrop.image,
+        image = image,
         srcOffset = IntOffset(srcX, srcY),
         srcSize = IntSize(srcW, srcH),
         dstOffset = IntOffset(localLeft.roundToInt(), localTop.roundToInt()),
