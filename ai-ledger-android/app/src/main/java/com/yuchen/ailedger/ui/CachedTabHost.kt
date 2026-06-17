@@ -30,7 +30,6 @@ private const val DEFAULT_PREWARM_DELAY_MS = 5200L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
 private const val PAGE_ENTER_FADE_MS = 230
 private const val PAGE_EXIT_FADE_MS = 160
-private const val HEAVY_EFFECTS_REVEAL_MS = 180L
 
 @Composable
 fun CachedAppTabHost(
@@ -62,8 +61,9 @@ fun CachedAppTabHost(
     LaunchedEffect(currentTab, currentActivationTick) {
         if (currentTab !in renderedTabs) renderedTabs = renderedTabs + currentTab
         heavyEffectsReadyTick = 0
-        if (HEAVY_EFFECTS_REVEAL_MS > 0L) delay(HEAVY_EFFECTS_REVEAL_MS)
+        StartupPerformanceGate.awaitPostBackdropStability()
         heavyEffectsReadyTick = currentActivationTick
+        StartupPerformanceGate.markFullEffectsReady()
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs, diagnostics.pagePrewarmOff) {
@@ -72,10 +72,8 @@ fun CachedAppTabHost(
             return@LaunchedEffect
         }
         if (orderedPrewarmTabs.isEmpty()) {
-            StartupMetrics.setWarmupState("按需页面加载")
             return@LaunchedEffect
         }
-        StartupMetrics.setWarmupState("首页稳定中")
         if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
         orderedPrewarmTabs.forEachIndexed { index, tab ->
             StartupMetrics.setWarmupState("轻量预热 ${tab.name} ${index + 1}/${orderedPrewarmTabs.size}")
@@ -98,7 +96,7 @@ fun CachedAppTabHost(
                 val leaving = !active && visibleDuringTransition
                 val activationKey = if (active) currentActivationTick else 0
                 val heavyEffectsReady = active && heavyEffectsReadyTick == activationKey
-                val visualEffectsEnabled = visibleDuringTransition && !diagnostics.openGlGlassOff
+                val visualEffectsEnabled = visibleDuringTransition && heavyEffectsReady && !diagnostics.openGlGlassOff
                 val liveRegistryEnabled = heavyEffectsReady && !diagnostics.openGlGlassOff
                 val sceneGroup = tab.defaultGlassSceneGroup()
                 val ordinaryRenderMode = if (visibleDuringTransition) {
@@ -120,7 +118,7 @@ fun CachedAppTabHost(
                         LocalPageVisible provides visibleDuringTransition,
                         LocalPageLeaving provides leaving,
                         LocalPageActivationTick provides activationKey,
-                        LocalPageHeavyEffectsEnabled provides (visualEffectsEnabled && heavyEffectsReady),
+                        LocalPageHeavyEffectsEnabled provides visualEffectsEnabled,
                         LocalOpenGLGlassViewportActive provides false,
                         LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
                         LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
