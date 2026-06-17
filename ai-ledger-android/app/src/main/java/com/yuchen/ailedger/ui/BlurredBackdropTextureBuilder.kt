@@ -21,9 +21,14 @@ import kotlin.math.roundToInt
 private const val DEFAULT_BLUR_SOURCE_SCALE = 0.36f
 private const val MIN_BLUR_SOURCE_SCALE = 0.28f
 private const val MAX_BLUR_SOURCE_SCALE = 0.72f
-private const val MEDIUM_BLUR_LEVEL_COUNT = 2
-private const val HIGH_BLUR_LEVEL_COUNT = 3
 
+/**
+ * 构建清晰镜片纹理和完整的低 / 中 / 高三档模糊金字塔。
+ *
+ * 三档始终一次性生成，避免普通 Compose 玻璃在亮底区域自适应切换到高档时拿到中档别名。
+ * 背景变化时仍只执行一次，随后沿用现有内存与磁盘缓存，不增加滚动期计算。
+ */
+@Suppress("UNUSED_PARAMETER")
 internal fun buildBackdropTextureSet(
     fullWidth: Int,
     fullHeight: Int,
@@ -31,7 +36,7 @@ internal fun buildBackdropTextureSet(
     params: BackdropDebugParams,
     customBackgroundPath: String?,
     presetBitmap: Bitmap?,
-    blurLevelCount: Int = HIGH_BLUR_LEVEL_COUNT
+    blurLevelCount: Int = 3
 ): BackdropTextureSet {
     val useDefaultWallpaper = customBackgroundPath == null
     val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
@@ -55,14 +60,12 @@ internal fun buildBackdropTextureSet(
     val blurWidth = (fullWidth * blurScale).roundToInt().coerceAtLeast(192)
     val blurHeight = (fullHeight * blurScale).roundToInt().coerceAtLeast(320)
     val effectiveScale = blurWidth.toFloat() / fullWidth.toFloat()
-    val blurSource = Bitmap.createBitmap(blurWidth, blurHeight, Bitmap.Config.ARGB_8888)
-    drawBitmapCoverIntoTarget(clearSource, blurSource)
+    val blurSource = createPrefilteredBlurSource(clearSource, blurWidth, blurHeight)
 
     val iterations = params.iterations.roundToInt().coerceIn(1, 12)
     val scratch = BackdropPixelScratch(blurWidth * blurHeight)
-    val resolvedLevelCount = blurLevelCount.coerceIn(MEDIUM_BLUR_LEVEL_COUNT, HIGH_BLUR_LEVEL_COUNT)
     val low = buildTunedBlurLevel(
-        blurSource,
+        source = blurSource,
         radius = 1,
         iterations = iterations,
         params = params,
@@ -70,25 +73,20 @@ internal fun buildBackdropTextureSet(
     )
     Thread.yield()
     val medium = buildTunedBlurLevel(
-        blurSource,
+        source = blurSource,
         radius = 2,
         iterations = iterations,
         params = params,
         scratch = scratch
     )
-    val high = if (resolvedLevelCount >= HIGH_BLUR_LEVEL_COUNT) {
-        Thread.yield()
-        buildTunedBlurLevel(
-            blurSource,
-            radius = 4,
-            iterations = iterations,
-            params = params,
-            scratch = scratch
-        )
-    } else {
-        // uBlurAmount < 2 never samples the high pyramid. Reuse medium without changing a pixel.
-        medium
-    }
+    Thread.yield()
+    val high = buildTunedBlurLevel(
+        source = blurSource,
+        radius = 4,
+        iterations = iterations,
+        params = params,
+        scratch = scratch
+    )
 
     if (!blurSource.isRecycled) blurSource.recycle()
 
@@ -118,6 +116,39 @@ private fun buildTunedBlurLevel(
     contrast = params.contrast.coerceIn(0.50f, 1.80f),
     saturation = params.saturation.coerceIn(0.30f, 1.80f)
 )
+
+/**
+ * 大图先逐级减半，再落到最终模糊尺寸。相比一次性双线性缩小，逐级面积近似能先消除
+ * 网页细字和 1px 线条的采样混叠，随后高斯模糊不会再把混叠结果放大成规则横条。
+ */
+private fun createPrefilteredBlurSource(
+    source: Bitmap,
+    targetWidth: Int,
+    targetHeight: Int
+): Bitmap {
+    var current = source
+    var ownsCurrent = false
+    while (
+        current.width / 2 >= targetWidth * 2 &&
+        current.height / 2 >= targetHeight * 2
+    ) {
+        val nextWidth = (current.width / 2).coerceAtLeast(targetWidth)
+        val nextHeight = (current.height / 2).coerceAtLeast(targetHeight)
+        val next = Bitmap.createBitmap(nextWidth, nextHeight, Bitmap.Config.ARGB_8888)
+        drawBitmapCoverIntoTarget(current, next)
+        if (ownsCurrent && !current.isRecycled) current.recycle()
+        current = next
+        ownsCurrent = true
+    }
+
+    if (current.width == targetWidth && current.height == targetHeight) {
+        return current
+    }
+    val result = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+    drawBitmapCoverIntoTarget(current, result)
+    if (ownsCurrent && !current.isRecycled) current.recycle()
+    return result
+}
 
 private fun drawCustomImageBackdropSource(target: Bitmap, path: String?): Boolean {
     val file = path?.let(::File) ?: return false
