@@ -15,7 +15,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
@@ -39,13 +38,6 @@ data class GlassBackdropSpec(
 
 val LocalGlassBackdrop = compositionLocalOf<GlassBackdropSpec?> { null }
 
-private data class ComposeBackdropSample(
-    val image: ImageBitmap,
-    val fullWidthPx: Int,
-    val fullHeightPx: Int,
-    val scale: Float
-)
-
 @Composable
 fun SampledWeatherGlassBackdrop(
     modifier: Modifier = Modifier,
@@ -57,22 +49,7 @@ fun SampledWeatherGlassBackdrop(
     blurRadiusDp: Int = 112,
     liftAlpha: Float = 1f
 ) {
-    val rawBackdrop = LocalBlurredBackdrop.current
-    val cachedBackdrop = remember(
-        rawBackdrop?.image,
-        rawBackdrop?.fullWidthPx,
-        rawBackdrop?.fullHeightPx,
-        rawBackdrop?.scale
-    ) {
-        rawBackdrop?.let {
-            ComposeBackdropSample(
-                image = it.image,
-                fullWidthPx = it.fullWidthPx,
-                fullHeightPx = it.fullHeightPx,
-                scale = it.scale
-            )
-        }
-    }
+    val cachedBackdrop = LocalBlurredBackdrop.current
     val spec = LocalGlassBackdrop.current
     val origin = LocalBackdropOrigin.current
     val ticker = LocalBackdropFrameTicker.current
@@ -122,7 +99,8 @@ fun SampledWeatherGlassBackdrop(
         backdropAlpha,
         dimAlpha,
         dim,
-        milk
+        milk,
+        blurRadiusDp
     ) {
         Modifier
             .clip(RoundedCornerShape(radius.dp))
@@ -181,8 +159,18 @@ fun SampledWeatherGlassBackdrop(
 
                 onDrawBehind {
                     val sampleOffset = sampleOffsetState.value
-                    if (cachedBackdrop != null) {
-                        drawVisibleBackdropImage(cachedBackdrop, sampleOffset, backdropAlpha)
+                    val adaptiveSample = cachedBackdrop?.let {
+                        resolveAdaptiveBackdropSample(
+                            backdrop = it,
+                            sampleOffset = sampleOffset,
+                            sampleSize = size,
+                            requestedBlurDp = blurRadiusDp.toFloat()
+                        )
+                    }
+                    val veilScale = adaptiveSample?.veilAlpha ?: 1f
+                    val highlightScale = adaptiveSample?.highlightAlpha ?: 1f
+                    if (cachedBackdrop != null && adaptiveSample != null) {
+                        drawVisibleBackdropImage(cachedBackdrop, adaptiveSample, sampleOffset, backdropAlpha)
                     } else {
                         drawRect(fallbackBase, blendMode = BlendMode.SrcOver)
                         drawRect(fallbackGlowA, blendMode = BlendMode.Screen)
@@ -191,13 +179,17 @@ fun SampledWeatherGlassBackdrop(
                     if (dimAlpha > 0.001f) {
                         drawRect(Color(0xFF020817).copy(alpha = dimAlpha), blendMode = BlendMode.Multiply)
                     }
-                    drawRect(primaryVeil, blendMode = BlendMode.SrcOver)
+                    val adaptiveDim = adaptiveSample?.dimBoost ?: 0f
+                    if (adaptiveDim > 0.001f) {
+                        drawRect(Color(0xFF66717C).copy(alpha = adaptiveDim), blendMode = BlendMode.Multiply)
+                    }
+                    drawRect(primaryVeil, alpha = veilScale, blendMode = BlendMode.SrcOver)
                     drawRect(
-                        Color(0xFF72859A).copy(alpha = baseAlpha * 0.16f * milk),
+                        Color(0xFF72859A).copy(alpha = baseAlpha * 0.16f * milk * veilScale),
                         blendMode = BlendMode.SrcOver
                     )
-                    drawRect(secondaryVeil, blendMode = BlendMode.SrcOver)
-                    drawRect(highlightVeil, blendMode = BlendMode.Screen)
+                    drawRect(secondaryVeil, alpha = veilScale, blendMode = BlendMode.SrcOver)
+                    drawRect(highlightVeil, alpha = highlightScale, blendMode = BlendMode.Screen)
                 }
             }
     }
@@ -214,13 +206,26 @@ private data class FallbackGlassPalette(
 )
 
 private fun fallbackPalette(theme: BackgroundTheme): FallbackGlassPalette = when (theme) {
-    BackgroundTheme.Aurora -> FallbackGlassPalette(Color(0xFF071426), Color(0xFF31446D), Color(0xFF8A6B65), Color(0xFFB79AFF), Color(0xFFFFA06E))
-    BackgroundTheme.Jade -> FallbackGlassPalette(Color(0xFF071A22), Color(0xFF315B6D), Color(0xFF8A8266), Color(0xFF8EC2DD), Color(0xFF58C0BC))
-    BackgroundTheme.Sunset -> FallbackGlassPalette(Color(0xFF20182D), Color(0xFF5D4774), Color(0xFFA87570), Color(0xFFC098FF), Color(0xFFFF9A64))
-    BackgroundTheme.Dawn -> FallbackGlassPalette(Color(0xFF16253C), Color(0xFF708BAC), Color(0xFFC1A6A4), Color(0xFFE2CCFF), Color(0xFFFFC28A))
+    BackgroundTheme.Aurora -> FallbackGlassPalette(
+        Color(0xFF071426), Color(0xFF31446D), Color(0xFF8A6B65), Color(0xFFB79AFF), Color(0xFFFFA06E)
+    )
+    BackgroundTheme.Jade -> FallbackGlassPalette(
+        Color(0xFF071A22), Color(0xFF315B6D), Color(0xFF8A8266), Color(0xFF8EC2DD), Color(0xFF58C0BC)
+    )
+    BackgroundTheme.Sunset -> FallbackGlassPalette(
+        Color(0xFF20182D), Color(0xFF5D4774), Color(0xFFA87570), Color(0xFFC098FF), Color(0xFFFF9A64)
+    )
+    BackgroundTheme.Dawn -> FallbackGlassPalette(
+        Color(0xFF16253C), Color(0xFF708BAC), Color(0xFFC1A6A4), Color(0xFFE2CCFF), Color(0xFFFFC28A)
+    )
 }
 
-private fun DrawScope.drawVisibleBackdropImage(backdrop: ComposeBackdropSample, sampleOffset: Offset, alpha: Float) {
+private fun DrawScope.drawVisibleBackdropImage(
+    backdrop: BlurredBackdropBitmap,
+    sample: AdaptiveBackdropSample,
+    sampleOffset: Offset,
+    alpha: Float
+) {
     val rootW = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
     val rootH = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
     val localLeft = max(0f, -sampleOffset.x)
@@ -230,16 +235,22 @@ private fun DrawScope.drawVisibleBackdropImage(backdrop: ComposeBackdropSample, 
     val visibleW = localRight - localLeft
     val visibleH = localBottom - localTop
     if (visibleW <= 0f || visibleH <= 0f) return
-    val srcX = ((sampleOffset.x + localLeft) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.width - 1)
-    val srcY = ((sampleOffset.y + localTop) * backdrop.scale).roundToInt().coerceIn(0, backdrop.image.height - 1)
-    val srcW = (visibleW * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.width - srcX)
-    val srcH = (visibleH * backdrop.scale).roundToInt().coerceAtLeast(1).coerceAtMost(backdrop.image.height - srcY)
+
+    val image = sample.image
+    val scale = sample.scale
+    val srcX = ((sampleOffset.x + localLeft) * scale).roundToInt().coerceIn(0, image.width - 1)
+    val srcY = ((sampleOffset.y + localTop) * scale).roundToInt().coerceIn(0, image.height - 1)
+    val srcW = (visibleW * scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.width - srcX)
+    val srcH = (visibleH * scale).roundToInt().coerceAtLeast(1).coerceAtMost(image.height - srcY)
     drawImage(
-        image = backdrop.image,
+        image = image,
         srcOffset = IntOffset(srcX, srcY),
         srcSize = IntSize(srcW, srcH),
         dstOffset = IntOffset(localLeft.roundToInt(), localTop.roundToInt()),
-        dstSize = IntSize(visibleW.roundToInt().coerceAtLeast(1), visibleH.roundToInt().coerceAtLeast(1)),
+        dstSize = IntSize(
+            visibleW.roundToInt().coerceAtLeast(1),
+            visibleH.roundToInt().coerceAtLeast(1)
+        ),
         alpha = alpha,
         blendMode = BlendMode.SrcOver
     )
