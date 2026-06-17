@@ -1,13 +1,19 @@
 package com.yuchen.ailedger.ui.gl
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -23,6 +29,7 @@ import com.yuchen.ailedger.ui.LocalGlassFoldoutClipRegistry
 import com.yuchen.ailedger.ui.LocalGlassSceneGroup
 import com.yuchen.ailedger.ui.applyGlassFoldoutClip
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 val LocalNewOpenGlGlassStyleOverride =
@@ -38,6 +45,21 @@ fun NewOpenGLGlassCardLayer(
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f
 ) {
+    val backdrop = LocalBlurredBackdrop.current ?: return
+
+    // Do not create an EGL context, compile the shader or upload placeholder textures during the
+    // first layout burst. The Shell keeps exactly the same bounds and receives a cheap static skin;
+    // once the real sampler set arrives this node is replaced in-place by the single OpenGL host.
+    if (!backdrop.isReady) {
+        Box(
+            modifier = modifier.startupStaticGlassLayer(
+                radius = radius,
+                glassIntensity = glassIntensity
+            )
+        ) {}
+        return
+    }
+
     if (LocalGlassSceneGroup == GlassSceneGroup.SettingsPage) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
@@ -72,7 +94,6 @@ fun NewOpenGLGlassCardLayer(
         return
     }
 
-    val backdrop = LocalBlurredBackdrop.current ?: return
     val baseBorder = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val styleOverride = LocalNewOpenGlGlassStyleOverride.current
     val border = remember(baseBorder, styleOverride) {
@@ -159,6 +180,44 @@ fun NewOpenGLGlassCardLayer(
                     view.requestRenderOnNextAnimationFrame()
                 }
             }
+        )
+    }
+}
+
+private fun Modifier.startupStaticGlassLayer(
+    radius: Int,
+    glassIntensity: Float
+): Modifier = drawWithCache {
+    val cornerRadiusPx = if (radius >= 999) {
+        min(size.width, size.height) * 0.5f
+    } else {
+        radius.dp.toPx().coerceAtLeast(0f)
+    }
+    val intensity = glassIntensity.coerceIn(0.35f, 1.35f)
+    val fill = Color(0xFF17345B).copy(alpha = (0.34f * intensity).coerceIn(0.18f, 0.48f))
+    val innerLift = Color.White.copy(alpha = (0.040f * intensity).coerceIn(0.018f, 0.065f))
+    val edge = Color.White.copy(alpha = (0.16f * intensity).coerceIn(0.08f, 0.22f))
+    val strokeWidth = 1.dp.toPx().coerceAtLeast(1f)
+    val corner = CornerRadius(cornerRadiusPx, cornerRadiusPx)
+
+    onDrawBehind {
+        drawRoundRect(color = fill, cornerRadius = corner)
+        drawRoundRect(
+            color = innerLift,
+            topLeft = Offset(strokeWidth, strokeWidth),
+            size = Size(
+                width = (size.width - strokeWidth * 2f).coerceAtLeast(0f),
+                height = (size.height - strokeWidth * 2f).coerceAtLeast(0f)
+            ),
+            cornerRadius = CornerRadius(
+                (cornerRadiusPx - strokeWidth).coerceAtLeast(0f),
+                (cornerRadiusPx - strokeWidth).coerceAtLeast(0f)
+            )
+        )
+        drawRoundRect(
+            color = edge,
+            cornerRadius = corner,
+            style = Stroke(width = strokeWidth)
         )
     }
 }
