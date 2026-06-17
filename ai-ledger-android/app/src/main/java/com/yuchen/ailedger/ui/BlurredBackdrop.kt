@@ -49,9 +49,9 @@ data class BlurredBackdropBitmap(
     val blurLowImage: ImageBitmap = image,
     val blurMediumImage: ImageBitmap = image,
     val blurHighImage: ImageBitmap = image,
-    val luminanceMap: BackdropLuminanceMap = BackdropLuminanceMap.Neutral,
     val blurAmount: Float = 0f,
-    val isReady: Boolean = true
+    val isReady: Boolean = true,
+    val luminanceMap: BackdropLuminanceMap = BackdropLuminanceMap.Neutral
 )
 
 internal data class BackdropTextureSet(
@@ -73,9 +73,9 @@ internal data class BackdropTextureSet(
         blurLowImage = blurLowImage,
         blurMediumImage = blurMediumImage,
         blurHighImage = blurHighImage,
-        luminanceMap = luminanceMap,
         blurAmount = amount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT),
-        isReady = true
+        isReady = true,
+        luminanceMap = luminanceMap
     )
 }
 
