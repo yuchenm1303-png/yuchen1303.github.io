@@ -1,5 +1,8 @@
 package com.yuchen.ailedger.ui
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Process
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -8,8 +11,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -19,16 +23,23 @@ import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val MAX_BACKDROP_BLUR_AMOUNT = 4f
 private const val BASE_BACKDROP_BLUR_LEVEL_COUNT = 2
 private const val FULL_BACKDROP_BLUR_LEVEL_COUNT = 3
+private const val BACKDROP_TEXTURE_DIMENSION_BUCKET = 8
 
 data class BlurredBackdropBitmap(
     val image: ImageBitmap,
@@ -39,7 +50,8 @@ data class BlurredBackdropBitmap(
     val blurLowImage: ImageBitmap = image,
     val blurMediumImage: ImageBitmap = image,
     val blurHighImage: ImageBitmap = image,
-    val blurAmount: Float = 0f
+    val blurAmount: Float = 0f,
+    val isReady: Boolean = true
 )
 
 internal data class BackdropTextureSet(
@@ -60,7 +72,8 @@ internal data class BackdropTextureSet(
         blurLowImage = blurLowImage,
         blurMediumImage = blurMediumImage,
         blurHighImage = blurHighImage,
-        blurAmount = amount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT)
+        blurAmount = amount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT),
+        isReady = true
     )
 }
 
@@ -73,10 +86,9 @@ internal class BackdropPixelScratch(pixelCount: Int) {
 val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
 
 /**
- * CPU blur work is intentionally kept off Dispatchers.Default. The first app frames, Compose,
- * RenderThread and the OpenGL shader compiler all compete for the default CPU pool during a cold
- * launch; a single background-priority worker keeps the final pixels identical without stealing
- * latency-sensitive cores from the UI.
+ * CPU blur, disk decoding and cache writes share one background-priority worker. This prevents
+ * cold-start texture work from competing with Compose, RenderThread and the OpenGL compiler while
+ * also coalescing duplicate requests caused by configuration or state restoration.
  */
 private object BackdropBuildRuntime {
     val dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { task ->
@@ -88,6 +100,8 @@ private object BackdropBuildRuntime {
             "BackdropTextureBuilder"
         ).apply { isDaemon = true }
     }.asCoroutineDispatcher()
+
+    val scope = CoroutineScope(SupervisorJob() + dispatcher)
 }
 
 private object BlurredBackdropMemoryCache {
@@ -97,9 +111,152 @@ private object BlurredBackdropMemoryCache {
             size > MAX_ENTRIES
     }
 
-    @Synchronized fun get(key: String): BackdropTextureSet? = entries[key]
-    @Synchronized fun put(key: String, value: BackdropTextureSet) {
+    @Synchronized
+    fun get(key: String): BackdropTextureSet? = entries[key]
+
+    @Synchronized
+    fun put(key: String, value: BackdropTextureSet) {
         entries[key] = value
+    }
+}
+
+private data class BackdropBuildResult(
+    val textures: BackdropTextureSet,
+    val shouldPersist: Boolean
+)
+
+private object BackdropBuildRegistry {
+    private val inFlight = mutableMapOf<String, Deferred<BackdropBuildResult?>>()
+
+    fun request(
+        key: String,
+        block: suspend () -> BackdropBuildResult?
+    ): Deferred<BackdropBuildResult?> = synchronized(inFlight) {
+        inFlight[key] ?: BackdropBuildRuntime.scope.async {
+            try {
+                block()
+            } finally {
+                synchronized(inFlight) { inFlight.remove(key) }
+            }
+        }.also { inFlight[key] = it }
+    }
+}
+
+private object BackdropDiskCache {
+    private const val CACHE_VERSION = 3
+    private const val MAX_ENTRIES = 2
+    private const val ROOT_DIRECTORY = "glass_backdrop_v3"
+    private const val METADATA_FILE = "metadata.txt"
+
+    fun load(context: Context, textureKey: String): BackdropTextureSet? = runCatching {
+        val directory = entryDirectory(context, textureKey)
+        val metadata = File(directory, METADATA_FILE).takeIf { it.isFile }?.readLines().orEmpty()
+        if (metadata.size < 5 || metadata[0].toIntOrNull() != CACHE_VERSION) return@runCatching null
+
+        val fullWidth = metadata[1].toIntOrNull()?.coerceAtLeast(1) ?: return@runCatching null
+        val fullHeight = metadata[2].toIntOrNull()?.coerceAtLeast(1) ?: return@runCatching null
+        val blurScale = metadata[3].toFloatOrNull()?.takeIf { it > 0f } ?: return@runCatching null
+        if (metadata[4] != textureKey) return@runCatching null
+
+        val clear = decodeBitmap(File(directory, "clear.png")) ?: return@runCatching null
+        val low = decodeBitmap(File(directory, "low.png")) ?: return@runCatching null
+        val medium = decodeBitmap(File(directory, "medium.png")) ?: return@runCatching null
+        val high = decodeBitmap(File(directory, "high.png")) ?: return@runCatching null
+
+        directory.setLastModified(System.currentTimeMillis())
+        BackdropTextureSet(
+            clearImage = clear,
+            blurLowImage = low,
+            blurMediumImage = medium,
+            blurHighImage = high,
+            fullWidthPx = fullWidth,
+            fullHeightPx = fullHeight,
+            blurScale = blurScale
+        )
+    }.getOrNull()
+
+    fun persistAsync(context: Context, textureKey: String, textures: BackdropTextureSet) {
+        BackdropBuildRuntime.scope.launch {
+            runCatching { persist(context, textureKey, textures) }
+        }
+    }
+
+    private fun persist(context: Context, textureKey: String, textures: BackdropTextureSet) {
+        val root = cacheRoot(context)
+        val target = entryDirectory(context, textureKey)
+        val temporary = File(root, ".${target.name}.tmp-${System.nanoTime()}")
+        temporary.deleteRecursively()
+        if (!temporary.mkdirs()) return
+
+        val wroteAll =
+            writeBitmap(textures.clearImage, File(temporary, "clear.png")) &&
+                writeBitmap(textures.blurLowImage, File(temporary, "low.png")) &&
+                writeBitmap(textures.blurMediumImage, File(temporary, "medium.png")) &&
+                writeBitmap(textures.blurHighImage, File(temporary, "high.png"))
+
+        if (!wroteAll) {
+            temporary.deleteRecursively()
+            return
+        }
+
+        File(temporary, METADATA_FILE).writeText(
+            buildString {
+                append(CACHE_VERSION).append('\n')
+                append(textures.fullWidthPx).append('\n')
+                append(textures.fullHeightPx).append('\n')
+                append(textures.blurScale).append('\n')
+                append(textureKey)
+            }
+        )
+
+        target.deleteRecursively()
+        if (!temporary.renameTo(target)) {
+            temporary.deleteRecursively()
+            return
+        }
+        target.setLastModified(System.currentTimeMillis())
+        trimOldEntries(root)
+    }
+
+    private fun decodeBitmap(file: File): ImageBitmap? {
+        if (!file.isFile) return null
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
+        bitmap.prepareToDraw()
+        return bitmap.asImageBitmap()
+    }
+
+    private fun writeBitmap(image: ImageBitmap, file: File): Boolean =
+        FileOutputStream(file).use { output ->
+            image.asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, output)
+        }
+
+    private fun cacheRoot(context: Context): File =
+        File(context.cacheDir, ROOT_DIRECTORY).apply { mkdirs() }
+
+    private fun entryDirectory(context: Context, textureKey: String): File =
+        File(cacheRoot(context), stableCacheName(textureKey))
+
+    private fun stableCacheName(value: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+        return bytes.joinToString(separator = "") { byte ->
+            (byte.toInt() and 0xFF).toString(16).padStart(2, '0')
+        }.take(32)
+    }
+
+    private fun trimOldEntries(root: File) {
+        root.listFiles()
+            .orEmpty()
+            .filter { it.isDirectory && !it.name.startsWith('.') }
+            .sortedByDescending { it.lastModified() }
+            .drop(MAX_ENTRIES)
+            .forEach { it.deleteRecursively() }
+        root.listFiles()
+            .orEmpty()
+            .filter { it.name.startsWith('.') }
+            .forEach { it.deleteRecursively() }
     }
 }
 
@@ -117,8 +274,8 @@ fun rememberBlurredBackdropBitmap(
     val configuration = LocalConfiguration.current
     val fallbackWidth = with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val fallbackHeight = with(density) { configuration.screenHeightDp.dp.roundToPx() }
-    val width = max(view.width, fallbackWidth).coerceAtLeast(320)
-    val height = max(view.height, fallbackHeight).coerceAtLeast(640)
+    val width = quantizeTextureDimension(max(view.width, fallbackWidth).coerceAtLeast(320))
+    val height = quantizeTextureDimension(max(view.height, fallbackHeight).coerceAtLeast(640))
 
     val source = remember(customBackgroundPath) { resolveBackdropSource(customBackgroundPath) }
     val sourcePath = when (source.kind) {
@@ -142,7 +299,7 @@ fun rememberBlurredBackdropBitmap(
             "custom:${file.absolutePath}:${file.lastModified()}:${file.length()}"
         }
     }
-    val textureKey = "$width×$height|$textureParamsKey|levels:$blurLevelCount|$sourceKey"
+    val textureKey = "v3|$width×$height|$textureParamsKey|levels:$blurLevelCount|$sourceKey"
     var textures by remember(textureKey) {
         mutableStateOf(BlurredBackdropMemoryCache.get(textureKey))
     }
@@ -150,13 +307,15 @@ fun rememberBlurredBackdropBitmap(
     LaunchedEffect(textureKey) {
         BlurredBackdropMemoryCache.get(textureKey)?.let { cached ->
             textures = cached
+            StartupPerformanceGate.markBackdropWorkFinished(success = true)
             return@LaunchedEffect
         }
 
-        // Let the first Compose frame commit before beginning cold-start bitmap work.
-        withFrameNanos { }
-        val next = withContext(BackdropBuildRuntime.dispatcher) {
-            runCatching {
+        StartupPerformanceGate.awaitInitialTextureBuildWindow()
+        val result = BackdropBuildRegistry.request(textureKey) {
+            BackdropDiskCache.load(context, textureKey)?.let { cached ->
+                BackdropBuildResult(cached, shouldPersist = false)
+            } ?: runCatching {
                 val preset = if (useDefaultWallpaper) {
                     decodePresetNightSkyBitmap(context)
                 } else {
@@ -171,11 +330,20 @@ fun rememberBlurredBackdropBitmap(
                     presetBitmap = preset,
                     blurLevelCount = blurLevelCount
                 )
-            }.getOrNull()
-        }
-        if (next != null) {
-            BlurredBackdropMemoryCache.put(textureKey, next)
-            textures = next
+            }.getOrNull()?.let { built ->
+                BackdropBuildResult(built, shouldPersist = true)
+            }
+        }.await()
+
+        if (result != null) {
+            BlurredBackdropMemoryCache.put(textureKey, result.textures)
+            textures = result.textures
+            StartupPerformanceGate.markBackdropWorkFinished(success = true)
+            if (result.shouldPersist) {
+                BackdropDiskCache.persistAsync(context, textureKey, result.textures)
+            }
+        } else {
+            StartupPerformanceGate.markBackdropWorkFinished(success = false)
         }
     }
 
@@ -183,6 +351,10 @@ fun rememberBlurredBackdropBitmap(
         textures?.withBlurAmount(params.radius)
     }
 }
+
+private fun quantizeTextureDimension(value: Int): Int =
+    ((value + BACKDROP_TEXTURE_DIMENSION_BUCKET - 1) / BACKDROP_TEXTURE_DIMENSION_BUCKET) *
+        BACKDROP_TEXTURE_DIMENSION_BUCKET
 
 /**
  * Ordinary Compose glass always consumes the medium level, so low + medium remain mandatory.
