@@ -1,2 +1,3 @@
-trigger: legacy-opengl-deep-optimization-2026-06-16
-source-commit: 76bb0e539001dbc7aaa9f4934d89565f38be8079
+trigger: cold-start-glass-deep-optimization-final-2026-06-17
+source-commit: 8cf51e6707026180f9bae3b28aceb9ce003cdd1a
+scope: startup-gate-backdrop-disk-cache-opengl-staging-notification-coalescing-frameclock-safe
