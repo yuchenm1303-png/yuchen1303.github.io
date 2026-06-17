@@ -5,7 +5,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 
 /** 单渲染线程复用，避免每块玻璃在每个绘制帧创建采样结果对象。 */
-private val AdaptiveSampleThreadLocal = ThreadLocal.withInitial { AdaptiveBackdropSample() }
+private val AdaptiveSampleThreadLocal = object : ThreadLocal<AdaptiveBackdropSample>() {
+    override fun initialValue(): AdaptiveBackdropSample = AdaptiveBackdropSample()
+}
 
 internal class AdaptiveBackdropSample {
     lateinit var image: ImageBitmap
