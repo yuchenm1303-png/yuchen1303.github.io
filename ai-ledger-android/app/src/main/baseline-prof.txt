@@ -1,8 +1,10 @@
 Lcom/yuchen/ailedger/MainActivity;
 Lcom/yuchen/ailedger/AssistantViewModel;
+Lcom/yuchen/ailedger/service/ChatNotificationManager;
 Lcom/yuchen/ailedger/ui/AccessibilitySilentComposeRootKt;
 Lcom/yuchen/ailedger/ui/AppKt;
 Lcom/yuchen/ailedger/ui/CachedTabHostKt;
+Lcom/yuchen/ailedger/ui/StartupPerformanceGate;
 Lcom/yuchen/ailedger/ui/AssistantHomePolishedKt;
 Lcom/yuchen/ailedger/ui/StableBlurredBackdropKt;
 Lcom/yuchen/ailedger/ui/BlurredBackdropKt;
