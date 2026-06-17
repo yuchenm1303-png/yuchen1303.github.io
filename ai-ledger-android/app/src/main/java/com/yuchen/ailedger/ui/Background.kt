@@ -71,8 +71,9 @@ fun WeatherNightBackground(
     val context = LocalContext.current
     val source = remember(customBackgroundPath) { resolveBackdropSource(customBackgroundPath) }
 
-    // Only the active source starts decoding. Default startup no longer initializes a custom-image
-    // loader, while custom/theme modes no longer decode the bundled wallpaper in the background.
+    // Only the active source starts decoding. Image decoding also waits for the same measured cold-
+    // start gate as the glass texture builder, so the bundled wallpaper cannot steal CPU from the
+    // first layout/entrance frames. After the process gate has opened, source changes remain instant.
     val customImage = if (source.kind == BackdropSourceKind.CustomImage) {
         rememberCustomBackgroundImage(source.customImagePath)
     } else {
@@ -117,6 +118,7 @@ private fun rememberCustomBackgroundImage(path: String?): ImageBitmap? {
         image = null
         val filePath = path?.takeIf { File(it).isFile }
         if (filePath != null) {
+            StartupPerformanceGate.awaitInitialTextureBuildWindow()
             image = withContext(Dispatchers.IO) {
                 decodeDisplaySizedBitmap(filePath)?.asImageBitmap()
             }
@@ -131,6 +133,7 @@ private fun rememberPresetNightSkyImage(context: Context): ImageBitmap? {
     var image by remember(appContext) { mutableStateOf(PresetNightSkyBitmapCache.peekImage()) }
     LaunchedEffect(appContext) {
         if (image == null) {
+            StartupPerformanceGate.awaitInitialTextureBuildWindow()
             image = withContext(Dispatchers.IO) {
                 PresetNightSkyBitmapCache.getImage(appContext)
             }
@@ -160,6 +163,7 @@ private object PresetNightSkyBitmapCache {
         cachedBitmap?.let { return it }
         return synchronized(this) {
             cachedBitmap ?: BitmapFactory.decodeResource(context.resources, R.drawable.preset_night_sky)?.also { decoded ->
+                decoded.prepareToDraw()
                 cachedBitmap = decoded
             }
         }
@@ -188,7 +192,7 @@ private fun decodeDisplaySizedBitmap(path: String): Bitmap? {
             inSampleSize = sampleSize.coerceAtLeast(1)
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-    )
+    )?.apply { prepareToDraw() }
 }
 
 fun DrawScope.drawCoverImage(image: ImageBitmap, alpha: Float = 1f) {
