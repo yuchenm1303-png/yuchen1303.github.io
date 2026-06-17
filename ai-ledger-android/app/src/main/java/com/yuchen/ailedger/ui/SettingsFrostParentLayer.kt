@@ -33,6 +33,8 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+private const val SETTINGS_FROST_BLUR_DP = 96f
+
 internal class SettingsFrostDrawCache {
     var geometrySignature = Long.MIN_VALUE
     var mask = Path()
@@ -197,6 +199,12 @@ fun Modifier.registerSettingsFrostParentItem(
     }
 }
 
+/**
+ * 设置页雾面玻璃的单父级绘制层。
+ *
+ * 亮底网页会自动切换到高模糊纹理，同时削弱纯白雾罩并加入极轻的中性吸收，避免文字被
+ * 扩散成灰黄条纹。它仍然只是 Compose Canvas，不调用或注册任何 OpenGL 组件。
+ */
 @Composable
 fun SettingsFrostParentLayer(
     layerState: SettingsFrostParentLayerState,
@@ -238,6 +246,14 @@ fun SettingsFrostParentLayer(
 
             val cache = ensureSettingsFrostCache(item, localRect.size)
             val sampleOffset = item.rectInRoot.topLeft - backdropRoot
+            val adaptiveSample = backdrop?.let {
+                resolveAdaptiveBackdropSample(
+                    backdrop = it,
+                    sampleOffset = sampleOffset,
+                    sampleSize = cache.localSize,
+                    requestedBlurDp = SETTINGS_FROST_BLUR_DP
+                )
+            }
             clipRect(
                 left = foldoutClip.left,
                 top = foldoutClip.top,
@@ -246,9 +262,10 @@ fun SettingsFrostParentLayer(
             ) {
                 withTransform({ translate(localRect.left, localRect.top) }) {
                     clipPath(cache.mask) {
-                        if (backdrop != null) {
+                        if (backdrop != null && adaptiveSample != null) {
                             drawParentBackdropImage(
                                 backdrop = backdrop,
+                                sample = adaptiveSample,
                                 sampleOffset = sampleOffset,
                                 localSize = cache.localSize,
                                 alpha = item.backdropAlpha
@@ -260,11 +277,22 @@ fun SettingsFrostParentLayer(
                                 blendMode = BlendMode.SrcOver
                             )
                         }
+
+                        val frostScale = adaptiveSample?.veilAlpha ?: 1f
                         if (item.frostAlpha > 0.001f) {
                             drawRect(
-                                color = Color.White.copy(alpha = item.frostAlpha),
+                                color = Color.White.copy(alpha = item.frostAlpha * frostScale),
                                 size = cache.localSize,
                                 blendMode = BlendMode.SrcOver
+                            )
+                        }
+
+                        val adaptiveDim = adaptiveSample?.dimBoost ?: 0f
+                        if (adaptiveDim > 0.001f) {
+                            drawRect(
+                                color = Color(0xFF66717C).copy(alpha = adaptiveDim),
+                                size = cache.localSize,
+                                blendMode = BlendMode.Multiply
                             )
                         }
                         if (item.dimAlpha > 0.001f) {
@@ -329,6 +357,7 @@ private fun frostGeometrySignature(width: Float, height: Float, radius: Float): 
 
 private fun DrawScope.drawParentBackdropImage(
     backdrop: BlurredBackdropBitmap,
+    sample: AdaptiveBackdropSample,
     sampleOffset: Offset,
     localSize: Size,
     alpha: Float
@@ -343,23 +372,25 @@ private fun DrawScope.drawParentBackdropImage(
     val visibleHeight = localBottom - localTop
     if (visibleWidth <= 0f || visibleHeight <= 0f) return
 
-    val sourceX = ((sampleOffset.x + localLeft) * backdrop.scale)
+    val image = sample.image
+    val scale = sample.scale
+    val sourceX = ((sampleOffset.x + localLeft) * scale)
         .roundToInt()
-        .coerceIn(0, backdrop.image.width - 1)
-    val sourceY = ((sampleOffset.y + localTop) * backdrop.scale)
+        .coerceIn(0, image.width - 1)
+    val sourceY = ((sampleOffset.y + localTop) * scale)
         .roundToInt()
-        .coerceIn(0, backdrop.image.height - 1)
-    val sourceWidth = (visibleWidth * backdrop.scale)
-        .roundToInt()
-        .coerceAtLeast(1)
-        .coerceAtMost(backdrop.image.width - sourceX)
-    val sourceHeight = (visibleHeight * backdrop.scale)
+        .coerceIn(0, image.height - 1)
+    val sourceWidth = (visibleWidth * scale)
         .roundToInt()
         .coerceAtLeast(1)
-        .coerceAtMost(backdrop.image.height - sourceY)
+        .coerceAtMost(image.width - sourceX)
+    val sourceHeight = (visibleHeight * scale)
+        .roundToInt()
+        .coerceAtLeast(1)
+        .coerceAtMost(image.height - sourceY)
 
     drawImage(
-        image = backdrop.image,
+        image = image,
         srcOffset = IntOffset(sourceX, sourceY),
         srcSize = IntSize(sourceWidth, sourceHeight),
         dstOffset = IntOffset(localLeft.roundToInt(), localTop.roundToInt()),
