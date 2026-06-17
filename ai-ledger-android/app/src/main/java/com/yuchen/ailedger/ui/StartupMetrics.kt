@@ -14,7 +14,10 @@ private const val FPS_CHANGE_THRESHOLD = 0.7f
 private const val FRAME_MS_CHANGE_THRESHOLD = 0.4f
 
 object StartupMetrics {
-    private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile
+    private var enabled = false
+
+    private val mainHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
     private val startMs = SystemClock.elapsedRealtime()
     private val eventNames = linkedSetOf<String>()
     private val _events = mutableStateListOf<StartupMetricEvent>()
@@ -35,7 +38,12 @@ object StartupMetrics {
     val frameStats: StartupFrameStats get() = _frameStats.value
     val warmupState: String get() = _warmupState.value
 
+    fun configure(enabled: Boolean) {
+        this.enabled = enabled
+    }
+
     fun mark(name: String) {
+        if (!enabled) return
         val now = SystemClock.elapsedRealtime()
         val event = StartupMetricEvent(
             name = name,
@@ -50,6 +58,7 @@ object StartupMetrics {
     }
 
     fun markOnce(name: String) {
+        if (!enabled) return
         synchronized(eventNames) {
             if (!eventNames.add(name)) return
         }
@@ -57,6 +66,7 @@ object StartupMetrics {
     }
 
     fun setWarmupState(state: String) {
+        if (!enabled) return
         if (Looper.myLooper() == Looper.getMainLooper()) {
             if (_warmupState.value != state) {
                 _warmupState.value = state
@@ -68,6 +78,7 @@ object StartupMetrics {
     }
 
     fun startFrameMonitor() {
+        if (!enabled) return
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post { startFrameMonitor() }
             return
@@ -79,6 +90,7 @@ object StartupMetrics {
     }
 
     fun resetFrameStats() {
+        if (!enabled) return
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post { resetFrameStats() }
             return
@@ -97,6 +109,7 @@ object StartupMetrics {
     }
 
     fun resetForNewRun() {
+        if (!enabled) return
         if (Looper.myLooper() == Looper.getMainLooper()) {
             synchronized(eventNames) { eventNames.clear() }
             _events.clear()
@@ -110,6 +123,10 @@ object StartupMetrics {
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
+            if (!enabled) {
+                frameMonitorStarted = false
+                return
+            }
             if (lastFrameNanos != 0L) {
                 val frameMs = (frameTimeNanos - lastFrameNanos) / 1_000_000f
                 if (frameMs in 0.1f..1000f) {
@@ -136,6 +153,7 @@ object StartupMetrics {
     }
 
     private fun publishFrameStats(force: Boolean) {
+        if (!enabled) return
         val avg = if (frameCount > 0) totalFrameMs / frameCount else 0f
         val next = StartupFrameStats(
             frameCount = frameCount,
@@ -151,6 +169,7 @@ object StartupMetrics {
     }
 
     private fun appendEvent(event: StartupMetricEvent) {
+        if (!enabled) return
         _events.add(event)
         if (_events.size > 48) _events.removeAt(0)
     }
