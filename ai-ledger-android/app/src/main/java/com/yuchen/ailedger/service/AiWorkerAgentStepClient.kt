@@ -13,7 +13,7 @@ import org.json.JSONObject
 private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 8_000
 private const val AGENT_STEP_READ_TIMEOUT_MS = 20_000
 private const val AGENT_VISION_ROUTE_ID = "qwen_vision"
-private const val AGENT_SESSION_PROTOCOL = "android_v2_stable"
+private const val AGENT_SESSION_PROTOCOL = "android_v3_task_contract"
 
 @Throws(IOException::class)
 fun AiWorkerClient.requestAgentStep(
@@ -33,7 +33,15 @@ fun AiWorkerClient.requestAgentPlan(
     agentMemory: JSONObject? = null,
     executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
 ): CloudAgentPlan {
-    val payload = buildAgentStepPayload(goal, snapshot, modelPreference, recentActions, deviceContext, agentMemory, executionMode)
+    val payload = buildAgentStepPayload(
+        goal,
+        snapshot,
+        modelPreference,
+        recentActions,
+        deviceContext,
+        agentMemory,
+        executionMode,
+    )
     var lastError: IOException? = null
     val candidates = listOf(endpoint.trim().trimEnd('/')).filter { it.isNotBlank() }.distinct()
     for (candidate in candidates) {
@@ -71,33 +79,23 @@ private fun buildAgentStepPayload(
         modelPreference == ChatModel.Auto -> ChatModel.Kimi.id
         else -> modelPreference.id
     }
-
     val loopSignals = agentMemory?.optJSONObject("loopSignals")
     val postActionFeedback = loopSignals?.optJSONObject("postActionFeedback")
     val loopIndex = loopSignals?.optIntOrNull("loopIndex") ?: 0
     val noProgressCount = postActionFeedback?.optIntOrNull("noProgressCount") ?: 0
-    val blockedActionCount = postActionFeedback
-        ?.optJSONArray("blockedActionSignatures")
-        ?.length()
-        ?: 0
-    val lastVerification = postActionFeedback
-        ?.optString("lastVerification")
-        .orEmpty()
-        .lowercase(Locale.ROOT)
+    val blockedActionCount = postActionFeedback?.optJSONArray("blockedActionSignatures")?.length() ?: 0
+    val lastVerification = postActionFeedback?.optString("lastVerification").orEmpty().lowercase(Locale.ROOT)
     val routeRefreshRequested = forceVisual && (
-        noProgressCount > 0 ||
-            blockedActionCount > 0 ||
-            lastVerification.contains("no_progress") ||
+        noProgressCount > 0 || blockedActionCount > 0 || lastVerification.contains("no_progress") ||
             recentActions.takeLast(3).any { action ->
                 action.contains("visual_no_progress", ignoreCase = true) ||
                     action.contains("paused_for_user_takeover", ignoreCase = true) ||
                     action.contains("postActionFeedbackReset", ignoreCase = true)
             }
         )
-    val sessionId = loopSignals
-        ?.optString("agentSessionId")
-        ?.takeIf { it.isNotBlank() }
-        ?: "android-agent-v2-${System.currentTimeMillis()}"
+    val sessionId = loopSignals?.optString("agentSessionId")?.takeIf { it.isNotBlank() }
+        ?: "android-agent-v3-${System.currentTimeMillis()}"
+    val contract = AgentTaskContractRuntime.ensureSession(sessionId, cleanGoal)
 
     return JSONObject().apply {
         put("action", "agent_step")
@@ -119,6 +117,18 @@ private fun buildAgentStepPayload(
         put("agentSessionId", sessionId)
         put("agentSessionProtocol", AGENT_SESSION_PROTOCOL)
         put("agentSessionStep", loopIndex)
+        put("taskExecutionProtocol", JSONObject().apply {
+            put("schema", "agent_task_execution_contract_v1")
+            put("cloudDefinesRequirements", true)
+            put("deviceResolvesInstalledTargetApp", true)
+            put("singleActionPerObservation", true)
+            put("deterministicEntryBeforeVisualNavigation", true)
+            put("echoContractOnEveryTurn", true)
+        })
+        contract?.let {
+            put("taskExecutionContract", it.toJson())
+            put("taskPhase", it.phase.wireName)
+        }
         put("fixedStepLimit", isNormalChatToolProbe)
         put("maxAgentSteps", if (isNormalChatToolProbe) 2 else JSONObject.NULL)
         put("routeRefreshRequested", routeRefreshRequested)
@@ -127,7 +137,15 @@ private fun buildAgentStepPayload(
         put("crossActionNoProgressAccumulation", false)
         put("recentAgentActions", JSONArray().apply { recentActions.takeLast(10).forEach { put(it) } })
         agentMemory?.let { put("agentMemory", it) }
-        deviceContext?.let { put("deviceContext", it.json) }
+        deviceContext?.let {
+            put("deviceContext", it.json)
+            it.json.optJSONObject("targetAppResolution")?.let { resolution ->
+                put("targetAppResolution", resolution)
+            }
+            it.json.optString("appInventoryHash").takeIf { hash -> hash.isNotBlank() }?.let { hash ->
+                put("appInventoryHash", hash)
+            }
+        }
         put("screenSnapshot", snapshot.toJson(includeImage = false))
         put("hasScreenshot", hasVisualPayload)
         put("hasImage", hasVisualPayload)
@@ -155,19 +173,16 @@ private fun buildAgentStepPayload(
         })
         put("supportedAgentSteps", JSONArray(CloudAgentStep.supportedTypes.toList()))
         put("supportedDeviceTools", JSONArray(CloudAgentStep.deviceToolTypes.toList()))
-        put("supportsAgentStepBatch", true)
-        put("actionBatchMax", CloudAgentPlan.MAX_BATCH_STEPS)
+        put("supportsAgentStepBatch", false)
+        put("actionBatchMax", 1)
         put("modelPreference", modelId)
         put("model", modelId)
         put("modelId", modelId)
         put("client", "android-compose")
         put(
             "clientVersion",
-            if (hasVisualPayload) {
-                "compose-native-agent-visual-batch-v14-unbounded"
-            } else {
-                "compose-native-agent-tool-batch-v14-unbounded"
-            },
+            if (hasVisualPayload) "compose-native-agent-visual-contract-v15"
+            else "compose-native-agent-tool-contract-v15",
         )
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
@@ -176,6 +191,8 @@ private fun buildAgentStepPayload(
             put("includeAgentSteps", true)
             put("includeActionBatch", true)
             put("includeStopConditions", true)
+            put("includeTaskExecutionContract", true)
+            put("includeTargetAppResolutionAck", true)
         })
         put("now", System.currentTimeMillis())
     }
@@ -183,6 +200,8 @@ private fun buildAgentStepPayload(
 
 private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan {
     val requestStart = SystemClock.elapsedRealtime()
+    val sessionId = payload.optString("agentSessionId")
+    val goal = payload.optString("agentGoal")
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = AGENT_STEP_CONNECT_TIMEOUT_MS
@@ -190,7 +209,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json, text/plain")
-        setRequestProperty("X-Client", "android-compose-agent-v14")
+        setRequestProperty("X-Client", "android-compose-agent-v15")
         setRequestProperty("X-Agent-Session-Protocol", AGENT_SESSION_PROTOCOL)
     }
     return try {
@@ -200,12 +219,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         val body = connection.agentReadBody(status)
         val data = body.agentJsonOrNull()
         AgentRuntimeController.noteDiagnostic(
-            buildCompactAgentDiagnostic(
-                data,
-                requestBytes.size,
-                body.length,
-                SystemClock.elapsedRealtime() - requestStart,
-            ),
+            buildCompactAgentDiagnostic(data, requestBytes.size, body.length, SystemClock.elapsedRealtime() - requestStart),
         )
         if (status !in 200..299) {
             val message = data?.optString("error")?.takeIf { it.isNotBlank() }
@@ -213,11 +227,16 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
                 ?: body.take(120).ifBlank { "云端智能体规划失败：HTTP $status" }
             throw IOException(message)
         }
-        CloudAgentPlan.fromJson(data)
+        val parsedContract = AgentTaskContractRuntime.update(sessionId, goal, data)
+        val plan = CloudAgentPlan.fromJson(data)
             ?: extractAgentPlanFromText(body)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
             ?: extractAgentStepFromText(body)?.let { CloudAgentPlan(step = it, state = extractAgentStateFromText(body)) }
             ?: throw IOException("云端没有返回有效的智能体下一步动作")
+        if (plan.state?.isComplete == true || parsedContract?.phase == AgentTaskPhase.Completed) {
+            AgentTaskContractRuntime.clear(sessionId)
+        }
+        plan
     } catch (error: SocketTimeoutException) {
         throw IOException("云端智能体规划超过 ${AGENT_STEP_READ_TIMEOUT_MS / 1000} 秒未返回：${endpoint.substringAfter("://")}", error)
     } finally {
@@ -225,7 +244,12 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
     }
 }
 
-private fun buildCompactAgentDiagnostic(data: JSONObject?, requestBytes: Int, responseChars: Int, totalMs: Long): String {
+private fun buildCompactAgentDiagnostic(
+    data: JSONObject?,
+    requestBytes: Int,
+    responseChars: Int,
+    totalMs: Long,
+): String {
     val debug = data?.optJSONObject("debug")
     val version = data?.optString("version").orEmpty()
         .replace("qwen-deepseek-cn-web-data-", "")
@@ -233,9 +257,13 @@ private fun buildCompactAgentDiagnostic(data: JSONObject?, requestBytes: Int, re
         .take(24)
     val source = data?.optString("source").orEmpty().take(32)
     val step = data?.optJSONObject("agentStep")?.optString("type").orEmpty()
+    val phase = AgentTaskExecutionContract.fromResponse(data)?.phase?.wireName.orEmpty()
     return buildString {
-        append("AgentDebug req=").append(bytesToKb(requestBytes)).append("K resp=").append(bytesToKb(responseChars)).append("K http=").append(totalMs)
+        append("AgentDebug req=").append(bytesToKb(requestBytes))
+            .append("K resp=").append(bytesToKb(responseChars))
+            .append("K http=").append(totalMs)
         if (step.isNotBlank()) append(" step=").append(step)
+        if (phase.isNotBlank()) append(" phase=").append(phase)
         if (source.isNotBlank()) append(" src=").append(source)
         if (version.isNotBlank()) append(" v=").append(version)
         if (debug == null) append(" debug=无")
@@ -249,8 +277,10 @@ private fun HttpURLConnection.agentReadBody(status: Int): String {
     return stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
 }
 
-private fun String.agentJsonOrNull(): JSONObject? {
-    return try { takeIf { it.isNotBlank() }?.let { JSONObject(it) } } catch (_: Exception) { null }
+private fun String.agentJsonOrNull(): JSONObject? = try {
+    takeIf { it.isNotBlank() }?.let { JSONObject(it) }
+} catch (_: Exception) {
+    null
 }
 
 private fun JSONObject.optIntOrNull(key: String): Int? {
