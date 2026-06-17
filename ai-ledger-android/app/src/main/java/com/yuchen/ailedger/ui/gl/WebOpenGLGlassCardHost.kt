@@ -12,6 +12,7 @@ import android.view.Surface
 import android.view.TextureView
 import android.widget.FrameLayout
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.StartupPerformanceGate
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -315,7 +316,8 @@ private class WebOpenGLGlassTextureView(
         renderThread = WebOpenGLGlassEglThread(
             surface = Surface(surfaceTexture),
             width = width,
-            height = height
+            height = height,
+            onFirstFramePresented = StartupPerformanceGate::markOpenGlFirstFrameReady
         ).also { thread ->
             thread.setGlassSpec(latestWidth, latestHeight, latestRectOffsetY, latestRadius, latestIntensity)
             thread.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
@@ -353,7 +355,8 @@ private class WebOpenGLGlassTextureView(
 private class WebOpenGLGlassEglThread(
     private val surface: Surface,
     width: Int,
-    height: Int
+    height: Int,
+    private val onFirstFramePresented: () -> Unit
 ) : Thread("WebOpenGLGlassTextureThread") {
     private val renderer = WebOpenGLGlassRenderer()
     private val renderLock = Object()
@@ -366,6 +369,7 @@ private class WebOpenGLGlassEglThread(
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var preservedSwap = false
+    private var firstFramePresented = false
 
     fun setGlassSpec(
         width: Float,
@@ -426,7 +430,11 @@ private class WebOpenGLGlassEglThread(
                     sizeDirty = false
                 }
                 renderer.onDrawFrame()
-                EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+                val swapped = EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+                if (swapped && !firstFramePresented) {
+                    firstFramePresented = true
+                    onFirstFramePresented()
+                }
             }
         } finally {
             runCatching { renderer.onRelease() }
