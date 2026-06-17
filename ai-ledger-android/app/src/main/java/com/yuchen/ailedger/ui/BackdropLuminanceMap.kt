@@ -19,7 +19,7 @@ private const val INVALID_LUMINANCE_REGION = Long.MIN_VALUE
  * 纹理构建或磁盘缓存解码时只生成一次。运行时查询任意玻璃区域只需要四次数组读取，
  * 不再通过 Bitmap.getPixel() 跨 JNI 逐点采样，也不会在滚动帧创建临时像素对象。
  */
-internal class BackdropLuminanceMap private constructor(
+class BackdropLuminanceMap private constructor(
     private val columns: Int,
     private val rows: Int,
     private val fullWidthPx: Int,
