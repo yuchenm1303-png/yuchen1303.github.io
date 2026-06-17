@@ -127,7 +127,7 @@ private fun buildAgentStepPayload(
         })
         contract?.let {
             put("taskExecutionContract", it.toJson())
-            put("taskPhase", it.phase.wireName)
+            put("taskPhase", it.phase)
         }
         put("fixedStepLimit", isNormalChatToolProbe)
         put("maxAgentSteps", if (isNormalChatToolProbe) 2 else JSONObject.NULL)
@@ -257,7 +257,7 @@ private fun buildCompactAgentDiagnostic(
         .take(24)
     val source = data?.optString("source").orEmpty().take(32)
     val step = data?.optJSONObject("agentStep")?.optString("type").orEmpty()
-    val phase = AgentTaskExecutionContract.fromResponse(data)?.phase?.wireName.orEmpty()
+    val phase = AgentTaskExecutionContract.fromResponse(data)?.phase.orEmpty()
     return buildString {
         append("AgentDebug req=").append(bytesToKb(requestBytes))
             .append("K resp=").append(bytesToKb(responseChars))
