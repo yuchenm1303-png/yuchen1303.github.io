@@ -101,8 +101,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val clipboardManager = remember(context) {
         context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     }
-    val preferencesStore = remember(context) { AssistantPreferencesStore(context.applicationContext) }
-    val installedAppIndex = remember(context) { InstalledAppIndex(context.applicationContext) }
+    val installedAppIndex = remember(context) {
+        lazy(kotlin.LazyThreadSafetyMode.NONE) { InstalledAppIndex(context.applicationContext) }
+    }
     val density = LocalDensity.current
     val imeBottomPx = WindowInsets.ime.getBottom(density)
     val imeOpenThresholdPx = with(density) { 48.dp.toPx() }.toInt()
@@ -147,7 +148,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val messageSideEffectKey = remember(state.messages) { ChatMessagesSideEffectKey.from(state.messages) }
     val visibleComposerText = remember(state.composerText) { visibleComposerTextForAssistant(state.composerText) }
     val assistantScreenState = rememberAssistantScreenState(state, effectiveMotionIntensity, visibleComposerText)
-    val stockAndSettingsState = rememberMotionState(state, effectiveMotionIntensity)
     val glassBackdropSpec = remember(state.quality, effectiveMotionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle) {
         GlassBackdropSpec(state.quality, effectiveMotionIntensity, state.backgroundTheme, state.backdropParams, state.glassBorderStyle)
     }
@@ -160,6 +160,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
 
     LaunchedEffect(Unit) {
+        StartupPerformanceGate.awaitNotificationPermissionWindow()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(
                 context,
@@ -178,7 +179,10 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         syncAgentOverlayProgressFromMessages(context.applicationContext, messages)
         if (pendingMobileAction == null) parsePendingMobileActionFromLatestMessage(messages)?.let { pendingMobileAction = it }
         val update = parseCloudNavigationPreferenceUpdate(messages) ?: return@LaunchedEffect
-        if (!isNavigationPreferenceAlreadySaved(commandSnapshot, update)) preferencesStore.setNavigationAddress(update.slot, update.address)
+        if (!isNavigationPreferenceAlreadySaved(commandSnapshot, update)) {
+            AssistantPreferencesStore(context.applicationContext)
+                .setNavigationAddress(update.slot, update.address)
+        }
     }
 
     val runPendingMobileAction = remember(systemActionRouter, viewModel) {
@@ -216,7 +220,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                     viewModel.cancelMobileCommand(text, pending.command)
                 }
                 text.isNotBlank() && !snapshot.isSending && !text.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX) -> {
-                    val command = parseInstalledAppOpenCommand(text, installedAppIndex)
+                    val command = parseInstalledAppOpenCommand(text, installedAppIndex.value)
                         ?: MobileCommandParser.parse(text)?.resolveNavigationAddress(snapshot)
                     if (command != null) {
                         pendingMobileAction = PendingMobileAction(originalText = text, command = command)
@@ -408,34 +412,38 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                         }
                                     }
                                     AppTab.Tools -> {
+                                        val toolsState = rememberMotionState(state, effectiveMotionIntensity)
                                         if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
                                             AStockMarketScreenV2(
-                                                state = stockAndSettingsState,
+                                                state = toolsState,
                                                 onBack = viewModel::closeTool,
                                                 onOpenAssistant = onOpenAssistant
                                             )
                                         } else {
                                             StockFirstToolsHomeScreen(
-                                                state = stockAndSettingsState,
+                                                state = toolsState,
                                                 onOpenTool = viewModel::openTool
                                             )
                                         }
                                     }
-                                    AppTab.Settings -> SettingsPolishedScreen(
-                                        state = stockAndSettingsState,
-                                        aiEndpoint = viewModel.aiEndpoint,
-                                        onQualityChange = viewModel::selectQuality,
-                                        onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                                        onGlassPresetChange = viewModel::setGlassPreset,
-                                        onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                                        onGlassIntensityChange = viewModel::setGlassIntensity,
-                                        onMotionIntensityChange = viewModel::setMotionIntensity,
-                                        onRainbowPrismChange = viewModel::setRainbowPrismStyle,
-                                        onBackdropChange = viewModel::setBackdropDebugParams,
-                                        onBorderChange = viewModel::setGlassBorderStyle,
-                                        onUploadBackgroundClick = onPickBackground,
-                                        onClearCustomBackgroundClick = viewModel::clearCustomBackground
-                                    )
+                                    AppTab.Settings -> {
+                                        val settingsState = rememberMotionState(state, effectiveMotionIntensity)
+                                        SettingsPolishedScreen(
+                                            state = settingsState,
+                                            aiEndpoint = viewModel.aiEndpoint,
+                                            onQualityChange = viewModel::selectQuality,
+                                            onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                            onGlassPresetChange = viewModel::setGlassPreset,
+                                            onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                            onGlassIntensityChange = viewModel::setGlassIntensity,
+                                            onMotionIntensityChange = viewModel::setMotionIntensity,
+                                            onRainbowPrismChange = viewModel::setRainbowPrismStyle,
+                                            onBackdropChange = viewModel::setBackdropDebugParams,
+                                            onBorderChange = viewModel::setGlassBorderStyle,
+                                            onUploadBackgroundClick = onPickBackground,
+                                            onClearCustomBackgroundClick = viewModel::clearCustomBackground
+                                        )
+                                    }
                                 }
                             }
                             if (SHOW_PERFORMANCE_DIAGNOSTICS_PANEL) {
