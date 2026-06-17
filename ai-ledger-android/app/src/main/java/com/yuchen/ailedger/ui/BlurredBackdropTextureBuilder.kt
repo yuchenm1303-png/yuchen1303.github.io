@@ -79,6 +79,11 @@ internal fun buildBackdropTextureSet(
         params = params,
         scratch = scratch
     )
+    val luminanceMap = BackdropLuminanceMap.build(
+        source = medium,
+        fullWidthPx = fullWidth,
+        fullHeightPx = fullHeight
+    )
     Thread.yield()
     val high = buildTunedBlurLevel(
         source = blurSource,
@@ -95,6 +100,7 @@ internal fun buildBackdropTextureSet(
         blurLowImage = low.asImageBitmap(),
         blurMediumImage = medium.asImageBitmap(),
         blurHighImage = high.asImageBitmap(),
+        luminanceMap = luminanceMap,
         fullWidthPx = fullWidth,
         fullHeightPx = fullHeight,
         blurScale = effectiveScale
