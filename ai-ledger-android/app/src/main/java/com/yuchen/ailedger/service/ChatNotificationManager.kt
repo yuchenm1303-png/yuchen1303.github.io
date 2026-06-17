@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Process
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
@@ -18,13 +19,34 @@ import com.yuchen.ailedger.R
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.ui.StartupPerformanceGate
+import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 object ChatNotificationManager {
     private const val CHANNEL_ID = "ai_chat_entry"
     private const val CHANNEL_NAME = "AI 助手常驻入口"
     private const val NOTIFICATION_ID = 1303
     private const val EMPTY_NOTIFICATION_SIGNATURE = "empty"
+    private const val STARTUP_GATE_TIMEOUT_MS = 5_000L
     const val ACTION_OPEN_CHAT = "com.yuchen.ailedger.action.OPEN_CHAT"
+
+    private val dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { task ->
+        Thread(
+            {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                task.run()
+            },
+            "ChatNotificationBuilder"
+        ).apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+    private val pendingLock = Any()
 
     @Volatile
     private var channelReady = false
@@ -32,6 +54,15 @@ object ChatNotificationManager {
     @Volatile
     private var lastNotificationSignature: String? = null
 
+    private var pendingRequest: NotificationRequest? = null
+    private var drainScheduled = false
+
+    /**
+     * Notification construction is deliberately removed from the cold-start caller. Repeated message
+     * updates are coalesced into the newest snapshot, and the first build waits for the UI/OpenGL
+     * stabilization window. This keeps channel creation, MessagingStyle allocation and binder work
+     * away from the frames that mount the glass scene.
+     */
     fun showPersistentChatEntry(
         context: Context,
         messages: List<ChatMessage> = emptyList(),
@@ -40,17 +71,70 @@ object ChatNotificationManager {
         val appContext = context.applicationContext
         if (!canPostNotifications(appContext)) return
 
-        val visibleMessages = messages
+        val request = NotificationRequest(
+            context = appContext,
+            messages = messages,
+            force = force
+        )
+        val shouldSchedule = synchronized(pendingLock) {
+            val previous = pendingRequest
+            pendingRequest = if (previous == null) {
+                request
+            } else {
+                request.copy(force = request.force || previous.force)
+            }
+            if (drainScheduled) {
+                false
+            } else {
+                drainScheduled = true
+                true
+            }
+        }
+        if (!shouldSchedule) return
+
+        scope.launch {
+            withTimeoutOrNull(STARTUP_GATE_TIMEOUT_MS) {
+                StartupPerformanceGate.awaitDeferredBusinessWindow()
+            }
+            drainPendingRequests()
+        }
+    }
+
+    fun canPostNotifications(context: Context): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun drainPendingRequests() {
+        while (true) {
+            val request = synchronized(pendingLock) {
+                val next = pendingRequest
+                pendingRequest = null
+                if (next == null) drainScheduled = false
+                next
+            } ?: return
+            publishPersistentChatEntry(request)
+        }
+    }
+
+    private fun publishPersistentChatEntry(request: NotificationRequest) {
+        val appContext = request.context
+        if (!canPostNotifications(appContext)) return
+
+        val visibleMessages = request.messages
             .asSequence()
             .filter { it.text.isNotBlank() }
             .filterNot { it.status == MessageStatus.Sending }
             .takeLastCompat(6)
 
         val signature = visibleMessages.notificationSignature()
-        if (!force && signature == lastNotificationSignature) return
+        if (!request.force && signature == lastNotificationSignature) return
 
         ensureChannel(appContext)
-        if (!force && signature == lastNotificationSignature) return
+        if (!request.force && signature == lastNotificationSignature) return
 
         val user = Person.Builder().setName("你").build()
         val assistant = Person.Builder()
@@ -95,29 +179,24 @@ object ChatNotificationManager {
         lastNotificationSignature = signature
     }
 
-    fun canPostNotifications(context: Context): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-    }
-
     private fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || channelReady) return
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "在通知栏保留 AI 助手聊天入口"
-            setSound(null, null)
-            enableVibration(false)
-            setShowBadge(false)
+        synchronized(this) {
+            if (channelReady) return
+            val manager = context.getSystemService(NotificationManager::class.java) ?: return
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "在通知栏保留 AI 助手聊天入口"
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+            }
+            manager.createNotificationChannel(channel)
+            channelReady = true
         }
-        manager.createNotificationChannel(channel)
-        channelReady = true
     }
 
     private fun buildOpenAppIntent(context: Context): PendingIntent {
@@ -172,4 +251,10 @@ object ChatNotificationManager {
             .take(140)
             .ifBlank { "点击继续和 AI 助手聊天。" }
     }
+
+    private data class NotificationRequest(
+        val context: Context,
+        val messages: List<ChatMessage>,
+        val force: Boolean
+    )
 }
