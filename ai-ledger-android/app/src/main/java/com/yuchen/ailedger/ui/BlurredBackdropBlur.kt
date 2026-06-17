@@ -1,8 +1,18 @@
 package com.yuchen.ailedger.ui
 
 import android.graphics.Bitmap
+import kotlin.math.floor
+import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
+/**
+ * 使用三次 box pass 逼近高斯模糊。
+ *
+ * 旧实现把半径 1/2/4 原样重复 12 次，虽然速度稳定，但对白底细字容易留下规则条纹。
+ * 现在把现有 radius + iterations 解释为目标 sigma，再用三组最接近的奇数窗口完成高斯逼近：
+ * 通道仍只遍历常数次，成本更低，扩散轮廓也更接近真实磨砂玻璃。
+ */
 internal fun boxBlur(
     input: Bitmap,
     radius: Int,
@@ -14,16 +24,16 @@ internal fun boxBlur(
     }
     val width = input.width
     val height = input.height
-    val output = runBoxBlur(input, radius, iterations, scratch)
+    val output = runGaussianApproximation(input, radius, iterations, scratch)
     return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
         bitmap.setPixels(output, 0, width, 0, 0, width, height)
     }
 }
 
 /**
- * Fuses the old "create bitmap -> read bitmap -> tone pixels -> write bitmap" sequence into one
- * pixel pipeline. The blur arithmetic and tone formula are unchanged; only two full bitmap memory
- * transfers per level are removed.
+ * 模糊和色调调整共用同一组像素缓冲，避免每一级再做两次完整 Bitmap 往返。
+ * 色调处理改为近似线性光空间，并对高亮区域主动收敛饱和度和对比度，减少网页文字的
+ * 黄边、灰条和发白塑料感。
  */
 internal fun boxBlurAndTune(
     input: Bitmap,
@@ -34,14 +44,14 @@ internal fun boxBlurAndTune(
     contrast: Float,
     saturation: Float
 ): Bitmap {
-    if (radius <= 0 || iterations <= 0) {
-        return input.copy(Bitmap.Config.ARGB_8888, true).also { copy ->
-            tuneBitmapToneInPlace(copy, brightness, contrast, saturation, scratch.source)
-        }
-    }
     val width = input.width
     val height = input.height
-    val output = runBoxBlur(input, radius, iterations, scratch)
+    val output = if (radius <= 0 || iterations <= 0) {
+        input.getPixels(scratch.output, 0, width, 0, 0, width, height)
+        scratch.output
+    } else {
+        runGaussianApproximation(input, radius, iterations, scratch)
+    }
     tunePixelsInPlace(
         pixels = output,
         pixelCount = width * height,
@@ -54,7 +64,7 @@ internal fun boxBlurAndTune(
     }
 }
 
-private fun runBoxBlur(
+private fun runGaussianApproximation(
     input: Bitmap,
     radius: Int,
     iterations: Int,
@@ -66,17 +76,48 @@ private fun runBoxBlur(
     val temp = scratch.temp
     var output = scratch.output
     input.getPixels(source, 0, width, 0, 0, width, height)
-    val window = radius * 2 + 1
-    repeat(iterations) { iteration ->
-        boxBlurHorizontal(source, temp, width, height, radius, window)
-        boxBlurVertical(temp, output, width, height, radius, window)
-        if (iteration < iterations - 1) {
+
+    val sigma = targetSigma(radius, iterations)
+    val radii = gaussianBoxRadii(sigma, passCount = 3)
+    var pass = 0
+    while (pass < radii.size) {
+        val passRadius = radii[pass].coerceAtLeast(1)
+        val window = passRadius * 2 + 1
+        boxBlurHorizontal(source, temp, width, height, passRadius, window)
+        boxBlurVertical(temp, output, width, height, passRadius, window)
+        if (pass < radii.lastIndex) {
             val reusable = source
             source = output
             output = reusable
         }
+        pass += 1
     }
     return output
+}
+
+private fun targetSigma(radius: Int, iterations: Int): Float {
+    val safeRadius = radius.coerceIn(1, 64).toFloat()
+    val safeIterations = iterations.coerceIn(1, 12).toFloat()
+    return (safeRadius * (2.20f + safeIterations * 0.42f)).coerceIn(1.2f, 46f)
+}
+
+private fun gaussianBoxRadii(sigma: Float, passCount: Int): IntArray {
+    val count = passCount.coerceAtLeast(1)
+    val idealWidth = sqrt((12.0 * sigma * sigma / count) + 1.0)
+    var lowerWidth = floor(idealWidth).toInt()
+    if (lowerWidth % 2 == 0) lowerWidth -= 1
+    lowerWidth = lowerWidth.coerceAtLeast(3)
+    val upperWidth = lowerWidth + 2
+    val numerator = 12.0 * sigma * sigma -
+        count * lowerWidth * lowerWidth -
+        4.0 * count * lowerWidth -
+        3.0 * count
+    val denominator = -4.0 * lowerWidth - 4.0
+    val lowerCount = (numerator / denominator).roundToInt().coerceIn(0, count)
+    return IntArray(count) { index ->
+        val width = if (index < lowerCount) lowerWidth else upperWidth
+        ((width - 1) / 2).coerceAtLeast(1)
+    }
 }
 
 private fun boxBlurHorizontal(
@@ -87,21 +128,25 @@ private fun boxBlurHorizontal(
     radius: Int,
     window: Int
 ) {
-    for (y in 0 until height) {
+    var y = 0
+    while (y < height) {
         var a = 0
         var r = 0
         var g = 0
         var b = 0
         val row = y * width
-        for (i in -radius..radius) {
+        var i = -radius
+        while (i <= radius) {
             val x = i.coerceIn(0, width - 1)
             val color = source[row + x]
             a += color ushr 24
             r += (color shr 16) and 0xFF
             g += (color shr 8) and 0xFF
             b += color and 0xFF
+            i += 1
         }
-        for (x in 0 until width) {
+        var x = 0
+        while (x < width) {
             temp[row + x] =
                 ((a / window) shl 24) or
                     ((r / window) shl 16) or
@@ -113,7 +158,9 @@ private fun boxBlurHorizontal(
             r += ((add shr 16) and 0xFF) - ((remove shr 16) and 0xFF)
             g += ((add shr 8) and 0xFF) - ((remove shr 8) and 0xFF)
             b += (add and 0xFF) - (remove and 0xFF)
+            x += 1
         }
+        y += 1
     }
 }
 
@@ -125,20 +172,24 @@ private fun boxBlurVertical(
     radius: Int,
     window: Int
 ) {
-    for (x in 0 until width) {
+    var x = 0
+    while (x < width) {
         var a = 0
         var r = 0
         var g = 0
         var b = 0
-        for (i in -radius..radius) {
+        var i = -radius
+        while (i <= radius) {
             val y = i.coerceIn(0, height - 1)
             val color = temp[y * width + x]
             a += color ushr 24
             r += (color shr 16) and 0xFF
             g += (color shr 8) and 0xFF
             b += color and 0xFF
+            i += 1
         }
-        for (y in 0 until height) {
+        var y = 0
+        while (y < height) {
             output[y * width + x] =
                 ((a / window) shl 24) or
                     ((r / window) shl 16) or
@@ -150,7 +201,9 @@ private fun boxBlurVertical(
             r += ((add shr 16) and 0xFF) - ((remove shr 16) and 0xFF)
             g += ((add shr 8) and 0xFF) - ((remove shr 8) and 0xFF)
             b += (add and 0xFF) - (remove and 0xFF)
+            y += 1
         }
+        x += 1
     }
 }
 
@@ -175,25 +228,67 @@ private fun tunePixelsInPlace(
     contrast: Float,
     saturation: Float
 ) {
-    for (index in 0 until pixelCount) {
+    val safeBrightness = brightness.coerceIn(0.40f, 2.20f)
+    val safeContrast = contrast.coerceIn(0.50f, 1.80f)
+    val safeSaturation = saturation.coerceIn(0.30f, 1.80f)
+    var index = 0
+    while (index < pixelCount) {
         val color = pixels[index]
-        val a = color ushr 24
-        val r0 = ((color shr 16) and 0xFF).toFloat()
-        val g0 = ((color shr 8) and 0xFF).toFloat()
-        val b0 = (color and 0xFF).toFloat()
-        val gray = r0 * 0.2126f + g0 * 0.7152f + b0 * 0.0722f
-        val saturatedR = gray + (r0 - gray) * saturation
-        val saturatedG = gray + (g0 - gray) * saturation
-        val saturatedB = gray + (b0 - gray) * saturation
-        val r = (((saturatedR - 128f) * contrast + 128f) * brightness)
-            .roundToInt()
-            .coerceIn(0, 255)
-        val g = (((saturatedG - 128f) * contrast + 128f) * brightness)
-            .roundToInt()
-            .coerceIn(0, 255)
-        val b = (((saturatedB - 128f) * contrast + 128f) * brightness)
-            .roundToInt()
-            .coerceIn(0, 255)
-        pixels[index] = (a shl 24) or (r shl 16) or (g shl 8) or b
+        val alpha = color ushr 24
+        val red = SRGB_TO_LINEAR[(color shr 16) and 0xFF]
+        val green = SRGB_TO_LINEAR[(color shr 8) and 0xFF]
+        val blue = SRGB_TO_LINEAR[color and 0xFF]
+        val luminance = red * 0.2126f + green * 0.7152f + blue * 0.0722f
+        val highlight = smoothStep(0.58f, 0.96f, luminance)
+        val localSaturation = lerp(safeSaturation, minOf(safeSaturation, 0.92f), highlight * 0.82f)
+        val localContrast = 1f + (safeContrast - 1f) * (1f - highlight * 0.58f)
+
+        var tunedRed = luminance + (red - luminance) * localSaturation
+        var tunedGreen = luminance + (green - luminance) * localSaturation
+        var tunedBlue = luminance + (blue - luminance) * localSaturation
+        tunedRed = softHighlight((tunedRed - 0.18f) * localContrast + 0.18f, safeBrightness)
+        tunedGreen = softHighlight((tunedGreen - 0.18f) * localContrast + 0.18f, safeBrightness)
+        tunedBlue = softHighlight((tunedBlue - 0.18f) * localContrast + 0.18f, safeBrightness)
+
+        val r = linearToSrgbByte(tunedRed)
+        val g = linearToSrgbByte(tunedGreen)
+        val b = linearToSrgbByte(tunedBlue)
+        pixels[index] = (alpha shl 24) or (r shl 16) or (g shl 8) or b
+        index += 1
     }
+}
+
+private fun softHighlight(value: Float, brightness: Float): Float {
+    val brightened = (value.coerceAtLeast(0f) * brightness).coerceAtMost(2.2f)
+    if (brightened <= 0.82f) return brightened
+    val excess = brightened - 0.82f
+    return (0.82f + excess / (1f + excess * 3.2f)).coerceIn(0f, 1f)
+}
+
+private val SRGB_TO_LINEAR = FloatArray(256) { value ->
+    val channel = value / 255f
+    if (channel <= 0.04045f) channel / 12.92f
+    else ((channel + 0.055f) / 1.055f).pow(2.4f)
+}
+
+private val LINEAR_TO_SRGB = IntArray(4097) { index ->
+    val channel = index / 4096f
+    val srgb = if (channel <= 0.0031308f) channel * 12.92f
+    else 1.055f * channel.pow(1f / 2.4f) - 0.055f
+    (srgb * 255f).roundToInt().coerceIn(0, 255)
+}
+
+private fun linearToSrgbByte(value: Float): Int {
+    val index = (value.coerceIn(0f, 1f) * 4096f).roundToInt().coerceIn(0, 4096)
+    return LINEAR_TO_SRGB[index]
+}
+
+private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {
+    val x = ((value - edge0) / (edge1 - edge0)).coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+
+private fun lerp(start: Float, end: Float, amount: Float): Float {
+    val t = amount.coerceIn(0f, 1f)
+    return start + (end - start) * t
 }
