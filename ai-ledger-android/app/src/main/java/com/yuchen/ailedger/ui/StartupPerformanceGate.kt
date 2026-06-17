@@ -5,6 +5,8 @@ import androidx.compose.runtime.withFrameNanos
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -12,39 +14,65 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Process-scoped cold-start coordinator.
  *
- * Expensive work is released by measured frame stability instead of arbitrary short delays:
- * 1. the first screen and entrance layout settle;
+ * Expensive work is released by measured readiness instead of arbitrary short delays:
+ * 1. the first screen is stable and persisted preferences have produced their first snapshot;
  * 2. backdrop textures are decoded or generated;
- * 3. the OpenGL Shell mounts, compiles and uploads its textures;
+ * 3. the real OpenGL Shell has presented its first frame;
  * 4. continuous visual effects and deferred business work are released.
  *
  * The gates reset naturally when Android creates a new process.
  */
 internal object StartupPerformanceGate {
     private const val STABLE_FRAME_LIMIT_NS = 25_000_000L
+    private const val PREFERENCES_READY_TIMEOUT_MS = 1_400L
+    private const val OPENGL_FIRST_FRAME_TIMEOUT_MS = 2_200L
     private const val DEFERRED_BUSINESS_SETTLE_MS = 320L
 
     private val initialWindowOwner = AtomicBoolean(false)
     private val postBackdropWindowOwner = AtomicBoolean(false)
     private val deferredBusinessWindowOwner = AtomicBoolean(false)
 
+    private val preferencesReady = CompletableDeferred<Unit>()
     private val initialWindowReady = CompletableDeferred<Unit>()
     private val backdropWorkFinished = CompletableDeferred<Unit>()
+    private val openGlFirstFrameReady = CompletableDeferred<Unit>()
     private val postBackdropWindowReady = CompletableDeferred<Unit>()
     private val fullEffectsReady = CompletableDeferred<Unit>()
     private val deferredBusinessWindowReady = CompletableDeferred<Unit>()
+
+    fun markPreferencesReady() {
+        if (!preferencesReady.isCompleted) preferencesReady.complete(Unit)
+    }
+
+    fun markOpenGlFirstFrameReady() {
+        if (!openGlFirstFrameReady.isCompleted) {
+            StartupMetrics.markOnce("OpenGL真实首帧完成")
+            openGlFirstFrameReady.complete(Unit)
+        }
+    }
 
     suspend fun awaitInitialTextureBuildWindow() {
         if (initialWindowReady.isCompleted) return
         if (initialWindowOwner.compareAndSet(false, true)) {
             withContext(NonCancellable) {
                 try {
-                    StartupMetrics.setWarmupState("首屏稳定中")
-                    awaitStableFrameWindow(
-                        minimumElapsedMs = 460L,
-                        requiredStableFrames = 5,
-                        maximumWaitMs = 1_800L
-                    )
+                    StartupMetrics.setWarmupState("首屏与偏好稳定中")
+                    coroutineScope {
+                        val frameWindow = async {
+                            awaitStableFrameWindow(
+                                minimumElapsedMs = 460L,
+                                requiredStableFrames = 5,
+                                maximumWaitMs = 1_800L
+                            )
+                        }
+                        val preferenceWindow = async {
+                            withTimeoutOrNull(PREFERENCES_READY_TIMEOUT_MS) {
+                                preferencesReady.await()
+                            }
+                        }
+                        frameWindow.await()
+                        preferenceWindow.await()
+                    }
                     StartupMetrics.markOnce("首屏稳定窗口完成")
                 } finally {
                     initialWindowReady.complete(Unit)
@@ -69,9 +97,13 @@ internal object StartupPerformanceGate {
         if (postBackdropWindowOwner.compareAndSet(false, true)) {
             withContext(NonCancellable) {
                 try {
-                    StartupMetrics.setWarmupState("OpenGL稳定中")
+                    StartupMetrics.setWarmupState("OpenGL真实首帧等待中")
+                    withTimeoutOrNull(OPENGL_FIRST_FRAME_TIMEOUT_MS) {
+                        openGlFirstFrameReady.await()
+                    }
+                    StartupMetrics.setWarmupState("OpenGL首帧后稳定中")
                     awaitStableFrameWindow(
-                        minimumElapsedMs = 140L,
+                        minimumElapsedMs = 160L,
                         requiredStableFrames = 5,
                         maximumWaitMs = 1_600L
                     )
