@@ -233,7 +233,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
             ?: extractAgentStepFromText(body)?.let { CloudAgentPlan(step = it, state = extractAgentStateFromText(body)) }
             ?: throw IOException("云端没有返回有效的智能体下一步动作")
-        if (plan.state?.isComplete == true || parsedContract?.phase == AgentTaskPhase.Completed) {
+        if (plan.state?.isComplete == true || parsedContract?.phase == AGENT_TASK_PHASE_COMPLETED) {
             AgentTaskContractRuntime.clear(sessionId)
         }
         plan
