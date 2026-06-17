@@ -64,13 +64,13 @@ class OrdinaryGlassRenderNode(
     var elasticity by mutableFloatStateOf(0f)
     var pressCenter by mutableStateOf(Offset(0.5f, 0.5f))
     var pressable by mutableStateOf(false)
-    var foldoutClipRegistry: GlassFoldoutClipRegistry? = null
+    internal var foldoutClipRegistry: GlassFoldoutClipRegistry? = null
     var drawOrder by mutableLongStateOf(0L)
         internal set
 
     internal val parentDrawCache = OrdinaryGlassParentDrawCache()
 
-    fun updateStatic(
+    internal fun updateStatic(
         sceneGroup: GlassSceneGroup,
         role: GlassRole,
         quality: RenderQuality,
@@ -188,7 +188,7 @@ class OrdinaryGlassSceneState(
         rect: Rect,
         viewport: Rect,
         foldoutClip: Rect,
-        backdropOrigin: GlassCoordinateSource,
+        backdropOrigin: BackdropCoordinateSource?,
         resolveSampleOffset: Boolean
     ) {
         val item = if (visibleCount < visiblePool.size) {
@@ -423,7 +423,7 @@ fun OrdinaryGlassSceneHost(
 private fun DrawScope.collectVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
     viewportSize: Size,
-    backdropOrigin: GlassCoordinateSource,
+    backdropOrigin: BackdropCoordinateSource?,
     resolveSampleOffset: Boolean
 ) {
     sceneState.registry.version
