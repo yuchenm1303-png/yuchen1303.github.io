@@ -143,25 +143,30 @@ private object BackdropBuildRegistry {
 }
 
 private object BackdropDiskCache {
-    private const val CACHE_VERSION = 3
+    private const val CACHE_VERSION = 4
     private const val MAX_ENTRIES = 2
-    private const val ROOT_DIRECTORY = "glass_backdrop_v3"
+    private const val ROOT_DIRECTORY = "glass_backdrop_v4"
     private const val METADATA_FILE = "metadata.txt"
 
     fun load(context: Context, textureKey: String): BackdropTextureSet? = runCatching {
         val directory = entryDirectory(context, textureKey)
         val metadata = File(directory, METADATA_FILE).takeIf { it.isFile }?.readLines().orEmpty()
-        if (metadata.size < 5 || metadata[0].toIntOrNull() != CACHE_VERSION) return@runCatching null
+        if (metadata.size < 6 || metadata[0].toIntOrNull() != CACHE_VERSION) return@runCatching null
 
         val fullWidth = metadata[1].toIntOrNull()?.coerceAtLeast(1) ?: return@runCatching null
         val fullHeight = metadata[2].toIntOrNull()?.coerceAtLeast(1) ?: return@runCatching null
         val blurScale = metadata[3].toFloatOrNull()?.takeIf { it > 0f } ?: return@runCatching null
         if (metadata[4] != textureKey) return@runCatching null
+        val highAliasesMedium = metadata[5].toBooleanStrictOrNull() ?: false
 
         val clear = decodeBitmap(File(directory, "clear.png")) ?: return@runCatching null
         val low = decodeBitmap(File(directory, "low.png")) ?: return@runCatching null
         val medium = decodeBitmap(File(directory, "medium.png")) ?: return@runCatching null
-        val high = decodeBitmap(File(directory, "high.png")) ?: return@runCatching null
+        val high = if (highAliasesMedium) {
+            medium
+        } else {
+            decodeBitmap(File(directory, "high.png")) ?: return@runCatching null
+        }
 
         directory.setLastModified(System.currentTimeMillis())
         BackdropTextureSet(
@@ -177,6 +182,9 @@ private object BackdropDiskCache {
 
     fun persistAsync(context: Context, textureKey: String, textures: BackdropTextureSet) {
         BackdropBuildRuntime.scope.launch {
+            // PNG compression can be more expensive than the blur itself on some devices. It must not
+            // overlap the EGL shader/texture handover; wait until full effects and business gate settle.
+            StartupPerformanceGate.awaitDeferredBusinessWindow()
             runCatching { persist(context, textureKey, textures) }
         }
     }
@@ -188,11 +196,12 @@ private object BackdropDiskCache {
         temporary.deleteRecursively()
         if (!temporary.mkdirs()) return
 
+        val highAliasesMedium = textures.blurHighImage === textures.blurMediumImage
         val wroteAll =
             writeBitmap(textures.clearImage, File(temporary, "clear.png")) &&
                 writeBitmap(textures.blurLowImage, File(temporary, "low.png")) &&
                 writeBitmap(textures.blurMediumImage, File(temporary, "medium.png")) &&
-                writeBitmap(textures.blurHighImage, File(temporary, "high.png"))
+                (highAliasesMedium || writeBitmap(textures.blurHighImage, File(temporary, "high.png")))
 
         if (!wroteAll) {
             temporary.deleteRecursively()
@@ -205,7 +214,8 @@ private object BackdropDiskCache {
                 append(textures.fullWidthPx).append('\n')
                 append(textures.fullHeightPx).append('\n')
                 append(textures.blurScale).append('\n')
-                append(textureKey)
+                append(textureKey).append('\n')
+                append(highAliasesMedium)
             }
         )
 
@@ -299,7 +309,7 @@ fun rememberBlurredBackdropBitmap(
             "custom:${file.absolutePath}:${file.lastModified()}:${file.length()}"
         }
     }
-    val textureKey = "v3|$width×$height|$textureParamsKey|levels:$blurLevelCount|$sourceKey"
+    val textureKey = "v4|$width×$height|$textureParamsKey|levels:$blurLevelCount|$sourceKey"
     var textures by remember(textureKey) {
         mutableStateOf(BlurredBackdropMemoryCache.get(textureKey))
     }
