@@ -103,15 +103,18 @@ private fun targetSigma(radius: Int, iterations: Int): Float {
 
 private fun gaussianBoxRadii(sigma: Float, passCount: Int): IntArray {
     val count = passCount.coerceAtLeast(1)
-    val idealWidth = sqrt((12.0 * sigma * sigma / count) + 1.0)
+    val sigmaDouble = sigma.toDouble()
+    val sigmaSquared = sigmaDouble * sigmaDouble
+    val countDouble = count.toDouble()
+    val idealWidth = sqrt((12.0 * sigmaSquared / countDouble) + 1.0)
     var lowerWidth = floor(idealWidth).toInt()
     if (lowerWidth % 2 == 0) lowerWidth -= 1
     lowerWidth = lowerWidth.coerceAtLeast(3)
     val upperWidth = lowerWidth + 2
-    val numerator = 12.0 * sigma * sigma -
-        count * lowerWidth * lowerWidth -
-        4.0 * count * lowerWidth -
-        3.0 * count
+    val numerator = 12.0 * sigmaSquared -
+        countDouble * lowerWidth * lowerWidth -
+        4.0 * countDouble * lowerWidth -
+        3.0 * countDouble
     val denominator = -4.0 * lowerWidth - 4.0
     val lowerCount = (numerator / denominator).roundToInt().coerceIn(0, count)
     return IntArray(count) { index ->
