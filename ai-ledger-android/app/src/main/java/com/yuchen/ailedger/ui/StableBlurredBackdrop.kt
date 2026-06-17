@@ -27,8 +27,8 @@ import kotlin.math.roundToInt
  *
  * Image-backed sources use a two-by-two neutral texture until their real textures are available.
  * The generated theme placeholder is created only when the user has explicitly selected the built-in
- * theme source. This preserves the stable OpenGL Shell mount without drawing or uploading an unused
- * theme wallpaper during normal startup.
+ * theme source. This preserves the stable Shell mount while allowing the OpenGL host itself to remain
+ * deferred until the real sampler set is ready.
  */
 @Composable
 fun rememberStableBlurredBackdropBitmap(
@@ -86,7 +86,8 @@ private fun buildImageBackdropPlaceholder(
         lensImage = image,
         blurLowImage = image,
         blurMediumImage = image,
-        blurHighImage = image
+        blurHighImage = image,
+        isReady = false
     )
 }
 
@@ -129,7 +130,8 @@ private fun buildThemeBackdropPlaceholder(
         lensImage = image,
         blurLowImage = image,
         blurMediumImage = image,
-        blurHighImage = image
+        blurHighImage = image,
+        isReady = false
     )
 }
 
