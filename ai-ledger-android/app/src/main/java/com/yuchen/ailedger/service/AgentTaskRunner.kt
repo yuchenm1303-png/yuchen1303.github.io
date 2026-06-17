@@ -5,11 +5,12 @@ import android.os.SystemClock
 import android.view.Choreographer
 import com.yuchen.ailedger.model.ChatModel
 import java.io.IOException
+import java.util.ArrayDeque
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import org.json.JSONArray
 import org.json.JSONObject
@@ -34,6 +35,49 @@ private data class PendingSnapshotCheck(
     val beforeFingerprint: String,
 )
 
+private class AgentExecutionBudget(
+    val maxActions: Int,
+    private val maxDurationMs: Long,
+) {
+    private val startedAtMs = SystemClock.elapsedRealtime()
+
+    fun isTimeExceeded(nowMs: Long = SystemClock.elapsedRealtime()): Boolean {
+        return nowMs - startedAtMs >= maxDurationMs
+    }
+
+    fun isActionLimitReached(actionCount: Int): Boolean = actionCount >= maxActions
+
+    fun isExhausted(actionCount: Int): Boolean {
+        return isActionLimitReached(actionCount) || isTimeExceeded()
+    }
+
+    fun elapsedMs(nowMs: Long = SystemClock.elapsedRealtime()): Long {
+        return (nowMs - startedAtMs).coerceAtLeast(0L)
+    }
+
+    fun remainingActions(actionCount: Int): Int {
+        return (maxActions - actionCount).coerceAtLeast(0)
+    }
+
+    fun exhaustionMessage(actionCount: Int): String {
+        return if (isActionLimitReached(actionCount)) {
+            "本次智能体任务已执行 $actionCount 个动作，达到安全动作预算，已暂停。你可以检查当前页面后重新发起或继续。"
+        } else {
+            val seconds = elapsedMs() / 1_000L
+            "本次智能体任务已持续约 ${seconds} 秒，达到安全运行时长，已暂停。你可以检查当前页面后重新发起或继续。"
+        }
+    }
+
+    fun toJson(actionCount: Int): JSONObject = JSONObject().apply {
+        put("maxActions", maxActions)
+        put("executedActions", actionCount)
+        put("remainingActions", remainingActions(actionCount))
+        put("maxDurationMs", maxDurationMs)
+        put("elapsedMs", elapsedMs())
+        put("exhausted", isExhausted(actionCount))
+    }
+}
+
 private class AgentLoopFeedback {
     var lastActionSignature: String? = null
         private set
@@ -48,6 +92,7 @@ private class AgentLoopFeedback {
 
     private var pendingSnapshotCheck: PendingSnapshotCheck? = null
     private val blockedActionSignatures = linkedSetOf<String>()
+    private val transitionHistory = ArrayDeque<String>()
 
     fun isPendingSnapshotUnchanged(currentFingerprint: String): Boolean {
         val pending = pendingSnapshotCheck ?: return false
@@ -70,32 +115,52 @@ private class AgentLoopFeedback {
         }
     }
 
-    fun recordImmediateResult(step: CloudAgentStep, result: AgentExecutionResult) {
+    fun recordImmediateResult(
+        step: CloudAgentStep,
+        result: AgentExecutionResult,
+        beforeFingerprint: String,
+    ) {
         val signature = buildActionSignature(step)
         updateActionSignature(signature)
+        recordTransition(beforeFingerprint, signature, result)
         lastResultOk = result.ok
         val verification = extractVerification(result.message)
         lastVerification = verification ?: "device_tool_no_extra_verification"
         if (!result.ok || verification?.contains("verified=false") == true) {
             noProgressCount += 1
             if (noProgressCount >= LOOP_STALL_BLOCK_THRESHOLD) blockedActionSignatures += signature
-        } else if (verification?.contains("verified=true") == true || verification?.contains("verified=command_exit_ok") == true) {
+        } else if (
+            verification?.contains("verified=true") == true ||
+            verification?.contains("verified=command_exit_ok") == true
+        ) {
             noProgressCount = 0
             blockedActionSignatures.remove(signature)
         }
     }
 
-    fun recordVisualResult(step: CloudAgentStep, result: AgentExecutionResult, beforeFingerprint: String) {
+    fun recordVisualResult(
+        step: CloudAgentStep,
+        result: AgentExecutionResult,
+        beforeFingerprint: String,
+    ) {
         val signature = buildActionSignature(step)
         updateActionSignature(signature)
+        recordTransition(beforeFingerprint, signature, result)
         lastResultOk = result.ok
-        lastVerification = if (result.ok && result.shouldContinue) "pending_next_snapshot" else "visual_action_finished"
+        lastVerification = if (result.ok && result.shouldContinue) {
+            "pending_next_snapshot"
+        } else {
+            "visual_action_finished"
+        }
         if (!result.ok) {
             noProgressCount += 1
             if (noProgressCount >= LOOP_STALL_BLOCK_THRESHOLD) blockedActionSignatures += signature
             pendingSnapshotCheck = null
         } else if (result.shouldContinue) {
-            pendingSnapshotCheck = PendingSnapshotCheck(signature = signature, beforeFingerprint = beforeFingerprint)
+            pendingSnapshotCheck = PendingSnapshotCheck(
+                signature = signature,
+                beforeFingerprint = beforeFingerprint
+            )
         } else {
             pendingSnapshotCheck = null
         }
@@ -105,9 +170,31 @@ private class AgentLoopFeedback {
         return noProgressCount >= LOOP_STALL_BLOCK_THRESHOLD && blockedActionSignatures.isNotEmpty()
     }
 
+    fun shouldPauseForRepeatedCycle(): Boolean {
+        val history = transitionHistory.toList()
+        for (cycleLength in 1..LOOP_CYCLE_MAX_LENGTH) {
+            val required = cycleLength * LOOP_CYCLE_REPEAT_COUNT
+            if (history.size < required) continue
+            val tailStart = history.size - cycleLength
+            val expected = history.subList(tailStart, history.size)
+            var repeated = true
+            for (repeatIndex in 2..LOOP_CYCLE_REPEAT_COUNT) {
+                val start = history.size - cycleLength * repeatIndex
+                val end = start + cycleLength
+                if (start < 0 || history.subList(start, end) != expected) {
+                    repeated = false
+                    break
+                }
+            }
+            if (repeated) return true
+        }
+        return false
+    }
+
     fun resetAfterUserTakeover() {
         pendingSnapshotCheck = null
         blockedActionSignatures.clear()
+        transitionHistory.clear()
         lastActionSignature = null
         sameActionCount = 0
         noProgressCount = 0
@@ -119,10 +206,16 @@ private class AgentLoopFeedback {
         put("lastActionSignature", lastActionSignature ?: "")
         put("sameActionCount", sameActionCount)
         put("noProgressCount", noProgressCount)
-        put("noProgressScope", "same_action_only")
+        put("noProgressScope", "same_action_and_short_cycle")
         put("lastResultOk", lastResultOk)
         put("lastVerification", lastVerification)
-        put("blockedActionSignatures", JSONArray().apply { blockedActionSignatures.forEach { put(it) } })
+        put("blockedActionSignatures", JSONArray().apply {
+            blockedActionSignatures.forEach { put(it) }
+        })
+        put("recentTransitionSignatures", JSONArray().apply {
+            transitionHistory.forEach { put(it) }
+        })
+        put("repeatedCycleDetected", shouldPauseForRepeatedCycle())
     }
 
     private fun updateActionSignature(signature: String) {
@@ -135,6 +228,17 @@ private class AgentLoopFeedback {
             blockedActionSignatures.clear()
         }
         if (sameActionCount >= LOOP_STALL_BLOCK_THRESHOLD) blockedActionSignatures += signature
+    }
+
+    private fun recordTransition(
+        beforeFingerprint: String,
+        signature: String,
+        result: AgentExecutionResult,
+    ) {
+        if (!result.ok || !result.shouldContinue) return
+        val pageKey = Integer.toHexString(beforeFingerprint.hashCode())
+        transitionHistory.addLast("$pageKey::$signature")
+        while (transitionHistory.size > LOOP_CYCLE_HISTORY_LIMIT) transitionHistory.removeFirst()
     }
 
     private fun extractVerification(message: String): String? {
@@ -151,9 +255,10 @@ class AgentTaskRunner(
     private val applicationContext: Context? = appContext?.applicationContext
     private val installedAppIndex: InstalledAppIndex? = applicationContext?.let { InstalledAppIndex(it) }
     private val deviceToolExecutor: DeviceToolExecutor? = applicationContext?.let { DeviceToolExecutor(it) }
-    private val deviceControlVerifier: DeviceControlActionVerifier? = applicationContext?.let { DeviceControlActionVerifier(it) }
+    private val deviceControlVerifier: DeviceControlActionVerifier? = applicationContext?.let {
+        DeviceControlActionVerifier(it)
+    }
 
-    @Suppress("UNUSED_PARAMETER")
     suspend fun run(
         goal: String,
         modelPreference: ChatModel,
@@ -169,9 +274,23 @@ class AgentTaskRunner(
             return AgentTaskRunResult(false, false, message, logs)
         }
 
+        val actionLimit = when {
+            maxSteps == Int.MAX_VALUE && isNormalChatToolProbe -> DEFAULT_NORMAL_CHAT_TOOL_MAX_ACTIONS
+            maxSteps == Int.MAX_VALUE -> DEFAULT_VISUAL_MAX_ACTIONS
+            isNormalChatToolProbe -> maxSteps.coerceIn(1, MAX_NORMAL_CHAT_TOOL_ACTIONS)
+            else -> maxSteps.coerceIn(1, MAX_VISUAL_ACTIONS)
+        }
+        val budget = AgentExecutionBudget(
+            maxActions = actionLimit,
+            maxDurationMs = if (isNormalChatToolProbe) {
+                NORMAL_CHAT_TOOL_MAX_RUNTIME_MS
+            } else {
+                VISUAL_TASK_MAX_RUNTIME_MS
+            }
+        )
         val recentActions = mutableListOf<String>()
         val loopFeedback = AgentLoopFeedback()
-        val taskSessionId = "android-agent-v2-${System.currentTimeMillis()}"
+        val taskSessionId = "android-agent-v3-${System.currentTimeMillis()}"
         val ownsTaskSession = !isNormalChatToolProbe
 
         if (ownsTaskSession) {
@@ -185,9 +304,11 @@ class AgentTaskRunner(
 
             while (
                 !isStopped(stopGeneration) &&
-                (!isNormalChatToolProbe || logs.size < maxSteps)
+                !budget.isTimeExceeded() &&
+                !budget.isActionLimitReached(logs.size)
             ) {
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+                if (budget.isTimeExceeded()) break
 
                 val wantsVisual = !isNormalChatToolProbe
                 var observation = captureOnce(forceVisual = wantsVisual)
@@ -209,13 +330,20 @@ class AgentTaskRunner(
                     stopGeneration = stopGeneration,
                 )
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+                if (budget.isTimeExceeded()) break
 
                 val snapshot = observation.toAgentScreenSnapshot()
                 val snapshotFingerprint = snapshotFingerprint(snapshot)
                 loopFeedback.consumePostActionSnapshot(snapshotFingerprint)?.let { recentActions += it }
                 if (loopFeedback.shouldPauseForRepeatedNoProgress()) {
                     if (isNormalChatToolProbe) {
-                        return AgentTaskRunResult(false, false, "内部工具没有检测到有效进展，交回普通聊天。", logs, handled = false)
+                        return AgentTaskRunResult(
+                            false,
+                            false,
+                            "内部工具没有检测到有效进展，交回普通聊天。",
+                            logs,
+                            handled = false
+                        )
                     }
                     val message = "当前动作重复执行后仍未检测到明确页面变化。智能体已暂停，你可以等待页面加载或手动接管，完成后点击继续。"
                     recentActions += "postActionCheck=paused_for_user_takeover · reason=repeated_same_action_no_progress"
@@ -230,6 +358,7 @@ class AgentTaskRunner(
                     buildDeviceContext(snapshot, goal)
                 }
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+                if (budget.isTimeExceeded()) break
 
                 val plan = try {
                     withContext(Dispatchers.IO) {
@@ -239,22 +368,37 @@ class AgentTaskRunner(
                             modelPreference = modelPreference,
                             recentActions = recentActions.takeLast(MAX_RECENT_ACTIONS),
                             deviceContext = deviceContext,
-                            agentMemory = buildAgentMemory(taskSessionId, logs.size, recentActions, executionMode, loopFeedback),
+                            agentMemory = buildAgentMemory(
+                                taskSessionId = taskSessionId,
+                                loopIndex = logs.size,
+                                recentActions = recentActions,
+                                executionMode = executionMode,
+                                loopFeedback = loopFeedback,
+                                budget = budget,
+                            ),
                             executionMode = executionMode,
                         )
                     }
                 } catch (error: IOException) {
                     val message = "云端规划超时或失败：${error.message ?: "未知错误"}"
-                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, message, logs, handled = false)
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(false, false, message, logs, handled = false)
+                    }
                     AgentRuntimeController.failTask(message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+                if (budget.isTimeExceeded()) break
 
                 val state = plan.state
                 if (state != null && state.isComplete && state.confidence >= COMPLETE_CONFIDENCE_THRESHOLD) {
                     val message = state.reason.ifBlank { plan.step.reason ?: "任务完成。" }
-                    val finishStep = CloudAgentStep(type = "finish", reason = message, riskLevel = "low", requiresConfirmation = false)
+                    val finishStep = CloudAgentStep(
+                        type = "finish",
+                        reason = message,
+                        riskLevel = "low",
+                        requiresConfirmation = false
+                    )
                     val done = AgentExecutionResult(true, message, false)
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, finishStep, done)
                     if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = true)
@@ -269,7 +413,13 @@ class AgentTaskRunner(
 
                 if (step == null) {
                     if (isNormalChatToolProbe) {
-                        return AgentTaskRunResult(false, false, "云端判断这不是可直接执行的内部设备工具。", logs, handled = false)
+                        return AgentTaskRunResult(
+                            false,
+                            false,
+                            "云端判断这不是可直接执行的内部设备工具。",
+                            logs,
+                            handled = false
+                        )
                     }
                     val message = "云端没有给出可执行动作，智能体已暂停等待用户接管。"
                     pauseForUserAssistance(message, stopGeneration)
@@ -279,7 +429,15 @@ class AgentTaskRunner(
                 }
 
                 if (step.type == "need_user_help") {
-                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, step.reason ?: "需要更多信息。", logs, handled = false)
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(
+                            false,
+                            false,
+                            step.reason ?: "需要更多信息。",
+                            logs,
+                            handled = false
+                        )
+                    }
                     pauseForUserAssistance(step.reason ?: "需要用户协助。", stopGeneration)
                     if (isStopped(stopGeneration)) break
                     loopFeedback.resetAfterUserTakeover()
@@ -287,12 +445,20 @@ class AgentTaskRunner(
                 }
 
                 if (isNormalChatToolProbe && step.type !in CloudAgentStep.deviceToolTypes) {
-                    return AgentTaskRunResult(false, false, "当前目标需要完整视觉智能体，交回普通聊天统一路由。", logs, handled = false)
+                    return AgentTaskRunResult(
+                        false,
+                        false,
+                        "当前目标需要完整视觉智能体，交回普通聊天统一路由。",
+                        logs,
+                        handled = false
+                    )
                 }
 
                 if (requiresAccessibilityRuntime(step) && !observation.serviceConnected) {
                     val message = "该步骤需要视觉/无障碍执行，请开启无障碍或打开首页 Agent 开关后再试。"
-                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, message, logs, handled = false)
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(false, false, message, logs, handled = false)
+                    }
                     AgentRuntimeController.failTask(message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
@@ -302,7 +468,15 @@ class AgentTaskRunner(
                 if (contextualStopMessage != null) {
                     val blockedStep = executableStep.copy(reason = cleanStepReason(contextualStopMessage))
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, blockedStep, null)
-                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, contextualStopMessage, logs, handled = true)
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(
+                            false,
+                            false,
+                            contextualStopMessage,
+                            logs,
+                            handled = true
+                        )
+                    }
                     pauseForUserAssistance(contextualStopMessage, stopGeneration)
                     if (isStopped(stopGeneration)) break
                     loopFeedback.resetAfterUserTakeover()
@@ -310,7 +484,15 @@ class AgentTaskRunner(
                 }
 
                 val wasConfirmedByUser = if (AgentSafetyPolicy.requiresConfirmation(goal, executableStep)) {
-                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, "该内部控制需要用户确认。", logs, handled = false)
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(
+                            false,
+                            false,
+                            "该内部控制需要用户确认。",
+                            logs,
+                            handled = false
+                        )
+                    }
                     val confirmed = AgentRuntimeController.requestRiskConfirmation(goal, executableStep)
                     if (!confirmed) return stoppedByUserResult(logs)
                     true
@@ -321,9 +503,20 @@ class AgentTaskRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 if (!wasConfirmedByUser && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(goal, executableStep)) {
-                    if (isNormalChatToolProbe) return AgentTaskRunResult(false, false, "该动作需要完整智能体或用户接管。", logs, handled = false)
+                    if (isNormalChatToolProbe) {
+                        return AgentTaskRunResult(
+                            false,
+                            false,
+                            "该动作需要完整智能体或用户接管。",
+                            logs,
+                            handled = false
+                        )
+                    }
                     if (AgentSafetyPolicy.requiresUserProvidedInput(goal, executableStep)) {
-                        pauseForUserAssistance(executableStep.reason ?: "当前步骤需要你接管处理：${executableStep.typeLabel}", stopGeneration)
+                        pauseForUserAssistance(
+                            executableStep.reason ?: "当前步骤需要你接管处理：${executableStep.typeLabel}",
+                            stopGeneration
+                        )
                         if (isStopped(stopGeneration)) break
                         loopFeedback.resetAfterUserTakeover()
                         continue
@@ -342,15 +535,29 @@ class AgentTaskRunner(
                     confirmedHighRisk = wasConfirmedByUser,
                 )
                 if (deviceToolResult != null) {
-                    loopFeedback.recordImmediateResult(executableStep, deviceToolResult)
+                    loopFeedback.recordImmediateResult(
+                        step = executableStep,
+                        result = deviceToolResult,
+                        beforeFingerprint = snapshotFingerprint,
+                    )
                     recentActions += buildRecentActionSummary(executableStep, deviceToolResult)
                     if (!deviceToolResult.ok) {
                         val message = deviceToolResult.message.ifBlank { "内部设备工具执行失败。" }
                         if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = false)
                         return AgentTaskRunResult(false, false, message, logs)
                     }
+                    if (!isNormalChatToolProbe && loopFeedback.shouldPauseForRepeatedCycle()) {
+                        val message = "检测到页面与动作形成重复循环，智能体已暂停，避免继续重复操作。请检查当前页面后手动接管或重新发起任务。"
+                        recentActions += "loopGuard=paused_for_user_takeover · reason=repeated_transition_cycle"
+                        pauseForUserAssistance(message, stopGeneration)
+                        if (isStopped(stopGeneration)) break
+                        loopFeedback.resetAfterUserTakeover()
+                        recentActions += "userTakeover=resumed · cycleFeedbackReset=true"
+                        continue
+                    }
 
-                    val mustReplanAfterEntryTool = !isNormalChatToolProbe && executableStep.type in REPLAN_AFTER_ENTRY_TOOL_TYPES
+                    val mustReplanAfterEntryTool =
+                        !isNormalChatToolProbe && executableStep.type in REPLAN_AFTER_ENTRY_TOOL_TYPES
                     if (!deviceToolResult.shouldContinue && !mustReplanAfterEntryTool) {
                         val message = deviceToolResult.message.ifBlank { "内部设备工具执行完成。" }
                         if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = true)
@@ -360,8 +567,12 @@ class AgentTaskRunner(
                     continue
                 }
 
-                val result = executeAndRecord(executableStep, snapshot.currentApp, logs, stopGeneration)
-                    ?: continue
+                val result = executeAndRecord(
+                    executableStep,
+                    snapshot.currentApp,
+                    logs,
+                    stopGeneration
+                ) ?: continue
                 loopFeedback.recordVisualResult(executableStep, result, snapshotFingerprint)
                 recentActions += buildRecentActionSummary(executableStep, result)
                 if (!result.ok || !result.shouldContinue) {
@@ -369,12 +580,34 @@ class AgentTaskRunner(
                     if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = false)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
+                if (!isNormalChatToolProbe && loopFeedback.shouldPauseForRepeatedCycle()) {
+                    val message = "检测到页面与动作形成重复循环，智能体已暂停，避免继续重复操作。请检查当前页面后手动接管或重新发起任务。"
+                    recentActions += "loopGuard=paused_for_user_takeover · reason=repeated_transition_cycle"
+                    pauseForUserAssistance(message, stopGeneration)
+                    if (isStopped(stopGeneration)) break
+                    loopFeedback.resetAfterUserTakeover()
+                    recentActions += "userTakeover=resumed · cycleFeedbackReset=true"
+                    continue
+                }
 
                 delayForStep(executableStep)
             }
 
-            if (isNormalChatToolProbe && logs.size >= maxSteps) {
-                val lastMessage = logs.lastOrNull()?.execution?.message.orEmpty().ifBlank { "内部设备工具执行结束。" }
+            if (budget.isExhausted(logs.size)) {
+                val message = budget.exhaustionMessage(logs.size)
+                if (ownsTaskSession) AgentRuntimeController.finishTask(message, completed = false)
+                return AgentTaskRunResult(
+                    completed = false,
+                    stoppedForConfirmation = false,
+                    message = message,
+                    logs = logs,
+                    handled = logs.isNotEmpty() || !isNormalChatToolProbe,
+                )
+            }
+
+            if (isNormalChatToolProbe && logs.size >= budget.maxActions) {
+                val lastMessage = logs.lastOrNull()?.execution?.message.orEmpty()
+                    .ifBlank { "内部设备工具执行结束。" }
                 return AgentTaskRunResult(
                     completed = logs.lastOrNull()?.execution?.ok == true,
                     stoppedForConfirmation = false,
@@ -408,7 +641,9 @@ class AgentTaskRunner(
     }
 
     private suspend fun pauseForUserAssistance(message: String, stopGeneration: Long) {
-        AgentRuntimeController.pauseForUserTakeover(message.ifBlank { "需要用户协助，智能体已暂停自动执行。" })
+        AgentRuntimeController.pauseForUserTakeover(
+            message.ifBlank { "需要用户协助，智能体已暂停自动执行。" }
+        )
         waitWhileUserTakeoverPaused(stopGeneration)
     }
 
@@ -419,7 +654,8 @@ class AgentTaskRunner(
         val message = if (AgentRuntimeController.currentManualStopGeneration() != stopGeneration) {
             "用户已手动停止本次智能体任务。"
         } else {
-            logs.lastOrNull()?.execution?.message?.takeIf { it.isNotBlank() } ?: "智能体任务已暂停。"
+            logs.lastOrNull()?.execution?.message?.takeIf { it.isNotBlank() }
+                ?: "智能体任务已暂停。"
         }
         if (AgentRuntimeController.progress.value.running) {
             AgentRuntimeController.finishTask(message, completed = false)
@@ -438,9 +674,10 @@ class AgentTaskRunner(
         recentActions: List<String>,
         executionMode: AgentExecutionMode,
         loopFeedback: AgentLoopFeedback,
+        budget: AgentExecutionBudget,
     ): JSONObject {
         return JSONObject().apply {
-            put("schema", "android_agent_loop_memory_v6_unbounded")
+            put("schema", "android_agent_loop_memory_v7_bounded")
             put("recentActions", JSONArray().apply {
                 recentActions.takeLast(MAX_RECENT_ACTIONS).forEach { put(it) }
             })
@@ -449,8 +686,9 @@ class AgentTaskRunner(
                 put("loopIndex", loopIndex)
                 put("executedStepCount", loopIndex)
                 put("executionMode", executionMode.name)
-                put("stepLimitEnabled", executionMode == AgentExecutionMode.NormalChatDeviceTool)
+                put("stepLimitEnabled", true)
                 put("postActionFeedback", loopFeedback.toJson())
+                put("executionBudget", budget.toJson(loopIndex))
             })
             put("androidCapabilities", JSONObject().apply {
                 put("structuredDeviceToolExecutor", true)
@@ -458,13 +696,19 @@ class AgentTaskRunner(
                 put("visualAgentSwitchMeansForceGui", true)
                 put("postActionVerification", true)
                 put("blockedActionSignatureFeedback", true)
-                put("crossActionNoProgressAccumulation", false)
+                put("crossActionCycleDetection", true)
                 put("postActionSettleRechecks", true)
                 put("stallPausesForUserTakeover", true)
-                put("fullVisualFixedStepLimit", false)
+                put("fullVisualFixedStepLimit", true)
+                put("fullVisualRuntimeLimit", true)
                 put("replanAfterSettingsEntry", true)
-                put("deviceToolTypes", JSONArray().apply { CloudAgentStep.deviceToolTypes.forEach { put(it) } })
-                put("policy", "Full visual tasks have no fixed step cap. Normal-chat compatibility probes remain tightly bounded and cannot start visual execution or high-risk actions.")
+                put("deviceToolTypes", JSONArray().apply {
+                    CloudAgentStep.deviceToolTypes.forEach { put(it) }
+                })
+                put(
+                    "policy",
+                    "Visual tasks use bounded action and runtime budgets, detect repeated page-action cycles, and pause for user takeover instead of running indefinitely."
+                )
             })
         }
     }
@@ -478,13 +722,18 @@ class AgentTaskRunner(
         step.targetNodeId?.takeIf { it.isNotBlank() }?.let { parts += "node=$it" }
         step.text?.takeIf { it.isNotBlank() }?.let { parts += "text=${it.take(40)}" }
         step.direction?.takeIf { it.isNotBlank() }?.let { parts += "direction=$it" }
-        cleanStepReason(step.reason)?.takeIf { it.isNotBlank() }?.let { parts += "reason=${it.take(80)}" }
+        cleanStepReason(step.reason)?.takeIf { it.isNotBlank() }?.let {
+            parts += "reason=${it.take(80)}"
+        }
         extractExecutionVerification(result.message)?.let { parts += "verify=${it.take(100)}" }
         parts += "result=${if (result.ok) "ok" else "failed"}:${result.message.take(80)}"
         return parts.joinToString(" · ")
     }
 
-    private fun buildDeviceContext(snapshot: AgentScreenSnapshot, goal: String): AgentDeviceContextSnapshot? {
+    private fun buildDeviceContext(
+        snapshot: AgentScreenSnapshot,
+        goal: String,
+    ): AgentDeviceContextSnapshot? {
         val context = applicationContext ?: return null
         val index = installedAppIndex ?: InstalledAppIndex(context)
         return runCatching {
@@ -622,14 +871,21 @@ class AgentTaskRunner(
         if (delayMs > 0L) delay(delayMs)
     }
 
-    private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
+    private fun materializeTapCoordinateFrame(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+    ): CloudAgentStep {
         if (step.type != "tap_xy") return step.copy(reason = cleanStepReason(step.reason))
         val x = step.x ?: return step.copy(reason = cleanStepReason(step.reason))
         val y = step.y ?: return step.copy(reason = cleanStepReason(step.reason))
         if (x !in 0f..1f || y !in 0f..1f) return step.copy(reason = cleanStepReason(step.reason))
         val visual = snapshot.visual ?: return step.copy(reason = cleanStepReason(step.reason))
-        val visualWidth = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 } ?: return step.copy(reason = cleanStepReason(step.reason))
-        val visualHeight = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 } ?: return step.copy(reason = cleanStepReason(step.reason))
+        val visualWidth = visual.displayWidth.takeIf { it > 0 }
+            ?: visual.width.takeIf { it > 0 }
+            ?: return step.copy(reason = cleanStepReason(step.reason))
+        val visualHeight = visual.displayHeight.takeIf { it > 0 }
+            ?: visual.height.takeIf { it > 0 }
+            ?: return step.copy(reason = cleanStepReason(step.reason))
         val pixelX = (x * visualWidth).coerceIn(0f, visualWidth.toFloat())
         val pixelY = (y * visualHeight).coerceIn(0f, visualHeight.toFloat())
         val frameNote = "坐标已按截图参考帧转为物理像素 ${visualWidth}x${visualHeight}"
@@ -637,48 +893,105 @@ class AgentTaskRunner(
         return step.copy(x = pixelX, y = pixelY, reason = mergedReason)
     }
 
-    private fun sanitizeCloudStep(step: CloudAgentStep, snapshot: AgentScreenSnapshot, executionMode: AgentExecutionMode): CloudAgentStep? {
+    private fun sanitizeCloudStep(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        executionMode: AgentExecutionMode,
+    ): CloudAgentStep? {
         if (step.type !in CloudAgentStep.supportedTypes) return null
-        if (executionMode == AgentExecutionMode.NormalChatDeviceTool && step.type !in CloudAgentStep.deviceToolTypes) return null
+        if (
+            executionMode == AgentExecutionMode.NormalChatDeviceTool &&
+            step.type !in CloudAgentStep.deviceToolTypes
+        ) return null
         if (step.type == "tap_xy") {
             val x = step.x ?: return null
             val y = step.y ?: return null
             if (x !in 0f..1f || y !in 0f..1f) return null
         }
-        if (step.type == "tap_node" && step.targetNodeId.isNullOrBlank() && step.targetText.isNullOrBlank()) return null
+        if (
+            step.type == "tap_node" &&
+            step.targetNodeId.isNullOrBlank() &&
+            step.targetText.isNullOrBlank()
+        ) return null
         if (step.type == "input_text" && step.text.isNullOrBlank()) return null
-        if (step.type == "open_app" && step.packageName != null && step.packageName == snapshot.currentApp) return null
+        if (
+            step.type == "open_app" &&
+            step.packageName != null &&
+            step.packageName == snapshot.currentApp
+        ) return null
         return step.copy(reason = cleanStepReason(step.reason))
     }
 
     private fun requiresAccessibilityRuntime(step: CloudAgentStep): Boolean {
-        return step.type in setOf("tap_node", "tap_xy", "input_text", "scroll", "swipe", "back", "home", "recents", "notifications", "quick_settings")
+        return step.type in setOf(
+            "tap_node",
+            "tap_xy",
+            "input_text",
+            "scroll",
+            "swipe",
+            "back",
+            "home",
+            "recents",
+            "notifications",
+            "quick_settings"
+        )
     }
 
-    private fun contextBlockingMessage(goal: String, step: CloudAgentStep, recentActions: List<String>): String? {
+    private fun contextBlockingMessage(
+        goal: String,
+        step: CloudAgentStep,
+        recentActions: List<String>,
+    ): String? {
         if (!isFinancialTradingGoal(goal)) return null
-        val stepText = listOfNotNull(step.type, step.typeLabel, step.targetText, step.text, step.reason, step.appName).joinToString(" ").lowercase()
+        val stepText = listOfNotNull(
+            step.type,
+            step.typeLabel,
+            step.targetText,
+            step.text,
+            step.reason,
+            step.appName
+        ).joinToString(" ").lowercase()
         val historyText = recentActions.joinToString(" ").lowercase()
         val hasTradeProgress = hasTradeInputProgress(historyText) || hasTradeInputProgress(stepText)
-        if (step.type in CONTEXT_BREAKING_STEP_TYPES) return "已进入股票交易/下单相关流程，拦截 ${step.typeLabel}，避免离开当前交易页面导致上下文丢失。请在当前页面接管并确认后手动下单。"
-        if (step.type == "open_app" && hasTradeProgress) return "已进入股票交易/下单相关流程，拦截重新打开应用，避免覆盖当前交易页面。请在当前页面接管并确认后手动下单。"
-        if ((step.type == "tap_xy" || step.type == "tap_node") && hasOrderSubmitIntent(stepText)) return "检测到可能提交/确认真实交易的动作，已按安全策略暂停。请你核对价格、股数和账户后手动下单。"
+        if (step.type in CONTEXT_BREAKING_STEP_TYPES) {
+            return "已进入股票交易/下单相关流程，拦截 ${step.typeLabel}，避免离开当前交易页面导致上下文丢失。请在当前页面接管并确认后手动下单。"
+        }
+        if (step.type == "open_app" && hasTradeProgress) {
+            return "已进入股票交易/下单相关流程，拦截重新打开应用，避免覆盖当前交易页面。请在当前页面接管并确认后手动下单。"
+        }
+        if ((step.type == "tap_xy" || step.type == "tap_node") && hasOrderSubmitIntent(stepText)) {
+            return "检测到可能提交/确认真实交易的动作，已按安全策略暂停。请你核对价格、股数和账户后手动下单。"
+        }
         return null
     }
 
     private fun isFinancialTradingGoal(text: String): Boolean {
         val clean = text.lowercase()
-        return FINANCIAL_GOAL_KEYWORDS.any { clean.contains(it) } && TRADING_ACTION_KEYWORDS.any { clean.contains(it) }
+        return FINANCIAL_GOAL_KEYWORDS.any { clean.contains(it) } &&
+            TRADING_ACTION_KEYWORDS.any { clean.contains(it) }
     }
 
-    private fun hasTradeInputProgress(text: String): Boolean = TRADE_PROGRESS_KEYWORDS.any { text.contains(it) }
-    private fun hasOrderSubmitIntent(text: String): Boolean = ORDER_SUBMIT_KEYWORDS.any { text.contains(it) }
+    private fun hasTradeInputProgress(text: String): Boolean {
+        return TRADE_PROGRESS_KEYWORDS.any { text.contains(it) }
+    }
+
+    private fun hasOrderSubmitIntent(text: String): Boolean {
+        return ORDER_SUBMIT_KEYWORDS.any { text.contains(it) }
+    }
 
     private fun cleanStepReason(reason: String?): String? {
         val raw = reason?.trim().orEmpty()
         if (raw.isBlank()) return null
-        val normalized = raw.replace("。。", "。").replace("..", ".").replace('\n', ' ').replace(Regex("\\s+"), " ")
-        val parts = normalized.split('。', '.', '；', ';').map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        val normalized = raw
+            .replace("。。", "。")
+            .replace("..", ".")
+            .replace('\n', ' ')
+            .replace(Regex("\\s+"), " ")
+        val parts = normalized
+            .split('。', '.', '；', ';')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
         return parts.joinToString("。").takeIf { it.isNotBlank() }
     }
 
@@ -700,17 +1013,82 @@ class AgentTaskRunner(
         private const val MAX_RECENT_ACTIONS = 8
         private const val COMPLETE_CONFIDENCE_THRESHOLD = 0.72f
         private const val USER_TAKEOVER_POLL_MS = 120L
+        private const val DEFAULT_NORMAL_CHAT_TOOL_MAX_ACTIONS = 2
+        private const val MAX_NORMAL_CHAT_TOOL_ACTIONS = 4
+        private const val DEFAULT_VISUAL_MAX_ACTIONS = 30
+        private const val MAX_VISUAL_ACTIONS = 60
+        private const val NORMAL_CHAT_TOOL_MAX_RUNTIME_MS = 30_000L
+        private const val VISUAL_TASK_MAX_RUNTIME_MS = 4 * 60 * 1_000L
         private val POST_ACTION_RECHECK_DELAYS_MS = longArrayOf(420L, 760L, 1_120L)
         private val REPLAN_AFTER_ENTRY_TOOL_TYPES = setOf("open_system_settings", "open_app_settings")
-        private val CONTEXT_BREAKING_STEP_TYPES = setOf("home", "recents", "notifications", "quick_settings")
-        private val FINANCIAL_GOAL_KEYWORDS = listOf("股票", "证券", "同花顺", "东方财富", "涨停", "跌停", "股", "基金", "交易", "委托", "账户")
-        private val TRADING_ACTION_KEYWORDS = listOf("买", "卖", "下单", "委托", "价格", "股数", "100股", "涨停价", "买入", "卖出")
-        private val TRADE_PROGRESS_KEYWORDS = listOf("交易", "买入", "卖出", "买按钮", "价格", "股数", "订单", "委托", "登录", "下单", "涨停", "账户", "验证码", "密码")
-        private val ORDER_SUBMIT_KEYWORDS = listOf("确认下单", "提交订单", "提交委托", "确认买入", "确认卖出", "立即买入", "立即卖出", "委托买入", "委托卖出", "下单按钮", "买入委托", "卖出委托")
+        private val CONTEXT_BREAKING_STEP_TYPES = setOf(
+            "home",
+            "recents",
+            "notifications",
+            "quick_settings"
+        )
+        private val FINANCIAL_GOAL_KEYWORDS = listOf(
+            "股票",
+            "证券",
+            "同花顺",
+            "东方财富",
+            "涨停",
+            "跌停",
+            "股",
+            "基金",
+            "交易",
+            "委托",
+            "账户"
+        )
+        private val TRADING_ACTION_KEYWORDS = listOf(
+            "买",
+            "卖",
+            "下单",
+            "委托",
+            "价格",
+            "股数",
+            "100股",
+            "涨停价",
+            "买入",
+            "卖出"
+        )
+        private val TRADE_PROGRESS_KEYWORDS = listOf(
+            "交易",
+            "买入",
+            "卖出",
+            "买按钮",
+            "价格",
+            "股数",
+            "订单",
+            "委托",
+            "登录",
+            "下单",
+            "涨停",
+            "账户",
+            "验证码",
+            "密码"
+        )
+        private val ORDER_SUBMIT_KEYWORDS = listOf(
+            "确认下单",
+            "提交订单",
+            "提交委托",
+            "确认买入",
+            "确认卖出",
+            "立即买入",
+            "立即卖出",
+            "委托买入",
+            "委托卖出",
+            "下单按钮",
+            "买入委托",
+            "卖出委托"
+        )
     }
 }
 
 private const val LOOP_STALL_BLOCK_THRESHOLD = 2
+private const val LOOP_CYCLE_HISTORY_LIMIT = 12
+private const val LOOP_CYCLE_MAX_LENGTH = 4
+private const val LOOP_CYCLE_REPEAT_COUNT = 3
 
 private fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
     val textKey = snapshot.texts.take(32).joinToString("|") { it.take(40) }
@@ -752,5 +1130,9 @@ private fun buildActionSignature(step: CloudAgentStep): String {
 private fun extractExecutionVerification(message: String): String? {
     val marker = "执行后验证："
     val index = message.indexOf(marker)
-    return if (index >= 0) message.substring(index + marker.length).trim().replace('\n', ' ').take(180) else null
+    return if (index >= 0) {
+        message.substring(index + marker.length).trim().replace('\n', ' ').take(180)
+    } else {
+        null
+    }
 }
