@@ -1,3 +1,3 @@
-trigger: cold-start-glass-deep-optimization-complete-2026-06-17
-source-commit: 5f4774f097ab2bc31ec250fd0177b86012fdd5a5
-scope: stable-frame-gate-wallpaper-decode-disk-cache-opengl-staging-notification-coalescing-baseline-profile
+trigger: settings-page-stable-mount-fix-2026-06-17
+source-commit: 08a4f34587fe1643cca2d533962016dfae91ed05
+scope: cached-tab-heavy-effects-single-gate-settings-batch-stable-composition
