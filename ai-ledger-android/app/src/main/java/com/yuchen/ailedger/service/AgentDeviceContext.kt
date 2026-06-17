@@ -151,7 +151,7 @@ object AgentDeviceContextProvider {
             append("，可启动应用 ").append(allLaunchableApps.size).append(" 个")
             append("，目标候选 ").append(candidateApps.size).append(" 个")
             contract?.let {
-                append("，任务阶段 ").append(it.phase.wireName)
+                append("，任务阶段 ").append(it.phase)
                 append("，目标 App 解析 ").append(targetResolution.status)
             }
             shellStatus?.let { append("，Shell ").append(if (it.available) "可用" else "不可用") }
