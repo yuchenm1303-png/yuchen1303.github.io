@@ -49,7 +49,7 @@ fun CachedAppTabHost(
         activationCounter[0] = next
         next
     }
-    var heavyEffectsReadyTick by remember { mutableStateOf(0) }
+    var heavyEffectsReady by remember { mutableStateOf(false) }
     val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
         AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
     }
@@ -58,12 +58,16 @@ fun CachedAppTabHost(
     val parentBackdropTicker = LocalBackdropFrameTicker.current
     val parentGlassRegistry = LocalGlassItemRegistry.current
 
-    LaunchedEffect(currentTab, currentActivationTick) {
-        if (currentTab !in renderedTabs) renderedTabs = renderedTabs + currentTab
-        heavyEffectsReadyTick = 0
+    // 冷启动重效果门只允许打开一次。旧实现会在每次切页时先关闭再重新打开，
+    // 导致设置页批绘制 registry 被移除后重新注册，看起来像整页自动刷新。
+    LaunchedEffect(Unit) {
         StartupPerformanceGate.awaitPostBackdropStability()
-        heavyEffectsReadyTick = currentActivationTick
+        heavyEffectsReady = true
         StartupPerformanceGate.markFullEffectsReady()
+    }
+
+    LaunchedEffect(currentTab) {
+        if (currentTab !in renderedTabs) renderedTabs = renderedTabs + currentTab
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs, diagnostics.pagePrewarmOff) {
@@ -85,7 +89,9 @@ fun CachedAppTabHost(
 
     Box(modifier) {
         AppTab.entries.forEach { tab ->
-            if (tab in renderedTabs) {
+            // 当前目标页同步进入 Composition；renderedTabs 只负责离开后的缓存。
+            // 这样首次进入设置页不会先空一帧、再由 LaunchedEffect 补挂页面。
+            if (tab == currentTab || tab in renderedTabs) {
                 val active = tab == currentTab
                 val alpha by animateFloatAsState(
                     targetValue = if (active) 1f else 0f,
@@ -95,9 +101,9 @@ fun CachedAppTabHost(
                 val visibleDuringTransition = active || alpha > 0.001f
                 val leaving = !active && visibleDuringTransition
                 val activationKey = if (active) currentActivationTick else 0
-                val heavyEffectsReady = active && heavyEffectsReadyTick == activationKey
-                val visualEffectsEnabled = visibleDuringTransition && heavyEffectsReady && !diagnostics.openGlGlassOff
-                val liveRegistryEnabled = heavyEffectsReady && !diagnostics.openGlGlassOff
+                val pageHeavyEffectsReady = active && heavyEffectsReady
+                val visualEffectsEnabled = visibleDuringTransition && pageHeavyEffectsReady && !diagnostics.openGlGlassOff
+                val liveRegistryEnabled = pageHeavyEffectsReady && !diagnostics.openGlGlassOff
                 val sceneGroup = tab.defaultGlassSceneGroup()
                 val ordinaryRenderMode = if (visibleDuringTransition) {
                     OrdinaryGlassParentDrawController.renderModeFor(sceneGroup)
