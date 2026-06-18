@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.WebSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -43,6 +44,8 @@ class NotificationChatWorker(
             )
             ChatNotificationManager.showPersistentChatEntry(applicationContext)
             Result.success()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Throwable) {
             val friendly = error.message
                 ?.takeIf { it.isNotBlank() }
@@ -54,7 +57,9 @@ class NotificationChatWorker(
                 errorMessage = friendly
             )
             ChatNotificationManager.showPersistentChatEntry(applicationContext)
-            Result.failure()
+            // The failure is represented inside the notification. Returning success keeps later
+            // queued notification prompts from inheriting a failed prerequisite.
+            Result.success()
         }
     }
 
