@@ -13,12 +13,12 @@ import android.os.Process
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.app.RemoteInput
 import androidx.core.content.ContextCompat
 import com.yuchen.ailedger.MainActivity
 import com.yuchen.ailedger.R
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
-import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.ui.StartupPerformanceGate
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineDispatcher
@@ -58,10 +58,9 @@ object ChatNotificationManager {
     private var drainScheduled = false
 
     /**
-     * Notification construction is deliberately removed from the cold-start caller. Repeated message
-     * updates are coalesced into the newest snapshot, and the first build waits for the UI/OpenGL
-     * stabilization window. This keeps channel creation, MessagingStyle allocation and binder work
-     * away from the frames that mount the glass scene.
+     * Notification construction stays outside the cold-start caller. Repeated message updates are
+     * coalesced into the newest snapshot, and the first build waits for the UI/OpenGL stabilization
+     * window. SharedPreferences merge, MessagingStyle allocation and binder work all run here.
      */
     fun showPersistentChatEntry(
         context: Context,
@@ -81,7 +80,10 @@ object ChatNotificationManager {
             pendingRequest = if (previous == null) {
                 request
             } else {
-                request.copy(force = request.force || previous.force)
+                request.copy(
+                    messages = if (request.messages.isNotEmpty()) request.messages else previous.messages,
+                    force = request.force || previous.force
+                )
             }
             if (drainScheduled) {
                 false
@@ -124,13 +126,21 @@ object ChatNotificationManager {
         val appContext = request.context
         if (!canPostNotifications(appContext)) return
 
-        val visibleMessages = request.messages
+        val snapshot = if (request.messages.isEmpty()) {
+            NotificationChatStore.load(appContext)
+        } else {
+            NotificationChatStore.mergeAppMessages(appContext, request.messages)
+        }
+        val visibleMessages = snapshot.messages
             .asSequence()
             .filter { it.text.isNotBlank() }
-            .filterNot { it.status == MessageStatus.Sending }
             .takeLastCompat(6)
 
-        val signature = visibleMessages.notificationSignature()
+        val signature = buildString {
+            append(visibleMessages.notificationSignature())
+            append("|pending=").append(snapshot.pendingCount)
+            append("|error=").append(snapshot.lastError.orEmpty())
+        }
         if (!request.force && signature == lastNotificationSignature) return
 
         ensureChannel(appContext)
@@ -147,7 +157,7 @@ object ChatNotificationManager {
             .setGroupConversation(false)
 
         if (visibleMessages.isEmpty()) {
-            style.addMessage("点击继续和 AI 助手聊天。", System.currentTimeMillis(), assistant)
+            style.addMessage("点击“提问”直接和 AI 对话。", System.currentTimeMillis(), assistant)
         } else {
             visibleMessages.forEach { message ->
                 val sender = if (message.role == MessageRole.User) user else assistant
@@ -155,27 +165,89 @@ object ChatNotificationManager {
             }
         }
 
-        val latestText = visibleMessages.lastOrNull()?.text?.toNotificationLine()
-            ?: "常驻聊天入口，点击回到 App。"
+        val title = when {
+            snapshot.isProcessing -> "AI Ledger 助手 · 正在思考"
+            snapshot.lastError != null -> "AI Ledger 助手 · 请求失败"
+            else -> "AI Ledger 助手"
+        }
+        val latestText = when {
+            snapshot.isProcessing -> "正在处理通知栏请求…"
+            snapshot.lastError != null -> snapshot.lastError.toNotificationLine()
+            else -> visibleMessages.lastOrNull()?.text?.toNotificationLine()
+                ?: "随时可以提问，点击卡片打开 App。"
+        }
+        val subText = when {
+            snapshot.pendingCount > 1 -> "通知栏快捷对话 · ${snapshot.pendingCount} 个请求排队"
+            snapshot.isProcessing -> "通知栏快捷对话 · 自动模型"
+            else -> "通知栏快捷对话 · 自动模型"
+        }
 
-        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+        val publicVersion = NotificationCompat.Builder(appContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_ai)
             .setContentTitle("AI Ledger 助手")
+            .setContentText("点击查看对话或快速提问")
+            .setContentIntent(buildOpenAppIntent(appContext))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .build()
+
+        val builder = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_ai)
+            .setContentTitle(title)
             .setContentText(latestText)
+            .setSubText(subText)
             .setStyle(style)
             .setContentIntent(buildOpenAppIntent(appContext))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion)
             .setOngoing(true)
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setShowWhen(false)
             .setLocalOnly(true)
-            .build()
+            .addAction(buildReplyAction(appContext))
 
-        notify(appContext, notification)
+        when {
+            snapshot.isProcessing -> builder.addAction(
+                buildBroadcastAction(
+                    appContext,
+                    NotificationReplyReceiver.ACTION_STOP,
+                    "停止",
+                    REQUEST_STOP
+                )
+            )
+            snapshot.lastError != null && !snapshot.failedPrompt.isNullOrBlank() -> builder.addAction(
+                buildBroadcastAction(
+                    appContext,
+                    NotificationReplyReceiver.ACTION_RETRY,
+                    "重试",
+                    REQUEST_RETRY
+                )
+            )
+            visibleMessages.isNotEmpty() -> builder.addAction(
+                buildBroadcastAction(
+                    appContext,
+                    NotificationReplyReceiver.ACTION_CLEAR,
+                    "清空",
+                    REQUEST_CLEAR
+                )
+            )
+        }
+
+        builder.addAction(
+            NotificationCompat.Action.Builder(
+                R.drawable.ic_notification_ai,
+                "打开 App",
+                buildOpenAppIntent(appContext)
+            ).build()
+        )
+
+        notify(appContext, builder.build())
         lastNotificationSignature = signature
     }
 
@@ -189,14 +261,60 @@ object ChatNotificationManager {
                 CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "在通知栏保留 AI 助手聊天入口"
+                description = "在通知栏直接使用 AI 助手"
                 setSound(null, null)
                 enableVibration(false)
                 setShowBadge(false)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
             }
             manager.createNotificationChannel(channel)
             channelReady = true
         }
+    }
+
+    private fun buildReplyAction(context: Context): NotificationCompat.Action {
+        val remoteInput = RemoteInput.Builder(NotificationReplyReceiver.KEY_TEXT_REPLY)
+            .setLabel("向 AI 提问")
+            .build()
+        val intent = Intent(context, NotificationReplyReceiver::class.java).apply {
+            action = NotificationReplyReceiver.ACTION_REPLY
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQUEST_REPLY,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+        return NotificationCompat.Action.Builder(
+            R.drawable.ic_notification_ai,
+            "提问",
+            pendingIntent
+        )
+            .addRemoteInput(remoteInput)
+            .setAllowGeneratedReplies(true)
+            .build()
+    }
+
+    private fun buildBroadcastAction(
+        context: Context,
+        action: String,
+        title: String,
+        requestCode: Int
+    ): NotificationCompat.Action {
+        val intent = Intent(context, NotificationReplyReceiver::class.java).apply {
+            this.action = action
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Action.Builder(
+            R.drawable.ic_notification_ai,
+            title,
+            pendingIntent
+        ).build()
     }
 
     private fun buildOpenAppIntent(context: Context): PendingIntent {
@@ -206,7 +324,7 @@ object ChatNotificationManager {
         }
         return PendingIntent.getActivity(
             context,
-            0,
+            REQUEST_OPEN,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -248,7 +366,7 @@ object ChatNotificationManager {
         return replace('\n', ' ')
             .replace(Regex("\\s+"), " ")
             .trim()
-            .take(140)
+            .take(180)
             .ifBlank { "点击继续和 AI 助手聊天。" }
     }
 
@@ -257,4 +375,10 @@ object ChatNotificationManager {
         val messages: List<ChatMessage>,
         val force: Boolean
     )
+
+    private const val REQUEST_OPEN = 1303
+    private const val REQUEST_REPLY = 1304
+    private const val REQUEST_RETRY = 1305
+    private const val REQUEST_STOP = 1306
+    private const val REQUEST_CLEAR = 1307
 }
