@@ -102,7 +102,7 @@ object NotificationChatStore {
         if (targetIndex < 0) return emptyList()
         return messages
             .take(targetIndex + 1)
-            .filterNot { it.status == MessageStatus.Failed }
+            .filterNot { it.status == MessageStatus.Failed || it.status == MessageStatus.Sending }
             .filter { it.text.isNotBlank() }
     }
 
@@ -116,6 +116,9 @@ object NotificationChatStore {
         modelLabel: String?
     ): NotificationChatSnapshot {
         val current = load(context)
+        if (current.messages.none { it.id == pendingMessageId && it.status == MessageStatus.Sending }) {
+            return current
+        }
         val cleanReply = reply.trim().ifBlank { "AI 已完成处理，但没有返回可显示的文字。" }
         val messages = current.messages.map { message ->
             if (message.id != pendingMessageId) {
@@ -150,6 +153,9 @@ object NotificationChatStore {
         errorMessage: String
     ): NotificationChatSnapshot {
         val current = load(context)
+        if (current.messages.none { it.id == pendingMessageId && it.status == MessageStatus.Sending }) {
+            return current
+        }
         val friendly = errorMessage.trim().ifBlank { "AI 请求失败，请稍后重试。" }.take(300)
         val messages = current.messages.map { message ->
             if (message.id != pendingMessageId) {
@@ -179,7 +185,7 @@ object NotificationChatStore {
     fun stopPending(context: Context): NotificationChatSnapshot {
         val current = load(context)
         val messages = current.messages.map { message ->
-            if (message.status != MessageStatus.Sending) {
+            if (message.status != MessageStatus.Sending || message.source != "notification_chat") {
                 message
             } else {
                 message.copy(
