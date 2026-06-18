@@ -61,10 +61,13 @@ object ChatNotificationManager {
      * Notification construction stays outside the cold-start caller. Repeated message updates are
      * coalesced into the newest snapshot, and the first build waits for the UI/OpenGL stabilization
      * window. SharedPreferences merge, MessagingStyle allocation and binder work all run here.
+     *
+     * A null messages value means "render the stored notification conversation". A non-null empty
+     * list is an explicit app-side clear and therefore clears the shared notification conversation.
      */
     fun showPersistentChatEntry(
         context: Context,
-        messages: List<ChatMessage> = emptyList(),
+        messages: List<ChatMessage>? = null,
         force: Boolean = false
     ) {
         val appContext = context.applicationContext
@@ -81,7 +84,7 @@ object ChatNotificationManager {
                 request
             } else {
                 request.copy(
-                    messages = if (request.messages.isNotEmpty()) request.messages else previous.messages,
+                    messages = request.messages ?: previous.messages,
                     force = request.force || previous.force
                 )
             }
@@ -126,10 +129,10 @@ object ChatNotificationManager {
         val appContext = request.context
         if (!canPostNotifications(appContext)) return
 
-        val snapshot = if (request.messages.isEmpty()) {
-            NotificationChatStore.load(appContext)
-        } else {
-            NotificationChatStore.mergeAppMessages(appContext, request.messages)
+        val snapshot = when {
+            request.messages == null -> NotificationChatStore.load(appContext)
+            request.messages.isEmpty() -> NotificationChatStore.clear(appContext)
+            else -> NotificationChatStore.mergeAppMessages(appContext, request.messages)
         }
         val visibleMessages = snapshot.messages
             .asSequence()
@@ -178,7 +181,6 @@ object ChatNotificationManager {
         }
         val subText = when {
             snapshot.pendingCount > 1 -> "通知栏快捷对话 · ${snapshot.pendingCount} 个请求排队"
-            snapshot.isProcessing -> "通知栏快捷对话 · 自动模型"
             else -> "通知栏快捷对话 · 自动模型"
         }
 
@@ -320,7 +322,7 @@ object ChatNotificationManager {
     private fun buildOpenAppIntent(context: Context): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             action = ACTION_OPEN_CHAT
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         return PendingIntent.getActivity(
             context,
@@ -372,7 +374,7 @@ object ChatNotificationManager {
 
     private data class NotificationRequest(
         val context: Context,
-        val messages: List<ChatMessage>,
+        val messages: List<ChatMessage>?,
         val force: Boolean
     )
 
