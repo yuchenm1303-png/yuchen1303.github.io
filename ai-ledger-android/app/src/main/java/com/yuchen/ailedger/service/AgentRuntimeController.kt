@@ -7,8 +7,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-private const val MAX_LOGS = 7
+private const val MAX_LOGS = 24
 private const val OVERLAY_CAPTURE_WATCHDOG_MS = 2_500L
+private const val MODEL_OUTPUT_LOG_CHARS = 240
+private const val MAX_MODEL_OUTPUT_LOG_LINES = 14
 
 data class AgentPendingConfirmation(
     val id: Long = System.currentTimeMillis(),
@@ -332,6 +334,29 @@ object AgentRuntimeController {
             current.copy(
                 lastResult = text,
                 logs = (current.logs + "诊断：$text").takeLast(MAX_LOGS),
+                updatedAt = System.currentTimeMillis(),
+            )
+        )
+    }
+
+    fun noteModelOutput(output: String) {
+        val current = mutableProgress.value
+        if (!current.running) return
+        val chunks = output
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .lines()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .flatMap { line -> line.chunked(MODEL_OUTPUT_LOG_CHARS) }
+            .take(MAX_MODEL_OUTPUT_LOG_LINES)
+        if (chunks.isEmpty()) return
+        val entries = chunks.mapIndexed { index, line ->
+            if (index == 0) "模型：$line" else "模型续：$line"
+        }
+        publishProgress(
+            current.copy(
+                logs = (current.logs + entries).takeLast(MAX_LOGS),
                 updatedAt = System.currentTimeMillis(),
             )
         )

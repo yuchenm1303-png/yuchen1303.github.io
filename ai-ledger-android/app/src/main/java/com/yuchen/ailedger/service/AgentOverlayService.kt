@@ -634,9 +634,9 @@ class AgentOverlayService : Service() {
         private const val ACTION_TEXT_LIMIT = 120
         private const val RESULT_TEXT_LIMIT = 180
         private const val LATEST_TEXT_LIMIT = 120
-        private const val LOG_LINE_TEXT_LIMIT = 110
+        private const val LOG_LINE_TEXT_LIMIT = 260
         private const val PANEL_MESSAGE_TEXT_LIMIT = 260
-        private const val OVERLAY_LOG_LINES = 8
+        private const val OVERLAY_LOG_LINES = 24
         private val SOFT_OUT = DecelerateInterpolator(1.55f)
 
         fun canDrawOverlays(context: Context): Boolean {

@@ -7138,6 +7138,8 @@ function buildVisualAgentInstruction(goal, currentPackage, recentActions) {
     "Return exactly one official mobile_use tool call for the current screenshot.",
     "Do not invent Android package names. For opening apps, put only the visible app name in text.",
     "Do not describe coordinates in prose. Do not return more than one action.",
+    "For navigation tasks, do not use answer to claim completion. Use terminate/status=success only when the visible screen already satisfies the goal.",
+    "Use answer only when the user asked a question rather than asking you to operate the phone.",
     "If recent actions show repeated taps or no progress, do not click the same area again.",
     "If the current screen does not contain a reliable next control, return a terminate/failure mobile_use call instead of guessing coordinates.",
     `Goal: ${safeText(goal, 240)}`,
@@ -7334,6 +7336,20 @@ function mapMobileUseArgsToAgentStep(args, goal = "", raw = "") {
     return visualAgentNeedUserHelp(safeText(args.text || "GUI Plus terminated without success.", 220), raw);
   }
 
+  if (action === "answer") {
+    return visualAgentNeedUserHelp(
+      safeText(args.text || "GUI Plus answered instead of returning an executable or verified terminal phone action.", 220),
+      raw
+    );
+  }
+
+  if (action === "interact") {
+    return visualAgentNeedUserHelp(
+      safeText(args.text || "GUI Plus requested user interaction.", 220),
+      raw
+    );
+  }
+
   return visualAgentNeedUserHelp(`Unsupported mobile_use action: ${safeText(action, 40)}`, raw);
 }
 
@@ -7389,7 +7405,7 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
   return {
     ok: true,
     reply: agentStep.reason || "visual_agent_step returned one action.",
-    rawModelOutput: raw,
+    rawModelOutput: safeText(raw, 6000),
     agentStep,
     agentState: {
       isComplete: complete,

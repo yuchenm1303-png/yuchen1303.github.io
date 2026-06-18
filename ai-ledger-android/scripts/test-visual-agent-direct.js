@@ -93,6 +93,8 @@ test("mobile_use action mapping", () => {
   assert.equal(mapMobileUseArgsToAgentStep({ action: "wait", time: 1 }).durationMs, 1000);
   assert.equal(mapMobileUseArgsToAgentStep({ action: "terminate", status: "success", text: "done" }).type, "finish");
   assert.equal(mapMobileUseArgsToAgentStep({ action: "terminate", status: "failure", text: "blocked" }).type, "need_user_help");
+  assert.equal(mapMobileUseArgsToAgentStep({ action: "answer", text: "done" }).type, "need_user_help");
+  assert.equal(mapMobileUseArgsToAgentStep({ action: "interact", text: "blocked" }).type, "need_user_help");
 });
 
 test("direct handler calls GUI Plus once and returns one action", async () => {
@@ -124,6 +126,10 @@ test("direct handler safe-stops invalid and failed GUI results", async () => {
   const timeout = await handleVisualAgentStepRequest(body, body.goal, { callGuiPlus: async () => { throw new Error("timeout"); } });
   assert.equal(timeout.ok, true);
   assert.equal(timeout.agentStep.type, "need_user_help");
+
+  const answer = await handleVisualAgentStepRequest(body, body.goal, { callGuiPlus: async () => tool({ action: "answer", text: "done" }) });
+  assert.equal(answer.ok, true);
+  assert.equal(answer.agentStep.type, "need_user_help");
 
   const invalid = await handleVisualAgentStepRequest({ goal: "x", visualAgentDirect: true }, "x", { callGuiPlus: async () => tool({ action: "back" }) });
   assert.equal(invalid.ok, false);

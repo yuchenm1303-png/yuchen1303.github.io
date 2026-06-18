@@ -61,6 +61,7 @@ class VisualLoopRunner(
                     AgentRuntimeController.finishTask(message, completed = false)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
+                AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
 
                 val step = plan.step
                 val validation = VisualActionValidator.validate(step, snapshot)
