@@ -19,28 +19,28 @@ class NotificationReplyReceiver : BroadcastReceiver() {
                     ?.getCharSequence(KEY_TEXT_REPLY)
                     ?.toString()
                     .orEmpty()
-                enqueuePrompt(context, reply)
+                val request = NotificationChatStore.enqueuePrompt(context, reply) ?: return
+                enqueueRequest(context, request)
             }
             ACTION_RETRY -> {
-                val failedPrompt = NotificationChatStore.load(context).failedPrompt.orEmpty()
-                enqueuePrompt(context, failedPrompt)
+                val request = NotificationChatStore.retryFailed(context) ?: return
+                enqueueRequest(context, request)
             }
             ACTION_STOP -> {
                 WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK_NAME)
                 NotificationChatStore.stopPending(context)
-                ChatNotificationManager.showPersistentChatEntry(context)
+                ChatNotificationManager.showPersistentChatEntry(context, force = true)
             }
             ACTION_CLEAR -> {
                 WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK_NAME)
                 NotificationChatStore.clear(context)
-                ChatNotificationManager.showPersistentChatEntry(context)
+                ChatNotificationManager.showPersistentChatEntry(context, force = true)
             }
         }
     }
 
-    private fun enqueuePrompt(context: Context, prompt: String) {
-        val request = NotificationChatStore.enqueuePrompt(context, prompt) ?: return
-        ChatNotificationManager.showPersistentChatEntry(context)
+    private fun enqueueRequest(context: Context, request: NotificationChatRequest) {
+        ChatNotificationManager.showPersistentChatEntry(context, force = true)
 
         val input = Data.Builder()
             .putString(NotificationChatWorker.KEY_USER_MESSAGE_ID, request.userMessageId)
