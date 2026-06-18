@@ -11,6 +11,8 @@ import java.util.UUID
 private const val NOTIFICATION_CHAT_PREFS = "notification_chat_store"
 private const val NOTIFICATION_CHAT_STATE = "state"
 private const val MAX_STORED_MESSAGES = 24
+private const val MAX_STORED_TEXT_LENGTH = 6_000
+private const val MAX_PROMPT_LENGTH = 2_000
 
 data class NotificationChatSnapshot(
     val messages: List<ChatMessage> = emptyList(),
@@ -56,7 +58,7 @@ object NotificationChatStore {
 
     @Synchronized
     fun enqueuePrompt(context: Context, prompt: String): NotificationChatRequest? {
-        val cleanPrompt = prompt.trim().take(2000)
+        val cleanPrompt = prompt.trim().take(MAX_PROMPT_LENGTH)
         if (cleanPrompt.isBlank()) return null
 
         val now = System.currentTimeMillis()
@@ -72,15 +74,7 @@ object NotificationChatStore {
                 source = "notification_chat",
                 createdAt = now
             ) +
-            ChatMessage(
-                id = pendingMessageId,
-                text = "正在思考…",
-                role = MessageRole.Assistant,
-                status = MessageStatus.Sending,
-                source = "notification_chat",
-                modelLabel = "自动选择",
-                createdAt = now + 1L
-            )
+            pendingMessage(pendingMessageId, now + 1L)
 
         save(
             context,
@@ -93,6 +87,48 @@ object NotificationChatStore {
         )
 
         return NotificationChatRequest(requestId, userMessageId, pendingMessageId, cleanPrompt)
+    }
+
+    @Synchronized
+    fun retryFailed(context: Context): NotificationChatRequest? {
+        val current = load(context)
+        val prompt = current.failedPrompt?.trim()?.take(MAX_PROMPT_LENGTH)
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val failedIndex = current.messages.indexOfLast { message ->
+            message.status == MessageStatus.Failed && message.source == "notification_chat_failed"
+        }
+        if (failedIndex < 0) return null
+
+        val userIndex = (failedIndex - 1 downTo 0).firstOrNull { index ->
+            val message = current.messages[index]
+            message.role == MessageRole.User && message.text.trim() == prompt
+        } ?: return null
+
+        val requestId = UUID.randomUUID().toString()
+        val pendingMessageId = "notification-assistant-$requestId"
+        val messages = current.messages.toMutableList().apply {
+            this[failedIndex] = pendingMessage(
+                id = pendingMessageId,
+                createdAt = maxOf(System.currentTimeMillis(), this[failedIndex].createdAt)
+            )
+        }
+        save(
+            context,
+            current.copy(
+                messages = messages.takeLast(MAX_STORED_MESSAGES),
+                pendingCount = current.pendingCount + 1,
+                lastError = null,
+                failedPrompt = null
+            )
+        )
+
+        return NotificationChatRequest(
+            requestId = requestId,
+            userMessageId = current.messages[userIndex].id,
+            pendingMessageId = pendingMessageId,
+            prompt = prompt
+        )
     }
 
     @Synchronized
@@ -119,7 +155,9 @@ object NotificationChatStore {
         if (current.messages.none { it.id == pendingMessageId && it.status == MessageStatus.Sending }) {
             return current
         }
-        val cleanReply = reply.trim().ifBlank { "AI 已完成处理，但没有返回可显示的文字。" }
+        val cleanReply = reply.trim()
+            .ifBlank { "AI 已完成处理，但没有返回可显示的文字。" }
+            .take(MAX_STORED_TEXT_LENGTH)
         val messages = current.messages.map { message ->
             if (message.id != pendingMessageId) {
                 message
@@ -176,7 +214,7 @@ object NotificationChatStore {
                 messages = messages.takeLast(MAX_STORED_MESSAGES),
                 pendingCount = (current.pendingCount - 1).coerceAtLeast(0),
                 lastError = friendly,
-                failedPrompt = prompt
+                failedPrompt = prompt.trim().take(MAX_PROMPT_LENGTH)
             )
         )
     }
@@ -213,6 +251,18 @@ object NotificationChatStore {
         return save(context, NotificationChatSnapshot())
     }
 
+    private fun pendingMessage(id: String, createdAt: Long): ChatMessage {
+        return ChatMessage(
+            id = id,
+            text = "正在思考…",
+            role = MessageRole.Assistant,
+            status = MessageStatus.Sending,
+            source = "notification_chat",
+            modelLabel = "自动选择",
+            createdAt = createdAt
+        )
+    }
+
     private fun save(context: Context, snapshot: NotificationChatSnapshot): NotificationChatSnapshot {
         preferences(context)
             .edit()
@@ -235,7 +285,7 @@ object NotificationChatStore {
                 snapshot.messages.takeLast(MAX_STORED_MESSAGES).forEach { message ->
                     put(JSONObject().apply {
                         put("id", message.id)
-                        put("text", message.text)
+                        put("text", message.text.take(MAX_STORED_TEXT_LENGTH))
                         put("role", message.role.name)
                         put("status", message.status.name)
                         put("source", message.source ?: JSONObject.NULL)
@@ -258,7 +308,7 @@ object NotificationChatStore {
                 add(
                     ChatMessage(
                         id = item.optString("id").ifBlank { "notification-restored-$index" },
-                        text = item.optString("text"),
+                        text = item.optString("text").take(MAX_STORED_TEXT_LENGTH),
                         role = enumValueOrDefault(item.optString("role"), MessageRole.Assistant),
                         status = enumValueOrDefault(item.optString("status"), MessageStatus.Sent),
                         source = item.optNullableString("source"),
@@ -274,12 +324,17 @@ object NotificationChatStore {
             messages = messages.takeLast(MAX_STORED_MESSAGES),
             pendingCount = root.optInt("pendingCount", 0).coerceAtLeast(0),
             lastError = root.optNullableString("lastError"),
-            failedPrompt = root.optNullableString("failedPrompt")
+            failedPrompt = root.optNullableString("failedPrompt")?.take(MAX_PROMPT_LENGTH)
         )
     }
 
     private fun ChatMessage.toStoredMessage(): ChatMessage {
-        return copy(attachments = emptyList())
+        return copy(
+            text = text.take(MAX_STORED_TEXT_LENGTH),
+            attachments = emptyList(),
+            webSources = emptyList(),
+            structuredData = null
+        )
     }
 
     private fun JSONObject.optNullableString(key: String): String? {
