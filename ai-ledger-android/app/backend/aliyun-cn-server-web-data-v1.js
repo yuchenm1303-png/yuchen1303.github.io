@@ -7248,7 +7248,35 @@ function normalizeVisualAgentHistoryItems(history) {
   }).filter(Boolean);
 }
 
-function buildVisualAgentInstruction(goal, currentPackage, recentActions) {
+function normalizeVisualAgentAppContext(appContext) {
+  if (!Array.isArray(appContext)) return [];
+  return appContext.slice(0, 36).map((item) => {
+    const label = safeText(item?.label || item?.name || "", 80);
+    const packageName = safeText(item?.packageName || item?.package || "", 100);
+    if (!label || !packageName) return null;
+    const aliases = Array.isArray(item?.aliases)
+      ? item.aliases.map((value) => safeText(value, 80)).filter(Boolean).slice(0, 4)
+      : [];
+    const capabilities = Array.isArray(item?.capabilities)
+      ? item.capabilities.map((value) => safeText(value, 80)).filter(Boolean).slice(0, 5)
+      : [];
+    return { label, packageName, aliases, capabilities };
+  }).filter(Boolean);
+}
+
+function formatVisualAgentAppContext(appContext) {
+  const apps = normalizeVisualAgentAppContext(appContext);
+  if (!apps.length) return "Installed app context: none";
+  const rows = apps.map((app) => {
+    const parts = [`${app.label} (${app.packageName})`];
+    if (app.aliases.length) parts.push(`aliases=${app.aliases.join("/")}`);
+    if (app.capabilities.length) parts.push(`capabilities=${app.capabilities.join("/")}`);
+    return `- ${parts.join("; ")}`;
+  });
+  return `Installed app context (compact launchable apps):\n${rows.join("\n")}`;
+}
+
+function buildVisualAgentInstruction(goal, currentPackage, recentActions, appContext = []) {
   const boundedActions = Array.isArray(recentActions)
     ? recentActions.map((item) => safeText(item, 160)).filter(Boolean).slice(-6)
     : [];
@@ -7260,16 +7288,20 @@ function buildVisualAgentInstruction(goal, currentPackage, recentActions) {
     "Do not describe coordinates in prose. Do not return more than one action.",
     "For navigation tasks, do not use answer to claim completion. Use terminate/status=success only when the visible screen already satisfies the goal.",
     "Use answer only when the user asked a question rather than asking you to operate the phone.",
+    "When an app must be opened, choose one app from Installed app context and call mobile_use open with its exact label. Do not open arbitrary business objects, stocks, contacts, or full user sentences as app names.",
+    "If the task names a stock/security/product and asks for an order page, first choose a suitable installed trading app from context; never submit an order or confirm a trade.",
+    "If several installed apps are equally suitable, ask the user for help instead of guessing.",
     "If recent actions show repeated taps or no progress, do not click the same area again.",
     "If the current screen does not contain a reliable next control, return a terminate/failure mobile_use call instead of guessing coordinates.",
     `Goal: ${safeText(goal, 240)}`,
     `Current package: ${safeText(currentPackage || "", 120)}`,
+    formatVisualAgentAppContext(appContext),
     boundedActions.length ? `Recent actions: ${boundedActions.join(" | ")}` : "Recent actions: none",
   ].join("\n");
 }
 
-function buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions, visualHistory = []) {
-  const instruction = buildVisualAgentInstruction(goal, currentPackage, recentActions);
+function buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions, visualHistory = [], appContext = []) {
+  const instruction = buildVisualAgentInstruction(goal, currentPackage, recentActions, appContext);
   const history = normalizeVisualAgentHistoryItems(visualHistory);
   const messages = [{
     role: "system",
@@ -7321,10 +7353,10 @@ function buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo,
   return messages;
 }
 
-async function callVisualAgentDirectGuiPlus(goal, currentPackage, screenshotInfo, recentActions, visualHistory, timeoutMs) {
+async function callVisualAgentDirectGuiPlus(goal, currentPackage, screenshotInfo, recentActions, visualHistory, appContext, timeoutMs) {
   if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing");
   if (!screenshotInfo?.hasImage) throw new Error("visual_agent_step requires screenshot");
-  const messages = buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions, visualHistory);
+  const messages = buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions, visualHistory, appContext);
   const boundedTimeoutMs = Math.max(
     300,
     Math.min(
@@ -7529,6 +7561,7 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
   const screenshotInfo = normalizeAgentScreenshot(body || {});
   const recentActions = Array.isArray(body?.recentActions) ? body.recentActions.slice(-6).map((item) => safeText(item, 160)).filter(Boolean) : [];
   const visualHistory = normalizeVisualAgentHistoryItems(body?.visualHistory || body?.history || []);
+  const appContext = normalizeVisualAgentAppContext(body?.appContext || body?.installedAppContext || []);
   const currentPackage = safeText(body?.currentPackage || body?.screenSnapshot?.currentApp || body?.screenSnapshot?.packageName || "", 120);
   const requestBytes = Number(body?.__debugRequestBytes || 0) || 0;
   const readBodyMs = Number(body?.__debugReadBodyMs || 0) || 0;
@@ -7553,7 +7586,7 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
   let raw = "";
   try {
     const callGuiPlus = deps.callGuiPlus || callVisualAgentDirectGuiPlus;
-    raw = await callGuiPlus(goal, currentPackage, screenshotInfo, recentActions, visualHistory, deps.timeoutMs);
+    raw = await callGuiPlus(goal, currentPackage, screenshotInfo, recentActions, visualHistory, appContext, deps.timeoutMs);
   } catch (error) {
     const agentStep = visualAgentNeedUserHelp(`GUI Plus visual_agent_step failed: ${sanitizeProviderError(error, 180)}`);
     return {
@@ -7612,6 +7645,7 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
       completionVerified: completionVerification?.complete === true,
       completionVerificationReason: completionVerification?.reason || "",
       uploadedHistoryScreenshots: visualHistory.length,
+      appContextCount: appContext.length,
       recentActionsCount: recentActions.length,
       rawModelOutput: safeText(raw, 6000),
     },

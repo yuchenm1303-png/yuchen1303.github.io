@@ -54,6 +54,7 @@ class VisualLoopRunner(
                             snapshot = snapshot,
                             recentActions = recentActions,
                             visualHistory = visualHistory,
+                            appContext = buildVisualAppContext(),
                         )
                     }
                 } catch (error: IOException) {
@@ -212,6 +213,40 @@ class VisualLoopRunner(
         }
     }
 
+    private fun buildVisualAppContext(): List<VisualAgentAppContextItem> {
+        return installedAppIndex.getLaunchableApps()
+            .map { app ->
+                VisualAgentAppContextItem(
+                    label = app.label,
+                    packageName = app.packageName,
+                    aliases = installedAppIndex.aliasesFor(app).filter { it != app.label }.take(MAX_APP_CONTEXT_ALIASES),
+                    capabilities = inferAppCapabilities(app),
+                )
+            }
+            .sortedWith(
+                compareByDescending<VisualAgentAppContextItem> { it.capabilities.isNotEmpty() }
+                    .thenBy { it.label.lowercase() }
+                    .thenBy { it.packageName }
+            )
+            .take(MAX_APP_CONTEXT_ITEMS)
+    }
+
+    private fun inferAppCapabilities(app: InstalledAppEntry): List<String> {
+        val text = "${app.label} ${app.packageName}".lowercase()
+        return buildList {
+            if (text.containsAny(STOCK_TRADING_TOKENS)) add("stock_trading")
+            if (text.containsAny(PAYMENT_TOKENS)) add("payment")
+            if (text.containsAny(SHOPPING_TOKENS)) add("shopping")
+            if (text.containsAny(SOCIAL_TOKENS)) add("social_chat")
+            if (text.containsAny(MAP_TOKENS)) add("maps")
+            if (text.containsAny(BROWSER_TOKENS)) add("browser")
+        }.distinct().take(MAX_APP_CONTEXT_CAPABILITIES)
+    }
+
+    private fun String.containsAny(tokens: List<String>): Boolean {
+        return tokens.any { token -> contains(token) }
+    }
+
     private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         if (step.type != "tap_xy") return step
         val x = step.x ?: return step
@@ -313,6 +348,9 @@ class VisualLoopRunner(
     companion object {
         private const val MAX_RECENT_ACTIONS = 6
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
+        private const val MAX_APP_CONTEXT_ITEMS = 36
+        private const val MAX_APP_CONTEXT_ALIASES = 4
+        private const val MAX_APP_CONTEXT_CAPABILITIES = 5
         private const val NO_PROGRESS_LIMIT = 2
         private const val REPEATED_ACTION_CLUSTER_LIMIT = 2
         private const val USER_TAKEOVER_POLL_MS = 120L
@@ -326,6 +364,28 @@ class VisualLoopRunner(
         private const val GLOBAL_ACTION_DELAY_MS = 240L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
+        private val STOCK_TRADING_TOKENS = listOf(
+            "\u8bc1\u5238",
+            "\u80a1\u7968",
+            "\u7092\u80a1",
+            "\u4ea4\u6613",
+            "\u4e0b\u5355",
+            "\u8d22\u5bcc",
+            "stock",
+            "trade",
+            "trading",
+            "broker",
+            "securities",
+            "finance",
+            "eastmoney",
+            "hexin",
+            "ths",
+        )
+        private val PAYMENT_TOKENS = listOf("\u652f\u4ed8", "\u94f6\u884c", "pay", "bank", "wallet")
+        private val SHOPPING_TOKENS = listOf("\u8d2d\u7269", "\u5546\u57ce", "shop", "mall", "taobao", "jd")
+        private val SOCIAL_TOKENS = listOf("\u5fae\u4fe1", "\u804a\u5929", "\u793e\u4ea4", "wechat", "qq", "chat")
+        private val MAP_TOKENS = listOf("\u5730\u56fe", "\u5bfc\u822a", "map", "amap")
+        private val BROWSER_TOKENS = listOf("\u6d4f\u89c8\u5668", "browser", "chrome")
     }
 }
 

@@ -89,6 +89,44 @@ test("direct GUI request follows official multi-turn visual history format", () 
   assert.match(messages[3].content[0].image_url.url, /current$/);
 });
 
+test("direct GUI request includes compact installed app context", () => {
+  const messages = buildVisualAgentDirectGuiMessages("open stock order page", "pkg", {
+    mimeType: "image/jpeg",
+    base64: "current",
+  }, [], [], [{
+    label: "EastMoney",
+    packageName: "com.eastmoney.android",
+    aliases: ["eastmoney"],
+    capabilities: ["stock_trading"],
+  }]);
+  assert.match(messages[1].content[0].text, /Installed app context/);
+  assert.match(messages[1].content[0].text, /EastMoney/);
+  assert.match(messages[1].content[0].text, /stock_trading/);
+  assert.match(messages[1].content[0].text, /exact label/);
+});
+
+test("direct handler forwards compact app context to GUI Plus", async () => {
+  let forwardedContext = null;
+  const result = await handleVisualAgentStepRequest({
+    ...body,
+    appContext: [{
+      label: "EastMoney",
+      packageName: "com.eastmoney.android",
+      aliases: ["eastmoney"],
+      capabilities: ["stock_trading"],
+    }],
+  }, body.goal, {
+    callGuiPlus: async (_goal, _pkg, _shot, _actions, _history, appContext) => {
+      forwardedContext = appContext;
+      return tool({ action: "open", text: "EastMoney" });
+    },
+  });
+  assert.equal(result.agentStep.type, "open_app");
+  assert.equal(result.debug.appContextCount, 1);
+  assert.equal(forwardedContext[0].label, "EastMoney");
+  assert.equal(forwardedContext[0].capabilities[0], "stock_trading");
+});
+
 test("official mobile_use calls are extracted strictly", () => {
   const calls = extractVisualAgentMobileUseToolCalls(tool({ action: "click", coordinate: [500, 600] }));
   assert.equal(calls.length, 1);
