@@ -1,3 +1,3 @@
-trigger: backdrop-runtime-integral-luminance-audit-2026-06-17-v2
-source-commit: 2c2eeef9532f04f8a540c2361720dee20c72ea7f
-scope: integral-luminance-four-read-query-threadlocal-sample-constructor-compatible
+trigger: notification-chat-console-validation-2026-06-18
+source-commit: 95416810c0e99eae0c196c582facac8f255d966f
+scope: remote-input-workmanager-persistent-chat-privacy-retry-stop-clear
