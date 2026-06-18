@@ -39,6 +39,7 @@
     </queries>
 
     <application
+        android:name=".AiLedgerApplication"
         android:allowBackup="true"
         android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
