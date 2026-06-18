@@ -73,6 +73,11 @@
             android:exported="false"
             android:theme="@style/Theme.AiLedger.AgentPermissionDialog" />
 
+        <receiver
+            android:name=".service.NotificationReplyReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <service
             android:name=".service.AgentOverlayService"
             android:exported="false" />
