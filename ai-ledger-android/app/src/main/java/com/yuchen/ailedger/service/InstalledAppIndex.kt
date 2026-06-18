@@ -15,6 +15,18 @@ data class InstalledAppEntry(
     val packageName: String,
 )
 
+enum class ExplicitAppResolutionStatus {
+    Exact,
+    Ambiguous,
+    NotFound,
+}
+
+data class ExplicitAppResolution(
+    val status: ExplicitAppResolutionStatus,
+    val app: InstalledAppEntry? = null,
+    val candidates: List<InstalledAppEntry> = emptyList(),
+)
+
 class InstalledAppIndex(
     private val context: Context,
 ) {
@@ -57,6 +69,18 @@ class InstalledAppIndex(
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinctBy { normalizeAppName(it) }
+    }
+
+    fun resolveExplicitAppName(
+        appName: String,
+        packageName: String? = null,
+    ): ExplicitAppResolution {
+        return resolveExplicitAppNameInEntries(
+            apps = getLaunchableApps(false),
+            appName = appName,
+            packageName = packageName,
+            aliasesForPackage = ::aliasesFor,
+        )
     }
 
     fun getLaunchableApps(forceReload: Boolean = false): List<InstalledAppEntry> {
@@ -211,5 +235,46 @@ class InstalledAppIndex(
             InstalledAppEntry("抖音", "com.ss.android.ugc.aweme"),
             InstalledAppEntry("小红书", "com.xingin.xhs")
         )
+
+        fun resolveExplicitAppNameInEntries(
+            apps: List<InstalledAppEntry>,
+            appName: String,
+            packageName: String? = null,
+            aliasesForPackage: (InstalledAppEntry) -> List<String> = { emptyList() },
+        ): ExplicitAppResolution {
+            val normalizedPackage = packageName.orEmpty().trim()
+            if (normalizedPackage.isNotBlank()) {
+                val packageMatches = apps.filter { it.packageName == normalizedPackage }
+                return when (packageMatches.size) {
+                    1 -> ExplicitAppResolution(ExplicitAppResolutionStatus.Exact, packageMatches.first(), packageMatches)
+                    0 -> ExplicitAppResolution(ExplicitAppResolutionStatus.NotFound)
+                    else -> ExplicitAppResolution(ExplicitAppResolutionStatus.Ambiguous, candidates = packageMatches)
+                }
+            }
+
+            val query = normalizeExplicitName(appName)
+            if (query.isBlank()) return ExplicitAppResolution(ExplicitAppResolutionStatus.NotFound)
+            val matches = apps.filter { app ->
+                (listOf(app.label) + aliasesForPackage(app))
+                    .map(::normalizeExplicitName)
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .any { it == query }
+            }.distinctBy { it.packageName }
+
+            return when (matches.size) {
+                1 -> ExplicitAppResolution(ExplicitAppResolutionStatus.Exact, matches.first(), matches)
+                0 -> ExplicitAppResolution(ExplicitAppResolutionStatus.NotFound)
+                else -> ExplicitAppResolution(ExplicitAppResolutionStatus.Ambiguous, candidates = matches)
+            }
+        }
+
+        private fun normalizeExplicitName(value: String): String {
+            return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
+                .replace(Regex("\\s+"), "")
+                .replace(Regex("[路銉?銆俖\\-]+"), "")
+                .removeSuffix("app")
+                .removeSuffix("搴旂敤")
+        }
     }
 }

@@ -3910,6 +3910,15 @@ function isAgentBrainRouteRequest(body) {
   );
 }
 
+function isVisualAgentStepRequest(body) {
+  const intent = normalizeIntentName(body?.intent || body?.action || body?.type || body?.requestType);
+  return Boolean(
+    intent === "visual_agent_step" ||
+      body?.visualAgentDirect === true ||
+      body?.requestType === "visual_agent_step"
+  );
+}
+
 function normalizeAgentBrainRouteName(value) {
   const raw = String(value || "").toLowerCase().trim().replace(/[-\s]+/g, "_");
   if (["device", "device_tool", "internal", "internal_tool", "system_tool"].includes(raw)) return "device_tool";
@@ -7108,6 +7117,247 @@ async function callDashScopeNativeGuiPlus(model, messages, sessionId, timeoutMs,
   return text;
 }
 
+function buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions) {
+  const boundedActions = Array.isArray(recentActions)
+    ? recentActions.map((item) => safeText(item, 160)).filter(Boolean).slice(-6)
+    : [];
+  const instruction = [
+    buildAliyunMobileUseToolProtocolPrompt(),
+    "",
+    "You are controlling an Android phone by vision only.",
+    "Return exactly one official mobile_use tool call for the current screenshot.",
+    "Do not invent Android package names. For opening apps, put only the visible app name in text.",
+    "Do not describe coordinates in prose. Do not return more than one action.",
+    `Goal: ${safeText(goal, 240)}`,
+    `Current package: ${safeText(currentPackage || "", 120)}`,
+    boundedActions.length ? `Recent actions: ${boundedActions.join(" | ")}` : "Recent actions: none",
+  ].join("\n");
+
+  return [{
+    role: "user",
+    content: [
+      { type: "text", text: instruction },
+      {
+        type: "image_url",
+        image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` },
+      },
+    ],
+  }];
+}
+
+async function callVisualAgentDirectGuiPlus(goal, currentPackage, screenshotInfo, recentActions, timeoutMs) {
+  if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing");
+  if (!screenshotInfo?.hasImage) throw new Error("visual_agent_step requires screenshot");
+  const messages = buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions);
+  const boundedTimeoutMs = Math.max(
+    300,
+    Math.min(
+      Number(timeoutMs || AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS || ALIYUN_GUI_TIMEOUT_MS || 12000),
+      Number(AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS || 12000)
+    )
+  );
+  return await callDashScopeNativeGuiPlus(ALIYUN_GUI_MODEL, messages, newAgentGuiSessionId(), boundedTimeoutMs, {
+    enableThinking: ALIYUN_GUI_ENABLE_THINKING,
+  });
+}
+
+function extractVisualAgentMobileUseToolCalls(rawOutput) {
+  const raw = String(rawOutput || "").trim();
+  if (!raw) return [];
+  const candidates = [];
+  const xmlRegex = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/gi;
+  let match;
+  while ((match = xmlRegex.exec(raw)) !== null) {
+    if (match[1]) candidates.push(match[1].trim());
+  }
+  const fencedRegex = /```(?:json)?\s*([\s\S]*?)```/gi;
+  while ((match = fencedRegex.exec(raw)) !== null) {
+    if (match[1]) candidates.push(match[1].trim());
+  }
+  const objectMatch = raw.match(/\{[\s\S]*\}/);
+  if (objectMatch) candidates.push(objectMatch[0]);
+
+  const calls = [];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      collectVisualAgentMobileUseCalls(parsed, calls);
+    } catch (_) {}
+  }
+  const seen = new Set();
+  return calls.filter((call) => {
+    const key = JSON.stringify(call);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function collectVisualAgentMobileUseCalls(value, calls) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectVisualAgentMobileUseCalls(item, calls));
+    return;
+  }
+  if (Array.isArray(value.tool_calls)) {
+    value.tool_calls.forEach((item) => collectVisualAgentMobileUseCalls(item, calls));
+    return;
+  }
+  if (value.tool_call && typeof value.tool_call === "object") {
+    collectVisualAgentMobileUseCalls(value.tool_call, calls);
+    return;
+  }
+  const normalized = normalizeAliyunMobileUseToolCallObject(value);
+  if (normalized) calls.push(normalized);
+}
+
+function visualAgentNeedUserHelp(reason, raw = "") {
+  return {
+    type: "need_user_help",
+    reason: safeText(reason || "GUI Plus did not return a safe executable mobile_use action.", 260),
+    riskLevel: "low",
+    requiresConfirmation: false,
+    toolArgs: raw ? { raw: safeText(raw, 1200) } : undefined,
+  };
+}
+
+function mapMobileUseArgsToAgentStep(args, goal = "", raw = "") {
+  if (!args || typeof args !== "object") return visualAgentNeedUserHelp("Missing mobile_use arguments.", raw);
+  const action = String(args.action || "").toLowerCase().trim();
+  const actionText = safeText(args.text || args.button || args.status || goal || "", 180);
+
+  if (action === "open") {
+    const appName = safeText(args.text || args.app || args.name || "", 80);
+    if (!appName) return visualAgentNeedUserHelp("mobile_use open requires an explicit app name.", raw);
+    return { type: "open_app", appName, reason: "GUI Plus mobile_use open.", riskLevel: "low", requiresConfirmation: false };
+  }
+
+  if (action === "click") {
+    const point = normalizeMobileUseCoordinatePair(args.coordinate, args);
+    if (!point) return visualAgentNeedUserHelp("mobile_use click requires valid official coordinates.", raw);
+    return { type: "tap_xy", x: point.x, y: point.y, targetText: actionText || null, reason: "GUI Plus mobile_use click.", riskLevel: "low", requiresConfirmation: false };
+  }
+
+  if (action === "type") {
+    const text = safeText(args.text || "", 240);
+    if (!text) return visualAgentNeedUserHelp("mobile_use type requires non-empty text.", raw);
+    return {
+      type: "input_text",
+      text,
+      reason: "GUI Plus mobile_use type.",
+      riskLevel: "low",
+      requiresConfirmation: false,
+      inputMode: "focused_direct",
+      requiresInputNode: false,
+      expectsFocusedInput: true,
+      useFocusedInput: true,
+    };
+  }
+
+  if (action === "swipe") {
+    return { type: "swipe", direction: mobileUseSwipeDirection(args), reason: "GUI Plus mobile_use swipe.", riskLevel: "low", requiresConfirmation: false };
+  }
+
+  if (action === "back" || (action === "system_button" && String(args.button || args.text || "").toLowerCase() === "back") || (action === "key" && String(args.text || "").toLowerCase().includes("back"))) {
+    return { type: "back", reason: "GUI Plus mobile_use back.", riskLevel: "low", requiresConfirmation: false };
+  }
+
+  if (action === "home" || (action === "system_button" && String(args.button || args.text || "").toLowerCase() === "home") || (action === "key" && String(args.text || "").toLowerCase().includes("home"))) {
+    return { type: "home", reason: "GUI Plus mobile_use home.", riskLevel: "low", requiresConfirmation: false };
+  }
+
+  if (action === "wait") {
+    const seconds = Number(args.time ?? args.seconds);
+    const durationMs = Number.isFinite(seconds) ? Math.max(300, Math.min(2000, Math.round(seconds * 1000))) : 700;
+    return { type: "wait", durationMs, reason: "GUI Plus mobile_use wait.", riskLevel: "low", requiresConfirmation: false };
+  }
+
+  if (action === "terminate") {
+    const status = String(args.status || "").toLowerCase();
+    if (status === "success") {
+      return { type: "finish", reason: safeText(args.text || "GUI Plus reported success.", 220), riskLevel: "low", requiresConfirmation: false };
+    }
+    return visualAgentNeedUserHelp(safeText(args.text || "GUI Plus terminated without success.", 220), raw);
+  }
+
+  return visualAgentNeedUserHelp(`Unsupported mobile_use action: ${safeText(action, 40)}`, raw);
+}
+
+async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
+  const startedAt = Date.now();
+  const goal = safeText(body?.goal || body?.agentGoal || prompt || "", 240);
+  const screenshotInfo = normalizeAgentScreenshot(body || {});
+  const recentActions = Array.isArray(body?.recentActions) ? body.recentActions.slice(-6).map((item) => safeText(item, 160)).filter(Boolean) : [];
+  const currentPackage = safeText(body?.currentPackage || body?.screenSnapshot?.currentApp || body?.screenSnapshot?.packageName || "", 120);
+  const requestBytes = Number(body?.__debugRequestBytes || 0) || 0;
+  const readBodyMs = Number(body?.__debugReadBodyMs || 0) || 0;
+
+  const baseMeta = {
+    source: "visual_agent_step_direct",
+    sourceDetail: "aliyun_gui_plus_direct_mobile_use",
+    model: "aliyun_gui_plus",
+    modelId: "aliyun_gui_plus",
+    modelLabel: "Aliyun GUI Plus direct mobile_use",
+    providerModel: ALIYUN_GUI_MODEL,
+    version: WORKER_VERSION,
+  };
+
+  if (!goal) {
+    return { ok: false, error: "empty_visual_agent_goal", code: "empty_visual_agent_goal", ...baseMeta };
+  }
+  if (!screenshotInfo.hasImage) {
+    return { ok: false, error: "visual_agent_step_requires_screenshot", code: "empty_screenshot", ...baseMeta };
+  }
+
+  let raw = "";
+  try {
+    const callGuiPlus = deps.callGuiPlus || callVisualAgentDirectGuiPlus;
+    raw = await callGuiPlus(goal, currentPackage, screenshotInfo, recentActions, deps.timeoutMs);
+  } catch (error) {
+    const agentStep = visualAgentNeedUserHelp(`GUI Plus visual_agent_step failed: ${sanitizeProviderError(error, 180)}`);
+    return {
+      ok: true,
+      reply: agentStep.reason,
+      agentStep,
+      agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.2, reason: agentStep.reason },
+      agentSteps: [agentStep],
+      debug: { totalMs: Date.now() - startedAt, readBodyMs, requestBytes, visualCalled: true, guiPlusCalls: 1, guiPlusError: sanitizeProviderError(error, 180) },
+      ...baseMeta,
+    };
+  }
+
+  const calls = extractVisualAgentMobileUseToolCalls(raw);
+  const agentStep = calls.length === 1
+    ? mapMobileUseArgsToAgentStep(calls[0], goal, raw)
+    : visualAgentNeedUserHelp(calls.length === 0 ? "GUI Plus did not return an official mobile_use tool_call." : "GUI Plus returned more than one mobile_use action.", raw);
+  const complete = agentStep.type === "finish";
+  return {
+    ok: true,
+    reply: agentStep.reason || "visual_agent_step returned one action.",
+    agentStep,
+    agentState: {
+      isComplete: complete,
+      expectedProgress: agentStep.type !== "need_user_help",
+      isWrong: false,
+      confidence: complete ? 0.82 : agentStep.type === "need_user_help" ? 0.3 : 0.72,
+      reason: agentStep.reason || "",
+    },
+    agentSteps: [agentStep],
+    steps: [agentStep],
+    debug: {
+      totalMs: Date.now() - startedAt,
+      readBodyMs,
+      requestBytes,
+      visualCalled: true,
+      guiPlusCalls: 1,
+      mobileUseCalls: calls.length,
+      uploadedHistoryScreenshots: 0,
+      recentActionsCount: recentActions.length,
+    },
+    ...baseMeta,
+  };
+}
+
 async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
   if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing: set ALIYUN_GUI_API_KEY or QWEN_API_KEY");
   if (!ALIYUN_GUI_BASE_URL) throw new Error("Aliyun GUI Plus base url missing: set ALIYUN_GUI_BASE_URL");
@@ -8909,6 +9159,11 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (isVisualAgentStepRequest(body)) {
+      const visualAgentResult = await handleVisualAgentStepRequest(body, prompt);
+      return sendJson(res, visualAgentResult.ok === false ? 400 : 200, visualAgentResult);
+    }
+
     if (isAgentBrainRouteRequest(body)) {
       const routeResult = await handleAgentBrainRouteRequest(body, prompt, resolved === "qwen_vision" ? "qwen" : resolved);
       return sendJson(res, routeResult.ok === false ? 400 : 200, routeResult);
@@ -9278,6 +9533,16 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`AI Ledger CN web-data qwen-vision model-router server listening on ${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, () => {
+    console.log(`AI Ledger CN web-data qwen-vision model-router server listening on ${PORT}`);
+  });
+}
+
+module.exports = {
+  buildVisualAgentDirectGuiMessages,
+  extractVisualAgentMobileUseToolCalls,
+  handleVisualAgentStepRequest,
+  isVisualAgentStepRequest,
+  mapMobileUseArgsToAgentStep,
+};

@@ -33,10 +33,10 @@ import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AgentExecutionMode
+import com.yuchen.ailedger.service.AgentOrchestrator
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.AgentSafetyPolicy
 import com.yuchen.ailedger.service.AgentTaskRunResult
-import com.yuchen.ailedger.service.AgentTaskRunner
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.AiChatResponse
 import com.yuchen.ailedger.service.AiWorkerClient
@@ -283,7 +283,7 @@ class AssistantViewModel(
         goal: String,
         executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent
     ): ChatMessage {
-        val result = AgentTaskRunner(aiWorkerClient, getApplication<Application>()).run(
+        val result = AgentOrchestrator(aiWorkerClient, getApplication<Application>()).run(
             goal = goal,
             modelPreference = uiState.selectedModel,
             maxSteps = ASSISTANT_AGENT_MAX_STEPS,
