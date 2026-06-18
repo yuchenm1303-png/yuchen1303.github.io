@@ -211,6 +211,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         不要把普通问答、代码、数学、项目讨论误判为手机动作。
         内部控制标记示例：[[AI_LEDGER_COMMAND:{"agentAction":{"capability":"run_device_control","title":"打开 Wi-Fi","goal":"打开 Wi-Fi","deviceControlAction":{"capability":"network.wifi.set","arguments":{"enabled":true},"riskLevel":"medium","requiresConfirmation":false},"reason":"Wi-Fi 开关属于内部设备控制"}}]]
         标记格式示例：[[AI_LEDGER_COMMAND:{"agentAction":{"capability":"run_agent_task","title":"手机智能体任务","goal":"用户目标","requiresConfirmation":false,"reason":"用户要求手机操作"}}]]
+        For supported internal device-control requests, the embedded AI_LEDGER_COMMAND marker is mandatory.
+        Do not say you opened Wi-Fi, Bluetooth, mobile data, dark mode, brightness, volume, app settings, or system settings unless the same response includes agentAction.capability=run_device_control with a valid deviceControlAction.
+        If you cannot produce a valid structured internal tool command, explain that you cannot execute it instead of claiming success.
     """.trimIndent()
 
     private fun endpointCandidates(cleanEndpoint: String): List<String> = if (cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")) listOf(cleanEndpoint) else listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()

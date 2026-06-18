@@ -33,6 +33,14 @@ class VisualActionValidatorTest {
     }
 
     @Test
+    fun tapClusterSignatureGroupsNearbyRepeatedTaps() {
+        assertEquals(
+            VisualActionValidator.actionClusterSignature(CloudAgentStep(type = "tap_xy", x = 1140f, y = 207f)),
+            VisualActionValidator.actionClusterSignature(CloudAgentStep(type = "tap_xy", x = 1149f, y = 183f)),
+        )
+    }
+
+    @Test
     fun highRiskStillRequiresAndroidConfirmation() {
         assertTrue(
             AgentSafetyPolicy.requiresConfirmation(

@@ -35,15 +35,36 @@ test("visual_agent_step routing predicate", () => {
   assert.equal(isVisualAgentStepRequest({ action: "agent_step" }), false);
 });
 
-test("direct GUI request uploads only current screenshot and bounded recent actions", () => {
+test("direct GUI request uploads only current screenshot and bounded recent actions on first turn", () => {
   const messages = buildVisualAgentDirectGuiMessages("goal", "pkg", {
     mimeType: "image/jpeg",
     base64: "current",
   }, ["a", "b", "c", "d", "e", "f", "g"]);
-  const content = messages[0].content;
+  assert.equal(messages[0].role, "system");
+  const content = messages[1].content;
   assert.equal(content.filter((part) => part.type === "image_url").length, 1);
   assert.match(content[1].image_url.url, /current$/);
   assert.match(content[0].text, /Recent actions: b \| c \| d \| e \| f \| g/);
+});
+
+test("direct GUI request follows official multi-turn visual history format", () => {
+  const messages = buildVisualAgentDirectGuiMessages("goal", "pkg", {
+    mimeType: "image/jpeg",
+    base64: "current",
+  }, ["last"], [{
+    screenshot: {
+      mimeType: "image/jpeg",
+      base64Data: "history1",
+      width: 100,
+      height: 200,
+    },
+    assistantOutput: "Action: tap\n<tool_call>{\"name\":\"mobile_use\",\"arguments\":{\"action\":\"click\",\"coordinate\":[500,500]}}</tool_call>",
+    executionResult: "tap_xy|ok",
+  }]);
+  assert.equal(messages.map((item) => item.role).join(","), "system,user,assistant,user");
+  assert.match(messages[1].content[1].image_url.url, /history1$/);
+  assert.match(messages[2].content, /mobile_use/);
+  assert.match(messages[3].content[0].image_url.url, /current$/);
 });
 
 test("official mobile_use calls are extracted strictly", () => {
@@ -88,6 +109,7 @@ test("direct handler calls GUI Plus once and returns one action", async () => {
   assert.equal(result.agentSteps.length, 1);
   assert.equal(result.debug.guiPlusCalls, 1);
   assert.equal(result.debug.visualCalled, true);
+  assert.match(result.rawModelOutput, /mobile_use/);
 });
 
 test("direct handler safe-stops invalid and failed GUI results", async () => {

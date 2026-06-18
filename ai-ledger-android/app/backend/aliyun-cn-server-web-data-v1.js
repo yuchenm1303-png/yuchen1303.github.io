@@ -7117,23 +7117,76 @@ async function callDashScopeNativeGuiPlus(model, messages, sessionId, timeoutMs,
   return text;
 }
 
-function buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions) {
+function normalizeVisualAgentHistoryItems(history) {
+  if (!Array.isArray(history)) return [];
+  return history.slice(-4).map((item) => {
+    const screenshot = normalizeAgentScreenshot({ screenshot: item?.screenshot || {} });
+    const output = safeText(item?.assistantOutput || item?.output || item?.rawOutput || "", 6000);
+    const executionResult = safeText(item?.executionResult || item?.result || "", 240);
+    if (!screenshot.hasImage || !output) return null;
+    return { screenshot, output, executionResult };
+  }).filter(Boolean);
+}
+
+function buildVisualAgentInstruction(goal, currentPackage, recentActions) {
   const boundedActions = Array.isArray(recentActions)
     ? recentActions.map((item) => safeText(item, 160)).filter(Boolean).slice(-6)
     : [];
-  const instruction = [
-    buildAliyunMobileUseToolProtocolPrompt(),
-    "",
+  return [
+    "Please generate the next move according to the UI screenshot, instruction and previous actions.",
     "You are controlling an Android phone by vision only.",
     "Return exactly one official mobile_use tool call for the current screenshot.",
     "Do not invent Android package names. For opening apps, put only the visible app name in text.",
     "Do not describe coordinates in prose. Do not return more than one action.",
+    "If recent actions show repeated taps or no progress, do not click the same area again.",
+    "If the current screen does not contain a reliable next control, return a terminate/failure mobile_use call instead of guessing coordinates.",
     `Goal: ${safeText(goal, 240)}`,
     `Current package: ${safeText(currentPackage || "", 120)}`,
     boundedActions.length ? `Recent actions: ${boundedActions.join(" | ")}` : "Recent actions: none",
   ].join("\n");
+}
 
-  return [{
+function buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions, visualHistory = []) {
+  const instruction = buildVisualAgentInstruction(goal, currentPackage, recentActions);
+  const history = normalizeVisualAgentHistoryItems(visualHistory);
+  const messages = [{
+    role: "system",
+    content: buildAliyunMobileUseToolProtocolPrompt(),
+  }];
+
+  if (history.length > 0) {
+    history.forEach((item, index) => {
+      const text = index === 0
+        ? `${instruction}\nPrevious execution result: ${item.executionResult || "unknown"}`
+        : `Previous execution result: ${item.executionResult || "unknown"}`;
+      messages.push({
+        role: "user",
+        content: [
+          { type: "text", text },
+          {
+            type: "image_url",
+            image_url: { url: `data:${item.screenshot.mimeType};base64,${item.screenshot.base64}` },
+          },
+        ],
+      });
+      messages.push({
+        role: "assistant",
+        content: item.output,
+      });
+    });
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "image_url",
+          image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` },
+        },
+      ],
+    });
+    return messages;
+  }
+
+  messages.push({
     role: "user",
     content: [
       { type: "text", text: instruction },
@@ -7142,13 +7195,14 @@ function buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo,
         image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` },
       },
     ],
-  }];
+  });
+  return messages;
 }
 
-async function callVisualAgentDirectGuiPlus(goal, currentPackage, screenshotInfo, recentActions, timeoutMs) {
+async function callVisualAgentDirectGuiPlus(goal, currentPackage, screenshotInfo, recentActions, visualHistory, timeoutMs) {
   if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing");
   if (!screenshotInfo?.hasImage) throw new Error("visual_agent_step requires screenshot");
-  const messages = buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions);
+  const messages = buildVisualAgentDirectGuiMessages(goal, currentPackage, screenshotInfo, recentActions, visualHistory);
   const boundedTimeoutMs = Math.max(
     300,
     Math.min(
@@ -7288,6 +7342,7 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
   const goal = safeText(body?.goal || body?.agentGoal || prompt || "", 240);
   const screenshotInfo = normalizeAgentScreenshot(body || {});
   const recentActions = Array.isArray(body?.recentActions) ? body.recentActions.slice(-6).map((item) => safeText(item, 160)).filter(Boolean) : [];
+  const visualHistory = normalizeVisualAgentHistoryItems(body?.visualHistory || body?.history || []);
   const currentPackage = safeText(body?.currentPackage || body?.screenSnapshot?.currentApp || body?.screenSnapshot?.packageName || "", 120);
   const requestBytes = Number(body?.__debugRequestBytes || 0) || 0;
   const readBodyMs = Number(body?.__debugReadBodyMs || 0) || 0;
@@ -7312,7 +7367,7 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
   let raw = "";
   try {
     const callGuiPlus = deps.callGuiPlus || callVisualAgentDirectGuiPlus;
-    raw = await callGuiPlus(goal, currentPackage, screenshotInfo, recentActions, deps.timeoutMs);
+    raw = await callGuiPlus(goal, currentPackage, screenshotInfo, recentActions, visualHistory, deps.timeoutMs);
   } catch (error) {
     const agentStep = visualAgentNeedUserHelp(`GUI Plus visual_agent_step failed: ${sanitizeProviderError(error, 180)}`);
     return {
@@ -7334,6 +7389,7 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
   return {
     ok: true,
     reply: agentStep.reason || "visual_agent_step returned one action.",
+    rawModelOutput: raw,
     agentStep,
     agentState: {
       isComplete: complete,
@@ -7351,8 +7407,9 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
       visualCalled: true,
       guiPlusCalls: 1,
       mobileUseCalls: calls.length,
-      uploadedHistoryScreenshots: 0,
+      uploadedHistoryScreenshots: visualHistory.length,
       recentActionsCount: recentActions.length,
+      rawModelOutput: safeText(raw, 6000),
     },
     ...baseMeta,
   };

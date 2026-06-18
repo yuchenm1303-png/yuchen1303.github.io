@@ -71,6 +71,7 @@ data class CloudAgentPlan(
     val state: CloudAgentState? = null,
     val steps: List<CloudAgentStep> = emptyList(),
     val stopConditions: Set<String> = emptySet(),
+    val rawModelOutput: String = "",
 ) {
     val executableSteps: List<CloudAgentStep>
         get() = steps.ifEmpty { listOf(step) }.take(MAX_BATCH_STEPS)
@@ -89,7 +90,24 @@ data class CloudAgentPlan(
                 state = CloudAgentState.fromJson(root),
                 steps = parsedSteps.ifEmpty { listOf(primary) },
                 stopConditions = extractStopConditions(root),
+                rawModelOutput = extractRawModelOutput(root),
             )
+        }
+
+        private fun extractRawModelOutput(root: JSONObject?): String {
+            if (root == null) return ""
+            val containers = listOfNotNull(
+                root,
+                root.optJSONObject("debug"),
+                root.optJSONObject("data"),
+                root.optJSONObject("result"),
+            )
+            return containers.firstNotNullOfOrNull { container ->
+                container.optString("rawModelOutput").notBlankOrNull()
+                    ?: container.optString("guiPlusRawOutput").notBlankOrNull()
+                    ?: container.optString("rawOutput").notBlankOrNull()
+                    ?: container.optString("raw").notBlankOrNull()
+            }?.take(6000).orEmpty()
         }
 
         private fun extractBatchSteps(root: JSONObject?): List<CloudAgentStep> {

@@ -12,22 +12,33 @@ private const val VISUAL_AGENT_CONNECT_TIMEOUT_MS = 8_000
 private const val VISUAL_AGENT_READ_TIMEOUT_MS = 12_000
 private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 6
 private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 160
+private const val VISUAL_AGENT_MAX_HISTORY_ITEMS = 4
+private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 6_000
+private const val VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS = 240
+
+data class VisualAgentHistoryItem(
+    val screenshot: AgentScreenVisual,
+    val assistantOutput: String,
+    val executionResult: String,
+)
 
 @Throws(IOException::class)
 fun AiWorkerClient.requestVisualAgentStep(
     goal: String,
     snapshot: AgentScreenSnapshot,
     recentActions: List<String> = emptyList(),
+    visualHistory: List<VisualAgentHistoryItem> = emptyList(),
 ): CloudAgentPlan {
     val endpointBase = endpoint.trim().trimEnd('/')
     if (endpointBase.isBlank()) throw IOException("AI Worker endpoint is not configured")
-    return postVisualAgentStep(endpointBase, buildVisualAgentPayload(goal, snapshot, recentActions))
+    return postVisualAgentStep(endpointBase, buildVisualAgentPayload(goal, snapshot, recentActions, visualHistory))
 }
 
 internal fun buildVisualAgentPayload(
     goal: String,
     snapshot: AgentScreenSnapshot,
     recentActions: List<String>,
+    visualHistory: List<VisualAgentHistoryItem> = emptyList(),
 ): JSONObject {
     val visual = snapshot.visual
     return JSONObject().apply {
@@ -43,20 +54,36 @@ internal fun buildVisualAgentPayload(
                 .filter { it.isNotBlank() }
                 .forEach { put(it) }
         })
+        put("visualHistory", JSONArray().apply {
+            visualHistory
+                .takeLast(VISUAL_AGENT_MAX_HISTORY_ITEMS)
+                .filter { it.screenshot.hasImage && it.assistantOutput.isNotBlank() }
+                .forEach { item ->
+                    put(JSONObject().apply {
+                        put("assistantOutput", item.assistantOutput.take(VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS))
+                        put("executionResult", item.executionResult.take(VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS))
+                        put("screenshot", item.screenshot.toPayloadJson())
+                    })
+                }
+        })
         if (visual?.hasImage == true) {
-            put("screenshot", JSONObject().apply {
-                put("mimeType", visual.mimeType)
-                put("base64Data", visual.base64Jpeg)
-                put("width", visual.width)
-                put("height", visual.height)
-                put("displayWidth", visual.displayWidth)
-                put("displayHeight", visual.displayHeight)
-            })
+            put("screenshot", visual.toPayloadJson())
         }
         put("coordinateProtocol", "normalized_screen_0_1")
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-direct-v1")
+        put("clientVersion", "visual-agent-direct-v2-official-history")
         put("now", System.currentTimeMillis())
+    }
+}
+
+private fun AgentScreenVisual.toPayloadJson(): JSONObject {
+    return JSONObject().apply {
+        put("mimeType", mimeType)
+        put("base64Data", base64Jpeg)
+        put("width", width)
+        put("height", height)
+        put("displayWidth", displayWidth)
+        put("displayHeight", displayHeight)
     }
 }
 

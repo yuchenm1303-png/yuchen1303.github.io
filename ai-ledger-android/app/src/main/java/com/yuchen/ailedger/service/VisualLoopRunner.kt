@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import java.io.IOException
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -28,6 +29,7 @@ class VisualLoopRunner(
 
         val state = VisualLoopState(goal = goal.trim().take(240), running = true)
         val recentActions = mutableListOf<String>()
+        val visualHistory = mutableListOf<VisualAgentHistoryItem>()
         AiAgentAccessibilityService.beginTaskSession()
         AgentRuntimeController.startTask(state.goal)
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
@@ -51,6 +53,7 @@ class VisualLoopRunner(
                             goal = state.goal,
                             snapshot = snapshot,
                             recentActions = recentActions,
+                            visualHistory = visualHistory,
                         )
                     }
                 } catch (error: IOException) {
@@ -90,6 +93,14 @@ class VisualLoopRunner(
                 }
 
                 val executableStep = preparedStep.step
+                val actionCluster = VisualActionValidator.actionClusterSignature(executableStep)
+                val nextRepeatCount = if (actionCluster == state.lastActionCluster) state.sameActionClusterCount + 1 else 0
+                if (nextRepeatCount >= REPEATED_ACTION_CLUSTER_LIMIT) {
+                    val message = "Repeated visual action in the same screen area was blocked; user takeover is required."
+                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep.copy(reason = message), null)
+                    AgentRuntimeController.finishTask(message, completed = false)
+                    return AgentTaskRunResult(false, false, message, logs)
+                }
                 val confirmed = if (AgentSafetyPolicy.requiresConfirmation(state.goal, executableStep)) {
                     if (!AgentRuntimeController.requestRiskConfirmation(state.goal, executableStep)) {
                         return AgentTaskRunResult(false, false, "User stopped the visual task.", logs)
@@ -107,8 +118,12 @@ class VisualLoopRunner(
                 val beforeFingerprint = VisualActionValidator.snapshotFingerprint(snapshot)
                 val result = executeStep(executableStep, snapshot.currentApp, logs, confirmed)
                 state.lastAction = VisualActionValidator.actionSignature(executableStep)
-                recentActions += "${state.lastAction}:${if (result.ok) "ok" else "failed"}:${result.message.take(80)}"
+                state.lastActionCluster = actionCluster
+                state.sameActionClusterCount = nextRepeatCount
+                val resultSummary = "${state.lastAction}:${if (result.ok) "ok" else "failed"}:${result.message.take(80)}"
+                recentActions += resultSummary
                 while (recentActions.size > MAX_RECENT_ACTIONS) recentActions.removeAt(0)
+                rememberVisualTurn(visualHistory, snapshot, plan, resultSummary)
 
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "Visual action stopped." }
@@ -233,9 +248,28 @@ class VisualLoopRunner(
         val step: CloudAgentStep? = null,
     )
 
+    private fun rememberVisualTurn(
+        history: MutableList<VisualAgentHistoryItem>,
+        snapshot: AgentScreenSnapshot,
+        plan: CloudAgentPlan,
+        executionResult: String,
+    ) {
+        val visual = snapshot.visual?.takeIf { it.hasImage } ?: return
+        val assistantOutput = plan.rawModelOutput.ifBlank { plan.step.reason.orEmpty() }
+        if (assistantOutput.isBlank()) return
+        history += VisualAgentHistoryItem(
+            screenshot = visual,
+            assistantOutput = assistantOutput,
+            executionResult = executionResult,
+        )
+        while (history.size > MAX_VISUAL_HISTORY_ITEMS) history.removeAt(0)
+    }
+
     companion object {
         private const val MAX_RECENT_ACTIONS = 6
+        private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val NO_PROGRESS_LIMIT = 2
+        private const val REPEATED_ACTION_CLUSTER_LIMIT = 2
         private const val USER_TAKEOVER_POLL_MS = 120L
         private const val DEFAULT_STEP_DELAY_MS = 280L
         private const val OPEN_APP_DELAY_MS = 640L
@@ -254,6 +288,8 @@ data class VisualLoopState(
     var stepCount: Int = 0,
     var currentPackage: String = "",
     var lastAction: String = "",
+    var lastActionCluster: String = "",
+    var sameActionClusterCount: Int = 0,
     var noProgressCount: Int = 0,
     var running: Boolean = false,
     var paused: Boolean = false,
@@ -296,6 +332,15 @@ object VisualActionValidator {
         ).joinToString("|")
     }
 
+    fun actionClusterSignature(step: CloudAgentStep): String {
+        if (step.type != "tap_xy") return actionSignature(step)
+        val x = step.x ?: return actionSignature(step)
+        val y = step.y ?: return actionSignature(step)
+        val bucketX = (x / TAP_CLUSTER_BUCKET_PX).roundToInt()
+        val bucketY = (y / TAP_CLUSTER_BUCKET_PX).roundToInt()
+        return listOf("tap_xy", bucketX, bucketY).joinToString("|")
+    }
+
     fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
         val textKey = snapshot.texts.take(16).joinToString("|") { it.take(40) }
         val nodeKey = snapshot.clickableNodes.take(16).joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
@@ -313,4 +358,6 @@ object VisualActionValidator {
         "finish",
         "need_user_help",
     )
+
+    private const val TAP_CLUSTER_BUCKET_PX = 96f
 }
