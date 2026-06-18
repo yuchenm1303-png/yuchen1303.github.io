@@ -59,8 +59,9 @@ object ChatNotificationManager {
 
     /**
      * Notification construction stays outside the cold-start caller. Repeated message updates are
-     * coalesced into the newest snapshot, and the first build waits for the UI/OpenGL stabilization
-     * window. SharedPreferences merge, MessagingStyle allocation and binder work all run here.
+     * coalesced into the newest snapshot. App-side calls wait for the UI/OpenGL stabilization
+     * window, while pure background reply/worker calls update immediately. SharedPreferences merge,
+     * MessagingStyle allocation and binder work all run on the dedicated background dispatcher.
      *
      * A null messages value means "render the stored notification conversation". A non-null empty
      * list is an explicit app-side clear and therefore clears the shared notification conversation.
@@ -72,6 +73,7 @@ object ChatNotificationManager {
     ) {
         val appContext = context.applicationContext
         if (!canPostNotifications(appContext)) return
+        val deferUntilUiStable = messages != null
 
         val request = NotificationRequest(
             context = appContext,
@@ -98,8 +100,10 @@ object ChatNotificationManager {
         if (!shouldSchedule) return
 
         scope.launch {
-            withTimeoutOrNull(STARTUP_GATE_TIMEOUT_MS) {
-                StartupPerformanceGate.awaitDeferredBusinessWindow()
+            if (deferUntilUiStable) {
+                withTimeoutOrNull(STARTUP_GATE_TIMEOUT_MS) {
+                    StartupPerformanceGate.awaitDeferredBusinessWindow()
+                }
             }
             drainPendingRequests()
         }
