@@ -162,8 +162,14 @@ class VisualLoopRunner(
     }
 
     private suspend fun captureOnce(): ScreenObservation {
-        return withContext(Dispatchers.Default) {
-            AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = true)
+        AgentRuntimeController.beginCleanVisualCapture()
+        return try {
+            delay(OVERLAY_HIDE_STABILIZE_MS)
+            withContext(Dispatchers.Default) {
+                AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = true)
+            }
+        } finally {
+            AgentRuntimeController.endCleanVisualCapture()
         }
     }
 
@@ -174,10 +180,16 @@ class VisualLoopRunner(
         confirmedHighRisk: Boolean,
     ): AgentExecutionResult {
         AgentRuntimeController.noteAction(step)
-        val result = if (step.type == "open_app") {
-            withContext(Dispatchers.IO) { deviceToolExecutor.execute(step, confirmedHighRisk) }
-        } else {
-            withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
+        AgentRuntimeController.beginCleanVisualCapture()
+        val result = try {
+            delay(OVERLAY_HIDE_STABILIZE_MS)
+            if (step.type == "open_app") {
+                withContext(Dispatchers.IO) { deviceToolExecutor.execute(step, confirmedHighRisk) }
+            } else {
+                withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
+            }
+        } finally {
+            AgentRuntimeController.endCleanVisualCapture()
         }
         AgentRuntimeController.noteResult(step, result)
         logs += AgentTaskStepLog(logs.size + 1, currentApp, step, result)
@@ -271,6 +283,7 @@ class VisualLoopRunner(
         private const val NO_PROGRESS_LIMIT = 2
         private const val REPEATED_ACTION_CLUSTER_LIMIT = 2
         private const val USER_TAKEOVER_POLL_MS = 120L
+        private const val OVERLAY_HIDE_STABILIZE_MS = 260L
         private const val DEFAULT_STEP_DELAY_MS = 280L
         private const val OPEN_APP_DELAY_MS = 640L
         private const val TAP_DELAY_MS = 220L
