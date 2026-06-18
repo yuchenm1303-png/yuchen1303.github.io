@@ -1,3 +1,3 @@
-trigger: notification-chat-console-release-validation-2026-06-18
-source-commit: 5bf0e39f21106aabfac7986a48bdbb8514c63d0c
-scope: remote-input-workmanager-shared-history-private-lockscreen-inplace-retry-stop-clear-fast-background
+trigger: notification-chat-console-boot-restore-validation-2026-06-18
+source-commit: f8967c4aa0f14c7a7068fc748dd8bb69f585f1ab
+scope: remote-input-workmanager-shared-history-private-lockscreen-inplace-retry-stop-clear-fast-background-boot-restore
