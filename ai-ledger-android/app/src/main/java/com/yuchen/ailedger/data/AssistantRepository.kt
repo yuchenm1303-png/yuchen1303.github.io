@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.data
 
+import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.LedgerRecord
@@ -8,6 +9,7 @@ import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.StatSummary
 import com.yuchen.ailedger.model.ToolEntry
 import com.yuchen.ailedger.model.latestOpenGlDefaultBorderStyle
+import com.yuchen.ailedger.service.NotificationChatStore
 
 interface AssistantRepository {
     fun initialState(): AssistantUiState
@@ -15,15 +17,12 @@ interface AssistantRepository {
 
 class ProductionAssistantRepository : AssistantRepository {
     override fun initialState(): AssistantUiState {
+        val restoredMessages = AiLedgerApplication.contextOrNull()
+            ?.let { context -> NotificationChatStore.load(context).messages }
+            .orEmpty()
         return AssistantUiState(
             glassBorderStyle = latestOpenGlDefaultBorderStyle(),
-            messages = listOf(
-                ChatMessage(
-                    id = "assistant-welcome",
-                    text = "你好，我是你的 AI 助手。直接输入一句话，我可以帮你整理记账、提醒、导航、识图和应用入口。",
-                    role = MessageRole.Assistant
-                )
-            ),
+            messages = restoredMessages.ifEmpty { listOf(welcomeMessage()) },
             tools = defaultToolEntries()
         )
     }
@@ -37,13 +36,7 @@ class PreviewAssistantRepository : AssistantRepository {
                 StatSummary("今日支出", "¥47.00"),
                 StatSummary("本月结余", "¥52.50")
             ),
-            messages = listOf(
-                ChatMessage(
-                    id = "assistant-welcome",
-                    text = "你好，我是你的 AI 助手。直接输入一句话，我可以帮你整理记账、提醒、导航、识图和应用入口。",
-                    role = MessageRole.Assistant
-                )
-            ),
+            messages = listOf(welcomeMessage()),
             tools = defaultToolEntries(),
             ledgerRecords = listOf(
                 LedgerRecord("record-coffee", "咖啡", 12f, LedgerRecordType.Expense, "饮品", "今天"),
@@ -53,6 +46,14 @@ class PreviewAssistantRepository : AssistantRepository {
             )
         )
     }
+}
+
+private fun welcomeMessage(): ChatMessage {
+    return ChatMessage(
+        id = "assistant-welcome",
+        text = "你好，我是你的 AI 助手。直接输入一句话，我可以帮你整理记账、提醒、导航、识图和应用入口。",
+        role = MessageRole.Assistant
+    )
 }
 
 private fun defaultToolEntries(): List<ToolEntry> = listOf(
