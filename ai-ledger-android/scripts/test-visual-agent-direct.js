@@ -7,6 +7,7 @@ const {
   handleVisualAgentStepRequest,
   isVisualAgentStepRequest,
   mapMobileUseArgsToAgentStep,
+  normalizePrimaryBrainDecisionPayload,
 } = require("../app/backend/aliyun-cn-server-web-data-v1.js");
 
 const body = {
@@ -33,6 +34,27 @@ test("visual_agent_step routing predicate", () => {
   assert.equal(isVisualAgentStepRequest({ action: "visual_agent_step" }), true);
   assert.equal(isVisualAgentStepRequest({ visualAgentDirect: true }), true);
   assert.equal(isVisualAgentStepRequest({ action: "agent_step" }), false);
+});
+
+test("primary brain device_tool decision normalizes to run_device_control", () => {
+  const decision = normalizePrimaryBrainDecisionPayload({
+    route: "device_tool",
+    goal: "打开 Wi-Fi",
+    deviceControlAction: {
+      capability: "network.wifi.set",
+      arguments: { enabled: true },
+      riskLevel: "low",
+      requiresConfirmation: false,
+      reason: "Wi-Fi switch",
+    },
+    reason: "internal switch",
+  }, "打开 Wi-Fi");
+  assert.equal(decision.agentAction.capability, "run_device_control");
+  assert.equal(decision.agentAction.deviceControlAction.tool, "set_wifi_enabled");
+  assert.equal(decision.agentAction.deviceControlAction.args.enabled, true);
+
+  const chat = normalizePrimaryBrainDecisionPayload({ route: "chat", reply: "hello" }, "hello");
+  assert.equal(chat.agentAction, null);
 });
 
 test("direct GUI request uploads only current screenshot and bounded recent actions on first turn", () => {

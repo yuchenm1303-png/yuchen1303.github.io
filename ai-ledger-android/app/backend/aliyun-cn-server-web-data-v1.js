@@ -976,6 +976,121 @@ function normalizeDeviceRouterPayload(value) {
   };
 }
 
+function normalizePrimaryBrainDecisionPayload(value, prompt = "") {
+  if (!value || typeof value !== "object") return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "empty_primary_brain_decision", route: "chat" };
+  const raw = value.result && typeof value.result === "object" ? value.result : value;
+  const route = String(raw.route || raw.mode || raw.intent || "chat").toLowerCase().trim().replace(/[-\s]+/g, "_");
+  const reason = safeText(raw.reason || raw.rationale || "", 180);
+
+  if (route === "device_tool" || route === "internal_device_tool" || route === "run_device_control") {
+    const deviceControlAction = normalizeDeviceControlAction(
+      raw.deviceControlAction ||
+        raw.device_control_action ||
+        raw.toolCall ||
+        raw.tool_call ||
+        {
+          tool: raw.tool || raw.capability || raw.name,
+          args: raw.args || raw.arguments || raw.params || {},
+          riskLevel: raw.riskLevel || raw.risk,
+          requiresConfirmation: raw.requiresConfirmation,
+          reason,
+        }
+    );
+    if (!deviceControlAction) return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: reason || "primary_brain_device_tool_invalid", route };
+    const goal = safeText(raw.goal || raw.task || prompt || deviceControlAction.reason || deviceControlAction.tool, 240);
+    return {
+      agentAction: {
+        capability: "run_device_control",
+        title: safeText(raw.title || deviceControlAction.reason || "内部设备控制", 40),
+        goal,
+        deviceControlAction,
+        requiresConfirmation: Boolean(deviceControlAction.requiresConfirmation),
+        reason: reason || deviceControlAction.reason || "primary_brain_device_tool",
+      },
+      mobileAction: null,
+      preferenceUpdate: null,
+      reason: reason || "primary_brain_device_tool",
+      route,
+    };
+  }
+
+  if (route === "visual_agent" || route === "run_agent_task") {
+    const goal = safeText(raw.goal || raw.task || raw.instruction || prompt || "", 240);
+    if (!goal) return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: reason || "primary_brain_visual_empty_goal", route };
+    return {
+      agentAction: {
+        capability: "run_agent_task",
+        title: safeText(raw.title || "手机智能体任务", 40),
+        goal,
+        requiresConfirmation: Boolean(raw.requiresConfirmation),
+        reason: reason || "primary_brain_visual_agent",
+      },
+      mobileAction: null,
+      preferenceUpdate: null,
+      reason: reason || "primary_brain_visual_agent",
+      route,
+    };
+  }
+
+  if (route === "observe_screen") {
+    return {
+      agentAction: { capability: "observe_screen", title: safeText(raw.title || "观察当前屏幕", 40), requiresConfirmation: false, reason: reason || "primary_brain_observe_screen" },
+      mobileAction: null,
+      preferenceUpdate: null,
+      reason: reason || "primary_brain_observe_screen",
+      route,
+    };
+  }
+
+  return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: reason || "primary_brain_chat", route: "chat" };
+}
+
+async function detectPrimaryBrainDecisionByModel(prompt, body) {
+  if (!isCommandProtocolEnabled(body)) return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "skip_primary_brain_no_command_protocol", source: "skip", route: "chat" };
+  const supportedTools = Array.isArray(body?.commandProtocol?.supportedDeviceControlActions)
+    ? body.commandProtocol.supportedDeviceControlActions.slice(0, 80)
+    : DEVICE_TOOL_AGENT_STEP_TYPES;
+  const messages = [
+    {
+      role: "system",
+      content: [
+        "You are the primary Android assistant decision router. Return strict JSON only.",
+        "Decide whether the user is asking for a normal chat answer or a real phone action.",
+        "Never claim a phone action is done in natural language. If action is needed, return a structured route.",
+        "Routes: chat, device_tool, visual_agent, observe_screen, ask_user, refuse.",
+        "Use device_tool for internal Android controls that can be executed by local tools, such as Wi-Fi, Bluetooth, mobile data, dark mode, brightness, volume, app settings, system settings, Shizuku/status, app open/settings.",
+        "Use visual_agent only for UI navigation/click/input tasks that cannot be completed by internal tools.",
+        "For chat/questions/explanations/coding/math/project discussion, return route=chat.",
+        "Schema:",
+        "{\"route\":\"chat|device_tool|visual_agent|observe_screen|ask_user|refuse\",\"reply\":\"optional natural reply for chat only\",\"goal\":\"\",\"tool\":\"optional device tool\",\"args\":{},\"deviceControlAction\":{\"capability\":\"one supported tool\",\"arguments\":{},\"riskLevel\":\"low|medium|high|critical\",\"requiresConfirmation\":false,\"reason\":\"\"},\"reason\":\"short\"}",
+        `Supported device tools: ${supportedTools.join(", ")}`,
+      ].join("\n"),
+    },
+    { role: "user", content: String(prompt || "") },
+  ];
+  const providers = [
+    { baseUrl: process.env.DEEPSEEK_BASE_URL, apiKey: process.env.DEEPSEEK_API_KEY, model: process.env.DEEPSEEK_MODEL, name: "DeepSeek Primary Device Router" },
+    { baseUrl: process.env.QWEN_BASE_URL, apiKey: process.env.QWEN_API_KEY, model: process.env.QWEN_MODEL, name: "Qwen Primary Device Router Fallback" },
+  ].filter((item) => item.baseUrl && item.apiKey && item.model);
+  if (providers.length === 0) return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "primary_brain_router_not_configured", source: "skip", route: "chat" };
+  let lastError = "";
+  for (const provider of providers) {
+    try {
+      const raw = await callOpenAICompatible(provider.baseUrl, provider.apiKey, provider.model, messages, provider.name, {
+        temperature: 0,
+        max_tokens: Number(process.env.PRIMARY_DEVICE_ROUTER_MAX_TOKENS || 260),
+        timeoutMs: Number(process.env.PRIMARY_DEVICE_ROUTER_TIMEOUT_MS || DEVICE_ROUTER_TIMEOUT_MS),
+        response_format: { type: "json_object" },
+      });
+      const parsed = JSON.parse(extractJsonText(raw));
+      return { ...normalizePrimaryBrainDecisionPayload(parsed, prompt), source: "primary_brain_router", raw };
+    } catch (error) {
+      lastError = sanitizeProviderError(error, 180);
+    }
+  }
+  return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: `primary_brain_router_failed: ${lastError}`, source: "primary_brain_router_error", route: "chat" };
+}
+
 async function detectDeviceIntentByModel(prompt, body) {
   const explicit = normalizeExplicitDeviceIntent(body, prompt);
   if (explicit.agentAction || explicit.mobileAction || explicit.preferenceUpdate) {
@@ -983,6 +1098,11 @@ async function detectDeviceIntentByModel(prompt, body) {
   }
 
   // v34 默认普通聊天绝对不走设备模型路由，避免关键词和模型路由污染问答链路。
+  const primaryDecision = await detectPrimaryBrainDecisionByModel(prompt, body);
+  if (primaryDecision.agentAction || primaryDecision.mobileAction || primaryDecision.preferenceUpdate) {
+    return primaryDecision;
+  }
+
   if (!ENABLE_LEGACY_CHAT_DEVICE_ROUTER) {
     return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "skip_legacy_device_router_clean_architecture", source: "skip" };
   }
@@ -9686,4 +9806,5 @@ module.exports = {
   handleVisualAgentStepRequest,
   isVisualAgentStepRequest,
   mapMobileUseArgsToAgentStep,
+  normalizePrimaryBrainDecisionPayload,
 };
