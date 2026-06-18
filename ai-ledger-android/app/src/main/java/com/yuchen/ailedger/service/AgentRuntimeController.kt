@@ -397,15 +397,26 @@ object AgentRuntimeController {
         }
     }
 
-    suspend fun requestUserInput(goal: String, step: CloudAgentStep): String? {
+    suspend fun requestUserInput(
+        goal: String,
+        step: CloudAgentStep,
+        title: String? = null,
+        messageOverride: String? = null,
+        hintOverride: String? = null,
+        positiveText: String? = null,
+        negativeText: String? = null,
+    ): String? {
         ensureOverlayCaptureVisibleIfIdle()
         val actionText = buildActionText(step)
         val sensitive = AgentSafetyPolicy.requiresUserProvidedInput(goal, step)
         val request = AgentPendingUserInput(
             id = System.currentTimeMillis(),
+            title = title ?: "需要你输入",
             actionText = actionText,
-            message = buildUserInputMessage(goal, step, sensitive),
-            hint = if (sensitive) "请输入验证码/密码" else "请输入需要填入的内容",
+            message = messageOverride ?: buildUserInputMessage(goal, step, sensitive),
+            hint = hintOverride ?: if (sensitive) "请输入验证码/密码" else "请输入需要填入的内容",
+            positiveText = positiveText ?: "确认输入",
+            negativeText = negativeText ?: "取消任务",
             sensitive = sensitive,
         )
         val deferred = CompletableDeferred<String?>()

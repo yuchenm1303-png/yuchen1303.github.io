@@ -81,16 +81,16 @@ class VisualLoopRunner(
                 if (step.type == "need_user_help") {
                     val message = step.reason ?: "Visual agent requested user assistance."
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "model_help")) break
+                    continue
                 }
 
                 val preparedStep = prepareStepForExecution(step, snapshot)
                 if (!preparedStep.ok || preparedStep.step == null) {
                     val message = preparedStep.message
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step.copy(reason = message), null)
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "prepare_blocked")) break
+                    continue
                 }
 
                 val executableStep = preparedStep.step
@@ -99,8 +99,8 @@ class VisualLoopRunner(
                 if (nextRepeatCount >= REPEATED_ACTION_CLUSTER_LIMIT) {
                     val message = "Repeated visual action in the same screen area was blocked; user takeover is required."
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep.copy(reason = message), null)
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "repeated_action")) break
+                    continue
                 }
                 val confirmed = if (AgentSafetyPolicy.requiresConfirmation(state.goal, executableStep)) {
                     if (!AgentRuntimeController.requestRiskConfirmation(state.goal, executableStep)) {
@@ -112,8 +112,8 @@ class VisualLoopRunner(
                 }
                 if (!confirmed && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(state.goal, executableStep)) {
                     val message = executableStep.reason ?: "Action is blocked by Android safety policy."
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "safety_blocked")) break
+                    continue
                 }
 
                 val beforeFingerprint = VisualActionValidator.snapshotFingerprint(snapshot)
@@ -128,8 +128,8 @@ class VisualLoopRunner(
 
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "Visual action stopped." }
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "action_stopped")) break
+                    continue
                 }
 
                 delayForStep(executableStep)
@@ -138,11 +138,7 @@ class VisualLoopRunner(
                     state.noProgressCount += 1
                     if (state.noProgressCount >= NO_PROGRESS_LIMIT) {
                         val message = "No progress after repeated visual actions; user takeover is required."
-                        AgentRuntimeController.pauseForUserTakeover(message)
-                        state.paused = true
-                        if (!waitWhileUserTakeoverPaused(stopGeneration)) break
-                        state.paused = false
-                        state.noProgressCount = 0
+                        if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "no_progress")) break
                     }
                 } else {
                     state.noProgressCount = 0
@@ -239,6 +235,42 @@ class VisualLoopRunner(
             delay(USER_TAKEOVER_POLL_MS)
         }
         return !isStopped(startGeneration)
+    }
+
+    private suspend fun pauseForUserAndContinue(
+        message: String,
+        stopGeneration: Long,
+        state: VisualLoopState,
+        recentActions: MutableList<String>,
+        reason: String,
+    ): Boolean {
+        recentActions += "user_help=$reason:${message.take(100)}"
+        while (recentActions.size > MAX_RECENT_ACTIONS) recentActions.removeAt(0)
+        AgentRuntimeController.pauseForUserTakeover(message)
+        state.paused = true
+        val userInstruction = AgentRuntimeController.requestUserInput(
+            goal = state.goal,
+            step = CloudAgentStep(type = "need_user_help", reason = message),
+            title = "需要你帮助",
+            messageOverride = "$message\n\n你可以手动接管后输入补充指令，或取消任务。",
+            hintOverride = "例如：返回上一页后继续找设置",
+            positiveText = "继续执行",
+            negativeText = "停止任务",
+        )?.trim().orEmpty()
+        if (userInstruction.isNotBlank()) {
+            recentActions += "userInstruction:${userInstruction.take(160)}"
+            AgentRuntimeController.resumeFromUserTakeover("收到补充指令，继续执行。")
+        }
+        val canContinue = userInstruction.isNotBlank() || waitWhileUserTakeoverPaused(stopGeneration)
+        state.paused = false
+        state.noProgressCount = 0
+        state.sameActionClusterCount = 0
+        state.lastActionCluster = ""
+        if (canContinue) {
+            recentActions += "userTakeover=resumed:$reason"
+            while (recentActions.size > MAX_RECENT_ACTIONS) recentActions.removeAt(0)
+        }
+        return canContinue
     }
 
     private suspend fun delayForStep(step: CloudAgentStep) {

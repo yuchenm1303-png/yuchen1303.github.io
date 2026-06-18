@@ -7217,6 +7217,56 @@ async function callVisualAgentDirectGuiPlus(goal, currentPackage, screenshotInfo
   });
 }
 
+function buildVisualAgentCompletionVerificationMessages(goal, currentPackage, screenshotInfo, rawOutput) {
+  return [{
+    role: "user",
+    content: [
+      {
+        type: "text",
+        text: [
+          "You verify whether an Android visual-agent task is already complete.",
+          "Return strict JSON only: {\"complete\":true|false,\"reason\":\"short visible evidence\"}.",
+          "Judge only from the current screenshot and the user's goal. Do not trust the previous model answer unless the screenshot clearly supports it.",
+          "If the goal is to open a page, complete=true only when the visible page is the requested final page, not a related subpage.",
+          `Goal: ${safeText(goal, 240)}`,
+          `Current package: ${safeText(currentPackage || "", 120)}`,
+          `Previous GUI Plus output: ${safeText(rawOutput || "", 1000)}`,
+        ].join("\n"),
+      },
+      {
+        type: "image_url",
+        image_url: { url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}` },
+      },
+    ],
+  }];
+}
+
+function normalizeVisualCompletionVerification(raw) {
+  try {
+    const parsed = JSON.parse(extractJsonText(raw));
+    return {
+      complete: Boolean(parsed?.complete === true),
+      reason: safeText(parsed?.reason || parsed?.evidence || "", 220),
+    };
+  } catch (_) {
+    return { complete: false, reason: "completion_verifier_invalid_json" };
+  }
+}
+
+async function verifyVisualAgentCompletion(goal, currentPackage, screenshotInfo, rawOutput, timeoutMs) {
+  if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing");
+  if (!screenshotInfo?.hasImage) throw new Error("visual completion verification requires screenshot");
+  const boundedTimeoutMs = Math.max(300, Math.min(Number(timeoutMs || 6000), Number(AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS || 12000)));
+  const raw = await callDashScopeNativeGuiPlus(
+    ALIYUN_GUI_MODEL,
+    buildVisualAgentCompletionVerificationMessages(goal, currentPackage, screenshotInfo, rawOutput),
+    newAgentGuiSessionId(),
+    boundedTimeoutMs,
+    { enableThinking: false }
+  );
+  return normalizeVisualCompletionVerification(raw);
+}
+
 function extractVisualAgentMobileUseToolCalls(rawOutput) {
   const raw = String(rawOutput || "").trim();
   if (!raw) return [];
@@ -7398,9 +7448,25 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
   }
 
   const calls = extractVisualAgentMobileUseToolCalls(raw);
-  const agentStep = calls.length === 1
+  let agentStep = calls.length === 1
     ? mapMobileUseArgsToAgentStep(calls[0], goal, raw)
     : visualAgentNeedUserHelp(calls.length === 0 ? "GUI Plus did not return an official mobile_use tool_call." : "GUI Plus returned more than one mobile_use action.", raw);
+  let completionVerification = null;
+  if (agentStep.type === "finish") {
+    try {
+      const verifier = deps.verifyCompletion || verifyVisualAgentCompletion;
+      completionVerification = await verifier(goal, currentPackage, screenshotInfo, raw, deps.verifyTimeoutMs);
+      if (!completionVerification.complete) {
+        agentStep = visualAgentNeedUserHelp(`Completion was not verified: ${completionVerification.reason || "visible screen does not satisfy the goal"}`, raw);
+      } else if (completionVerification.reason) {
+        agentStep = { ...agentStep, reason: completionVerification.reason };
+      }
+    } catch (error) {
+      const reason = `Completion verification failed: ${sanitizeProviderError(error, 160)}`;
+      completionVerification = { complete: false, reason };
+      agentStep = visualAgentNeedUserHelp(reason, raw);
+    }
+  }
   const complete = agentStep.type === "finish";
   return {
     ok: true,
@@ -7423,6 +7489,8 @@ async function handleVisualAgentStepRequest(body, prompt, deps = {}) {
       visualCalled: true,
       guiPlusCalls: 1,
       mobileUseCalls: calls.length,
+      completionVerified: completionVerification?.complete === true,
+      completionVerificationReason: completionVerification?.reason || "",
       uploadedHistoryScreenshots: visualHistory.length,
       recentActionsCount: recentActions.length,
       rawModelOutput: safeText(raw, 6000),

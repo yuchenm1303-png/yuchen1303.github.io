@@ -114,6 +114,22 @@ test("direct handler calls GUI Plus once and returns one action", async () => {
   assert.match(result.rawModelOutput, /mobile_use/);
 });
 
+test("direct handler verifies terminate success before finishing", async () => {
+  const verified = await handleVisualAgentStepRequest(body, body.goal, {
+    callGuiPlus: async () => tool({ action: "terminate", status: "success", text: "done" }),
+    verifyCompletion: async () => ({ complete: true, reason: "target page is visible" }),
+  });
+  assert.equal(verified.agentStep.type, "finish");
+  assert.equal(verified.debug.completionVerified, true);
+
+  const rejected = await handleVisualAgentStepRequest(body, body.goal, {
+    callGuiPlus: async () => tool({ action: "terminate", status: "success", text: "done" }),
+    verifyCompletion: async () => ({ complete: false, reason: "wrong subpage" }),
+  });
+  assert.equal(rejected.agentStep.type, "need_user_help");
+  assert.equal(rejected.debug.completionVerified, false);
+});
+
 test("direct handler safe-stops invalid and failed GUI results", async () => {
   const noTool = await handleVisualAgentStepRequest(body, body.goal, { callGuiPlus: async () => "no tool here" });
   assert.equal(noTool.agentStep.type, "need_user_help");
