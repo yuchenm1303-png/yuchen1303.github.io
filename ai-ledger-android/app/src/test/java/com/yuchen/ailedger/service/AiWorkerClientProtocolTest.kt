@@ -88,6 +88,8 @@ class AiWorkerClientProtocolTest {
         assertFalse(capabilities.contains("app.clear_data"))
         assertFalse(capabilities.contains("app.force_stop"))
         assertFalse(capabilities.contains("system.animation_scale.set"))
+        assertFalse(capabilities.contains("shizuku.permission.request"))
+        assertFalse(capabilities.contains("shell.shizuku_permission"))
     }
 
     @Test
