@@ -130,9 +130,8 @@ class VisualLoopRunner(
                 state.lastAction = VisualActionValidator.actionSignature(executableStep)
                 state.lastActionCluster = actionCluster
                 state.sameActionClusterCount = nextRepeatCount
-                val resultSummary = "${state.lastAction}:${if (result.ok) "ok" else "failed"}:${result.message.take(80)}"
-                recentActions += resultSummary
-                while (recentActions.size > MAX_RECENT_ACTIONS) recentActions.removeAt(0)
+                val resultSummary = buildExecutionResultSummary(executableStep, state.lastAction, result)
+                appendRecentAction(recentActions, resultSummary)
                 rememberVisualTurn(visualHistory, snapshot, plan, resultSummary)
 
                 if (!result.ok || !result.shouldContinue) {
@@ -143,14 +142,20 @@ class VisualLoopRunner(
 
                 delayForStep(executableStep)
                 val after = captureOnce().toAgentScreenSnapshot()
-                if (VisualActionValidator.snapshotFingerprint(after) == beforeFingerprint) {
+                val pageChanged = VisualActionValidator.snapshotFingerprint(after) != beforeFingerprint
+                val verificationSummary = if (!pageChanged) {
                     state.noProgressCount += 1
-                    if (state.noProgressCount >= NO_PROGRESS_LIMIT) {
-                        val message = "No progress after repeated visual actions; user takeover is required."
-                        if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "no_progress")) break
-                    }
+                    "visual_no_progress:${state.lastAction}:count=${state.noProgressCount}:screen=unchanged"
                 } else {
                     state.noProgressCount = 0
+                    "visual_screen_changed:${state.lastAction}:screen=changed"
+                }
+                appendRecentAction(recentActions, verificationSummary)
+                updateLatestVisualTurnResult(visualHistory, "$resultSummary;$verificationSummary")
+
+                if (!pageChanged && state.noProgressCount >= NO_PROGRESS_LIMIT) {
+                    val message = "No progress after repeated visual actions; user takeover is required."
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "no_progress")) break
                 }
                 state.stepCount += 1
             }
@@ -258,6 +263,38 @@ class VisualLoopRunner(
         )
     }
 
+    private fun buildExecutionResultSummary(
+        step: CloudAgentStep,
+        actionSignature: String,
+        result: AgentExecutionResult,
+    ): String {
+        val status = if (result.ok) "ok" else "failed"
+        val target = step.targetText?.takeIf { it.isNotBlank() }
+            ?: step.appName?.takeIf { it.isNotBlank() }
+            ?: step.text?.take(32)?.takeIf { it.isNotBlank() }
+        return buildList {
+            add(actionSignature)
+            add(status)
+            target?.let { add("target=${it.take(56)}") }
+            step.reason?.takeIf { it.isNotBlank() }?.let { add("reason=${it.take(72)}") }
+            add("result=${result.message.take(80)}")
+        }.joinToString(":").take(MAX_RECENT_ACTION_CHARS)
+    }
+
+    private fun appendRecentAction(recentActions: MutableList<String>, value: String) {
+        value.trim().take(MAX_RECENT_ACTION_CHARS).takeIf { it.isNotBlank() }?.let(recentActions::add)
+        while (recentActions.size > MAX_RECENT_ACTIONS) recentActions.removeAt(0)
+    }
+
+    private fun updateLatestVisualTurnResult(
+        history: MutableList<VisualAgentHistoryItem>,
+        executionResult: String,
+    ) {
+        if (history.isEmpty()) return
+        val lastIndex = history.lastIndex
+        history[lastIndex] = history[lastIndex].copy(executionResult = executionResult.take(240))
+    }
+
     private fun isStopped(startGeneration: Long): Boolean {
         return AgentRuntimeController.currentManualStopGeneration() != startGeneration
     }
@@ -277,8 +314,7 @@ class VisualLoopRunner(
         recentActions: MutableList<String>,
         reason: String,
     ): Boolean {
-        recentActions += "user_help=$reason:${message.take(100)}"
-        while (recentActions.size > MAX_RECENT_ACTIONS) recentActions.removeAt(0)
+        appendRecentAction(recentActions, "user_help=$reason:${message.take(100)}")
         AgentRuntimeController.pauseForUserTakeover(message)
         state.paused = true
         val userInstruction = AgentRuntimeController.requestUserInput(
@@ -291,7 +327,7 @@ class VisualLoopRunner(
             negativeText = "停止任务",
         )?.trim().orEmpty()
         if (userInstruction.isNotBlank()) {
-            recentActions += "userInstruction:${userInstruction.take(160)}"
+            appendRecentAction(recentActions, "userInstruction:${userInstruction.take(160)}")
             AgentRuntimeController.resumeFromUserTakeover("收到补充指令，继续执行。")
         }
         val canContinue = userInstruction.isNotBlank() || waitWhileUserTakeoverPaused(stopGeneration)
@@ -300,8 +336,7 @@ class VisualLoopRunner(
         state.sameActionClusterCount = 0
         state.lastActionCluster = ""
         if (canContinue) {
-            recentActions += "userTakeover=resumed:$reason"
-            while (recentActions.size > MAX_RECENT_ACTIONS) recentActions.removeAt(0)
+            appendRecentAction(recentActions, "userTakeover=resumed:$reason")
         }
         return canContinue
     }
@@ -345,6 +380,7 @@ class VisualLoopRunner(
 
     companion object {
         private const val MAX_RECENT_ACTIONS = 8
+        private const val MAX_RECENT_ACTION_CHARS = 180
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
         private const val NO_PROGRESS_LIMIT = 2
