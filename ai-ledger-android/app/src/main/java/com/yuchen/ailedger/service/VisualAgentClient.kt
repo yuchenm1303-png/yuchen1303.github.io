@@ -15,7 +15,7 @@ private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 180
 private const val VISUAL_AGENT_MAX_HISTORY_ITEMS = 4
 private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 1_200
 private const val VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS = 240
-private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 36
+private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 160
 private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 120
 private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v4"
 
@@ -55,9 +55,9 @@ fun AiWorkerClient.requestVisualAgentStep(
     recentActions: List<String> = emptyList(),
     visualHistory: List<VisualAgentHistoryItem> = emptyList(),
     appContext: List<VisualAgentAppContextItem> = emptyList(),
-    deviceId: String,
-    agentSessionId: String,
-    executionMode: AgentExecutionMode,
+    deviceId: String = "android-compose-visual",
+    agentSessionId: String = "visual-session-${System.currentTimeMillis()}",
+    executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent,
 ): CloudAgentPlan {
     val endpointBase = endpoint.trim().trimEnd('/')
     if (endpointBase.isBlank()) throw IOException("AI Worker endpoint is not configured")
