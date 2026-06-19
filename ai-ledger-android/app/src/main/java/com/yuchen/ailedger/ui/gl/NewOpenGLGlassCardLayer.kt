@@ -60,7 +60,14 @@ fun NewOpenGLGlassCardLayer(
         return
     }
 
-    if (LocalGlassSceneGroup == GlassSceneGroup.SettingsPage) {
+    val sceneGroup = LocalGlassSceneGroup
+    val useLegacyRenderer =
+        sceneGroup == GlassSceneGroup.SettingsPage ||
+            sceneGroup == GlassSceneGroup.AssistantPage
+
+    // 设置页顶部状态卡片和首页聊天大玻璃共同复用实验室原版 OpenGL 完整宿主链：
+    // 同一参数源、单样本优化、Compose 轮廓裁剪和旧 Renderer。
+    if (useLegacyRenderer) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
             currentSpec?.copy(borderStyle = legacyOpenGlReferenceStyle())
