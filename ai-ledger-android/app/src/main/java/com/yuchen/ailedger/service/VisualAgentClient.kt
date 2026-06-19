@@ -9,16 +9,31 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val VISUAL_AGENT_CONNECT_TIMEOUT_MS = 8_000
-private const val VISUAL_AGENT_READ_TIMEOUT_MS = 12_000
-private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 6
-private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 160
+private const val VISUAL_AGENT_READ_TIMEOUT_MS = 20_000
+private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 8
+private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 180
 private const val VISUAL_AGENT_MAX_HISTORY_ITEMS = 4
-private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 6_000
+private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 1_200
 private const val VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS = 240
 private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 36
-private const val VISUAL_AGENT_MAX_APP_ALIASES = 4
-private const val VISUAL_AGENT_MAX_APP_CAPABILITIES = 5
-private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 80
+private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 120
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v4"
+
+internal object VisualAgentProtocol {
+    const val coordinateProtocol = "normalized_screen_0_1"
+
+    val supportedStepTypes: Set<String> = linkedSetOf(
+        "open_app",
+        "tap_xy",
+        "input_text",
+        "swipe",
+        "back",
+        "home",
+        "wait",
+        "finish",
+        "need_user_help",
+    )
+}
 
 data class VisualAgentHistoryItem(
     val screenshot: AgentScreenVisual,
@@ -40,10 +55,23 @@ fun AiWorkerClient.requestVisualAgentStep(
     recentActions: List<String> = emptyList(),
     visualHistory: List<VisualAgentHistoryItem> = emptyList(),
     appContext: List<VisualAgentAppContextItem> = emptyList(),
+    deviceId: String,
+    agentSessionId: String,
+    executionMode: AgentExecutionMode,
 ): CloudAgentPlan {
     val endpointBase = endpoint.trim().trimEnd('/')
     if (endpointBase.isBlank()) throw IOException("AI Worker endpoint is not configured")
-    return postVisualAgentStep(endpointBase, buildVisualAgentPayload(goal, snapshot, recentActions, visualHistory, appContext))
+    val payload = buildVisualAgentPayload(
+        goal = goal,
+        snapshot = snapshot,
+        recentActions = recentActions,
+        visualHistory = visualHistory,
+        appContext = appContext,
+        deviceId = deviceId,
+        agentSessionId = agentSessionId,
+        executionMode = executionMode,
+    )
+    return postVisualAgentStep(endpointBase, payload, deviceId, agentSessionId)
 }
 
 internal fun buildVisualAgentPayload(
@@ -52,82 +80,140 @@ internal fun buildVisualAgentPayload(
     recentActions: List<String>,
     visualHistory: List<VisualAgentHistoryItem> = emptyList(),
     appContext: List<VisualAgentAppContextItem> = emptyList(),
+    deviceId: String = "android-compose-visual",
+    agentSessionId: String = "visual-session-test",
+    executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent,
 ): JSONObject {
-    val visual = snapshot.visual
+    val cleanGoal = goal.trim().take(240)
+    val cleanDeviceId = deviceId.trim().take(120).ifBlank { "android-compose-visual" }
+    val cleanSessionId = agentSessionId.trim().take(120).ifBlank { "visual-session-${System.currentTimeMillis()}" }
+    val modeKey = when (executionMode) {
+        AgentExecutionMode.VisualForce -> "visual_force"
+        AgentExecutionMode.ExplicitAgent -> "explicit_agent"
+        AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
+    }
+    val recentAgentActions = JSONArray().apply {
+        recentActions
+            .takeLast(VISUAL_AGENT_MAX_RECENT_ACTIONS)
+            .map { it.trim().take(VISUAL_AGENT_MAX_RECENT_ACTION_CHARS) }
+            .filter { it.isNotBlank() }
+            .forEach { put(it) }
+    }
+    val canonicalApps = JSONArray().apply {
+        appContext
+            .asSequence()
+            .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
+            .distinctBy { it.packageName }
+            .take(VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS)
+            .forEach { item ->
+                put(JSONObject().apply {
+                    put("label", item.label.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
+                    put("packageName", item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
+                    put("launchable", true)
+                })
+            }
+    }
+    val screenSnapshot = snapshot.toJson(includeImage = false)
+    val visual = snapshot.visual?.takeIf { it.hasImage }
+
     return JSONObject().apply {
         put("action", "visual_agent_step")
+        put("intent", "visual_agent_step")
+        put("type", "agent_step")
         put("requestType", "visual_agent_step")
+        put("agentStepRequest", true)
         put("visualAgentDirect", true)
-        put("goal", goal.trim().take(240))
-        put("currentPackage", snapshot.currentApp)
-        put("recentActions", JSONArray().apply {
-            recentActions
-                .takeLast(VISUAL_AGENT_MAX_RECENT_ACTIONS)
-                .map { it.trim().take(VISUAL_AGENT_MAX_RECENT_ACTION_CHARS) }
-                .filter { it.isNotBlank() }
-                .forEach { put(it) }
+        put("agentMode", true)
+        put("computerUseMode", true)
+        put("forceVisualAgent", true)
+        put("allowInternalDeviceTools", false)
+        put("executionMode", modeKey)
+        put("goal", cleanGoal)
+        put("agentGoal", cleanGoal)
+        put("message", cleanGoal)
+        put("agentSessionId", cleanSessionId)
+        put("sessionId", cleanSessionId)
+        put("agentSessionProtocol", VISUAL_AGENT_SESSION_PROTOCOL)
+        put("deviceId", cleanDeviceId)
+        put("clientId", cleanDeviceId)
+        put("currentPackage", snapshot.packageName)
+        put("screenSnapshot", screenSnapshot)
+        put("recentAgentActions", recentAgentActions)
+        put("recentActions", recentAgentActions)
+        put("agentMemory", JSONObject().apply {
+            put("loopSignals", JSONObject().apply {
+                put("agentSessionId", cleanSessionId)
+            })
         })
         put("visualHistory", JSONArray().apply {
             visualHistory
                 .takeLast(VISUAL_AGENT_MAX_HISTORY_ITEMS)
-                .filter { it.screenshot.hasImage && it.assistantOutput.isNotBlank() }
+                .filter { it.assistantOutput.isNotBlank() || it.executionResult.isNotBlank() }
                 .forEach { item ->
                     put(JSONObject().apply {
                         put("assistantOutput", item.assistantOutput.take(VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS))
                         put("executionResult", item.executionResult.take(VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS))
-                        put("screenshot", item.screenshot.toPayloadJson())
                     })
                 }
         })
-        put("appContext", JSONArray().apply {
-            appContext
-                .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
-                .take(VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS)
-                .forEach { item ->
-                    put(JSONObject().apply {
-                        put("label", item.label.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
-                        put("packageName", item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
-                        put("aliases", JSONArray().apply {
-                            item.aliases
-                                .map { it.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
-                                .filter { it.isNotBlank() }
-                                .distinct()
-                                .take(VISUAL_AGENT_MAX_APP_ALIASES)
-                                .forEach { put(it) }
-                        })
-                        put("capabilities", JSONArray().apply {
-                            item.capabilities
-                                .map { it.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
-                                .filter { it.isNotBlank() }
-                                .distinct()
-                                .take(VISUAL_AGENT_MAX_APP_CAPABILITIES)
-                                .forEach { put(it) }
-                        })
-                    })
-                }
+        put("appContext", canonicalApps)
+        put("deviceContext", JSONObject().apply {
+            put("schema", "android_visual_agent_context_v1")
+            put("currentApp", JSONObject().apply {
+                put("packageName", snapshot.packageName)
+                put("isAssistantHost", snapshot.packageName == "com.yuchen.ailedger")
+            })
+            put("screen", JSONObject().apply {
+                put("widthPx", visual?.displayWidth ?: 0)
+                put("heightPx", visual?.displayHeight ?: 0)
+                put("coordinateProtocol", VisualAgentProtocol.coordinateProtocol)
+            })
+            put("installedApps", canonicalApps)
+            put("installedAppCount", canonicalApps.length())
+            put("uploadedAppCount", canonicalApps.length())
+            put("installedAppsTruncated", appContext.size > canonicalApps.length())
         })
-        if (visual?.hasImage == true) {
-            put("screenshot", visual.toPayloadJson())
+        put("coordinateProtocol", VisualAgentProtocol.coordinateProtocol)
+        put("supportedAgentSteps", JSONArray(VisualAgentProtocol.supportedStepTypes.toList()))
+        put("supportedDeviceTools", JSONArray())
+        put("supportsAgentStepBatch", false)
+        put("actionBatchMax", 1)
+        put("hasScreenshot", visual != null)
+        put("hasImage", visual != null)
+        put("hasImages", visual != null)
+        put("imageCount", if (visual != null) 1 else 0)
+        visual?.let { item ->
+            put("screenshot", JSONObject().apply {
+                put("mimeType", item.mimeType)
+                put("base64Data", item.base64Jpeg)
+                put("width", item.width)
+                put("height", item.height)
+                put("displayWidth", item.displayWidth)
+                put("displayHeight", item.displayHeight)
+                put("source", item.source)
+                put("reason", item.reason)
+            })
         }
-        put("coordinateProtocol", "normalized_screen_0_1")
+        put("responseFormat", JSONObject().apply {
+            put("type", "json_object")
+            put("includeAgentState", true)
+            put("includeAgentStep", true)
+            put("includeAgentSteps", true)
+            put("includeStopConditions", true)
+            put("includePerformanceDebug", true)
+        })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-direct-v3-app-context")
+        put("clientVersion", "visual-agent-direct-v4-unified-contract")
         put("now", System.currentTimeMillis())
     }
 }
 
-private fun AgentScreenVisual.toPayloadJson(): JSONObject {
-    return JSONObject().apply {
-        put("mimeType", mimeType)
-        put("base64Data", base64Jpeg)
-        put("width", width)
-        put("height", height)
-        put("displayWidth", displayWidth)
-        put("displayHeight", displayHeight)
-    }
-}
-
-private fun postVisualAgentStep(endpoint: String, payload: JSONObject): CloudAgentPlan {
+private fun postVisualAgentStep(
+    endpoint: String,
+    payload: JSONObject,
+    deviceId: String,
+    agentSessionId: String,
+): CloudAgentPlan {
     val requestStart = SystemClock.elapsedRealtime()
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
@@ -136,7 +222,11 @@ private fun postVisualAgentStep(endpoint: String, payload: JSONObject): CloudAge
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-direct")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v4")
+        setRequestProperty("X-Client-Id", deviceId.take(120))
+        setRequestProperty("X-Device-Id", deviceId.take(120))
+        setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
+        setRequestProperty("X-Agent-Session-Id", agentSessionId.take(120))
     }
     return try {
         val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
