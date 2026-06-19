@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
-import android.os.SystemClock
 import java.io.IOException
 import java.text.Normalizer
 import kotlin.math.roundToInt
@@ -31,8 +30,6 @@ class VisualLoopRunner(
             return AgentTaskRunResult(false, false, message, logs)
         }
 
-        val actionLimit = maxSteps.coerceIn(1, MAX_ALLOWED_VISUAL_STEPS)
-        val deadlineElapsedMs = SystemClock.elapsedRealtime() + MAX_VISUAL_RUNTIME_MS
         val state = VisualLoopState(goal = goal.trim().take(240), running = true)
         val recentActions = mutableListOf<String>()
         val visualHistory = mutableListOf<VisualAgentHistoryItem>()
@@ -43,13 +40,8 @@ class VisualLoopRunner(
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
 
         return try {
-            while (
-                !isStopped(stopGeneration) &&
-                logs.size < actionLimit &&
-                SystemClock.elapsedRealtime() < deadlineElapsedMs
-            ) {
+            while (!isStopped(stopGeneration) && logs.size < maxSteps) {
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
-                if (SystemClock.elapsedRealtime() >= deadlineElapsedMs) break
 
                 val observation = captureOnce()
                 if (!observation.enabled || !observation.serviceConnected) {
@@ -163,11 +155,7 @@ class VisualLoopRunner(
                 state.stepCount += 1
             }
 
-            val message = when {
-                logs.size >= actionLimit -> "Visual loop reached max step budget."
-                SystemClock.elapsedRealtime() >= deadlineElapsedMs -> "Visual loop reached max runtime budget."
-                else -> "Visual loop stopped."
-            }
+            val message = if (logs.size >= maxSteps) "Visual loop reached max step budget." else "Visual loop stopped."
             AgentRuntimeController.finishTask(message, completed = false)
             AgentTaskRunResult(false, false, message, logs)
         } catch (error: CancellationException) {
@@ -359,8 +347,6 @@ class VisualLoopRunner(
         private const val MAX_RECENT_ACTIONS = 8
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
-        private const val MAX_ALLOWED_VISUAL_STEPS = 72
-        private const val MAX_VISUAL_RUNTIME_MS = 3 * 60_000L
         private const val NO_PROGRESS_LIMIT = 2
         private const val REPEATED_ACTION_CLUSTER_LIMIT = 2
         private const val USER_TAKEOVER_POLL_MS = 120L
