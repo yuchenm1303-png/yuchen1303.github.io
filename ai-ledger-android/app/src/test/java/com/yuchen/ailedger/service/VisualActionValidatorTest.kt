@@ -94,6 +94,44 @@ class VisualActionValidatorTest {
     }
 
     @Test
+    fun completionFingerprintIgnoresScreenshotEncodingNoise() {
+        val first = snapshot(
+            currentApp = "com.tencent.mobileqq",
+            texts = listOf("个人主页", "编辑资料"),
+            nodeCount = 2,
+            visualBase64 = "YWJj",
+        )
+        val second = snapshot(
+            currentApp = "com.tencent.mobileqq",
+            texts = listOf("个人主页", "编辑资料"),
+            nodeCount = 2,
+            visualBase64 = "eHl6",
+        )
+        assertEquals(
+            VisualActionValidator.completionFingerprint(first),
+            VisualActionValidator.completionFingerprint(second),
+        )
+    }
+
+    @Test
+    fun completionFingerprintChangesWithSemanticScreenContent() {
+        val profile = snapshot(
+            currentApp = "com.tencent.mobileqq",
+            texts = listOf("个人主页", "编辑资料"),
+            nodeCount = 2,
+        )
+        val settings = snapshot(
+            currentApp = "com.tencent.mobileqq",
+            texts = listOf("设置", "账号与安全"),
+            nodeCount = 2,
+        )
+        assertNotEquals(
+            VisualActionValidator.completionFingerprint(profile),
+            VisualActionValidator.completionFingerprint(settings),
+        )
+    }
+
+    @Test
     fun tapClusterSignatureGroupsNearbyRepeatedTaps() {
         assertEquals(
             VisualActionValidator.actionClusterSignature(CloudAgentStep(type = "tap_xy", x = 1140f, y = 207f)),
