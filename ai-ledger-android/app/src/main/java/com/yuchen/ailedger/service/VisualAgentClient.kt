@@ -129,10 +129,15 @@ internal fun buildVisualAgentPayload(
         lastVerificationEvent.isVisualFailureFeedback() -> "execution_failed"
         else -> "unknown"
     }
-    val lastResultOk = feedbackLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
-    val executedActionSignatures = feedbackLines
-        .filter { it.contains(":ok:", ignoreCase = true) || it.contains(":failed:", ignoreCase = true) }
-        .mapNotNull { it.visualActionSignatureOrNull() }
+    val executedActionLines = cleanRecentActionLines.filter {
+        it.contains(":ok:", ignoreCase = true) || it.contains(":failed:", ignoreCase = true)
+    }
+    val historyResultLines = historyExecutionResults.filter {
+        it.contains(":ok:", ignoreCase = true) || it.contains(":failed:", ignoreCase = true)
+    }
+    val lastResultOk = executedActionLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
+        ?: historyResultLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
+    val executedActionSignatures = executedActionLines.mapNotNull { it.visualActionSignatureOrNull() }
     val lastActionSignature = executedActionSignatures.lastOrNull()
         ?: activeVerificationEvents.asReversed().firstNotNullOfOrNull { it.visualActionSignatureOrNull() }
         ?: ""
@@ -160,7 +165,7 @@ internal fun buildVisualAgentPayload(
         put("type", "tool_response")
         put("toolName", "mobile_use")
         put("success", lastResultOk ?: JSONObject.NULL)
-        put("result", historyExecutionResults.lastOrNull() ?: lastVerificationEvent)
+        put("result", executedActionLines.lastOrNull() ?: historyExecutionResults.lastOrNull() ?: lastVerificationEvent)
         put("verification", lastVerification)
         put("actionSignature", lastActionSignature)
         put("screenChanged", lastVerification == "visual_screen_changed")
