@@ -82,11 +82,47 @@ class VisualLoopRunner(
 
                 if (step.type == "finish") {
                     val message = step.reason ?: "Visual task completed."
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, AgentExecutionResult(true, message, false))
-                    state.completed = true
-                    AgentRuntimeController.finishTask(message, completed = true)
-                    return AgentTaskRunResult(true, false, message, logs)
+                    val finishFingerprint = VisualActionValidator.completionFingerprint(snapshot)
+                    val sameFreshScreenCandidate = state.pendingFinishCount > 0 &&
+                        state.pendingFinishPackage == snapshot.currentApp &&
+                        state.pendingFinishFingerprint == finishFingerprint
+                    if (sameFreshScreenCandidate) {
+                        val verifiedMessage = "$message Fresh-screen completion verification passed."
+                        logs += AgentTaskStepLog(
+                            logs.size + 1,
+                            snapshot.currentApp,
+                            step,
+                            AgentExecutionResult(true, verifiedMessage, false),
+                        )
+                        state.completed = true
+                        state.clearPendingFinishVerification()
+                        AgentRuntimeController.finishTask(verifiedMessage, completed = true)
+                        return AgentTaskRunResult(true, false, verifiedMessage, logs)
+                    }
+
+                    state.pendingFinishPackage = snapshot.currentApp
+                    state.pendingFinishFingerprint = finishFingerprint
+                    state.pendingFinishCount = 1
+                    val finishVerificationSummary = buildString {
+                        append("finish_verification_pending")
+                        append(":package=").append(snapshot.currentApp.take(100))
+                        append(":fingerprint=").append(Integer.toHexString(finishFingerprint.hashCode()))
+                        append(":reason=").append(message.take(80))
+                    }.take(MAX_RECENT_ACTION_CHARS)
+                    logs += AgentTaskStepLog(
+                        logs.size + 1,
+                        snapshot.currentApp,
+                        step,
+                        AgentExecutionResult(true, "Completion candidate captured; waiting for a fresh-screen verification.", true),
+                    )
+                    appendRecentAction(recentActions, finishVerificationSummary)
+                    rememberVisualTurn(visualHistory, snapshot, plan, finishVerificationSummary)
+                    state.stepCount += 1
+                    delay(FINISH_VERIFICATION_DELAY_MS)
+                    continue
                 }
+                state.clearPendingFinishVerification()
+
                 if (step.type == "need_user_help") {
                     val message = step.reason ?: "Visual agent requested user assistance."
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
@@ -314,7 +350,6 @@ class VisualLoopRunner(
         recentActions: MutableList<String>,
         reason: String,
     ): Boolean {
-        appendRecentAction(recentActions, "user_help=$reason:${message.take(100)}")
         AgentRuntimeController.pauseForUserTakeover(message)
         state.paused = true
         val userInstruction = AgentRuntimeController.requestUserInput(
@@ -335,6 +370,7 @@ class VisualLoopRunner(
         state.noProgressCount = 0
         state.sameActionClusterCount = 0
         state.lastActionCluster = ""
+        state.clearPendingFinishVerification()
         if (canContinue) {
             appendRecentAction(recentActions, "userTakeover=resumed:$reason")
         }
@@ -394,6 +430,7 @@ class VisualLoopRunner(
         private const val SCROLL_DELAY_MS = 260L
         private const val DEFAULT_WAIT_DELAY_MS = 360L
         private const val GLOBAL_ACTION_DELAY_MS = 240L
+        private const val FINISH_VERIFICATION_DELAY_MS = 420L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
 
@@ -411,10 +448,19 @@ data class VisualLoopState(
     var lastActionCluster: String = "",
     var sameActionClusterCount: Int = 0,
     var noProgressCount: Int = 0,
+    var pendingFinishPackage: String = "",
+    var pendingFinishFingerprint: String = "",
+    var pendingFinishCount: Int = 0,
     var running: Boolean = false,
     var paused: Boolean = false,
     var completed: Boolean = false,
 )
+
+private fun VisualLoopState.clearPendingFinishVerification() {
+    pendingFinishPackage = ""
+    pendingFinishFingerprint = ""
+    pendingFinishCount = 0
+}
 
 data class VisualActionValidation(
     val ok: Boolean,
@@ -494,6 +540,21 @@ object VisualActionValidator {
         return listOf(snapshot.currentApp, snapshot.capturedNodeCount.toString(), textKey, nodeKey, visualKey).joinToString("::")
     }
 
+    fun completionFingerprint(snapshot: AgentScreenSnapshot): String {
+        val textKey = snapshot.texts
+            .asSequence()
+            .map { it.trim().take(40) }
+            .filter { it.isNotBlank() }
+            .take(COMPLETION_FINGERPRINT_TEXT_LIMIT)
+            .joinToString("|")
+        val nodeKey = snapshot.clickableNodes
+            .asSequence()
+            .map { "${it.text.trim().take(24)}#${it.bounds}" }
+            .take(COMPLETION_FINGERPRINT_NODE_LIMIT)
+            .joinToString("|")
+        return listOf(snapshot.currentApp, textKey, nodeKey).joinToString("::")
+    }
+
     private fun sampledVisualFingerprint(visual: AgentScreenVisual?): String {
         val image = visual?.takeIf { it.hasImage } ?: return ""
         val data = image.base64Jpeg
@@ -511,4 +572,6 @@ object VisualActionValidator {
     private const val TAP_CLUSTER_BUCKET_PX = 96f
     private const val VISUAL_FINGERPRINT_NODE_THRESHOLD = 3
     private const val VISUAL_FINGERPRINT_SAMPLE_COUNT = 256
+    private const val COMPLETION_FINGERPRINT_TEXT_LIMIT = 20
+    private const val COMPLETION_FINGERPRINT_NODE_LIMIT = 16
 }
