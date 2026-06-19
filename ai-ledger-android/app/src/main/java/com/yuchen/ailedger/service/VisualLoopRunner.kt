@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import android.os.SystemClock
 import java.io.IOException
 import java.text.Normalizer
 import kotlin.math.roundToInt
@@ -30,6 +31,8 @@ class VisualLoopRunner(
             return AgentTaskRunResult(false, false, message, logs)
         }
 
+        val actionLimit = maxSteps.coerceIn(1, MAX_ALLOWED_VISUAL_STEPS)
+        val deadlineElapsedMs = SystemClock.elapsedRealtime() + MAX_VISUAL_RUNTIME_MS
         val state = VisualLoopState(goal = goal.trim().take(240), running = true)
         val recentActions = mutableListOf<String>()
         val visualHistory = mutableListOf<VisualAgentHistoryItem>()
@@ -40,8 +43,13 @@ class VisualLoopRunner(
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
 
         return try {
-            while (!isStopped(stopGeneration) && logs.size < maxSteps) {
+            while (
+                !isStopped(stopGeneration) &&
+                logs.size < actionLimit &&
+                SystemClock.elapsedRealtime() < deadlineElapsedMs
+            ) {
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
+                if (SystemClock.elapsedRealtime() >= deadlineElapsedMs) break
 
                 val observation = captureOnce()
                 if (!observation.enabled || !observation.serviceConnected) {
@@ -155,7 +163,11 @@ class VisualLoopRunner(
                 state.stepCount += 1
             }
 
-            val message = if (logs.size >= maxSteps) "Visual loop reached max step budget." else "Visual loop stopped."
+            val message = when {
+                logs.size >= actionLimit -> "Visual loop reached max step budget."
+                SystemClock.elapsedRealtime() >= deadlineElapsedMs -> "Visual loop reached max runtime budget."
+                else -> "Visual loop stopped."
+            }
             AgentRuntimeController.finishTask(message, completed = false)
             AgentTaskRunResult(false, false, message, logs)
         } catch (error: CancellationException) {
@@ -347,6 +359,8 @@ class VisualLoopRunner(
         private const val MAX_RECENT_ACTIONS = 8
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
+        private const val MAX_ALLOWED_VISUAL_STEPS = 72
+        private const val MAX_VISUAL_RUNTIME_MS = 3 * 60_000L
         private const val NO_PROGRESS_LIMIT = 2
         private const val REPEATED_ACTION_CLUSTER_LIMIT = 2
         private const val USER_TAKEOVER_POLL_MS = 120L
@@ -430,8 +444,29 @@ object VisualActionValidator {
     fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
         val textKey = snapshot.texts.take(16).joinToString("|") { it.take(40) }
         val nodeKey = snapshot.clickableNodes.take(16).joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
-        return listOf(snapshot.currentApp, snapshot.capturedNodeCount.toString(), textKey, nodeKey).joinToString("::")
+        val visualKey = if (snapshot.capturedNodeCount <= VISUAL_FINGERPRINT_NODE_THRESHOLD || snapshot.clickableNodes.isEmpty()) {
+            sampledVisualFingerprint(snapshot.visual)
+        } else {
+            ""
+        }
+        return listOf(snapshot.currentApp, snapshot.capturedNodeCount.toString(), textKey, nodeKey, visualKey).joinToString("::")
+    }
+
+    private fun sampledVisualFingerprint(visual: AgentScreenVisual?): String {
+        val image = visual?.takeIf { it.hasImage } ?: return ""
+        val data = image.base64Jpeg
+        if (data.isBlank()) return ""
+        val stride = (data.length / VISUAL_FINGERPRINT_SAMPLE_COUNT).coerceAtLeast(1)
+        var hash = 1_125_899_906_842_597L
+        var index = 0
+        while (index < data.length) {
+            hash = hash * 31L + data[index].code
+            index += stride
+        }
+        return "${image.width}x${image.height}:${data.length}:${hash.toString(16)}"
     }
 
     private const val TAP_CLUSTER_BUCKET_PX = 96f
+    private const val VISUAL_FINGERPRINT_NODE_THRESHOLD = 3
+    private const val VISUAL_FINGERPRINT_SAMPLE_COUNT = 256
 }
