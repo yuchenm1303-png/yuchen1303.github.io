@@ -75,7 +75,7 @@ class VisualAgentClientTest {
             goal = "打开 QQ 个人主页",
             snapshot = snapshot,
             recentActions = listOf(
-                "tap_xy|0.5|0.5:failed:点击未生效",
+                "tap_xy|0.5|0.5:failed:点击失败",
                 "visual_no_progress:tap_xy|0.5|0.5:count=1:screen=unchanged",
             ),
             agentSessionId = "visual-session-feedback",
