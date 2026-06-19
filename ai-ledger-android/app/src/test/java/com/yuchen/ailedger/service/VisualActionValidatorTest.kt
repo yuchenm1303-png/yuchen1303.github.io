@@ -24,6 +24,56 @@ class VisualActionValidatorTest {
     }
 
     @Test
+    fun blocksFocusedDirectInputWhenMultipleInputsHaveNoConfirmedTarget() {
+        val result = VisualActionValidator.validate(
+            CloudAgentStep(
+                type = "input_text",
+                text = "测试",
+                inputMode = "focused_direct",
+                requiresInputNode = false,
+                expectsFocusedInput = true,
+            ),
+            snapshot(inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息"))),
+        )
+        assertFalse(result.ok)
+    }
+
+    @Test
+    fun allowsFocusedDirectInputForUniqueOrMatchedInput() {
+        val uniqueResult = VisualActionValidator.validate(
+            CloudAgentStep(
+                type = "input_text",
+                text = "测试",
+                inputMode = "focused_direct",
+                requiresInputNode = false,
+            ),
+            snapshot(inputNodes = listOf(inputNode("search", "搜索"))),
+        )
+        assertTrue(uniqueResult.ok)
+
+        val matchedResult = VisualActionValidator.validate(
+            CloudAgentStep(
+                type = "input_text",
+                text = "测试",
+                targetNodeId = "message",
+                inputMode = "focused_direct",
+                requiresInputNode = false,
+            ),
+            snapshot(inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息"))),
+        )
+        assertTrue(matchedResult.ok)
+    }
+
+    @Test
+    fun rejectsNodeInputWithoutUniqueOrMatchedInput() {
+        val result = VisualActionValidator.validate(
+            CloudAgentStep(type = "input_text", text = "测试", requiresInputNode = true),
+            snapshot(inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息"))),
+        )
+        assertFalse(result.ok)
+    }
+
+    @Test
     fun snapshotFingerprintDetectsNoProgress() {
         val before = snapshot(texts = listOf("A"), nodeCount = 1)
         val after = snapshot(texts = listOf("A"), nodeCount = 1)
@@ -61,11 +111,24 @@ class VisualActionValidatorTest {
         )
     }
 
+    private fun inputNode(id: String, text: String): AgentScreenNode {
+        return AgentScreenNode(
+            id = id,
+            text = text,
+            className = "EditText",
+            bounds = "0,0,100,40",
+            clickable = true,
+            editable = true,
+            scrollable = false,
+        )
+    }
+
     private fun snapshot(
         currentApp: String = "com.yuchen.ailedger",
         texts: List<String> = emptyList(),
         nodeCount: Int = 0,
         visualBase64: String = "",
+        inputNodes: List<AgentScreenNode> = emptyList(),
     ): AgentScreenSnapshot {
         return AgentScreenSnapshot(
             currentApp = currentApp,
@@ -73,9 +136,9 @@ class VisualActionValidatorTest {
             nodeCount = nodeCount,
             capturedNodeCount = nodeCount,
             texts = texts,
-            allNodes = emptyList(),
+            allNodes = inputNodes,
             clickableNodes = emptyList(),
-            inputNodes = emptyList(),
+            inputNodes = inputNodes,
             scrollableNodes = emptyList(),
             visual = visualBase64.takeIf { it.isNotBlank() }?.let {
                 AgentScreenVisual(
