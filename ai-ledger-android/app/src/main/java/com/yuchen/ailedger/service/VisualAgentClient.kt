@@ -135,8 +135,13 @@ internal fun buildVisualAgentPayload(
     val historyResultLines = historyExecutionResults.filter {
         it.contains(":ok:", ignoreCase = true) || it.contains(":failed:", ignoreCase = true)
     }
-    val lastResultOk = executedActionLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
+    val lastExecutionResultOk = executedActionLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
         ?: historyResultLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
+    val lastResultOk = when {
+        lastVerificationEvent.isVisualNoProgressFeedback() || lastVerificationEvent.isVisualFailureFeedback() -> false
+        lastVerificationEvent.isVisualScreenChangedFeedback() -> true
+        else -> lastExecutionResultOk
+    }
     val executedActionSignatures = executedActionLines.mapNotNull { it.visualActionSignatureOrNull() }
     val lastActionSignature = executedActionSignatures.lastOrNull()
         ?: activeVerificationEvents.asReversed().firstNotNullOfOrNull { it.visualActionSignatureOrNull() }
