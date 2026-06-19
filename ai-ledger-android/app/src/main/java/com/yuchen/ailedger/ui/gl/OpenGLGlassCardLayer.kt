@@ -537,7 +537,9 @@ private class CardGlassEglThread(
     override fun run() {
         try {
             initEgl()
-            renderer.setPartialClearSupported(preservedSwap)
+            // TextureView 的透明 preserved back buffer 在聊天面板几何动画时会轮换旧像素。
+            // 旧版玻璃按需渲染，关闭局部清屏不会增加空闲负载，却能彻底消除闪烁与固定残影。
+            renderer.setPartialClearSupported(false)
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportWidth, viewportHeight)
             sizeDirty = false
