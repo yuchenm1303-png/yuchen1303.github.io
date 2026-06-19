@@ -43,6 +43,14 @@ class InstalledAppIndexExplicitResolutionTest {
     }
 
     @Test
+    fun explicitNameNormalizesPunctuationWidthAndAppSuffix() {
+        assertEquals("com.tencent.mobileqq", resolve("ＱＱ App").app?.packageName)
+        assertEquals("com.jingdong.app.mall", resolve("京东应用").app?.packageName)
+        assertEquals("com.tencent.map", resolve("腾讯・地图").app?.packageName)
+        assertEquals("com.tencent.mobileqq", resolve("腾讯-QQ应用").app?.packageName)
+    }
+
+    @Test
     fun notFoundAndAmbiguousAreExplicit() {
         val notFound = resolve("不存在的 App")
         assertEquals(ExplicitAppResolutionStatus.NotFound, notFound.status)
