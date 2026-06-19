@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -33,6 +34,16 @@ class VisualActionValidatorTest {
     }
 
     @Test
+    fun sparseVisualFingerprintDetectsCanvasOrWebViewProgress() {
+        val before = snapshot(nodeCount = 0, visualBase64 = "QUFBQUFBQUFB")
+        val after = snapshot(nodeCount = 0, visualBase64 = "QkJCQkJCQkJC")
+        assertNotEquals(
+            VisualActionValidator.snapshotFingerprint(before),
+            VisualActionValidator.snapshotFingerprint(after),
+        )
+    }
+
+    @Test
     fun tapClusterSignatureGroupsNearbyRepeatedTaps() {
         assertEquals(
             VisualActionValidator.actionClusterSignature(CloudAgentStep(type = "tap_xy", x = 1140f, y = 207f)),
@@ -54,6 +65,7 @@ class VisualActionValidatorTest {
         currentApp: String = "com.yuchen.ailedger",
         texts: List<String> = emptyList(),
         nodeCount: Int = 0,
+        visualBase64: String = "",
     ): AgentScreenSnapshot {
         return AgentScreenSnapshot(
             currentApp = currentApp,
@@ -65,7 +77,19 @@ class VisualActionValidatorTest {
             clickableNodes = emptyList(),
             inputNodes = emptyList(),
             scrollableNodes = emptyList(),
-            visual = null,
+            visual = visualBase64.takeIf { it.isNotBlank() }?.let {
+                AgentScreenVisual(
+                    available = true,
+                    mimeType = "image/jpeg",
+                    width = 720,
+                    height = 1280,
+                    displayWidth = 1080,
+                    displayHeight = 2400,
+                    base64Jpeg = it,
+                    source = "test",
+                    reason = "test",
+                )
+            },
         )
     }
 }
