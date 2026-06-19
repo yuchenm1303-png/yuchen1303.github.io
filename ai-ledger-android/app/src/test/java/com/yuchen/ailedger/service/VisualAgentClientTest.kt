@@ -39,6 +39,7 @@ class VisualAgentClientTest {
         assertEquals("android-install-test", payload.getString("deviceId"))
         assertTrue(payload.has("screenSnapshot"))
         assertTrue(payload.has("recentAgentActions"))
+        assertTrue(payload.has("executionFeedback"))
         assertTrue(payload.has("screenshot"))
 
         val snapshotJson = payload.getJSONObject("screenSnapshot")
@@ -60,7 +61,7 @@ class VisualAgentClientTest {
         assertFalse("scroll" in supportedTypes)
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v5_feedback", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v6_structured_feedback", memory.getString("schema"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
     }
 
@@ -72,7 +73,7 @@ class VisualAgentClientTest {
             snapshot = snapshot,
             recentActions = listOf(
                 "tap_xy|0.5|0.5:failed:点击未生效",
-                "user_help=no_progress:No progress after repeated visual actions",
+                "visual_no_progress:tap_xy|0.5|0.5:count=1:screen=unchanged",
             ),
             agentSessionId = "visual-session-feedback",
         )
@@ -80,12 +81,59 @@ class VisualAgentClientTest {
         assertTrue(payload.getBoolean("routeRefreshRequested"))
         assertTrue(payload.getBoolean("invalidateCachedAgentBrainRoute"))
 
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertFalse(feedback.getBoolean("lastResultOk"))
+        assertEquals("visual_no_screen_change", feedback.getString("lastVerification"))
+        assertEquals(1, feedback.getInt("noProgressCount"))
+        assertEquals("tap_xy|0.5|0.5", feedback.getString("lastActionSignature"))
+        assertTrue(feedback.getJSONArray("blockedActionSignatures").length() > 0)
+
         val memory = payload.getJSONObject("agentMemory")
         val signals = memory.getJSONObject("loopSignals")
-        assertTrue(signals.getInt("noProgressCount") > 0)
+        assertEquals(1, signals.getInt("noProgressCount"))
         assertTrue(signals.getBoolean("routeRefreshRequested"))
         assertTrue(memory.getJSONArray("verificationEvents").length() > 0)
         assertTrue(memory.getJSONArray("blockedActionSignatures").length() > 0)
+    }
+
+    @Test
+    fun successfulScreenChangeClearsStaleNoProgressBlock() {
+        val payload = buildVisualAgentPayload(
+            goal = "打开 QQ 个人主页",
+            snapshot = testSnapshot(),
+            recentActions = listOf(
+                "tap_xy|0.5|0.5:ok:result=已点击",
+                "visual_no_progress:tap_xy|0.5|0.5:count=1:screen=unchanged",
+                "back:ok:result=已返回",
+                "visual_screen_changed:back:screen=changed",
+            ),
+            agentSessionId = "visual-session-recovered",
+        )
+
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertTrue(feedback.getBoolean("lastResultOk"))
+        assertEquals("visual_screen_changed", feedback.getString("lastVerification"))
+        assertEquals(0, feedback.getInt("noProgressCount"))
+        assertEquals(0, feedback.getJSONArray("blockedActionSignatures").length())
+        assertFalse(payload.getBoolean("routeRefreshRequested"))
+    }
+
+    @Test
+    fun repeatedSameActionIsCountedForPlannerGuard() {
+        val payload = buildVisualAgentPayload(
+            goal = "进入个人主页",
+            snapshot = testSnapshot(),
+            recentActions = listOf(
+                "tap_xy|0.5|0.5:ok:result=已点击",
+                "tap_xy|0.5|0.5:ok:result=已点击",
+            ),
+            agentSessionId = "visual-session-repeat",
+        )
+
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertEquals(2, feedback.getInt("sameActionCount"))
+        assertEquals("tap_xy|0.5|0.5", feedback.getString("lastActionSignature"))
+        assertTrue(feedback.getBoolean("lastResultOk"))
     }
 
     private fun testSnapshot(): AgentScreenSnapshot {
