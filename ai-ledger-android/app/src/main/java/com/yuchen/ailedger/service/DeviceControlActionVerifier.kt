@@ -21,10 +21,10 @@ class DeviceControlActionVerifier(
     fun verify(step: CloudAgentStep, execution: AgentExecutionResult): AgentExecutionResult {
         if (!execution.ok) return execution
         val verification = when (step.type) {
-            "set_brightness" -> verifyBrightness(step)
+            "set_brightness" -> verifyBrightness(step, execution)
             "set_screen_timeout" -> verifyScreenTimeout(step)
             "set_auto_rotate" -> verifyAutoRotate(step)
-            "set_media_volume" -> verifyMediaVolume(step)
+            "set_media_volume" -> verifyMediaVolume(step, execution)
             "set_wifi_enabled" -> verifyShellSwitch(step, "Wi‑Fi", "settings get global wifi_on")
             "set_bluetooth_enabled" -> verifyShellSwitch(step, "蓝牙", "settings get global bluetooth_on")
             "set_mobile_data_enabled" -> verifyShellSwitch(step, "移动数据", "settings get global mobile_data")
@@ -51,9 +51,9 @@ class DeviceControlActionVerifier(
         )
     }
 
-    private fun verifyBrightness(step: CloudAgentStep): VerificationResult {
-        val targetPercent = expectedBrightnessPercent(step)
-            ?: return VerificationResult(false, "未拿到目标亮度参数，无法确认亮度是否生效。")
+    private fun verifyBrightness(step: CloudAgentStep, execution: AgentExecutionResult): VerificationResult {
+        val targetPercent = expectedBrightnessPercent(step, execution)
+            ?: return VerificationResult(false, "未拿到执行器确认的目标亮度，无法确认亮度是否生效。")
         val actualPercent = currentBrightnessPercent()
             ?: return VerificationResult(false, "读取当前亮度失败，无法确认亮度是否生效。")
         val ok = abs(actualPercent - targetPercent) <= BRIGHTNESS_TOLERANCE_PERCENT
@@ -100,9 +100,9 @@ class DeviceControlActionVerifier(
         )
     }
 
-    private fun verifyMediaVolume(step: CloudAgentStep): VerificationResult {
-        val targetPercent = expectedMediaVolumePercent(step)
-            ?: return VerificationResult(false, "未拿到目标音量参数，无法确认媒体音量是否生效。")
+    private fun verifyMediaVolume(step: CloudAgentStep, execution: AgentExecutionResult): VerificationResult {
+        val targetPercent = expectedMediaVolumePercent(step, execution)
+            ?: return VerificationResult(false, "未拿到执行器确认的目标音量，无法确认媒体音量是否生效。")
         val audio = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
             ?: return VerificationResult(false, "读取 AudioManager 失败。")
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
@@ -260,36 +260,24 @@ class DeviceControlActionVerifier(
         )
     }
 
-    private fun expectedBrightnessPercent(step: CloudAgentStep): Float? {
-        val currentPercent = currentBrightnessPercent() ?: DEFAULT_BRIGHTNESS_PERCENT
+    private fun expectedBrightnessPercent(step: CloudAgentStep, execution: AgentExecutionResult): Float? {
+        targetPercentFromExecutionMessage(execution.message)?.let { return it }
         val absolutePercent = step.argFloat("percent", "brightness", "value")
-        val deltaPercent = step.argFloat("deltaPercent", "delta", "brightnessDelta", "changePercent", "adjustBy")
-        val operationPercent = percentOperationDelta(step, DEFAULT_BRIGHTNESS_DELTA)
+        val hasRelativeOperation = step.argFloat("deltaPercent", "delta", "brightnessDelta", "changePercent", "adjustBy") != null ||
+            percentOperationDelta(step, DEFAULT_BRIGHTNESS_DELTA) != null
+        if (hasRelativeOperation) return null
         val textPercent = firstNumber(step.text ?: step.targetText ?: step.reason.orEmpty())?.toFloat()
-        return when {
-            absolutePercent != null -> absolutePercent
-            deltaPercent != null -> currentPercent + deltaPercent
-            operationPercent != null -> currentPercent + operationPercent
-            textPercent != null -> textPercent
-            else -> null
-        }?.coerceIn(0f, 100f)
+        return (absolutePercent ?: textPercent)?.coerceIn(0f, 100f)
     }
 
-    private fun expectedMediaVolumePercent(step: CloudAgentStep): Float? {
-        val audio = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return null
-        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC) * 100f / max
+    private fun expectedMediaVolumePercent(step: CloudAgentStep, execution: AgentExecutionResult): Float? {
+        targetPercentFromExecutionMessage(execution.message)?.let { return it }
         val absolutePercent = step.argFloat("percent", "volume", "value")
-        val deltaPercent = step.argFloat("deltaPercent", "delta", "changePercent", "adjustBy")
-        val operationPercent = percentOperationDelta(step, DEFAULT_VOLUME_DELTA)
+        val hasRelativeOperation = step.argFloat("deltaPercent", "delta", "changePercent", "adjustBy") != null ||
+            percentOperationDelta(step, DEFAULT_VOLUME_DELTA) != null
+        if (hasRelativeOperation) return null
         val textPercent = firstNumber(step.text ?: step.targetText ?: step.reason.orEmpty())?.toFloat()
-        return when {
-            absolutePercent != null -> absolutePercent
-            deltaPercent != null -> current + deltaPercent
-            operationPercent != null -> current + operationPercent
-            textPercent != null -> textPercent
-            else -> null
-        }?.coerceIn(0f, 100f)
+        return (absolutePercent ?: textPercent)?.coerceIn(0f, 100f)
     }
 
     private fun currentBrightnessPercent(): Float? {
@@ -387,11 +375,19 @@ class DeviceControlActionVerifier(
     )
 
     private companion object {
-        private const val DEFAULT_BRIGHTNESS_PERCENT = 50f
         private const val DEFAULT_BRIGHTNESS_DELTA = 15f
         private const val DEFAULT_VOLUME_DELTA = 15f
         private const val BRIGHTNESS_TOLERANCE_PERCENT = 4f
         private const val VOLUME_TOLERANCE_PERCENT = 6f
         private const val SCREEN_TIMEOUT_TOLERANCE_MS = 1_000
     }
+}
+
+internal fun targetPercentFromExecutionMessage(message: String): Float? {
+    return Regex("""调到约\s*(\d+(?:\.\d+)?)%""")
+        .find(message)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toFloatOrNull()
+        ?.coerceIn(0f, 100f)
 }
