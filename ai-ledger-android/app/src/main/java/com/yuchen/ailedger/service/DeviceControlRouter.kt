@@ -104,6 +104,13 @@ object DeviceControlRouter {
 
     fun supportedCapabilities(): List<String> = capabilityToStepType.keys.sorted()
 
+    fun normalChatSupportedCapabilities(): List<String> {
+        return capabilityToStepType
+            .filterValues { stepType -> stepType !in highRiskTypes }
+            .keys
+            .sorted()
+    }
+
     private fun normalizeCapability(raw: String): String? {
         val key = raw.trim().lowercase().replace('-', '_')
         capabilityToStepType[key.replace('_', '.')]?.let { return it }
