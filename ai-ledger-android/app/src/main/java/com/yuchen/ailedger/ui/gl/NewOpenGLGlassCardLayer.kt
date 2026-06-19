@@ -32,6 +32,9 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+private const val NewOpenGlReferenceShortEdgeDp = 160f
+private const val NewOpenGlMinimumOpticalScale = 0.28f
+
 val LocalNewOpenGlGlassStyleOverride =
     staticCompositionLocalOf<((GlassBorderStyle) -> GlassBorderStyle)?> { null }
 
@@ -109,7 +112,7 @@ fun NewOpenGLGlassCardLayer(
     val rendererBorder = remember(border) { border.onlyWebOpenGLRendererFields() }
     val backdropOrigin = LocalBackdropOrigin.current
     val density = LocalDensity.current
-    val densityScale = density.density
+    val densityScale = density.density.coerceAtLeast(0.001f)
     val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
     val localViewportTopInsetPx = with(density) { LocalOpenGLGlassViewportTopInset.current.toPx() }
     val effectiveViewportTopInsetPx = max(viewportTopInsetPx, localViewportTopInsetPx)
@@ -121,7 +124,6 @@ fun NewOpenGLGlassCardLayer(
     val blurMediumBitmap = remember(backdrop.blurMediumImage) { backdrop.blurMediumImage.asAndroidBitmap() }
     val blurHighBitmap = remember(backdrop.blurHighImage) { backdrop.blurHighImage.asAndroidBitmap() }
 
-    val radiusPx = with(density) { radius.dp.toPx() }
     val intensity = border.newOpenGlGlassIntensity.takeIf { it > 0f }?.coerceIn(0.35f, 1.35f)
         ?: glassIntensity.coerceIn(0.35f, 1.35f)
     val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
@@ -132,6 +134,18 @@ fun NewOpenGLGlassCardLayer(
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
         val heightPx = with(density) { maxHeight.toPx() }.coerceAtLeast(1f)
+        val shortEdgePx = min(widthPx, heightPx)
+        val shortEdgeDp = shortEdgePx / densityScale
+        val opticalScale = (shortEdgeDp / NewOpenGlReferenceShortEdgeDp)
+            .coerceIn(NewOpenGlMinimumOpticalScale, 1f)
+        val scaledRendererBorder = remember(rendererBorder, opticalScale) {
+            rendererBorder.scaleNewOpenGlOpticalDistances(opticalScale)
+        }
+        val radiusPx = if (radius >= 999) {
+            shortEdgePx * 0.5f
+        } else {
+            with(density) { radius.dp.toPx() }.coerceIn(0f, shortEdgePx * 0.5f)
+        }
         val safeViewportTopInsetPx = effectiveViewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
         val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
         val mappedPressY = ((rawPressY * heightPx - safeViewportTopInsetPx) / viewportHeightPx)
@@ -175,7 +189,7 @@ fun NewOpenGLGlassCardLayer(
                     blurHighBitmap = blurHighBitmap
                 )
                 val blurDirty = view.setBackdropBlurAmount(backdrop.blurAmount)
-                val styleDirty = view.setGlassStyle(rendererBorder, densityScale)
+                val styleDirty = view.setGlassStyle(scaledRendererBorder, densityScale)
                 val surfaceDirty = view.setStableSurfaceSize(
                     stableSurfaceWidthPx.roundToInt(),
                     stableSurfaceHeightPx.roundToInt(),
@@ -227,6 +241,22 @@ private fun Modifier.startupStaticGlassLayer(
             style = Stroke(width = strokeWidth)
         )
     }
+}
+
+private fun GlassBorderStyle.scaleNewOpenGlOpticalDistances(scale: Float): GlassBorderStyle {
+    val safeScale = scale.coerceIn(NewOpenGlMinimumOpticalScale, 1f)
+    if (safeScale >= 0.999f) return this
+
+    return copy(
+        newOpenGlBodyLensBasePull = newOpenGlBodyLensBasePull * safeScale,
+        newOpenGlBodyLensPullDp = newOpenGlBodyLensPullDp * safeScale,
+        newOpenGlBodyLensExtraDistance = newOpenGlBodyLensExtraDistance * safeScale,
+        newOpenGlBodyLensReachDp = newOpenGlBodyLensReachDp * safeScale,
+        newOpenGlShoulderWidthDp = newOpenGlShoulderWidthDp * safeScale,
+        newOpenGlShoulderCaptureWidthDp = newOpenGlShoulderCaptureWidthDp * safeScale,
+        newOpenGlDispersionDistanceDp = newOpenGlDispersionDistanceDp * safeScale,
+        newOpenGlDispersionEdgeWidthDp = newOpenGlDispersionEdgeWidthDp * safeScale
+    )
 }
 
 private fun GlassBorderStyle.onlyWebOpenGLRendererFields(): GlassBorderStyle = GlassBorderStyle().copy(
