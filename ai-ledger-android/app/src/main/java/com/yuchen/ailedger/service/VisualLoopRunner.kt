@@ -419,8 +419,8 @@ class VisualLoopRunner(
         private const val MAX_RECENT_ACTION_CHARS = 180
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
-        private const val NO_PROGRESS_LIMIT = 2
-        private const val REPEATED_ACTION_CLUSTER_LIMIT = 2
+        private const val NO_PROGRESS_LIMIT = Int.MAX_VALUE
+        private const val REPEATED_ACTION_CLUSTER_LIMIT = Int.MAX_VALUE
         private const val USER_TAKEOVER_POLL_MS = 120L
         private const val OVERLAY_HIDE_STABILIZE_MS = 260L
         private const val DEFAULT_STEP_DELAY_MS = 280L
