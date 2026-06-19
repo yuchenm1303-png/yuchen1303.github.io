@@ -15,30 +15,22 @@ class AgentOrchestrator(
         maxSteps: Int = Int.MAX_VALUE,
         executionMode: AgentExecutionMode,
     ): AgentTaskRunResult {
-        val route = routeFor(executionMode)
-        val resolvedMaxSteps = when {
-            maxSteps != Int.MAX_VALUE -> maxSteps
-            route == AgentOrchestratorRoute.VisualLoop -> DEFAULT_VISUAL_MAX_STEPS
-            else -> Int.MAX_VALUE
-        }
-        return when (route) {
+        return when (routeFor(executionMode)) {
             AgentOrchestratorRoute.LegacyRunner -> AgentTaskRunner(aiWorkerClient, applicationContext).run(
                 goal = goal,
                 modelPreference = modelPreference,
-                maxSteps = resolvedMaxSteps,
+                maxSteps = maxSteps,
                 executionMode = executionMode,
             )
             AgentOrchestratorRoute.VisualLoop -> VisualLoopRunner(aiWorkerClient, applicationContext).run(
                 goal = goal,
-                maxSteps = resolvedMaxSteps,
+                maxSteps = maxSteps,
                 executionMode = executionMode,
             )
         }
     }
 
     companion object {
-        private const val DEFAULT_VISUAL_MAX_STEPS = 36
-
         fun routeFor(executionMode: AgentExecutionMode): AgentOrchestratorRoute {
             return when (executionMode) {
                 AgentExecutionMode.NormalChatDeviceTool -> AgentOrchestratorRoute.LegacyRunner
