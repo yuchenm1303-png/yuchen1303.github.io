@@ -9,7 +9,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val VISUAL_AGENT_CONNECT_TIMEOUT_MS = 8_000
-private const val VISUAL_AGENT_READ_TIMEOUT_MS = 20_000
+private const val VISUAL_AGENT_READ_TIMEOUT_MS = 25_000
 private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 8
 private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 240
 private const val VISUAL_AGENT_MAX_HISTORY_ITEMS = 4
@@ -19,7 +19,7 @@ private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 160
 private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 120
 private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 8
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
-private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v6_structured_feedback"
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v7_tool_response"
 
 internal object VisualAgentProtocol {
     const val coordinateProtocol = "normalized_screen_0_1"
@@ -115,6 +115,7 @@ internal fun buildVisualAgentPayload(
     }
     val activeVerificationEvents = activeFeedbackWindow.filter { it.isVisualRuntimeFeedback() }
     val noProgressCount = activeVerificationEvents.count { it.isVisualNoProgressFeedback() }
+    val finishVerificationRequested = activeVerificationEvents.any { it.isVisualFinishVerificationFeedback() }
     val blockedActionSignatures = activeVerificationEvents
         .filter { it.isVisualNoProgressFeedback() || it.isVisualFailureFeedback() }
         .mapNotNull { it.visualActionSignatureOrNull() }
@@ -122,6 +123,7 @@ internal fun buildVisualAgentPayload(
         .takeLast(VISUAL_AGENT_MAX_BLOCKED_SIGNATURES)
     val lastVerificationEvent = verificationEvents.lastOrNull().orEmpty()
     val lastVerification = when {
+        lastVerificationEvent.isVisualFinishVerificationFeedback() -> "finish_verification_pending"
         lastVerificationEvent.isVisualNoProgressFeedback() -> "visual_no_screen_change"
         lastVerificationEvent.isVisualScreenChangedFeedback() -> "visual_screen_changed"
         lastVerificationEvent.isVisualFailureFeedback() -> "execution_failed"
@@ -139,7 +141,9 @@ internal fun buildVisualAgentPayload(
     } else {
         executedActionSignatures.asReversed().takeWhile { it == lastActionSignature }.count()
     }
-    val routeRefreshRequested = noProgressCount > 0 || activeVerificationEvents.any { it.isVisualFailureFeedback() }
+    val routeRefreshRequested = finishVerificationRequested ||
+        noProgressCount > 0 ||
+        activeVerificationEvents.any { it.isVisualFailureFeedback() }
     val executionFeedback = JSONObject().apply {
         put("lastResultOk", lastResultOk ?: JSONObject.NULL)
         put("lastVerification", lastVerification)
@@ -149,7 +153,18 @@ internal fun buildVisualAgentPayload(
         put("blockedActionSignatures", JSONArray(blockedActionSignatures))
         put("verificationEvents", JSONArray(verificationEvents))
         put("latestEvent", lastVerificationEvent)
+        put("finishVerificationRequested", finishVerificationRequested)
         put("routeRefreshRequested", routeRefreshRequested)
+    }
+    val lastToolResponse = JSONObject().apply {
+        put("type", "tool_response")
+        put("toolName", "mobile_use")
+        put("success", lastResultOk ?: JSONObject.NULL)
+        put("result", historyExecutionResults.lastOrNull() ?: lastVerificationEvent)
+        put("verification", lastVerification)
+        put("actionSignature", lastActionSignature)
+        put("screenChanged", lastVerification == "visual_screen_changed")
+        put("finishVerificationRequested", finishVerificationRequested)
     }
     val canonicalApps = JSONArray().apply {
         appContext
@@ -193,14 +208,18 @@ internal fun buildVisualAgentPayload(
         put("recentAgentActions", recentAgentActions)
         put("recentActions", recentAgentActions)
         put("executionFeedback", executionFeedback)
+        put("lastToolResponse", lastToolResponse)
+        put("toolResponse", lastToolResponse)
+        put("finishVerificationRequested", finishVerificationRequested)
         put("routeRefreshRequested", routeRefreshRequested)
         put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
         put("agentMemory", JSONObject().apply {
-            put("schema", "android_visual_agent_loop_memory_v6_structured_feedback")
+            put("schema", "android_visual_agent_loop_memory_v7_tool_response")
             put("recentActions", recentAgentActions)
             put("verificationEvents", JSONArray(verificationEvents))
             put("blockedActionSignatures", JSONArray(blockedActionSignatures))
             put("executionFeedback", executionFeedback)
+            put("lastToolResponse", lastToolResponse)
             put("loopSignals", JSONObject().apply {
                 put("agentSessionId", cleanSessionId)
                 put("loopIndex", cleanRecentActionLines.size)
@@ -209,9 +228,11 @@ internal fun buildVisualAgentPayload(
                 put("sameActionCount", sameActionCount)
                 put("lastResultOk", lastResultOk ?: JSONObject.NULL)
                 put("lastVerification", lastVerification)
+                put("finishVerificationRequested", finishVerificationRequested)
                 put("routeRefreshRequested", routeRefreshRequested)
                 put("lastActionSignature", lastActionSignature)
                 put("postActionFeedback", executionFeedback)
+                put("lastToolResponse", lastToolResponse)
             })
         })
         put("visualHistory", JSONArray().apply {
@@ -272,7 +293,7 @@ internal fun buildVisualAgentPayload(
             put("includePerformanceDebug", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-direct-v6-structured-feedback")
+        put("clientVersion", "visual-agent-direct-v7-tool-response")
         put("now", System.currentTimeMillis())
     }
 }
@@ -282,6 +303,7 @@ private fun String.isVisualRuntimeFeedback(): Boolean {
     return value.contains(":failed:") ||
         value.contains("visual_no_progress") ||
         value.contains("visual_screen_changed") ||
+        value.contains("finish_verification_pending") ||
         value.contains("no_progress") ||
         value.contains("no progress") ||
         value.contains("same screen") ||
@@ -309,6 +331,10 @@ private fun String.isVisualScreenChangedFeedback(): Boolean {
         value.contains("visual_progress")
 }
 
+private fun String.isVisualFinishVerificationFeedback(): Boolean {
+    return lowercase().contains("finish_verification_pending")
+}
+
 private fun String.isVisualFailureFeedback(): Boolean {
     val value = lowercase()
     return value.contains(":failed:") || value.contains("blocked") || value.contains("执行失败")
@@ -330,6 +356,7 @@ private fun String.visualActionSignatureOrNull(): String? {
         ":ok:" in clean -> clean.substringBefore(":ok:")
         clean.startsWith("visual_no_progress:") -> clean.substringAfter("visual_no_progress:").substringBefore(":count=")
         clean.startsWith("visual_screen_changed:") -> clean.substringAfter("visual_screen_changed:").substringBefore(":screen=")
+        clean.startsWith("finish_verification_pending:") -> "finish"
         else -> Regex("(?:tap@\\d+,\\d+|tap_node@[^\\s，。；;:：]+|open@[^\\s，。；;:：]+|input@[^\\s，。；;:：]+|scroll@[a-z]+|swipe@[a-z]+|back|home|recents)")
             .find(clean)
             ?.value
@@ -337,7 +364,7 @@ private fun String.visualActionSignatureOrNull(): String? {
     return signature?.trim()?.take(160)?.takeIf { it.isNotBlank() }
 }
 
-private fun postVisualAgentStep(
+private fun AiWorkerClient.postVisualAgentStep(
     endpoint: String,
     payload: JSONObject,
     deviceId: String,
@@ -351,7 +378,7 @@ private fun postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v6")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v7")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
