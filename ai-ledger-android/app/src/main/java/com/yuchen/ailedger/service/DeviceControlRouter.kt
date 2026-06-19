@@ -52,6 +52,10 @@ object DeviceControlRouter {
         "enable_app",
     )
 
+    private val normalChatExcludedTypes = highRiskTypes + setOf(
+        "request_shizuku_permission",
+    )
+
     fun fromAgentActionJson(agentAction: JSONObject?): CloudAgentStep? {
         if (agentAction == null) return null
         val explicit = listOf("deviceControlAction", "device_control_action", "agentStep", "step")
@@ -106,7 +110,7 @@ object DeviceControlRouter {
 
     fun normalChatSupportedCapabilities(): List<String> {
         return capabilityToStepType
-            .filterValues { stepType -> stepType !in highRiskTypes }
+            .filterValues { stepType -> stepType !in normalChatExcludedTypes }
             .keys
             .sorted()
     }
@@ -114,7 +118,7 @@ object DeviceControlRouter {
     fun normalChatSupportedStepTypes(): List<String> {
         return capabilityToStepType
             .values
-            .filterNot { stepType -> stepType in highRiskTypes }
+            .filterNot { stepType -> stepType in normalChatExcludedTypes }
             .distinct()
             .sorted()
     }
