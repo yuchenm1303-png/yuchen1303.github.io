@@ -24,7 +24,6 @@ import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import com.yuchen.ailedger.MainActivity
 import com.yuchen.ailedger.R
-import java.io.ByteArrayOutputStream
 import java.util.ArrayDeque
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -263,31 +262,21 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun Bitmap.toVisualObservation(reason: String): ScreenVisualObservation {
         val originalWidth = width
         val originalHeight = height
-        val longSide = maxOf(originalWidth, originalHeight).coerceAtLeast(1)
-        val scale = (VISION_MAX_LONG_SIDE.toFloat() / longSide.toFloat()).coerceAtMost(1f)
-        val targetWidth = (originalWidth * scale).toInt().coerceAtLeast(1)
-        val targetHeight = (originalHeight * scale).toInt().coerceAtLeast(1)
-        val scaled = if (targetWidth != originalWidth || targetHeight != originalHeight) {
-            Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
-        } else {
-            this
+        val encoded = try {
+            VisualScreenshotEncoder.encode(this)
+        } finally {
+            recycle()
         }
-
-        val output = ByteArrayOutputStream()
-        scaled.compress(Bitmap.CompressFormat.JPEG, VISION_JPEG_QUALITY, output)
-        if (scaled !== this) scaled.recycle()
-        recycle()
-
         return ScreenVisualObservation(
             available = true,
             mimeType = "image/jpeg",
-            width = targetWidth,
-            height = targetHeight,
+            width = encoded.width,
+            height = encoded.height,
             displayWidth = originalWidth,
             displayHeight = originalHeight,
-            base64Jpeg = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP),
-            source = "accessibility_takeScreenshot",
-            reason = reason,
+            base64Jpeg = Base64.encodeToString(encoded.bytes, Base64.NO_WRAP),
+            source = "accessibility_takeScreenshot_high_resolution",
+            reason = "$reason · ${encoded.width}x${encoded.height} · q${encoded.quality} · ${encoded.bytes.size / 1024}KB",
             capturedAt = System.currentTimeMillis(),
         )
     }
@@ -1068,9 +1057,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val INPUT_FOCUS_RETRY_DELAY_MS = 150L
         private const val INPUT_PASTE_FOCUS_DELAY_MS = 55L
 
-        private const val VISION_MAX_LONG_SIDE = 720
-        private const val VISION_JPEG_QUALITY = 68
-        private const val SCREENSHOT_TIMEOUT_MS = 1000L
+        private const val SCREENSHOT_TIMEOUT_MS = 2_200L
         private const val OVERLAY_HIDE_BEFORE_ACTION_MS = 90L
         private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 150L
 
