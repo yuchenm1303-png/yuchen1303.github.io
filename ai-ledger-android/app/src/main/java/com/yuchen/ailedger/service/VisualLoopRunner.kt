@@ -429,8 +429,28 @@ object VisualActionValidator {
         if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
             return VisualActionValidation(false, "Invalid tap coordinates.")
         }
-        if (step.type == "input_text" && step.text.isNullOrBlank()) {
-            return VisualActionValidation(false, "Input text is empty.")
+        if (step.type == "input_text") {
+            if (step.text.isNullOrBlank()) {
+                return VisualActionValidation(false, "Input text is empty.")
+            }
+            val matchedTarget = snapshot.inputNodes.any { node ->
+                (!step.targetNodeId.isNullOrBlank() && node.id == step.targetNodeId) ||
+                    (!step.targetText.isNullOrBlank() && (
+                        node.text == step.targetText || node.text.contains(step.targetText, ignoreCase = true)
+                    ))
+            }
+            if (step.shouldUseFocusedDirectInput && snapshot.inputNodes.size > 1 && !matchedTarget) {
+                return VisualActionValidation(
+                    false,
+                    "当前页面存在多个输入框，但 GUI Plus 没有提供可确认的输入目标；已阻止盲目输入。",
+                )
+            }
+            if (!step.shouldUseFocusedDirectInput && snapshot.inputNodes.size != 1 && !matchedTarget) {
+                return VisualActionValidation(
+                    false,
+                    "输入动作缺少唯一输入框或明确目标；已阻止将文字写入错误位置。",
+                )
+            }
         }
         if (step.type == "open_app" && (step.appName.isNullOrBlank() || step.packageName.isNullOrBlank())) {
             return VisualActionValidation(false, "open_app requires the canonical appName and packageName pair.")
