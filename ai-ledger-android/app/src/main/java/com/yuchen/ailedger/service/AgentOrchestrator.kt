@@ -25,6 +25,7 @@ class AgentOrchestrator(
             AgentOrchestratorRoute.VisualLoop -> VisualLoopRunner(aiWorkerClient, applicationContext).run(
                 goal = goal,
                 maxSteps = maxSteps,
+                executionMode = executionMode,
             )
         }
     }
