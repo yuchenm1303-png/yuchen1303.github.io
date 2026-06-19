@@ -272,9 +272,9 @@ class InstalledAppIndex(
         private fun normalizeExplicitName(value: String): String {
             return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
                 .replace(Regex("\\s+"), "")
-                .replace(Regex("[路銉?銆俖\\-]+"), "")
+                .replace(Regex("[·・.。_\\-]+"), "")
                 .removeSuffix("app")
-                .removeSuffix("搴旂敤")
+                .removeSuffix("应用")
         }
     }
 }
