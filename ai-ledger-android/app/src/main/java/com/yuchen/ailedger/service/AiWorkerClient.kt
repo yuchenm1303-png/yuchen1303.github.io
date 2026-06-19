@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -19,17 +20,37 @@ import org.json.JSONObject
 private const val DEFAULT_CONNECT_TIMEOUT_MS = 15_000
 private const val DEFAULT_READ_TIMEOUT_MS = 45_000
 private const val QWEN_VISION_ROUTE_ID = "qwen_vision"
+private const val CHAT_CLIENT_NAME = "android-compose"
+private const val CHAT_PROTOCOL_VERSION = 6
 private val embeddedCommandRegex = Regex("""\[\[AI_LEDGER_COMMAND:(\{.*?\})]]""", setOf(RegexOption.DOT_MATCHES_ALL))
 
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
     val fallbackEndpoints: List<String> = AiWorkerClient.DEFAULT_FALLBACK_ENDPOINTS,
     val connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
-    val readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS
+    val readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS,
+    val clientId: String? = null,
+    val clientAuthToken: String? = null,
 )
 
-data class CloudMobileAction(val type: String, val title: String? = null, val destination: String? = null, val appName: String? = null, val packageName: String? = null, val hour: Int? = null, val minute: Int? = null, val label: String? = null)
-data class CloudPreferenceUpdate(val type: String, val slot: String, val label: String, val value: String)
+data class CloudMobileAction(
+    val type: String,
+    val title: String? = null,
+    val destination: String? = null,
+    val appName: String? = null,
+    val packageName: String? = null,
+    val hour: Int? = null,
+    val minute: Int? = null,
+    val label: String? = null,
+)
+
+data class CloudPreferenceUpdate(
+    val type: String,
+    val slot: String,
+    val label: String,
+    val value: String,
+)
+
 data class CloudAgentAction(
     val capability: String,
     val title: String? = null,
@@ -51,17 +72,44 @@ data class AiChatResponse(
     val preferenceUpdate: CloudPreferenceUpdate? = null,
     val agentAction: CloudAgentAction? = null,
     val searchUsed: Boolean = false,
-    val searchProvider: String? = null
+    val searchProvider: String? = null,
 )
 
-private data class ModelRoute(val requested: ChatModel, val resolved: ChatModel, val reason: String) { val isAuto: Boolean get() = requested == ChatModel.Auto }
-private data class RouteScore(val model: ChatModel, val score: Int, val reason: String)
+private data class ModelRoute(
+    val requested: ChatModel,
+    val resolved: ChatModel,
+    val reason: String,
+) {
+    val isAuto: Boolean get() = requested == ChatModel.Auto
+}
+
+private data class RouteScore(
+    val model: ChatModel,
+    val score: Int,
+    val reason: String,
+)
 
 class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     val endpoint: String get() = config.endpoint
 
+    private val resolvedClientId: String by lazy {
+        config.clientId
+            ?.trim()
+            ?.take(120)
+            ?.takeIf { it.isNotBlank() }
+            ?: AiLedgerApplication.contextOrNull()
+                ?.let { context -> AgentClientIdentity.getOrCreateDeviceId(context) }
+                ?.take(120)
+                ?.takeIf { it.isNotBlank() }
+            ?: CHAT_CLIENT_NAME
+    }
+
     @Throws(IOException::class)
-    fun sendChat(messages: List<ChatMessage>, modelPreference: ChatModel = ChatModel.Auto, onlineEnabled: Boolean = false): AiChatResponse {
+    fun sendChat(
+        messages: List<ChatMessage>,
+        modelPreference: ChatModel = ChatModel.Auto,
+        onlineEnabled: Boolean = false,
+    ): AiChatResponse {
         val route = resolveModelRoute(messages, modelPreference)
         val endpoints = endpointPlan(route)
         if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
@@ -69,7 +117,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         var lastError: IOException? = null
         endpointLoop@ for (cleanEndpoint in endpoints) {
             for (candidate in endpointCandidates(cleanEndpoint)) {
-                try { return postChat(candidate, payload, route) } catch (error: IOException) {
+                try {
+                    return postChat(candidate, payload, route)
+                } catch (error: IOException) {
                     lastError = error
                     if (error is SocketTimeoutException || error.cause is SocketTimeoutException) continue@endpointLoop
                 }
@@ -83,7 +133,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         messages: List<ChatMessage>,
         modelPreference: ChatModel = ChatModel.Auto,
         onlineEnabled: Boolean = false,
-        onDelta: (String) -> Unit
+        onDelta: (String) -> Unit,
     ): AiChatResponse {
         val route = resolveModelRoute(messages, modelPreference)
         val endpoints = endpointPlan(route)
@@ -108,7 +158,20 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         throw lastError ?: IOException("云端 AI 流式请求失败，请检查 Worker 配置。")
     }
 
-    private fun endpointPool(primary: String, fallbacks: List<String>): List<String> = (listOf(primary) + fallbacks).map { it.trim().trimEnd('/') }.filter { it.isNotBlank() }.distinct()
+    internal fun buildChatPayloadForTest(
+        messages: List<ChatMessage>,
+        modelPreference: ChatModel = ChatModel.Auto,
+        onlineEnabled: Boolean = false,
+    ): JSONObject {
+        return buildPayload(messages, resolveModelRoute(messages, modelPreference), onlineEnabled)
+    }
+
+    private fun endpointPool(primary: String, fallbacks: List<String>): List<String> {
+        return (listOf(primary) + fallbacks)
+            .map { it.trim().trimEnd('/') }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
 
     private fun endpointPlan(route: ModelRoute): List<String> {
         val cn = config.endpoint.trim().trimEnd('/')
@@ -118,32 +181,71 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     }
 
     private fun resolveModelRoute(messages: List<ChatMessage>, modelPreference: ChatModel): ModelRoute {
-        if (messages.hasImageAttachments()) return ModelRoute(modelPreference, ChatModel.Kimi, "qwen_vision_image_attachment")
+        if (messages.hasLatestUserImageAttachments()) {
+            return ModelRoute(modelPreference, ChatModel.Kimi, "qwen_vision_image_attachment")
+        }
         if (modelPreference != ChatModel.Auto) return ModelRoute(modelPreference, modelPreference, "manual_selection")
         val latest = latestUserText(messages)
         val text = latest.lowercase()
-        val route = scoreAutoV2(latest, text).maxWithOrNull(compareBy<RouteScore> { it.score }.thenBy { autoTieBreakPriority(it.model) }) ?: RouteScore(ChatModel.Kimi, 1, "qwen_default")
+        val route = scoreAutoV2(latest, text)
+            .maxWithOrNull(compareBy<RouteScore> { it.score }.thenBy { autoTieBreakPriority(it.model) })
+            ?: RouteScore(ChatModel.Kimi, 1, "qwen_default")
         return ModelRoute(ChatModel.Auto, route.model, "auto_v2:${route.reason}")
     }
 
     private fun scoreAutoV2(latest: String, text: String): List<RouteScore> {
-        val codeScore = 10 * countMatches(text, codeKeywords) + 7 * countMatches(text, appDevKeywords) + if (looksLikeCodeOrError(latest, text)) 18 else 0
-        val reasoningScore = 9 * countMatches(text, reasoningKeywords) + 11 * countMatches(text, stemKeywords) + 6 * countMatches(text, designKeywords) + if (hasFormulaSignal(latest)) 14 else 0
+        val codeScore = 10 * countMatches(text, codeKeywords) +
+            7 * countMatches(text, appDevKeywords) +
+            if (looksLikeCodeOrError(latest, text)) 18 else 0
+        val reasoningScore = 9 * countMatches(text, reasoningKeywords) +
+            11 * countMatches(text, stemKeywords) +
+            6 * countMatches(text, designKeywords) +
+            if (hasFormulaSignal(latest)) 14 else 0
         val translateScore = 10 * countMatches(text, translationKeywords)
-        val longWritingScore = 8 * countMatches(text, writingKeywords) + when { latest.length >= 1600 -> 18; latest.length >= 900 -> 12; latest.length >= 420 && hasAny(text, writingKeywords) -> 8; else -> 0 }
+        val longWritingScore = 8 * countMatches(text, writingKeywords) + when {
+            latest.length >= 1600 -> 18
+            latest.length >= 900 -> 12
+            latest.length >= 420 && hasAny(text, writingKeywords) -> 8
+            else -> 0
+        }
         val qwenGeneralScore = 12 + (if (containsChinese(latest)) 6 else 0) + (if (latest.length < 420) 4 else 0)
         return listOf(
             RouteScore(ChatModel.GptOss, codeScore, "code_android_api"),
             RouteScore(ChatModel.DeepSeekV4, reasoningScore, "reasoning_stem_design"),
             RouteScore(ChatModel.Kimi, qwenGeneralScore + translateScore + longWritingScore / 2, "qwen_general_cn_translation_writing"),
             RouteScore(ChatModel.Gemini, if (text.contains("gemini")) 16 else translateScore / 2, "translation_or_explicit_gemini"),
-            RouteScore(ChatModel.Mistral, longWritingScore, "long_summary_polish")
+            RouteScore(ChatModel.Mistral, longWritingScore, "long_summary_polish"),
         )
     }
 
-    private fun autoTieBreakPriority(model: ChatModel): Int = when (model) { ChatModel.Kimi -> 5; ChatModel.DeepSeekV4 -> 4; ChatModel.GptOss -> 3; ChatModel.Mistral -> 2; ChatModel.Gemini -> 1; ChatModel.Workers -> 0; ChatModel.Auto -> -1 }
-    private fun looksLikeCodeOrError(latest: String, text: String): Boolean = latest.contains("```") || latest.contains("Exception") || latest.contains("Traceback") || latest.contains("NullPointer") || latest.contains("Unresolved reference") || latest.contains("Cannot resolve") || text.contains("build failed") || text.contains("stacktrace") || Regex("\\b(error|failed|exception|fatal):").containsMatchIn(text)
-    private fun hasFormulaSignal(text: String): Boolean = text.any { it in listOf('∂', '∫', '∑', '√', 'θ', 'π', '∞') } || Regex("[a-zA-Z][0-9]?\\s*=\\s*[-+]?\\d").containsMatchIn(text) || Regex("\\d+\\s*/\\s*\\d+").containsMatchIn(text)
+    private fun autoTieBreakPriority(model: ChatModel): Int = when (model) {
+        ChatModel.Kimi -> 5
+        ChatModel.DeepSeekV4 -> 4
+        ChatModel.GptOss -> 3
+        ChatModel.Mistral -> 2
+        ChatModel.Gemini -> 1
+        ChatModel.Workers -> 0
+        ChatModel.Auto -> -1
+    }
+
+    private fun looksLikeCodeOrError(latest: String, text: String): Boolean {
+        return latest.contains("```") ||
+            latest.contains("Exception") ||
+            latest.contains("Traceback") ||
+            latest.contains("NullPointer") ||
+            latest.contains("Unresolved reference") ||
+            latest.contains("Cannot resolve") ||
+            text.contains("build failed") ||
+            text.contains("stacktrace") ||
+            Regex("\\b(error|failed|exception|fatal):").containsMatchIn(text)
+    }
+
+    private fun hasFormulaSignal(text: String): Boolean {
+        return text.any { it in listOf('∂', '∫', '∑', '√', 'θ', 'π', '∞') } ||
+            Regex("[a-zA-Z][0-9]?\\s*=\\s*[-+]?\\d").containsMatchIn(text) ||
+            Regex("\\d+\\s*/\\s*\\d+").containsMatchIn(text)
+    }
+
     private fun containsChinese(text: String): Boolean = text.any { it in '\u4e00'..'\u9fff' }
     private fun countMatches(text: String, keywords: List<String>): Int = keywords.count { text.contains(it) }
     private fun hasAny(text: String, keywords: List<String>): Boolean = keywords.any { text.contains(it) }
@@ -156,41 +258,133 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     private val translationKeywords = listOf("什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词", "词语", "translate", "meaning", "pronunciation")
     private val writingKeywords = listOf("总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "论文", "summary", "summarize", "outline", "polish", "rewrite")
 
-    private fun buildPayload(messages: List<ChatMessage>, route: ModelRoute, onlineEnabled: Boolean): JSONObject {
+    private fun buildPayload(
+        messages: List<ChatMessage>,
+        route: ModelRoute,
+        onlineEnabled: Boolean,
+    ): JSONObject {
         val commandInstruction = commandProtocolSystemPrompt()
         val workerMessages = messages.toWorkerMessages(commandInstruction)
         val latestUserText = latestUserText(messages)
-        val hasImage = messages.hasImageAttachments()
         val imageArray = messages.latestUserImageAttachments().toImageJsonArray()
+        val hasImage = imageArray.length() > 0
         val explicitAgentGoal = resolveExplicitAgentGoal(latestUserText)
         val agentModeEnabled = !hasImage && latestUserText.isNotBlank() && AgentRuntimeController.isEnabled()
         val shouldStartAgent = !hasImage && latestUserText.isNotBlank() && (explicitAgentGoal != null || agentModeEnabled)
+        val allowModelCommands = !hasImage && !shouldStartAgent
         val requestText = explicitAgentGoal ?: latestUserText
         val resolvedId = if (hasImage) QWEN_VISION_ROUTE_ID else route.resolved.id
-        val searchMode = if (onlineEnabled && !hasImage && !shouldStartAgent) "force" else "off"
-        val intent = when { hasImage -> "vision_chat"; shouldStartAgent -> "agent_start"; else -> "chat" }
+        val searchEnabled = onlineEnabled && !hasImage && !shouldStartAgent
+        val searchMode = if (searchEnabled) "force" else "off"
+        val intent = when {
+            hasImage -> "vision_chat"
+            shouldStartAgent -> "agent_start"
+            else -> "chat"
+        }
+        val normalChatCapabilities = DeviceControlRouter.normalChatSupportedCapabilities()
+        val normalChatStepTypes = DeviceControlRouter.normalChatSupportedStepTypes()
+
         return JSONObject().apply {
-            put("action", "chat"); put("intent", intent)
-            put("messages", workerMessages); put("systemPrompt", commandInstruction); put("commandProtocolInstruction", commandInstruction)
-            put("message", requestText); put("prompt", requestText); put("text", requestText); put("content", requestText)
-            put("modelPreference", resolvedId); put("aiModelPreference", resolvedId); put("requestedModelPreference", resolvedId); put("model", resolvedId); put("modelId", resolvedId)
-            put("legacyModelPreference", if (route.resolved == ChatModel.Kimi) "kimi" else resolvedId); put("originalModelPreference", route.requested.id)
-            put("autoRequested", route.isAuto); put("autoResolvedModel", resolvedId); put("autoRouteReason", route.reason)
-            put("hasImage", hasImage); put("hasImages", hasImage); put("imageCount", imageArray.length()); put("images", imageArray); put("attachments", imageArray)
-            put("vision", JSONObject().apply { put("enabled", hasImage); put("provider", "qwen"); put("route", QWEN_VISION_ROUTE_ID); put("modelEnv", "QWEN_VISION_MODEL") })
-            put("agentModeEnabled", agentModeEnabled); put("agentExplicitPrefix", explicitAgentGoal != null); put("agentStartRequested", shouldStartAgent)
+            put("action", "chat")
+            put("intent", intent)
+            put("messages", workerMessages)
+            put("systemPrompt", commandInstruction)
+            put("commandProtocolInstruction", commandInstruction)
+            put("message", requestText)
+            put("prompt", requestText)
+            put("text", requestText)
+            put("content", requestText)
+            put("modelPreference", resolvedId)
+            put("aiModelPreference", resolvedId)
+            put("requestedModelPreference", resolvedId)
+            put("model", resolvedId)
+            put("modelId", resolvedId)
+            put("legacyModelPreference", if (route.resolved == ChatModel.Kimi) "kimi" else resolvedId)
+            put("originalModelPreference", route.requested.id)
+            put("autoRequested", route.isAuto)
+            put("autoResolvedModel", resolvedId)
+            put("autoRouteReason", route.reason)
+            put("hasImage", hasImage)
+            put("hasImages", hasImage)
+            put("imageCount", imageArray.length())
+            put("imageTransport", "top_level_images_v2")
+            if (hasImage) put("images", imageArray)
+            put("vision", JSONObject().apply {
+                put("enabled", hasImage)
+                put("provider", "qwen")
+                put("route", QWEN_VISION_ROUTE_ID)
+                put("modelEnv", "QWEN_VISION_MODEL")
+            })
+            put("agentModeEnabled", agentModeEnabled)
+            put("agentExplicitPrefix", explicitAgentGoal != null)
+            put("agentStartRequested", shouldStartAgent)
             if (shouldStartAgent) {
                 put("agentGoal", requestText)
-                put("agentActionRequest", JSONObject().apply { put("capability", "run_agent_task"); put("goal", requestText); put("title", "手机智能体任务"); put("requiresConfirmation", false); put("reason", if (explicitAgentGoal != null) "用户使用显式智能体前缀" else "首页 Agent 开关已开启") })
+                put("agentActionRequest", JSONObject().apply {
+                    put("capability", "run_agent_task")
+                    put("goal", requestText)
+                    put("title", "手机智能体任务")
+                    put("requiresConfirmation", false)
+                    put("reason", if (explicitAgentGoal != null) "用户使用显式智能体前缀" else "首页 Agent 开关已开启")
+                })
             }
-            put("onlineEnabled", onlineEnabled && !hasImage && !shouldStartAgent); put("searchEnabled", onlineEnabled && !hasImage && !shouldStartAgent); put("forceWebSearch", onlineEnabled && !hasImage && !shouldStartAgent)
-            put("webSearchMode", searchMode); put("searchMode", searchMode)
-            put("webSearch", JSONObject().apply { put("mode", searchMode); put("force", onlineEnabled && !hasImage && !shouldStartAgent); put("requireCitationsWhenForced", true); put("keepAutoSearchWhenOff", false) })
-            put("structuredRealtime", JSONObject().apply { put("enabled", onlineEnabled && !hasImage && !shouldStartAgent); put("supportedTypes", JSONArray(listOf("stock", "weather", "exchange_rate", "sports"))) })
-            put("commandProtocol", JSONObject().apply { put("enabled", true); put("version", 5); put("client", "android-compose"); put("agentModeEnabled", agentModeEnabled); put("agentStartRequested", shouldStartAgent); put("returnNaturalReply", true); put("requireConfirmationForActions", true); put("supportedAgentActions", JSONArray(listOf("observe_screen", "run_agent_task", "run_device_control"))); put("supportedDeviceControlActions", JSONArray(DeviceControlRouter.supportedCapabilities())); put("supportedDeviceToolSteps", JSONArray(CloudAgentStep.deviceToolTypes.toList())); put("supportedMobileActions", JSONArray(listOf("set_alarm", "navigate"))); put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address"))); put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm"))); put("fallbackTransport", "embedded_marker"); put("embeddedMarker", "[[AI_LEDGER_COMMAND:{...}]]") })
-            put("responseFormat", JSONObject().apply { put("includeSources", true); put("includeStructuredData", true); put("includeMobileAction", true); put("includePreferenceUpdate", true); put("includeAgentAction", true); put("includeEmbeddedCommandMarker", true) })
-            put("accessPolicy", "cn_gateway_primary"); put("primaryEndpointRole", "aliyun_cn_gateway"); put("fallbackEndpointRole", "cloudflare_worker"); put("client", "android-compose")
-            put("clientVersion", if (hasImage) "compose-native-qwen-vision-v1" else if (shouldStartAgent) "compose-native-agent-switch-v4" else "compose-native-agent-action-v3")
+            put("onlineEnabled", searchEnabled)
+            put("searchEnabled", searchEnabled)
+            put("forceWebSearch", searchEnabled)
+            put("webSearchMode", searchMode)
+            put("searchMode", searchMode)
+            put("webSearch", JSONObject().apply {
+                put("mode", searchMode)
+                put("force", searchEnabled)
+                put("requireCitationsWhenForced", true)
+                put("keepAutoSearchWhenOff", false)
+            })
+            put("structuredRealtime", JSONObject().apply {
+                put("enabled", searchEnabled)
+                put("supportedTypes", JSONArray(listOf("stock", "weather", "exchange_rate", "sports")))
+            })
+            put("allowModelCommands", allowModelCommands)
+            put("commandProtocol", JSONObject().apply {
+                put("enabled", true)
+                put("version", CHAT_PROTOCOL_VERSION)
+                put("client", CHAT_CLIENT_NAME)
+                put("allowModelCommands", allowModelCommands)
+                put("structuredCommandsOnly", true)
+                put("deviceControlMode", "structured_low_risk_only")
+                put("agentModeEnabled", agentModeEnabled)
+                put("agentStartRequested", shouldStartAgent)
+                put("returnNaturalReply", true)
+                put("requireConfirmationForActions", true)
+                put("supportedAgentActions", JSONArray(listOf("observe_screen", "run_agent_task", "run_device_control")))
+                put("supportedDeviceControlActions", JSONArray(normalChatCapabilities))
+                put("supportedDeviceToolSteps", JSONArray(normalChatStepTypes))
+                put("supportedMobileActions", JSONArray(listOf("set_alarm", "navigate")))
+                put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
+                put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm")))
+                put("fallbackTransport", "embedded_marker")
+                put("embeddedMarker", "[[AI_LEDGER_COMMAND:{...}]]")
+            })
+            put("responseFormat", JSONObject().apply {
+                put("includeSources", true)
+                put("includeStructuredData", true)
+                put("includeMobileAction", true)
+                put("includePreferenceUpdate", true)
+                put("includeAgentAction", true)
+                put("includeEmbeddedCommandMarker", true)
+                put("allowModelCommands", allowModelCommands)
+            })
+            put("accessPolicy", "cn_gateway_primary")
+            put("primaryEndpointRole", "aliyun_cn_gateway")
+            put("fallbackEndpointRole", "cloudflare_worker")
+            put("client", CHAT_CLIENT_NAME)
+            put("clientId", resolvedClientId)
+            put("deviceId", resolvedClientId)
+            put(
+                "clientVersion",
+                if (hasImage) "compose-native-qwen-vision-v2-single-image-transport"
+                else if (shouldStartAgent) "compose-native-agent-switch-v5"
+                else "compose-native-command-chat-v4",
+            )
             put("now", System.currentTimeMillis())
         }
     }
@@ -198,44 +392,70 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     private fun resolveExplicitAgentGoal(text: String): String? {
         val clean = text.trim()
         val prefixes = listOf("/agent", "/智能体", "智能体：", "智能体:", "Agent：", "Agent:", "agent：", "agent:")
-        return prefixes.firstOrNull { clean.startsWith(it, ignoreCase = true) }?.let { clean.drop(it.length).trim().takeIf { goal -> goal.isNotBlank() } }
+        return prefixes.firstOrNull { clean.startsWith(it, ignoreCase = true) }
+            ?.let { prefix -> clean.drop(prefix.length).trim().takeIf { goal -> goal.isNotBlank() } }
     }
 
     private fun commandProtocolSystemPrompt(): String = """
         你正在服务一个 Android Compose AI 助手。正常问题直接中文回答。
-        只有明确要操作手机、观察屏幕、打开 App 后继续找页面、点击、输入、滑动时，才返回手机动作标记。
-        可由内部控制直接完成的系统任务，优先返回 agentAction.capability=run_device_control，并附带 deviceControlAction；不要让视觉智能去点设置页。
-        支持的 deviceControlAction.capability 包括：${DeviceControlRouter.supportedCapabilities().joinToString(", ")}。
+        只有用户明确要求操作手机、系统设置或应用时，才返回结构化手机动作；普通问答、代码、数学和项目讨论不得返回动作。
+        commandProtocol.allowModelCommands=true 仅表示本次请求允许返回动作，不代表用户一定在请求设备控制。
+        可由内部控制完成的任务，优先返回 agentAction.capability=run_device_control，并附带 deviceControlAction；不要让视觉智能去点击系统设置页。
+        普通聊天只允许以下低风险内部能力：${DeviceControlRouter.normalChatSupportedCapabilities().joinToString(", ")}。
+        禁止在普通聊天中返回卸载、清除数据、停用应用、强制停止应用、修改动画比例、支付、验证码、密码、授权或自由 shell 动作。
         deviceControlAction 示例：{"capability":"network.wifi.set","arguments":{"enabled":true},"riskLevel":"medium","requiresConfirmation":false}
         如果请求里 agentStartRequested=true 或 intent=agent_start，直接返回 agentAction.capability=run_agent_task，goal 使用请求里的 agentGoal/message。
-        不要把普通问答、代码、数学、项目讨论误判为手机动作。
         内部控制标记示例：[[AI_LEDGER_COMMAND:{"agentAction":{"capability":"run_device_control","title":"打开 Wi-Fi","goal":"打开 Wi-Fi","deviceControlAction":{"capability":"network.wifi.set","arguments":{"enabled":true},"riskLevel":"medium","requiresConfirmation":false},"reason":"Wi-Fi 开关属于内部设备控制"}}]]
         标记格式示例：[[AI_LEDGER_COMMAND:{"agentAction":{"capability":"run_agent_task","title":"手机智能体任务","goal":"用户目标","requiresConfirmation":false,"reason":"用户要求手机操作"}}]]
         For supported internal device-control requests, the embedded AI_LEDGER_COMMAND marker is mandatory.
-        Do not say you opened Wi-Fi, Bluetooth, mobile data, dark mode, brightness, volume, app settings, or system settings unless the same response includes agentAction.capability=run_device_control with a valid deviceControlAction.
-        If you cannot produce a valid structured internal tool command, explain that you cannot execute it instead of claiming success.
+        Do not claim that an action succeeded unless the same response includes a valid structured action for Android to execute and verify.
+        If you cannot produce a valid supported command, explain that you cannot execute it instead of claiming success.
     """.trimIndent()
 
-    private fun endpointCandidates(cleanEndpoint: String): List<String> = if (cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")) listOf(cleanEndpoint) else listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()
+    private fun endpointCandidates(cleanEndpoint: String): List<String> {
+        return if (cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")) {
+            listOf(cleanEndpoint)
+        } else {
+            listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()
+        }
+    }
 
     private fun postChat(endpoint: String, payload: JSONObject, route: ModelRoute): AiChatResponse {
-        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply { requestMethod = "POST"; connectTimeout = config.connectTimeoutMs; readTimeout = config.readTimeoutMs; doOutput = true; setRequestProperty("Content-Type", "application/json; charset=utf-8"); setRequestProperty("Accept", "application/json, text/plain"); setRequestProperty("X-Client", "android-compose") }
+        val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = config.connectTimeoutMs
+            readTimeout = config.readTimeoutMs
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "application/json, text/plain")
+            applyClientHeaders(this, stream = false)
+        }
         return try {
             connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val body = readBody(connection, status)
             val data = body.toJsonOrNull()
-            if (status !in 200..299) throw IOException(data?.optString("error").notBlankOrNull() ?: data?.optString("message").notBlankOrNull() ?: body.take(120).ifBlank { "云端 AI 调用失败：HTTP $status" })
+            if (status !in 200..299) {
+                throw IOException(
+                    data?.optString("error").notBlankOrNull()
+                        ?: data?.optString("message").notBlankOrNull()
+                        ?: body.take(120).ifBlank { "云端 AI 调用失败：HTTP $status" },
+                )
+            }
             throwIfServerReturnedFallbackSignal(data)
             parseChatResponse(data = data, body = body, payload = payload, route = route)
-        } catch (error: SocketTimeoutException) { throw IOException("云端 AI 请求超时：${endpoint.substringAfter("://")}", error) } finally { connection.disconnect() }
+        } catch (error: SocketTimeoutException) {
+            throw IOException("云端 AI 请求超时：${endpoint.substringAfter("://")}", error)
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun postStreamChat(
         endpoint: String,
         payload: JSONObject,
         route: ModelRoute,
-        onDelta: (String) -> Unit
+        onDelta: (String) -> Unit,
     ): AiChatResponse {
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -244,8 +464,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             doOutput = true
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "text/event-stream, application/x-ndjson, application/json, text/plain")
-            setRequestProperty("X-Client", "android-compose")
-            setRequestProperty("X-AI-Ledger-Stream", "sse")
+            applyClientHeaders(this, stream = true)
         }
 
         return try {
@@ -259,7 +478,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 throw IOException(
                     data?.optString("error").notBlankOrNull()
                         ?: data?.optString("message").notBlankOrNull()
-                        ?: body.take(120).ifBlank { "云端 AI 调用失败：HTTP $status" }
+                        ?: body.take(120).ifBlank { "云端 AI 调用失败：HTTP $status" },
                 )
             }
 
@@ -279,9 +498,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                         streamedReply.append(event.delta)
                         onDelta(event.delta)
                     }
-                    if (event.done) {
-                        finalData = event.data ?: finalData
-                    }
+                    if (event.done) finalData = event.data ?: finalData
                 }
             }
 
@@ -293,13 +510,13 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                     body = finalJson.toString(),
                     payload = payload,
                     route = route,
-                    replyOverride = streamedText.takeIf { it.isNotBlank() }
+                    replyOverride = streamedText.takeIf { it.isNotBlank() },
                 )
                 streamedText.isNotBlank() -> AiChatResponse(
                     reply = streamedText,
                     source = "cloud_ai",
                     model = route.resolved.id,
-                    modelLabel = if (route.isAuto) "自动选择 · ${route.resolved.label}" else route.resolved.label
+                    modelLabel = if (route.isAuto) "自动选择 · ${route.resolved.label}" else route.resolved.label,
                 )
                 else -> throw IOException("云端流式回复结束，但没有返回有效内容")
             }
@@ -310,10 +527,24 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         }
     }
 
+    private fun applyClientHeaders(connection: HttpURLConnection, stream: Boolean) {
+        connection.setRequestProperty("X-Client", CHAT_CLIENT_NAME)
+        connection.setRequestProperty("X-Client-Id", resolvedClientId)
+        connection.setRequestProperty("X-Device-Id", resolvedClientId)
+        if (stream) connection.setRequestProperty("X-AI-Ledger-Stream", "sse")
+        config.clientAuthToken
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { token ->
+                connection.setRequestProperty("X-AI-Ledger-Token", token)
+                connection.setRequestProperty("Authorization", "Bearer $token")
+            }
+    }
+
     private data class StreamPayload(
         val delta: String = "",
         val done: Boolean = false,
-        val data: JSONObject? = null
+        val data: JSONObject? = null,
     )
 
     private fun BufferedReader.forEachStreamPayload(block: (String) -> Unit) {
@@ -383,7 +614,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         body: String,
         payload: JSONObject,
         route: ModelRoute,
-        replyOverride: String? = null
+        replyOverride: String? = null,
     ): AiChatResponse {
         val rawReply = (replyOverride?.takeIf { it.isNotBlank() } ?: extractReply(data, body)).trim()
         val embeddedCommand = extractEmbeddedCommandJson(rawReply) ?: extractEmbeddedCommandJson(body)
@@ -421,41 +652,345 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             preferenceUpdate = parsedPreferenceUpdate,
             agentAction = parsedAgentAction,
             searchUsed = data?.optBoolean("searchUsed", false) ?: false,
-            searchProvider = data?.optString("searchProvider").notBlankOrNull()
+            searchProvider = data?.optString("searchProvider").notBlankOrNull(),
         )
     }
 
     private fun payloadToAgentAction(payload: JSONObject): CloudAgentAction? {
         if (!payload.optBoolean("agentStartRequested", false) && payload.optString("intent") != "agent_start") return null
-        val goal = payload.optString("agentGoal").notBlankOrNull() ?: payload.optString("message").notBlankOrNull() ?: return null
+        val goal = payload.optString("agentGoal").notBlankOrNull()
+            ?: payload.optString("message").notBlankOrNull()
+            ?: return null
         return CloudAgentAction("run_agent_task", "手机智能体任务", goal, false, "首页 Agent 开关已开启")
     }
 
-    private fun throwIfServerReturnedFallbackSignal(data: JSONObject?) { if (data == null) return; val normalized = (data.optString("code") + " " + data.optString("error") + " " + data.optString("message")).lowercase(); if (data.optBoolean("unsupportedModel", false) || data.optBoolean("shouldFallback", false) || normalized.contains("unsupported") || normalized.contains("not supported") || normalized.contains("not_configured") || normalized.contains("model_not_available") || normalized.contains("provider_not_available") || normalized.contains("不支持") || normalized.contains("未配置") || normalized.contains("不可用")) throw IOException(data.optString("error").ifBlank { "当前入口不支持该模型，正在尝试备用入口。" }) }
+    private fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
+        if (data == null) return
+        val normalized = (data.optString("code") + " " + data.optString("error") + " " + data.optString("message")).lowercase()
+        if (
+            data.optBoolean("unsupportedModel", false) ||
+            data.optBoolean("shouldFallback", false) ||
+            normalized.contains("unsupported") ||
+            normalized.contains("not supported") ||
+            normalized.contains("not_configured") ||
+            normalized.contains("model_not_available") ||
+            normalized.contains("provider_not_available") ||
+            normalized.contains("不支持") ||
+            normalized.contains("未配置") ||
+            normalized.contains("不可用")
+        ) {
+            throw IOException(data.optString("error").ifBlank { "当前入口不支持该模型，正在尝试备用入口。" })
+        }
+    }
 
-    private fun parseWebSources(data: JSONObject?): List<WebSource> { val array = data?.optJSONArray("sources") ?: data?.optJSONArray("webSources") ?: data?.optJSONObject("data")?.optJSONArray("sources") ?: return emptyList(); return buildList { for (index in 0 until array.length()) { val item = array.optJSONObject(index) ?: continue; val url = item.optString("url").notBlankOrNull() ?: item.optString("link").notBlankOrNull() ?: item.optString("href").notBlankOrNull() ?: ""; val title = item.optString("title").notBlankOrNull() ?: item.optString("name").notBlankOrNull() ?: url.substringAfter("://").substringBefore('/').ifBlank { "来源 ${index + 1}" }; val snippet = item.optString("snippet").notBlankOrNull() ?: item.optString("summary").notBlankOrNull() ?: item.optString("content").notBlankOrNull() ?: ""; val domain = item.optString("domain").notBlankOrNull() ?: url.substringAfter("://").substringBefore('/'); add(WebSource(title.take(80), url, domain.take(60), snippet.take(180), item.optString("publishedAt").notBlankOrNull() ?: item.optString("published").notBlankOrNull() ?: item.optString("date").notBlankOrNull())) } }.take(6) }
-    private fun parseStructuredData(data: JSONObject?): StructuredDataCard? { val item = data?.optJSONObject("structuredData") ?: data?.optJSONObject("structured") ?: data?.optJSONObject("data")?.optJSONObject("structuredData") ?: return null; val type = item.optString("type").notBlankOrNull() ?: data.optString("type").notBlankOrNull() ?: "realtime"; val title = item.optString("title").notBlankOrNull() ?: item.optString("name").notBlankOrNull() ?: structuredTypeLabel(type); val subtitle = item.optString("subtitle").notBlankOrNull() ?: item.optString("symbol").notBlankOrNull() ?: item.optString("location").notBlankOrNull(); return StructuredDataCard(type, title, subtitle, item.optString("timestamp").notBlankOrNull() ?: item.optString("updatedAt").notBlankOrNull(), parseStructuredMetrics(item), item.optString("rawText").notBlankOrNull() ?: item.optString("summary").notBlankOrNull()) }
-    private fun parseStructuredMetrics(item: JSONObject): List<StructuredMetric> { val explicit = item.optJSONArray("metrics"); if (explicit != null) return buildList { for (index in 0 until explicit.length()) { val metric = explicit.optJSONObject(index) ?: continue; val label = metric.optString("label").notBlankOrNull() ?: metric.optString("name").notBlankOrNull(); val value = metric.optString("value").notBlankOrNull() ?: metric.optString("text").notBlankOrNull(); if (!label.isNullOrBlank() && !value.isNullOrBlank()) add(StructuredMetric(label.take(24), value.take(40), metric.optString("unit").notBlankOrNull(), metric.optString("detail").notBlankOrNull())) } }.take(8); val preferredKeys = listOf("price", "change", "changePercent", "temperature", "condition", "humidity", "rate", "from", "to", "score", "status"); return preferredKeys.mapNotNull { key -> item.optString(key).notBlankOrNull()?.let { StructuredMetric(structuredMetricLabel(key), it) } }.take(8) }
-    private fun parseCloudMobileAction(data: JSONObject?): CloudMobileAction? { val item = data?.optJSONObject("mobileAction") ?: data?.optJSONObject("command") ?: data?.optJSONObject("data")?.optJSONObject("mobileAction") ?: data?.optJSONObject("result")?.optJSONObject("mobileAction") ?: return null; val rawType = item.optString("type").notBlankOrNull() ?: item.optString("action").notBlankOrNull() ?: return null; val type = rawType.lowercase().replace('-', '_'); if (type !in setOf("set_alarm", "navigate")) return null; return CloudMobileAction(type, item.optString("title").notBlankOrNull(), item.optString("destination").notBlankOrNull() ?: item.optString("target").notBlankOrNull(), item.optString("appName").notBlankOrNull() ?: item.optString("app").notBlankOrNull(), item.optString("packageName").notBlankOrNull() ?: item.optString("package").notBlankOrNull(), item.optIntOrNull("hour"), item.optIntOrNull("minute"), item.optString("label").notBlankOrNull() ?: item.optString("message").notBlankOrNull()) }
-    private fun parseCloudPreferenceUpdate(data: JSONObject?): CloudPreferenceUpdate? { val item = data?.optJSONObject("preferenceUpdate") ?: data?.optJSONObject("preference") ?: data?.optJSONObject("data")?.optJSONObject("preferenceUpdate") ?: data?.optJSONObject("result")?.optJSONObject("preferenceUpdate") ?: return null; val type = item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null; if (type != "navigation_address") return null; val slot = item.optString("slot").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null; if (slot !in setOf("home", "school", "company", "dorm")) return null; val value = item.optString("value").notBlankOrNull() ?: item.optString("address").notBlankOrNull() ?: item.optString("destination").notBlankOrNull() ?: return null; val label = item.optString("label").notBlankOrNull() ?: when (slot) { "home" -> "家"; "school" -> "学校"; "company" -> "公司"; "dorm" -> "宿舍"; else -> slot }; return CloudPreferenceUpdate(type, slot, label.take(12), value.trim().take(80)) }
-    private fun parseCloudAgentAction(data: JSONObject?): CloudAgentAction? { val item = data?.optJSONObject("agentAction") ?: data?.optJSONObject("agent") ?: data?.optJSONObject("data")?.optJSONObject("agentAction") ?: data?.optJSONObject("result")?.optJSONObject("agentAction") ?: return null; val capability = item.optString("capability").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null; if (capability !in setOf("observe_screen", "run_agent_task", "run_device_control", "device_control", "run_internal_device_control")) return null; val normalizedCapability = if (capability == "device_control" || capability == "run_internal_device_control") "run_device_control" else capability; val goal = item.optString("goal").notBlankOrNull() ?: item.optString("task").notBlankOrNull() ?: item.optString("instruction").notBlankOrNull() ?: item.optString("query").notBlankOrNull(); val deviceStep = if (normalizedCapability == "run_device_control") DeviceControlRouter.fromAgentActionJson(item) else null; if (normalizedCapability == "run_device_control" && deviceStep == null) return null; return CloudAgentAction(normalizedCapability, item.optString("title").notBlankOrNull(), goal, item.optBoolean("requiresConfirmation", false), item.optString("reason").notBlankOrNull(), deviceStep) }
+    private fun parseWebSources(data: JSONObject?): List<WebSource> {
+        val array = data?.optJSONArray("sources")
+            ?: data?.optJSONArray("webSources")
+            ?: data?.optJSONObject("data")?.optJSONArray("sources")
+            ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val url = item.optString("url").notBlankOrNull()
+                    ?: item.optString("link").notBlankOrNull()
+                    ?: item.optString("href").notBlankOrNull()
+                    ?: ""
+                val title = item.optString("title").notBlankOrNull()
+                    ?: item.optString("name").notBlankOrNull()
+                    ?: url.substringAfter("://").substringBefore('/').ifBlank { "来源 ${index + 1}" }
+                val snippet = item.optString("snippet").notBlankOrNull()
+                    ?: item.optString("summary").notBlankOrNull()
+                    ?: item.optString("content").notBlankOrNull()
+                    ?: ""
+                val domain = item.optString("domain").notBlankOrNull()
+                    ?: url.substringAfter("://").substringBefore('/')
+                add(
+                    WebSource(
+                        title.take(80),
+                        url,
+                        domain.take(60),
+                        snippet.take(180),
+                        item.optString("publishedAt").notBlankOrNull()
+                            ?: item.optString("published").notBlankOrNull()
+                            ?: item.optString("date").notBlankOrNull(),
+                    ),
+                )
+            }
+        }.take(6)
+    }
 
-    private fun extractEmbeddedCommandJson(text: String): JSONObject? = embeddedCommandRegex.find(text)?.groupValues?.getOrNull(1)?.toJsonOrNull()
+    private fun parseStructuredData(data: JSONObject?): StructuredDataCard? {
+        val item = data?.optJSONObject("structuredData")
+            ?: data?.optJSONObject("structured")
+            ?: data?.optJSONObject("data")?.optJSONObject("structuredData")
+            ?: return null
+        val type = item.optString("type").notBlankOrNull()
+            ?: data?.optString("type").notBlankOrNull()
+            ?: "realtime"
+        val title = item.optString("title").notBlankOrNull()
+            ?: item.optString("name").notBlankOrNull()
+            ?: structuredTypeLabel(type)
+        val subtitle = item.optString("subtitle").notBlankOrNull()
+            ?: item.optString("symbol").notBlankOrNull()
+            ?: item.optString("location").notBlankOrNull()
+        return StructuredDataCard(
+            type,
+            title,
+            subtitle,
+            item.optString("timestamp").notBlankOrNull() ?: item.optString("updatedAt").notBlankOrNull(),
+            parseStructuredMetrics(item),
+            item.optString("rawText").notBlankOrNull() ?: item.optString("summary").notBlankOrNull(),
+        )
+    }
+
+    private fun parseStructuredMetrics(item: JSONObject): List<StructuredMetric> {
+        val explicit = item.optJSONArray("metrics")
+        if (explicit != null) {
+            return buildList {
+                for (index in 0 until explicit.length()) {
+                    val metric = explicit.optJSONObject(index) ?: continue
+                    val label = metric.optString("label").notBlankOrNull()
+                        ?: metric.optString("name").notBlankOrNull()
+                    val value = metric.optString("value").notBlankOrNull()
+                        ?: metric.optString("text").notBlankOrNull()
+                    if (!label.isNullOrBlank() && !value.isNullOrBlank()) {
+                        add(
+                            StructuredMetric(
+                                label.take(24),
+                                value.take(40),
+                                metric.optString("unit").notBlankOrNull(),
+                                metric.optString("detail").notBlankOrNull(),
+                            ),
+                        )
+                    }
+                }
+            }.take(8)
+        }
+        val preferredKeys = listOf("price", "change", "changePercent", "temperature", "condition", "humidity", "rate", "from", "to", "score", "status")
+        return preferredKeys.mapNotNull { key ->
+            item.optString(key).notBlankOrNull()?.let { StructuredMetric(structuredMetricLabel(key), it) }
+        }.take(8)
+    }
+
+    private fun parseCloudMobileAction(data: JSONObject?): CloudMobileAction? {
+        val item = data?.optJSONObject("mobileAction")
+            ?: data?.optJSONObject("command")
+            ?: data?.optJSONObject("data")?.optJSONObject("mobileAction")
+            ?: data?.optJSONObject("result")?.optJSONObject("mobileAction")
+            ?: return null
+        val rawType = item.optString("type").notBlankOrNull()
+            ?: item.optString("action").notBlankOrNull()
+            ?: return null
+        val type = rawType.lowercase().replace('-', '_')
+        if (type !in setOf("set_alarm", "navigate")) return null
+        return CloudMobileAction(
+            type,
+            item.optString("title").notBlankOrNull(),
+            item.optString("destination").notBlankOrNull() ?: item.optString("target").notBlankOrNull(),
+            item.optString("appName").notBlankOrNull() ?: item.optString("app").notBlankOrNull(),
+            item.optString("packageName").notBlankOrNull() ?: item.optString("package").notBlankOrNull(),
+            item.optIntOrNull("hour"),
+            item.optIntOrNull("minute"),
+            item.optString("label").notBlankOrNull() ?: item.optString("message").notBlankOrNull(),
+        )
+    }
+
+    private fun parseCloudPreferenceUpdate(data: JSONObject?): CloudPreferenceUpdate? {
+        val item = data?.optJSONObject("preferenceUpdate")
+            ?: data?.optJSONObject("preference")
+            ?: data?.optJSONObject("data")?.optJSONObject("preferenceUpdate")
+            ?: data?.optJSONObject("result")?.optJSONObject("preferenceUpdate")
+            ?: return null
+        val type = item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
+        if (type != "navigation_address") return null
+        val slot = item.optString("slot").notBlankOrNull()?.lowercase()?.replace('-', '_') ?: return null
+        if (slot !in setOf("home", "school", "company", "dorm")) return null
+        val value = item.optString("value").notBlankOrNull()
+            ?: item.optString("address").notBlankOrNull()
+            ?: item.optString("destination").notBlankOrNull()
+            ?: return null
+        val label = item.optString("label").notBlankOrNull() ?: when (slot) {
+            "home" -> "家"
+            "school" -> "学校"
+            "company" -> "公司"
+            "dorm" -> "宿舍"
+            else -> slot
+        }
+        return CloudPreferenceUpdate(type, slot, label.take(12), value.trim().take(80))
+    }
+
+    private fun parseCloudAgentAction(data: JSONObject?): CloudAgentAction? {
+        val item = data?.optJSONObject("agentAction")
+            ?: data?.optJSONObject("agent")
+            ?: data?.optJSONObject("data")?.optJSONObject("agentAction")
+            ?: data?.optJSONObject("result")?.optJSONObject("agentAction")
+            ?: return null
+        val capability = item.optString("capability").notBlankOrNull()?.lowercase()?.replace('-', '_')
+            ?: item.optString("type").notBlankOrNull()?.lowercase()?.replace('-', '_')
+            ?: return null
+        if (capability !in setOf("observe_screen", "run_agent_task", "run_device_control", "device_control", "run_internal_device_control")) return null
+        val normalizedCapability = if (capability == "device_control" || capability == "run_internal_device_control") {
+            "run_device_control"
+        } else {
+            capability
+        }
+        val goal = item.optString("goal").notBlankOrNull()
+            ?: item.optString("task").notBlankOrNull()
+            ?: item.optString("instruction").notBlankOrNull()
+            ?: item.optString("query").notBlankOrNull()
+        val deviceStep = if (normalizedCapability == "run_device_control") DeviceControlRouter.fromAgentActionJson(item) else null
+        if (normalizedCapability == "run_device_control" && deviceStep == null) return null
+        return CloudAgentAction(
+            normalizedCapability,
+            item.optString("title").notBlankOrNull(),
+            goal,
+            item.optBoolean("requiresConfirmation", false),
+            item.optString("reason").notBlankOrNull(),
+            deviceStep,
+        )
+    }
+
+    private fun extractEmbeddedCommandJson(text: String): JSONObject? {
+        return embeddedCommandRegex.find(text)?.groupValues?.getOrNull(1)?.toJsonOrNull()
+    }
+
     private fun stripEmbeddedCommandMarker(text: String): String = embeddedCommandRegex.replace(text, "").trim()
-    private fun structuredTypeLabel(type: String): String = when (type.lowercase()) { "stock" -> "股票行情"; "weather" -> "天气"; "exchange_rate", "rate", "currency" -> "汇率"; "sports" -> "比赛"; else -> "实时数据" }
-    private fun structuredMetricLabel(key: String): String = when (key) { "price" -> "价格"; "change" -> "涨跌"; "changePercent" -> "涨跌幅"; "temperature" -> "温度"; "condition" -> "天气"; "humidity" -> "湿度"; "rate" -> "汇率"; "from" -> "来源币种"; "to" -> "目标币种"; "score" -> "比分"; "status" -> "状态"; else -> key }
-    private fun extractReply(data: JSONObject?, body: String): String { if (data == null) return body; return data.optString("reply").ifBlank { data.optString("response") }.ifBlank { data.optString("answer") }.ifBlank { data.optString("text") }.ifBlank { data.optString("content") }.ifBlank { data.optJSONObject("data")?.optString("reply").orEmpty() }.ifBlank { data.optJSONObject("result")?.optString("reply").orEmpty() }.ifBlank { data.optJSONObject("result")?.optString("text").orEmpty() } }
-    private fun latestUserText(messages: List<ChatMessage>): String = messages.lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() }?.text.orEmpty()
-    private fun modelLabelFromId(modelId: String?): String? = modelId?.takeIf { it.isNotBlank() }?.let { ChatModel.fromId(it).takeIf { model -> model != ChatModel.Auto }?.label }
+
+    private fun structuredTypeLabel(type: String): String = when (type.lowercase()) {
+        "stock" -> "股票行情"
+        "weather" -> "天气"
+        "exchange_rate", "rate", "currency" -> "汇率"
+        "sports" -> "比赛"
+        else -> "实时数据"
+    }
+
+    private fun structuredMetricLabel(key: String): String = when (key) {
+        "price" -> "价格"
+        "change" -> "涨跌"
+        "changePercent" -> "涨跌幅"
+        "temperature" -> "温度"
+        "condition" -> "天气"
+        "humidity" -> "湿度"
+        "rate" -> "汇率"
+        "from" -> "来源币种"
+        "to" -> "目标币种"
+        "score" -> "比分"
+        "status" -> "状态"
+        else -> key
+    }
+
+    private fun extractReply(data: JSONObject?, body: String): String {
+        if (data == null) return body
+        return data.optString("reply")
+            .ifBlank { data.optString("response") }
+            .ifBlank { data.optString("answer") }
+            .ifBlank { data.optString("text") }
+            .ifBlank { data.optString("content") }
+            .ifBlank { data.optJSONObject("data")?.optString("reply").orEmpty() }
+            .ifBlank { data.optJSONObject("result")?.optString("reply").orEmpty() }
+            .ifBlank { data.optJSONObject("result")?.optString("text").orEmpty() }
+    }
+
+    private fun latestUserText(messages: List<ChatMessage>): String {
+        return messages.lastOrNull { it.role == MessageRole.User && it.text.isNotBlank() }?.text.orEmpty()
+    }
+
+    private fun modelLabelFromId(modelId: String?): String? {
+        return modelId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { ChatModel.fromId(it).takeIf { model -> model != ChatModel.Auto }?.label }
+    }
+
     private fun String?.notBlankOrNull(): String? = this?.takeIf { it.isNotBlank() }
-    private fun JSONObject.optIntOrNull(key: String): Int? { if (!has(key) || isNull(key)) return null; return try { getInt(key) } catch (_: Exception) { optString(key).toIntOrNull() } }
-    private fun List<ChatMessage>.hasImageAttachments(): Boolean = any { it.hasImageAttachments }
-    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> = lastOrNull { it.role == MessageRole.User && it.hasImageAttachments }?.attachments?.filter { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }.orEmpty()
-    private fun List<ChatAttachment>.toImageJsonArray(): JSONArray = JSONArray().apply { forEach { attachment -> put(JSONObject().apply { put("id", attachment.id); put("type", "image"); put("mimeType", attachment.mimeType); put("mediaType", attachment.mimeType); put("base64Data", attachment.base64Data); put("data", attachment.base64Data); put("imageBase64", attachment.base64Data); put("fileName", attachment.fileName.orEmpty()); attachment.width?.let { put("width", it) }; attachment.height?.let { put("height", it) }; attachment.sizeBytes?.let { put("sizeBytes", it) } }) } }
-    private fun List<ChatMessage>.toWorkerMessages(systemInstruction: String): JSONArray { val recent = filter { message -> when (message.role) { MessageRole.User -> (message.text.isNotBlank() || message.hasImageAttachments) && message.status != MessageStatus.Sending; MessageRole.Assistant -> message.isCloudAssistantContextMessage() } }.takeLast(16); val clean = recent.dropWhile { it.role != MessageRole.User }; return JSONArray().apply { put(JSONObject().apply { put("role", "system"); put("content", systemInstruction) }); clean.forEach { message -> put(JSONObject().apply { put("role", if (message.role == MessageRole.User) "user" else "assistant"); put("content", message.text); if (message.role == MessageRole.User && message.hasImageAttachments) { val images = message.attachments.filter { it.base64Data.isNotBlank() }.toImageJsonArray(); put("attachments", images); put("images", images) } }) } } }
-    private fun ChatMessage.isCloudAssistantContextMessage(): Boolean { if (text.isBlank() || status != MessageStatus.Sent) return false; return when (source) { null, "", "local", "local_ledger", "local_mobile", "local_agent", "cloud_fetch_failed", "cloud_error_normalized" -> false; else -> true } }
-    private fun readBody(connection: HttpURLConnection, status: Int): String { val stream = if (status in 200..299) connection.inputStream else connection.errorStream; return stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty() }
-    private fun String.toJsonOrNull(): JSONObject? = try { takeIf { it.isNotBlank() }?.let { JSONObject(it) } } catch (_: Exception) { null }
+
+    private fun JSONObject.optIntOrNull(key: String): Int? {
+        if (!has(key) || isNull(key)) return null
+        return try {
+            getInt(key)
+        } catch (_: Exception) {
+            optString(key).toIntOrNull()
+        }
+    }
+
+    private fun List<ChatMessage>.latestUserMessage(): ChatMessage? {
+        return lastOrNull { it.role == MessageRole.User && it.status != MessageStatus.Sending }
+    }
+
+    private fun List<ChatMessage>.hasLatestUserImageAttachments(): Boolean {
+        return latestUserMessage()?.hasImageAttachments == true
+    }
+
+    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> {
+        return latestUserMessage()
+            ?.attachments
+            ?.filter { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }
+            .orEmpty()
+    }
+
+    private fun List<ChatAttachment>.toImageJsonArray(): JSONArray {
+        return JSONArray().apply {
+            forEach { attachment ->
+                put(JSONObject().apply {
+                    put("id", attachment.id)
+                    put("type", "image")
+                    put("mimeType", attachment.mimeType)
+                    put("base64Data", attachment.base64Data)
+                    put("fileName", attachment.fileName.orEmpty())
+                    attachment.width?.let { put("width", it) }
+                    attachment.height?.let { put("height", it) }
+                    attachment.sizeBytes?.let { put("sizeBytes", it) }
+                })
+            }
+        }
+    }
+
+    private fun List<ChatMessage>.toWorkerMessages(systemInstruction: String): JSONArray {
+        val recent = filter { message ->
+            when (message.role) {
+                MessageRole.User -> (message.text.isNotBlank() || message.hasImageAttachments) && message.status != MessageStatus.Sending
+                MessageRole.Assistant -> message.isCloudAssistantContextMessage()
+            }
+        }.takeLast(16)
+        val clean = recent.dropWhile { it.role != MessageRole.User }
+        return JSONArray().apply {
+            put(JSONObject().apply {
+                put("role", "system")
+                put("content", systemInstruction)
+            })
+            clean.forEach { message ->
+                put(JSONObject().apply {
+                    put("role", if (message.role == MessageRole.User) "user" else "assistant")
+                    put("content", message.text)
+                })
+            }
+        }
+    }
+
+    private fun ChatMessage.isCloudAssistantContextMessage(): Boolean {
+        if (text.isBlank() || status != MessageStatus.Sent) return false
+        return when (source) {
+            null,
+            "",
+            "local",
+            "local_ledger",
+            "local_mobile",
+            "local_agent",
+            "cloud_fetch_failed",
+            "cloud_error_normalized" -> false
+            else -> true
+        }
+    }
+
+    private fun readBody(connection: HttpURLConnection, status: Int): String {
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        return stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+    }
+
+    private fun String.toJsonOrNull(): JSONObject? = try {
+        takeIf { it.isNotBlank() }?.let { JSONObject(it) }
+    } catch (_: Exception) {
+        null
+    }
 
     companion object {
         const val ALIYUN_CN_ENDPOINT = "https://" + "ai-ledg-chat-cn-dnuxlrhytb.cn-hangzhou.fcapp.run"
