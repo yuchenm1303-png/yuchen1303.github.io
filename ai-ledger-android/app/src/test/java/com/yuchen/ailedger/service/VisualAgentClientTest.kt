@@ -40,6 +40,8 @@ class VisualAgentClientTest {
         assertTrue(payload.has("screenSnapshot"))
         assertTrue(payload.has("recentAgentActions"))
         assertTrue(payload.has("executionFeedback"))
+        assertTrue(payload.has("lastToolResponse"))
+        assertTrue(payload.has("toolResponse"))
         assertTrue(payload.has("screenshot"))
 
         val snapshotJson = payload.getJSONObject("screenSnapshot")
@@ -61,7 +63,8 @@ class VisualAgentClientTest {
         assertFalse("scroll" in supportedTypes)
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v6_structured_feedback", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v7_tool_response", memory.getString("schema"))
+        assertTrue(memory.has("lastToolResponse"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
     }
 
@@ -88,12 +91,41 @@ class VisualAgentClientTest {
         assertEquals("tap_xy|0.5|0.5", feedback.getString("lastActionSignature"))
         assertTrue(feedback.getJSONArray("blockedActionSignatures").length() > 0)
 
+        val toolResponse = payload.getJSONObject("lastToolResponse")
+        assertEquals("tool_response", toolResponse.getString("type"))
+        assertEquals("mobile_use", toolResponse.getString("toolName"))
+        assertFalse(toolResponse.getBoolean("success"))
+
         val memory = payload.getJSONObject("agentMemory")
         val signals = memory.getJSONObject("loopSignals")
         assertEquals(1, signals.getInt("noProgressCount"))
         assertTrue(signals.getBoolean("routeRefreshRequested"))
         assertTrue(memory.getJSONArray("verificationEvents").length() > 0)
         assertTrue(memory.getJSONArray("blockedActionSignatures").length() > 0)
+    }
+
+    @Test
+    fun finishCandidateRequestsFreshScreenVerification() {
+        val payload = buildVisualAgentPayload(
+            goal = "进入个人主页",
+            snapshot = testSnapshot(),
+            recentActions = listOf(
+                "finish_verification_pending:package=com.tencent.mobileqq:fingerprint=abc:reason=已进入个人主页",
+            ),
+            agentSessionId = "visual-session-finish",
+        )
+
+        assertTrue(payload.getBoolean("finishVerificationRequested"))
+        assertTrue(payload.getBoolean("routeRefreshRequested"))
+        assertTrue(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertEquals("finish_verification_pending", feedback.getString("lastVerification"))
+        assertTrue(feedback.getBoolean("finishVerificationRequested"))
+
+        val toolResponse = payload.getJSONObject("lastToolResponse")
+        assertEquals("finish", toolResponse.getString("actionSignature"))
+        assertTrue(toolResponse.getBoolean("finishVerificationRequested"))
     }
 
     @Test
