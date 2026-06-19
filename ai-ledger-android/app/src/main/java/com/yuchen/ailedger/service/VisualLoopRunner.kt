@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import java.io.IOException
+import java.text.Normalizer
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -15,14 +16,16 @@ class VisualLoopRunner(
     private val applicationContext = appContext.applicationContext
     private val installedAppIndex = InstalledAppIndex(applicationContext)
     private val deviceToolExecutor = DeviceToolExecutor(applicationContext, installedAppIndex)
+    private val clientDeviceId by lazy { AgentClientIdentity.getOrCreateDeviceId(applicationContext) }
 
     suspend fun run(
         goal: String,
         maxSteps: Int = Int.MAX_VALUE,
+        executionMode: AgentExecutionMode,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
-        if (!AgentRuntimeController.isEnabled()) {
-            val message = "Visual agent is off; direct visual loop was not started."
+        if (requiresAgentSwitch(executionMode) && !AgentRuntimeController.isEnabled()) {
+            val message = "Visual agent is off; forced visual loop was not started."
             AgentRuntimeController.finishTask(message, completed = false)
             return AgentTaskRunResult(false, false, message, logs)
         }
@@ -30,6 +33,8 @@ class VisualLoopRunner(
         val state = VisualLoopState(goal = goal.trim().take(240), running = true)
         val recentActions = mutableListOf<String>()
         val visualHistory = mutableListOf<VisualAgentHistoryItem>()
+        val agentSessionId = AgentClientIdentity.newVisualSessionId()
+        val visualAppContext = withContext(Dispatchers.IO) { buildVisualAppContext() }
         AiAgentAccessibilityService.beginTaskSession()
         AgentRuntimeController.startTask(state.goal)
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
@@ -54,7 +59,10 @@ class VisualLoopRunner(
                             snapshot = snapshot,
                             recentActions = recentActions,
                             visualHistory = visualHistory,
-                            appContext = buildVisualAppContext(),
+                            appContext = visualAppContext,
+                            deviceId = clientDeviceId,
+                            agentSessionId = agentSessionId,
+                            executionMode = executionMode,
                         )
                     }
                 } catch (error: IOException) {
@@ -197,20 +205,30 @@ class VisualLoopRunner(
     private fun prepareStepForExecution(step: CloudAgentStep, snapshot: AgentScreenSnapshot): PreparedVisualStep {
         if (step.type != "open_app") return PreparedVisualStep(ok = true, step = materializeTapCoordinateFrame(step, snapshot))
 
-        val requestedName = step.appName ?: step.targetText ?: step.text.orEmpty()
-        val resolution = installedAppIndex.resolveExplicitAppName(appName = requestedName)
-        return when (resolution.status) {
-            ExplicitAppResolutionStatus.Exact -> {
-                val app = requireNotNull(resolution.app)
-                if (snapshot.currentApp == app.packageName) {
-                    PreparedVisualStep(ok = false, message = "Already in ${app.label}; duplicate open_app was blocked.")
-                } else {
-                    PreparedVisualStep(ok = true, step = step.copy(appName = app.label, packageName = app.packageName))
-                }
-            }
-            ExplicitAppResolutionStatus.Ambiguous -> PreparedVisualStep(ok = false, message = "App name is ambiguous: $requestedName")
-            ExplicitAppResolutionStatus.NotFound -> PreparedVisualStep(ok = false, message = "App is not installed: $requestedName")
+        val requestedName = step.appName?.trim().orEmpty()
+        val requestedPackage = step.packageName?.trim().orEmpty()
+        if (requestedName.isBlank() || requestedPackage.isBlank()) {
+            return PreparedVisualStep(ok = false, message = "open_app requires the canonical appName and packageName pair.")
         }
+
+        val installed = installedAppIndex.getLaunchableApps().firstOrNull { it.packageName == requestedPackage }
+            ?: return PreparedVisualStep(ok = false, message = "App package is not installed: $requestedPackage")
+        if (normalizeCanonicalAppLabel(installed.label) != normalizeCanonicalAppLabel(requestedName)) {
+            return PreparedVisualStep(
+                ok = false,
+                message = "App identity mismatch: $requestedName / $requestedPackage",
+            )
+        }
+        if (snapshot.currentApp == requestedPackage) {
+            return PreparedVisualStep(ok = false, message = "Already in ${installed.label}; duplicate open_app was blocked.")
+        }
+        return PreparedVisualStep(ok = true, step = step)
+    }
+
+    private fun normalizeCanonicalAppLabel(value: String): String {
+        return Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
+            .lowercase()
+            .replace(Regex("\\s+"), "")
     }
 
     private fun buildVisualAppContext(): List<VisualAgentAppContextItem> {
@@ -334,11 +352,11 @@ class VisualLoopRunner(
         plan: CloudAgentPlan,
         executionResult: String,
     ) {
-        val visual = snapshot.visual?.takeIf { it.hasImage } ?: return
+        val visual = snapshot.visual ?: return
         val assistantOutput = plan.rawModelOutput.ifBlank { plan.step.reason.orEmpty() }
         if (assistantOutput.isBlank()) return
         history += VisualAgentHistoryItem(
-            screenshot = visual,
+            screenshot = visual.copy(base64Jpeg = ""),
             assistantOutput = assistantOutput,
             executionResult = executionResult,
         )
@@ -346,7 +364,7 @@ class VisualLoopRunner(
     }
 
     companion object {
-        private const val MAX_RECENT_ACTIONS = 6
+        private const val MAX_RECENT_ACTIONS = 8
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 36
         private const val MAX_APP_CONTEXT_ALIASES = 4
@@ -386,6 +404,10 @@ class VisualLoopRunner(
         private val SOCIAL_TOKENS = listOf("\u5fae\u4fe1", "\u804a\u5929", "\u793e\u4ea4", "wechat", "qq", "chat")
         private val MAP_TOKENS = listOf("\u5730\u56fe", "\u5bfc\u822a", "map", "amap")
         private val BROWSER_TOKENS = listOf("\u6d4f\u89c8\u5668", "browser", "chrome")
+
+        internal fun requiresAgentSwitch(executionMode: AgentExecutionMode): Boolean {
+            return executionMode == AgentExecutionMode.VisualForce
+        }
     }
 }
 
@@ -409,17 +431,19 @@ data class VisualActionValidation(
 
 object VisualActionValidator {
     fun validate(step: CloudAgentStep, snapshot: AgentScreenSnapshot): VisualActionValidation {
-        if (step.type !in allowedTypes) return VisualActionValidation(false, "Unsupported visual action: ${step.type}")
+        if (step.type !in VisualAgentProtocol.supportedStepTypes) {
+            return VisualActionValidation(false, "Unsupported visual action: ${step.type}")
+        }
         if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
             return VisualActionValidation(false, "Invalid tap coordinates.")
         }
         if (step.type == "input_text" && step.text.isNullOrBlank()) {
             return VisualActionValidation(false, "Input text is empty.")
         }
-        if (step.type == "open_app" && step.appName.isNullOrBlank() && step.targetText.isNullOrBlank() && step.text.isNullOrBlank()) {
-            return VisualActionValidation(false, "open_app requires an explicit app name.")
+        if (step.type == "open_app" && (step.appName.isNullOrBlank() || step.packageName.isNullOrBlank())) {
+            return VisualActionValidation(false, "open_app requires the canonical appName and packageName pair.")
         }
-        if (step.type == "open_app" && !step.packageName.isNullOrBlank() && step.packageName == snapshot.currentApp) {
+        if (step.type == "open_app" && step.packageName == snapshot.currentApp) {
             return VisualActionValidation(false, "Duplicate open_app was blocked.")
         }
         return VisualActionValidation(true)
@@ -452,18 +476,6 @@ object VisualActionValidator {
         val nodeKey = snapshot.clickableNodes.take(16).joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
         return listOf(snapshot.currentApp, snapshot.capturedNodeCount.toString(), textKey, nodeKey).joinToString("::")
     }
-
-    private val allowedTypes = setOf(
-        "open_app",
-        "tap_xy",
-        "input_text",
-        "swipe",
-        "back",
-        "home",
-        "wait",
-        "finish",
-        "need_user_help",
-    )
 
     private const val TAP_CLUSTER_BUCKET_PX = 96f
 }
