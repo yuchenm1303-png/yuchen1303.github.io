@@ -11,7 +11,7 @@ import org.json.JSONObject
 private const val VISUAL_AGENT_CONNECT_TIMEOUT_MS = 8_000
 private const val VISUAL_AGENT_READ_TIMEOUT_MS = 20_000
 private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 8
-private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 180
+private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 240
 private const val VISUAL_AGENT_MAX_HISTORY_ITEMS = 4
 private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 1_200
 private const val VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS = 240
@@ -19,7 +19,7 @@ private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 160
 private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 120
 private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 8
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
-private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v5_feedback"
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v6_structured_feedback"
 
 internal object VisualAgentProtocol {
     const val coordinateProtocol = "normalized_screen_0_1"
@@ -107,13 +107,50 @@ internal fun buildVisualAgentPayload(
         .distinct()
         .takeLast(VISUAL_AGENT_MAX_VERIFICATION_EVENTS)
     val verificationEvents = feedbackLines.filter { it.isVisualRuntimeFeedback() }
-    val noProgressCount = verificationEvents.count { it.isVisualNoProgressFeedback() }
-    val blockedActionSignatures = verificationEvents
+    val lastScreenChangeIndex = feedbackLines.indexOfLast { it.isVisualScreenChangedFeedback() }
+    val activeFeedbackWindow = if (lastScreenChangeIndex >= 0) {
+        feedbackLines.drop(lastScreenChangeIndex + 1)
+    } else {
+        feedbackLines
+    }
+    val activeVerificationEvents = activeFeedbackWindow.filter { it.isVisualRuntimeFeedback() }
+    val noProgressCount = activeVerificationEvents.count { it.isVisualNoProgressFeedback() }
+    val blockedActionSignatures = activeVerificationEvents
         .filter { it.isVisualNoProgressFeedback() || it.isVisualFailureFeedback() }
         .mapNotNull { it.visualActionSignatureOrNull() }
         .distinct()
         .takeLast(VISUAL_AGENT_MAX_BLOCKED_SIGNATURES)
-    val routeRefreshRequested = noProgressCount > 0 || verificationEvents.any { it.isVisualFailureFeedback() }
+    val lastVerificationEvent = verificationEvents.lastOrNull().orEmpty()
+    val lastVerification = when {
+        lastVerificationEvent.isVisualNoProgressFeedback() -> "visual_no_screen_change"
+        lastVerificationEvent.isVisualScreenChangedFeedback() -> "visual_screen_changed"
+        lastVerificationEvent.isVisualFailureFeedback() -> "execution_failed"
+        else -> "unknown"
+    }
+    val lastResultOk = feedbackLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
+    val executedActionSignatures = feedbackLines
+        .filter { it.contains(":ok:", ignoreCase = true) || it.contains(":failed:", ignoreCase = true) }
+        .mapNotNull { it.visualActionSignatureOrNull() }
+    val lastActionSignature = executedActionSignatures.lastOrNull()
+        ?: activeVerificationEvents.asReversed().firstNotNullOfOrNull { it.visualActionSignatureOrNull() }
+        ?: ""
+    val sameActionCount = if (lastActionSignature.isBlank()) {
+        0
+    } else {
+        executedActionSignatures.asReversed().takeWhile { it == lastActionSignature }.count()
+    }
+    val routeRefreshRequested = noProgressCount > 0 || activeVerificationEvents.any { it.isVisualFailureFeedback() }
+    val executionFeedback = JSONObject().apply {
+        put("lastResultOk", lastResultOk ?: JSONObject.NULL)
+        put("lastVerification", lastVerification)
+        put("noProgressCount", noProgressCount)
+        put("sameActionCount", sameActionCount)
+        put("lastActionSignature", lastActionSignature)
+        put("blockedActionSignatures", JSONArray(blockedActionSignatures))
+        put("verificationEvents", JSONArray(verificationEvents))
+        put("latestEvent", lastVerificationEvent)
+        put("routeRefreshRequested", routeRefreshRequested)
+    }
     val canonicalApps = JSONArray().apply {
         appContext
             .asSequence()
@@ -155,25 +192,26 @@ internal fun buildVisualAgentPayload(
         put("screenSnapshot", screenSnapshot)
         put("recentAgentActions", recentAgentActions)
         put("recentActions", recentAgentActions)
+        put("executionFeedback", executionFeedback)
         put("routeRefreshRequested", routeRefreshRequested)
         put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
         put("agentMemory", JSONObject().apply {
-            put("schema", "android_visual_agent_loop_memory_v5_feedback")
+            put("schema", "android_visual_agent_loop_memory_v6_structured_feedback")
             put("recentActions", recentAgentActions)
             put("verificationEvents", JSONArray(verificationEvents))
             put("blockedActionSignatures", JSONArray(blockedActionSignatures))
+            put("executionFeedback", executionFeedback)
             put("loopSignals", JSONObject().apply {
                 put("agentSessionId", cleanSessionId)
                 put("loopIndex", cleanRecentActionLines.size)
-                put("executedStepCount", cleanRecentActionLines.size)
+                put("executedStepCount", executedActionSignatures.size)
                 put("noProgressCount", noProgressCount)
+                put("sameActionCount", sameActionCount)
+                put("lastResultOk", lastResultOk ?: JSONObject.NULL)
+                put("lastVerification", lastVerification)
                 put("routeRefreshRequested", routeRefreshRequested)
-                put("lastActionSignature", blockedActionSignatures.lastOrNull().orEmpty())
-                put("postActionFeedback", JSONObject().apply {
-                    put("noProgressCount", noProgressCount)
-                    put("blockedActionSignatures", JSONArray(blockedActionSignatures))
-                    put("verificationEvents", JSONArray(verificationEvents))
-                })
+                put("lastActionSignature", lastActionSignature)
+                put("postActionFeedback", executionFeedback)
             })
         })
         put("visualHistory", JSONArray().apply {
@@ -234,7 +272,7 @@ internal fun buildVisualAgentPayload(
             put("includePerformanceDebug", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-direct-v5-feedback-loop")
+        put("clientVersion", "visual-agent-direct-v6-structured-feedback")
         put("now", System.currentTimeMillis())
     }
 }
@@ -243,6 +281,7 @@ private fun String.isVisualRuntimeFeedback(): Boolean {
     val value = lowercase()
     return value.contains(":failed:") ||
         value.contains("visual_no_progress") ||
+        value.contains("visual_screen_changed") ||
         value.contains("no_progress") ||
         value.contains("no progress") ||
         value.contains("same screen") ||
@@ -263,9 +302,25 @@ private fun String.isVisualNoProgressFeedback(): Boolean {
         value.contains("重复循环")
 }
 
+private fun String.isVisualScreenChangedFeedback(): Boolean {
+    val value = lowercase()
+    return value.contains("visual_screen_changed") ||
+        value.contains("screen=changed") ||
+        value.contains("visual_progress")
+}
+
 private fun String.isVisualFailureFeedback(): Boolean {
     val value = lowercase()
     return value.contains(":failed:") || value.contains("blocked") || value.contains("执行失败")
+}
+
+private fun String.visualResultOkOrNull(): Boolean? {
+    val value = lowercase()
+    return when {
+        value.contains(":failed:") || value.contains("执行失败") -> false
+        value.contains(":ok:") -> true
+        else -> null
+    }
 }
 
 private fun String.visualActionSignatureOrNull(): String? {
@@ -273,6 +328,8 @@ private fun String.visualActionSignatureOrNull(): String? {
     val signature = when {
         ":failed:" in clean -> clean.substringBefore(":failed:")
         ":ok:" in clean -> clean.substringBefore(":ok:")
+        clean.startsWith("visual_no_progress:") -> clean.substringAfter("visual_no_progress:").substringBefore(":count=")
+        clean.startsWith("visual_screen_changed:") -> clean.substringAfter("visual_screen_changed:").substringBefore(":screen=")
         else -> Regex("(?:tap@\\d+,\\d+|tap_node@[^\\s，。；;:：]+|open@[^\\s，。；;:：]+|input@[^\\s，。；;:：]+|scroll@[a-z]+|swipe@[a-z]+|back|home|recents)")
             .find(clean)
             ?.value
@@ -294,7 +351,7 @@ private fun postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v5")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v6")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
