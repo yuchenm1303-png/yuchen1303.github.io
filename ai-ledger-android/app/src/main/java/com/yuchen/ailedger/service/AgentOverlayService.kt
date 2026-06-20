@@ -531,7 +531,8 @@ class AgentOverlayService : Service() {
     }
 
     private fun overlayWindowFlags(touchThrough: Boolean, wantsInputFocus: Boolean): Int {
-        var flags = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+        var flags = WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
         if (!wantsInputFocus) flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         if (touchThrough) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         return flags
