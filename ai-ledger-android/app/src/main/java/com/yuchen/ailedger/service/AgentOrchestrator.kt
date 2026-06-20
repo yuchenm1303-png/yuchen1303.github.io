@@ -34,6 +34,7 @@ class AgentOrchestrator(
 ) {
     private val applicationContext = appContext.applicationContext
     private val installedAppIndex = InstalledAppIndex(applicationContext)
+    private val appCapabilityRegistry = AppCapabilityRegistry(applicationContext, installedAppIndex)
     private val deviceToolExecutor = DeviceToolExecutor(applicationContext, installedAppIndex)
     private val clientDeviceId by lazy { AgentClientIdentity.getOrCreateDeviceId(applicationContext) }
 
@@ -99,21 +100,41 @@ class AgentOrchestrator(
 
         val installedApps = withContext(Dispatchers.IO) {
             installedAppIndex.getLaunchableApps()
+        }.filterNot { it.packageName == applicationContext.packageName }
+        if (installedApps.isEmpty()) {
+            return controllerFailure(sourcePackage, "设备上没有可供智能体启动的目标应用。")
         }
-        val appContext = installedApps
-            .asSequence()
-            .filterNot { it.packageName == applicationContext.packageName }
-            .map { app ->
-                VisualAgentAppContextItem(
-                    label = app.label,
-                    packageName = app.packageName,
+
+        val explicitResolution = resolveExplicitControllerTarget(
+            goal = goal,
+            apps = installedApps,
+            aliasesForPackage = installedAppIndex::aliasesFor,
+            excludedPackages = setOf(applicationContext.packageName),
+        )
+        explicitResolution.app
+            ?.takeIf { explicitResolution.status == ExplicitAppResolutionStatus.Exact }
+            ?.let { app ->
+                return executeControllerOpenApp(
+                    sourcePackage = sourcePackage,
+                    step = CloudAgentStep(
+                        type = "open_app",
+                        appName = app.label,
+                        packageName = app.packageName,
+                        reason = "用户指令已明确指定安装应用，控制器直接打开后再进入视觉导航。",
+                    ),
                 )
             }
+
+        val contract = AgentTaskExecutionContract.fromGoal(goal)
+        val appContext = appCapabilityRegistry.buildVisualContext(installedApps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_CONTROLLER_APP_CONTEXT_ITEMS)
-            .toList()
-        if (appContext.isEmpty()) return null
-
+        val recentActions = mutableListOf(
+            contract.toPromptLine(),
+            AgentDeviceProfile.current().toPromptLine(),
+            appCapabilityRegistry.compactPromptLine(appContext),
+            "controller_handoff:v2|currentSurface=assistant_controller|mustReturn=open_app|homeNotRequired=true|validateAppCapability=true",
+        )
         val syntheticControllerSnapshot = AgentScreenSnapshot(
             currentApp = applicationContext.packageName,
             packageName = applicationContext.packageName,
@@ -126,54 +147,91 @@ class AgentOrchestrator(
             scrollableNodes = emptyList(),
             visual = null,
         )
+        val sessionId = AgentClientIdentity.newVisualSessionId()
 
-        val modelStep = try {
-            withContext(Dispatchers.IO) {
-                aiWorkerClient.requestVisualAgentStep(
-                    goal = goal,
-                    snapshot = syntheticControllerSnapshot,
-                    recentActions = emptyList(),
-                    visualHistory = emptyList(),
-                    appContext = appContext,
-                    deviceId = clientDeviceId,
-                    agentSessionId = AgentClientIdentity.newVisualSessionId(),
-                    executionMode = executionMode,
-                )
-            }.also { AgentRuntimeController.noteModelOutput(it.rawModelOutput) }
-                .step
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: IOException) {
-            null
-        }
-
-        val selectedStep = prepareControllerOpenApp(modelStep, installedApps)
-            ?: resolveExplicitControllerTarget(
-                goal = goal,
-                apps = installedApps,
-                aliasesForPackage = installedAppIndex::aliasesFor,
-                excludedPackages = setOf(applicationContext.packageName),
-            ).app?.let { app ->
-                CloudAgentStep(
-                    type = "open_app",
-                    appName = app.label,
-                    packageName = app.packageName,
-                    reason = "控制器阶段已从原始指令中唯一确认目标应用，先打开应用再开始视觉导航。",
-                )
+        repeat(MAX_CONTROLLER_SELECTION_ATTEMPTS) { attempt ->
+            val modelStep = try {
+                withContext(Dispatchers.IO) {
+                    aiWorkerClient.requestVisualAgentStep(
+                        goal = goal,
+                        snapshot = syntheticControllerSnapshot,
+                        recentActions = recentActions,
+                        visualHistory = emptyList(),
+                        appContext = appContext,
+                        deviceId = clientDeviceId,
+                        agentSessionId = sessionId,
+                        executionMode = executionMode,
+                    )
+                }.also { AgentRuntimeController.noteModelOutput(it.rawModelOutput) }
+                    .step
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: IOException) {
+                recentActions += "controller_selection_failed:network=${error.message.orEmpty().take(120)}"
+                null
             }
-            ?: return null
 
-        AgentRuntimeController.noteAction(selectedStep)
-        val execution = withContext(Dispatchers.IO) {
-            deviceToolExecutor.execute(selectedStep, confirmedHighRisk = false)
+            val selectedStep = prepareControllerOpenApp(modelStep, installedApps)
+            if (selectedStep == null) {
+                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=GUI Plus 必须返回已安装应用的规范 open_app(appName,packageName)，不能 wait、home 或点击控制器界面。"
+                return@repeat
+            }
+
+            val selectedApp = installedApps.firstOrNull { it.packageName == selectedStep.packageName }
+            if (selectedApp == null) {
+                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=目标包不在已安装应用清单。"
+                return@repeat
+            }
+            val validation = appCapabilityRegistry.validateSelection(contract, selectedApp)
+            if (!validation.ok) {
+                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|app=${selectedApp.label.take(40)}|package=${selectedApp.packageName.take(80)}|reason=${validation.message.take(220)}"
+                return@repeat
+            }
+
+            return executeControllerOpenApp(sourcePackage, selectedStep)
         }
-        AgentRuntimeController.noteResult(selectedStep, execution)
-        if (execution.ok && execution.shouldContinue) delay(CONTROLLER_APP_OPEN_SETTLE_MS)
 
+        val message = buildString {
+            append("没有找到符合任务能力契约的目标应用。")
+            when (contract.preferredSurface) {
+                AgentSurfacePreference.SystemSettings -> append(" 请确认系统设置可用，或明确告诉我应进入哪个设置入口。")
+                AgentSurfacePreference.NativeApp -> append(" 请明确选择一个具备该操作能力的原生应用。")
+                else -> append(" 请在指令中明确应用名称后重试。")
+            }
+        }
+        return controllerFailure(sourcePackage, message)
+    }
+
+    private suspend fun executeControllerOpenApp(
+        sourcePackage: String,
+        step: CloudAgentStep,
+    ): ControllerHandoffResult {
+        AgentRuntimeController.noteAction(step)
+        val execution = withContext(Dispatchers.IO) {
+            deviceToolExecutor.execute(step, confirmedHighRisk = false)
+        }
+        AgentRuntimeController.noteResult(step, execution)
+        if (execution.ok && execution.shouldContinue) delay(CONTROLLER_APP_OPEN_SETTLE_MS)
         return ControllerHandoffResult(
             sourcePackage = sourcePackage,
-            step = selectedStep,
+            step = step,
             execution = execution,
+        )
+    }
+
+    private fun controllerFailure(sourcePackage: String, message: String): ControllerHandoffResult {
+        val step = CloudAgentStep(
+            type = "need_user_help",
+            reason = message,
+        )
+        return ControllerHandoffResult(
+            sourcePackage = sourcePackage,
+            step = step,
+            execution = AgentExecutionResult(
+                ok = false,
+                message = message,
+                shouldContinue = false,
+            ),
         )
     }
 
@@ -199,6 +257,7 @@ class AgentOrchestrator(
     companion object {
         private const val CONTROLLER_APP_OPEN_SETTLE_MS = 700L
         private const val MAX_CONTROLLER_APP_CONTEXT_ITEMS = 160
+        private const val MAX_CONTROLLER_SELECTION_ATTEMPTS = 2
         private const val MIN_EXPLICIT_APP_IDENTITY_LENGTH = 2
 
         fun routeFor(executionMode: AgentExecutionMode): AgentOrchestratorRoute {
