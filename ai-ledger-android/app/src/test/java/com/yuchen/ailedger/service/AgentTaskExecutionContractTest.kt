@@ -111,6 +111,54 @@ class AgentTaskExecutionContractTest {
     }
 
     @Test
+    fun canonicalContractJsonContainsOnlyExecutionBoundaryFields() {
+        val contract = AgentTaskExecutionContract(
+            preferredSurface = AgentSurfacePreference.NativeApp,
+            browserFallbackAllowed = false,
+            requiredCapabilities = setOf(AppCapability.NativeApp, "social_chat"),
+            requirePostActionVerification = true,
+            highImpactFlow = true,
+            reason = "使用原生社交应用并验证结果",
+        )
+
+        val json = contract.toJson()
+
+        assertEquals("android_task_execution_contract_v1", json.getString("schema"))
+        assertEquals("native_app", json.getString("preferredSurface"))
+        assertFalse(json.getBoolean("browserFallbackAllowed"))
+        assertTrue(json.getBoolean("requirePostActionVerification"))
+        assertTrue(json.getBoolean("highImpactFlow"))
+        assertEquals("使用原生社交应用并验证结果", json.getString("taskContractReason"))
+        val capabilities = json.getJSONArray("requiredCapabilities")
+        val capabilitySet = (0 until capabilities.length()).map { index ->
+            capabilities.getString(index)
+        }.toSet()
+        assertEquals(setOf(AppCapability.NativeApp, "social_chat"), capabilitySet)
+        assertFalse(json.has("phase"))
+        assertFalse(json.has("targetApp"))
+        assertFalse(json.has("targetPackageName"))
+    }
+
+    @Test
+    fun deviceProfileJsonIsGeneratedFromRuntimeFields() {
+        val profile = AgentDeviceProfile(
+            manufacturer = "Test Manufacturer",
+            brand = "Test Brand",
+            model = "Test Model",
+            release = "15",
+            sdkInt = 35,
+            display = "test-build",
+        )
+
+        val json = profile.toJson()
+
+        assertEquals("android_device_profile_v1", json.getString("schema"))
+        assertEquals("Test Manufacturer", json.getString("manufacturer"))
+        assertEquals("Test Model", json.getString("model"))
+        assertEquals(35, json.getInt("sdkInt"))
+    }
+
+    @Test
     fun surfaceWireValuesAreNormalized() {
         assertEquals(AgentSurfacePreference.NativeApp, AgentSurfacePreference.fromWireValue("native-app"))
         assertEquals(AgentSurfacePreference.SystemSettings, AgentSurfacePreference.fromWireValue("settings"))
