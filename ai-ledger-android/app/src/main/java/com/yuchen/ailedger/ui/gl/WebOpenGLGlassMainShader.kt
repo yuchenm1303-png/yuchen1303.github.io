@@ -104,7 +104,9 @@ internal object WebOpenGLGlassMainShader {
                 );
                 vec2 sourcePoint=shoulderData.xy;
                 shoulderOptics=shoulderData.zw;
-                materialWeight=bodyLensWeightAtReach(
+                // 深层来源点只控制折射坐标，当前位置材质亮度继续沿用 bodyWeight。
+                // 避免固定取样深度把整圈圆肩的材质权重压到接近 0，形成宽黑环。
+                float sourceWeight=bodyLensWeightAtReach(
                     sourceDepth,lensParams
                 );
                 bodyOpticalCoord=evaluateBodyOpticalCoordAt(
@@ -113,7 +115,7 @@ internal object WebOpenGLGlassMainShader {
                     sourceNormal,
                     z,
                     lensParams,
-                    materialWeight,
+                    sourceWeight,
                     transportParams,
                     pressOptics
                 );
