@@ -1,7 +1,10 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -31,7 +34,7 @@ class AgentTaskExecutionContractTest {
     }
 
     @Test
-    fun systemSettingsContractRejectsOrdinaryApp() {
+    fun systemSettingsContractRejectsOrdinaryAppAndAcceptsSettings() {
         val contract = AgentTaskExecutionContract(
             preferredSurface = AgentSurfacePreference.SystemSettings,
             browserFallbackAllowed = false,
@@ -61,6 +64,50 @@ class AgentTaskExecutionContractTest {
         assertTrue(request.browserFallbackAllowed)
         assertTrue(request.requiredCapabilities.isEmpty())
         assertTrue(request.requirePostActionVerification)
+    }
+
+    @Test
+    fun fromPlannerStepParsesStructuredModelArguments() {
+        val contractFields = JSONObject().apply {
+            put("preferredSurface", "system_settings")
+            put("browserFallbackAllowed", false)
+            put("requiredCapabilities", "system_settings,native_app")
+            put("requirePostActionVerification", true)
+            put("taskContractReason", "需要进入真实系统设置并验证结果")
+        }
+        val step = CloudAgentStep.fromJson(JSONObject().apply {
+            put("type", "open_app")
+            put("appName", "设置")
+            put("packageName", "com.android.settings")
+            put("arguments", contractFields)
+            put("args", contractFields)
+            put("preferredSurface", "system_settings")
+            put("browserFallbackAllowed", false)
+            put("requiredCapabilities", "system_settings,native_app")
+            put("requirePostActionVerification", true)
+            put("taskContractReason", "需要进入真实系统设置并验证结果")
+        })
+
+        assertNotNull(step)
+        val contract = AgentTaskExecutionContract.fromPlannerStep(step)
+        assertNotNull(contract)
+        requireNotNull(contract)
+        assertEquals(AgentSurfacePreference.SystemSettings, contract.preferredSurface)
+        assertFalse(contract.browserFallbackAllowed)
+        assertEquals(setOf(AppCapability.SystemSettings, AppCapability.NativeApp), contract.requiredCapabilities)
+        assertTrue(contract.requirePostActionVerification)
+        assertEquals("需要进入真实系统设置并验证结果", contract.reason)
+    }
+
+    @Test
+    fun plannerStepWithoutContractRequiresRetryInsteadOfLocalGuess() {
+        val step = CloudAgentStep(
+            type = "open_app",
+            appName = "设置",
+            packageName = "com.android.settings",
+        )
+
+        assertNull(AgentTaskExecutionContract.fromPlannerStep(step))
     }
 
     @Test
