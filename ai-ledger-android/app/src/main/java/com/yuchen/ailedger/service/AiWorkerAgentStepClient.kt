@@ -43,7 +43,9 @@ fun AiWorkerClient.requestAgentPlan(
         executionMode = executionMode,
     )
     var lastError: IOException? = null
-    val candidates = listOf(endpoint.trim().trimEnd('/')).filter(String::isNotBlank).distinct()
+    val candidates = listOf(endpoint.trim().trimEnd('/'))
+        .filter { candidate -> candidate.isNotBlank() }
+        .distinct()
     for (candidate in candidates) {
         try {
             return postAgentPlan(candidate, payload)
@@ -93,7 +95,8 @@ private fun buildAgentStepPayload(
                     action.contains("postActionFeedbackReset", ignoreCase = true)
             }
         )
-    val sessionId = loopSignals?.optString("agentSessionId")?.takeIf(String::isNotBlank)
+    val sessionId = loopSignals?.optString("agentSessionId")
+        ?.takeIf { value -> value.isNotBlank() }
         ?: "android-agent-step-${System.currentTimeMillis()}"
 
     return JSONObject().apply {
@@ -125,14 +128,14 @@ private fun buildAgentStepPayload(
         put("replanAfterSettingsEntry", true)
         put("crossActionNoProgressAccumulation", false)
         put("recentAgentActions", JSONArray().apply {
-            recentActions.takeLast(10).forEach { put(it) }
+            recentActions.takeLast(10).forEach { action -> put(action) }
         })
-        agentMemory?.let { put("agentMemory", it) }
-        deviceContext?.let {
-            put("deviceContext", it.json)
-            it.json.optString("appInventoryHash").takeIf(String::isNotBlank)?.let { hash ->
-                put("appInventoryHash", hash)
-            }
+        agentMemory?.let { memory -> put("agentMemory", memory) }
+        deviceContext?.let { contextSnapshot ->
+            put("deviceContext", contextSnapshot.json)
+            contextSnapshot.json.optString("appInventoryHash")
+                .takeIf { hash -> hash.isNotBlank() }
+                ?.let { hash -> put("appInventoryHash", hash) }
         }
         put("screenSnapshot", snapshot.toJson(includeImage = false))
         put("hasScreenshot", hasVisualPayload)
@@ -140,7 +143,7 @@ private fun buildAgentStepPayload(
         put("hasImages", hasVisualPayload)
         put("imageCount", if (hasVisualPayload) 1 else 0)
         if (hasVisualPayload) {
-            snapshot.visual?.takeIf { it.hasImage }?.let { visual ->
+            snapshot.visual?.takeIf { visual -> visual.hasImage }?.let { visual ->
                 put("screenshot", JSONObject().apply {
                     put("mimeType", visual.mimeType)
                     put("base64Data", visual.base64Jpeg)
@@ -201,7 +204,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
     }
     return try {
         val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
-        connection.outputStream.use { it.write(requestBytes) }
+        connection.outputStream.use { output -> output.write(requestBytes) }
         val status = connection.responseCode
         val body = connection.agentReadBody(status)
         val data = body.agentJsonOrNull()
@@ -214,18 +217,18 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
             ),
         )
         if (status !in 200..299) {
-            val message = data?.optString("error")?.takeIf(String::isNotBlank)
-                ?: data?.optString("message")?.takeIf(String::isNotBlank)
+            val message = data?.optString("error")?.takeIf { value -> value.isNotBlank() }
+                ?: data?.optString("message")?.takeIf { value -> value.isNotBlank() }
                 ?: body.take(120).ifBlank { "云端智能体规划失败：HTTP $status" }
             throw IOException(message)
         }
         CloudAgentPlan.fromJson(data)
             ?: extractAgentPlanFromText(body)
-            ?: CloudAgentStep.fromJson(data)?.let {
-                CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data))
+            ?: CloudAgentStep.fromJson(data)?.let { step ->
+                CloudAgentPlan(step = step, state = CloudAgentState.fromJson(data))
             }
-            ?: extractAgentStepFromText(body)?.let {
-                CloudAgentPlan(step = it, state = extractAgentStateFromText(body))
+            ?: extractAgentStepFromText(body)?.let { step ->
+                CloudAgentPlan(step = step, state = extractAgentStateFromText(body))
             }
             ?: throw IOException("云端没有返回有效的智能体下一步动作")
     } catch (error: SocketTimeoutException) {
@@ -276,13 +279,16 @@ private fun bytesToKb(bytes: Int): Int = if (bytes <= 0) 0 else ((bytes + 1023) 
 
 private fun HttpURLConnection.agentReadBody(status: Int): String {
     val stream = if (status in 200..299) inputStream else errorStream
-    return stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+    return stream?.bufferedReader(Charsets.UTF_8)?.use { reader -> reader.readText() }.orEmpty()
 }
 
-private fun String.agentJsonOrNull(): JSONObject? = try {
-    takeIf(String::isNotBlank)?.let(::JSONObject)
-} catch (_: Exception) {
-    null
+private fun String.agentJsonOrNull(): JSONObject? {
+    if (isBlank()) return null
+    return try {
+        JSONObject(this)
+    } catch (_: Exception) {
+        null
+    }
 }
 
 private fun JSONObject.optIntOrNull(key: String): Int? {
