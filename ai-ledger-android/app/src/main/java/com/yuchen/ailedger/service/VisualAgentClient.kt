@@ -10,8 +10,8 @@ import org.json.JSONObject
 
 private const val VISUAL_AGENT_CONNECT_TIMEOUT_MS = 8_000
 private const val VISUAL_AGENT_READ_TIMEOUT_MS = 25_000
-private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 8
-private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 240
+private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 12
+private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 1_200
 private const val VISUAL_AGENT_MAX_HISTORY_ITEMS = 4
 private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 1_200
 private const val VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS = 240
@@ -19,7 +19,10 @@ private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 160
 private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 120
 private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 8
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
+private const val VISUAL_AGENT_MAX_INTERACTION_ITEMS = 16
+private const val VISUAL_AGENT_MAX_INTERACTION_CHARS = 1_200
 private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v7_tool_response"
+private const val VISUAL_AGENT_INTERACTION_PROTOCOL = "gui_plus_dialogue_v1"
 
 internal object VisualAgentProtocol {
     const val coordinateProtocol = "normalized_screen_0_1"
@@ -99,6 +102,7 @@ internal fun buildVisualAgentPayload(
         .map { it.trim().take(VISUAL_AGENT_MAX_RECENT_ACTION_CHARS) }
         .filter { it.isNotBlank() }
     val recentAgentActions = JSONArray(cleanRecentActionLines)
+    val interactionHistory = buildInteractionHistory(cleanRecentActionLines)
     val historyExecutionResults = visualHistory
         .takeLast(VISUAL_AGENT_MAX_HISTORY_ITEMS)
         .map { it.executionResult.trim().take(VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS) }
@@ -220,6 +224,9 @@ internal fun buildVisualAgentPayload(
         put("agentSessionId", cleanSessionId)
         put("sessionId", cleanSessionId)
         put("agentSessionProtocol", VISUAL_AGENT_SESSION_PROTOCOL)
+        put("interactionProtocol", VISUAL_AGENT_INTERACTION_PROTOCOL)
+        put("interactionHistory", interactionHistory)
+        put("interactionTurnCount", interactionHistory.length())
         put("deviceId", cleanDeviceId)
         put("clientId", cleanDeviceId)
         put("currentPackage", snapshot.packageName)
@@ -247,6 +254,8 @@ internal fun buildVisualAgentPayload(
         put("agentMemory", JSONObject().apply {
             put("schema", "android_visual_agent_loop_memory_v7_tool_response")
             put("recentActions", recentAgentActions)
+            put("interactionProtocol", VISUAL_AGENT_INTERACTION_PROTOCOL)
+            put("interactionHistory", interactionHistory)
             put("verificationEvents", JSONArray(verificationEvents))
             put("blockedActionSignatures", JSONArray(blockedActionSignatures))
             put("executionFeedback", executionFeedback)
@@ -326,8 +335,33 @@ internal fun buildVisualAgentPayload(
             put("includePerformanceDebug", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-direct-v7-tool-response")
+        put("clientVersion", "visual-agent-dialogue-v8")
         put("now", System.currentTimeMillis())
+    }
+}
+
+private fun buildInteractionHistory(recentActions: List<String>): JSONArray {
+    val turns = recentActions.mapNotNull { line ->
+        when {
+            line.startsWith("guiPlusQuestion:") -> "assistant" to line.substringAfter("guiPlusQuestion:")
+            line.startsWith("userReply:") -> "user" to line.substringAfter("userReply:")
+            line.startsWith("userInstruction:") -> "user" to line.substringAfter("userInstruction:")
+            else -> null
+        }
+    }.takeLast(VISUAL_AGENT_MAX_INTERACTION_ITEMS)
+
+    return JSONArray().apply {
+        turns.forEachIndexed { index, (role, content) ->
+            val cleanContent = content.trim().take(VISUAL_AGENT_MAX_INTERACTION_CHARS)
+            if (cleanContent.isNotBlank()) {
+                put(JSONObject().apply {
+                    put("index", index)
+                    put("role", role)
+                    put("content", cleanContent)
+                    put("sensitiveRedacted", cleanContent.contains("敏感输入") || cleanContent.contains("private_step"))
+                })
+            }
+        }
     }
 }
 
@@ -411,7 +445,7 @@ private fun AiWorkerClient.postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v7")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v8")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
