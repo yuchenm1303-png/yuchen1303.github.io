@@ -28,6 +28,16 @@ private data class ControllerHandoffResult(
     }
 }
 
+internal data class ControllerPlannerSelection(
+    val contract: AgentTaskExecutionContract? = null,
+    val app: InstalledAppEntry? = null,
+    val step: CloudAgentStep? = null,
+    val rejectionReason: String = "",
+) {
+    val accepted: Boolean
+        get() = contract != null && app != null && step != null && rejectionReason.isBlank()
+}
+
 class AgentOrchestrator(
     private val aiWorkerClient: AiWorkerClient,
     appContext: Context,
@@ -126,7 +136,7 @@ class AgentOrchestrator(
             }
 
         val contractRequest = AgentTaskExecutionContract.controllerRequest()
-        var lastDeclaredContract = contractRequest
+        var lastDeclaredContract: AgentTaskExecutionContract? = null
         val appContext = appCapabilityRegistry.buildVisualContext(installedApps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_CONTROLLER_APP_CONTEXT_ITEMS)
@@ -173,22 +183,22 @@ class AgentOrchestrator(
                 null
             }
 
-            val declaredContract = AgentTaskExecutionContract.fromPlannerStep(modelStep)
-            if (declaredContract != null) {
-                lastDeclaredContract = declaredContract
-            }
-            val selectedStep = prepareControllerOpenApp(modelStep, installedApps)
-            if (selectedStep == null) {
-                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=GUI Plus 必须返回已安装应用的规范 open_app(appName,packageName)，并同时声明结构化任务契约。"
+            val selection = evaluateControllerPlannerStep(
+                step = modelStep,
+                installedApps = installedApps,
+                assistantPackageName = applicationContext.packageName,
+            )
+            if (!selection.accepted) {
+                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=${selection.rejectionReason.take(260)}"
                 return@repeat
             }
 
-            val selectedApp = installedApps.firstOrNull { it.packageName == selectedStep.packageName }
-            if (selectedApp == null) {
-                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=目标包不在已安装应用清单。"
-                return@repeat
-            }
-            val validation = appCapabilityRegistry.validateSelection(lastDeclaredContract, selectedApp)
+            val declaredContract = requireNotNull(selection.contract)
+            val selectedApp = requireNotNull(selection.app)
+            val selectedStep = requireNotNull(selection.step)
+            lastDeclaredContract = declaredContract
+
+            val validation = appCapabilityRegistry.validateSelection(declaredContract, selectedApp)
             if (!validation.ok) {
                 recentActions += "controller_selection_rejected:attempt=${attempt + 1}|app=${selectedApp.label.take(40)}|package=${selectedApp.packageName.take(80)}|reason=${validation.message.take(220)}"
                 return@repeat
@@ -199,10 +209,12 @@ class AgentOrchestrator(
 
         val message = buildString {
             append("没有找到符合云端任务契约的目标应用。")
-            when (lastDeclaredContract.preferredSurface) {
+            when (lastDeclaredContract?.preferredSurface) {
                 AgentSurfacePreference.SystemSettings -> append(" 请确认系统设置可用，或明确告诉我应进入哪个设置入口。")
                 AgentSurfacePreference.NativeApp -> append(" 请明确选择一个具备该操作能力的原生应用。")
-                else -> append(" 请在指令中明确应用名称后重试。")
+                AgentSurfacePreference.Browser -> append(" 请确认设备上存在可用浏览器，或明确指定目标应用。")
+                AgentSurfacePreference.Any -> append(" 请在指令中明确应用名称后重试。")
+                null -> append(" 云端规划器未返回完整任务契约，已停止在控制器界面继续尝试。")
             }
         }
         return controllerFailure(sourcePackage, message)
@@ -241,30 +253,12 @@ class AgentOrchestrator(
         )
     }
 
-    private fun prepareControllerOpenApp(
-        step: CloudAgentStep?,
-        installedApps: List<InstalledAppEntry>,
-    ): CloudAgentStep? {
-        if (step?.type != "open_app") return null
-        val requestedName = step.appName?.trim().orEmpty()
-        val requestedPackage = step.packageName?.trim().orEmpty()
-        if (requestedName.isBlank() || requestedPackage.isBlank()) return null
-        if (requestedPackage == applicationContext.packageName) return null
-
-        val installed = installedApps.firstOrNull { it.packageName == requestedPackage } ?: return null
-        if (normalizeAppIdentity(installed.label) != normalizeAppIdentity(requestedName)) return null
-        return step.copy(
-            appName = installed.label,
-            packageName = installed.packageName,
-            reason = step.reason ?: "GUI Plus 已在控制器阶段选择目标应用，先打开应用再开始视觉导航。",
-        )
-    }
-
     companion object {
         private const val CONTROLLER_APP_OPEN_SETTLE_MS = 700L
         private const val MAX_CONTROLLER_APP_CONTEXT_ITEMS = 160
         private const val MAX_CONTROLLER_SELECTION_ATTEMPTS = 2
         private const val MIN_EXPLICIT_APP_IDENTITY_LENGTH = 2
+        private val CONTROLLER_FORBIDDEN_STEP_TYPES = setOf("wait", "home", "tap_xy")
 
         fun routeFor(executionMode: AgentExecutionMode): AgentOrchestratorRoute {
             return when (executionMode) {
@@ -272,6 +266,69 @@ class AgentOrchestrator(
                 AgentExecutionMode.VisualForce,
                 AgentExecutionMode.ExplicitAgent -> AgentOrchestratorRoute.VisualLoop
             }
+        }
+
+        internal fun evaluateControllerPlannerStep(
+            step: CloudAgentStep?,
+            installedApps: List<InstalledAppEntry>,
+            assistantPackageName: String,
+        ): ControllerPlannerSelection {
+            if (step == null) {
+                return ControllerPlannerSelection(
+                    rejectionReason = "GUI Plus 未返回控制器阶段动作；必须返回已安装应用的规范 open_app 和结构化任务契约。",
+                )
+            }
+
+            val stepType = step.type.trim().lowercase()
+            if (stepType in CONTROLLER_FORBIDDEN_STEP_TYPES) {
+                return ControllerPlannerSelection(
+                    rejectionReason = "控制器阶段禁止返回 $stepType；必须直接选择已安装目标应用并返回 open_app。",
+                )
+            }
+            if (stepType != "open_app") {
+                return ControllerPlannerSelection(
+                    rejectionReason = "控制器阶段只接受 open_app，不接受 $stepType。",
+                )
+            }
+
+            val declaredContract = AgentTaskExecutionContract.fromPlannerStep(step)
+                ?: return ControllerPlannerSelection(
+                    rejectionReason = "Planner 缺少结构化任务契约；必须声明 preferredSurface、browserFallbackAllowed、requiredCapabilities 和 requirePostActionVerification。",
+                )
+
+            val requestedName = step.appName?.trim().orEmpty()
+            val requestedPackage = step.packageName?.trim().orEmpty()
+            if (requestedName.isBlank() || requestedPackage.isBlank()) {
+                return ControllerPlannerSelection(
+                    rejectionReason = "open_app 必须同时返回规范 appName 和 packageName。",
+                )
+            }
+            if (requestedPackage == assistantPackageName) {
+                return ControllerPlannerSelection(
+                    rejectionReason = "控制器阶段不能再次选择 AI Ledger 自身。",
+                )
+            }
+
+            val installed = installedApps.firstOrNull { it.packageName == requestedPackage }
+                ?: return ControllerPlannerSelection(
+                    rejectionReason = "目标包 $requestedPackage 不在真实已安装应用清单。",
+                )
+            if (normalizeAppIdentity(installed.label) != normalizeAppIdentity(requestedName)) {
+                return ControllerPlannerSelection(
+                    rejectionReason = "模型返回的应用名与包名不一致：$requestedName 不对应 $requestedPackage。",
+                )
+            }
+
+            return ControllerPlannerSelection(
+                contract = declaredContract,
+                app = installed,
+                step = step.copy(
+                    type = "open_app",
+                    appName = installed.label,
+                    packageName = installed.packageName,
+                    reason = step.reason ?: "GUI Plus 已在控制器阶段选择目标应用，先打开应用再开始视觉导航。",
+                ),
+            )
         }
 
         internal fun resolveExplicitControllerTarget(
