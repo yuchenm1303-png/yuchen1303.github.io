@@ -3,7 +3,6 @@ package com.yuchen.ailedger.service
 import android.content.Context
 import com.yuchen.ailedger.model.ChatModel
 import java.io.IOException
-import java.text.Normalizer
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -117,35 +116,6 @@ class AgentOrchestrator(
             return controllerFailure(sourcePackage, "设备上没有可供智能体启动的目标应用。")
         }
 
-        val explicitResolution = resolveExplicitControllerTarget(
-            goal = goal,
-            apps = installedApps,
-            aliasesForPackage = installedAppIndex::aliasesFor,
-            excludedPackages = setOf(applicationContext.packageName),
-        )
-        explicitResolution.app
-            ?.takeIf { explicitResolution.status == ExplicitAppResolutionStatus.Exact }
-            ?.let { app ->
-                val explicitContract = AgentTaskExecutionContract(
-                    preferredSurface = AgentSurfacePreference.Any,
-                    browserFallbackAllowed = true,
-                    requiredCapabilities = emptySet(),
-                    requirePostActionVerification = true,
-                    highImpactFlow = false,
-                    reason = "用户已明确点名真实安装应用；Android 直接启动并保留动作后验证，不做本地任务语义猜测。",
-                )
-                return executeControllerOpenApp(
-                    sourcePackage = sourcePackage,
-                    step = CloudAgentStep(
-                        type = "open_app",
-                        appName = app.label,
-                        packageName = app.packageName,
-                        reason = "用户指令已明确指定安装应用，控制器直接打开后再进入视觉导航。",
-                    ),
-                    contract = explicitContract,
-                )
-            }
-
         val contractRequest = AgentTaskExecutionContract.controllerRequest()
         val deviceProfile = AgentDeviceProfile.current()
         var lastDeclaredContract: AgentTaskExecutionContract? = null
@@ -156,8 +126,9 @@ class AgentOrchestrator(
             contractRequest.toPromptLine(),
             deviceProfile.toPromptLine(),
             appCapabilityRegistry.compactPromptLine(appContext),
+            "semantic_routing:v1|owner=gui_plus|androidLocalGoalParsing=false|modelMustUnderstandFullUserInstruction=true",
             "task_contract_request:v1|plannerMustDeclare=preferredSurface,browserFallbackAllowed,requiredCapabilities,requirePostActionVerification|returnIn=agentStep.arguments",
-            "controller_handoff:v2|currentSurface=assistant_controller|mustReturn=open_app|homeNotRequired=true|validateAppCapability=true",
+            "controller_handoff:v3|currentSurface=assistant_controller|mustReturn=open_app|homeNotRequired=true|validateAppCapability=true|selectFromCanonicalInstalledApps=true",
         )
         val syntheticControllerSnapshot = AgentScreenSnapshot(
             currentApp = applicationContext.packageName,
@@ -194,7 +165,7 @@ class AgentOrchestrator(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: IOException) {
-                recentActions += "controller_selection_failed:network=${error.message.orEmpty().take(120)}"
+                recentActions += "controller_selection_failed:network=${error.message.orEmpty().take(220)}"
                 null
             }
 
@@ -227,13 +198,13 @@ class AgentOrchestrator(
         }
 
         val message = buildString {
-            append("没有找到符合云端任务契约的目标应用。")
+            append("云端模型未能选择符合任务契约的已安装目标应用。")
             when (lastDeclaredContract?.preferredSurface) {
-                AgentSurfacePreference.SystemSettings -> append(" 请确认系统设置可用，或明确告诉我应进入哪个设置入口。")
-                AgentSurfacePreference.NativeApp -> append(" 请明确选择一个具备该操作能力的原生应用。")
-                AgentSurfacePreference.Browser -> append(" 请确认设备上存在可用浏览器，或明确指定目标应用。")
-                AgentSurfacePreference.Any -> append(" 请在指令中明确应用名称后重试。")
-                null -> append(" 云端规划器未返回完整任务契约，已停止在控制器界面继续尝试。")
+                AgentSurfacePreference.SystemSettings -> append(" 云端已声明系统设置界面，但没有返回可执行的规范设置应用。")
+                AgentSurfacePreference.NativeApp -> append(" 云端已声明原生应用界面，但没有返回与本机清单一致的目标应用。")
+                AgentSurfacePreference.Browser -> append(" 云端已声明浏览器界面，但没有返回与本机清单一致的浏览器。")
+                AgentSurfacePreference.Any -> append(" 云端没有完成目标应用选择。")
+                null -> append(" 云端没有返回完整任务契约和规范 open_app；Android 未进行本地语义猜测。")
             }
         }
         return controllerFailure(sourcePackage, message)
@@ -278,7 +249,6 @@ class AgentOrchestrator(
         private const val CONTROLLER_APP_OPEN_SETTLE_MS = 700L
         private const val MAX_CONTROLLER_APP_CONTEXT_ITEMS = 160
         private const val MAX_CONTROLLER_SELECTION_ATTEMPTS = 2
-        private const val MIN_EXPLICIT_APP_IDENTITY_LENGTH = 2
         private val CONTROLLER_FORBIDDEN_STEP_TYPES = setOf("wait", "home", "tap_xy")
 
         fun routeFor(executionMode: AgentExecutionMode): AgentOrchestratorRoute {
@@ -296,14 +266,14 @@ class AgentOrchestrator(
         ): ControllerPlannerSelection {
             if (step == null) {
                 return ControllerPlannerSelection(
-                    rejectionReason = "GUI Plus 未返回控制器阶段动作；必须返回已安装应用的规范 open_app 和结构化任务契约。",
+                    rejectionReason = "GUI Plus 未返回控制器阶段动作；必须基于完整用户指令返回已安装应用的规范 open_app 和结构化任务契约。",
                 )
             }
 
             val stepType = step.type.trim().lowercase()
             if (stepType in CONTROLLER_FORBIDDEN_STEP_TYPES) {
                 return ControllerPlannerSelection(
-                    rejectionReason = "控制器阶段禁止返回 $stepType；必须直接选择已安装目标应用并返回 open_app。",
+                    rejectionReason = "控制器阶段禁止返回 $stepType；必须由云端直接选择已安装目标应用并返回 open_app。",
                 )
             }
             if (stepType != "open_app") {
@@ -334,9 +304,9 @@ class AgentOrchestrator(
                 ?: return ControllerPlannerSelection(
                     rejectionReason = "目标包 $requestedPackage 不在真实已安装应用清单。",
                 )
-            if (normalizeAppIdentity(installed.label) != normalizeAppIdentity(requestedName)) {
+            if (installed.label != requestedName) {
                 return ControllerPlannerSelection(
-                    rejectionReason = "模型返回的应用名与包名不一致：$requestedName 不对应 $requestedPackage。",
+                    rejectionReason = "模型返回的应用名与规范清单不一致：$requestedName 不对应 $requestedPackage，规范名称应为 ${installed.label}。",
                 )
             }
 
@@ -347,62 +317,9 @@ class AgentOrchestrator(
                     type = "open_app",
                     appName = installed.label,
                     packageName = installed.packageName,
-                    reason = step.reason ?: "GUI Plus 已在控制器阶段选择目标应用，先打开应用再开始视觉导航。",
+                    reason = step.reason ?: "GUI Plus 已根据完整用户指令选择目标应用，先打开应用再开始视觉导航。",
                 ),
             )
-        }
-
-        internal fun resolveExplicitControllerTarget(
-            goal: String,
-            apps: List<InstalledAppEntry>,
-            aliasesForPackage: (InstalledAppEntry) -> List<String> = { emptyList() },
-            excludedPackages: Set<String> = emptySet(),
-        ): ExplicitAppResolution {
-            val normalizedGoal = normalizeAppIdentity(goal)
-            if (normalizedGoal.isBlank()) {
-                return ExplicitAppResolution(ExplicitAppResolutionStatus.NotFound)
-            }
-
-            val scoredMatches = apps
-                .asSequence()
-                .filterNot { it.packageName in excludedPackages }
-                .mapNotNull { app ->
-                    val aliases = runCatching { aliasesForPackage(app) }.getOrDefault(emptyList())
-                    val matchedLength = (listOf(app.label) + aliases)
-                        .asSequence()
-                        .map(::normalizeAppIdentity)
-                        .filter { it.length >= MIN_EXPLICIT_APP_IDENTITY_LENGTH }
-                        .filter(normalizedGoal::contains)
-                        .maxOfOrNull(String::length)
-                        ?: return@mapNotNull null
-                    app to matchedLength
-                }
-                .toList()
-
-            val bestLength = scoredMatches.maxOfOrNull { it.second }
-                ?: return ExplicitAppResolution(ExplicitAppResolutionStatus.NotFound)
-            val candidates = scoredMatches
-                .filter { it.second == bestLength }
-                .map { it.first }
-                .distinctBy { it.packageName }
-
-            return when (candidates.size) {
-                1 -> ExplicitAppResolution(
-                    status = ExplicitAppResolutionStatus.Exact,
-                    app = candidates.first(),
-                    candidates = candidates,
-                )
-                0 -> ExplicitAppResolution(ExplicitAppResolutionStatus.NotFound)
-                else -> ExplicitAppResolution(
-                    status = ExplicitAppResolutionStatus.Ambiguous,
-                    candidates = candidates,
-                )
-            }
-        }
-
-        private fun normalizeAppIdentity(value: String): String {
-            return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
-                .replace(Regex("[^\\p{L}\\p{N}]+"), "")
         }
     }
 }
