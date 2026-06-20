@@ -16,25 +16,6 @@ object AgentSafetyPolicy {
         "wait",
     ) + deviceToolStepTypes
 
-    private val passiveStepTypes = setOf(
-        "back",
-        "home",
-        "recents",
-        "notifications",
-        "quick_settings",
-        "scroll",
-        "swipe",
-        "wait",
-        "device_status",
-        "shizuku_status",
-    )
-
-    private val foregroundStepTypes = setOf(
-        "tap_node",
-        "tap_xy",
-        "input_text",
-    )
-
     private val localHighRiskDeviceTools = setOf(
         "set_animation_scale",
         "force_stop_app",
@@ -47,16 +28,12 @@ object AgentSafetyPolicy {
         "enable_app",
     )
 
-    private val consequentialActionKeywords = listOf(
+    private val irreversibleActionKeywords = listOf(
+        "提交订单",
         "确认支付",
         "立即支付",
         "付款",
         "转账",
-        "确认购买",
-        "立即购买",
-        "提交订单",
-        "确认订单",
-        "确认下单",
         "提交委托",
         "确认买入",
         "确认卖出",
@@ -95,22 +72,15 @@ object AgentSafetyPolicy {
         "助记词",
     )
 
+    @Suppress("UNUSED_PARAMETER")
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
         if (requiresUserProvidedInput(goal, step)) return false
         if (step.type in localHighRiskDeviceTools || step.type in localCriticalDeviceTools) return true
 
         val level = step.riskLevel.normalizedPolicyLevel()
-        val highRisk = level == "high" || level == "critical"
-        if (step.requiresConfirmation || highRisk) return true
+        if (step.requiresConfirmation || level == "high" || level == "critical") return true
 
-        // 不完全信任云端自报的风险级别。对于可能产生真实外部后果的前台点击，
-        // Android 端再做一次确定性语义兜底，避免低风险误标直接执行。
-        if (step.type in foregroundStepTypes && hasConsequentialActionIntent(goal, step)) return true
-
-        if (step.type in passiveStepTypes) return false
-        if (step.type in deviceToolStepTypes) return false
-        if (step.type !in foregroundStepTypes) return false
-        return level.isNotBlank() && level != "low"
+        return step.type in setOf("tap_node", "tap_xy") && isIrreversibleConcreteAction(step)
     }
 
     fun canAutoExecuteInCurrentStage(goal: String, step: CloudAgentStep): Boolean {
@@ -119,30 +89,25 @@ object AgentSafetyPolicy {
         return step.type in executableStepTypes
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun requiresUserProvidedInput(goal: String, step: CloudAgentStep): Boolean {
         val level = step.riskLevel.normalizedPolicyLevel()
         if (step.type == "need_user_help" || level.endsWith("_input")) return true
         if (step.type != "input_text") return false
 
-        val context = listOfNotNull(
-            goal,
+        val concreteTarget = listOfNotNull(
             step.targetText,
-            step.reason,
-            step.appName,
             step.argString("field", "label", "hint", "target"),
         ).joinToString(" ").lowercase()
-        return sensitiveInputKeywords.any { keyword -> context.contains(keyword.lowercase()) }
+        return sensitiveInputKeywords.any { keyword -> concreteTarget.contains(keyword.lowercase()) }
     }
 
-    private fun hasConsequentialActionIntent(goal: String, step: CloudAgentStep): Boolean {
-        val context = listOfNotNull(
-            goal,
+    private fun isIrreversibleConcreteAction(step: CloudAgentStep): Boolean {
+        val concreteTarget = listOfNotNull(
             step.targetText,
-            step.reason,
-            step.appName,
             step.argString("title", "label", "target", "action", "description"),
         ).joinToString(" ").lowercase()
-        return consequentialActionKeywords.any { keyword -> context.contains(keyword.lowercase()) }
+        return irreversibleActionKeywords.any { keyword -> concreteTarget.contains(keyword.lowercase()) }
     }
 
     private fun String?.normalizedPolicyLevel(): String {
