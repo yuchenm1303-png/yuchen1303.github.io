@@ -126,7 +126,15 @@ class VisualLoopRunner(
                 if (step.type == "need_user_help") {
                     val message = step.reason ?: "Visual agent requested user assistance."
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
-                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "model_help")) break
+                    if (!pauseForUserAndContinue(
+                            message = message,
+                            stopGeneration = stopGeneration,
+                            state = state,
+                            recentActions = recentActions,
+                            reason = "model_help",
+                            requestStep = step,
+                        )
+                    ) break
                     continue
                 }
 
@@ -157,7 +165,7 @@ class VisualLoopRunner(
                 }
                 if (!confirmed && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(state.goal, executableStep)) {
                     val message = executableStep.reason ?: "Action is blocked by Android safety policy."
-                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "safety_blocked")) break
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "safety_blocked", executableStep)) break
                     continue
                 }
 
@@ -172,7 +180,7 @@ class VisualLoopRunner(
 
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "Visual action stopped." }
-                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "action_stopped")) break
+                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "action_stopped", executableStep)) break
                     continue
                 }
 
@@ -349,21 +357,33 @@ class VisualLoopRunner(
         state: VisualLoopState,
         recentActions: MutableList<String>,
         reason: String,
+        requestStep: CloudAgentStep = CloudAgentStep(type = "need_user_help", reason = message),
     ): Boolean {
         AgentRuntimeController.pauseForUserTakeover(message)
         state.paused = true
+        val sensitive = AgentSafetyPolicy.requiresUserProvidedInput(state.goal, requestStep)
+        appendRecentAction(recentActions, "guiPlusQuestion:${message.take(MAX_INTERACTION_TEXT_CHARS)}")
         val userInstruction = AgentRuntimeController.requestUserInput(
             goal = state.goal,
-            step = CloudAgentStep(type = "need_user_help", reason = message),
-            title = "需要你帮助",
-            messageOverride = "$message\n\n你可以手动接管后输入补充指令，或取消任务。",
-            hintOverride = "例如：返回上一页后继续找设置",
-            positiveText = "继续执行",
+            step = requestStep,
+            title = if (sensitive) "需要你完成隐私操作" else "GUI Plus 需要你补充信息",
+            messageOverride = if (sensitive) {
+                "$message\n\n请在目标应用中手动完成密码、验证码或身份校验。App 不会读取或回传具体内容；完成后点击“已完成，继续”。"
+            } else {
+                message
+            },
+            hintOverride = if (sensitive) "请在目标应用中完成" else "可以分行说明你的选择、条件或补充信息",
+            positiveText = if (sensitive) "已完成，继续" else "发送给 GUI Plus",
             negativeText = "停止任务",
         )?.trim().orEmpty()
         if (userInstruction.isNotBlank()) {
-            appendRecentAction(recentActions, "userInstruction:${userInstruction.take(160)}")
-            AgentRuntimeController.resumeFromUserTakeover("收到补充指令，继续执行。")
+            val replyForModel = if (sensitive || userInstruction == PRIVATE_COMPLETION_TOKEN) {
+                "[用户已在目标应用中完成敏感输入]"
+            } else {
+                userInstruction.take(MAX_INTERACTION_TEXT_CHARS)
+            }
+            appendRecentAction(recentActions, "userReply:$replyForModel")
+            AgentRuntimeController.resumeFromUserTakeover("已把你的回复交给 GUI Plus，继续执行。")
         }
         val canContinue = userInstruction.isNotBlank() || waitWhileUserTakeoverPaused(stopGeneration)
         state.paused = false
@@ -415,8 +435,9 @@ class VisualLoopRunner(
     }
 
     companion object {
-        private const val MAX_RECENT_ACTIONS = 8
-        private const val MAX_RECENT_ACTION_CHARS = 180
+        private const val MAX_RECENT_ACTIONS = 12
+        private const val MAX_RECENT_ACTION_CHARS = 1_200
+        private const val MAX_INTERACTION_TEXT_CHARS = 1_000
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
         private const val NO_PROGRESS_LIMIT = Int.MAX_VALUE
@@ -433,6 +454,7 @@ class VisualLoopRunner(
         private const val FINISH_VERIFICATION_DELAY_MS = 420L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_CUSTOM_STEP_DELAY_MS = 1_000L
+        private const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
 
         internal fun requiresAgentSwitch(executionMode: AgentExecutionMode): Boolean {
             return executionMode == AgentExecutionMode.VisualForce
