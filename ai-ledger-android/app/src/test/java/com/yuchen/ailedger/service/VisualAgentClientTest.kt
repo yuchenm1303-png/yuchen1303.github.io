@@ -7,8 +7,16 @@ import org.junit.Test
 
 class VisualAgentClientTest {
     @Test
-    fun payloadUsesUnifiedBackendContractWithoutDuplicatingVisualHistoryImages() {
+    fun payloadUploadsAppCapabilitiesDeviceProfileAndTaskContract() {
         val snapshot = testSnapshot()
+        val taskContract = AgentTaskExecutionContract(
+            preferredSurface = AgentSurfacePreference.NativeApp,
+            browserFallbackAllowed = false,
+            requiredCapabilities = setOf(AppCapability.NativeApp, "social_chat"),
+            requirePostActionVerification = true,
+            highImpactFlow = true,
+            reason = "需要原生社交应用",
+        )
         val payload = buildVisualAgentPayload(
             goal = "打开 QQ 个人主页",
             snapshot = snapshot,
@@ -25,12 +33,22 @@ class VisualAgentClientTest {
                     label = "QQ",
                     packageName = "com.tencent.mobileqq",
                     aliases = listOf("腾讯QQ"),
-                    capabilities = listOf("social_chat"),
+                    capabilities = listOf(AppCapability.NativeApp, "social_chat"),
                 ),
             ),
             deviceId = "android-install-test",
             agentSessionId = "visual-session-test",
             executionMode = AgentExecutionMode.ExplicitAgent,
+            deviceProfile = AgentDeviceProfile(
+                manufacturer = "Test",
+                brand = "TestBrand",
+                model = "TestModel",
+                release = "15",
+                sdkInt = 35,
+                display = "test-build",
+            ),
+            taskContract = taskContract,
+            taskContractRequired = true,
         )
 
         assertEquals("visual_agent_step", payload.getString("action"))
@@ -69,8 +87,25 @@ class VisualAgentClientTest {
         val app = payload.getJSONArray("appContext").getJSONObject(0)
         assertEquals("QQ", app.getString("label"))
         assertEquals("com.tencent.mobileqq", app.getString("packageName"))
-        assertFalse(app.has("aliases"))
-        assertFalse(app.has("capabilities"))
+        assertEquals("腾讯QQ", app.getJSONArray("aliases").getString(0))
+        val capabilities = app.getJSONArray("capabilities")
+        val capabilitySet = (0 until capabilities.length()).map { capabilities.getString(it) }.toSet()
+        assertEquals(setOf(AppCapability.NativeApp, "social_chat"), capabilitySet)
+
+        val uploadedProfile = payload.getJSONObject("deviceProfile")
+        assertEquals("TestModel", uploadedProfile.getString("model"))
+        assertEquals(35, uploadedProfile.getInt("sdkInt"))
+
+        val uploadedContract = payload.getJSONObject("taskContract")
+        assertEquals("native_app", uploadedContract.getString("preferredSurface"))
+        assertFalse(uploadedContract.getBoolean("browserFallbackAllowed"))
+        assertTrue(uploadedContract.getBoolean("requirePostActionVerification"))
+        assertTrue(payload.getBoolean("taskContractRequired"))
+        val planning = payload.getJSONObject("taskContractPlanning")
+        assertTrue(planning.getBoolean("required"))
+        assertEquals("gui_plus", planning.getString("semanticOwner"))
+        assertEquals("android", planning.getString("validationOwner"))
+        assertEquals("agentStep.arguments", planning.getString("returnLocation"))
 
         val supported = payload.getJSONArray("supportedAgentSteps")
         val supportedTypes = (0 until supported.length()).map { supported.getString(it) }.toSet()
@@ -79,13 +114,20 @@ class VisualAgentClientTest {
         assertFalse("scroll" in supportedTypes)
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v8_controller_handoff", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v9_task_contract", memory.getString("schema"))
         assertEquals("gui_plus_dialogue_v1", memory.getString("interactionProtocol"))
         assertTrue(memory.has("interactionHistory"))
         assertTrue(memory.has("lastToolResponse"))
+        assertEquals("TestModel", memory.getJSONObject("deviceProfile").getString("model"))
+        assertEquals("native_app", memory.getJSONObject("taskContract").getString("preferredSurface"))
         assertFalse(payload.getBoolean("visualReplanRequested"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
         assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+
+        val deviceContext = payload.getJSONObject("deviceContext")
+        assertEquals("android_visual_agent_context_v3_task_contract", deviceContext.getString("schema"))
+        assertEquals("TestModel", deviceContext.getJSONObject("deviceProfile").getString("model"))
+        assertEquals("native_app", deviceContext.getJSONObject("taskContract").getString("preferredSurface"))
     }
 
     @Test
