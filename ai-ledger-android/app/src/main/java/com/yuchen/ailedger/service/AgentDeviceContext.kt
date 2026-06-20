@@ -205,15 +205,19 @@ object AgentDeviceContextProvider {
                 put("aliases", JSONArray().apply {
                     installedAppIndex.aliasesFor(app)
                         .asSequence()
-                        .map(String::trim)
-                        .filter(String::isNotBlank)
+                        .map { alias -> alias.trim() }
+                        .filter { alias -> alias.isNotBlank() }
                         .distinct()
                         .take(MAX_ALIASES_PER_APP)
-                        .forEach(::put)
+                        .forEach { alias -> put(alias) }
                 })
-                put("capabilities", JSONArray().apply { capabilities.forEach(::put) })
+                put("capabilities", JSONArray().apply {
+                    capabilities.forEach { capability -> put(capability) }
+                })
                 put("capabilityProfile", JSONObject().apply {
-                    put("capabilities", JSONArray().apply { capabilities.forEach(::put) })
+                    put("capabilities", JSONArray().apply {
+                        capabilities.forEach { capability -> put(capability) }
+                    })
                 })
             })
         }
@@ -229,7 +233,7 @@ object AgentDeviceContextProvider {
         }
         return MessageDigest.getInstance("SHA-256")
             .digest(canonical.toByteArray(Charsets.UTF_8))
-            .joinToString("") { "%02x".format(it) }
+            .joinToString("") { byte -> "%02x".format(byte) }
             .take(24)
     }
 
