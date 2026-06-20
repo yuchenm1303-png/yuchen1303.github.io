@@ -17,11 +17,10 @@ import android.text.format.Formatter
 import kotlin.math.roundToInt
 
 /**
- * Executes structured device_tool steps from AgentBrain.
+ * Executes structured device_tool steps selected by the cloud planner.
  *
- * This layer deliberately does not parse the user's natural-language goal. The cloud brain must
- * already have selected a concrete tool and arguments. Android only validates and executes that
- * structure, so it cannot steal visual-agent tasks by keyword matching.
+ * Android never parses the user's natural-language goal or guesses an application from appName.
+ * App-scoped tools require a concrete packageName and only validate/execute that package.
  */
 class DeviceToolExecutor(
     context: Context,
@@ -72,7 +71,7 @@ class DeviceToolExecutor(
 
     private fun executeOpenApp(step: CloudAgentStep): AgentExecutionResult {
         val app = resolveApp(step)
-            ?: return AgentExecutionResult(false, "没有找到要打开的应用：${step.appName ?: step.targetText ?: step.argString("appName", "app", "packageName") ?: "未知"}", false)
+            ?: return AgentExecutionResult(false, "打开应用失败：云端必须返回真实已安装应用的 packageName。", false)
         val launchIntent = appContext.packageManager.getLaunchIntentForPackage(app.packageName)?.apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         } ?: return AgentExecutionResult(false, "应用没有可启动入口：${app.label}（${app.packageName}）", false)
@@ -92,7 +91,7 @@ class DeviceToolExecutor(
 
     private fun executeOpenAppSettings(step: CloudAgentStep): AgentExecutionResult {
         val app = resolveApp(step)
-            ?: return AgentExecutionResult(false, "打开应用设置失败：没有找到目标应用。", false)
+            ?: return AgentExecutionResult(false, "打开应用设置失败：云端缺少可验证的 packageName。", false)
         val kind = appSettingsKind(step)
         val intent = when (kind) {
             AppSettingsKind.Notification -> Intent(ACTION_APP_NOTIFICATION_SETTINGS_COMPAT).apply {
@@ -330,7 +329,7 @@ class DeviceToolExecutor(
 
     private fun executePrivilegedAppTool(step: CloudAgentStep, tool: PrivilegedTool, confirmedHighRisk: Boolean): AgentExecutionResult {
         val app = resolveApp(step)
-            ?: return AgentExecutionResult(false, "${tool.title}失败：没有找到目标应用。", false)
+            ?: return AgentExecutionResult(false, "${tool.title}失败：云端缺少可验证的 packageName。", false)
         val packageName = app.packageName.takeIf { isSafePackageName(it) }
             ?: return AgentExecutionResult(false, "${tool.title}失败：目标包名格式异常。", false)
         return executeEnhancedCommandIfConfirmed(
@@ -392,18 +391,19 @@ class DeviceToolExecutor(
     }
 
     private fun resolveApp(step: CloudAgentStep): InstalledAppEntry? {
-        val packageName = step.packageName
-            ?: step.argString("packageName", "package", "pkg")
-        if (!packageName.isNullOrBlank()) {
-            val label = applicationLabel(packageName).ifBlank { step.appName ?: step.argString("appName", "app", "label", "name") ?: packageName }
-            return InstalledAppEntry(label = label, packageName = packageName)
-                .takeIf { appContext.packageManager.getLaunchIntentForPackage(it.packageName) != null || step.type != "open_app" }
-        }
-        val query = step.appName
-            ?: step.targetText
-            ?: step.argString("appName", "app", "label", "name", "target")
+        val packageName = (step.packageName ?: step.argString("packageName", "package", "pkg"))
+            ?.trim()
+            ?.takeIf { value -> isSafePackageName(value) }
             ?: return null
-        return installedAppIndex.findBestApp(query)
+
+        val launchableApp = installedAppIndex.getLaunchableApps(forceReload = false)
+            .firstOrNull { app -> app.packageName == packageName }
+        if (step.type == "open_app") return launchableApp
+
+        val label = launchableApp?.label
+            ?: applicationLabel(packageName).takeIf { value -> value.isNotBlank() }
+            ?: return null
+        return InstalledAppEntry(label = label, packageName = packageName)
     }
 
     private fun applicationLabel(packageName: String): String {
