@@ -37,12 +37,26 @@ class VisualAgentClientTest {
         assertEquals("explicit_agent", payload.getString("executionMode"))
         assertEquals("visual-session-test", payload.getString("agentSessionId"))
         assertEquals("android-install-test", payload.getString("deviceId"))
+        assertEquals("gui_plus", payload.getString("decisionOwner"))
+        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertTrue(payload.getBoolean("exclusiveVisualSession"))
+        assertFalse(payload.getBoolean("allowAgentBrain"))
+        assertFalse(payload.getBoolean("allowRoutePlanner"))
+        assertFalse(payload.getBoolean("allowSemanticJudge"))
+        assertFalse(payload.getBoolean("allowTaskContractJudge"))
         assertTrue(payload.has("screenSnapshot"))
         assertTrue(payload.has("recentAgentActions"))
         assertTrue(payload.has("executionFeedback"))
         assertTrue(payload.has("lastToolResponse"))
         assertTrue(payload.has("toolResponse"))
         assertTrue(payload.has("screenshot"))
+
+        val ownership = payload.getJSONObject("visualOwnership")
+        assertEquals("android_gui_plus_exclusive_ownership_v1", ownership.getString("schema"))
+        assertEquals("gui_plus", ownership.getString("owner"))
+        assertTrue(ownership.getBoolean("exclusive"))
+        assertTrue(ownership.getBoolean("entryRouterReleased"))
+        assertFalse(ownership.getBoolean("allowAgentBrain"))
 
         val snapshotJson = payload.getJSONObject("screenSnapshot")
         assertFalse(snapshotJson.getJSONObject("visual").has("base64Jpeg"))
@@ -65,11 +79,13 @@ class VisualAgentClientTest {
         val memory = payload.getJSONObject("agentMemory")
         assertEquals("android_visual_agent_loop_memory_v7_tool_response", memory.getString("schema"))
         assertTrue(memory.has("lastToolResponse"))
+        assertFalse(payload.getBoolean("visualReplanRequested"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
     }
 
     @Test
-    fun payloadRequestsReplanAfterFailureOrNoProgress() {
+    fun payloadRequestsGuiPlusReplanAfterFailureOrNoProgress() {
         val snapshot = testSnapshot()
         val payload = buildVisualAgentPayload(
             goal = "打开 QQ 个人主页",
@@ -81,8 +97,10 @@ class VisualAgentClientTest {
             agentSessionId = "visual-session-feedback",
         )
 
-        assertTrue(payload.getBoolean("routeRefreshRequested"))
-        assertTrue(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+        assertTrue(payload.getBoolean("visualReplanRequested"))
+        assertTrue(payload.getBoolean("guiPlusReplanRequested"))
+        assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
 
         val feedback = payload.getJSONObject("executionFeedback")
         assertFalse(feedback.getBoolean("lastResultOk"))
@@ -90,6 +108,9 @@ class VisualAgentClientTest {
         assertEquals(1, feedback.getInt("noProgressCount"))
         assertEquals("tap_xy|0.5|0.5", feedback.getString("lastActionSignature"))
         assertTrue(feedback.getJSONArray("blockedActionSignatures").length() > 0)
+        assertTrue(feedback.getBoolean("visualReplanRequested"))
+        assertTrue(feedback.getBoolean("guiPlusReplanRequested"))
+        assertFalse(feedback.getBoolean("routeRefreshRequested"))
 
         val toolResponse = payload.getJSONObject("lastToolResponse")
         assertEquals("tool_response", toolResponse.getString("type"))
@@ -99,13 +120,15 @@ class VisualAgentClientTest {
         val memory = payload.getJSONObject("agentMemory")
         val signals = memory.getJSONObject("loopSignals")
         assertEquals(1, signals.getInt("noProgressCount"))
-        assertTrue(signals.getBoolean("routeRefreshRequested"))
+        assertTrue(signals.getBoolean("visualReplanRequested"))
+        assertTrue(signals.getBoolean("guiPlusReplanRequested"))
+        assertFalse(signals.getBoolean("routeRefreshRequested"))
         assertTrue(memory.getJSONArray("verificationEvents").length() > 0)
         assertTrue(memory.getJSONArray("blockedActionSignatures").length() > 0)
     }
 
     @Test
-    fun finishCandidateRequestsFreshScreenVerification() {
+    fun finishCandidateRequestsFreshScreenVerificationFromGuiPlus() {
         val payload = buildVisualAgentPayload(
             goal = "进入个人主页",
             snapshot = testSnapshot(),
@@ -116,12 +139,15 @@ class VisualAgentClientTest {
         )
 
         assertTrue(payload.getBoolean("finishVerificationRequested"))
-        assertTrue(payload.getBoolean("routeRefreshRequested"))
-        assertTrue(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+        assertTrue(payload.getBoolean("visualReplanRequested"))
+        assertTrue(payload.getBoolean("guiPlusReplanRequested"))
+        assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
 
         val feedback = payload.getJSONObject("executionFeedback")
         assertEquals("finish_verification_pending", feedback.getString("lastVerification"))
         assertTrue(feedback.getBoolean("finishVerificationRequested"))
+        assertTrue(feedback.getBoolean("visualReplanRequested"))
 
         val toolResponse = payload.getJSONObject("lastToolResponse")
         assertEquals("finish", toolResponse.getString("actionSignature"))
@@ -147,6 +173,7 @@ class VisualAgentClientTest {
         assertEquals("visual_screen_changed", feedback.getString("lastVerification"))
         assertEquals(0, feedback.getInt("noProgressCount"))
         assertEquals(0, feedback.getJSONArray("blockedActionSignatures").length())
+        assertFalse(payload.getBoolean("visualReplanRequested"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
     }
 
