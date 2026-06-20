@@ -151,7 +151,7 @@ internal fun buildVisualAgentPayload(
     } else {
         executedActionSignatures.asReversed().takeWhile { it == lastActionSignature }.count()
     }
-    val routeRefreshRequested = finishVerificationRequested ||
+    val guiPlusReplanRequested = finishVerificationRequested ||
         noProgressCount > 0 ||
         activeVerificationEvents.any { it.isVisualFailureFeedback() }
     val executionFeedback = JSONObject().apply {
@@ -164,7 +164,9 @@ internal fun buildVisualAgentPayload(
         put("verificationEvents", JSONArray(verificationEvents))
         put("latestEvent", lastVerificationEvent)
         put("finishVerificationRequested", finishVerificationRequested)
-        put("routeRefreshRequested", routeRefreshRequested)
+        put("visualReplanRequested", guiPlusReplanRequested)
+        put("guiPlusReplanRequested", guiPlusReplanRequested)
+        put("routeRefreshRequested", false)
     }
     val lastToolResponse = JSONObject().apply {
         put("type", "tool_response")
@@ -204,6 +206,13 @@ internal fun buildVisualAgentPayload(
         put("computerUseMode", true)
         put("forceVisualAgent", true)
         put("allowInternalDeviceTools", false)
+        put("decisionOwner", "gui_plus")
+        put("visualDecisionOwner", "gui_plus")
+        put("exclusiveVisualSession", true)
+        put("allowAgentBrain", false)
+        put("allowRoutePlanner", false)
+        put("allowSemanticJudge", false)
+        put("allowTaskContractJudge", false)
         put("executionMode", modeKey)
         put("goal", cleanGoal)
         put("agentGoal", cleanGoal)
@@ -221,8 +230,20 @@ internal fun buildVisualAgentPayload(
         put("lastToolResponse", lastToolResponse)
         put("toolResponse", lastToolResponse)
         put("finishVerificationRequested", finishVerificationRequested)
-        put("routeRefreshRequested", routeRefreshRequested)
-        put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
+        put("visualReplanRequested", guiPlusReplanRequested)
+        put("guiPlusReplanRequested", guiPlusReplanRequested)
+        put("routeRefreshRequested", false)
+        put("invalidateCachedAgentBrainRoute", false)
+        put("visualOwnership", JSONObject().apply {
+            put("schema", "android_gui_plus_exclusive_ownership_v1")
+            put("owner", "gui_plus")
+            put("exclusive", true)
+            put("entryRouterReleased", true)
+            put("allowAgentBrain", false)
+            put("allowRoutePlanner", false)
+            put("allowSemanticJudge", false)
+            put("allowTaskContractJudge", false)
+        })
         put("agentMemory", JSONObject().apply {
             put("schema", "android_visual_agent_loop_memory_v7_tool_response")
             put("recentActions", recentAgentActions)
@@ -239,7 +260,9 @@ internal fun buildVisualAgentPayload(
                 put("lastResultOk", lastResultOk ?: JSONObject.NULL)
                 put("lastVerification", lastVerification)
                 put("finishVerificationRequested", finishVerificationRequested)
-                put("routeRefreshRequested", routeRefreshRequested)
+                put("visualReplanRequested", guiPlusReplanRequested)
+                put("guiPlusReplanRequested", guiPlusReplanRequested)
+                put("routeRefreshRequested", false)
                 put("lastActionSignature", lastActionSignature)
                 put("postActionFeedback", executionFeedback)
                 put("lastToolResponse", lastToolResponse)
