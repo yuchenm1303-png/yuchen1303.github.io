@@ -21,6 +21,7 @@ import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -298,7 +299,7 @@ class AgentOverlayService : Service() {
             isVerticalScrollBarEnabled = true
             background = chipBackground(Color.argb(28, 255, 255, 255), Color.argb(42, 178, 224, 255), 16f)
             setPadding(dp(9f), dp(8f), dp(7f), dp(8f))
-            addView(inputConversationView, ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT))
+            addView(inputConversationView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT))
         }
         inputAwaitingView = text("GUI Plus 正在理解你的回复…", 10.2f, Color.argb(214, 183, 232, 255), bold = true).apply {
             visibility = View.GONE
