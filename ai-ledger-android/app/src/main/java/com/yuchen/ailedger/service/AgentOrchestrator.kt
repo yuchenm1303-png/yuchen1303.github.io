@@ -125,14 +125,16 @@ class AgentOrchestrator(
                 )
             }
 
-        val contract = AgentTaskExecutionContract.fromGoal(goal)
+        val contractRequest = AgentTaskExecutionContract.controllerRequest()
+        var lastDeclaredContract = contractRequest
         val appContext = appCapabilityRegistry.buildVisualContext(installedApps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_CONTROLLER_APP_CONTEXT_ITEMS)
         val recentActions = mutableListOf(
-            contract.toPromptLine(),
+            contractRequest.toPromptLine(),
             AgentDeviceProfile.current().toPromptLine(),
             appCapabilityRegistry.compactPromptLine(appContext),
+            "task_contract_request:v1|plannerMustDeclare=preferredSurface,browserFallbackAllowed,requiredCapabilities,requirePostActionVerification|returnIn=agentStep.arguments",
             "controller_handoff:v2|currentSurface=assistant_controller|mustReturn=open_app|homeNotRequired=true|validateAppCapability=true",
         )
         val syntheticControllerSnapshot = AgentScreenSnapshot(
@@ -171,9 +173,13 @@ class AgentOrchestrator(
                 null
             }
 
+            val declaredContract = AgentTaskExecutionContract.fromPlannerStep(modelStep)
+            if (declaredContract != null) {
+                lastDeclaredContract = declaredContract
+            }
             val selectedStep = prepareControllerOpenApp(modelStep, installedApps)
             if (selectedStep == null) {
-                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=GUI Plus 必须返回已安装应用的规范 open_app(appName,packageName)，不能 wait、home 或点击控制器界面。"
+                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=GUI Plus 必须返回已安装应用的规范 open_app(appName,packageName)，并同时声明结构化任务契约。"
                 return@repeat
             }
 
@@ -182,7 +188,7 @@ class AgentOrchestrator(
                 recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=目标包不在已安装应用清单。"
                 return@repeat
             }
-            val validation = appCapabilityRegistry.validateSelection(contract, selectedApp)
+            val validation = appCapabilityRegistry.validateSelection(lastDeclaredContract, selectedApp)
             if (!validation.ok) {
                 recentActions += "controller_selection_rejected:attempt=${attempt + 1}|app=${selectedApp.label.take(40)}|package=${selectedApp.packageName.take(80)}|reason=${validation.message.take(220)}"
                 return@repeat
@@ -192,8 +198,8 @@ class AgentOrchestrator(
         }
 
         val message = buildString {
-            append("没有找到符合任务能力契约的目标应用。")
-            when (contract.preferredSurface) {
+            append("没有找到符合云端任务契约的目标应用。")
+            when (lastDeclaredContract.preferredSurface) {
                 AgentSurfacePreference.SystemSettings -> append(" 请确认系统设置可用，或明确告诉我应进入哪个设置入口。")
                 AgentSurfacePreference.NativeApp -> append(" 请明确选择一个具备该操作能力的原生应用。")
                 else -> append(" 请在指令中明确应用名称后重试。")
