@@ -4,13 +4,14 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import android.text.InputFilter
+import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
@@ -20,6 +21,7 @@ import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.yuchen.ailedger.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -53,8 +55,12 @@ class AgentOverlayService : Service() {
 
     private var inputPanel: LinearLayout? = null
     private var inputTitleView: TextView? = null
-    private var inputMessageView: TextView? = null
+    private var inputConversationScroll: ScrollView? = null
+    private var inputConversationView: TextView? = null
+    private var inputAwaitingView: TextView? = null
+    private var inputPrivateHintView: TextView? = null
     private var inputEditText: EditText? = null
+    private var inputButtonsRow: LinearLayout? = null
     private var inputPrimaryView: TextView? = null
     private var inputSecondaryView: TextView? = null
 
@@ -63,6 +69,10 @@ class AgentOverlayService : Service() {
     private var takeoverView: TextView? = null
     private var resumeView: TextView? = null
     private var contentGroup: LinearLayout? = null
+
+    private val interactionTurns = mutableListOf<OverlayInteractionTurn>()
+    private var lastInteractionRequestId: Long = 0L
+    private var awaitingAgentReply: Boolean = false
 
     private var density: Float = 1f
     private var expanded: Boolean = true
@@ -133,7 +143,7 @@ class AgentOverlayService : Service() {
 
         stopView = capsuleButton("停止", ButtonTone.Danger) { AgentRuntimeController.stopTaskByUser() }
         collapseView = capsuleButton("收起", ButtonTone.Ghost) {
-            if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null) {
+            if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null && !awaitingAgentReply) {
                 expanded = !expanded
                 refreshExpandedState()
             }
@@ -249,7 +259,7 @@ class AgentOverlayService : Service() {
 
     private fun createConfirmPanel(): LinearLayout {
         confirmTitleView = text("需要确认", 12.4f, Color.argb(255, 255, 235, 190), bold = true).applyReadable(maxLines = 1)
-        confirmMessageView = text("", 10.4f, Color.argb(232, 255, 244, 222)).applyReadable(maxLines = 5, lineSpacingExtraDp = 1f)
+        confirmMessageView = text("", 10.4f, Color.argb(232, 255, 244, 222)).applyReadable(maxLines = 8, lineSpacingExtraDp = 1f)
         confirmSecondaryView = capsuleButton("取消任务", ButtonTone.GhostWarm) {
             AgentRuntimeController.choosePendingAction(false)
         }
@@ -276,24 +286,55 @@ class AgentOverlayService : Service() {
     }
 
     private fun createInputPanel(): LinearLayout {
-        inputTitleView = text("需要你输入", 12.4f, Color.argb(255, 224, 244, 255), bold = true).applyReadable(maxLines = 1)
-        inputMessageView = text("", 10.4f, Color.argb(230, 232, 244, 255)).applyReadable(maxLines = 5, lineSpacingExtraDp = 1f)
+        inputTitleView = text("与 GUI Plus 沟通", 12.4f, Color.argb(255, 224, 244, 255), bold = true).applyReadable(maxLines = 1)
+        inputConversationView = text("", 10.8f, Color.argb(238, 238, 247, 255)).apply {
+            setLineSpacing(dp(1.4f).toFloat(), 1.04f)
+            setTextIsSelectable(true)
+            setPadding(dp(2f), dp(2f), dp(4f), dp(4f))
+        }
+        inputConversationScroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = true
+            background = chipBackground(Color.argb(28, 255, 255, 255), Color.argb(42, 178, 224, 255), 16f)
+            setPadding(dp(9f), dp(8f), dp(7f), dp(8f))
+            addView(inputConversationView, ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT))
+        }
+        inputAwaitingView = text("GUI Plus 正在理解你的回复…", 10.2f, Color.argb(214, 183, 232, 255), bold = true).apply {
+            visibility = View.GONE
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2f), dp(7f), dp(2f), dp(2f))
+        }
+        inputPrivateHintView = text(
+            "这是敏感输入。请在目标应用中手动完成密码、验证码或身份校验；App 不会读取或回传具体内容。完成后点击下方按钮。",
+            10.2f,
+            Color.argb(238, 255, 232, 188),
+            bold = true,
+        ).apply {
+            visibility = View.GONE
+            setLineSpacing(dp(1f).toFloat(), 1.03f)
+            setPadding(dp(2f), dp(8f), dp(2f), dp(2f))
+        }
         inputEditText = EditText(this).apply {
             textSize = 13.2f
             setTextColor(Color.WHITE)
             setHintTextColor(Color.argb(160, 232, 244, 255))
-            hint = "请输入内容"
-            setSingleLine(true)
-            setPadding(dp(11f), 0, dp(11f), 0)
+            hint = "可以分行说明你的选择、条件或补充信息"
+            setSingleLine(false)
+            minLines = 2
+            maxLines = 5
+            gravity = Gravity.TOP or Gravity.START
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(InputFilter.LengthFilter(USER_REPLY_MAX_CHARS))
+            setPadding(dp(11f), dp(9f), dp(11f), dp(9f))
             background = chipBackground(Color.argb(38, 255, 255, 255), Color.argb(66, 215, 235, 255), 16f)
         }
-        inputSecondaryView = capsuleButton("取消任务", ButtonTone.GhostWarm) {
+        inputSecondaryView = capsuleButton("停止任务", ButtonTone.GhostWarm) {
             AgentRuntimeController.cancelPendingUserInput()
         }
-        inputPrimaryView = capsuleButton("确认输入", ButtonTone.PrimaryWarm) {
-            AgentRuntimeController.submitPendingUserInput(inputEditText?.text?.toString().orEmpty())
+        inputPrimaryView = capsuleButton("发送给 GUI Plus", ButtonTone.PrimaryWarm) {
+            submitPendingInteraction()
         }
-        val row = LinearLayout(this).apply {
+        inputButtonsRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(inputSecondaryView, LinearLayout.LayoutParams(0, dp(37f), 1f).apply { marginEnd = dp(8f) })
             addView(inputPrimaryView, LinearLayout.LayoutParams(0, dp(37f), 1f))
@@ -304,24 +345,64 @@ class AgentOverlayService : Service() {
             setPadding(dp(12f), dp(11f), dp(12f), dp(12f))
             background = chipBackground(Color.argb(78, 30, 76, 106), Color.argb(112, 148, 232, 255), 22f)
             addView(inputTitleView)
-            addView(inputMessageView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(7f)
-                bottomMargin = dp(8f)
+            addView(inputConversationScroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(CONVERSATION_HEIGHT_DP)).apply {
+                topMargin = dp(8f)
             })
-            addView(inputEditText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40f)).apply {
+            addView(inputAwaitingView)
+            addView(inputPrivateHintView)
+            addView(inputEditText, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(INPUT_HEIGHT_DP)).apply {
+                topMargin = dp(9f)
                 bottomMargin = dp(10f)
             })
-            addView(row)
+            addView(inputButtonsRow)
         }
     }
 
+    private fun submitPendingInteraction() {
+        val pending = latestProgress.pendingUserInput ?: return
+        val submittedText = if (pending.sensitive) {
+            PRIVATE_COMPLETION_TOKEN
+        } else {
+            inputEditText?.text?.toString()?.trim().orEmpty()
+        }
+        if (submittedText.isBlank()) return
+
+        val visibleReply = if (pending.sensitive) {
+            "已在目标应用中完成敏感输入"
+        } else {
+            submittedText.take(USER_REPLY_MAX_CHARS)
+        }
+        appendInteractionTurn(OverlayInteractionRole.User, visibleReply)
+        inputEditText?.setText("")
+        hideKeyboard()
+        awaitingAgentReply = true
+        AgentRuntimeController.submitPendingUserInput(submittedText)
+        renderInteractionPanel(null)
+        refreshExpandedState()
+    }
+
     private fun updateProgress(progress: AgentOverlayProgress) {
+        val previous = latestProgress
+        if (progress.running && !previous.running && progress.pendingUserInput == null) {
+            resetInteractionConversation()
+        }
         latestProgress = progress
+
         val pending = progress.pendingConfirmation
         val pendingInput = progress.pendingUserInput
+        if (pendingInput != null && pendingInput.id != lastInteractionRequestId) {
+            lastInteractionRequestId = pendingInput.id
+            awaitingAgentReply = false
+            appendInteractionTurn(OverlayInteractionRole.GuiPlus, pendingInput.message)
+        }
+        if (!progress.running && pendingInput == null) {
+            awaitingAgentReply = false
+        }
+
         val modeText = when {
-            pendingInput != null -> "待输入"
+            pendingInput != null -> if (pendingInput.sensitive) "隐私接管" else "待回复"
             pending != null -> "待确认"
+            awaitingAgentReply && progress.running -> "理解中"
             progress.userTakeoverPaused -> "接管中"
             !progress.enabled -> "已关闭"
             progress.running -> "执行中"
@@ -332,6 +413,7 @@ class AgentOverlayService : Service() {
         stateView?.background = when {
             pendingInput != null -> chipBackground(Color.argb(78, 80, 168, 230), Color.argb(132, 148, 232, 255), 14f)
             pending != null -> chipBackground(Color.argb(88, 255, 184, 90), Color.argb(132, 255, 224, 135), 14f)
+            awaitingAgentReply -> chipBackground(Color.argb(72, 92, 170, 220), Color.argb(96, 166, 224, 255), 14f)
             progress.userTakeoverPaused -> chipBackground(Color.argb(70, 255, 210, 104), Color.argb(110, 255, 230, 150), 14f)
             progress.running -> chipBackground(Color.argb(72, 95, 255, 218), Color.argb(86, 164, 255, 232), 14f)
             !progress.enabled -> chipBackground(Color.argb(48, 195, 202, 218), Color.argb(54, 214, 224, 242), 14f)
@@ -353,20 +435,59 @@ class AgentOverlayService : Service() {
         if (pending != null) {
             expanded = true
             confirmTitleView?.text = pending.title
-            confirmMessageView?.text = pending.message.cleanOverlayText().limitOverlayText(PANEL_MESSAGE_TEXT_LIMIT)
+            confirmMessageView?.text = pending.message.cleanPanelText().limitOverlayText(CONFIRM_MESSAGE_TEXT_LIMIT)
             confirmPrimaryView?.text = pending.positiveText
             confirmSecondaryView?.text = pending.negativeText
         }
-        if (pendingInput != null) {
+        if (pendingInput != null || interactionTurns.isNotEmpty()) {
             expanded = true
-            inputTitleView?.text = pendingInput.title
-            inputMessageView?.text = pendingInput.message.cleanOverlayText().limitOverlayText(PANEL_MESSAGE_TEXT_LIMIT)
-            inputPrimaryView?.text = pendingInput.positiveText
-            inputSecondaryView?.text = pendingInput.negativeText
-            inputEditText?.hint = pendingInput.hint
-            requestInputFocus()
+            renderInteractionPanel(pendingInput)
         }
         refreshExpandedState()
+    }
+
+    private fun renderInteractionPanel(pendingInput: AgentPendingUserInput?) {
+        inputTitleView?.text = when {
+            pendingInput?.sensitive == true -> "需要你完成隐私操作"
+            pendingInput != null -> pendingInput.title.ifBlank { "与 GUI Plus 沟通" }
+            awaitingAgentReply -> "与 GUI Plus 沟通"
+            else -> "GUI Plus 对话记录"
+        }
+        inputConversationView?.text = buildInteractionTranscript()
+        inputAwaitingView?.visibility = if (awaitingAgentReply && pendingInput == null) View.VISIBLE else View.GONE
+        inputPrivateHintView?.visibility = if (pendingInput?.sensitive == true) View.VISIBLE else View.GONE
+        inputEditText?.visibility = if (pendingInput != null && !pendingInput.sensitive) View.VISIBLE else View.GONE
+        inputButtonsRow?.visibility = if (pendingInput != null) View.VISIBLE else View.GONE
+        inputEditText?.hint = pendingInput?.hint?.takeIf { it.isNotBlank() }
+            ?: "可以分行说明你的选择、条件或补充信息"
+        inputPrimaryView?.text = if (pendingInput?.sensitive == true) "已完成，继续" else "发送给 GUI Plus"
+        inputSecondaryView?.text = pendingInput?.negativeText?.takeIf { it.isNotBlank() } ?: "停止任务"
+        if (pendingInput != null && !pendingInput.sensitive) requestInputFocus()
+        inputConversationScroll?.post { inputConversationScroll?.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    private fun appendInteractionTurn(role: OverlayInteractionRole, text: String) {
+        val clean = text.cleanPanelText().take(INTERACTION_TURN_TEXT_LIMIT)
+        if (clean.isBlank()) return
+        val last = interactionTurns.lastOrNull()
+        if (last?.role == role && last.text == clean) return
+        interactionTurns += OverlayInteractionTurn(role, clean)
+        while (interactionTurns.size > MAX_INTERACTION_TURNS) interactionTurns.removeAt(0)
+    }
+
+    private fun buildInteractionTranscript(): String {
+        if (interactionTurns.isEmpty()) return "等待 GUI Plus 发来问题…"
+        return interactionTurns.joinToString("\n\n") { turn ->
+            val speaker = if (turn.role == OverlayInteractionRole.GuiPlus) "GUI Plus" else "你"
+            "$speaker\n${turn.text}"
+        }
+    }
+
+    private fun resetInteractionConversation() {
+        interactionTurns.clear()
+        lastInteractionRequestId = 0L
+        awaitingAgentReply = false
+        inputEditText?.setText("")
     }
 
     private fun buildLogText(logs: List<String>): String {
@@ -381,15 +502,18 @@ class AgentOverlayService : Service() {
         val pending = latestProgress.pendingConfirmation
         val pendingInput = latestProgress.pendingUserInput
         val paused = latestProgress.userTakeoverPaused
-        val forceExpanded = pending != null || pendingInput != null || paused
+        val hasInteraction = interactionTurns.isNotEmpty()
+        val interactionActive = hasInteraction && (pendingInput != null || awaitingAgentReply || latestProgress.running)
+        val forceExpanded = pending != null || pendingInput != null || paused || interactionActive
         val shouldExpand = expanded || forceExpanded
         contentGroup?.visibility = if (shouldExpand && !hidden) View.VISIBLE else View.GONE
         confirmPanel?.visibility = if (shouldExpand && pending != null && !hidden) View.VISIBLE else View.GONE
-        inputPanel?.visibility = if (shouldExpand && pendingInput != null && !hidden) View.VISIBLE else View.GONE
-        logsCard?.visibility = if (shouldExpand && latestProgress.logs.isNotEmpty() && !hidden) View.VISIBLE else View.GONE
-        logsView?.visibility = if (shouldExpand && latestProgress.logs.isNotEmpty() && !hidden) View.VISIBLE else View.GONE
-        collapseView?.visibility = if (pending == null && pendingInput == null && !paused) View.VISIBLE else View.GONE
-        takeoverView?.visibility = if (latestProgress.running && !paused && pending == null && pendingInput == null) View.VISIBLE else View.GONE
+        inputPanel?.visibility = if (shouldExpand && hasInteraction && !hidden) View.VISIBLE else View.GONE
+        val showLogs = shouldExpand && !hasInteraction && latestProgress.logs.isNotEmpty() && !hidden
+        logsCard?.visibility = if (showLogs) View.VISIBLE else View.GONE
+        logsView?.visibility = if (showLogs) View.VISIBLE else View.GONE
+        collapseView?.visibility = if (pending == null && pendingInput == null && !paused && !awaitingAgentReply) View.VISIBLE else View.GONE
+        takeoverView?.visibility = if (latestProgress.running && !paused && pending == null && pendingInput == null && !awaitingAgentReply) View.VISIBLE else View.GONE
         resumeView?.visibility = if (paused) View.VISIBLE else View.GONE
         collapseView?.text = if (shouldExpand) "收起" else "展开"
         updateWindowMode(hidden)
@@ -414,7 +538,8 @@ class AgentOverlayService : Service() {
     private fun updateWindowMode(touchThrough: Boolean) {
         val params = layoutParams ?: return
         val view = rootView ?: return
-        val wantsInputFocus = latestProgress.pendingUserInput != null && !touchThrough
+        val pendingInput = latestProgress.pendingUserInput
+        val wantsInputFocus = pendingInput != null && !pendingInput.sensitive && !touchThrough
         val newFlags = overlayWindowFlags(touchThrough, wantsInputFocus)
         if (params.flags == newFlags) return
         params.flags = newFlags
@@ -449,9 +574,17 @@ class AgentOverlayService : Service() {
         val edit = inputEditText ?: return
         edit.post {
             edit.requestFocus()
+            edit.setSelection(edit.text?.length ?: 0)
             val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
             imm?.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
         }
+    }
+
+    private fun hideKeyboard() {
+        val edit = inputEditText ?: return
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(edit.windowToken, 0)
+        edit.clearFocus()
     }
 
     private fun animateEntrance(view: View) {
@@ -535,7 +668,7 @@ class AgentOverlayService : Service() {
     private fun panelBackground(): GradientDrawable {
         return GradientDrawable(
             GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.argb(226, 14, 24, 52), Color.argb(206, 32, 50, 92), Color.argb(224, 14, 18, 48))
+            intArrayOf(Color.argb(226, 14, 24, 52), Color.argb(206, 32, 50, 92), Color.argb(224, 14, 18, 48)),
         ).apply {
             cornerRadius = dp(26f).toFloat()
             setStroke(dp(1f).coerceAtLeast(1), Color.argb(112, 195, 230, 255))
@@ -570,6 +703,14 @@ class AgentOverlayService : Service() {
         return trim()
             .replace('\n', ' ')
             .replace(Regex("\\s+"), " ")
+    }
+
+    private fun String.cleanPanelText(): String {
+        return replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .lines()
+            .joinToString("\n") { line -> line.trim().replace(Regex("[\\t ]+"), " ") }
+            .trim()
     }
 
     private fun String.limitOverlayText(limit: Int): String {
@@ -611,7 +752,7 @@ class AgentOverlayService : Service() {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     view.animate().scaleX(1f).scaleY(1f).setDuration(140L).setInterpolator(SOFT_OUT).start()
                     if (!dragging && abs(event.rawX - downRawX) < dp(8f) && abs(event.rawY - downRawY) < dp(8f)) {
-                        if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null) {
+                        if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null && !awaitingAgentReply) {
                             expanded = !expanded
                             refreshExpandedState()
                         }
@@ -631,12 +772,18 @@ class AgentOverlayService : Service() {
     companion object {
         private const val COMPACT_WIDTH_DP = 236f
         private const val EXPANDED_WIDTH_DP = 362f
+        private const val CONVERSATION_HEIGHT_DP = 176f
+        private const val INPUT_HEIGHT_DP = 86f
         private const val ACTION_TEXT_LIMIT = 120
         private const val RESULT_TEXT_LIMIT = 180
         private const val LATEST_TEXT_LIMIT = 120
         private const val LOG_LINE_TEXT_LIMIT = 260
-        private const val PANEL_MESSAGE_TEXT_LIMIT = 260
+        private const val CONFIRM_MESSAGE_TEXT_LIMIT = 800
         private const val OVERLAY_LOG_LINES = 24
+        private const val MAX_INTERACTION_TURNS = 16
+        private const val INTERACTION_TURN_TEXT_LIMIT = 2_400
+        private const val USER_REPLY_MAX_CHARS = 2_000
+        private const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
         private val SOFT_OUT = DecelerateInterpolator(1.55f)
 
         fun canDrawOverlays(context: Context): Boolean {
@@ -665,5 +812,12 @@ class AgentOverlayService : Service() {
         }
     }
 }
+
+private data class OverlayInteractionTurn(
+    val role: OverlayInteractionRole,
+    val text: String,
+)
+
+private enum class OverlayInteractionRole { GuiPlus, User }
 
 private enum class ButtonTone { Ghost, Danger, PrimaryWarm, GhostWarm }
