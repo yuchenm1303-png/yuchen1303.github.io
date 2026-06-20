@@ -1,13 +1,23 @@
 package com.yuchen.ailedger.service
 
 import android.os.Build
-import java.text.Normalizer
 
 enum class AgentSurfacePreference(val wireValue: String) {
     Any("any"),
     NativeApp("native_app"),
     SystemSettings("system_settings"),
-    Browser("browser"),
+    Browser("browser");
+
+    companion object {
+        fun fromWireValue(value: String?): AgentSurfacePreference {
+            return when (value.orEmpty().trim().lowercase().replace('-', '_')) {
+                "native", "native_app", "app" -> NativeApp
+                "system", "settings", "system_settings" -> SystemSettings
+                "browser", "web", "web_page" -> Browser
+                else -> Any
+            }
+        }
+    }
 }
 
 data class AgentTaskExecutionContract(
@@ -32,66 +42,77 @@ data class AgentTaskExecutionContract(
     }
 
     companion object {
-        fun fromGoal(goal: String): AgentTaskExecutionContract {
-            val normalized = normalizeGoal(goal)
-            val explicitBrowser = containsAny(normalized, EXPLICIT_BROWSER_MARKERS) || URL_PATTERN.containsMatchIn(goal)
-            val systemSettings = containsAny(normalized, SYSTEM_SETTINGS_MARKERS)
-            val highImpact = containsAny(normalized, HIGH_IMPACT_MARKERS)
+        fun controllerRequest(): AgentTaskExecutionContract {
+            return AgentTaskExecutionContract(
+                preferredSurface = AgentSurfacePreference.Any,
+                browserFallbackAllowed = true,
+                requiredCapabilities = emptySet(),
+                requirePostActionVerification = true,
+                highImpactFlow = false,
+                reason = "任务语义与应用能力由云端规划器判断；Android 仅校验结构化契约和已安装应用能力。",
+            )
+        }
 
-            return when {
-                systemSettings -> AgentTaskExecutionContract(
-                    preferredSurface = AgentSurfacePreference.SystemSettings,
-                    browserFallbackAllowed = false,
-                    requiredCapabilities = setOf(AppCapability.SystemSettings),
-                    highImpactFlow = highImpact,
-                    reason = "任务目标属于设备系统设置，应进入系统设置界面并逐步验证路径。",
-                )
-                explicitBrowser -> AgentTaskExecutionContract(
-                    preferredSurface = AgentSurfacePreference.Browser,
-                    browserFallbackAllowed = true,
-                    requiredCapabilities = setOf(AppCapability.Browser),
-                    highImpactFlow = highImpact,
-                    reason = "用户明确要求网页、网站或浏览器表面。",
-                )
-                highImpact -> AgentTaskExecutionContract(
-                    preferredSurface = AgentSurfacePreference.NativeApp,
-                    browserFallbackAllowed = false,
-                    requiredCapabilities = setOf(AppCapability.NativeApp),
-                    highImpactFlow = true,
-                    reason = "任务包含交易、提交或发送等高影响操作，应优先使用具备对应能力的原生应用。",
-                )
-                else -> AgentTaskExecutionContract(
-                    preferredSurface = AgentSurfacePreference.Any,
-                    browserFallbackAllowed = true,
-                    requirePostActionVerification = true,
-                    reason = "未限定唯一交互表面，由模型结合已安装应用和当前页面选择。",
-                )
+        fun fromPlannerStep(step: CloudAgentStep?): AgentTaskExecutionContract? {
+            step ?: return null
+            val preferredSurfaceRaw = step.argString(
+                "preferredSurface",
+                "preferred_surface",
+                "surfacePreference",
+                "surface_preference",
+            )
+            val browserFallbackRaw = step.argString(
+                "browserFallbackAllowed",
+                "browser_fallback_allowed",
+            )
+            val requiredCapabilitiesRaw = step.argString(
+                "requiredCapabilities",
+                "required_capabilities",
+                "requiredCapability",
+                "required_capability",
+            )
+            val verificationRaw = step.argString(
+                "requirePostActionVerification",
+                "require_post_action_verification",
+            )
+            val contractReason = step.argString(
+                "taskContractReason",
+                "task_contract_reason",
+                "contractReason",
+            ).orEmpty()
+
+            val hasContractFields = !preferredSurfaceRaw.isNullOrBlank() ||
+                !browserFallbackRaw.isNullOrBlank() ||
+                !requiredCapabilitiesRaw.isNullOrBlank() ||
+                !verificationRaw.isNullOrBlank() ||
+                contractReason.isNotBlank()
+            if (!hasContractFields) return null
+
+            val requiredCapabilities = requiredCapabilitiesRaw.orEmpty()
+                .split(',', ';', '|')
+                .map { it.trim().lowercase().replace('-', '_') }
+                .filter { it.isNotBlank() }
+                .toSet()
+            val highImpact = step.requiresConfirmation ||
+                step.riskLevel.orEmpty().trim().lowercase() in setOf("high", "critical")
+
+            return AgentTaskExecutionContract(
+                preferredSurface = AgentSurfacePreference.fromWireValue(preferredSurfaceRaw),
+                browserFallbackAllowed = browserFallbackRaw.toFlexibleBoolean(defaultValue = true),
+                requiredCapabilities = requiredCapabilities,
+                requirePostActionVerification = verificationRaw.toFlexibleBoolean(defaultValue = true),
+                highImpactFlow = highImpact,
+                reason = contractReason.take(200),
+            )
+        }
+
+        private fun String?.toFlexibleBoolean(defaultValue: Boolean): Boolean {
+            return when (orEmpty().trim().lowercase()) {
+                "true", "1", "yes", "allow", "allowed" -> true
+                "false", "0", "no", "deny", "denied" -> false
+                else -> defaultValue
             }
         }
-
-        private fun normalizeGoal(value: String): String {
-            return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
-                .replace(Regex("\\s+"), "")
-        }
-
-        private fun containsAny(value: String, markers: List<String>): Boolean {
-            return markers.any(value::contains)
-        }
-
-        private val URL_PATTERN = Regex("(?i)https?://|www\\.")
-        private val EXPLICIT_BROWSER_MARKERS = listOf(
-            "浏览器", "网页", "网站", "网页版", "webpage", "website", "browser",
-        )
-        private val SYSTEM_SETTINGS_MARKERS = listOf(
-            "开发人员选项", "开发者选项", "系统与更新", "系统设置", "手机设置",
-            "蓝牙设置", "网络设置", "通知设置", "权限设置", "电池优化", "无障碍设置",
-            "developeroptions", "systemsettings",
-        )
-        private val HIGH_IMPACT_MARKERS = listOf(
-            "下单", "提交订单", "买入", "卖出", "交易", "支付", "付款", "转账",
-            "发送消息", "发送邮件", "发布", "提交", "预约", "订票", "打车",
-            "placeorder", "buy", "sell", "trade", "pay", "transfer", "send", "publish", "submit",
-        )
     }
 }
 
