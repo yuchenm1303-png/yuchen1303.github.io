@@ -79,13 +79,61 @@ class VisualAgentClientTest {
         assertFalse("scroll" in supportedTypes)
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v7_tool_response", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v8_controller_handoff", memory.getString("schema"))
         assertEquals("gui_plus_dialogue_v1", memory.getString("interactionProtocol"))
         assertTrue(memory.has("interactionHistory"))
         assertTrue(memory.has("lastToolResponse"))
         assertFalse(payload.getBoolean("visualReplanRequested"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
         assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+    }
+
+    @Test
+    fun firstHostFrameIsDeclaredAsControllerHandoffWithoutHomeTransition() {
+        val payload = buildVisualAgentPayload(
+            goal = "帮我在京东下单压缩饼干",
+            snapshot = testSnapshot(packageName = "com.yuchen.ailedger"),
+            recentActions = emptyList(),
+            appContext = listOf(
+                VisualAgentAppContextItem(
+                    label = "京东",
+                    packageName = "com.jingdong.app.mall",
+                ),
+            ),
+            agentSessionId = "visual-session-controller",
+        )
+
+        assertEquals("controller", payload.getString("surfaceRole"))
+        val handoff = payload.getJSONObject("controllerHandoff")
+        assertTrue(handoff.getBoolean("isAssistantHost"))
+        assertTrue(handoff.getBoolean("isFirstVisualTurn"))
+        assertTrue(handoff.getBoolean("controllerHandoffActive"))
+        assertTrue(handoff.getBoolean("directCrossAppLaunchSupported"))
+        assertFalse(handoff.getBoolean("homeTransitionRequired"))
+
+        val deviceContext = payload.getJSONObject("deviceContext")
+        assertEquals("controller", deviceContext.getJSONObject("currentApp").getString("surfaceRole"))
+        assertEquals(
+            "controller",
+            deviceContext.getJSONObject("surfaceContext").getString("role"),
+        )
+    }
+
+    @Test
+    fun externalAppFrameIsDeclaredAsWorkSurface() {
+        val payload = buildVisualAgentPayload(
+            goal = "搜索压缩饼干",
+            snapshot = testSnapshot(packageName = "com.jingdong.app.mall"),
+            recentActions = listOf("open_app:ok:target=京东"),
+            agentSessionId = "visual-session-work",
+        )
+
+        assertEquals("work_surface", payload.getString("surfaceRole"))
+        val handoff = payload.getJSONObject("controllerHandoff")
+        assertFalse(handoff.getBoolean("isAssistantHost"))
+        assertFalse(handoff.getBoolean("controllerHandoffActive"))
+        assertTrue(handoff.getBoolean("directCrossAppLaunchSupported"))
+        assertFalse(handoff.getBoolean("homeTransitionRequired"))
     }
 
     @Test
@@ -231,10 +279,10 @@ class VisualAgentClientTest {
         assertTrue(feedback.getBoolean("lastResultOk"))
     }
 
-    private fun testSnapshot(): AgentScreenSnapshot {
+    private fun testSnapshot(packageName: String = "com.tencent.mobileqq"): AgentScreenSnapshot {
         return AgentScreenSnapshot(
-            currentApp = "com.tencent.mobileqq",
-            packageName = "com.tencent.mobileqq",
+            currentApp = packageName,
+            packageName = packageName,
             nodeCount = 2,
             capturedNodeCount = 2,
             texts = listOf("QQ", "消息"),
