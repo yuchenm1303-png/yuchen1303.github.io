@@ -92,12 +92,13 @@ object AgentSafetyPolicy {
     @Suppress("UNUSED_PARAMETER")
     fun requiresUserProvidedInput(goal: String, step: CloudAgentStep): Boolean {
         val level = step.riskLevel.normalizedPolicyLevel()
-        if (step.type == "need_user_help" || level.endsWith("_input")) return true
-        if (step.type != "input_text") return false
+        if (level.endsWith("_input") || level == "sensitive" || level == "private") return true
+        if (step.type != "input_text" && step.type != "need_user_help") return false
 
         val concreteTarget = listOfNotNull(
             step.targetText,
-            step.argString("field", "label", "hint", "target"),
+            step.reason,
+            step.argString("field", "label", "hint", "target", "message", "question"),
         ).joinToString(" ").lowercase()
         return sensitiveInputKeywords.any { keyword -> concreteTarget.contains(keyword.lowercase()) }
     }
