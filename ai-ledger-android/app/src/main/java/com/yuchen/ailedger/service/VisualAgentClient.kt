@@ -17,11 +17,13 @@ private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 1_200
 private const val VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS = 240
 private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 160
 private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 120
+private const val VISUAL_AGENT_MAX_APP_ALIASES = 24
+private const val VISUAL_AGENT_MAX_APP_CAPABILITIES = 32
 private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 8
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
 private const val VISUAL_AGENT_MAX_INTERACTION_ITEMS = 16
 private const val VISUAL_AGENT_MAX_INTERACTION_CHARS = 1_200
-private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v8_controller_handoff"
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v9_task_contract"
 private const val VISUAL_AGENT_INTERACTION_PROTOCOL = "gui_plus_dialogue_v1"
 private const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
 
@@ -64,6 +66,9 @@ fun AiWorkerClient.requestVisualAgentStep(
     deviceId: String = "android-compose-visual",
     agentSessionId: String = "visual-session-${System.currentTimeMillis()}",
     executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent,
+    deviceProfile: AgentDeviceProfile? = null,
+    taskContract: AgentTaskExecutionContract? = null,
+    taskContractRequired: Boolean = false,
 ): CloudAgentPlan {
     val endpointBase = endpoint.trim().trimEnd('/')
     if (endpointBase.isBlank()) throw IOException("AI Worker endpoint is not configured")
@@ -76,6 +81,9 @@ fun AiWorkerClient.requestVisualAgentStep(
         deviceId = deviceId,
         agentSessionId = agentSessionId,
         executionMode = executionMode,
+        deviceProfile = deviceProfile,
+        taskContract = taskContract,
+        taskContractRequired = taskContractRequired,
     )
     return postVisualAgentStep(endpointBase, payload, deviceId, agentSessionId)
 }
@@ -89,6 +97,9 @@ internal fun buildVisualAgentPayload(
     deviceId: String = "android-compose-visual",
     agentSessionId: String = "visual-session-test",
     executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent,
+    deviceProfile: AgentDeviceProfile? = null,
+    taskContract: AgentTaskExecutionContract? = null,
+    taskContractRequired: Boolean = false,
 ): JSONObject {
     val cleanGoal = goal.trim().take(240)
     val cleanDeviceId = deviceId.trim().take(120).ifBlank { "android-compose-visual" }
@@ -188,10 +199,26 @@ internal fun buildVisualAgentPayload(
             .distinctBy { it.packageName }
             .take(VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS)
             .forEach { item ->
+                val aliases = item.aliases
+                    .asSequence()
+                    .map { it.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(VISUAL_AGENT_MAX_APP_ALIASES)
+                    .toList()
+                val capabilities = item.capabilities
+                    .asSequence()
+                    .map { it.trim().lowercase().replace('-', '_').take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(VISUAL_AGENT_MAX_APP_CAPABILITIES)
+                    .toList()
                 put(JSONObject().apply {
                     put("label", item.label.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
                     put("packageName", item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
                     put("launchable", true)
+                    put("aliases", JSONArray(aliases))
+                    put("capabilities", JSONArray(capabilities))
                 })
             }
     }
@@ -209,6 +236,23 @@ internal fun buildVisualAgentPayload(
         put("controllerHandoffActive", controllerHandoffActive)
         put("directCrossAppLaunchSupported", true)
         put("homeTransitionRequired", false)
+    }
+    val deviceProfileJson = deviceProfile?.toVisualAgentJson()
+    val taskContractJson = taskContract?.toVisualAgentJson()
+    val taskContractPlanning = JSONObject().apply {
+        put("schema", "android_cloud_task_contract_request_v1")
+        put("required", taskContractRequired)
+        put("semanticOwner", "gui_plus")
+        put("validationOwner", "android")
+        put("returnLocation", "agentStep.arguments")
+        put("requiredFields", JSONArray(listOf(
+            "preferredSurface",
+            "browserFallbackAllowed",
+            "requiredCapabilities",
+            "requirePostActionVerification",
+            "taskContractReason",
+        )))
+        put("localKeywordRoutingAllowed", false)
     }
 
     return JSONObject().apply {
@@ -241,6 +285,12 @@ internal fun buildVisualAgentPayload(
         put("interactionTurnCount", interactionHistory.length())
         put("deviceId", cleanDeviceId)
         put("clientId", cleanDeviceId)
+        put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
+        put("taskContract", taskContractJson ?: JSONObject.NULL)
+        put("taskContractRequired", taskContractRequired)
+        put("taskContractPlanning", taskContractPlanning)
+        put("taskContractPlanningOwner", "gui_plus")
+        put("taskContractValidationOwner", "android")
         put("currentPackage", snapshot.packageName)
         put("surfaceRole", surfaceContext.getString("role"))
         put("controllerHandoff", surfaceContext)
@@ -266,7 +316,7 @@ internal fun buildVisualAgentPayload(
             put("allowTaskContractJudge", false)
         })
         put("agentMemory", JSONObject().apply {
-            put("schema", "android_visual_agent_loop_memory_v8_controller_handoff")
+            put("schema", "android_visual_agent_loop_memory_v9_task_contract")
             put("recentActions", recentAgentActions)
             put("interactionProtocol", VISUAL_AGENT_INTERACTION_PROTOCOL)
             put("interactionHistory", interactionHistory)
@@ -275,6 +325,9 @@ internal fun buildVisualAgentPayload(
             put("executionFeedback", executionFeedback)
             put("lastToolResponse", lastToolResponse)
             put("surfaceContext", surfaceContext)
+            put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
+            put("taskContract", taskContractJson ?: JSONObject.NULL)
+            put("taskContractPlanning", taskContractPlanning)
             put("loopSignals", JSONObject().apply {
                 put("agentSessionId", cleanSessionId)
                 put("loopIndex", cleanRecentActionLines.size)
@@ -305,7 +358,10 @@ internal fun buildVisualAgentPayload(
         })
         put("appContext", canonicalApps)
         put("deviceContext", JSONObject().apply {
-            put("schema", "android_visual_agent_context_v2_controller_handoff")
+            put("schema", "android_visual_agent_context_v3_task_contract")
+            put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
+            put("taskContract", taskContractJson ?: JSONObject.NULL)
+            put("taskContractPlanning", taskContractPlanning)
             put("currentApp", JSONObject().apply {
                 put("packageName", snapshot.packageName)
                 put("isAssistantHost", isAssistantHost)
@@ -350,10 +406,35 @@ internal fun buildVisualAgentPayload(
             put("includeAgentSteps", true)
             put("includeStopConditions", true)
             put("includePerformanceDebug", true)
+            put("includeTaskContract", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-controller-handoff-v9")
+        put("clientVersion", "visual-agent-task-contract-v10")
         put("now", System.currentTimeMillis())
+    }
+}
+
+private fun AgentDeviceProfile.toVisualAgentJson(): JSONObject {
+    return JSONObject().apply {
+        put("schema", "android_device_profile_v1")
+        put("manufacturer", manufacturer.take(60))
+        put("brand", brand.take(60))
+        put("model", model.take(80))
+        put("androidRelease", release.take(40))
+        put("sdkInt", sdkInt)
+        put("buildDisplay", display.take(100))
+    }
+}
+
+private fun AgentTaskExecutionContract.toVisualAgentJson(): JSONObject {
+    return JSONObject().apply {
+        put("schema", "android_task_execution_contract_v1")
+        put("preferredSurface", preferredSurface.wireValue)
+        put("browserFallbackAllowed", browserFallbackAllowed)
+        put("requiredCapabilities", JSONArray(requiredCapabilities.sorted()))
+        put("requirePostActionVerification", requirePostActionVerification)
+        put("highImpactFlow", highImpactFlow)
+        put("taskContractReason", reason.take(200))
     }
 }
 
@@ -458,7 +539,7 @@ private fun AiWorkerClient.postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v9")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v10")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
