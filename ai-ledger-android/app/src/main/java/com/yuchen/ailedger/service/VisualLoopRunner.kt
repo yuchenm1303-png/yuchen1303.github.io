@@ -15,6 +15,7 @@ class VisualLoopRunner(
 ) {
     private val applicationContext = appContext.applicationContext
     private val installedAppIndex = InstalledAppIndex(applicationContext)
+    private val appCapabilityRegistry = AppCapabilityRegistry(applicationContext, installedAppIndex)
     private val deviceToolExecutor = DeviceToolExecutor(applicationContext, installedAppIndex)
     private val clientDeviceId by lazy { AgentClientIdentity.getOrCreateDeviceId(applicationContext) }
 
@@ -22,6 +23,7 @@ class VisualLoopRunner(
         goal: String,
         maxSteps: Int = Int.MAX_VALUE,
         executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
+        initialTaskContract: AgentTaskExecutionContract? = null,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
         if (requiresAgentSwitch(executionMode) && !AgentRuntimeController.isEnabled()) {
@@ -34,7 +36,16 @@ class VisualLoopRunner(
         val recentActions = mutableListOf<String>()
         val visualHistory = mutableListOf<VisualAgentHistoryItem>()
         val agentSessionId = AgentClientIdentity.newVisualSessionId()
-        val visualAppContext = withContext(Dispatchers.IO) { buildVisualAppContext() }
+        val deviceProfile = AgentDeviceProfile.current()
+        val installedApps = withContext(Dispatchers.IO) { installedAppIndex.getLaunchableApps() }
+        val installedAppsByPackage = installedApps.associateBy { it.packageName }
+        val visualAppContext = buildVisualAppContext(installedApps)
+        var taskContract = initialTaskContract
+
+        appendRecentAction(recentActions, deviceProfile.toPromptLine())
+        taskContract?.let { appendRecentAction(recentActions, it.toPromptLine()) }
+        appendRecentAction(recentActions, appCapabilityRegistry.compactPromptLine(visualAppContext))
+
         AiAgentAccessibilityService.beginTaskSession()
         AgentRuntimeController.startTask(state.goal)
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
@@ -52,6 +63,27 @@ class VisualLoopRunner(
                 val snapshot = observation.toAgentScreenSnapshot()
                 state.currentPackage = snapshot.currentApp
 
+                val currentSurfaceValidation = validateCurrentSurface(
+                    contract = taskContract,
+                    packageName = snapshot.currentApp,
+                    installedAppsByPackage = installedAppsByPackage,
+                )
+                if (!currentSurfaceValidation.ok) {
+                    val feedback = contractRouteFeedback(
+                        packageName = snapshot.currentApp,
+                        message = currentSurfaceValidation.message,
+                        stage = "before_plan",
+                    )
+                    if (feedback != state.lastContractViolation) {
+                        appendRecentAction(recentActions, feedback)
+                        state.lastContractViolation = feedback
+                        state.contractViolationCount += 1
+                    }
+                } else {
+                    state.lastContractViolation = ""
+                    state.contractViolationCount = 0
+                }
+
                 val plan = try {
                     withContext(Dispatchers.IO) {
                         aiWorkerClient.requestVisualAgentStep(
@@ -63,6 +95,9 @@ class VisualLoopRunner(
                             deviceId = clientDeviceId,
                             agentSessionId = agentSessionId,
                             executionMode = executionMode,
+                            deviceProfile = deviceProfile,
+                            taskContract = taskContract,
+                            taskContractRequired = taskContract == null,
                         )
                     }
                 } catch (error: IOException) {
@@ -73,11 +108,30 @@ class VisualLoopRunner(
                 AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
 
                 val step = plan.step
+                val plannerContract = AgentTaskExecutionContract.fromPlannerStep(step)
+                if (taskContract == null && plannerContract != null) {
+                    taskContract = plannerContract
+                    appendRecentAction(recentActions, "task_contract_accepted:${plannerContract.toPromptLine()}")
+                } else if (taskContract != null && plannerContract != null && plannerContract != taskContract) {
+                    appendRecentAction(
+                        recentActions,
+                        "task_contract_change_rejected:active=${taskContract.toPromptLine()}|proposed=${plannerContract.toPromptLine()}",
+                    )
+                }
+
                 val validation = VisualActionValidator.validate(step, snapshot)
                 if (!validation.ok) {
+                    val rejection = "visual_action_rejected:type=${step.type}|reason=${validation.message.take(260)}|replanRequired=true"
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step.copy(reason = validation.message), null)
-                    AgentRuntimeController.finishTask(validation.message, completed = false)
-                    return AgentTaskRunResult(false, false, validation.message, logs)
+                    appendRecentAction(recentActions, rejection)
+                    rememberVisualTurn(visualHistory, snapshot, plan, rejection)
+                    state.replanRejectCount += 1
+                    state.stepCount += 1
+                    if (state.replanRejectCount >= MAX_STRUCTURED_REPLAN_REJECTIONS) {
+                        if (!pauseForUserAndContinue(validation.message, stopGeneration, state, recentActions, "validation_rejected", step)) break
+                        state.replanRejectCount = 0
+                    }
+                    continue
                 }
 
                 if (step.type == "finish") {
@@ -138,11 +192,24 @@ class VisualLoopRunner(
                     continue
                 }
 
-                val preparedStep = prepareStepForExecution(step, snapshot)
+                val preparedStep = prepareStepForExecution(
+                    step = step,
+                    snapshot = snapshot,
+                    installedAppsByPackage = installedAppsByPackage,
+                    taskContract = taskContract,
+                )
                 if (!preparedStep.ok || preparedStep.step == null) {
                     val message = preparedStep.message
+                    val rejection = "visual_action_rejected:type=${step.type}|reason=${message.take(260)}|replanRequired=${preparedStep.replanRequired}"
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step.copy(reason = message), null)
-                    if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "prepare_blocked")) break
+                    appendRecentAction(recentActions, rejection)
+                    rememberVisualTurn(visualHistory, snapshot, plan, rejection)
+                    state.replanRejectCount += 1
+                    state.stepCount += 1
+                    if (!preparedStep.replanRequired || state.replanRejectCount >= MAX_STRUCTURED_REPLAN_REJECTIONS) {
+                        if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "prepare_blocked", step)) break
+                        state.replanRejectCount = 0
+                    }
                     continue
                 }
 
@@ -174,6 +241,7 @@ class VisualLoopRunner(
                 state.lastAction = VisualActionValidator.actionSignature(executableStep)
                 state.lastActionCluster = actionCluster
                 state.sameActionClusterCount = nextRepeatCount
+                state.replanRejectCount = 0
                 val resultSummary = buildExecutionResultSummary(executableStep, state.lastAction, result)
                 appendRecentAction(recentActions, resultSummary)
                 rememberVisualTurn(visualHistory, snapshot, plan, resultSummary)
@@ -187,15 +255,42 @@ class VisualLoopRunner(
                 delayForStep(executableStep)
                 val after = captureOnce().toAgentScreenSnapshot()
                 val pageChanged = VisualActionValidator.snapshotFingerprint(after) != beforeFingerprint
-                val verificationSummary = if (!pageChanged) {
+                val visualChangeSummary = if (!pageChanged) {
                     state.noProgressCount += 1
                     "visual_no_progress:${state.lastAction}:count=${state.noProgressCount}:screen=unchanged"
                 } else {
                     state.noProgressCount = 0
                     "visual_screen_changed:${state.lastAction}:screen=changed"
                 }
-                appendRecentAction(recentActions, verificationSummary)
-                updateLatestVisualTurnResult(visualHistory, "$resultSummary;$verificationSummary")
+                appendRecentAction(recentActions, visualChangeSummary)
+
+                val afterSurfaceValidation = validateCurrentSurface(
+                    contract = taskContract,
+                    packageName = after.currentApp,
+                    installedAppsByPackage = installedAppsByPackage,
+                )
+                val contractVerificationSummary = if (afterSurfaceValidation.ok) {
+                    "task_contract_route_verified:package=${after.currentApp.take(100)}|screenChanged=$pageChanged"
+                } else {
+                    contractRouteFeedback(
+                        packageName = after.currentApp,
+                        message = afterSurfaceValidation.message,
+                        stage = "after_action",
+                    )
+                }
+                appendRecentAction(recentActions, contractVerificationSummary)
+                updateLatestVisualTurnResult(
+                    visualHistory,
+                    "$resultSummary;$visualChangeSummary;$contractVerificationSummary",
+                )
+
+                if (!afterSurfaceValidation.ok) {
+                    state.contractViolationCount += 1
+                    state.lastContractViolation = contractVerificationSummary
+                } else {
+                    state.contractViolationCount = 0
+                    state.lastContractViolation = ""
+                }
 
                 if (!pageChanged && state.noProgressCount >= NO_PROGRESS_LIMIT) {
                     val message = "No progress after repeated visual actions; user takeover is required."
@@ -251,47 +346,110 @@ class VisualLoopRunner(
         return result
     }
 
-    private fun prepareStepForExecution(step: CloudAgentStep, snapshot: AgentScreenSnapshot): PreparedVisualStep {
-        if (step.type != "open_app") return PreparedVisualStep(ok = true, step = materializeTapCoordinateFrame(step, snapshot))
+    private fun prepareStepForExecution(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        installedAppsByPackage: Map<String, InstalledAppEntry>,
+        taskContract: AgentTaskExecutionContract?,
+    ): PreparedVisualStep {
+        if (step.type != "open_app") {
+            return PreparedVisualStep(ok = true, step = materializeTapCoordinateFrame(step, snapshot))
+        }
 
         val requestedName = step.appName?.trim().orEmpty()
         val requestedPackage = step.packageName?.trim().orEmpty()
         if (requestedName.isBlank() || requestedPackage.isBlank()) {
-            return PreparedVisualStep(ok = false, message = "open_app requires the canonical appName and packageName pair.")
+            return PreparedVisualStep(
+                ok = false,
+                message = "open_app requires the canonical appName and packageName pair.",
+                replanRequired = true,
+            )
         }
 
-        val installed = installedAppIndex.getLaunchableApps().firstOrNull { it.packageName == requestedPackage }
-            ?: return PreparedVisualStep(ok = false, message = "App package is not installed: $requestedPackage")
+        val installed = installedAppsByPackage[requestedPackage]
+            ?: return PreparedVisualStep(
+                ok = false,
+                message = "App package is not installed: $requestedPackage",
+                replanRequired = true,
+            )
         if (normalizeCanonicalAppLabel(installed.label) != normalizeCanonicalAppLabel(requestedName)) {
             return PreparedVisualStep(
                 ok = false,
                 message = "App identity mismatch: $requestedName / $requestedPackage",
+                replanRequired = true,
             )
         }
         if (snapshot.currentApp == requestedPackage) {
-            return PreparedVisualStep(ok = false, message = "Already in ${installed.label}; duplicate open_app was blocked.")
+            return PreparedVisualStep(
+                ok = false,
+                message = "Already in ${installed.label}; duplicate open_app was blocked.",
+                replanRequired = true,
+            )
         }
-        return PreparedVisualStep(ok = true, step = step)
+        if (taskContract == null) {
+            return PreparedVisualStep(
+                ok = false,
+                message = "Planner must return a structured task contract before switching applications.",
+                replanRequired = true,
+            )
+        }
+        val capabilityValidation = appCapabilityRegistry.validateSelection(taskContract, installed)
+        if (!capabilityValidation.ok) {
+            return PreparedVisualStep(
+                ok = false,
+                message = capabilityValidation.message,
+                replanRequired = true,
+            )
+        }
+        return PreparedVisualStep(
+            ok = true,
+            step = step.copy(appName = installed.label, packageName = installed.packageName),
+        )
+    }
+
+    private fun validateCurrentSurface(
+        contract: AgentTaskExecutionContract?,
+        packageName: String,
+        installedAppsByPackage: Map<String, InstalledAppEntry>,
+    ): AppSelectionValidation {
+        contract ?: return AppSelectionValidation(true)
+        if (packageName.isBlank() || packageName == applicationContext.packageName) {
+            return AppSelectionValidation(true)
+        }
+        val installed = installedAppsByPackage[packageName]
+        if (installed == null) {
+            return if (contract.preferredSurface == AgentSurfacePreference.SystemSettings) {
+                AppSelectionValidation(
+                    ok = false,
+                    message = "当前包 $packageName 不是已识别的 system_settings 能力入口；请重新规划回系统设置。",
+                )
+            } else {
+                AppSelectionValidation(true)
+            }
+        }
+        return appCapabilityRegistry.validateSelection(contract, installed)
+    }
+
+    private fun contractRouteFeedback(packageName: String, message: String, stage: String): String {
+        return buildString {
+            append("task_contract_route_rejected")
+            append("|stage=").append(stage)
+            append("|package=").append(packageName.take(100))
+            append("|reason=").append(message.take(260))
+            append("|requiredAction=replan_with_compatible_installed_app")
+            append("|automaticBack=false")
+        }.take(MAX_RECENT_ACTION_CHARS)
     }
 
     private fun normalizeCanonicalAppLabel(value: String): String {
-        return Normalizer.normalize(value.trim(), Normalizer.Form.NFKC)
-            .lowercase()
-            .replace(Regex("\\s+"), "")
+        return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
+            .replace(Regex("[^\\p{L}\\p{N}]+"), "")
     }
 
-    private fun buildVisualAppContext(): List<VisualAgentAppContextItem> {
-        return installedAppIndex.getLaunchableApps()
-            .asSequence()
-            .map { app ->
-                VisualAgentAppContextItem(
-                    label = app.label,
-                    packageName = app.packageName,
-                )
-            }
+    private fun buildVisualAppContext(apps: List<InstalledAppEntry>): List<VisualAgentAppContextItem> {
+        return appCapabilityRegistry.buildVisualContext(apps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_APP_CONTEXT_ITEMS)
-            .toList()
     }
 
     private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
@@ -415,6 +573,7 @@ class VisualLoopRunner(
         val ok: Boolean,
         val message: String = "",
         val step: CloudAgentStep? = null,
+        val replanRequired: Boolean = false,
     )
 
     private fun rememberVisualTurn(
@@ -440,6 +599,7 @@ class VisualLoopRunner(
         private const val MAX_INTERACTION_TEXT_CHARS = 1_000
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
+        private const val MAX_STRUCTURED_REPLAN_REJECTIONS = 3
         private const val NO_PROGRESS_LIMIT = Int.MAX_VALUE
         private const val REPEATED_ACTION_CLUSTER_LIMIT = Int.MAX_VALUE
         private const val USER_TAKEOVER_POLL_MS = 120L
@@ -473,6 +633,9 @@ data class VisualLoopState(
     var pendingFinishPackage: String = "",
     var pendingFinishFingerprint: String = "",
     var pendingFinishCount: Int = 0,
+    var contractViolationCount: Int = 0,
+    var replanRejectCount: Int = 0,
+    var lastContractViolation: String = "",
     var running: Boolean = false,
     var paused: Boolean = false,
     var completed: Boolean = false,
