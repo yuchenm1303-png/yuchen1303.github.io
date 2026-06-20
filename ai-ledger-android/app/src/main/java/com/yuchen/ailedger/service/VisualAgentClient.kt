@@ -21,8 +21,9 @@ private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 8
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
 private const val VISUAL_AGENT_MAX_INTERACTION_ITEMS = 16
 private const val VISUAL_AGENT_MAX_INTERACTION_CHARS = 1_200
-private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v7_tool_response"
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v8_controller_handoff"
 private const val VISUAL_AGENT_INTERACTION_PROTOCOL = "gui_plus_dialogue_v1"
+private const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
 
 internal object VisualAgentProtocol {
     const val coordinateProtocol = "normalized_screen_0_1"
@@ -107,16 +108,13 @@ internal fun buildVisualAgentPayload(
         .takeLast(VISUAL_AGENT_MAX_HISTORY_ITEMS)
         .map { it.executionResult.trim().take(VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS) }
         .filter { it.isNotBlank() }
+
     val feedbackLines = (cleanRecentActionLines + historyExecutionResults)
         .distinct()
         .takeLast(VISUAL_AGENT_MAX_VERIFICATION_EVENTS)
     val verificationEvents = feedbackLines.filter { it.isVisualRuntimeFeedback() }
     val lastScreenChangeIndex = feedbackLines.indexOfLast { it.isVisualScreenChangedFeedback() }
-    val activeFeedbackWindow = if (lastScreenChangeIndex >= 0) {
-        feedbackLines.drop(lastScreenChangeIndex + 1)
-    } else {
-        feedbackLines
-    }
+    val activeFeedbackWindow = if (lastScreenChangeIndex >= 0) feedbackLines.drop(lastScreenChangeIndex + 1) else feedbackLines
     val activeVerificationEvents = activeFeedbackWindow.filter { it.isVisualRuntimeFeedback() }
     val noProgressCount = activeVerificationEvents.count { it.isVisualNoProgressFeedback() }
     val finishVerificationRequested = activeVerificationEvents.any { it.isVisualFinishVerificationFeedback() }
@@ -158,6 +156,7 @@ internal fun buildVisualAgentPayload(
     val guiPlusReplanRequested = finishVerificationRequested ||
         noProgressCount > 0 ||
         activeVerificationEvents.any { it.isVisualFailureFeedback() }
+
     val executionFeedback = JSONObject().apply {
         put("lastResultOk", lastResultOk ?: JSONObject.NULL)
         put("lastVerification", lastVerification)
@@ -198,6 +197,19 @@ internal fun buildVisualAgentPayload(
     }
     val screenSnapshot = snapshot.toJson(includeImage = false)
     val visual = snapshot.visual?.takeIf { it.hasImage }
+    val isAssistantHost = snapshot.packageName == ASSISTANT_HOST_PACKAGE
+    val isFirstVisualTurn = visualHistory.isEmpty() && executedActionLines.isEmpty()
+    val controllerHandoffActive = isAssistantHost && isFirstVisualTurn
+    val surfaceContext = JSONObject().apply {
+        put("schema", "android_visual_surface_context_v1")
+        put("role", if (isAssistantHost) "controller" else "work_surface")
+        put("controllerPackage", ASSISTANT_HOST_PACKAGE)
+        put("isAssistantHost", isAssistantHost)
+        put("isFirstVisualTurn", isFirstVisualTurn)
+        put("controllerHandoffActive", controllerHandoffActive)
+        put("directCrossAppLaunchSupported", true)
+        put("homeTransitionRequired", false)
+    }
 
     return JSONObject().apply {
         put("action", "visual_agent_step")
@@ -230,6 +242,8 @@ internal fun buildVisualAgentPayload(
         put("deviceId", cleanDeviceId)
         put("clientId", cleanDeviceId)
         put("currentPackage", snapshot.packageName)
+        put("surfaceRole", surfaceContext.getString("role"))
+        put("controllerHandoff", surfaceContext)
         put("screenSnapshot", screenSnapshot)
         put("recentAgentActions", recentAgentActions)
         put("recentActions", recentAgentActions)
@@ -252,7 +266,7 @@ internal fun buildVisualAgentPayload(
             put("allowTaskContractJudge", false)
         })
         put("agentMemory", JSONObject().apply {
-            put("schema", "android_visual_agent_loop_memory_v7_tool_response")
+            put("schema", "android_visual_agent_loop_memory_v8_controller_handoff")
             put("recentActions", recentAgentActions)
             put("interactionProtocol", VISUAL_AGENT_INTERACTION_PROTOCOL)
             put("interactionHistory", interactionHistory)
@@ -260,6 +274,7 @@ internal fun buildVisualAgentPayload(
             put("blockedActionSignatures", JSONArray(blockedActionSignatures))
             put("executionFeedback", executionFeedback)
             put("lastToolResponse", lastToolResponse)
+            put("surfaceContext", surfaceContext)
             put("loopSignals", JSONObject().apply {
                 put("agentSessionId", cleanSessionId)
                 put("loopIndex", cleanRecentActionLines.size)
@@ -290,11 +305,13 @@ internal fun buildVisualAgentPayload(
         })
         put("appContext", canonicalApps)
         put("deviceContext", JSONObject().apply {
-            put("schema", "android_visual_agent_context_v1")
+            put("schema", "android_visual_agent_context_v2_controller_handoff")
             put("currentApp", JSONObject().apply {
                 put("packageName", snapshot.packageName)
-                put("isAssistantHost", snapshot.packageName == "com.yuchen.ailedger")
+                put("isAssistantHost", isAssistantHost)
+                put("surfaceRole", surfaceContext.getString("role"))
             })
+            put("surfaceContext", surfaceContext)
             put("screen", JSONObject().apply {
                 put("widthPx", visual?.displayWidth ?: 0)
                 put("heightPx", visual?.displayHeight ?: 0)
@@ -335,7 +352,7 @@ internal fun buildVisualAgentPayload(
             put("includePerformanceDebug", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-dialogue-v8")
+        put("clientVersion", "visual-agent-controller-handoff-v9")
         put("now", System.currentTimeMillis())
     }
 }
@@ -393,14 +410,10 @@ private fun String.isVisualNoProgressFeedback(): Boolean {
 
 private fun String.isVisualScreenChangedFeedback(): Boolean {
     val value = lowercase()
-    return value.contains("visual_screen_changed") ||
-        value.contains("screen=changed") ||
-        value.contains("visual_progress")
+    return value.contains("visual_screen_changed") || value.contains("screen=changed") || value.contains("visual_progress")
 }
 
-private fun String.isVisualFinishVerificationFeedback(): Boolean {
-    return lowercase().contains("finish_verification_pending")
-}
+private fun String.isVisualFinishVerificationFeedback(): Boolean = lowercase().contains("finish_verification_pending")
 
 private fun String.isVisualFailureFeedback(): Boolean {
     val value = lowercase()
@@ -445,7 +458,7 @@ private fun AiWorkerClient.postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v8")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v9")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
