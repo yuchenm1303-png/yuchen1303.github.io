@@ -13,7 +13,7 @@ import org.json.JSONObject
 private const val AGENT_STEP_CONNECT_TIMEOUT_MS = 8_000
 private const val AGENT_STEP_READ_TIMEOUT_MS = 20_000
 private const val AGENT_VISION_ROUTE_ID = "qwen_vision"
-private const val AGENT_SESSION_PROTOCOL = "android_v3_task_contract"
+private const val AGENT_SESSION_PROTOCOL = "android_agent_step_v4_no_task_contract"
 
 @Throws(IOException::class)
 fun AiWorkerClient.requestAgentStep(
@@ -34,16 +34,16 @@ fun AiWorkerClient.requestAgentPlan(
     executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
 ): CloudAgentPlan {
     val payload = buildAgentStepPayload(
-        goal,
-        snapshot,
-        modelPreference,
-        recentActions,
-        deviceContext,
-        agentMemory,
-        executionMode,
+        goal = goal,
+        snapshot = snapshot,
+        modelPreference = modelPreference,
+        recentActions = recentActions,
+        deviceContext = deviceContext,
+        agentMemory = agentMemory,
+        executionMode = executionMode,
     )
     var lastError: IOException? = null
-    val candidates = listOf(endpoint.trim().trimEnd('/')).filter { it.isNotBlank() }.distinct()
+    val candidates = listOf(endpoint.trim().trimEnd('/')).filter(String::isNotBlank).distinct()
     for (candidate in candidates) {
         try {
             return postAgentPlan(candidate, payload)
@@ -93,9 +93,8 @@ private fun buildAgentStepPayload(
                     action.contains("postActionFeedbackReset", ignoreCase = true)
             }
         )
-    val sessionId = loopSignals?.optString("agentSessionId")?.takeIf { it.isNotBlank() }
-        ?: "android-agent-v3-${System.currentTimeMillis()}"
-    val contract = AgentTaskContractRuntime.ensureSession(sessionId, cleanGoal)
+    val sessionId = loopSignals?.optString("agentSessionId")?.takeIf(String::isNotBlank)
+        ?: "android-agent-step-${System.currentTimeMillis()}"
 
     return JSONObject().apply {
         put("action", "agent_step")
@@ -117,32 +116,21 @@ private fun buildAgentStepPayload(
         put("agentSessionId", sessionId)
         put("agentSessionProtocol", AGENT_SESSION_PROTOCOL)
         put("agentSessionStep", loopIndex)
-        put("taskExecutionProtocol", JSONObject().apply {
-            put("schema", "agent_task_execution_contract_v1")
-            put("cloudDefinesRequirements", true)
-            put("deviceResolvesInstalledTargetApp", true)
-            put("singleActionPerObservation", true)
-            put("deterministicEntryBeforeVisualNavigation", true)
-            put("echoContractOnEveryTurn", true)
-        })
-        contract?.let {
-            put("taskExecutionContract", it.toJson())
-            put("taskPhase", it.phase)
-        }
+        put("taskContractRequired", false)
+        put("taskContractOwner", "visual_agent_only")
         put("fixedStepLimit", isNormalChatToolProbe)
         put("maxAgentSteps", if (isNormalChatToolProbe) 2 else JSONObject.NULL)
         put("routeRefreshRequested", routeRefreshRequested)
         put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
         put("replanAfterSettingsEntry", true)
         put("crossActionNoProgressAccumulation", false)
-        put("recentAgentActions", JSONArray().apply { recentActions.takeLast(10).forEach { put(it) } })
+        put("recentAgentActions", JSONArray().apply {
+            recentActions.takeLast(10).forEach { put(it) }
+        })
         agentMemory?.let { put("agentMemory", it) }
         deviceContext?.let {
             put("deviceContext", it.json)
-            it.json.optJSONObject("targetAppResolution")?.let { resolution ->
-                put("targetAppResolution", resolution)
-            }
-            it.json.optString("appInventoryHash").takeIf { hash -> hash.isNotBlank() }?.let { hash ->
+            it.json.optString("appInventoryHash").takeIf(String::isNotBlank)?.let { hash ->
                 put("appInventoryHash", hash)
             }
         }
@@ -181,8 +169,8 @@ private fun buildAgentStepPayload(
         put("client", "android-compose")
         put(
             "clientVersion",
-            if (hasVisualPayload) "compose-native-agent-visual-contract-v16-performance"
-            else "compose-native-agent-tool-contract-v16-performance",
+            if (hasVisualPayload) "compose-native-agent-visual-v17-clean"
+            else "compose-native-agent-tool-v17-clean",
         )
         put("responseFormat", JSONObject().apply {
             put("type", "json_object")
@@ -191,9 +179,9 @@ private fun buildAgentStepPayload(
             put("includeAgentSteps", true)
             put("includeActionBatch", true)
             put("includeStopConditions", true)
-            put("includeTaskExecutionContract", true)
-            put("includeTargetAppResolutionAck", true)
             put("includePerformanceDebug", true)
+            put("includeTaskExecutionContract", false)
+            put("includeTargetAppResolutionAck", false)
         })
         put("now", System.currentTimeMillis())
     }
@@ -201,8 +189,6 @@ private fun buildAgentStepPayload(
 
 private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan {
     val requestStart = SystemClock.elapsedRealtime()
-    val sessionId = payload.optString("agentSessionId")
-    val goal = payload.optString("agentGoal")
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = AGENT_STEP_CONNECT_TIMEOUT_MS
@@ -210,7 +196,7 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json, text/plain")
-        setRequestProperty("X-Client", "android-compose-agent-v16-performance")
+        setRequestProperty("X-Client", "android-compose-agent-v17-clean")
         setRequestProperty("X-Agent-Session-Protocol", AGENT_SESSION_PROTOCOL)
     }
     return try {
@@ -220,26 +206,33 @@ private fun postAgentPlan(endpoint: String, payload: JSONObject): CloudAgentPlan
         val body = connection.agentReadBody(status)
         val data = body.agentJsonOrNull()
         AgentRuntimeController.noteDiagnostic(
-            buildCompactAgentDiagnostic(data, requestBytes.size, body.length, SystemClock.elapsedRealtime() - requestStart),
+            buildCompactAgentDiagnostic(
+                data = data,
+                requestBytes = requestBytes.size,
+                responseChars = body.length,
+                totalMs = SystemClock.elapsedRealtime() - requestStart,
+            ),
         )
         if (status !in 200..299) {
-            val message = data?.optString("error")?.takeIf { it.isNotBlank() }
-                ?: data?.optString("message")?.takeIf { it.isNotBlank() }
+            val message = data?.optString("error")?.takeIf(String::isNotBlank)
+                ?: data?.optString("message")?.takeIf(String::isNotBlank)
                 ?: body.take(120).ifBlank { "云端智能体规划失败：HTTP $status" }
             throw IOException(message)
         }
-        val parsedContract = AgentTaskContractRuntime.update(sessionId, goal, data)
-        val plan = CloudAgentPlan.fromJson(data)
+        CloudAgentPlan.fromJson(data)
             ?: extractAgentPlanFromText(body)
-            ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
-            ?: extractAgentStepFromText(body)?.let { CloudAgentPlan(step = it, state = extractAgentStateFromText(body)) }
+            ?: CloudAgentStep.fromJson(data)?.let {
+                CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data))
+            }
+            ?: extractAgentStepFromText(body)?.let {
+                CloudAgentPlan(step = it, state = extractAgentStateFromText(body))
+            }
             ?: throw IOException("云端没有返回有效的智能体下一步动作")
-        if (plan.state?.isComplete == true || parsedContract?.phase == AGENT_TASK_PHASE_COMPLETED) {
-            AgentTaskContractRuntime.clear(sessionId)
-        }
-        plan
     } catch (error: SocketTimeoutException) {
-        throw IOException("云端智能体规划超过 ${AGENT_STEP_READ_TIMEOUT_MS / 1000} 秒未返回：${endpoint.substringAfter("://")}", error)
+        throw IOException(
+            "云端智能体规划超过 ${AGENT_STEP_READ_TIMEOUT_MS / 1000} 秒未返回：${endpoint.substringAfter("://")}",
+            error,
+        )
     } finally {
         connection.disconnect()
     }
@@ -253,15 +246,8 @@ private fun buildCompactAgentDiagnostic(
 ): String {
     val debug = data?.optJSONObject("debug")
     val step = data?.optJSONObject("agentStep")?.optString("type").orEmpty().take(8)
-    val phase = AgentTaskExecutionContract.fromResponse(data)?.phase.orEmpty()
-        .replace("visual_navigation", "visual")
-        .replace("open_target_app", "open")
-        .replace("verify_target_app", "verify")
-        .take(8)
     val clientContextMs = debug?.optLongOrZero("clientDeviceContextMs") ?: 0L
     val bodyMs = debug?.optLongOrZero("readBodyMs") ?: 0L
-    val contractMs = debug?.optLongOrZero("taskContractJudgeMs") ?: 0L
-    val appResolveMs = debug?.optLongOrZero("appResolveMs") ?: 0L
     val brainMs = debug?.optLongOrZero("agentBrainMs") ?: 0L
     val visionMs = debug?.optLongOrZero("providerMs") ?: 0L
     val serverTotalMs = debug?.optLongOrZero("totalMs") ?: 0L
@@ -271,11 +257,8 @@ private fun buildCompactAgentDiagnostic(
         append(" r").append(bytesToKb(responseChars))
         append(" h").append(totalMs)
         if (step.isNotBlank()) append(" s").append(step)
-        if (phase.isNotBlank()) append(" p").append(phase)
         append(" | c").append(clientContextMs)
         append(" b").append(bodyMs)
-        append(" k").append(contractMs)
-        append(" a").append(appResolveMs)
         append(" n").append(brainMs)
         append(" v").append(visionMs)
         append(" t").append(serverTotalMs)
@@ -297,33 +280,43 @@ private fun HttpURLConnection.agentReadBody(status: Int): String {
 }
 
 private fun String.agentJsonOrNull(): JSONObject? = try {
-    takeIf { it.isNotBlank() }?.let { JSONObject(it) }
+    takeIf(String::isNotBlank)?.let(::JSONObject)
 } catch (_: Exception) {
     null
 }
 
 private fun JSONObject.optIntOrNull(key: String): Int? {
     if (!has(key) || isNull(key)) return null
-    return try { getInt(key) } catch (_: Exception) { optString(key).toIntOrNull() }
+    return try {
+        getInt(key)
+    } catch (_: Exception) {
+        optString(key).toIntOrNull()
+    }
 }
 
 private fun extractAgentStepFromText(text: String): CloudAgentStep? {
     val start = text.indexOf('{')
     val end = text.lastIndexOf('}')
     if (start < 0 || end <= start) return null
-    return try { CloudAgentStep.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
+    return runCatching {
+        CloudAgentStep.fromJson(JSONObject(text.substring(start, end + 1)))
+    }.getOrNull()
 }
 
 private fun extractAgentPlanFromText(text: String): CloudAgentPlan? {
     val start = text.indexOf('{')
     val end = text.lastIndexOf('}')
     if (start < 0 || end <= start) return null
-    return try { CloudAgentPlan.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
+    return runCatching {
+        CloudAgentPlan.fromJson(JSONObject(text.substring(start, end + 1)))
+    }.getOrNull()
 }
 
 private fun extractAgentStateFromText(text: String): CloudAgentState? {
     val start = text.indexOf('{')
     val end = text.lastIndexOf('}')
     if (start < 0 || end <= start) return null
-    return try { CloudAgentState.fromJson(JSONObject(text.substring(start, end + 1))) } catch (_: Exception) { null }
+    return runCatching {
+        CloudAgentState.fromJson(JSONObject(text.substring(start, end + 1)))
+    }.getOrNull()
 }
