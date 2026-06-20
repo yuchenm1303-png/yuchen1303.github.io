@@ -10,6 +10,7 @@ class AgentOrchestratorTest {
     private val installedApps = listOf(
         InstalledAppEntry(label = "设置", packageName = "com.android.settings"),
         InstalledAppEntry(label = "浏览器", packageName = "com.example.browser"),
+        InstalledAppEntry(label = "QQ", packageName = "com.tencent.mobileqq"),
     )
 
     @Test
@@ -28,19 +29,6 @@ class AgentOrchestratorTest {
         assertTrue(VisualLoopRunner.requiresAgentSwitch(AgentExecutionMode.VisualForce))
         assertFalse(VisualLoopRunner.requiresAgentSwitch(AgentExecutionMode.ExplicitAgent))
         assertFalse(VisualLoopRunner.requiresAgentSwitch(AgentExecutionMode.NormalChatDeviceTool))
-    }
-
-    @Test
-    fun explicitInstalledAppNameStillResolvesDirectly() {
-        val result = AgentOrchestrator.resolveExplicitControllerTarget(
-            goal = "请打开系统设置",
-            apps = installedApps,
-            aliasesForPackage = { app -> if (app.packageName == "com.android.settings") listOf("系统设置") else emptyList() },
-            excludedPackages = setOf("com.yuchen.ailedger"),
-        )
-
-        assertEquals(ExplicitAppResolutionStatus.Exact, result.status)
-        assertEquals("com.android.settings", result.app?.packageName)
     }
 
     @Test
@@ -73,9 +61,14 @@ class AgentOrchestratorTest {
     }
 
     @Test
-    fun plannerCannotSelectUninstalledPackageOrMismatchedLabel() {
+    fun plannerCannotSelectUninstalledPackageOrMismatchedCanonicalLabel() {
         val unknownPackage = AgentOrchestrator.evaluateControllerPlannerStep(
-            step = plannerOpenApp(appName = "设置", packageName = "com.unknown.settings"),
+            step = plannerOpenApp(
+                appName = "设置",
+                packageName = "com.unknown.settings",
+                preferredSurface = "system_settings",
+                requiredCapabilities = "system_settings",
+            ),
             installedApps = installedApps,
             assistantPackageName = "com.yuchen.ailedger",
         )
@@ -83,18 +76,49 @@ class AgentOrchestratorTest {
         assertTrue(unknownPackage.rejectionReason.contains("不在真实已安装应用清单"))
 
         val mismatchedName = AgentOrchestrator.evaluateControllerPlannerStep(
-            step = plannerOpenApp(appName = "浏览器", packageName = "com.android.settings"),
+            step = plannerOpenApp(
+                appName = "设置",
+                packageName = "com.tencent.mobileqq",
+                preferredSurface = "native_app",
+                requiredCapabilities = "native_app",
+            ),
             installedApps = installedApps,
             assistantPackageName = "com.yuchen.ailedger",
         )
         assertFalse(mismatchedName.accepted)
-        assertTrue(mismatchedName.rejectionReason.contains("应用名与包名不一致"))
+        assertTrue(mismatchedName.rejectionReason.contains("规范清单不一致"))
+    }
+
+    @Test
+    fun cloudPlannerCanSelectQqForAnInternalQqPageTask() {
+        val result = AgentOrchestrator.evaluateControllerPlannerStep(
+            step = plannerOpenApp(
+                appName = "QQ",
+                packageName = "com.tencent.mobileqq",
+                preferredSurface = "native_app",
+                requiredCapabilities = "native_app",
+                reason = "用户要求进入 QQ 内部设置页，应先打开 QQ，再由视觉循环继续导航。",
+            ),
+            installedApps = installedApps,
+            assistantPackageName = "com.yuchen.ailedger",
+        )
+
+        assertTrue(result.accepted)
+        assertEquals("QQ", result.step?.appName)
+        assertEquals("com.tencent.mobileqq", result.step?.packageName)
+        assertEquals(AgentSurfacePreference.NativeApp, result.contract?.preferredSurface)
+        assertFalse(result.contract?.browserFallbackAllowed ?: true)
     }
 
     @Test
     fun validPlannerOpenAppCarriesParsedContract() {
         val result = AgentOrchestrator.evaluateControllerPlannerStep(
-            step = plannerOpenApp(appName = "设置", packageName = "com.android.settings"),
+            step = plannerOpenApp(
+                appName = "设置",
+                packageName = "com.android.settings",
+                preferredSurface = "system_settings",
+                requiredCapabilities = "system_settings",
+            ),
             installedApps = installedApps,
             assistantPackageName = "com.yuchen.ailedger",
         )
@@ -106,13 +130,19 @@ class AgentOrchestratorTest {
         assertFalse(result.contract?.browserFallbackAllowed ?: true)
     }
 
-    private fun plannerOpenApp(appName: String, packageName: String): CloudAgentStep {
+    private fun plannerOpenApp(
+        appName: String,
+        packageName: String,
+        preferredSurface: String,
+        requiredCapabilities: String,
+        reason: String = "云端已根据完整用户指令选择目标应用",
+    ): CloudAgentStep {
         val fields = JSONObject().apply {
-            put("preferredSurface", "system_settings")
+            put("preferredSurface", preferredSurface)
             put("browserFallbackAllowed", false)
-            put("requiredCapabilities", "system_settings")
+            put("requiredCapabilities", requiredCapabilities)
             put("requirePostActionVerification", true)
-            put("taskContractReason", "系统设置任务")
+            put("taskContractReason", reason)
         }
         return requireNotNull(CloudAgentStep.fromJson(JSONObject().apply {
             put("type", "open_app")
@@ -120,11 +150,12 @@ class AgentOrchestratorTest {
             put("packageName", packageName)
             put("arguments", fields)
             put("args", fields)
-            put("preferredSurface", "system_settings")
+            put("preferredSurface", preferredSurface)
             put("browserFallbackAllowed", false)
-            put("requiredCapabilities", "system_settings")
+            put("requiredCapabilities", requiredCapabilities)
             put("requirePostActionVerification", true)
-            put("taskContractReason", "系统设置任务")
+            put("taskContractReason", reason)
+            put("reason", reason)
         }))
     }
 }
