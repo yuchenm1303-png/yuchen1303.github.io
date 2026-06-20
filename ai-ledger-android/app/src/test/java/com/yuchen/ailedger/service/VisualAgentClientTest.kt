@@ -44,6 +44,8 @@ class VisualAgentClientTest {
         assertFalse(payload.getBoolean("allowRoutePlanner"))
         assertFalse(payload.getBoolean("allowSemanticJudge"))
         assertFalse(payload.getBoolean("allowTaskContractJudge"))
+        assertEquals("gui_plus_dialogue_v1", payload.getString("interactionProtocol"))
+        assertTrue(payload.has("interactionHistory"))
         assertTrue(payload.has("screenSnapshot"))
         assertTrue(payload.has("recentAgentActions"))
         assertTrue(payload.has("executionFeedback"))
@@ -78,10 +80,44 @@ class VisualAgentClientTest {
 
         val memory = payload.getJSONObject("agentMemory")
         assertEquals("android_visual_agent_loop_memory_v7_tool_response", memory.getString("schema"))
+        assertEquals("gui_plus_dialogue_v1", memory.getString("interactionProtocol"))
+        assertTrue(memory.has("interactionHistory"))
         assertTrue(memory.has("lastToolResponse"))
         assertFalse(payload.getBoolean("visualReplanRequested"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
         assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+    }
+
+    @Test
+    fun payloadCarriesStructuredMultiTurnInteractionWithoutShortReplyTruncation() {
+        val longReply = buildString {
+            append("预算 80 到 120 元，希望容量 500ml 左右，材质优先陶瓷，")
+            append("不要吸管杯，最好是京东自营，评价高一些。")
+            append("补充说明：")
+            append("A".repeat(700))
+        }
+        val payload = buildVisualAgentPayload(
+            goal = "在京东挑一个合适的水杯",
+            snapshot = testSnapshot(),
+            recentActions = listOf(
+                "guiPlusQuestion:你对价格、容量或材质有什么偏好吗？",
+                "userReply:$longReply",
+            ),
+            agentSessionId = "visual-session-dialogue",
+        )
+
+        val interaction = payload.getJSONArray("interactionHistory")
+        assertEquals(2, interaction.length())
+        assertEquals("assistant", interaction.getJSONObject(0).getString("role"))
+        assertEquals("user", interaction.getJSONObject(1).getString("role"))
+        assertEquals(longReply, interaction.getJSONObject(1).getString("content"))
+        assertEquals(2, payload.getInt("interactionTurnCount"))
+
+        val recent = payload.getJSONArray("recentAgentActions")
+        assertTrue(recent.getString(1).endsWith(longReply))
+
+        val memoryInteraction = payload.getJSONObject("agentMemory").getJSONArray("interactionHistory")
+        assertEquals(longReply, memoryInteraction.getJSONObject(1).getString("content"))
     }
 
     @Test
