@@ -30,13 +30,6 @@ data class AgentTaskExecutionContract(
     val highImpactFlow: Boolean = false,
     val reason: String = "",
 ) {
-    /**
-     * Legacy Agent Step clients used task phases before the visual-loop contract became immutable.
-     * Phase is no longer part of contract identity; completion is owned by [CloudAgentState].
-     */
-    val phase: String
-        get() = "unknown"
-
     fun toPromptLine(): String {
         val capabilities = requiredCapabilities.sorted().joinToString(",").ifBlank { "none" }
         return buildString {
@@ -50,16 +43,14 @@ data class AgentTaskExecutionContract(
         }
     }
 
-    fun toJson(): JSONObject {
-        return JSONObject().apply {
-            put("schema", "android_task_execution_contract_v1")
-            put("preferredSurface", preferredSurface.wireValue)
-            put("browserFallbackAllowed", browserFallbackAllowed)
-            put("requiredCapabilities", JSONArray(requiredCapabilities.sorted()))
-            put("requirePostActionVerification", requirePostActionVerification)
-            put("highImpactFlow", highImpactFlow)
-            put("taskContractReason", reason.take(200))
-        }
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("schema", "android_task_execution_contract_v1")
+        put("preferredSurface", preferredSurface.wireValue)
+        put("browserFallbackAllowed", browserFallbackAllowed)
+        put("requiredCapabilities", JSONArray(requiredCapabilities.sorted()))
+        put("requirePostActionVerification", requirePostActionVerification)
+        put("highImpactFlow", highImpactFlow)
+        put("taskContractReason", reason.take(200))
     }
 
     companion object {
@@ -112,7 +103,7 @@ data class AgentTaskExecutionContract(
             val requiredCapabilities = requiredCapabilitiesRaw.orEmpty()
                 .split(',', ';', '|')
                 .map(::normalizeCapability)
-                .filter { it.isNotBlank() }
+                .filter(String::isNotBlank)
                 .toSet()
             val highImpact = step.requiresConfirmation ||
                 step.riskLevel.orEmpty().trim().lowercase() in setOf("high", "critical")
@@ -125,97 +116,6 @@ data class AgentTaskExecutionContract(
                 highImpactFlow = highImpact,
                 reason = contractReason.take(200),
             )
-        }
-
-        /**
-         * Canonical response parser shared by the legacy Agent Step client and compatibility runtime.
-         * It accepts the top-level contract and the declared agentStep args/arguments locations.
-         */
-        fun fromResponse(root: JSONObject?): AgentTaskExecutionContract? {
-            val item = root.findContractObject() ?: return null
-            val preferredSurfaceRaw = item.firstString(
-                "preferredSurface",
-                "preferred_surface",
-                "surfacePreference",
-                "surface_preference",
-            )
-            val browserFallbackRaw = item.firstString(
-                "browserFallbackAllowed",
-                "browser_fallback_allowed",
-            )
-            val requiredCapabilities = item.stringValues(
-                "requiredCapabilities",
-                "required_capabilities",
-                "requiredCapability",
-                "required_capability",
-            ).map(::normalizeCapability).filter(String::isNotBlank).toSet()
-            val verificationRaw = item.firstString(
-                "requirePostActionVerification",
-                "require_post_action_verification",
-                "postActionVerification",
-            )
-            val highImpactRaw = item.firstString(
-                "highImpactFlow",
-                "high_impact_flow",
-            )
-            val contractReason = item.firstString(
-                "taskContractReason",
-                "task_contract_reason",
-                "contractReason",
-                "reason",
-            ).orEmpty()
-
-            val hasContractFields = !preferredSurfaceRaw.isNullOrBlank() ||
-                !browserFallbackRaw.isNullOrBlank() ||
-                requiredCapabilities.isNotEmpty() ||
-                !verificationRaw.isNullOrBlank() ||
-                !highImpactRaw.isNullOrBlank() ||
-                contractReason.isNotBlank()
-            if (!hasContractFields) return null
-
-            return AgentTaskExecutionContract(
-                preferredSurface = AgentSurfacePreference.fromWireValue(preferredSurfaceRaw),
-                browserFallbackAllowed = browserFallbackRaw.toFlexibleBoolean(defaultValue = true),
-                requiredCapabilities = requiredCapabilities,
-                requirePostActionVerification = verificationRaw.toFlexibleBoolean(defaultValue = true),
-                highImpactFlow = highImpactRaw.toFlexibleBoolean(defaultValue = false),
-                reason = contractReason.take(200),
-            )
-        }
-
-        private fun JSONObject?.findContractObject(): JSONObject? {
-            if (this == null) return null
-            val step = optJSONObject("agentStep") ?: optJSONObject("step")
-            return optJSONObject("taskExecutionContract")
-                ?: optJSONObject("taskContract")
-                ?: step?.optJSONObject("arguments")
-                ?: step?.optJSONObject("args")
-                ?: optJSONObject("data")?.findContractObject()
-                ?: optJSONObject("result")?.findContractObject()
-                ?: optJSONObject("plan")?.findContractObject()
-        }
-
-        private fun JSONObject.firstString(vararg keys: String): String? =
-            keys.asSequence()
-                .map { optString(it).trim() }
-                .firstOrNull(String::isNotBlank)
-
-        private fun JSONObject.stringValues(vararg keys: String): List<String> {
-            keys.forEach { key ->
-                optJSONArray(key)?.let { array ->
-                    return buildList {
-                        for (index in 0 until array.length()) {
-                            array.optString(index).trim().takeIf(String::isNotBlank)?.let(::add)
-                        }
-                    }
-                }
-                optString(key).trim().takeIf(String::isNotBlank)?.let { text ->
-                    return text.split(',', '，', ';', '；', '|')
-                        .map(String::trim)
-                        .filter(String::isNotBlank)
-                }
-            }
-            return emptyList()
         }
 
         private fun normalizeCapability(value: String): String =
@@ -263,6 +163,16 @@ data class AgentDeviceProfile(
             append("|sdkInt=").append(sdkInt)
             append("|buildDisplay=").append(display.take(100))
         }
+    }
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("schema", "android_device_profile_v1")
+        put("manufacturer", manufacturer.take(60))
+        put("brand", brand.take(60))
+        put("model", model.take(80))
+        put("androidRelease", release.take(40))
+        put("sdkInt", sdkInt)
+        put("buildDisplay", display.take(100))
     }
 
     companion object {
