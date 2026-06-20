@@ -13,6 +13,7 @@ private data class ControllerHandoffResult(
     val sourcePackage: String,
     val step: CloudAgentStep,
     val execution: AgentExecutionResult,
+    val contract: AgentTaskExecutionContract? = null,
 ) {
     fun prependTo(result: AgentTaskRunResult): AgentTaskRunResult {
         val first = AgentTaskStepLog(
@@ -80,6 +81,7 @@ class AgentOrchestrator(
                     goal = goal,
                     maxSteps = Int.MAX_VALUE,
                     executionMode = executionMode,
+                    initialTaskContract = handoff?.contract,
                 )
                 handoff?.prependTo(result) ?: result
             }
@@ -124,6 +126,14 @@ class AgentOrchestrator(
         explicitResolution.app
             ?.takeIf { explicitResolution.status == ExplicitAppResolutionStatus.Exact }
             ?.let { app ->
+                val explicitContract = AgentTaskExecutionContract(
+                    preferredSurface = AgentSurfacePreference.Any,
+                    browserFallbackAllowed = true,
+                    requiredCapabilities = emptySet(),
+                    requirePostActionVerification = true,
+                    highImpactFlow = false,
+                    reason = "用户已明确点名真实安装应用；Android 直接启动并保留动作后验证，不做本地任务语义猜测。",
+                )
                 return executeControllerOpenApp(
                     sourcePackage = sourcePackage,
                     step = CloudAgentStep(
@@ -132,17 +142,19 @@ class AgentOrchestrator(
                         packageName = app.packageName,
                         reason = "用户指令已明确指定安装应用，控制器直接打开后再进入视觉导航。",
                     ),
+                    contract = explicitContract,
                 )
             }
 
         val contractRequest = AgentTaskExecutionContract.controllerRequest()
+        val deviceProfile = AgentDeviceProfile.current()
         var lastDeclaredContract: AgentTaskExecutionContract? = null
         val appContext = appCapabilityRegistry.buildVisualContext(installedApps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_CONTROLLER_APP_CONTEXT_ITEMS)
         val recentActions = mutableListOf(
             contractRequest.toPromptLine(),
-            AgentDeviceProfile.current().toPromptLine(),
+            deviceProfile.toPromptLine(),
             appCapabilityRegistry.compactPromptLine(appContext),
             "task_contract_request:v1|plannerMustDeclare=preferredSurface,browserFallbackAllowed,requiredCapabilities,requirePostActionVerification|returnIn=agentStep.arguments",
             "controller_handoff:v2|currentSurface=assistant_controller|mustReturn=open_app|homeNotRequired=true|validateAppCapability=true",
@@ -173,6 +185,9 @@ class AgentOrchestrator(
                         deviceId = clientDeviceId,
                         agentSessionId = sessionId,
                         executionMode = executionMode,
+                        deviceProfile = deviceProfile,
+                        taskContract = contractRequest,
+                        taskContractRequired = true,
                     )
                 }.also { AgentRuntimeController.noteModelOutput(it.rawModelOutput) }
                     .step
@@ -204,7 +219,11 @@ class AgentOrchestrator(
                 return@repeat
             }
 
-            return executeControllerOpenApp(sourcePackage, selectedStep)
+            return executeControllerOpenApp(
+                sourcePackage = sourcePackage,
+                step = selectedStep,
+                contract = declaredContract,
+            )
         }
 
         val message = buildString {
@@ -223,6 +242,7 @@ class AgentOrchestrator(
     private suspend fun executeControllerOpenApp(
         sourcePackage: String,
         step: CloudAgentStep,
+        contract: AgentTaskExecutionContract,
     ): ControllerHandoffResult {
         AgentRuntimeController.noteAction(step)
         val execution = withContext(Dispatchers.IO) {
@@ -234,6 +254,7 @@ class AgentOrchestrator(
             sourcePackage = sourcePackage,
             step = step,
             execution = execution,
+            contract = contract,
         )
     }
 
