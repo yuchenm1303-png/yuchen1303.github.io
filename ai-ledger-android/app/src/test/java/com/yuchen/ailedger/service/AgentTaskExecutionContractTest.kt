@@ -7,12 +7,13 @@ import org.junit.Test
 
 class AgentTaskExecutionContractTest {
     @Test
-    fun tradingTaskPrefersNativeAppAndRejectsBrowserFallback() {
-        val contract = AgentTaskExecutionContract.fromGoal("打开股票详情页并下单买入")
-
-        assertEquals(AgentSurfacePreference.NativeApp, contract.preferredSurface)
-        assertFalse(contract.browserFallbackAllowed)
-        assertTrue(contract.highImpactFlow)
+    fun nativeAppContractRejectsBrowserSelection() {
+        val contract = AgentTaskExecutionContract(
+            preferredSurface = AgentSurfacePreference.NativeApp,
+            browserFallbackAllowed = false,
+            requiredCapabilities = setOf(AppCapability.NativeApp),
+            highImpactFlow = true,
+        )
 
         val browserValidation = AppCapabilityRegistry.validateCapabilities(
             contract = contract,
@@ -21,21 +22,21 @@ class AgentTaskExecutionContractTest {
         )
         assertFalse(browserValidation.ok)
 
-        val brokerValidation = AppCapabilityRegistry.validateCapabilities(
+        val nativeValidation = AppCapabilityRegistry.validateCapabilities(
             contract = contract,
             capabilities = setOf(AppCapability.NativeApp, AppCapability.UserApp),
-            appLabel = "券商应用",
+            appLabel = "原生应用",
         )
-        assertTrue(brokerValidation.ok)
+        assertTrue(nativeValidation.ok)
     }
 
     @Test
-    fun developerOptionsTaskRequiresSystemSettingsSurface() {
-        val contract = AgentTaskExecutionContract.fromGoal("帮我找到开发人员选项")
-
-        assertEquals(AgentSurfacePreference.SystemSettings, contract.preferredSurface)
-        assertFalse(contract.browserFallbackAllowed)
-        assertEquals(setOf(AppCapability.SystemSettings), contract.requiredCapabilities)
+    fun systemSettingsContractRejectsOrdinaryApp() {
+        val contract = AgentTaskExecutionContract(
+            preferredSurface = AgentSurfacePreference.SystemSettings,
+            browserFallbackAllowed = false,
+            requiredCapabilities = setOf(AppCapability.SystemSettings),
+        )
 
         val wrongApp = AppCapabilityRegistry.validateCapabilities(
             contract = contract,
@@ -53,11 +54,20 @@ class AgentTaskExecutionContractTest {
     }
 
     @Test
-    fun explicitWebTaskAllowsBrowser() {
-        val contract = AgentTaskExecutionContract.fromGoal("用浏览器打开网站 https://example.com")
+    fun controllerRequestLeavesSemanticDecisionToPlanner() {
+        val request = AgentTaskExecutionContract.controllerRequest()
 
-        assertEquals(AgentSurfacePreference.Browser, contract.preferredSurface)
-        assertTrue(contract.browserFallbackAllowed)
-        assertEquals(setOf(AppCapability.Browser), contract.requiredCapabilities)
+        assertEquals(AgentSurfacePreference.Any, request.preferredSurface)
+        assertTrue(request.browserFallbackAllowed)
+        assertTrue(request.requiredCapabilities.isEmpty())
+        assertTrue(request.requirePostActionVerification)
+    }
+
+    @Test
+    fun surfaceWireValuesAreNormalized() {
+        assertEquals(AgentSurfacePreference.NativeApp, AgentSurfacePreference.fromWireValue("native-app"))
+        assertEquals(AgentSurfacePreference.SystemSettings, AgentSurfacePreference.fromWireValue("settings"))
+        assertEquals(AgentSurfacePreference.Browser, AgentSurfacePreference.fromWireValue("web"))
+        assertEquals(AgentSurfacePreference.Any, AgentSurfacePreference.fromWireValue("unknown"))
     }
 }
