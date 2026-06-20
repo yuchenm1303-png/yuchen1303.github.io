@@ -7,28 +7,41 @@ class AgentOrchestrator(
     private val aiWorkerClient: AiWorkerClient,
     appContext: Context,
 ) {
-    private val legacyRunner = LegacyAgentRunner(aiWorkerClient, appContext)
-    private val visualRunner = VisualLoopRunner(aiWorkerClient, appContext)
+    private val applicationContext = appContext.applicationContext
 
     suspend fun run(
         goal: String,
         modelPreference: ChatModel,
-        maxSteps: Int = 18,
-        executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent,
+        maxSteps: Int = Int.MAX_VALUE,
+        executionMode: AgentExecutionMode,
     ): AgentTaskRunResult {
-        return when (executionMode) {
-            AgentExecutionMode.NormalChatDeviceTool -> legacyRunner.run(
+        return when (routeFor(executionMode)) {
+            AgentOrchestratorRoute.LegacyRunner -> AgentTaskRunner(aiWorkerClient, applicationContext).run(
                 goal = goal,
                 modelPreference = modelPreference,
                 maxSteps = maxSteps,
                 executionMode = executionMode,
             )
-            AgentExecutionMode.VisualForce,
-            AgentExecutionMode.ExplicitAgent -> visualRunner.run(
+            AgentOrchestratorRoute.VisualLoop -> VisualLoopRunner(aiWorkerClient, applicationContext).run(
                 goal = goal,
-                maxSteps = maxSteps,
+                maxSteps = Int.MAX_VALUE,
                 executionMode = executionMode,
             )
         }
     }
+
+    companion object {
+        fun routeFor(executionMode: AgentExecutionMode): AgentOrchestratorRoute {
+            return when (executionMode) {
+                AgentExecutionMode.NormalChatDeviceTool -> AgentOrchestratorRoute.LegacyRunner
+                AgentExecutionMode.VisualForce,
+                AgentExecutionMode.ExplicitAgent -> AgentOrchestratorRoute.VisualLoop
+            }
+        }
+    }
+}
+
+enum class AgentOrchestratorRoute {
+    LegacyRunner,
+    VisualLoop,
 }
