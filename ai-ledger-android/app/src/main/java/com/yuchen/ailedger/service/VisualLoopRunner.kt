@@ -111,6 +111,7 @@ class VisualLoopRunner(
                             deviceProfile = deviceProfile,
                             taskContract = taskContract,
                             taskContractRequired = taskContract == null,
+                            runtimeContext = runtimeContext,
                         )
                     }
                 } catch (error: IOException) {
@@ -385,6 +386,8 @@ class VisualLoopRunner(
                     }
                 } else {
                     state.noProgressCount = 0
+                    state.sameActionClusterCount = 0
+                    state.lastActionCluster = ""
                     "visual_screen_changed:${state.lastAction}:screen=changed"
                 }
                 appendRecentAction(recentActions, visualChangeSummary)
