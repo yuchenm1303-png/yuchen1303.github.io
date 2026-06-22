@@ -24,7 +24,7 @@ private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 8
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
 private const val VISUAL_AGENT_MAX_INTERACTION_ITEMS = 16
 private const val VISUAL_AGENT_MAX_INTERACTION_CHARS = 1_200
-private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v10_app_catalog"
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v11_cloud_first_handoff"
 private const val VISUAL_AGENT_INTERACTION_PROTOCOL = "gui_plus_dialogue_v1"
 private const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
 
@@ -140,8 +140,8 @@ internal fun buildVisualAgentPayload(
     val lastVerification = when {
         lastVerificationEvent.isVisualFinishVerificationFeedback() -> "finish_verification_pending"
         lastVerificationEvent.isVisualNoProgressFeedback() -> "visual_no_screen_change"
-        lastVerificationEvent.isVisualScreenChangedFeedback() -> "visual_screen_changed"
         lastVerificationEvent.isVisualFailureFeedback() -> "execution_failed"
+        lastVerificationEvent.isVisualScreenChangedFeedback() -> "visual_screen_changed"
         else -> "unknown"
     }
     val executedActionLines = cleanRecentActionLines.filter {
@@ -169,6 +169,7 @@ internal fun buildVisualAgentPayload(
     val guiPlusReplanRequested = finishVerificationRequested ||
         noProgressCount > 0 ||
         activeVerificationEvents.any { it.isVisualFailureFeedback() }
+    val routeRefreshRequested = activeVerificationEvents.any { it.requiresCloudRouteRefresh() }
 
     val executionFeedback = JSONObject().apply {
         put("lastResultOk", lastResultOk ?: JSONObject.NULL)
@@ -182,7 +183,8 @@ internal fun buildVisualAgentPayload(
         put("finishVerificationRequested", finishVerificationRequested)
         put("visualReplanRequested", guiPlusReplanRequested)
         put("guiPlusReplanRequested", guiPlusReplanRequested)
-        put("routeRefreshRequested", false)
+        put("routeRefreshRequested", routeRefreshRequested)
+        put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
     }
     val lastToolResponse = JSONObject().apply {
         put("type", "tool_response")
@@ -193,6 +195,7 @@ internal fun buildVisualAgentPayload(
         put("actionSignature", lastActionSignature)
         put("screenChanged", lastVerification == "visual_screen_changed")
         put("finishVerificationRequested", finishVerificationRequested)
+        put("routeRefreshRequested", routeRefreshRequested)
     }
 
     val canonicalAppItems = appContext
@@ -241,25 +244,28 @@ internal fun buildVisualAgentPayload(
         }
     }
     val appCatalog = JSONObject().apply {
-        put("schema", "android_visual_app_catalog_v2")
+        put("schema", "android_visual_app_catalog_v3_cloud_selected")
         put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
         put("identityField", "packageName")
         put("appRefField", "appRef")
         put("displayField", "label")
         put("appNameRole", "display_only")
-        put("selectionOwner", "gui_plus")
-        put("validationOwner", "android")
+        put("selectionOwner", "deepseek")
+        put("validationOwner", "android_package_identity_and_safety_only")
         put("inventoryHash", appInventoryHash)
         put("entryCount", canonicalApps.length())
         put("entries", canonicalApps)
     }
     val appSelectionProtocol = JSONObject().apply {
-        put("schema", "android_app_selection_protocol_v2")
-        put("semanticOwner", "gui_plus")
+        put("schema", "android_app_selection_protocol_v3_cloud_first")
+        put("semanticOwner", "deepseek")
         put("machineIdentity", "packageName")
         put("acceptedModelFields", JSONArray(listOf("packageName", "appRef")))
         put("appNameRole", "display_only")
         put("androidCanonicalizesAppName", true)
+        put("androidSelectsApps", false)
+        put("androidRanksApps", false)
+        put("androidResolvesUserIntent", false)
         put("localKeywordMatching", false)
         put("mustSelectFromInventoryHash", appInventoryHash)
     }
@@ -268,14 +274,18 @@ internal fun buildVisualAgentPayload(
     val visual = snapshot.visual?.takeIf { it.hasImage }
     val isAssistantHost = snapshot.packageName == ASSISTANT_HOST_PACKAGE
     val isFirstVisualTurn = visualHistory.isEmpty() && executedActionLines.isEmpty()
-    val controllerHandoffActive = isAssistantHost && isFirstVisualTurn
+    val controllerHandoffActive = isAssistantHost
+    val guiPlusEligible = !controllerHandoffActive
     val surfaceContext = JSONObject().apply {
-        put("schema", "android_visual_surface_context_v1")
+        put("schema", "android_visual_surface_context_v2_cloud_first")
         put("role", if (isAssistantHost) "controller" else "work_surface")
         put("controllerPackage", ASSISTANT_HOST_PACKAGE)
         put("isAssistantHost", isAssistantHost)
         put("isFirstVisualTurn", isFirstVisualTurn)
         put("controllerHandoffActive", controllerHandoffActive)
+        put("controllerPlanningRequired", controllerHandoffActive)
+        put("guiPlusEligible", guiPlusEligible)
+        put("requiredHandoffAction", if (controllerHandoffActive) "open_app_exact_package" else "none")
         put("directCrossAppLaunchSupported", true)
         put("homeTransitionRequired", false)
     }
@@ -303,15 +313,15 @@ internal fun buildVisualAgentPayload(
         put("type", "agent_step")
         put("requestType", "visual_agent_step")
         put("agentStepRequest", true)
-        put("visualAgentDirect", true)
+        put("visualAgentDirect", guiPlusEligible)
         put("agentMode", true)
         put("computerUseMode", true)
         put("forceVisualAgent", true)
-        put("allowInternalDeviceTools", false)
-        put("decisionOwner", "gui_plus")
-        put("visualDecisionOwner", "gui_plus")
-        put("exclusiveVisualSession", true)
-        put("allowAgentBrain", false)
+        put("allowInternalDeviceTools", true)
+        put("decisionOwner", "deepseek_then_selected_executor")
+        put("visualDecisionOwner", if (controllerHandoffActive) "deepseek" else "gui_plus")
+        put("exclusiveVisualSession", guiPlusEligible)
+        put("allowAgentBrain", true)
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
         put("allowTaskContractJudge", false)
@@ -349,20 +359,23 @@ internal fun buildVisualAgentPayload(
         put("finishVerificationRequested", finishVerificationRequested)
         put("visualReplanRequested", guiPlusReplanRequested)
         put("guiPlusReplanRequested", guiPlusReplanRequested)
-        put("routeRefreshRequested", false)
-        put("invalidateCachedAgentBrainRoute", false)
+        put("routeRefreshRequested", routeRefreshRequested)
+        put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
         put("visualOwnership", JSONObject().apply {
-            put("schema", "android_gui_plus_exclusive_ownership_v1")
-            put("owner", "gui_plus")
-            put("exclusive", true)
-            put("entryRouterReleased", true)
-            put("allowAgentBrain", false)
+            put("schema", "android_two_brain_ownership_v2_cloud_first")
+            put("entryOwner", "deepseek")
+            put("appSelectionOwner", "deepseek")
+            put("visualOwner", "gui_plus")
+            put("currentOwner", if (controllerHandoffActive) "deepseek" else "gui_plus")
+            put("guiPlusEligible", guiPlusEligible)
+            put("exclusiveAfterTargetAppVerified", true)
+            put("allowAgentBrain", true)
             put("allowRoutePlanner", false)
             put("allowSemanticJudge", false)
             put("allowTaskContractJudge", false)
         })
         put("agentMemory", JSONObject().apply {
-            put("schema", "android_visual_agent_loop_memory_v10_app_catalog")
+            put("schema", "android_visual_agent_loop_memory_v11_cloud_first")
             put("recentActions", recentAgentActions)
             put("interactionProtocol", VISUAL_AGENT_INTERACTION_PROTOCOL)
             put("interactionHistory", interactionHistory)
@@ -387,7 +400,10 @@ internal fun buildVisualAgentPayload(
                 put("finishVerificationRequested", finishVerificationRequested)
                 put("visualReplanRequested", guiPlusReplanRequested)
                 put("guiPlusReplanRequested", guiPlusReplanRequested)
-                put("routeRefreshRequested", false)
+                put("routeRefreshRequested", routeRefreshRequested)
+                put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
+                put("controllerHandoffActive", controllerHandoffActive)
+                put("guiPlusEligible", guiPlusEligible)
                 put("lastActionSignature", lastActionSignature)
                 put("postActionFeedback", executionFeedback)
                 put("lastToolResponse", lastToolResponse)
@@ -406,7 +422,7 @@ internal fun buildVisualAgentPayload(
         })
         put("appContext", canonicalApps)
         put("deviceContext", JSONObject().apply {
-            put("schema", "android_visual_agent_context_v4_app_catalog")
+            put("schema", "android_visual_agent_context_v5_cloud_first")
             put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
             put("taskContract", taskContractJson ?: JSONObject.NULL)
             put("taskContractPlanning", taskContractPlanning)
@@ -462,7 +478,7 @@ internal fun buildVisualAgentPayload(
             put("includeAppCatalogAck", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-app-catalog-v11")
+        put("clientVersion", "two-brain-cloud-first-handoff-v2")
         put("now", System.currentTimeMillis())
     }
 }
@@ -544,6 +560,7 @@ private fun buildInteractionHistory(recentActions: List<String>): JSONArray {
 private fun String.isVisualRuntimeFeedback(): Boolean {
     val value = lowercase()
     return value.contains(":failed:") ||
+        value.contains("visual_action_rejected") ||
         value.contains("visual_no_progress") ||
         value.contains("visual_screen_changed") ||
         value.contains("finish_verification_pending") ||
@@ -578,15 +595,23 @@ private fun String.isVisualFinishVerificationFeedback(): Boolean = lowercase().c
 private fun String.isVisualFailureFeedback(): Boolean {
     val value = lowercase()
     return value.contains(":failed:") ||
+        value.contains("visual_action_rejected") ||
         value.contains("open_app_package_verification_failed") ||
         value.contains("blocked") ||
         value.contains("执行失败")
 }
 
+private fun String.requiresCloudRouteRefresh(): Boolean {
+    return isVisualNoProgressFeedback() || isVisualFailureFeedback()
+}
+
 private fun String.visualResultOkOrNull(): Boolean? {
     val value = lowercase()
     return when {
-        value.contains(":failed:") || value.contains("执行失败") || value.contains("verification_failed") -> false
+        value.contains(":failed:") ||
+            value.contains("visual_action_rejected") ||
+            value.contains("执行失败") ||
+            value.contains("verification_failed") -> false
         value.contains(":ok:") || value.contains("package_verified") -> true
         else -> null
     }
@@ -597,6 +622,7 @@ private fun String.visualActionSignatureOrNull(): String? {
     val signature = when {
         ":failed:" in clean -> clean.substringBefore(":failed:")
         ":ok:" in clean -> clean.substringBefore(":ok:")
+        clean.startsWith("visual_action_rejected:") -> clean.substringAfter("type=").substringBefore("|")
         clean.startsWith("visual_no_progress:") -> clean.substringAfter("visual_no_progress:").substringBefore(":count=")
         clean.startsWith("visual_screen_changed:") -> clean.substringAfter("visual_screen_changed:").substringBefore(":screen=")
         clean.startsWith("finish_verification_pending:") -> "finish"
@@ -623,7 +649,7 @@ private fun AiWorkerClient.postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v11")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v12-cloud-first")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
