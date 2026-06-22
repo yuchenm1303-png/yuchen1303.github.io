@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -87,10 +88,25 @@ class VisualAgentClientTest {
         val app = payload.getJSONArray("appContext").getJSONObject(0)
         assertEquals("QQ", app.getString("label"))
         assertEquals("com.tencent.mobileqq", app.getString("packageName"))
+        assertEquals("com.tencent.mobileqq", app.getString("appRef"))
+        assertEquals("package_name", app.getString("identityType"))
         assertEquals("腾讯QQ", app.getJSONArray("aliases").getString(0))
         val capabilities = app.getJSONArray("capabilities")
         val capabilitySet = (0 until capabilities.length()).map { capabilities.getString(it) }.toSet()
         assertEquals(setOf(AppCapability.NativeApp, "social_chat"), capabilitySet)
+
+        assertEquals("package_name_v2", payload.getString("appIdentityProtocol"))
+        assertTrue(payload.getString("appInventoryHash").isNotBlank())
+        val catalog = payload.getJSONObject("appCatalog")
+        assertEquals("android_visual_app_catalog_v2", catalog.getString("schema"))
+        assertEquals("packageName", catalog.getString("identityField"))
+        assertEquals("display_only", catalog.getString("appNameRole"))
+        assertEquals(payload.getString("appInventoryHash"), catalog.getString("inventoryHash"))
+        assertEquals("com.tencent.mobileqq", catalog.getJSONArray("entries").getJSONObject(0).getString("appRef"))
+        val selectionProtocol = payload.getJSONObject("appSelectionProtocol")
+        assertEquals("packageName", selectionProtocol.getString("machineIdentity"))
+        assertTrue(selectionProtocol.getBoolean("androidCanonicalizesAppName"))
+        assertFalse(selectionProtocol.getBoolean("localKeywordMatching"))
 
         val uploadedProfile = payload.getJSONObject("deviceProfile")
         assertEquals("TestModel", uploadedProfile.getString("model"))
@@ -114,20 +130,45 @@ class VisualAgentClientTest {
         assertFalse("scroll" in supportedTypes)
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v9_task_contract", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v10_app_catalog", memory.getString("schema"))
         assertEquals("gui_plus_dialogue_v1", memory.getString("interactionProtocol"))
         assertTrue(memory.has("interactionHistory"))
         assertTrue(memory.has("lastToolResponse"))
         assertEquals("TestModel", memory.getJSONObject("deviceProfile").getString("model"))
         assertEquals("native_app", memory.getJSONObject("taskContract").getString("preferredSurface"))
+        assertEquals(payload.getString("appInventoryHash"), memory.getString("appInventoryHash"))
         assertFalse(payload.getBoolean("visualReplanRequested"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
         assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
 
         val deviceContext = payload.getJSONObject("deviceContext")
-        assertEquals("android_visual_agent_context_v3_task_contract", deviceContext.getString("schema"))
+        assertEquals("android_visual_agent_context_v4_app_catalog", deviceContext.getString("schema"))
         assertEquals("TestModel", deviceContext.getJSONObject("deviceProfile").getString("model"))
         assertEquals("native_app", deviceContext.getJSONObject("taskContract").getString("preferredSurface"))
+        assertEquals(payload.getString("appInventoryHash"), deviceContext.getString("appInventoryHash"))
+    }
+
+    @Test
+    fun appInventoryHashChangesWhenCatalogChanges() {
+        val base = buildVisualAgentPayload(
+            goal = "打开应用",
+            snapshot = testSnapshot(),
+            recentActions = emptyList(),
+            appContext = listOf(
+                VisualAgentAppContextItem("QQ", "com.tencent.mobileqq"),
+            ),
+        )
+        val changed = buildVisualAgentPayload(
+            goal = "打开应用",
+            snapshot = testSnapshot(),
+            recentActions = emptyList(),
+            appContext = listOf(
+                VisualAgentAppContextItem("QQ", "com.tencent.mobileqq"),
+                VisualAgentAppContextItem("同花顺炒股票", "com.hexin.plat.android"),
+            ),
+        )
+
+        assertNotEquals(base.getString("appInventoryHash"), changed.getString("appInventoryHash"))
     }
 
     @Test
