@@ -54,11 +54,12 @@ class VisualExecutionSessionState {
     }
 
     fun markStructuralReplan() {
-        routeEpoch += 1L
+        if (surfaceState != VisualSurfaceState.Replanning) routeEpoch += 1L
         transitionTo(VisualSurfaceState.Replanning)
     }
 
     fun synchronizeWith(snapshot: AgentScreenSnapshot) {
+        if (surfaceState == VisualSurfaceState.Replanning) return
         val currentPackage = snapshot.packageName.trim()
         val nextState = when {
             verifiedTargetPackage.isBlank() -> {
