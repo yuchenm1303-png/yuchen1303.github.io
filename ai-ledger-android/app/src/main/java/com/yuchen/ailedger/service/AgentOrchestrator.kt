@@ -110,7 +110,7 @@ class AgentOrchestrator(
         if (sourcePackage != applicationContext.packageName) return null
 
         val installedApps = withContext(Dispatchers.IO) {
-            installedAppIndex.getLaunchableApps()
+            installedAppIndex.getLaunchableApps(forceReload = true)
         }.filterNot { it.packageName == applicationContext.packageName }
         if (installedApps.isEmpty()) {
             return controllerFailure(sourcePackage, "设备上没有可供智能体启动的目标应用。")
@@ -127,8 +127,9 @@ class AgentOrchestrator(
             deviceProfile.toPromptLine(),
             appCapabilityRegistry.compactPromptLine(appContext),
             "semantic_routing:v1|owner=gui_plus|androidLocalGoalParsing=false|modelMustUnderstandFullUserInstruction=true",
+            "app_identity:v2|machineIdentity=packageName|appNameRole=display_only|mustSelectPackageFromCanonicalInstalledApps=true|androidCanonicalizesLabel=true",
             "task_contract_request:v1|plannerMustDeclare=preferredSurface,browserFallbackAllowed,requiredCapabilities,requirePostActionVerification|returnIn=agentStep.arguments",
-            "controller_handoff:v3|currentSurface=assistant_controller|mustReturn=open_app|homeNotRequired=true|validateAppCapability=true|selectFromCanonicalInstalledApps=true",
+            "controller_handoff:v4|currentSurface=assistant_controller|mustReturn=open_app|packageNameRequired=true|appNameOptional=true|homeNotRequired=true|validateAppCapability=true",
         )
         val syntheticControllerSnapshot = AgentScreenSnapshot(
             currentApp = applicationContext.packageName,
@@ -198,12 +199,12 @@ class AgentOrchestrator(
         }
 
         val message = buildString {
-            append("云端模型未能选择符合任务契约的已安装目标应用。")
+            append("云端模型未能从当前设备应用目录中选择可启动目标应用。")
             when (lastDeclaredContract?.preferredSurface) {
-                AgentSurfacePreference.SystemSettings -> append(" 云端已声明系统设置界面，但没有返回可执行的规范设置应用。")
-                AgentSurfacePreference.NativeApp -> append(" 云端已声明原生应用界面，但没有返回与本机清单一致的目标应用。")
-                AgentSurfacePreference.Browser -> append(" 云端已声明浏览器界面，但没有返回与本机清单一致的浏览器。")
-                AgentSurfacePreference.Any -> append(" 云端没有完成目标应用选择。")
+                AgentSurfacePreference.SystemSettings -> append(" 云端已声明系统设置界面，但没有返回真实设置包名。")
+                AgentSurfacePreference.NativeApp -> append(" 云端已声明原生应用界面，但没有返回当前设备目录中的真实包名。")
+                AgentSurfacePreference.Browser -> append(" 云端已声明浏览器界面，但没有返回当前设备目录中的真实浏览器包名。")
+                AgentSurfacePreference.Any -> append(" 云端没有完成目标应用包名选择。")
                 null -> append(" 云端没有返回完整任务契约和规范 open_app；Android 未进行本地语义猜测。")
             }
         }
@@ -216,16 +217,59 @@ class AgentOrchestrator(
         contract: AgentTaskExecutionContract,
     ): ControllerHandoffResult {
         AgentRuntimeController.noteAction(step)
-        val execution = withContext(Dispatchers.IO) {
+        val launchExecution = withContext(Dispatchers.IO) {
             deviceToolExecutor.execute(step, confirmedHighRisk = false)
         }
-        AgentRuntimeController.noteResult(step, execution)
-        if (execution.ok && execution.shouldContinue) delay(CONTROLLER_APP_OPEN_SETTLE_MS)
+        val verifiedExecution = if (launchExecution.ok && launchExecution.shouldContinue) {
+            delay(CONTROLLER_APP_OPEN_SETTLE_MS)
+            verifyLaunchedPackage(step, launchExecution)
+        } else {
+            launchExecution
+        }
+        AgentRuntimeController.noteResult(step, verifiedExecution)
         return ControllerHandoffResult(
             sourcePackage = sourcePackage,
             step = step,
-            execution = execution,
+            execution = verifiedExecution,
             contract = contract,
+        )
+    }
+
+    private suspend fun verifyLaunchedPackage(
+        step: CloudAgentStep,
+        launchExecution: AgentExecutionResult,
+    ): AgentExecutionResult {
+        val expectedPackage = step.packageName?.trim().orEmpty()
+        if (expectedPackage.isBlank()) {
+            return AgentExecutionResult(false, "目标应用缺少真实 packageName，无法验证启动结果。", false)
+        }
+        val observedPackage = try {
+            withContext(Dispatchers.Default) {
+                AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = false)
+            }.packageName.trim()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            ""
+        }
+        if (observedPackage.isBlank()) {
+            return AgentExecutionResult(
+                ok = true,
+                message = "${launchExecution.message} 前台包名暂时不可读取，视觉循环将继续验证。",
+                shouldContinue = true,
+            )
+        }
+        if (observedPackage != expectedPackage) {
+            return AgentExecutionResult(
+                ok = false,
+                message = "目标应用启动验证失败：期望 $expectedPackage，当前前台为 $observedPackage。",
+                shouldContinue = false,
+            )
+        }
+        return AgentExecutionResult(
+            ok = true,
+            message = "${launchExecution.message} 已验证前台包名为 $expectedPackage。",
+            shouldContinue = true,
         )
     }
 
@@ -266,7 +310,7 @@ class AgentOrchestrator(
         ): ControllerPlannerSelection {
             if (step == null) {
                 return ControllerPlannerSelection(
-                    rejectionReason = "GUI Plus 未返回控制器阶段动作；必须基于完整用户指令返回已安装应用的规范 open_app 和结构化任务契约。",
+                    rejectionReason = "GUI Plus 未返回控制器阶段动作；必须基于完整用户指令返回当前设备目录中的 open_app、packageName 和结构化任务契约。",
                 )
             }
 
@@ -287,11 +331,10 @@ class AgentOrchestrator(
                     rejectionReason = "Planner 缺少结构化任务契约；必须声明 preferredSurface、browserFallbackAllowed、requiredCapabilities 和 requirePostActionVerification。",
                 )
 
-            val requestedName = step.appName?.trim().orEmpty()
             val requestedPackage = step.packageName?.trim().orEmpty()
-            if (requestedName.isBlank() || requestedPackage.isBlank()) {
+            if (requestedPackage.isBlank()) {
                 return ControllerPlannerSelection(
-                    rejectionReason = "open_app 必须同时返回规范 appName 和 packageName。",
+                    rejectionReason = "open_app 必须返回从当前设备应用目录选择的 packageName；appName 仅用于展示。",
                 )
             }
             if (requestedPackage == assistantPackageName) {
@@ -302,13 +345,8 @@ class AgentOrchestrator(
 
             val installed = installedApps.firstOrNull { it.packageName == requestedPackage }
                 ?: return ControllerPlannerSelection(
-                    rejectionReason = "目标包 $requestedPackage 不在真实已安装应用清单。",
+                    rejectionReason = "目标包 $requestedPackage 不在当前设备真实可启动应用目录。",
                 )
-            if (installed.label != requestedName) {
-                return ControllerPlannerSelection(
-                    rejectionReason = "模型返回的应用名与规范清单不一致：$requestedName 不对应 $requestedPackage，规范名称应为 ${installed.label}。",
-                )
-            }
 
             return ControllerPlannerSelection(
                 contract = declaredContract,
@@ -317,7 +355,7 @@ class AgentOrchestrator(
                     type = "open_app",
                     appName = installed.label,
                     packageName = installed.packageName,
-                    reason = step.reason ?: "GUI Plus 已根据完整用户指令选择目标应用，先打开应用再开始视觉导航。",
+                    reason = step.reason ?: "GUI Plus 已根据完整用户指令选择目标包名，Android 将规范化展示名称并启动应用。",
                 ),
             )
         }
