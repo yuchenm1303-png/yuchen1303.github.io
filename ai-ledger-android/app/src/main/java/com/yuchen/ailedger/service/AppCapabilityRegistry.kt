@@ -99,18 +99,17 @@ class AppCapabilityRegistry(
     }
 
     /**
-     * Legacy compatibility hook. Runtime app selection must stay in the cloud and current Android
-     * execution code must not call this method to approve, reject, rank or replace an app.
+     * Compatibility-only API for older callers. It deliberately never approves or rejects an app
+     * semantically: DeepSeek owns selection, while Android validates only exact package identity at
+     * execution time.
      */
-    @Deprecated("App selection belongs to DeepSeek; Android may only validate exact package identity at execution time.")
+    @Deprecated("App selection belongs to DeepSeek; this compatibility method never makes a selection decision.")
+    @Suppress("UNUSED_PARAMETER")
     fun validateSelection(
         contract: AgentTaskExecutionContract,
         app: InstalledAppEntry,
         userExplicitlyNamed: Boolean = false,
-    ): AppSelectionValidation {
-        if (userExplicitlyNamed) return AppSelectionValidation(true)
-        return validateCapabilities(contract, profileFor(app).capabilities, app.label)
-    }
+    ): AppSelectionValidation = AppSelectionValidation(ok = true)
 
     fun compactPromptLine(items: List<VisualAgentAppContextItem>): String {
         val specialItems = items
@@ -175,37 +174,16 @@ class AppCapabilityRegistry(
             "me.ele" to setOf("food_delivery", "order_entry"),
         )
 
+        /**
+         * Compatibility-only helper. Capability facts are uploaded to the cloud; Android must not
+         * use them to accept, reject, rank or replace a cloud-selected application.
+         */
+        @Suppress("UNUSED_PARAMETER")
         internal fun validateCapabilities(
             contract: AgentTaskExecutionContract,
             capabilities: Set<String>,
             appLabel: String = "目标应用",
-        ): AppSelectionValidation {
-            if (contract.preferredSurface == AgentSurfacePreference.SystemSettings &&
-                AppCapability.SystemSettings !in capabilities
-            ) {
-                return AppSelectionValidation(
-                    ok = false,
-                    message = "$appLabel 不是系统设置入口；当前任务必须进入设备系统设置后再继续。",
-                )
-            }
-
-            if (!contract.browserFallbackAllowed && AppCapability.Browser in capabilities) {
-                return AppSelectionValidation(
-                    ok = false,
-                    message = "$appLabel 是浏览器，但当前任务要求优先原生应用或系统设置；请重新选择具备任务能力的已安装应用。",
-                )
-            }
-
-            val missing = contract.requiredCapabilities.filterNot(capabilities::contains)
-            if (missing.isNotEmpty() && contract.preferredSurface != AgentSurfacePreference.Any) {
-                return AppSelectionValidation(
-                    ok = false,
-                    message = "$appLabel 缺少任务契约要求的能力：${missing.joinToString(",")}。",
-                )
-            }
-
-            return AppSelectionValidation(true)
-        }
+        ): AppSelectionValidation = AppSelectionValidation(ok = true)
     }
 }
 
