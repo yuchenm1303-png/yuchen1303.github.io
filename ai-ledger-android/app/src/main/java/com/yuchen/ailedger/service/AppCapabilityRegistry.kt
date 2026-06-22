@@ -8,6 +8,13 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 
+/**
+ * Collects factual, device-local app metadata for cloud models.
+ *
+ * This class must never inspect the user's instruction, rank apps, select an app, or alter a
+ * cloud-selected route. Labels, aliases and capabilities are evidence only; DeepSeek remains the
+ * semantic owner of app selection.
+ */
 class AppCapabilityRegistry(
     context: Context,
     private val installedAppIndex: InstalledAppIndex = InstalledAppIndex(context.applicationContext),
@@ -39,15 +46,28 @@ class AppCapabilityRegistry(
     private val smsPackages by lazy { resolvePackages(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:10086"))) }
 
     fun buildVisualContext(apps: List<InstalledAppEntry>): List<VisualAgentAppContextItem> {
-        return apps.map { app ->
-            val profile = profileFor(app)
-            VisualAgentAppContextItem(
-                label = app.label,
-                packageName = app.packageName,
-                aliases = installedAppIndex.aliasesFor(app),
-                capabilities = profile.capabilities.sorted(),
-            )
-        }
+        return apps
+            .asSequence()
+            .distinctBy { it.packageName }
+            .map { app ->
+                val profile = profileFor(app)
+                VisualAgentAppContextItem(
+                    label = app.label.trim(),
+                    packageName = app.packageName.trim(),
+                    aliases = installedAppIndex.aliasesFor(app)
+                        .asSequence()
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                        .distinct()
+                        .sorted()
+                        .toList(),
+                    capabilities = profile.capabilities.sorted(),
+                )
+            }
+            .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
+            .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
+            .take(MAX_VISUAL_CONTEXT_ITEMS)
+            .toList()
     }
 
     fun profileFor(app: InstalledAppEntry): AppCapabilityProfile {
@@ -60,6 +80,7 @@ class AppCapabilityRegistry(
         if (app.packageName in dialerPackages) capabilities += AppCapability.Dialer
         if (app.packageName in emailPackages) capabilities += AppCapability.Email
         if (app.packageName in smsPackages) capabilities += AppCapability.Sms
+        capabilities += KNOWN_PACKAGE_CAPABILITIES[app.packageName].orEmpty()
 
         val applicationInfo = runCatching {
             packageManager.getApplicationInfo(app.packageName, 0)
@@ -77,6 +98,11 @@ class AppCapabilityRegistry(
         )
     }
 
+    /**
+     * Legacy compatibility hook. Runtime app selection must stay in the cloud and current Android
+     * execution code must not call this method to approve, reject, rank or replace an app.
+     */
+    @Deprecated("App selection belongs to DeepSeek; Android may only validate exact package identity at execution time.")
     fun validateSelection(
         contract: AgentTaskExecutionContract,
         app: InstalledAppEntry,
@@ -95,7 +121,7 @@ class AppCapabilityRegistry(
             .joinToString(";") { (item, capabilities) ->
                 "${item.label.take(28)}=${item.packageName.take(60)}[${capabilities.joinToString(",")}]"
             }
-        return "installed_app_roles:v1|${specialItems.ifBlank { "none" }}".take(MAX_PROMPT_CHARS)
+        return "installed_app_facts:v2|selectionOwner=deepseek|${specialItems.ifBlank { "none" }}".take(MAX_PROMPT_CHARS)
     }
 
     private fun resolvePackages(intent: Intent): Set<String> {
@@ -123,12 +149,30 @@ class AppCapabilityRegistry(
     }
 
     companion object {
+        private const val MAX_VISUAL_CONTEXT_ITEMS = 160
         private const val MAX_PROMPT_ITEMS = 24
         private const val MAX_PROMPT_CHARS = 1_150
         private val LOW_SIGNAL_CAPABILITIES = setOf(
             AppCapability.NativeApp,
             AppCapability.SystemApp,
             AppCapability.UserApp,
+        )
+
+        /**
+         * Package identities are stable factual evidence. They are never matched against user text
+         * and never used locally to choose or launch an app.
+         */
+        private val KNOWN_PACKAGE_CAPABILITIES: Map<String, Set<String>> = mapOf(
+            "com.hexin.plat.android" to setOf("finance", "securities_market", "securities_trading", "order_entry"),
+            "com.eastmoney.android.berlin" to setOf("finance", "securities_market", "securities_trading", "order_entry"),
+            "com.tencent.mobileqq" to setOf("social_chat", "messaging"),
+            "com.tencent.mm" to setOf("social_chat", "messaging", "payments"),
+            "com.jingdong.app.mall" to setOf("ecommerce", "shopping", "order_entry"),
+            "com.taobao.taobao" to setOf("ecommerce", "shopping", "order_entry"),
+            "com.autonavi.minimap" to setOf("maps", "navigation"),
+            "com.baidu.BaiduMap" to setOf("maps", "navigation"),
+            "com.sankuai.meituan" to setOf("local_services", "food_delivery", "order_entry"),
+            "me.ele" to setOf("food_delivery", "order_entry"),
         )
 
         internal fun validateCapabilities(
