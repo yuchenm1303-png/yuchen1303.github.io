@@ -2,7 +2,6 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import java.io.IOException
-import java.text.Normalizer
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +36,9 @@ class VisualLoopRunner(
         val visualHistory = mutableListOf<VisualAgentHistoryItem>()
         val agentSessionId = AgentClientIdentity.newVisualSessionId()
         val deviceProfile = AgentDeviceProfile.current()
-        val installedApps = withContext(Dispatchers.IO) { installedAppIndex.getLaunchableApps() }
+        val installedApps = withContext(Dispatchers.IO) {
+            installedAppIndex.getLaunchableApps(forceReload = true)
+        }
         val installedAppsByPackage = installedApps.associateBy { it.packageName }
         val visualAppContext = buildVisualAppContext(installedApps)
         var taskContract = initialTaskContract
@@ -45,6 +46,10 @@ class VisualLoopRunner(
         appendRecentAction(recentActions, deviceProfile.toPromptLine())
         taskContract?.let { appendRecentAction(recentActions, it.toPromptLine()) }
         appendRecentAction(recentActions, appCapabilityRegistry.compactPromptLine(visualAppContext))
+        appendRecentAction(
+            recentActions,
+            "app_identity:v2|machineIdentity=packageName|appNameRole=display_only|androidCanonicalizesLabel=true",
+        )
 
         AiAgentAccessibilityService.beginTaskSession()
         AgentRuntimeController.startTask(state.goal)
@@ -264,6 +269,31 @@ class VisualLoopRunner(
                 }
                 appendRecentAction(recentActions, visualChangeSummary)
 
+                val expectedOpenedPackage = executableStep.packageName?.trim().orEmpty()
+                val openAppVerification = if (executableStep.type == "open_app") {
+                    when {
+                        expectedOpenedPackage.isBlank() -> "open_app_package_verification_failed:reason=missing_expected_package"
+                        after.currentApp.isBlank() -> "open_app_package_verification_pending:expected=$expectedOpenedPackage"
+                        after.currentApp == expectedOpenedPackage -> "open_app_package_verified:package=$expectedOpenedPackage"
+                        else -> "open_app_package_verification_failed:expected=$expectedOpenedPackage|actual=${after.currentApp.take(100)}"
+                    }
+                } else {
+                    ""
+                }
+                if (openAppVerification.isNotBlank()) {
+                    appendRecentAction(recentActions, openAppVerification)
+                }
+                val openAppVerificationFailed = openAppVerification.startsWith("open_app_package_verification_failed")
+                if (openAppVerificationFailed) {
+                    updateLatestVisualTurnResult(
+                        visualHistory,
+                        "$resultSummary;$visualChangeSummary;$openAppVerification",
+                    )
+                    state.replanRejectCount += 1
+                    state.stepCount += 1
+                    continue
+                }
+
                 val afterSurfaceValidation = validateCurrentSurface(
                     contract = taskContract,
                     packageName = after.currentApp,
@@ -281,7 +311,9 @@ class VisualLoopRunner(
                 appendRecentAction(recentActions, contractVerificationSummary)
                 updateLatestVisualTurnResult(
                     visualHistory,
-                    "$resultSummary;$visualChangeSummary;$contractVerificationSummary",
+                    listOf(resultSummary, visualChangeSummary, openAppVerification, contractVerificationSummary)
+                        .filter { it.isNotBlank() }
+                        .joinToString(";"),
                 )
 
                 if (!afterSurfaceValidation.ok) {
@@ -356,12 +388,11 @@ class VisualLoopRunner(
             return PreparedVisualStep(ok = true, step = materializeTapCoordinateFrame(step, snapshot))
         }
 
-        val requestedName = step.appName?.trim().orEmpty()
         val requestedPackage = step.packageName?.trim().orEmpty()
-        if (requestedName.isBlank() || requestedPackage.isBlank()) {
+        if (requestedPackage.isBlank()) {
             return PreparedVisualStep(
                 ok = false,
-                message = "open_app requires the canonical appName and packageName pair.",
+                message = "open_app requires a packageName selected from the current device app catalog; appName is display-only.",
                 replanRequired = true,
             )
         }
@@ -369,16 +400,9 @@ class VisualLoopRunner(
         val installed = installedAppsByPackage[requestedPackage]
             ?: return PreparedVisualStep(
                 ok = false,
-                message = "App package is not installed: $requestedPackage",
+                message = "App package is not installed or not launchable: $requestedPackage",
                 replanRequired = true,
             )
-        if (normalizeCanonicalAppLabel(installed.label) != normalizeCanonicalAppLabel(requestedName)) {
-            return PreparedVisualStep(
-                ok = false,
-                message = "App identity mismatch: $requestedName / $requestedPackage",
-                replanRequired = true,
-            )
-        }
         if (snapshot.currentApp == requestedPackage) {
             return PreparedVisualStep(
                 ok = false,
@@ -441,11 +465,6 @@ class VisualLoopRunner(
         }.take(MAX_RECENT_ACTION_CHARS)
     }
 
-    private fun normalizeCanonicalAppLabel(value: String): String {
-        return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
-            .replace(Regex("[^\\p{L}\\p{N}]+"), "")
-    }
-
     private fun buildVisualAppContext(apps: List<InstalledAppEntry>): List<VisualAgentAppContextItem> {
         return appCapabilityRegistry.buildVisualContext(apps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
@@ -473,6 +492,7 @@ class VisualLoopRunner(
         val status = if (result.ok) "ok" else "failed"
         val target = step.targetText?.takeIf { it.isNotBlank() }
             ?: step.appName?.takeIf { it.isNotBlank() }
+            ?: step.packageName?.takeIf { it.isNotBlank() }
             ?: step.text?.take(32)?.takeIf { it.isNotBlank() }
         return buildList {
             add(actionSignature)
@@ -683,8 +703,8 @@ object VisualActionValidator {
                 )
             }
         }
-        if (step.type == "open_app" && (step.appName.isNullOrBlank() || step.packageName.isNullOrBlank())) {
-            return VisualActionValidation(false, "open_app requires the canonical appName and packageName pair.")
+        if (step.type == "open_app" && step.packageName.isNullOrBlank()) {
+            return VisualActionValidation(false, "open_app requires a packageName from the current device app catalog.")
         }
         if (step.type == "open_app" && step.packageName == snapshot.currentApp) {
             return VisualActionValidation(false, "Duplicate open_app was blocked.")
