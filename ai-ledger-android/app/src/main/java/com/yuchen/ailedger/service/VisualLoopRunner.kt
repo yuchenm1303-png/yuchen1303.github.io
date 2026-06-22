@@ -48,6 +48,10 @@ class VisualLoopRunner(
         appendRecentAction(recentActions, appCapabilityRegistry.compactPromptLine(visualAppContext))
         appendRecentAction(
             recentActions,
+            "cloud_routing:v2|mainBrain=deepseek|appSelectionOwner=deepseek|visualOwner=gui_plus|androidSemanticRouting=false|localKeywordMatching=false",
+        )
+        appendRecentAction(
+            recentActions,
             "app_identity:v2|machineIdentity=packageName|appNameRole=display_only|androidCanonicalizesLabel=true",
         )
 
@@ -392,7 +396,7 @@ class VisualLoopRunner(
         if (requestedPackage.isBlank()) {
             return PreparedVisualStep(
                 ok = false,
-                message = "open_app requires a packageName selected from the current device app catalog; appName is display-only.",
+                message = "open_app requires a packageName selected by DeepSeek from the current device app catalog; appName is display-only.",
                 replanRequired = true,
             )
         }
@@ -470,7 +474,6 @@ class VisualLoopRunner(
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_APP_CONTEXT_ITEMS)
     }
-
     private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         if (step.type != "tap_xy") return step
         val x = step.x ?: return step
@@ -677,6 +680,12 @@ object VisualActionValidator {
         if (step.type !in VisualAgentProtocol.supportedStepTypes) {
             return VisualActionValidation(false, "Unsupported visual action: ${step.type}")
         }
+        if (snapshot.packageName == ASSISTANT_HOST_PACKAGE && step.type !in CONTROLLER_HANDOFF_ACTIONS) {
+            return VisualActionValidation(
+                false,
+                "The current screen is the AI controller, not the target app. DeepSeek must select an exact installed package and return open_app before GUI Plus can perform visual actions.",
+            )
+        }
         if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
             return VisualActionValidation(false, "Invalid tap coordinates.")
         }
@@ -704,7 +713,7 @@ object VisualActionValidator {
             }
         }
         if (step.type == "open_app" && step.packageName.isNullOrBlank()) {
-            return VisualActionValidation(false, "open_app requires a packageName from the current device app catalog.")
+            return VisualActionValidation(false, "open_app requires a packageName selected by DeepSeek from the current device app catalog.")
         }
         if (step.type == "open_app" && step.packageName == snapshot.currentApp) {
             return VisualActionValidation(false, "Duplicate open_app was blocked.")
@@ -774,6 +783,8 @@ object VisualActionValidator {
         return "${image.width}x${image.height}:${data.length}:${hash.toString(16)}"
     }
 
+    private val CONTROLLER_HANDOFF_ACTIONS = setOf("open_app", "need_user_help", "finish")
+    private const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
     private const val TAP_CLUSTER_BUCKET_PX = 96f
     private const val VISUAL_FINGERPRINT_NODE_THRESHOLD = 3
     private const val VISUAL_FINGERPRINT_SAMPLE_COUNT = 256
