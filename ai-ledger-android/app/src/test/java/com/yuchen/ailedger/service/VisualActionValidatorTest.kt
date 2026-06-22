@@ -15,16 +15,20 @@ class VisualActionValidatorTest {
     }
 
     @Test
-    fun rejectsDuplicateOpenAppWhenPackageAlreadyForeground() {
+    fun allowsDuplicateOpenAppToReachCloudReplanningLoop() {
         val result = VisualActionValidator.validate(
             CloudAgentStep(type = "open_app", appName = "QQ", packageName = "com.tencent.mobileqq"),
             snapshot(currentApp = "com.tencent.mobileqq"),
         )
-        assertFalse(result.ok)
+        assertTrue(result.ok)
     }
 
     @Test
-    fun blocksFocusedDirectInputWhenMultipleInputsHaveNoConfirmedTarget() {
+    fun allowsFocusedDirectInputBecauseGuiPlusOwnsVisualTargetingOnVerifiedSurface() {
+        val snapshot = snapshot(
+            currentApp = TARGET_PACKAGE,
+            inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息")),
+        )
         val result = VisualActionValidator.validate(
             CloudAgentStep(
                 type = "input_text",
@@ -33,13 +37,18 @@ class VisualActionValidatorTest {
                 requiresInputNode = false,
                 expectsFocusedInput = true,
             ),
-            snapshot(inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息"))),
+            snapshot,
+            verifiedRuntimeContext(snapshot),
         )
-        assertFalse(result.ok)
+        assertTrue(result.ok)
     }
 
     @Test
-    fun allowsFocusedDirectInputForUniqueOrMatchedInput() {
+    fun allowsFocusedDirectInputForUniqueOrMatchedInputOnVerifiedSurface() {
+        val uniqueSnapshot = snapshot(
+            currentApp = TARGET_PACKAGE,
+            inputNodes = listOf(inputNode("search", "搜索")),
+        )
         val uniqueResult = VisualActionValidator.validate(
             CloudAgentStep(
                 type = "input_text",
@@ -47,10 +56,15 @@ class VisualActionValidatorTest {
                 inputMode = "focused_direct",
                 requiresInputNode = false,
             ),
-            snapshot(inputNodes = listOf(inputNode("search", "搜索"))),
+            uniqueSnapshot,
+            verifiedRuntimeContext(uniqueSnapshot),
         )
         assertTrue(uniqueResult.ok)
 
+        val matchedSnapshot = snapshot(
+            currentApp = TARGET_PACKAGE,
+            inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息")),
+        )
         val matchedResult = VisualActionValidator.validate(
             CloudAgentStep(
                 type = "input_text",
@@ -59,18 +73,43 @@ class VisualActionValidatorTest {
                 inputMode = "focused_direct",
                 requiresInputNode = false,
             ),
-            snapshot(inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息"))),
+            matchedSnapshot,
+            verifiedRuntimeContext(matchedSnapshot),
         )
         assertTrue(matchedResult.ok)
     }
 
     @Test
-    fun rejectsNodeInputWithoutUniqueOrMatchedInput() {
+    fun allowsInputWithoutLocalNodeSemanticMatchingOnVerifiedSurface() {
+        val snapshot = snapshot(
+            currentApp = TARGET_PACKAGE,
+            inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息")),
+        )
         val result = VisualActionValidator.validate(
             CloudAgentStep(type = "input_text", text = "测试", requiresInputNode = true),
-            snapshot(inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息"))),
+            snapshot,
+            verifiedRuntimeContext(snapshot),
+        )
+        assertTrue(result.ok)
+    }
+
+    @Test
+    fun rejectsGuiInputBeforeTargetSurfaceIsVerified() {
+        val snapshot = snapshot(
+            currentApp = TARGET_PACKAGE,
+            inputNodes = listOf(inputNode("search", "搜索")),
+        )
+        val result = VisualActionValidator.validate(
+            CloudAgentStep(type = "input_text", text = "测试", requiresInputNode = false),
+            snapshot,
+            VisualAgentRuntimeContext(
+                surfaceState = VisualSurfaceState.Planning,
+                currentPackage = TARGET_PACKAGE,
+                observationId = "planning-observation",
+            ),
         )
         assertFalse(result.ok)
+        assertEquals(VisualFailureClass.StructuralRoute, result.failureClass)
     }
 
     @Test
@@ -149,6 +188,19 @@ class VisualActionValidatorTest {
         )
     }
 
+    private fun verifiedRuntimeContext(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext {
+        return VisualAgentRuntimeContext(
+            surfaceState = VisualSurfaceState.WorkSurface,
+            selectedTargetPackage = snapshot.packageName,
+            verifiedTargetPackage = snapshot.packageName,
+            currentPackage = snapshot.packageName,
+            observationId = VisualObservationProtocol.observationId(snapshot, routeEpoch = 1L, surfaceEpoch = 1L),
+            routeEpoch = 1L,
+            surfaceEpoch = 1L,
+            guiPlusEligible = true,
+        )
+    }
+
     private fun inputNode(id: String, text: String): AgentScreenNode {
         return AgentScreenNode(
             id = id,
@@ -192,5 +244,9 @@ class VisualActionValidatorTest {
                 )
             },
         )
+    }
+
+    companion object {
+        private const val TARGET_PACKAGE = "com.example.target"
     }
 }
