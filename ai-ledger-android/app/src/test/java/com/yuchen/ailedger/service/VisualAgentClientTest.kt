@@ -8,7 +8,7 @@ import org.junit.Test
 
 class VisualAgentClientTest {
     @Test
-    fun payloadUploadsAppCapabilitiesDeviceProfileAndTaskContract() {
+    fun payloadUploadsAppFactsAndDeclaresCloudSelectionOwnership() {
         val snapshot = testSnapshot()
         val taskContract = AgentTaskExecutionContract(
             preferredSurface = AgentSurfacePreference.NativeApp,
@@ -58,8 +58,9 @@ class VisualAgentClientTest {
         assertEquals("android-install-test", payload.getString("deviceId"))
         assertEquals("gui_plus", payload.getString("decisionOwner"))
         assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertTrue(payload.getBoolean("visualAgentDirect"))
         assertTrue(payload.getBoolean("exclusiveVisualSession"))
-        assertFalse(payload.getBoolean("allowAgentBrain"))
+        assertTrue(payload.getBoolean("allowAgentBrain"))
         assertFalse(payload.getBoolean("allowRoutePlanner"))
         assertFalse(payload.getBoolean("allowSemanticJudge"))
         assertFalse(payload.getBoolean("allowTaskContractJudge"))
@@ -73,11 +74,14 @@ class VisualAgentClientTest {
         assertTrue(payload.has("screenshot"))
 
         val ownership = payload.getJSONObject("visualOwnership")
-        assertEquals("android_gui_plus_exclusive_ownership_v1", ownership.getString("schema"))
-        assertEquals("gui_plus", ownership.getString("owner"))
-        assertTrue(ownership.getBoolean("exclusive"))
-        assertTrue(ownership.getBoolean("entryRouterReleased"))
-        assertFalse(ownership.getBoolean("allowAgentBrain"))
+        assertEquals("android_two_brain_ownership_v2_cloud_first", ownership.getString("schema"))
+        assertEquals("deepseek", ownership.getString("entryOwner"))
+        assertEquals("deepseek", ownership.getString("appSelectionOwner"))
+        assertEquals("gui_plus", ownership.getString("visualOwner"))
+        assertEquals("gui_plus", ownership.getString("currentOwner"))
+        assertTrue(ownership.getBoolean("guiPlusEligible"))
+        assertTrue(ownership.getBoolean("exclusiveAfterTargetAppVerified"))
+        assertTrue(ownership.getBoolean("allowAgentBrain"))
 
         val snapshotJson = payload.getJSONObject("screenSnapshot")
         assertFalse(snapshotJson.getJSONObject("visual").has("base64Jpeg"))
@@ -98,14 +102,21 @@ class VisualAgentClientTest {
         assertEquals("package_name_v2", payload.getString("appIdentityProtocol"))
         assertTrue(payload.getString("appInventoryHash").isNotBlank())
         val catalog = payload.getJSONObject("appCatalog")
-        assertEquals("android_visual_app_catalog_v2", catalog.getString("schema"))
+        assertEquals("android_visual_app_catalog_v3_cloud_selected", catalog.getString("schema"))
         assertEquals("packageName", catalog.getString("identityField"))
         assertEquals("display_only", catalog.getString("appNameRole"))
+        assertEquals("deepseek", catalog.getString("selectionOwner"))
         assertEquals(payload.getString("appInventoryHash"), catalog.getString("inventoryHash"))
         assertEquals("com.tencent.mobileqq", catalog.getJSONArray("entries").getJSONObject(0).getString("appRef"))
+
         val selectionProtocol = payload.getJSONObject("appSelectionProtocol")
+        assertEquals("android_app_selection_protocol_v3_cloud_first", selectionProtocol.getString("schema"))
+        assertEquals("deepseek", selectionProtocol.getString("semanticOwner"))
         assertEquals("packageName", selectionProtocol.getString("machineIdentity"))
         assertTrue(selectionProtocol.getBoolean("androidCanonicalizesAppName"))
+        assertFalse(selectionProtocol.getBoolean("androidSelectsApps"))
+        assertFalse(selectionProtocol.getBoolean("androidRanksApps"))
+        assertFalse(selectionProtocol.getBoolean("androidResolvesUserIntent"))
         assertFalse(selectionProtocol.getBoolean("localKeywordMatching"))
 
         val uploadedProfile = payload.getJSONObject("deviceProfile")
@@ -130,7 +141,7 @@ class VisualAgentClientTest {
         assertFalse("scroll" in supportedTypes)
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v10_app_catalog", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v11_cloud_first", memory.getString("schema"))
         assertEquals("gui_plus_dialogue_v1", memory.getString("interactionProtocol"))
         assertTrue(memory.has("interactionHistory"))
         assertTrue(memory.has("lastToolResponse"))
@@ -142,7 +153,7 @@ class VisualAgentClientTest {
         assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
 
         val deviceContext = payload.getJSONObject("deviceContext")
-        assertEquals("android_visual_agent_context_v4_app_catalog", deviceContext.getString("schema"))
+        assertEquals("android_visual_agent_context_v5_cloud_first", deviceContext.getString("schema"))
         assertEquals("TestModel", deviceContext.getJSONObject("deviceProfile").getString("model"))
         assertEquals("native_app", deviceContext.getJSONObject("taskContract").getString("preferredSurface"))
         assertEquals(payload.getString("appInventoryHash"), deviceContext.getString("appInventoryHash"))
@@ -172,7 +183,7 @@ class VisualAgentClientTest {
     }
 
     @Test
-    fun firstHostFrameIsDeclaredAsControllerHandoffWithoutHomeTransition() {
+    fun assistantHostRequiresDeepSeekHandoffBeforeGuiPlus() {
         val payload = buildVisualAgentPayload(
             goal = "帮我在京东下单压缩饼干",
             snapshot = testSnapshot(packageName = "com.yuchen.ailedger"),
@@ -187,12 +198,23 @@ class VisualAgentClientTest {
         )
 
         assertEquals("controller", payload.getString("surfaceRole"))
+        assertEquals("deepseek", payload.getString("visualDecisionOwner"))
+        assertFalse(payload.getBoolean("visualAgentDirect"))
+        assertFalse(payload.getBoolean("exclusiveVisualSession"))
+
         val handoff = payload.getJSONObject("controllerHandoff")
         assertTrue(handoff.getBoolean("isAssistantHost"))
         assertTrue(handoff.getBoolean("isFirstVisualTurn"))
         assertTrue(handoff.getBoolean("controllerHandoffActive"))
+        assertTrue(handoff.getBoolean("controllerPlanningRequired"))
+        assertFalse(handoff.getBoolean("guiPlusEligible"))
+        assertEquals("open_app_exact_package", handoff.getString("requiredHandoffAction"))
         assertTrue(handoff.getBoolean("directCrossAppLaunchSupported"))
         assertFalse(handoff.getBoolean("homeTransitionRequired"))
+
+        val ownership = payload.getJSONObject("visualOwnership")
+        assertEquals("deepseek", ownership.getString("currentOwner"))
+        assertFalse(ownership.getBoolean("guiPlusEligible"))
 
         val deviceContext = payload.getJSONObject("deviceContext")
         assertEquals("controller", deviceContext.getJSONObject("currentApp").getString("surfaceRole"))
@@ -203,7 +225,7 @@ class VisualAgentClientTest {
     }
 
     @Test
-    fun externalAppFrameIsDeclaredAsWorkSurface() {
+    fun externalAppFrameEnablesExclusiveGuiPlusExecution() {
         val payload = buildVisualAgentPayload(
             goal = "搜索压缩饼干",
             snapshot = testSnapshot(packageName = "com.jingdong.app.mall"),
@@ -212,11 +234,48 @@ class VisualAgentClientTest {
         )
 
         assertEquals("work_surface", payload.getString("surfaceRole"))
+        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertTrue(payload.getBoolean("visualAgentDirect"))
+        assertTrue(payload.getBoolean("exclusiveVisualSession"))
+
         val handoff = payload.getJSONObject("controllerHandoff")
         assertFalse(handoff.getBoolean("isAssistantHost"))
         assertFalse(handoff.getBoolean("controllerHandoffActive"))
+        assertFalse(handoff.getBoolean("controllerPlanningRequired"))
+        assertTrue(handoff.getBoolean("guiPlusEligible"))
+        assertEquals("none", handoff.getString("requiredHandoffAction"))
         assertTrue(handoff.getBoolean("directCrossAppLaunchSupported"))
         assertFalse(handoff.getBoolean("homeTransitionRequired"))
+    }
+
+    @Test
+    fun controllerSurfaceRejectsGuiActionsUntilDeepSeekSelectsExactPackage() {
+        val controllerSnapshot = testSnapshot(packageName = "com.yuchen.ailedger")
+
+        val waitValidation = VisualActionValidator.validate(
+            CloudAgentStep(type = "wait"),
+            controllerSnapshot,
+        )
+        assertFalse(waitValidation.ok)
+        assertTrue(waitValidation.message.contains("DeepSeek"))
+
+        val tapValidation = VisualActionValidator.validate(
+            CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f),
+            controllerSnapshot,
+        )
+        assertFalse(tapValidation.ok)
+
+        val openValidation = VisualActionValidator.validate(
+            CloudAgentStep(type = "open_app", packageName = "com.jingdong.app.mall"),
+            controllerSnapshot,
+        )
+        assertTrue(openValidation.ok)
+
+        val targetAppValidation = VisualActionValidator.validate(
+            CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f),
+            testSnapshot(packageName = "com.jingdong.app.mall"),
+        )
+        assertTrue(targetAppValidation.ok)
     }
 
     @Test
@@ -252,7 +311,7 @@ class VisualAgentClientTest {
     }
 
     @Test
-    fun payloadRequestsGuiPlusReplanAfterFailureOrNoProgress() {
+    fun failureOrNoProgressRequestsDeepSeekRouteRefresh() {
         val snapshot = testSnapshot()
         val payload = buildVisualAgentPayload(
             goal = "打开 QQ 个人主页",
@@ -266,8 +325,8 @@ class VisualAgentClientTest {
 
         assertTrue(payload.getBoolean("visualReplanRequested"))
         assertTrue(payload.getBoolean("guiPlusReplanRequested"))
-        assertFalse(payload.getBoolean("routeRefreshRequested"))
-        assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+        assertTrue(payload.getBoolean("routeRefreshRequested"))
+        assertTrue(payload.getBoolean("invalidateCachedAgentBrainRoute"))
 
         val feedback = payload.getJSONObject("executionFeedback")
         assertFalse(feedback.getBoolean("lastResultOk"))
@@ -277,25 +336,45 @@ class VisualAgentClientTest {
         assertTrue(feedback.getJSONArray("blockedActionSignatures").length() > 0)
         assertTrue(feedback.getBoolean("visualReplanRequested"))
         assertTrue(feedback.getBoolean("guiPlusReplanRequested"))
-        assertFalse(feedback.getBoolean("routeRefreshRequested"))
+        assertTrue(feedback.getBoolean("routeRefreshRequested"))
+        assertTrue(feedback.getBoolean("invalidateCachedAgentBrainRoute"))
 
         val toolResponse = payload.getJSONObject("lastToolResponse")
         assertEquals("tool_response", toolResponse.getString("type"))
         assertEquals("mobile_use", toolResponse.getString("toolName"))
         assertFalse(toolResponse.getBoolean("success"))
+        assertTrue(toolResponse.getBoolean("routeRefreshRequested"))
 
         val memory = payload.getJSONObject("agentMemory")
         val signals = memory.getJSONObject("loopSignals")
         assertEquals(1, signals.getInt("noProgressCount"))
         assertTrue(signals.getBoolean("visualReplanRequested"))
         assertTrue(signals.getBoolean("guiPlusReplanRequested"))
-        assertFalse(signals.getBoolean("routeRefreshRequested"))
+        assertTrue(signals.getBoolean("routeRefreshRequested"))
+        assertTrue(signals.getBoolean("invalidateCachedAgentBrainRoute"))
         assertTrue(memory.getJSONArray("verificationEvents").length() > 0)
         assertTrue(memory.getJSONArray("blockedActionSignatures").length() > 0)
     }
 
     @Test
-    fun finishCandidateRequestsFreshScreenVerificationFromGuiPlus() {
+    fun controllerProtocolRejectionRequestsDeepSeekRouteRefresh() {
+        val payload = buildVisualAgentPayload(
+            goal = "打开京东搜索商品",
+            snapshot = testSnapshot(packageName = "com.yuchen.ailedger"),
+            recentActions = listOf(
+                "visual_action_rejected:type=wait|reason=DeepSeek must select an exact installed package|replanRequired=true",
+            ),
+            agentSessionId = "visual-session-controller-reject",
+        )
+
+        assertTrue(payload.getBoolean("routeRefreshRequested"))
+        assertTrue(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+        assertEquals("wait", payload.getJSONObject("executionFeedback").getString("lastActionSignature"))
+        assertFalse(payload.getJSONObject("lastToolResponse").getBoolean("success"))
+    }
+
+    @Test
+    fun finishCandidateRequestsFreshScreenVerificationWithoutRouteReset() {
         val payload = buildVisualAgentPayload(
             goal = "进入个人主页",
             snapshot = testSnapshot(),
@@ -315,10 +394,12 @@ class VisualAgentClientTest {
         assertEquals("finish_verification_pending", feedback.getString("lastVerification"))
         assertTrue(feedback.getBoolean("finishVerificationRequested"))
         assertTrue(feedback.getBoolean("visualReplanRequested"))
+        assertFalse(feedback.getBoolean("routeRefreshRequested"))
 
         val toolResponse = payload.getJSONObject("lastToolResponse")
         assertEquals("finish", toolResponse.getString("actionSignature"))
         assertTrue(toolResponse.getBoolean("finishVerificationRequested"))
+        assertFalse(toolResponse.getBoolean("routeRefreshRequested"))
     }
 
     @Test
@@ -342,6 +423,7 @@ class VisualAgentClientTest {
         assertEquals(0, feedback.getJSONArray("blockedActionSignatures").length())
         assertFalse(payload.getBoolean("visualReplanRequested"))
         assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
     }
 
     @Test
