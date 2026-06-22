@@ -5,6 +5,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -23,12 +24,13 @@ private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 8
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
 private const val VISUAL_AGENT_MAX_INTERACTION_ITEMS = 16
 private const val VISUAL_AGENT_MAX_INTERACTION_CHARS = 1_200
-private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v9_task_contract"
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v10_app_catalog"
 private const val VISUAL_AGENT_INTERACTION_PROTOCOL = "gui_plus_dialogue_v1"
 private const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
 
 internal object VisualAgentProtocol {
     const val coordinateProtocol = "normalized_screen_0_1"
+    const val appIdentityProtocol = "package_name_v2"
 
     val supportedStepTypes: Set<String> = linkedSetOf(
         "open_app",
@@ -192,36 +194,76 @@ internal fun buildVisualAgentPayload(
         put("screenChanged", lastVerification == "visual_screen_changed")
         put("finishVerificationRequested", finishVerificationRequested)
     }
+
+    val canonicalAppItems = appContext
+        .asSequence()
+        .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
+        .distinctBy { it.packageName }
+        .take(VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS)
+        .map { item ->
+            val cleanPackageName = item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS)
+            val aliases = item.aliases
+                .asSequence()
+                .map { it.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(VISUAL_AGENT_MAX_APP_ALIASES)
+                .toList()
+            val capabilities = item.capabilities
+                .asSequence()
+                .map { it.trim().lowercase().replace('-', '_').take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(VISUAL_AGENT_MAX_APP_CAPABILITIES)
+                .toList()
+            CanonicalVisualApp(
+                appRef = cleanPackageName,
+                label = item.label.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS),
+                packageName = cleanPackageName,
+                aliases = aliases,
+                capabilities = capabilities,
+            )
+        }
+        .toList()
+    val appInventoryHash = buildVisualAppInventoryHash(canonicalAppItems)
     val canonicalApps = JSONArray().apply {
-        appContext
-            .asSequence()
-            .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
-            .distinctBy { it.packageName }
-            .take(VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS)
-            .forEach { item ->
-                val aliases = item.aliases
-                    .asSequence()
-                    .map { it.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .take(VISUAL_AGENT_MAX_APP_ALIASES)
-                    .toList()
-                val capabilities = item.capabilities
-                    .asSequence()
-                    .map { it.trim().lowercase().replace('-', '_').take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .take(VISUAL_AGENT_MAX_APP_CAPABILITIES)
-                    .toList()
-                put(JSONObject().apply {
-                    put("label", item.label.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
-                    put("packageName", item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS))
-                    put("launchable", true)
-                    put("aliases", JSONArray(aliases))
-                    put("capabilities", JSONArray(capabilities))
-                })
-            }
+        canonicalAppItems.forEach { item ->
+            put(JSONObject().apply {
+                put("appRef", item.appRef)
+                put("label", item.label)
+                put("displayName", item.label)
+                put("packageName", item.packageName)
+                put("identityType", "package_name")
+                put("launchable", true)
+                put("aliases", JSONArray(item.aliases))
+                put("capabilities", JSONArray(item.capabilities))
+            })
+        }
     }
+    val appCatalog = JSONObject().apply {
+        put("schema", "android_visual_app_catalog_v2")
+        put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
+        put("identityField", "packageName")
+        put("appRefField", "appRef")
+        put("displayField", "label")
+        put("appNameRole", "display_only")
+        put("selectionOwner", "gui_plus")
+        put("validationOwner", "android")
+        put("inventoryHash", appInventoryHash)
+        put("entryCount", canonicalApps.length())
+        put("entries", canonicalApps)
+    }
+    val appSelectionProtocol = JSONObject().apply {
+        put("schema", "android_app_selection_protocol_v2")
+        put("semanticOwner", "gui_plus")
+        put("machineIdentity", "packageName")
+        put("acceptedModelFields", JSONArray(listOf("packageName", "appRef")))
+        put("appNameRole", "display_only")
+        put("androidCanonicalizesAppName", true)
+        put("localKeywordMatching", false)
+        put("mustSelectFromInventoryHash", appInventoryHash)
+    }
+
     val screenSnapshot = snapshot.toJson(includeImage = false)
     val visual = snapshot.visual?.takeIf { it.hasImage }
     val isAssistantHost = snapshot.packageName == ASSISTANT_HOST_PACKAGE
@@ -291,6 +333,10 @@ internal fun buildVisualAgentPayload(
         put("taskContractPlanning", taskContractPlanning)
         put("taskContractPlanningOwner", "gui_plus")
         put("taskContractValidationOwner", "android")
+        put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
+        put("appInventoryHash", appInventoryHash)
+        put("appCatalog", appCatalog)
+        put("appSelectionProtocol", appSelectionProtocol)
         put("currentPackage", snapshot.packageName)
         put("surfaceRole", surfaceContext.getString("role"))
         put("controllerHandoff", surfaceContext)
@@ -316,7 +362,7 @@ internal fun buildVisualAgentPayload(
             put("allowTaskContractJudge", false)
         })
         put("agentMemory", JSONObject().apply {
-            put("schema", "android_visual_agent_loop_memory_v9_task_contract")
+            put("schema", "android_visual_agent_loop_memory_v10_app_catalog")
             put("recentActions", recentAgentActions)
             put("interactionProtocol", VISUAL_AGENT_INTERACTION_PROTOCOL)
             put("interactionHistory", interactionHistory)
@@ -328,6 +374,8 @@ internal fun buildVisualAgentPayload(
             put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
             put("taskContract", taskContractJson ?: JSONObject.NULL)
             put("taskContractPlanning", taskContractPlanning)
+            put("appInventoryHash", appInventoryHash)
+            put("appSelectionProtocol", appSelectionProtocol)
             put("loopSignals", JSONObject().apply {
                 put("agentSessionId", cleanSessionId)
                 put("loopIndex", cleanRecentActionLines.size)
@@ -358,10 +406,14 @@ internal fun buildVisualAgentPayload(
         })
         put("appContext", canonicalApps)
         put("deviceContext", JSONObject().apply {
-            put("schema", "android_visual_agent_context_v3_task_contract")
+            put("schema", "android_visual_agent_context_v4_app_catalog")
             put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
             put("taskContract", taskContractJson ?: JSONObject.NULL)
             put("taskContractPlanning", taskContractPlanning)
+            put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
+            put("appInventoryHash", appInventoryHash)
+            put("appCatalog", appCatalog)
+            put("appSelectionProtocol", appSelectionProtocol)
             put("currentApp", JSONObject().apply {
                 put("packageName", snapshot.packageName)
                 put("isAssistantHost", isAssistantHost)
@@ -407,11 +459,37 @@ internal fun buildVisualAgentPayload(
             put("includeStopConditions", true)
             put("includePerformanceDebug", true)
             put("includeTaskContract", true)
+            put("includeAppCatalogAck", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "visual-agent-task-contract-v10")
+        put("clientVersion", "visual-agent-app-catalog-v11")
         put("now", System.currentTimeMillis())
     }
+}
+
+private data class CanonicalVisualApp(
+    val appRef: String,
+    val label: String,
+    val packageName: String,
+    val aliases: List<String>,
+    val capabilities: List<String>,
+)
+
+private fun buildVisualAppInventoryHash(items: List<CanonicalVisualApp>): String {
+    val canonical = items
+        .sortedBy { it.packageName }
+        .joinToString("\n") { item ->
+            listOf(
+                item.packageName,
+                item.label,
+                item.aliases.sorted().joinToString(","),
+                item.capabilities.sorted().joinToString(","),
+            ).joinToString("|")
+        }
+    return MessageDigest.getInstance("SHA-256")
+        .digest(canonical.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
+        .take(24)
 }
 
 private fun AgentDeviceProfile.toVisualAgentJson(): JSONObject {
@@ -469,6 +547,7 @@ private fun String.isVisualRuntimeFeedback(): Boolean {
         value.contains("visual_no_progress") ||
         value.contains("visual_screen_changed") ||
         value.contains("finish_verification_pending") ||
+        value.contains("open_app_package_verification_failed") ||
         value.contains("no_progress") ||
         value.contains("no progress") ||
         value.contains("same screen") ||
@@ -498,14 +577,17 @@ private fun String.isVisualFinishVerificationFeedback(): Boolean = lowercase().c
 
 private fun String.isVisualFailureFeedback(): Boolean {
     val value = lowercase()
-    return value.contains(":failed:") || value.contains("blocked") || value.contains("执行失败")
+    return value.contains(":failed:") ||
+        value.contains("open_app_package_verification_failed") ||
+        value.contains("blocked") ||
+        value.contains("执行失败")
 }
 
 private fun String.visualResultOkOrNull(): Boolean? {
     val value = lowercase()
     return when {
-        value.contains(":failed:") || value.contains("执行失败") -> false
-        value.contains(":ok:") -> true
+        value.contains(":failed:") || value.contains("执行失败") || value.contains("verification_failed") -> false
+        value.contains(":ok:") || value.contains("package_verified") -> true
         else -> null
     }
 }
@@ -518,6 +600,8 @@ private fun String.visualActionSignatureOrNull(): String? {
         clean.startsWith("visual_no_progress:") -> clean.substringAfter("visual_no_progress:").substringBefore(":count=")
         clean.startsWith("visual_screen_changed:") -> clean.substringAfter("visual_screen_changed:").substringBefore(":screen=")
         clean.startsWith("finish_verification_pending:") -> "finish"
+        clean.startsWith("open_app_package_verification_failed:") -> "open_app"
+        clean.startsWith("open_app_package_verified:") -> "open_app"
         else -> Regex("(?:tap@\\d+,\\d+|tap_node@[^\\s，。；;:：]+|open@[^\\s，。；;:：]+|input@[^\\s，。；;:：]+|scroll@[a-z]+|swipe@[a-z]+|back|home|recents)")
             .find(clean)
             ?.value
@@ -539,7 +623,7 @@ private fun AiWorkerClient.postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v10")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v11")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
