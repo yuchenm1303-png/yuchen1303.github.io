@@ -322,8 +322,8 @@ data class CloudAgentStep(
             val appName = item.firstNonBlank("appName", "app", "application")
                 ?: args.firstNonBlank("appName", "app", "application", "label", "name")
                 ?: if (normalizedType == "open_app") targetText ?: parsedText else null
-            val packageName = item.firstNonBlank("packageName", "package", "pkg")
-                ?: args.firstNonBlank("packageName", "package", "pkg")
+            val packageName = item.firstNonBlank("packageName", "package", "pkg", "appRef", "app_ref")
+                ?: args.firstNonBlank("packageName", "package", "pkg", "appRef", "app_ref")
 
             return CloudAgentStep(
                 type = normalizedType,
@@ -429,6 +429,10 @@ data class CloudAgentStep(
 private fun CloudAgentStep.batchKey(): String = buildString {
     append(type)
     append('|')
+    append(packageName.orEmpty())
+    append('|')
+    append(appName.orEmpty())
+    append('|')
     append(targetNodeId.orEmpty())
     append('|')
     append(targetText.orEmpty())
@@ -462,7 +466,7 @@ private fun JSONObject.mergedToolArgs(): JSONObject {
     val source = optJSONObject("args") ?: optJSONObject("arguments") ?: JSONObject()
     val merged = runCatching { JSONObject(source.toString()) }.getOrDefault(JSONObject())
     val keys = listOf(
-        "appName", "app", "application", "packageName", "package", "pkg",
+        "appName", "app", "application", "packageName", "package", "pkg", "appRef", "app_ref",
         "targetText", "target", "label", "title", "page", "kind",
         "percent", "brightness", "volume", "value", "seconds", "minutes",
         "timeoutMs", "durationMs", "scale", "enabled", "enable", "on",
