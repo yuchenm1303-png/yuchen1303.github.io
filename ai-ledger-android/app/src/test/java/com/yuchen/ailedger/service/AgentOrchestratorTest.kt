@@ -11,6 +11,7 @@ class AgentOrchestratorTest {
         InstalledAppEntry(label = "设置", packageName = "com.android.settings"),
         InstalledAppEntry(label = "浏览器", packageName = "com.example.browser"),
         InstalledAppEntry(label = "QQ", packageName = "com.tencent.mobileqq"),
+        InstalledAppEntry(label = "同花顺炒股票", packageName = "com.hexin.plat.android"),
     )
 
     @Test
@@ -61,8 +62,8 @@ class AgentOrchestratorTest {
     }
 
     @Test
-    fun plannerCannotSelectUninstalledPackageOrMismatchedCanonicalLabel() {
-        val unknownPackage = AgentOrchestrator.evaluateControllerPlannerStep(
+    fun plannerCannotSelectUninstalledPackage() {
+        val result = AgentOrchestrator.evaluateControllerPlannerStep(
             step = plannerOpenApp(
                 appName = "设置",
                 packageName = "com.unknown.settings",
@@ -72,12 +73,34 @@ class AgentOrchestratorTest {
             installedApps = installedApps,
             assistantPackageName = "com.yuchen.ailedger",
         )
-        assertFalse(unknownPackage.accepted)
-        assertTrue(unknownPackage.rejectionReason.contains("不在真实已安装应用清单"))
 
-        val mismatchedName = AgentOrchestrator.evaluateControllerPlannerStep(
+        assertFalse(result.accepted)
+        assertTrue(result.rejectionReason.contains("真实可启动应用目录"))
+    }
+
+    @Test
+    fun packageNameIsMachineIdentityAndLabelIsCanonicalized() {
+        val result = AgentOrchestrator.evaluateControllerPlannerStep(
             step = plannerOpenApp(
-                appName = "设置",
+                appName = "同花顺",
+                packageName = "com.hexin.plat.android",
+                preferredSurface = "native_app",
+                requiredCapabilities = "native_app",
+            ),
+            installedApps = installedApps,
+            assistantPackageName = "com.yuchen.ailedger",
+        )
+
+        assertTrue(result.accepted)
+        assertEquals("同花顺炒股票", result.step?.appName)
+        assertEquals("com.hexin.plat.android", result.step?.packageName)
+    }
+
+    @Test
+    fun appNameMayBeMissingWhenPackageNameIsCanonical() {
+        val result = AgentOrchestrator.evaluateControllerPlannerStep(
+            step = plannerOpenApp(
+                appName = "",
                 packageName = "com.tencent.mobileqq",
                 preferredSurface = "native_app",
                 requiredCapabilities = "native_app",
@@ -85,8 +108,10 @@ class AgentOrchestratorTest {
             installedApps = installedApps,
             assistantPackageName = "com.yuchen.ailedger",
         )
-        assertFalse(mismatchedName.accepted)
-        assertTrue(mismatchedName.rejectionReason.contains("规范清单不一致"))
+
+        assertTrue(result.accepted)
+        assertEquals("QQ", result.step?.appName)
+        assertEquals("com.tencent.mobileqq", result.step?.packageName)
     }
 
     @Test
@@ -146,7 +171,7 @@ class AgentOrchestratorTest {
         }
         return requireNotNull(CloudAgentStep.fromJson(JSONObject().apply {
             put("type", "open_app")
-            put("appName", appName)
+            if (appName.isNotBlank()) put("appName", appName)
             put("packageName", packageName)
             put("arguments", fields)
             put("args", fields)
