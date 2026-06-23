@@ -19,7 +19,7 @@ const AGENT_STEP_TEXT_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_STEP_TEXT_PL
 const AGENT_STEP_FALLBACK_MIN_BUDGET_MS = Number(process.env.AGENT_STEP_FALLBACK_MIN_BUDGET_MS || 900);
 const AGENT_ROUTE_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_ROUTE_PLANNER_TIMEOUT_MS || 1800);
 const AGENT_ROUTE_PLANNER_MAX_TOKENS = Number(process.env.AGENT_ROUTE_PLANNER_MAX_TOKENS || 360);
-const AGENT_BRAIN_ROUTE_TIMEOUT_MS = Number(process.env.AGENT_BRAIN_ROUTE_TIMEOUT_MS || 3200);
+const AGENT_BRAIN_ROUTE_TIMEOUT_MS = Number(process.env.AGENT_BRAIN_ROUTE_TIMEOUT_MS || 9000);
 const AGENT_BRAIN_ROUTE_MAX_TOKENS = Number(process.env.AGENT_BRAIN_ROUTE_MAX_TOKENS || 260);
 const AGENT_BRAIN_ROUTE_CACHE_TTL_MS = Number(process.env.AGENT_BRAIN_ROUTE_CACHE_TTL_MS || 45 * 1000);
 const AGENT_BRAIN_ROUTE_CACHE_MAX = Math.max(16, Math.min(256, Number(process.env.AGENT_BRAIN_ROUTE_CACHE_MAX || 96)));
@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v102-size-safe-cloud-runtime";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v103-main-brain-timeout-fix";
 const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
@@ -9984,6 +9984,29 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     const agentBrainMs = Number(routeResult?.elapsedMs || 0);
     const agentBrainSource = routeResult?.source || (exclusiveGuiPlusVisualSession ? "gui_plus_verified_surface" : "deepseek_cloud_route");
     const agentBrainError = routeResult?.error || "";
+    if (!exclusiveGuiPlusVisualSession && !effectiveAgentBrainRoute && agentBrainError) {
+      return {
+        ok: false,
+        error: `DeepSeek 主脑路由失败：${agentBrainError}`,
+        code: "agent_brain_route_failed",
+        retryable: true,
+        ...baseMeta,
+        source: "agent_brain_route_failed",
+        sourceDetail: agentBrainSource,
+        model: "deepseek_v4",
+        modelId: "deepseek_v4",
+        modelLabel: "DeepSeek AgentBrain",
+        debug: {
+          totalMs: Date.now() - startedAt,
+          agentBrainMs,
+          agentBrainSource,
+          agentBrainError,
+          visualCalled: false,
+          localSemanticFallbackUsed: false,
+        },
+        version: WORKER_VERSION,
+      };
+    }
     const routedPlan = exclusiveGuiPlusVisualSession
       ? null
       : agentBrainRouteToDirectAgentPlan(
