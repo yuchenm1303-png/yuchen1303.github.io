@@ -120,8 +120,8 @@ class VisualAgentClientTest {
         assertTrue(payload.getBoolean("taskContractRequired"))
         val planning = payload.getJSONObject("taskContractPlanning")
         assertTrue(planning.getBoolean("required"))
-        assertEquals("gui_plus", planning.getString("semanticOwner"))
-        assertEquals("android", planning.getString("validationOwner"))
+        assertEquals("deepseek", planning.getString("semanticOwner"))
+        assertEquals("android_package_identity_and_safety_only", planning.getString("validationOwner"))
         assertEquals("agentStep.arguments", planning.getString("returnLocation"))
 
         val supported = payload.getJSONArray("supportedAgentSteps")

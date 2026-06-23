@@ -33,7 +33,7 @@ class AgentOrchestratorTest {
     }
 
     @Test
-    fun plannerMissingTaskContractIsRejectedForRetry() {
+    fun plannerPackageSelectionDoesNotRequireLocalTaskContract() {
         val result = AgentOrchestrator.evaluateControllerPlannerStep(
             step = CloudAgentStep(
                 type = "open_app",
@@ -44,8 +44,8 @@ class AgentOrchestratorTest {
             assistantPackageName = "com.yuchen.ailedger",
         )
 
-        assertFalse(result.accepted)
-        assertTrue(result.rejectionReason.contains("结构化任务契约"))
+        assertTrue(result.accepted)
+        assertEquals("com.android.settings", result.step?.packageName)
     }
 
     @Test

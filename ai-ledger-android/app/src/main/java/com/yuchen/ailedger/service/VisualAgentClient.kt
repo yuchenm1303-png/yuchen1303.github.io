@@ -354,8 +354,8 @@ internal fun buildVisualAgentPayload(
     val taskContractPlanning = JSONObject().apply {
         put("schema", "android_cloud_task_contract_request_v1")
         put("required", taskContractRequired)
-        put("semanticOwner", "gui_plus")
-        put("validationOwner", "android")
+        put("semanticOwner", "deepseek")
+        put("validationOwner", "android_package_identity_and_safety_only")
         put("returnLocation", "agentStep.arguments")
         put("requiredFields", JSONArray(listOf(
             "preferredSurface",
@@ -401,8 +401,8 @@ internal fun buildVisualAgentPayload(
         put("taskContract", taskContractJson ?: JSONObject.NULL)
         put("taskContractRequired", taskContractRequired)
         put("taskContractPlanning", taskContractPlanning)
-        put("taskContractPlanningOwner", "gui_plus")
-        put("taskContractValidationOwner", "android")
+        put("taskContractPlanningOwner", "deepseek")
+        put("taskContractValidationOwner", "android_package_identity_and_safety_only")
         put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
         put("appInventoryHash", appInventoryHash)
         put("appCatalog", appCatalog)

@@ -5355,7 +5355,7 @@ async function handleAgentBrainRouteRequest(body, prompt, resolvedModel) {
     agentBrainRoute: route,
     routePlan: route,
     source: errorText ? "agent_brain_route_fallback" : "agent_brain_route",
-    sourceDetail: errorText ? "deepseek_error_fallback_visual" : "deepseek_v4",
+    sourceDetail: errorText ? "deepseek_error_safe_pause" : "deepseek_v4",
     model: "deepseek_v4",
     modelId: "deepseek_v4",
     modelLabel: "DeepSeek V4 Pro",

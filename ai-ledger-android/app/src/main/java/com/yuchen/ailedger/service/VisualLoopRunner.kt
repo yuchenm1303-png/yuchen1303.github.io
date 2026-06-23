@@ -76,27 +76,6 @@ class VisualLoopRunner(
                 val runtimeContext = executionSession.runtimeContext(snapshot)
                 replaceRuntimeContextAction(recentActions, runtimeContext)
 
-                val currentSurfaceValidation = validateCurrentSurface(
-                    contract = taskContract,
-                    packageName = snapshot.currentApp,
-                    installedAppsByPackage = installedAppsByPackage,
-                )
-                if (!currentSurfaceValidation.ok) {
-                    val feedback = contractRouteFeedback(
-                        packageName = snapshot.currentApp,
-                        message = currentSurfaceValidation.message,
-                        stage = "before_plan",
-                    )
-                    if (feedback != state.lastContractViolation) {
-                        appendRecentAction(recentActions, feedback)
-                        state.lastContractViolation = feedback
-                        state.contractViolationCount += 1
-                    }
-                } else {
-                    state.lastContractViolation = ""
-                    state.contractViolationCount = 0
-                }
-
                 val plan = try {
                     withContext(Dispatchers.IO) {
                         aiWorkerClient.requestVisualAgentStep(
@@ -525,7 +504,7 @@ class VisualLoopRunner(
                 AppSelectionValidation(true)
             }
         }
-        return appCapabilityRegistry.validateSelection(contract, installed)
+        return AppSelectionValidation(true)
     }
 
     private fun contractRouteFeedback(packageName: String, message: String, stage: String): String {
@@ -789,9 +768,7 @@ data class VisualLoopState(
     var pendingFinishPackage: String = "",
     var pendingFinishFingerprint: String = "",
     var pendingFinishCount: Int = 0,
-    var contractViolationCount: Int = 0,
     var replanRejectCount: Int = 0,
-    var lastContractViolation: String = "",
     var running: Boolean = false,
     var paused: Boolean = false,
     var completed: Boolean = false,

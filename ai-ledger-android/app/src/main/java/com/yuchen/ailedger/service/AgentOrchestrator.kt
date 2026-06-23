@@ -35,7 +35,7 @@ internal data class ControllerPlannerSelection(
     val rejectionReason: String = "",
 ) {
     val accepted: Boolean
-        get() = contract != null && app != null && step != null && rejectionReason.isBlank()
+        get() = app != null && step != null && rejectionReason.isBlank()
 }
 
 class AgentOrchestrator(
@@ -116,19 +116,16 @@ class AgentOrchestrator(
             return controllerFailure(sourcePackage, "设备上没有可供智能体启动的目标应用。")
         }
 
-        val contractRequest = AgentTaskExecutionContract.controllerRequest()
         val deviceProfile = AgentDeviceProfile.current()
         var lastDeclaredContract: AgentTaskExecutionContract? = null
         val appContext = appCapabilityRegistry.buildVisualContext(installedApps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_CONTROLLER_APP_CONTEXT_ITEMS)
         val recentActions = mutableListOf(
-            contractRequest.toPromptLine(),
             deviceProfile.toPromptLine(),
             appCapabilityRegistry.compactPromptLine(appContext),
-            "semantic_routing:v1|owner=gui_plus|androidLocalGoalParsing=false|modelMustUnderstandFullUserInstruction=true",
+            "semantic_routing:v2|owner=deepseek|visualExecutor=gui_plus|androidLocalGoalParsing=false|modelMustUnderstandFullUserInstruction=true",
             "app_identity:v2|machineIdentity=packageName|appNameRole=display_only|mustSelectPackageFromCanonicalInstalledApps=true|androidCanonicalizesLabel=true",
-            "task_contract_request:v1|plannerMustDeclare=preferredSurface,browserFallbackAllowed,requiredCapabilities,requirePostActionVerification|returnIn=agentStep.arguments",
             "controller_handoff:v4|currentSurface=assistant_controller|mustReturn=open_app|packageNameRequired=true|appNameOptional=true|homeNotRequired=true|validateAppCapability=true",
         )
         val syntheticControllerSnapshot = AgentScreenSnapshot(
@@ -158,8 +155,8 @@ class AgentOrchestrator(
                         agentSessionId = sessionId,
                         executionMode = executionMode,
                         deviceProfile = deviceProfile,
-                        taskContract = contractRequest,
-                        taskContractRequired = true,
+                        taskContract = null,
+                        taskContractRequired = false,
                     )
                 }.also { AgentRuntimeController.noteModelOutput(it.rawModelOutput) }
                     .step
@@ -180,16 +177,9 @@ class AgentOrchestrator(
                 return@repeat
             }
 
-            val declaredContract = requireNotNull(selection.contract)
-            val selectedApp = requireNotNull(selection.app)
+            val declaredContract = selection.contract
             val selectedStep = requireNotNull(selection.step)
             lastDeclaredContract = declaredContract
-
-            val validation = appCapabilityRegistry.validateSelection(declaredContract, selectedApp)
-            if (!validation.ok) {
-                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|app=${selectedApp.label.take(40)}|package=${selectedApp.packageName.take(80)}|reason=${validation.message.take(220)}"
-                return@repeat
-            }
 
             return executeControllerOpenApp(
                 sourcePackage = sourcePackage,
@@ -214,7 +204,7 @@ class AgentOrchestrator(
     private suspend fun executeControllerOpenApp(
         sourcePackage: String,
         step: CloudAgentStep,
-        contract: AgentTaskExecutionContract,
+        contract: AgentTaskExecutionContract?,
     ): ControllerHandoffResult {
         AgentRuntimeController.noteAction(step)
         val launchExecution = withContext(Dispatchers.IO) {
@@ -327,9 +317,6 @@ class AgentOrchestrator(
             }
 
             val declaredContract = AgentTaskExecutionContract.fromPlannerStep(step)
-                ?: return ControllerPlannerSelection(
-                    rejectionReason = "Planner 缺少结构化任务契约；必须声明 preferredSurface、browserFallbackAllowed、requiredCapabilities 和 requirePostActionVerification。",
-                )
 
             val requestedPackage = step.packageName?.trim().orEmpty()
             if (requestedPackage.isBlank()) {
