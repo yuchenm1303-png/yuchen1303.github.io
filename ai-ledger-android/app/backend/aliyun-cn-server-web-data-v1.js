@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v97-verified-surface-handoff";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v98-controller-route-repair";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
 let RUNTIME_REQUEST_COUNT = 0;
@@ -10114,10 +10114,11 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       session,
       startedAt,
     });
-    const routedPlan = exclusiveGuiPlusVisualSession
+    let effectiveAgentBrainRoute = orchestration.agentBrainRoute;
+    let routedPlan = exclusiveGuiPlusVisualSession
       ? null
       : agentBrainRouteToDirectAgentPlan(
-          orchestration.agentBrainRoute,
+          effectiveAgentBrainRoute,
           snapshot,
           supportedSteps,
           goal,
@@ -10125,6 +10126,38 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
           deviceContext,
           "agent_brain_entry_route"
         );
+    const controllerRouteNeedsRepair = Boolean(
+      !exclusiveGuiPlusVisualSession &&
+      !verifiedSurface.guiPlusEligible &&
+      (!routedPlan?.agentStep || routedPlan.agentStep.type === "need_user_help")
+    );
+    if (controllerRouteNeedsRepair) {
+      const repairFeedback = [
+        ...recentAgentActions,
+        "controller_selection_rejected:failureClass=structural_route|requiredAction=open_app_exact_package|packageNameRequired=true|selectOnlyFrom=device.installedApps|doNotReturn=visual_agent,need_user_help",
+      ].slice(-12);
+      const repairResult = await resolveAgentBrainRouteForStep(
+        goal,
+        snapshot,
+        repairFeedback,
+        deviceContext,
+        { ...orchestration.agentMemory, routeRefreshRequested: true },
+        startedAt,
+        { forceRefresh: true }
+      );
+      if (repairResult?.route) {
+        effectiveAgentBrainRoute = repairResult.route;
+        routedPlan = agentBrainRouteToDirectAgentPlan(
+          effectiveAgentBrainRoute,
+          snapshot,
+          supportedSteps,
+          goal,
+          screenshotInfo,
+          deviceContext,
+          "agent_brain_controller_repair"
+        );
+      }
+    }
     if (routedPlan?.agentStep) {
       return {
         ok: true,
@@ -10141,7 +10174,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         model: "deepseek_v4",
         modelId: "deepseek_v4",
         modelLabel: "DeepSeek AgentBrain",
-        agentBrainRoute: orchestration.agentBrainRoute,
+        agentBrainRoute: effectiveAgentBrainRoute,
         taskSemanticContract: null,
         taskExecutionContract: null,
         decisionOwner: "deepseek",
@@ -10149,7 +10182,9 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         debug: {
           totalMs: Date.now() - startedAt,
           agentBrainMs: orchestration.agentBrainMs,
-          agentBrainSource: orchestration.agentBrainSource || "deepseek_main_brain_two_layer_router",
+          agentBrainSource: controllerRouteNeedsRepair
+            ? "deepseek_main_brain_controller_repair"
+            : orchestration.agentBrainSource || "deepseek_main_brain_two_layer_router",
           agentBrainError: orchestration.agentBrainError || "",
           visualCalled: false,
           localSemanticFallbackUsed: false,
@@ -10159,7 +10194,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     }
     if (!verifiedSurface.guiPlusEligible) {
       const reason = safeText(
-        orchestration.agentBrainRoute?.reason ||
+        effectiveAgentBrainRoute?.reason ||
           "DeepSeek did not select an exact installed target package before GUI Plus handoff.",
         300
       );
@@ -10191,7 +10226,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         model: "deepseek_v4",
         modelId: "deepseek_v4",
         modelLabel: "DeepSeek AgentBrain",
-        agentBrainRoute: orchestration.agentBrainRoute,
+        agentBrainRoute: effectiveAgentBrainRoute,
         decisionOwner: "deepseek",
         exclusiveVisualSession: false,
         verifiedSurfaceProtocol: verifiedSurface,

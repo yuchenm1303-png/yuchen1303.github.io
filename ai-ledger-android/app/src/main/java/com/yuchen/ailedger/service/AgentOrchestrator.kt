@@ -306,11 +306,17 @@ class AgentOrchestrator(
         ): ControllerPlannerSelection {
             if (step == null) {
                 return ControllerPlannerSelection(
-                    rejectionReason = "GUI Plus 未返回控制器阶段动作；必须基于完整用户指令返回当前设备目录中的 open_app、packageName 和结构化任务契约。",
+                    rejectionReason = "DeepSeek 未返回控制器阶段动作；必须基于完整用户指令返回当前设备目录中的 open_app 和 packageName。",
                 )
             }
 
             val stepType = step.type.trim().lowercase()
+            if (stepType == "need_user_help") {
+                return ControllerPlannerSelection(
+                    rejectionReason = step.reason?.takeIf { it.isNotBlank() }
+                        ?: "DeepSeek 无法从当前设备应用目录中确定目标应用。",
+                )
+            }
             if (stepType in CONTROLLER_FORBIDDEN_STEP_TYPES) {
                 return ControllerPlannerSelection(
                     rejectionReason = "控制器阶段禁止返回 $stepType；必须由云端直接选择已安装目标应用并返回 open_app。",
