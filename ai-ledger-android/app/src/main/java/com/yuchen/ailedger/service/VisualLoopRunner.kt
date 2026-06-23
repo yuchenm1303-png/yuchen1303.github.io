@@ -60,7 +60,9 @@ class VisualLoopRunner(
             while (!isStopped(stopGeneration) && logs.size < maxSteps) {
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
-                val observation = captureOnce(forceVisual = true)
+                val observation = captureOnce(
+                    forceVisual = executionSession.verifiedTargetPackage.isNotBlank(),
+                )
                 val snapshot = observation.toAgentScreenSnapshot()
                 state.currentPackage = snapshot.currentApp
                 val runtimeContext = executionSession.runtimeContext(snapshot)

@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v104-main-brain-json-fix";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v105-compact-main-brain-route";
 const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
@@ -5022,7 +5022,24 @@ function normalizeAgentBrainRoutePlan(value, originalGoal = "") {
   const risk = normalizeAgentBrainRisk(nested.risk || nested.riskLevel);
   const confidenceRaw = Number(nested.confidence ?? nested.score ?? 0);
   const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0;
-  const rawSteps = Array.isArray(nested.steps) ? nested.steps : Array.isArray(nested.actions) ? nested.actions : [];
+  const rawSteps = Array.isArray(nested.steps)
+    ? nested.steps
+    : Array.isArray(nested.actions)
+      ? nested.actions
+      : nested.tool || nested.action
+        ? [{
+            executor: nested.executor || (["device_tool", "hybrid"].includes(route) ? "device_tool" : "visual_agent"),
+            tool: nested.tool || nested.action,
+            args: {
+              ...(nested.args && typeof nested.args === "object" ? nested.args : {}),
+              ...(nested.packageName ? { packageName: nested.packageName } : {}),
+              ...(nested.appName ? { appName: nested.appName } : {}),
+            },
+            risk: nested.risk,
+            requiresConfirmation: nested.requiresConfirmation,
+            reason: nested.reason,
+          }]
+        : [];
   const steps = [];
 
   for (const item of rawSteps.slice(0, 4)) {
@@ -5148,7 +5165,8 @@ function isCloudRouteVisualLoopRequest(body) {
 
 function compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext) {
   const compactDevice = deviceContextSummaryForPrompt(deviceContext);
-  const installedApps = agentBrainRouteAppCandidates(goal, snapshot, deviceContext, 160);
+  const installedApps = agentBrainRouteAppCandidates(goal, snapshot, deviceContext, 160)
+    .map((app) => [app.label, app.packageName]);
   return {
     currentApp: compactDevice.currentApp,
     screen: compactDevice.screen,
@@ -5168,7 +5186,7 @@ function agentBrainRouteCacheKey(goal, snapshot, deviceContext, agentMemory = nu
     texts: screen.texts.slice(0, 6),
     controls: screen.controls.slice(0, 6),
     inventoryHash: safeText(deviceContext?.appInventoryHash || deviceContext?.inventory?.inventoryHash || "", 120),
-    apps: (device.installedApps || []).map((app) => `${app.label}:${app.packageName}`),
+    apps: (device.installedApps || []).map((app) => Array.isArray(app) ? `${app[0]}:${app[1]}` : `${app.label}:${app.packageName}`),
     surfaceState: verifiedSurface.surfaceState,
     selectedTargetPackage: verifiedSurface.selectedTargetPackage,
     verifiedTargetPackage: verifiedSurface.verifiedTargetPackage,
@@ -5213,13 +5231,13 @@ function buildAgentBrainRouteMessages(goal, snapshot, recentActions, deviceConte
 
   const system = [
     "你是 Android 智能体唯一的语义路由主脑 DeepSeek。只输出严格 JSON，不操作坐标，不替 GUI Plus 点击页面。",
-    "完整理解用户原始指令，并在 Android 确定性内部工具与 GUI Plus 视觉循环之间选择。installedApps 的 label、aliases、capabilities、packageName 是设备上传的事实；禁止用本地关键词规则代替你的语义判断。",
-    "当 verifiedSurface.guiPlusEligible=false 且任务需要操作 App 页面时，必须 route=hybrid，第一步必须是 executor=device_tool、tool=open_app，并从 device.installedApps 原样复制唯一目标的 label 与 packageName。即使目标包已经在前台，也返回 open_app 以完成目标绑定。此时禁止 route=visual_agent。",
+    "完整理解用户原始指令，并在 Android 确定性内部工具与 GUI Plus 视觉循环之间选择。device.installedApps 是完整的 [应用名称, packageName] 事实目录；禁止用本地关键词规则代替你的语义判断。",
+    "当 verifiedSurface.guiPlusEligible=false 且任务需要操作 App 页面时，必须 route=hybrid、tool=open_app，并从 device.installedApps 原样复制唯一目标的 appName 与 packageName。即使目标包已经在前台，也返回 open_app 以完成目标绑定。此时禁止 route=visual_agent。",
     "当 verifiedSurface.guiPlusEligible=true 时，App 已打开且 Android 已验证包名；需要页面操作的任务 route=visual_agent，并把用户原始目标逐字保留给 GUI Plus。",
     "route=device_tool 仅用于无需 GUI 的确定性系统或内部工具。只有 installedApps 中确实无法唯一确定目标且缺少信息时才 route=ask_user；用户明确说 QQ 且目录存在唯一 QQ 时不得 ask_user。",
     "GUI Plus 不负责在桌面、最近任务或助手界面寻找和启动 App。Android 只执行你返回的真实 packageName，并校验安装、可启动、安全确认和执行结果，不参与语义选 App。",
     "高风险内部工具必须标注 risk 和 requiresConfirmation；不允许的任务 route=refuse。",
-    `返回格式：{"agentBrainRoute":{"route":"device_tool|visual_agent|hybrid|ask_user|refuse","confidence":0.0,"risk":"low|medium|high|critical","reason":"","question":"","refusalReason":"","steps":[{"executor":"device_tool|visual_agent","tool":"${[...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"].join("|")}","args":{},"goal":"","risk":"low|medium|high|critical","requiresConfirmation":false,"reason":""}]}}`,
+    `仅返回一个紧凑 JSON：{"route":"device_tool|visual_agent|hybrid|ask_user|refuse","tool":"${[...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"].join("|")}","appName":"","packageName":"","args":{},"risk":"low|medium|high|critical","requiresConfirmation":false,"reason":"","question":""}`,
   ].join("\n");
 
   return [
@@ -11554,6 +11572,7 @@ module.exports = {
   isVisualAgentStepRequest,
   isCloudRouteVisualLoopRequest,
   buildAgentBrainRouteMessages,
+  normalizeAgentBrainRoutePlan,
   verifiedVisualSurfaceProtocol,
   agentBrainRouteToDirectAgentPlan,
 };
