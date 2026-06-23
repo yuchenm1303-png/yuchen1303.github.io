@@ -1,3 +1,3 @@
-trigger: notification-chat-console-boot-restore-validation-2026-06-18
-source-commit: f8967c4aa0f14c7a7068fc748dd8bb69f585f1ab
-scope: remote-input-workmanager-shared-history-private-lockscreen-inplace-retry-stop-clear-fast-background-boot-restore
+trigger: forced-rollback-validation-2026-06-23
+source-commit: e102846c74b20b63afebe2402d59a9704487ffd6
+scope: force-reset-dev-update-1-and-build-compose-apk
