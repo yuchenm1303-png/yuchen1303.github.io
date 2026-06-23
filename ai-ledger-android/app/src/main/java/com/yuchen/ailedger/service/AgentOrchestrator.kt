@@ -118,6 +118,7 @@ class AgentOrchestrator(
 
         val deviceProfile = AgentDeviceProfile.current()
         var lastDeclaredContract: AgentTaskExecutionContract? = null
+        var lastSelectionFailure = ""
         val appContext = appCapabilityRegistry.buildVisualContext(installedApps)
             .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
             .take(MAX_CONTROLLER_APP_CONTEXT_ITEMS)
@@ -126,7 +127,7 @@ class AgentOrchestrator(
             appCapabilityRegistry.compactPromptLine(appContext),
             "semantic_routing:v2|owner=deepseek|visualExecutor=gui_plus|androidLocalGoalParsing=false|modelMustUnderstandFullUserInstruction=true",
             "app_identity:v2|machineIdentity=packageName|appNameRole=display_only|mustSelectPackageFromCanonicalInstalledApps=true|androidCanonicalizesLabel=true",
-            "controller_handoff:v4|currentSurface=assistant_controller|mustReturn=open_app|packageNameRequired=true|appNameOptional=true|homeNotRequired=true|validateAppCapability=true",
+            "controller_handoff:v5|currentSurface=assistant_controller|mustReturn=open_app|packageNameRequired=true|appNameOptional=true|homeNotRequired=true|androidValidation=package_identity_and_launchability_only",
         )
         val syntheticControllerSnapshot = AgentScreenSnapshot(
             currentApp = applicationContext.packageName,
@@ -163,7 +164,8 @@ class AgentOrchestrator(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: IOException) {
-                recentActions += "controller_selection_failed:network=${error.message.orEmpty().take(220)}"
+                lastSelectionFailure = "云端请求失败：${error.message.orEmpty().take(220)}"
+                recentActions += "controller_selection_failed:failureClass=structural_route|network=${error.message.orEmpty().take(220)}"
                 null
             }
 
@@ -173,7 +175,8 @@ class AgentOrchestrator(
                 assistantPackageName = applicationContext.packageName,
             )
             if (!selection.accepted) {
-                recentActions += "controller_selection_rejected:attempt=${attempt + 1}|reason=${selection.rejectionReason.take(260)}"
+                lastSelectionFailure = selection.rejectionReason
+                recentActions += "controller_selection_rejected:failureClass=structural_route|attempt=${attempt + 1}|reason=${selection.rejectionReason.take(260)}"
                 return@repeat
             }
 
@@ -190,12 +193,15 @@ class AgentOrchestrator(
 
         val message = buildString {
             append("云端模型未能从当前设备应用目录中选择可启动目标应用。")
+            if (lastSelectionFailure.isNotBlank()) {
+                append(" 最后原因：").append(lastSelectionFailure.take(260))
+            }
             when (lastDeclaredContract?.preferredSurface) {
                 AgentSurfacePreference.SystemSettings -> append(" 云端已声明系统设置界面，但没有返回真实设置包名。")
                 AgentSurfacePreference.NativeApp -> append(" 云端已声明原生应用界面，但没有返回当前设备目录中的真实包名。")
                 AgentSurfacePreference.Browser -> append(" 云端已声明浏览器界面，但没有返回当前设备目录中的真实浏览器包名。")
                 AgentSurfacePreference.Any -> append(" 云端没有完成目标应用包名选择。")
-                null -> append(" 云端没有返回完整任务契约和规范 open_app；Android 未进行本地语义猜测。")
+                null -> append(" 云端没有返回包含真实 packageName 的规范 open_app；Android 未进行本地语义猜测。")
             }
         }
         return controllerFailure(sourcePackage, message)

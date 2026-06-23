@@ -649,6 +649,7 @@ private fun String.isVisualRuntimeFeedback(): Boolean {
         value.contains("visual_screen_changed") ||
         value.contains("finish_verification_pending") ||
         value.contains("open_app_package_verification_failed") ||
+        value.contains("controller_selection_rejected") ||
         value.contains("no_progress") ||
         value.contains("no progress") ||
         value.contains("same screen") ||
@@ -683,6 +684,7 @@ private fun String.isVisualFailureFeedback(): Boolean {
         value.contains("visual_action_retry") ||
         value.contains("visual_action_stale") ||
         value.contains("open_app_package_verification_failed") ||
+        value.contains("controller_selection_rejected") ||
         value.contains("blocked") ||
         value.contains("执行失败")
 }
@@ -691,6 +693,7 @@ private fun String.isStructuralRouteFailureFeedback(): Boolean {
     val value = lowercase()
     return value.contains("failureclass=structural_route") ||
         value.contains("open_app_package_verification_failed") ||
+        value.contains("controller_selection_rejected") ||
         value.contains("visual_action_rejected")
 }
 
