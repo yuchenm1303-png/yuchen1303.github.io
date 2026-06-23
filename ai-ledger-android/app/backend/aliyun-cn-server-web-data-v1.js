@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v96-gui-plus-controller-handoff-no-wait";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v97-verified-surface-handoff";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
 let RUNTIME_REQUEST_COUNT = 0;
@@ -1327,12 +1327,74 @@ function isControllerHandoffSurface(body = null, snapshot = null, deviceContext 
       isAssistantHostAppPackage(currentPackage) ||
       snapshotLooksLikeAssistantChat(snapshot)
   );
+  // Controller handoff is a transport state, never a semantic inference from the
+  // foreground package or UI text. The Android client must declare it explicitly.
   const handoffDeclared = Boolean(
     surface.controllerHandoffActive === true ||
-      request.controllerHandoffActive === true ||
-      (role === "controller" && firstTurn)
+      request.controllerHandoffActive === true
   );
   return Boolean(handoffDeclared && firstTurn && assistantHost);
+}
+
+function verifiedVisualSurfaceProtocol(body = null, snapshot = null, deviceContext = null, agentMemory = null) {
+  const request = body && typeof body === "object" ? body : {};
+  const device = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
+  const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const candidates = [
+    request.runtimeExecutionContext,
+    request.deviceContext?.runtimeExecutionContext,
+    device.runtimeExecutionContext,
+    memory.runtimeExecutionContext,
+  ].filter((item) => item && typeof item === "object");
+  const runtime = candidates[0] || {};
+  const currentPackage = safeText(
+    snapshot?.packageName || snapshot?.currentApp || runtime.currentPackage || request.currentPackage || "",
+    120
+  );
+  const selectedTargetPackage = safeText(
+    runtime.selectedTargetPackage || request.selectedTargetPackage || "",
+    120
+  );
+  const verifiedTargetPackage = safeText(
+    runtime.verifiedTargetPackage || request.verifiedTargetPackage || "",
+    120
+  );
+  const surfaceState = normalizeIntentName(
+    runtime.surfaceState || request.surfaceState || "planning"
+  ) || "planning";
+  const observationId = safeText(
+    runtime.observationId || request.observationId || request.expectedActionObservationId || "",
+    120
+  );
+  const packageMatches = Boolean(
+    selectedTargetPackage &&
+    verifiedTargetPackage &&
+    currentPackage &&
+    selectedTargetPackage === verifiedTargetPackage &&
+    verifiedTargetPackage === currentPackage
+  );
+  const explicitlyEligible = runtime.guiPlusEligible === true;
+  const guiPlusEligible = Boolean(
+    explicitlyEligible && packageMatches && surfaceState === "work_surface"
+  );
+  return {
+    schema: "verified_visual_surface_protocol_v1",
+    surfaceState,
+    selectedTargetPackage,
+    verifiedTargetPackage,
+    currentPackage,
+    observationId,
+    routeEpoch: Math.max(0, Number(runtime.routeEpoch || 0) || 0),
+    surfaceEpoch: Math.max(0, Number(runtime.surfaceEpoch || 0) || 0),
+    guiPlusEligible,
+    packageMatches,
+    routeRefreshRequested: Boolean(
+      request.routeRefreshRequested === true ||
+      request.invalidateCachedAgentBrainRoute === true ||
+      surfaceState === "replanning" ||
+      surfaceState === "interrupted"
+    ),
+  };
 }
 
 function createVisualAgentStepRoute({ handleAgentStepRequest }) {
@@ -1627,6 +1689,8 @@ const SUPPORTED_AGENT_STEP_TYPES = [
   "quick_settings",
   "tap_node",
   "tap_xy",
+  "long_press",
+  "key",
   "input_text",
   "scroll",
   "swipe",
@@ -1653,6 +1717,8 @@ function normalizeAgentStepType(value) {
     tap: "tap_xy",
     click: "tap_xy",
     press: "tap_xy",
+    longpress: "long_press",
+    press_and_hold: "long_press",
     tap_xy: "tap_xy",
     tapx_y: "tap_xy",
     coordinate_click: "tap_xy",
@@ -5092,7 +5158,8 @@ function agentBrainRouteAppCandidates(goal, snapshot, deviceContext, max = AGENT
       return {
         label: app.label,
         packageName: app.packageName,
-        aliases: [],
+        aliases: Array.isArray(app.aliases) ? app.aliases : [],
+        capabilities: Array.isArray(app.capabilities) ? app.capabilities : [],
         source: "android_canonical_inventory",
         current: Boolean(currentPackage && app.packageName === currentPackage),
         explicitIdentityMatch: Boolean(
@@ -5125,9 +5192,10 @@ function compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext) {
   };
 }
 
-function agentBrainRouteCacheKey(goal, snapshot, deviceContext) {
+function agentBrainRouteCacheKey(goal, snapshot, deviceContext, agentMemory = null) {
   const device = compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext);
   const screen = agentBrainRouteScreenForPrompt(snapshot);
+  const verifiedSurface = verifiedVisualSurfaceProtocol(null, snapshot, deviceContext, agentMemory);
   const raw = JSON.stringify({
     goal: normalizeForMatch(goal).slice(0, 160),
     app: screen.app,
@@ -5136,6 +5204,11 @@ function agentBrainRouteCacheKey(goal, snapshot, deviceContext) {
     controls: screen.controls.slice(0, 6),
     inventoryHash: safeText(deviceContext?.appInventoryHash || deviceContext?.inventory?.inventoryHash || "", 120),
     apps: (device.installedApps || []).map((app) => `${app.label}:${app.packageName}`),
+    surfaceState: verifiedSurface.surfaceState,
+    selectedTargetPackage: verifiedSurface.selectedTargetPackage,
+    verifiedTargetPackage: verifiedSurface.verifiedTargetPackage,
+    observationId: verifiedSurface.observationId,
+    guiPlusEligible: verifiedSurface.guiPlusEligible,
   });
   return crypto.createHash("sha1").update(raw).digest("hex");
 }
@@ -5161,17 +5234,22 @@ function setCachedAgentBrainRoute(cacheKey, route) {
 }
 
 function buildAgentBrainRouteMessages(goal, snapshot, recentActions, deviceContext, agentMemory) {
+  const verifiedSurface = verifiedVisualSurfaceProtocol(null, snapshot, deviceContext, agentMemory);
   const payload = {
     goal: safeText(goal, 240),
     screen: agentBrainRouteScreenForPrompt(snapshot),
     device: compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext),
     memory: compactAgentBrainMemoryForRoute(agentMemory, recentActions),
+    verifiedSurface,
     routes: ["device_tool", "visual_agent", "hybrid", "ask_user", "refuse"],
     tools: [...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"],
     task: "Understand the full user intent and choose only the execution route. Do not output coordinates.",
   };
 
   const system = [
+    "Verified-surface protocol is authoritative. When verifiedSurface.guiPlusEligible=false, route=visual_agent by itself is invalid. Select an exact canonical installed app and return route=hybrid with device_tool/open_app first, or ask_user only when the target cannot be resolved from cloud-provided aliases and capabilities.",
+    "GUI Plus may receive control only when surfaceState=work_surface and currentPackage=selectedTargetPackage=verifiedTargetPackage. Never ask GUI Plus to find, choose, or launch an app from the launcher, assistant UI, recents, or another package.",
+    "installedApps aliases and capabilities are factual cloud evidence supplied by the device. Use them semantically; do not replace them with local keyword or regex rules.",
     "你是 Android 手机智能体的 DeepSeek 总主脑，只输出严格 JSON。",
     "你的职责只有两项：理解用户完整语义；在内部控制与 GUI Plus 视觉智能之间路由。不要定位坐标，不要替 GUI Plus 操作页面。",
     "禁止使用关键词、正则或固定句式判断用户意图。必须按完整语义、当前屏幕、最近执行结果和设备上传的 canonical installedApps 理解任务。",
@@ -5218,8 +5296,9 @@ async function handleAgentBrainRouteRequest(body, prompt, resolvedModel) {
   let route = null;
   let errorText = "";
   const startedAt = Date.now();
-  const cacheKey = agentBrainRouteCacheKey(goal, snapshot, deviceContext);
-  const forceRefresh = agentMemoryRequestsRouteRefresh(agentMemory);
+  const verifiedSurface = verifiedVisualSurfaceProtocol(body, snapshot, deviceContext, agentMemory);
+  const cacheKey = agentBrainRouteCacheKey(goal, snapshot, deviceContext, agentMemory);
+  const forceRefresh = Boolean(agentMemoryRequestsRouteRefresh(agentMemory) || verifiedSurface.routeRefreshRequested);
   if (forceRefresh) AGENT_BRAIN_ROUTE_CACHE.delete(cacheKey);
   const cachedRoute = forceRefresh ? null : getCachedAgentBrainRoute(cacheKey);
   if (cachedRoute) {
@@ -5236,6 +5315,7 @@ async function handleAgentBrainRouteRequest(body, prompt, resolvedModel) {
       providerModel: process.env.DEEPSEEK_MODEL || "",
       elapsedMs: Date.now() - startedAt,
       cached: true,
+      verifiedSurfaceProtocol: verifiedSurface,
       version: WORKER_VERSION,
     };
   }
@@ -5260,11 +5340,12 @@ async function handleAgentBrainRouteRequest(body, prompt, resolvedModel) {
   } catch (error) {
     errorText = sanitizeProviderError(error, 160);
     route = normalizeAgentBrainRoutePlan({
-      route: "visual_agent",
+      route: "ask_user",
       confidence: 0.25,
       risk: "low",
-      reason: `AgentBrain 路由暂不可用，安全回退到 GUI Plus 视觉链路：${errorText}`,
-      steps: [{ executor: "visual_agent", tool: "visual_agent", goal, risk: "low", requiresConfirmation: false }],
+      reason: `DeepSeek AgentBrain 路由暂不可用；在目标工作界面验证前不会启动 GUI Plus：${errorText}`,
+      question: "云端主脑暂时无法确定目标应用，请稍后重试。",
+      steps: [],
     }, goal);
   }
 
@@ -5281,6 +5362,7 @@ async function handleAgentBrainRouteRequest(body, prompt, resolvedModel) {
     providerModel: process.env.DEEPSEEK_MODEL || "",
     elapsedMs: Date.now() - startedAt,
     cached: false,
+    verifiedSurfaceProtocol: verifiedSurface,
     appCandidateCount: agentBrainRouteAppCandidates(goal, snapshot, deviceContext).length,
     error: errorText || undefined,
     raw: String(raw || "").slice(0, 900),
@@ -5295,8 +5377,9 @@ async function resolveAgentBrainRouteForStep(goal, snapshot, recentActions, devi
   if (!cleanGoal) {
     return { route: null, source: "agent_brain_empty_goal", elapsedMs: Date.now() - started, error: "empty_goal", cached: false };
   }
-  const cacheKey = agentBrainRouteCacheKey(cleanGoal, snapshot, deviceContext);
-  const forceRefresh = Boolean(options?.forceRefresh || agentMemoryRequestsRouteRefresh(agentMemory));
+  const verifiedSurface = verifiedVisualSurfaceProtocol(null, snapshot, deviceContext, agentMemory);
+  const cacheKey = agentBrainRouteCacheKey(cleanGoal, snapshot, deviceContext, agentMemory);
+  const forceRefresh = Boolean(options?.forceRefresh || agentMemoryRequestsRouteRefresh(agentMemory) || verifiedSurface.routeRefreshRequested);
   if (forceRefresh) AGENT_BRAIN_ROUTE_CACHE.delete(cacheKey);
   const cachedRoute = forceRefresh ? null : getCachedAgentBrainRoute(cacheKey);
   if (cachedRoute) return { route: cachedRoute, source: "agent_brain_route_cache", elapsedMs: Date.now() - started, error: "", cached: true };
@@ -8334,15 +8417,7 @@ function buildAliyunMobileUseToolProtocolPrompt() {
     "- Output exactly in the order: Action, <tool_call>.",
     "- Be brief: one for Action.",
     "- Do not output anything else outside those two parts.",
-    "- The mobile_use screen resolution is 1000x1000, regardless of the source screenshot resolution.",
-    "- If the requested low-risk target is clearly visible, call mobile_use with action=click and coordinate at the target center, except when the text is only inside the AI assistant chat history or overlay.",
-    "- Never click the user's chat bubble or assistant reply bubble as a way to satisfy the instruction; those are historical messages, not app UI targets.",
-    "- For text input tasks, action=type means typing into the currently activated/focused input field. If no keyboard, caret, or focused input field is visible, first click the visible search/input field and wait for focus.",
-    "- Never call action=type just because a search field exists visually; click it first unless it is already focused.",
-    "- For action=open, text must be copied exactly from the canonical app labels provided in the current user instruction context. Do not output aliases, descriptions, suffixes, or package names in text.",
-    "- If the current page is unrelated to the instruction, prefer action=open, system_button Back, or Home to recover; do not click unrelated avatars, ads, random cards, or irrelevant bottom tabs.",
-    "- Use action=wait only when the visible app page is genuinely loading or transitioning.",
-    "- Use action=terminate only when the task is truly complete or impossible from the current screen.",
+    "- If finishing, use action=terminate in the tool call.",
   ].join("\n");
 }
 
@@ -8374,7 +8449,15 @@ function canonicalVisualAppPairsFromDeviceContext(deviceContext, max = 36) {
     const key = `${normalizeCanonicalVisualAppLabel(label)}|${packageName}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ label, packageName });
+    const aliases = Array.isArray(item.aliases)
+      ? item.aliases.map((value) => safeText(value, 80)).filter(Boolean).slice(0, 16)
+      : [];
+    const capabilities = Array.isArray(item.capabilities)
+      ? item.capabilities.map((value) => safeText(value, 80)).filter(Boolean).slice(0, 32)
+      : Array.isArray(item.capabilityProfile?.capabilities)
+        ? item.capabilityProfile.capabilities.map((value) => safeText(value, 80)).filter(Boolean).slice(0, 32)
+        : [];
+    out.push({ label, packageName, aliases, capabilities });
     if (out.length >= Math.max(1, Math.min(160, Number(max || 36)))) break;
   }
   return out;
@@ -8475,6 +8558,27 @@ function buildOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext
     "",
     "Output one mobile_use action only. After Android executes it, a fresh screenshot and tool_response will be supplied for the next cloud decision."
   ].join("\n").slice(0, 12000);
+}
+
+function buildPureOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext = null, agentBrainRoute = null, agentMemory = null) {
+  const previousActions = (Array.isArray(recentActions) ? recentActions : [])
+    .slice(-12)
+    .map((item, index) => `Step ${index + 1}: ${safeText(item, 240)}`)
+    .filter(Boolean)
+    .join("\n") || "None";
+  const routeContext = agentBrainRoute && typeof agentBrainRoute === "object"
+    ? agentBrainRoutePromptBlock(agentBrainRoute)
+    : "DeepSeek AgentBrain route: visual_agent.";
+  const feedback = runtimeVerificationHintForPrompt(agentMemory);
+  return [
+    "Please generate the next move according to the UI screenshot, instruction and previous actions.",
+    `Instruction: ${aliyunGuiDateInfo()}${safeText(goal, 240)}`,
+    `Installed applications available to mobile_use action=open: ${formatCanonicalVisualAppPairs(deviceContext, goal, 160)}.`,
+    routeContext,
+    "Previous actions:",
+    previousActions,
+    feedback ? `Latest Android tool response:\n${feedback}` : "Latest Android tool response: none",
+  ].join("\n\n").slice(0, 6000);
 }
 
 function guiHistoryImagePart(item) {
@@ -8594,7 +8698,7 @@ function buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentAction
   const history = Array.isArray(session?.guiHistory)
     ? session.guiHistory.slice(-AGENT_GUI_HISTORY_N).filter((item) => item?.imageBase64 && item?.output)
     : [];
-  const instructionPrompt = buildOfficialGuiPlusInstruction(
+  const instructionPrompt = buildPureOfficialGuiPlusInstruction(
     goal,
     recentActions,
     deviceContext,
@@ -8829,12 +8933,13 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
 
   if (action === "wait") {
     const seconds = Number(args.time);
-    const ms = Number.isFinite(seconds) ? Math.max(300, Math.min(2000, Math.round(seconds * 1000))) : 700;
+    const ms = Number.isFinite(seconds) ? Math.max(100, Math.min(60000, Math.round(seconds * 1000))) : 700;
     return { s: "p", a: "wait", ms, t: text || "等待", c: 0.68, e: "GUI Plus mobile_use wait：页面加载/过渡/处理等待。", raw: rawText.slice(0, 240) };
   }
 
   if (action === "system_button") {
     const button = String(args.button || args.text || "").toLowerCase();
+    if (button === "enter") return { s: "p", a: "key", v: "enter", t: "Enter", c: 0.76, e: "GUI Plus mobile_use system_button Enter.", raw: rawText.slice(0, 240) };
     if (button === "back") return { s: "p", a: "back", t: "返回", c: 0.76, e: "GUI Plus mobile_use system_button Back.", raw: rawText.slice(0, 240) };
     if (button === "home") return { s: "p", a: "home", t: "主页", c: 0.76, e: "GUI Plus mobile_use system_button Home.", raw: rawText.slice(0, 240) };
     if (button === "menu") return { s: "p", a: "recents", t: "多任务", c: 0.7, e: "GUI Plus mobile_use system_button Menu.", raw: rawText.slice(0, 240) };
@@ -8880,6 +8985,7 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
 
   if (action === "key") {
     const key = String(args.text || "").toLowerCase();
+    return { s: "p", a: "key", v: safeText(key, 64), t: text, c: 0.72, e: `GUI Plus mobile_use key ${safeText(key, 64)}.`, raw: rawText.slice(0, 240) };
     if (key.includes("back")) return { s: "p", a: "back", t: "返回", c: 0.72, e: "GUI Plus mobile_use key back.", raw: rawText.slice(0, 240) };
     if (key.includes("home")) return { s: "p", a: "home", t: "主页", c: 0.72, e: "GUI Plus mobile_use key home.", raw: rawText.slice(0, 240) };
     return guiPlusNeedUserHelp(text, `第一阶段不自动执行 key=${safeText(args.text || "", 32)}。`, rawText);
@@ -8947,6 +9053,12 @@ function normalizeAliyunMobileUseRawToCompact(rawOutput, screenshotInfo, goal = 
   }
 
   if (action === "long_press") {
+    const point = normalizeMobileUseCoordinatePair(args.coordinate, args);
+    if (point) {
+      const seconds = Number(args.time);
+      const ms = Number.isFinite(seconds) ? Math.max(300, Math.min(10000, Math.round(seconds * 1000))) : 800;
+      return { s: "p", a: "long_press", x: point.x, y: point.y, ms, t: text, c: 0.78, e: "GUI Plus mobile_use long_press.", raw: rawText.slice(0, 240) };
+    }
     return guiPlusNeedUserHelp(text || goal, "第一阶段不自动执行 mobile_use long_press，已保守暂停。", rawText);
   }
 
@@ -9144,7 +9256,11 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session
   const requestedTimeoutMs = Number(timeoutMs || 0) > 0
     ? Number(timeoutMs)
     : Math.min(Number(ALIYUN_GUI_TIMEOUT_MS || 15000), AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS);
-  const deepThinking = adaptiveDeepThinkingDecision(goal, snapshot, deviceContext, agentMemory, recentActions);
+  const deepThinking = {
+    enabled: ALIYUN_GUI_ENABLE_THINKING,
+    level: ALIYUN_GUI_ENABLE_THINKING ? "enabled" : "off",
+    reasons: ALIYUN_GUI_ENABLE_THINKING ? ["explicit_environment_configuration"] : [],
+  };
   const boundedTimeoutMs = Math.max(
     300,
     Math.min(
@@ -9185,7 +9301,7 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session
   let interactionSelfReviewChangedAction = false;
   let interactionSelfReviewError = "";
 
-  if (shouldSelfReviewGuiPlusInteraction(compact, snapshot, deviceContext, agentMemory)) {
+  if (false && shouldSelfReviewGuiPlusInteraction(compact, snapshot, deviceContext, agentMemory)) {
     const elapsedMs = Date.now() - startedAt;
     const remainingBudgetMs = Math.max(
       0,
@@ -9222,9 +9338,6 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session
     }
   }
 
-  if (isBackendGeneratedGuiProtocolFallback(compact)) {
-    throw new Error(`GUI Plus protocol output is not executable: ${safeText(compact?.e || compact?.reason || "invalid mobile_use output", 220)}`);
-  }
   if (controllerHandoffActive && !(compact?.a === "open_app" && compact?.appName && compact?.packageName)) {
     throw new Error(`GUI Plus controller handoff must return canonical open_app, received ${safeText(compact?.a || "unknown", 80)}`);
   }
@@ -9516,15 +9629,17 @@ function pureAgentStepFromGuiPlusCompact(compact, supportedSteps, goal) {
     appName: type === "open_app" ? safeText(raw.appName || "", 80) || undefined : undefined,
     packageName: type === "open_app" ? safeText(raw.packageName || "", 120) || undefined : undefined,
     targetText: safeText(raw.t || raw.targetText || "", 100) || undefined,
-    text: type === "input_text" ? safeText(raw.v || raw.text || "", 240) : undefined,
+    text: ["input_text", "key"].includes(type) ? safeText(raw.v || raw.text || "", 240) : undefined,
     inputMode: type === "input_text" ? "focused_direct" : undefined,
     requiresInputNode: type === "input_text" ? false : undefined,
     expectsFocusedInput: type === "input_text" ? true : undefined,
     useFocusedInput: type === "input_text" ? true : undefined,
     direction: type === "swipe" ? normalizeAgentDirection(raw.d || raw.direction || "up") || "up" : undefined,
-    x: type === "tap_xy" && Number.isFinite(Number(raw.x)) ? clamp01(Number(raw.x)) : undefined,
-    y: type === "tap_xy" && Number.isFinite(Number(raw.y)) ? clamp01(Number(raw.y)) : undefined,
-    durationMs: type === "wait" ? Math.max(120, Math.min(2000, Number(raw.ms || 700))) : undefined,
+    x: ["tap_xy", "long_press", "swipe"].includes(type) && Number.isFinite(Number(raw.x)) ? clamp01(Number(raw.x)) : undefined,
+    y: ["tap_xy", "long_press", "swipe"].includes(type) && Number.isFinite(Number(raw.y)) ? clamp01(Number(raw.y)) : undefined,
+    x2: type === "swipe" && Number.isFinite(Number(raw.x2)) ? clamp01(Number(raw.x2)) : undefined,
+    y2: type === "swipe" && Number.isFinite(Number(raw.y2)) ? clamp01(Number(raw.y2)) : undefined,
+    durationMs: ["wait", "long_press"].includes(type) ? Math.max(100, Math.min(60000, Number(raw.ms || 700))) : undefined,
     reason,
     riskLevel,
     requiresConfirmation,
@@ -9606,7 +9721,7 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
   let parsed;
   let providerMs = 0;
   try {
-    const preCallThinking = adaptiveDeepThinkingDecision(goal, snapshot, deviceContext, agentMemory, recentAgentActions);
+    const preCallThinking = { enabled: ALIYUN_GUI_ENABLE_THINKING, timeoutExtraMs: 0 };
     const timeoutMs = boundedAgentTimeoutMs(
       Math.min(ALIYUN_GUI_TIMEOUT_MS, AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS) + Number(preCallThinking.timeoutExtraMs || 0),
       agentRemainingBudgetMs(startedAt),
@@ -9859,6 +9974,7 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       ? body.recentActions.slice(-12)
       : [];
   const rawAgentMemory = normalizeAndroidVisualExecutionProtocol(body, rawAgentMemoryInput, recentAgentActions);
+  const verifiedSurface = verifiedVisualSurfaceProtocol(body, snapshot, deviceContext, rawAgentMemory);
   const controllerHandoffActive = isControllerHandoffSurface(body, snapshot, deviceContext, rawAgentMemory);
   const requestBytes = Number(body.__debugRequestBytes || 0) || 0;
   const readBodyMs = Number(body.__debugReadBodyMs || 0) || 0;
@@ -9867,8 +9983,10 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   session.step += 1;
 
   const exclusiveGuiPlusVisualSession = Boolean(
-    isExclusiveGuiPlusVisualRequest(body) ||
+    verifiedSurface.guiPlusEligible && (
+      isExclusiveGuiPlusVisualRequest(body) ||
       isExclusiveGuiPlusVisualMemory(rawAgentMemory)
+    )
   );
   const qwenProviderModel = String(process.env.QWEN_VISION_MODEL || "qwen-vl-plus").trim();
   const providerResolutionScreenshotInfo = controllerHandoffActive
@@ -9899,6 +10017,9 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       : "deepseek_cloud_router_gui_plus_cloud_visual_action_backend_transport_only",
     decisionOwner: exclusiveGuiPlusVisualSession ? "gui_plus" : "cloud_models",
     exclusiveVisualSession: exclusiveGuiPlusVisualSession,
+    verifiedSurfaceState: verifiedSurface.surfaceState,
+    verifiedTargetPackage: verifiedSurface.verifiedTargetPackage || "",
+    observationId: verifiedSurface.observationId || "",
   };
 
   const officialGuiPlusLoop = Boolean(
@@ -9993,6 +10114,100 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       session,
       startedAt,
     });
+    const routedPlan = exclusiveGuiPlusVisualSession
+      ? null
+      : agentBrainRouteToDirectAgentPlan(
+          orchestration.agentBrainRoute,
+          snapshot,
+          supportedSteps,
+          goal,
+          screenshotInfo,
+          deviceContext,
+          "agent_brain_entry_route"
+        );
+    if (routedPlan?.agentStep) {
+      return {
+        ok: true,
+        reply: routedPlan.agentStep.reason || "DeepSeek selected the next deterministic action.",
+        agentStep: routedPlan.agentStep,
+        agentState: routedPlan.agentState,
+        agentSteps: [routedPlan.agentStep],
+        steps: [routedPlan.agentStep],
+        actionBatch: [routedPlan.agentStep],
+        stopConditions: ["after_each_action_reobserve"],
+        ...baseMeta,
+        source: routedPlan.source || "agent_brain_entry_route",
+        sourceDetail: "deepseek_entry_route_direct_action",
+        model: "deepseek_v4",
+        modelId: "deepseek_v4",
+        modelLabel: "DeepSeek AgentBrain",
+        agentBrainRoute: orchestration.agentBrainRoute,
+        taskSemanticContract: null,
+        taskExecutionContract: null,
+        decisionOwner: "deepseek",
+        exclusiveVisualSession: false,
+        debug: {
+          totalMs: Date.now() - startedAt,
+          agentBrainMs: orchestration.agentBrainMs,
+          agentBrainSource: orchestration.agentBrainSource || "deepseek_main_brain_two_layer_router",
+          agentBrainError: orchestration.agentBrainError || "",
+          visualCalled: false,
+          localSemanticFallbackUsed: false,
+        },
+        version: WORKER_VERSION,
+      };
+    }
+    if (!verifiedSurface.guiPlusEligible) {
+      const reason = safeText(
+        orchestration.agentBrainRoute?.reason ||
+          "DeepSeek did not select an exact installed target package before GUI Plus handoff.",
+        300
+      );
+      const step = {
+        type: "need_user_help",
+        reason,
+        riskLevel: "low",
+        requiresConfirmation: false,
+      };
+      return {
+        ok: true,
+        reply: reason,
+        agentStep: step,
+        agentState: {
+          isComplete: false,
+          expectedProgress: false,
+          isWrong: false,
+          confidence: 0.45,
+          reason,
+          nextHint: "DeepSeek must return open_app with an exact packageName from appContext, or ask the user to choose an app.",
+        },
+        agentSteps: [step],
+        steps: [step],
+        actionBatch: [step],
+        stopConditions: ["after_each_action_reobserve"],
+        ...baseMeta,
+        source: "agent_brain_target_binding_required",
+        sourceDetail: "deepseek_must_select_target_before_gui_plus",
+        model: "deepseek_v4",
+        modelId: "deepseek_v4",
+        modelLabel: "DeepSeek AgentBrain",
+        agentBrainRoute: orchestration.agentBrainRoute,
+        decisionOwner: "deepseek",
+        exclusiveVisualSession: false,
+        verifiedSurfaceProtocol: verifiedSurface,
+        expectedActionObservationId: verifiedSurface.observationId || "",
+        debug: {
+          totalMs: Date.now() - startedAt,
+          agentBrainMs: orchestration.agentBrainMs,
+          agentBrainSource: orchestration.agentBrainSource || "deepseek_main_brain_two_layer_router",
+          agentBrainError: orchestration.agentBrainError || "",
+          visualCalled: false,
+          guiPlusBlockedUntilTargetVerified: true,
+          localSemanticFallbackUsed: false,
+        },
+        version: WORKER_VERSION,
+      };
+    }
     return await handleOfficialAliyunGuiPlusLoopStep({
       body,
       startedAt,
@@ -11500,6 +11715,7 @@ module.exports = {
   clientSupportedDeviceToolTypes,
   normalizeImages,
   buildAgentBrainRouteMessages,
+  verifiedVisualSurfaceProtocol,
   normalizeAndroidVisualExecutionProtocol,
   normalizeGuiPlusInteractionHistory,
   guiPlusInteractionHistoryFromRecentActions,
