@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v108-contextual-gui-authorization";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v109-stable-gui-tool-loop";
 const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
@@ -8495,10 +8495,7 @@ function buildOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext
     "You have direct mobile_use capability to open installed apps and operate their normal UI. Being on the AI Assistant host is not a limitation and is never a reason to ask the user to open an app manually.",
     "If the instruction names an app and that app appears uniquely in the canonical installed-app list, do not ask which app to use and do not tell the user to open it. If it is not foreground, output action=open with the exact canonical label; if it is foreground, continue inside it.",
     "For external-app tasks while assistantHost=true, the normal recovery action is action=open for the intended canonical app. Do not answer that you cannot directly operate the app, and do not delegate ordinary opening, searching, navigation, selection, or clicking steps to the user.",
-    "Judge user involvement from the actual consequence of the next action in the current UI context, never from keyword matching. The same visible words may be harmless search content or a real credential/commit control.",
-    "Continue ordinary navigation and form preparation autonomously. Immediately before a next action would actually commit a consequential external effect, use action=interact with a concrete confirmation question; after the user's reply, inspect the fresh screenshot and decide the next action yourself.",
-    "When private input or human authentication is genuinely required, use action=interact and ask the user to complete it directly in the target app. Never ask the user to disclose the secret in chat.",
-    "Ask for clarification only when GUI Plus genuinely cannot infer a required fact from the complete instruction, screenshot, installed-app list, history and tool_response.",
+    "Use contextual visual judgment for user involvement; never classify risk by keyword matching. Continue ordinary preparation, use interact immediately before a consequential external effect, and ask users to complete private input directly in the target app.",
     "The GUI Plus/User interaction history below is authoritative dialogue context. Treat the latest user reply as a direct continuation of your latest interact request, preserve all stated constraints, and continue the same visual session. You may ask another interact question when further clarification is genuinely necessary.",
     "When the interaction history says the user completed a sensitive step in the target app, do not request the secret itself. Inspect the fresh screenshot and continue or ask the user to retry only if the screen still requires private input.",
     "Do not use action=interact merely because the user left subjective preferences unspecified. For requests such as '挑一个合适的', make a reasonable visible choice yourself from the available products or options and continue.",
@@ -8538,7 +8535,10 @@ function buildPureOfficialGuiPlusInstruction(goal, recentActions = [], deviceCon
     : "DeepSeek AgentBrain route: visual_agent.";
   const feedback = runtimeVerificationHintForPrompt(agentMemory);
   return [
-    "Please generate the next move according to the UI screenshot, instruction and previous actions.",
+    "Generate exactly one official mobile_use tool call for the next move. Never return prose outside the tool call.",
+    "Keep the complete original instruction authoritative across every turn. Treat the latest GUI Plus/User interaction reply as a continuation of the same task, not as a new task.",
+    "Before acting, compare the current screenshot, previous actions and latest Android tool response with the remaining goal. Choose the action most likely to create visible progress; if the last route opened an unrelated or dead-end page, recover with Back or another visually justified route instead of random exploration.",
+    "Judge user involvement contextually from the actual next action, never from words in the instruction or UI. Continue ordinary navigation autonomously; use action=interact only when information or user participation is genuinely required, including immediately before a consequential external effect.",
     `Instruction: ${aliyunGuiDateInfo()}${safeText(goal, 240)}`,
     `Installed applications available to mobile_use action=open: ${formatCanonicalVisualAppPairs(deviceContext, goal, 160)}.`,
     routeContext,
@@ -9149,10 +9149,7 @@ function shouldSelfReviewGuiPlusInteraction(compact, snapshot = null, deviceCont
       safeText(value.packageName || "", 140)
   );
   if (controllerHandoffActive && !validControllerOpen) return true;
-  return Boolean(
-    value.a === "need_user_help" &&
-      value.interactionProtocol === "gui_plus_dialogue_v1"
-  );
+  return Boolean(value.a === "need_user_help" && value.interactionProtocol !== "gui_plus_dialogue_v1");
 }
 
 function buildGuiPlusInteractionSelfReviewPrompt(goal, snapshot, deviceContext, agentMemory, compact) {
@@ -9165,7 +9162,7 @@ function buildGuiPlusInteractionSelfReviewPrompt(goal, snapshot, deviceContext, 
   const interactionHistory = resolveGuiPlusInteractionHistory(null, agentMemory, [], null);
   return [
     "<interaction_self_review>",
-    "Review your immediately previous action=interact before it is shown to the user.",
+    "Your immediately previous response did not satisfy the official mobile_use tool-call protocol. Correct the protocol without changing the task.",
     "This is not a new user instruction. Keep the original task and current screenshot authoritative.",
     `Original instruction: ${safeText(goal, 240)}`,
     `Current foreground package: ${currentPackage || "unknown"}; assistantHost=${assistantHost}; controllerHandoffActive=${controllerHandoffActive}.`,
@@ -9268,7 +9265,7 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session
   let interactionSelfReviewChangedAction = false;
   let interactionSelfReviewError = "";
 
-  if (false && shouldSelfReviewGuiPlusInteraction(compact, snapshot, deviceContext, agentMemory)) {
+  if (shouldSelfReviewGuiPlusInteraction(compact, snapshot, deviceContext, agentMemory)) {
     const elapsedMs = Date.now() - startedAt;
     const remainingBudgetMs = Math.max(
       0,
@@ -9737,9 +9734,6 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
 
   let agentStep = pureAgentStepFromGuiPlusCompact(parsed?.guiPlusCompact, supportedSteps, goal);
   let agentState = pureAgentStateFromGuiPlusStep(agentStep, parsed?.guiPlusCompact, agentMemory);
-
-  // TEST MODE: pass the cloud action through without backend safety judging or rewriting.
-  agentStep = { ...agentStep, riskLevel: "low", requiresConfirmation: false };
 
   const totalMs = Date.now() - startedAt;
   const agentSteps = [agentStep];
