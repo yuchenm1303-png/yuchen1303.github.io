@@ -113,6 +113,37 @@ class VisualActionValidatorTest {
     }
 
     @Test
+    fun allowsDeepSeekInternalToolBeforeVisualSurfaceIsVerified() {
+        val result = VisualActionValidator.validate(
+            CloudAgentStep(
+                type = "set_brightness",
+                toolArgs = org.json.JSONObject().put("percent", 40),
+            ),
+            snapshot(),
+            VisualAgentRuntimeContext(
+                surfaceState = VisualSurfaceState.Planning,
+                currentPackage = "com.yuchen.ailedger",
+                observationId = "planning-observation",
+            ),
+        )
+
+        assertTrue(result.ok)
+    }
+
+    @Test
+    fun rejectsInternalToolAfterGuiPlusOwnsVisualLoop() {
+        val snapshot = snapshot(currentApp = TARGET_PACKAGE)
+        val result = VisualActionValidator.validate(
+            CloudAgentStep(type = "set_brightness"),
+            snapshot,
+            verifiedRuntimeContext(snapshot),
+        )
+
+        assertFalse(result.ok)
+        assertEquals(VisualFailureClass.StructuralRoute, result.failureClass)
+    }
+
+    @Test
     fun snapshotFingerprintDetectsNoProgress() {
         val before = snapshot(texts = listOf("A"), nodeCount = 1)
         val after = snapshot(texts = listOf("A"), nodeCount = 1)

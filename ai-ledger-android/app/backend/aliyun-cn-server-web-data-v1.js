@@ -104,7 +104,8 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v98-controller-route-repair";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v101-cloud-route-owned-executors";
+const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
 let RUNTIME_REQUEST_COUNT = 0;
@@ -1375,7 +1376,10 @@ function verifiedVisualSurfaceProtocol(body = null, snapshot = null, deviceConte
   );
   const explicitlyEligible = runtime.guiPlusEligible === true;
   const guiPlusEligible = Boolean(
-    explicitlyEligible && packageMatches && surfaceState === "work_surface"
+    explicitlyEligible &&
+      selectedTargetPackage &&
+      selectedTargetPackage === verifiedTargetPackage &&
+      surfaceState === "work_surface"
   );
   return {
     schema: "verified_visual_surface_protocol_v1",
@@ -5121,64 +5125,25 @@ function agentBrainRouteScreenForPrompt(snapshot) {
   };
 }
 
-function agentBrainRouteKeywordHints(goal) {
-  return {
-    likelySystemTool: false,
-    likelyVisualPage: false,
-    likelyOpenThenVisual: false,
-    highRisk: false,
-    source: "no_keyword_hints",
-  };
-}
-
-function scoreAgentBrainAppCandidate(goal, app, domain, currentPackage) {
-  const g = normalizeAppMatchText(goal);
-  const pkg = safeText(app?.packageName || "", 120);
-  const names = [app?.label, ...(Array.isArray(app?.aliases) ? app.aliases : [])]
-    .map(normalizeAppMatchText)
-    .filter(Boolean);
-  let score = 0;
-  if (pkg && pkg === currentPackage) score += 120;
-  for (const name of names) {
-    if (!name) continue;
-    if (g.includes(name) || name.includes(g)) score = Math.max(score, 1000 + Math.min(name.length, g.length));
-    if (name && g && (g.includes(name.slice(0, Math.min(3, name.length))) || name.includes(g.slice(0, Math.min(3, g.length))))) score = Math.max(score, 260 + Math.min(name.length, g.length));
-  }
-  if (isDomainTask(domain) && appMatchesAnyKeyword(app, agentDomainAppKeywords(domain))) score = Math.max(score, 780);
-  return score;
-}
-
 function agentBrainRouteAppCandidates(goal, snapshot, deviceContext, max = AGENT_BRAIN_ROUTE_APP_CANDIDATES_MAX) {
   const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
-  const goalKey = normalizeForMatch(goal);
-  const apps = canonicalVisualAppPairsFromDeviceContext(deviceContext, 160)
-    .map((app, index) => {
-      const labelKey = normalizeForMatch(app.label);
-      const packageKey = normalizeForMatch(app.packageName);
-      return {
-        label: app.label,
-        packageName: app.packageName,
-        aliases: Array.isArray(app.aliases) ? app.aliases : [],
-        capabilities: Array.isArray(app.capabilities) ? app.capabilities : [],
-        source: "android_canonical_inventory",
-        current: Boolean(currentPackage && app.packageName === currentPackage),
-        explicitIdentityMatch: Boolean(
-          goalKey && (
-            (labelKey && goalKey.includes(labelKey)) ||
-            (packageKey && goalKey.includes(packageKey))
-          )
-        ),
-        index,
-      };
-    })
-    .sort((a, b) =>
-      Number(b.explicitIdentityMatch) - Number(a.explicitIdentityMatch) ||
-      Number(b.current) - Number(a.current) ||
-      a.index - b.index
-    )
-    .slice(0, Math.max(1, Math.min(160, Number(max || 160))));
+  return canonicalVisualAppPairsFromDeviceContext(deviceContext, 160)
+    .slice(0, Math.max(1, Math.min(160, Number(max || 160))))
+    .map((app) => ({
+      label: app.label,
+      packageName: app.packageName,
+      aliases: Array.isArray(app.aliases) ? app.aliases : [],
+      capabilities: Array.isArray(app.capabilities) ? app.capabilities : [],
+      source: "android_canonical_inventory",
+      current: Boolean(currentPackage && app.packageName === currentPackage),
+    }));
+}
 
-  return apps.map(({ index, ...app }) => app);
+function isCloudRouteVisualLoopRequest(body) {
+  return Boolean(
+    isVisualAgentStepRequest(body) &&
+      safeText(body?.agentSessionProtocol, 120) === ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL
+  );
 }
 
 function compactAgentBrainDeviceForRoute(goal, snapshot, deviceContext) {
@@ -5247,17 +5212,12 @@ function buildAgentBrainRouteMessages(goal, snapshot, recentActions, deviceConte
   };
 
   const system = [
-    "Verified-surface protocol is authoritative. When verifiedSurface.guiPlusEligible=false, route=visual_agent by itself is invalid. Select an exact canonical installed app and return route=hybrid with device_tool/open_app first, or ask_user only when the target cannot be resolved from cloud-provided aliases and capabilities.",
-    "GUI Plus may receive control only when surfaceState=work_surface and currentPackage=selectedTargetPackage=verifiedTargetPackage. Never ask GUI Plus to find, choose, or launch an app from the launcher, assistant UI, recents, or another package.",
-    "installedApps aliases and capabilities are factual cloud evidence supplied by the device. Use them semantically; do not replace them with local keyword or regex rules.",
-    "你是 Android 手机智能体的 DeepSeek 总主脑，只输出严格 JSON。",
-    "你的职责只有两项：理解用户完整语义；在内部控制与 GUI Plus 视觉智能之间路由。不要定位坐标，不要替 GUI Plus 操作页面。",
-    "禁止使用关键词、正则或固定句式判断用户意图。必须按完整语义、当前屏幕、最近执行结果和设备上传的 canonical installedApps 理解任务。",
-    "route=device_tool：任务可由 Android 原生内部工具确定性完成。route=visual_agent：任务需要观察并操作 App 页面。route=hybrid：先执行一个确定性内部动作（通常是打开 canonical App），随后把原始目标原样交给 GUI Plus。",
-    "只有真正缺少不可推断的关键信息时才 route=ask_user。不能因为本地规则没有识别出 App、页面或句式而 ask_user。若原始目标已明确写出 App 名称，且 canonical installedApps 中存在唯一匹配，禁止询问‘在哪个应用中’，必须选择 visual_agent 或 hybrid。",
-    "如果用户明确提到某个 App，请从 installedApps 中按语义找到对应 canonical label 和 packageName；不要编造应用名或包名。若该 App 在 installedApps 中唯一匹配且当前前台不是它，必须 route=hybrid，并把第一步明确写成 executor=device_tool、tool=open_app、args.appName=canonical label、args.packageName=canonical packageName；禁止让 GUI Plus 通过 Back/Home/滑桌面寻找图标。只有当前前台已经是目标 App 时，才直接 route=visual_agent。",
-    "App 内页面、按钮、联系人、设置页、搜索结果等由 GUI Plus 理解并执行。内部控制只负责打开 App、系统设置、设备参数和原生账本能力。",
-    "visual_agent 步骤的 goal 必须逐字保留用户原始目标，不得删掉 App、对象、动作、范围或约束，不得改写成关键词、摘要或规则标签。",
+    "你是 Android 智能体唯一的语义路由主脑 DeepSeek。只输出严格 JSON，不操作坐标，不替 GUI Plus 点击页面。",
+    "完整理解用户原始指令，并在 Android 确定性内部工具与 GUI Plus 视觉循环之间选择。installedApps 的 label、aliases、capabilities、packageName 是设备上传的事实；禁止用本地关键词规则代替你的语义判断。",
+    "当 verifiedSurface.guiPlusEligible=false 且任务需要操作 App 页面时，必须 route=hybrid，第一步必须是 executor=device_tool、tool=open_app，并从 device.installedApps 原样复制唯一目标的 label 与 packageName。即使目标包已经在前台，也返回 open_app 以完成目标绑定。此时禁止 route=visual_agent。",
+    "当 verifiedSurface.guiPlusEligible=true 时，App 已打开且 Android 已验证包名；需要页面操作的任务 route=visual_agent，并把用户原始目标逐字保留给 GUI Plus。",
+    "route=device_tool 仅用于无需 GUI 的确定性系统或内部工具。只有 installedApps 中确实无法唯一确定目标且缺少信息时才 route=ask_user；用户明确说 QQ 且目录存在唯一 QQ 时不得 ask_user。",
+    "GUI Plus 不负责在桌面、最近任务或助手界面寻找和启动 App。Android 只执行你返回的真实 packageName，并校验安装、可启动、安全确认和执行结果，不参与语义选 App。",
     "高风险内部工具必须标注 risk 和 requiresConfirmation；不允许的任务 route=refuse。",
     `返回格式：{"agentBrainRoute":{"route":"device_tool|visual_agent|hybrid|ask_user|refuse","confidence":0.0,"risk":"low|medium|high|critical","reason":"","question":"","refusalReason":"","steps":[{"executor":"device_tool|visual_agent","tool":"${[...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"].join("|")}","args":{},"goal":"","risk":"low|medium|high|critical","requiresConfirmation":false,"reason":""}]}}`,
   ].join("\n");
@@ -5378,10 +5338,11 @@ async function resolveAgentBrainRouteForStep(goal, snapshot, recentActions, devi
     return { route: null, source: "agent_brain_empty_goal", elapsedMs: Date.now() - started, error: "empty_goal", cached: false };
   }
   const verifiedSurface = verifiedVisualSurfaceProtocol(null, snapshot, deviceContext, agentMemory);
-  const cacheKey = agentBrainRouteCacheKey(cleanGoal, snapshot, deviceContext, agentMemory);
+  const useCache = options?.useCache !== false;
+  const cacheKey = useCache ? agentBrainRouteCacheKey(cleanGoal, snapshot, deviceContext, agentMemory) : "";
   const forceRefresh = Boolean(options?.forceRefresh || agentMemoryRequestsRouteRefresh(agentMemory) || verifiedSurface.routeRefreshRequested);
-  if (forceRefresh) AGENT_BRAIN_ROUTE_CACHE.delete(cacheKey);
-  const cachedRoute = forceRefresh ? null : getCachedAgentBrainRoute(cacheKey);
+  if (useCache && forceRefresh) AGENT_BRAIN_ROUTE_CACHE.delete(cacheKey);
+  const cachedRoute = useCache && !forceRefresh ? getCachedAgentBrainRoute(cacheKey) : null;
   if (cachedRoute) return { route: cachedRoute, source: "agent_brain_route_cache", elapsedMs: Date.now() - started, error: "", cached: true };
 
   const timeoutMs = boundedAgentTimeoutMs(AGENT_BRAIN_ROUTE_TIMEOUT_MS, agentRemainingBudgetMs(startedAt), AGENT_BRAIN_ROUTE_TIMEOUT_MS);
@@ -5416,7 +5377,7 @@ async function resolveAgentBrainRouteForStep(goal, snapshot, recentActions, devi
       throw new Error("DeepSeek AgentBrain returned no explicit route decision");
     }
     const route = normalizeAgentBrainRoutePlan(parsed, cleanGoal);
-    setCachedAgentBrainRoute(cacheKey, route);
+    if (useCache) setCachedAgentBrainRoute(cacheKey, route);
     return { route, source: "agent_brain_route_step_deepseek", elapsedMs: Date.now() - started, error: "", cached: false, raw: safeText(raw, 800) };
   } catch (error) {
     return {
@@ -5494,22 +5455,9 @@ function canonicalInstalledAppForAgentBrainStep(routeStep, deviceContext) {
     args.packageName || args.package || args.pkg || routeStep.packageName || "",
     120
   );
-  const requestedName = safeText(
-    args.appName || args.app || args.label || args.name || routeStep.appName || routeStep.targetApp || "",
-    80
-  );
   const apps = canonicalVisualAppPairsFromDeviceContext(deviceContext, 160);
-
-  if (requestedPackage) {
-    const exactPackage = apps.find((app) => app.packageName === requestedPackage);
-    if (exactPackage) return exactPackage;
-  }
-  if (requestedName) {
-    const key = normalizeCanonicalVisualAppLabel(requestedName);
-    const exactName = apps.filter((app) => normalizeCanonicalVisualAppLabel(app.label) === key);
-    if (exactName.length === 1) return exactName[0];
-  }
-  return null;
+  if (!requestedPackage) return null;
+  return apps.find((app) => app.packageName === requestedPackage) || null;
 }
 
 function agentBrainRouteToDirectAgentPlan(route, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, reasonTag = "agent_brain_direct") {
@@ -5544,8 +5492,6 @@ function agentBrainRouteToDirectAgentPlan(route, snapshot, supportedSteps, goal,
         // Do not ask the user and do not guess. GUI Plus receives the original goal and full app inventory.
         continue;
       }
-      const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
-      if (currentPackage && currentPackage === canonical.packageName) continue;
       normalizedArgs = {
         ...normalizedArgs,
         appName: canonical.label,
@@ -9676,32 +9622,31 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     screenshotInfo,
     deviceContext,
     agentMemory,
-    agentBrainRoute = null,
-    agentBrainMs = 0,
-    agentBrainSource = "",
-    agentBrainError = "",
     recentAgentActions,
     requestBytes,
     readBodyMs,
     session,
     guiProviderConfig,
     baseMeta,
-    body = null,
-    controllerHandoffActive: declaredControllerHandoffActive = false,
   } = context;
   const exclusiveGuiPlusVisualSession = isExclusiveGuiPlusVisualMemory(agentMemory);
-  const controllerHandoffActive = Boolean(
-    declaredControllerHandoffActive ||
-      isControllerHandoffSurface(body, snapshot, deviceContext, agentMemory)
-  );
-  const acceptedAgentBrainRoute = exclusiveGuiPlusVisualSession ? null : agentBrainRoute;
 
-  if (!screenshotInfo?.hasImage && !controllerHandoffActive) {
+  if (!exclusiveGuiPlusVisualSession) {
+    return {
+      ok: false,
+      error: "gui_plus_visual_ownership_required",
+      code: "gui_plus_visual_ownership_required",
+      message: "GUI Plus may run only after Android verifies the cloud-selected target package.",
+      ...baseMeta,
+      version: WORKER_VERSION,
+    };
+  }
+  if (!screenshotInfo?.hasImage) {
     return {
       ok: false,
       error: "visual_screenshot_required",
       code: "visual_screenshot_required",
-      message: "GUI Plus requires the current screenshot outside the declared controller-handoff stage.",
+      message: "GUI Plus requires a fresh Android screenshot.",
       ...baseMeta,
       version: WORKER_VERSION,
     };
@@ -9757,18 +9702,12 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       modelId: "aliyun_gui_plus",
       modelLabel: "阿里云 GUI Plus · 云端视觉决策",
       providerModel: ALIYUN_GUI_MODEL,
-      agentBrainRoute: acceptedAgentBrainRoute,
-      decisionOwner: exclusiveGuiPlusVisualSession ? "gui_plus" : "cloud_models",
-      exclusiveVisualSession: exclusiveGuiPlusVisualSession,
+      decisionOwner: "gui_plus",
+      exclusiveVisualSession: true,
       debug: {
         providerMs,
-        agentBrainMs: exclusiveGuiPlusVisualSession ? 0 : agentBrainMs,
-        agentBrainSource: exclusiveGuiPlusVisualSession
-          ? "disabled_by_gui_plus_exclusive_visual_session"
-          : agentBrainSource,
-        agentBrainError: exclusiveGuiPlusVisualSession ? "" : agentBrainError,
-        decisionOwner: exclusiveGuiPlusVisualSession ? "gui_plus" : "cloud_models",
-        exclusiveVisualSession: exclusiveGuiPlusVisualSession,
+        decisionOwner: "gui_plus",
+        exclusiveVisualSession: true,
         localSemanticFallbackUsed: false,
       },
       version: WORKER_VERSION,
@@ -9812,11 +9751,7 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     actionBatch,
     stopConditions,
     ...baseMeta,
-    sourceDetail: controllerHandoffActive
-      ? "aliyun_gui_plus_controller_handoff_open"
-      : exclusiveGuiPlusVisualSession
-        ? "aliyun_gui_plus_exclusive_visual_history_loop"
-        : "aliyun_gui_plus_cloud_owned_history_loop",
+    sourceDetail: "aliyun_gui_plus_exclusive_visual_history_loop",
     model: "aliyun_gui_plus",
     modelId: "aliyun_gui_plus",
     modelLabel: "阿里云 GUI Plus · 云端视觉决策",
@@ -9834,19 +9769,15 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     deviceIntentError: null,
     visualFrame: null,
     semanticSafety,
-    routePlan: acceptedAgentBrainRoute,
-    agentBrainRoute: acceptedAgentBrainRoute,
-    taskSemanticContract: null,
-    taskExecutionContract: null,
     executionFeedbackAccepted: agentMemory?.executionFeedback || null,
     lastToolResponseAccepted: agentMemory?.lastToolResponse || null,
     finishVerificationRequested,
     awaitingFinishVerification,
     visualReplanRequested: agentMemoryRequestsGuiPlusReplan(agentMemory),
     guiPlusReplanRequested: agentMemoryRequestsGuiPlusReplan(agentMemory),
-    routeRefreshRequested: exclusiveGuiPlusVisualSession ? false : agentMemoryRequestsRouteRefresh(agentMemory),
-    decisionOwner: exclusiveGuiPlusVisualSession ? "gui_plus" : "cloud_models",
-    exclusiveVisualSession: exclusiveGuiPlusVisualSession,
+    routeRefreshRequested: false,
+    decisionOwner: "gui_plus",
+    exclusiveVisualSession: true,
     persistentRouteState: null,
     guiThinking: {
       enabled: Boolean(parsed?.guiPlusThinkingEnabled),
@@ -9860,13 +9791,11 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
     deviceContextSchemaAccepted: safeText(deviceContext?.schema || "", 100),
     appInventoryHashAccepted: safeText(deviceContext?.appInventoryHash || deviceContext?.inventory?.inventoryHash || "", 120),
     installedAppCountReceived: installedAppsFromDeviceContext(deviceContext).length,
-    controllerHandoffActive,
     debug: {
       currentApp: snapshot.currentApp,
       packageName: snapshot.packageName,
       nodeCount: snapshot.nodeCount,
       hasScreenshot: screenshotInfo.hasImage,
-      controllerHandoffActive,
       screenshotSize: `${screenshotInfo.width}x${screenshotInfo.height}`,
       displaySize: `${screenshotInfo.displayWidth}x${screenshotInfo.displayHeight}`,
       supportedAgentSteps: supportedSteps,
@@ -9874,12 +9803,6 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       actionBatchCount: 1,
       stopConditions,
       installedAppCount: installedAppsFromDeviceContext(deviceContext).length,
-      agentBrainRoute: acceptedAgentBrainRoute,
-      agentBrainMs: exclusiveGuiPlusVisualSession ? 0 : agentBrainMs,
-      agentBrainSource: exclusiveGuiPlusVisualSession
-        ? "disabled_by_gui_plus_exclusive_visual_session"
-        : agentBrainSource,
-      agentBrainError: exclusiveGuiPlusVisualSession ? "" : agentBrainError,
       requestBytes,
       readBodyMs,
       screenshotBytesApprox,
@@ -9902,12 +9825,9 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       guiTimeoutMs: Number(parsed?.guiPlusTimeoutMs || 0),
       persistentRouteState: null,
       completionGuard: parsed?.completionGuard || null,
-      agentArchitecture: exclusiveGuiPlusVisualSession
-        ? "gui_plus_exclusive_visual_session_backend_transport_only"
-        : "deepseek_cloud_router_gui_plus_cloud_visual_action_backend_transport_only",
-      agentBrainBypassed: exclusiveGuiPlusVisualSession,
-      taskContractBypassed: exclusiveGuiPlusVisualSession,
-      routePlannerBypassed: exclusiveGuiPlusVisualSession,
+      agentArchitecture: "gui_plus_exclusive_visual_session_backend_transport_only",
+      agentBrainBypassed: true,
+      routePlannerBypassed: true,
       guiRawOutputLen: Number(parsed?.guiPlusRawLength || 0),
       guiCompactAction: parsed?.guiPlusCompact || null,
       executionFeedbackAccepted: agentMemory?.executionFeedback || null,
@@ -9916,11 +9836,11 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       awaitingFinishVerification,
       visualReplanRequested: agentMemoryRequestsGuiPlusReplan(agentMemory),
       guiPlusReplanRequested: agentMemoryRequestsGuiPlusReplan(agentMemory),
-      routeRefreshRequested: exclusiveGuiPlusVisualSession ? false : agentMemoryRequestsRouteRefresh(agentMemory),
+      routeRefreshRequested: false,
       sessionId: session.id,
       sessionStep: session.step,
-      decisionOwner: exclusiveGuiPlusVisualSession ? "gui_plus" : "cloud_models",
-      exclusiveVisualSession: exclusiveGuiPlusVisualSession,
+      decisionOwner: "gui_plus",
+      exclusiveVisualSession: true,
       localSemanticRouteUsed: false,
       localCompletionDecisionUsed: false,
       localSubgoalStateUsed: false,
@@ -10098,24 +10018,27 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
     };
   }
 
-  const requestedStrictAliyunGuiPlusDirect = Boolean(
-    (screenshotInfo.hasImage || controllerHandoffActive) &&
-      guiProviderConfig.requestedProvider === "aliyun_gui_plus"
-  );
+  // v13 is an isolated protocol family: it must never fall through to the legacy
+  // task-contract/router stack, including on the first turn without a screenshot.
+  const cloudRouteVisualLoopRequest = isCloudRouteVisualLoopRequest(body);
 
-  if (requestedStrictAliyunGuiPlusDirect) {
-    const orchestration = await resolveTaskOrchestrationContext({
-      body,
-      goal,
-      snapshot,
-      deviceContext,
-      rawAgentMemory,
-      recentAgentActions,
-      session,
-      startedAt,
-    });
-    let effectiveAgentBrainRoute = orchestration.agentBrainRoute;
-    let routedPlan = exclusiveGuiPlusVisualSession
+  if (cloudRouteVisualLoopRequest) {
+    const routeResult = exclusiveGuiPlusVisualSession
+      ? null
+      : await resolveAgentBrainRouteForStep(
+          goal,
+          snapshot,
+          recentAgentActions,
+          deviceContext,
+          rawAgentMemory,
+          startedAt,
+          { forceRefresh: true, useCache: false }
+        );
+    const effectiveAgentBrainRoute = routeResult?.route || null;
+    const agentBrainMs = Number(routeResult?.elapsedMs || 0);
+    const agentBrainSource = routeResult?.source || (exclusiveGuiPlusVisualSession ? "gui_plus_verified_surface" : "deepseek_cloud_route");
+    const agentBrainError = routeResult?.error || "";
+    const routedPlan = exclusiveGuiPlusVisualSession
       ? null
       : agentBrainRouteToDirectAgentPlan(
           effectiveAgentBrainRoute,
@@ -10126,38 +10049,6 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
           deviceContext,
           "agent_brain_entry_route"
         );
-    const controllerRouteNeedsRepair = Boolean(
-      !exclusiveGuiPlusVisualSession &&
-      !verifiedSurface.guiPlusEligible &&
-      (!routedPlan?.agentStep || routedPlan.agentStep.type === "need_user_help")
-    );
-    if (controllerRouteNeedsRepair) {
-      const repairFeedback = [
-        ...recentAgentActions,
-        "controller_selection_rejected:failureClass=structural_route|requiredAction=open_app_exact_package|packageNameRequired=true|selectOnlyFrom=device.installedApps|doNotReturn=visual_agent,need_user_help",
-      ].slice(-12);
-      const repairResult = await resolveAgentBrainRouteForStep(
-        goal,
-        snapshot,
-        repairFeedback,
-        deviceContext,
-        { ...orchestration.agentMemory, routeRefreshRequested: true },
-        startedAt,
-        { forceRefresh: true }
-      );
-      if (repairResult?.route) {
-        effectiveAgentBrainRoute = repairResult.route;
-        routedPlan = agentBrainRouteToDirectAgentPlan(
-          effectiveAgentBrainRoute,
-          snapshot,
-          supportedSteps,
-          goal,
-          screenshotInfo,
-          deviceContext,
-          "agent_brain_controller_repair"
-        );
-      }
-    }
     if (routedPlan?.agentStep) {
       return {
         ok: true,
@@ -10175,17 +10066,13 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         modelId: "deepseek_v4",
         modelLabel: "DeepSeek AgentBrain",
         agentBrainRoute: effectiveAgentBrainRoute,
-        taskSemanticContract: null,
-        taskExecutionContract: null,
         decisionOwner: "deepseek",
         exclusiveVisualSession: false,
         debug: {
           totalMs: Date.now() - startedAt,
-          agentBrainMs: orchestration.agentBrainMs,
-          agentBrainSource: controllerRouteNeedsRepair
-            ? "deepseek_main_brain_controller_repair"
-            : orchestration.agentBrainSource || "deepseek_main_brain_two_layer_router",
-          agentBrainError: orchestration.agentBrainError || "",
+          agentBrainMs,
+          agentBrainSource,
+          agentBrainError,
           visualCalled: false,
           localSemanticFallbackUsed: false,
         },
@@ -10233,9 +10120,9 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
         expectedActionObservationId: verifiedSurface.observationId || "",
         debug: {
           totalMs: Date.now() - startedAt,
-          agentBrainMs: orchestration.agentBrainMs,
-          agentBrainSource: orchestration.agentBrainSource || "deepseek_main_brain_two_layer_router",
-          agentBrainError: orchestration.agentBrainError || "",
+          agentBrainMs,
+          agentBrainSource,
+          agentBrainError,
           visualCalled: false,
           guiPlusBlockedUntilTargetVerified: true,
           localSemanticFallbackUsed: false,
@@ -10244,30 +10131,19 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
       };
     }
     return await handleOfficialAliyunGuiPlusLoopStep({
-      body,
       startedAt,
       goal,
       snapshot,
-      supportedSteps,
+      supportedSteps: supportedSteps.filter((type) => !INTERNAL_TOOL_AGENT_STEP_TYPES.includes(type)),
       screenshotInfo,
       deviceContext,
-      agentMemory: orchestration.agentMemory,
-      taskSemanticContract: orchestration.taskSemanticContract,
-      taskExecutionContract: orchestration.taskExecutionContract,
-      taskContractJudgeMs: orchestration.taskContractJudgeMs,
-      agentBrainRoute: orchestration.agentBrainRoute,
-      agentBrainMs: orchestration.agentBrainMs,
-      agentBrainSource: orchestration.agentBrainSource || "deepseek_main_brain_two_layer_router",
-      agentBrainError: orchestration.agentBrainError || "",
-      appResolveMs: orchestration.appResolveMs,
+      agentMemory: rawAgentMemory,
       recentAgentActions,
       requestBytes,
       readBodyMs,
       session,
       guiProviderConfig,
       baseMeta,
-      qwenProviderModel,
-      controllerHandoffActive,
     });
   }
 
@@ -11735,6 +11611,7 @@ module.exports = {
   normalizeIntentName,
   isAgentModeRequest,
   isVisualAgentStepRequest,
+  isCloudRouteVisualLoopRequest,
   isExclusiveGuiPlusVisualRequest,
   isExclusiveGuiPlusVisualMemory,
   createVisualAgentStepRoute,

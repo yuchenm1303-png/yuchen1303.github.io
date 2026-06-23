@@ -36,38 +36,44 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun packageDriftInterruptsGuiPlusWithoutChoosingReplacementApp() {
+    fun packageDriftKeepsGuiPlusOwnershipAfterVerifiedHandoff() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
         session.markTargetVerified("com.jingdong.app.mall")
 
-        val interrupted = session.runtimeContext(testSnapshot("com.android.permissioncontroller"))
+        val transientSurface = session.runtimeContext(testSnapshot("com.android.permissioncontroller"))
 
-        assertEquals(VisualSurfaceState.Interrupted, interrupted.surfaceState)
-        assertFalse(interrupted.guiPlusEligible)
-        assertEquals("com.jingdong.app.mall", interrupted.selectedTargetPackage)
-        assertEquals("com.jingdong.app.mall", interrupted.verifiedTargetPackage)
-        assertEquals("com.android.permissioncontroller", interrupted.currentPackage)
+        assertEquals(VisualSurfaceState.WorkSurface, transientSurface.surfaceState)
+        assertTrue(transientSurface.guiPlusEligible)
+        assertEquals("com.jingdong.app.mall", transientSurface.selectedTargetPackage)
+        assertEquals("com.jingdong.app.mall", transientSurface.verifiedTargetPackage)
+        assertEquals("com.android.permissioncontroller", transientSurface.currentPackage)
     }
 
     @Test
-    fun structuralReplanPersistsUntilCloudReturnsAnotherOpenApp() {
+    fun structuralReplanCannotStealOwnershipAfterGuiPlusHandoff() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
         session.markTargetVerified("com.jingdong.app.mall")
         session.markStructuralReplan()
         val routeEpoch = session.routeEpoch
 
-        val stillReplanning = session.runtimeContext(testSnapshot("com.jingdong.app.mall"))
-        assertEquals(VisualSurfaceState.Replanning, stillReplanning.surfaceState)
-        assertFalse(stillReplanning.guiPlusEligible)
-        assertEquals(routeEpoch, stillReplanning.routeEpoch)
+        val stillVisual = session.runtimeContext(testSnapshot("com.android.permissioncontroller"))
+        assertEquals(VisualSurfaceState.WorkSurface, stillVisual.surfaceState)
+        assertTrue(stillVisual.guiPlusEligible)
+        assertEquals(routeEpoch, stillVisual.routeEpoch)
+    }
 
-        session.beginLaunch("com.jingdong.app.mall")
-        session.markTargetVerified("com.jingdong.app.mall")
-        val rebound = session.runtimeContext(testSnapshot("com.jingdong.app.mall"))
-        assertEquals(VisualSurfaceState.WorkSurface, rebound.surfaceState)
-        assertTrue(rebound.guiPlusEligible)
+    @Test
+    fun structuralReplanBeforeTargetBindingStillBelongsToDeepSeek() {
+        val session = VisualExecutionSessionState()
+        session.markStructuralReplan()
+
+        val replanning = session.runtimeContext(testSnapshot("com.yuchen.ailedger"))
+
+        assertEquals(VisualSurfaceState.Replanning, replanning.surfaceState)
+        assertFalse(replanning.guiPlusEligible)
+        assertEquals(1L, replanning.routeEpoch)
     }
 
     @Test

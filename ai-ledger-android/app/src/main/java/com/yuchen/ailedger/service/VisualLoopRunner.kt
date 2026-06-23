@@ -15,7 +15,6 @@ class VisualLoopRunner(
 ) {
     private val applicationContext = appContext.applicationContext
     private val installedAppIndex = InstalledAppIndex(applicationContext)
-    private val appCapabilityRegistry = AppCapabilityRegistry(applicationContext, installedAppIndex)
     private val deviceToolExecutor = DeviceToolExecutor(applicationContext, installedAppIndex)
     private val clientDeviceId by lazy { AgentClientIdentity.getOrCreateDeviceId(applicationContext) }
 
@@ -23,7 +22,6 @@ class VisualLoopRunner(
         goal: String,
         maxSteps: Int = Int.MAX_VALUE,
         executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
-        initialTaskContract: AgentTaskExecutionContract? = null,
     ): AgentTaskRunResult {
         val logs = mutableListOf<AgentTaskStepLog>()
         if (requiresAgentSwitch(executionMode) && !AgentRuntimeController.isEnabled()) {
@@ -43,11 +41,8 @@ class VisualLoopRunner(
         }
         val installedAppsByPackage = installedApps.associateBy { it.packageName }
         val visualAppContext = buildVisualAppContext(installedApps)
-        var taskContract = initialTaskContract
 
         appendRecentAction(recentActions, deviceProfile.toPromptLine())
-        taskContract?.let { appendRecentAction(recentActions, it.toPromptLine()) }
-        appendRecentAction(recentActions, appCapabilityRegistry.compactPromptLine(visualAppContext))
         appendRecentAction(
             recentActions,
             "cloud_routing:v3|mainBrain=deepseek|appSelectionOwner=deepseek|visualOwner=gui_plus|androidSemanticRouting=false|localKeywordMatching=false|targetBindingRequired=true",
@@ -66,11 +61,6 @@ class VisualLoopRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 val observation = captureOnce(forceVisual = true)
-                if (!observation.enabled || !observation.serviceConnected) {
-                    val message = "Accessibility service is not connected; visual loop stopped."
-                    AgentRuntimeController.failTask(message)
-                    return AgentTaskRunResult(false, false, message, logs)
-                }
                 val snapshot = observation.toAgentScreenSnapshot()
                 state.currentPackage = snapshot.currentApp
                 val runtimeContext = executionSession.runtimeContext(snapshot)
@@ -88,8 +78,6 @@ class VisualLoopRunner(
                             agentSessionId = agentSessionId,
                             executionMode = executionMode,
                             deviceProfile = deviceProfile,
-                            taskContract = taskContract,
-                            taskContractRequired = taskContract == null,
                             runtimeContext = runtimeContext,
                         )
                     }
@@ -101,17 +89,11 @@ class VisualLoopRunner(
                 AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
 
                 val step = plan.step
-                val plannerContract = AgentTaskExecutionContract.fromPlannerStep(step)
-                if (taskContract == null && plannerContract != null) {
-                    taskContract = plannerContract
-                    appendRecentAction(recentActions, "task_contract_accepted:${plannerContract.toPromptLine()}")
-                } else if (taskContract != null && plannerContract != null && plannerContract != taskContract) {
-                    appendRecentAction(
-                        recentActions,
-                        "task_contract_change_rejected:active=${taskContract.toPromptLine()}|proposed=${plannerContract.toPromptLine()}",
-                    )
+                if (requiresAccessibilityRuntime(step) && (!observation.enabled || !observation.serviceConnected)) {
+                    val message = "The cloud selected a visual action, but the Android accessibility service is not connected."
+                    AgentRuntimeController.failTask(message)
+                    return AgentTaskRunResult(false, false, message, logs)
                 }
-
                 val validation = VisualActionValidator.validate(step, snapshot, runtimeContext)
                 if (!validation.ok) {
                     val rejection = buildValidationFeedback(step, validation, runtimeContext)
@@ -194,7 +176,6 @@ class VisualLoopRunner(
                     step = step,
                     snapshot = snapshot,
                     installedAppsByPackage = installedAppsByPackage,
-                    taskContract = taskContract,
                 )
                 if (!preparedStep.ok || preparedStep.step == null) {
                     val message = preparedStep.message
@@ -274,7 +255,7 @@ class VisualLoopRunner(
 
                 if (requiresFreshObservation(executableStep)) {
                     val currentBeforeExecution = captureOnce(forceVisual = false).toAgentScreenSnapshot()
-                    executionSession.synchronizeWith(currentBeforeExecution)
+                    executionSession.synchronizeWith()
                     val stillOnVerifiedSurface = executionSession.isVerifiedWorkSurface(currentBeforeExecution)
                     val contextFresh = VisualObservationProtocol.isActionContextFresh(snapshot, currentBeforeExecution)
                     if (!stillOnVerifiedSurface || !contextFresh) {
@@ -345,6 +326,12 @@ class VisualLoopRunner(
                     continue
                 }
 
+                if (executableStep.type in CloudAgentStep.deviceToolTypes) {
+                    val message = result.message.ifBlank { "Internal device tool finished." }
+                    AgentRuntimeController.finishTask(message, completed = result.ok)
+                    return AgentTaskRunResult(result.ok, false, message, logs)
+                }
+
                 if (!result.ok || !result.shouldContinue) {
                     val message = result.message.ifBlank { "Visual action stopped." }
                     if (!pauseForUserAndContinue(message, stopGeneration, state, recentActions, "action_stopped", executableStep)) break
@@ -353,7 +340,7 @@ class VisualLoopRunner(
 
                 delayForStep(executableStep)
                 val after = captureOnce(forceVisual = true).toAgentScreenSnapshot()
-                executionSession.synchronizeWith(after)
+                executionSession.synchronizeWith()
                 val pageChanged = VisualActionValidator.snapshotFingerprint(after) != beforeFingerprint
                 val visualChangeSummary = if (!pageChanged) {
                     state.noProgressCount += 1
@@ -439,7 +426,7 @@ class VisualLoopRunner(
         AgentRuntimeController.beginCleanVisualCapture()
         val result = try {
             delay(OVERLAY_HIDE_STABILIZE_MS)
-            if (step.type == "open_app") {
+            if (step.type in CloudAgentStep.deviceToolTypes) {
                 withContext(Dispatchers.IO) { deviceToolExecutor.execute(step, confirmedHighRisk) }
             } else {
                 withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
@@ -456,7 +443,6 @@ class VisualLoopRunner(
         step: CloudAgentStep,
         snapshot: AgentScreenSnapshot,
         installedAppsByPackage: Map<String, InstalledAppEntry>,
-        taskContract: AgentTaskExecutionContract?,
     ): PreparedVisualStep {
         if (step.type != "open_app") {
             return PreparedVisualStep(ok = true, step = materializeTapCoordinateFrame(step, snapshot))
@@ -484,44 +470,21 @@ class VisualLoopRunner(
         )
     }
 
-    private fun validateCurrentSurface(
-        contract: AgentTaskExecutionContract?,
-        packageName: String,
-        installedAppsByPackage: Map<String, InstalledAppEntry>,
-    ): AppSelectionValidation {
-        contract ?: return AppSelectionValidation(true)
-        if (packageName.isBlank() || packageName == applicationContext.packageName) {
-            return AppSelectionValidation(true)
-        }
-        val installed = installedAppsByPackage[packageName]
-        if (installed == null) {
-            return if (contract.preferredSurface == AgentSurfacePreference.SystemSettings) {
-                AppSelectionValidation(
-                    ok = false,
-                    message = "当前包 $packageName 不是已识别的 system_settings 能力入口；请重新规划回系统设置。",
-                )
-            } else {
-                AppSelectionValidation(true)
-            }
-        }
-        return AppSelectionValidation(true)
-    }
-
-    private fun contractRouteFeedback(packageName: String, message: String, stage: String): String {
-        return buildString {
-            append("task_contract_route_rejected")
-            append("|stage=").append(stage)
-            append("|package=").append(packageName.take(100))
-            append("|reason=").append(message.take(260))
-            append("|requiredAction=replan_with_compatible_installed_app")
-            append("|automaticBack=false")
-        }.take(MAX_RECENT_ACTION_CHARS)
-    }
-
     private fun buildVisualAppContext(apps: List<InstalledAppEntry>): List<VisualAgentAppContextItem> {
-        return appCapabilityRegistry.buildVisualContext(apps)
-            .sortedWith(compareBy<VisualAgentAppContextItem> { it.label.lowercase() }.thenBy { it.packageName })
+        return apps
+            .asSequence()
+            .distinctBy { it.packageName }
+            .map { app ->
+                VisualAgentAppContextItem(
+                    label = app.label.trim(),
+                    packageName = app.packageName.trim(),
+                    aliases = installedAppIndex.aliasesFor(app),
+                    capabilities = emptyList(),
+                )
+            }
+            .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
             .take(MAX_APP_CONTEXT_ITEMS)
+            .toList()
     }
     private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         if (step.type != "tap_xy") return step
@@ -537,7 +500,13 @@ class VisualLoopRunner(
     }
 
     private fun requiresFreshObservation(step: CloudAgentStep): Boolean {
-        return step.type !in setOf("open_app", "wait", "need_user_help", "finish")
+        return step.type !in CloudAgentStep.deviceToolTypes &&
+            step.type !in setOf("wait", "need_user_help", "finish")
+    }
+
+    private fun requiresAccessibilityRuntime(step: CloudAgentStep): Boolean {
+        return step.type == "open_app" ||
+            (step.type !in CloudAgentStep.deviceToolTypes && step.type !in setOf("need_user_help", "finish"))
     }
 
     private fun buildValidationFeedback(
@@ -811,6 +780,13 @@ object VisualActionValidator {
                 VisualFailureClass.StructuralRoute,
             )
         }
+        if (runtimeContext?.guiPlusEligible == true && step.type in CloudAgentStep.deviceToolTypes) {
+            return VisualActionValidation(
+                false,
+                "GUI Plus owns only visual actions after handoff; internal tools and app selection remain owned by DeepSeek.",
+                VisualFailureClass.StructuralRoute,
+            )
+        }
         if (runtimeContext != null && !runtimeContext.guiPlusEligible && step.type !in PRE_WORK_SURFACE_ACTIONS) {
             return VisualActionValidation(
                 false,
@@ -831,28 +807,8 @@ object VisualActionValidator {
         if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
             return VisualActionValidation(false, "Invalid tap coordinates.")
         }
-        if (step.type == "input_text" && runtimeContext == null) {
-            if (step.text.isNullOrBlank()) {
-                return VisualActionValidation(false, "Input text is empty.")
-            }
-            val matchedTarget = snapshot.inputNodes.any { node ->
-                (!step.targetNodeId.isNullOrBlank() && node.id == step.targetNodeId) ||
-                    (!step.targetText.isNullOrBlank() && (
-                        node.text == step.targetText || node.text.contains(step.targetText, ignoreCase = true)
-                    ))
-            }
-            if (step.shouldUseFocusedDirectInput && snapshot.inputNodes.size > 1 && !matchedTarget) {
-                return VisualActionValidation(
-                    false,
-                    "当前页面存在多个输入框，但 GUI Plus 没有提供可确认的输入目标；已阻止盲目输入。",
-                )
-            }
-            if (!step.shouldUseFocusedDirectInput && snapshot.inputNodes.size != 1 && !matchedTarget) {
-                return VisualActionValidation(
-                    false,
-                    "输入动作缺少唯一输入框或明确目标；已阻止将文字写入错误位置。",
-                )
-            }
+        if (step.type == "input_text" && step.text.isNullOrBlank()) {
+            return VisualActionValidation(false, "Input text is empty.")
         }
         return VisualActionValidation(true)
     }
@@ -919,7 +875,7 @@ object VisualActionValidator {
         return "${image.width}x${image.height}:${data.length}:${hash.toString(16)}"
     }
 
-    private val PRE_WORK_SURFACE_ACTIONS = setOf("open_app", "need_user_help")
+private val PRE_WORK_SURFACE_ACTIONS = CloudAgentStep.deviceToolTypes + "need_user_help"
     private const val TAP_CLUSTER_BUCKET_PX = 96f
     private const val VISUAL_FINGERPRINT_NODE_THRESHOLD = 3
     private const val VISUAL_FINGERPRINT_SAMPLE_COUNT = 256

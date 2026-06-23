@@ -6,7 +6,6 @@ enum class VisualSurfaceState(val wireValue: String) {
     Planning("planning"),
     Launching("launching"),
     WorkSurface("work_surface"),
-    Interrupted("interrupted"),
     Replanning("replanning"),
 }
 
@@ -54,33 +53,31 @@ class VisualExecutionSessionState {
     }
 
     fun markStructuralReplan() {
+        if (verifiedTargetPackage.isNotBlank()) return
         if (surfaceState != VisualSurfaceState.Replanning) routeEpoch += 1L
         transitionTo(VisualSurfaceState.Replanning)
     }
 
-    fun synchronizeWith(snapshot: AgentScreenSnapshot) {
+    fun synchronizeWith() {
         if (surfaceState == VisualSurfaceState.Replanning) return
-        val currentPackage = snapshot.packageName.trim()
         val nextState = when {
             verifiedTargetPackage.isBlank() -> {
                 if (surfaceState == VisualSurfaceState.Launching) VisualSurfaceState.Launching
                 else VisualSurfaceState.Planning
             }
-            currentPackage == verifiedTargetPackage -> VisualSurfaceState.WorkSurface
-            currentPackage == ASSISTANT_HOST_PACKAGE -> VisualSurfaceState.Replanning
-            else -> VisualSurfaceState.Interrupted
+            else -> VisualSurfaceState.WorkSurface
         }
         transitionTo(nextState)
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun isVerifiedWorkSurface(snapshot: AgentScreenSnapshot): Boolean {
         return surfaceState == VisualSurfaceState.WorkSurface &&
-            verifiedTargetPackage.isNotBlank() &&
-            snapshot.packageName == verifiedTargetPackage
+            verifiedTargetPackage.isNotBlank()
     }
 
     fun runtimeContext(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext {
-        synchronizeWith(snapshot)
+        synchronizeWith()
         val observationId = VisualObservationProtocol.observationId(
             snapshot = snapshot,
             routeEpoch = routeEpoch,

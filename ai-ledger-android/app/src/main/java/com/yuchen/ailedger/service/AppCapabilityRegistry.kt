@@ -12,7 +12,7 @@ import android.provider.Settings
  * Collects factual, device-local app metadata for cloud models.
  *
  * This class must never inspect the user's instruction, rank apps, select an app, or alter a
- * cloud-selected route. Labels, aliases and capabilities are evidence only; DeepSeek remains the
+ * cloud-selected route. Android platform capabilities are evidence only; DeepSeek remains the
  * semantic owner of app selection.
  */
 class AppCapabilityRegistry(
@@ -80,8 +80,6 @@ class AppCapabilityRegistry(
         if (app.packageName in dialerPackages) capabilities += AppCapability.Dialer
         if (app.packageName in emailPackages) capabilities += AppCapability.Email
         if (app.packageName in smsPackages) capabilities += AppCapability.Sms
-        capabilities += KNOWN_PACKAGE_CAPABILITIES[app.packageName].orEmpty()
-
         val applicationInfo = runCatching {
             packageManager.getApplicationInfo(app.packageName, 0)
         }.getOrNull()
@@ -155,23 +153,6 @@ class AppCapabilityRegistry(
             AppCapability.NativeApp,
             AppCapability.SystemApp,
             AppCapability.UserApp,
-        )
-
-        /**
-         * Package identities are stable factual evidence. They are never matched against user text
-         * and never used locally to choose or launch an app.
-         */
-        private val KNOWN_PACKAGE_CAPABILITIES: Map<String, Set<String>> = mapOf(
-            "com.hexin.plat.android" to setOf("finance", "securities_market", "securities_trading", "order_entry"),
-            "com.eastmoney.android.berlin" to setOf("finance", "securities_market", "securities_trading", "order_entry"),
-            "com.tencent.mobileqq" to setOf("social_chat", "messaging"),
-            "com.tencent.mm" to setOf("social_chat", "messaging", "payments"),
-            "com.jingdong.app.mall" to setOf("ecommerce", "shopping", "order_entry"),
-            "com.taobao.taobao" to setOf("ecommerce", "shopping", "order_entry"),
-            "com.autonavi.minimap" to setOf("maps", "navigation"),
-            "com.baidu.BaiduMap" to setOf("maps", "navigation"),
-            "com.sankuai.meituan" to setOf("local_services", "food_delivery", "order_entry"),
-            "me.ele" to setOf("food_delivery", "order_entry"),
         )
 
         /**

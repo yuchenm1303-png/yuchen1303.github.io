@@ -11,14 +11,6 @@ class VisualAgentClientTest {
     fun verifiedTargetWorkSurfaceBelongsExclusivelyToGuiPlus() {
         val snapshot = testSnapshot(packageName = "com.tencent.mobileqq")
         val runtimeContext = verifiedRuntimeContext(snapshot, "com.tencent.mobileqq")
-        val taskContract = AgentTaskExecutionContract(
-            preferredSurface = AgentSurfacePreference.NativeApp,
-            browserFallbackAllowed = false,
-            requiredCapabilities = setOf(AppCapability.NativeApp, "social_chat"),
-            requirePostActionVerification = true,
-            highImpactFlow = true,
-            reason = "需要原生社交应用",
-        )
         val payload = buildVisualAgentPayload(
             goal = "打开 QQ 个人主页",
             snapshot = snapshot,
@@ -49,8 +41,6 @@ class VisualAgentClientTest {
                 sdkInt = 35,
                 display = "test-build",
             ),
-            taskContract = taskContract,
-            taskContractRequired = true,
             runtimeContext = runtimeContext,
         )
 
@@ -65,16 +55,6 @@ class VisualAgentClientTest {
         assertEquals(runtimeContext.observationId, payload.getString("observationId"))
         assertEquals(runtimeContext.observationId, payload.getString("expectedActionObservationId"))
 
-        val ownership = payload.getJSONObject("visualOwnership")
-        assertEquals("android_two_brain_ownership_v3_verified_target", ownership.getString("schema"))
-        assertEquals("deepseek", ownership.getString("entryOwner"))
-        assertEquals("deepseek", ownership.getString("appSelectionOwner"))
-        assertEquals("gui_plus", ownership.getString("visualOwner"))
-        assertEquals("gui_plus", ownership.getString("currentOwner"))
-        assertTrue(ownership.getBoolean("guiPlusEligible"))
-        assertTrue(ownership.getBoolean("targetPackageBound"))
-        assertFalse(ownership.getBoolean("allowAgentBrain"))
-
         val runtime = payload.getJSONObject("runtimeExecutionContext")
         assertEquals("android_visual_execution_runtime_v1", runtime.getString("schema"))
         assertEquals("work_surface", runtime.getString("surfaceState"))
@@ -84,12 +64,6 @@ class VisualAgentClientTest {
         assertTrue(runtime.getBoolean("currentPackageMatchesVerifiedTarget"))
         assertTrue(runtime.getBoolean("guiPlusEligible"))
         assertFalse(runtime.getBoolean("localSemanticDecision"))
-
-        val handoff = payload.getJSONObject("controllerHandoff")
-        assertFalse(handoff.getBoolean("controllerHandoffActive"))
-        assertTrue(handoff.getBoolean("guiPlusEligible"))
-        assertEquals("none", handoff.getString("requiredHandoffAction"))
-        assertEquals(runtimeContext.observationId, handoff.getString("observationId"))
 
         val app = payload.getJSONArray("appContext").getJSONObject(0)
         assertEquals("QQ", app.getString("label"))
@@ -113,28 +87,25 @@ class VisualAgentClientTest {
         assertEquals("TestModel", uploadedProfile.getString("model"))
         assertEquals(35, uploadedProfile.getInt("sdkInt"))
 
-        val uploadedContract = payload.getJSONObject("taskContract")
-        assertEquals("native_app", uploadedContract.getString("preferredSurface"))
-        assertFalse(uploadedContract.getBoolean("browserFallbackAllowed"))
-        assertTrue(uploadedContract.getBoolean("requirePostActionVerification"))
-        assertTrue(payload.getBoolean("taskContractRequired"))
-        val planning = payload.getJSONObject("taskContractPlanning")
-        assertTrue(planning.getBoolean("required"))
-        assertEquals("deepseek", planning.getString("semanticOwner"))
-        assertEquals("android_package_identity_and_safety_only", planning.getString("validationOwner"))
-        assertEquals("agentStep.arguments", planning.getString("returnLocation"))
+        assertFalse(payload.has("taskContract"))
+        assertFalse(payload.has("taskContractPlanning"))
 
         val supported = payload.getJSONArray("supportedAgentSteps")
         val supportedTypes = (0 until supported.length()).map { supported.getString(it) }.toSet()
         assertEquals(VisualAgentProtocol.supportedStepTypes, supportedTypes)
         assertFalse("tap_node" in supportedTypes)
         assertFalse("scroll" in supportedTypes)
+        val supportedDeviceTools = payload.getJSONArray("supportedDeviceTools")
+        val supportedDeviceToolTypes = (0 until supportedDeviceTools.length())
+            .map { supportedDeviceTools.getString(it) }
+            .toSet()
+        assertEquals(CloudAgentStep.deviceToolTypes, supportedDeviceToolTypes)
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v12_verified_surface", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v13_cloud_route_visual_loop", memory.getString("schema"))
         assertEquals(runtimeContext.observationId, memory.getJSONObject("runtimeExecutionContext").getString("observationId"))
         val deviceContext = payload.getJSONObject("deviceContext")
-        assertEquals("android_visual_agent_context_v6_verified_target", deviceContext.getString("schema"))
+        assertEquals("android_visual_agent_context_v7_cloud_route_visual_loop", deviceContext.getString("schema"))
         assertTrue(deviceContext.getJSONObject("currentApp").getBoolean("matchesVerifiedTarget"))
     }
 
@@ -160,24 +131,22 @@ class VisualAgentClientTest {
         assertTrue(payload.getBoolean("allowAgentBrain"))
         assertEquals("planning", payload.getString("surfaceState"))
 
-        val handoff = payload.getJSONObject("controllerHandoff")
-        assertTrue(handoff.getBoolean("controllerHandoffActive"))
-        assertFalse(handoff.getBoolean("guiPlusEligible"))
-        assertEquals("open_app_exact_package", handoff.getString("requiredHandoffAction"))
+        assertFalse(payload.has("controllerHandoff"))
+        assertFalse(payload.getJSONObject("runtimeExecutionContext").getBoolean("guiPlusEligible"))
     }
 
     @Test
-    fun interruptedTargetSurfaceImmediatelyReturnsControlToDeepSeek() {
+    fun transientCrossPackageSurfaceStaysInsideGuiPlusLoop() {
         val snapshot = testSnapshot(packageName = "com.android.permissioncontroller")
         val runtimeContext = VisualAgentRuntimeContext(
-            surfaceState = VisualSurfaceState.Interrupted,
+            surfaceState = VisualSurfaceState.WorkSurface,
             selectedTargetPackage = "com.jingdong.app.mall",
             verifiedTargetPackage = "com.jingdong.app.mall",
             currentPackage = snapshot.packageName,
             observationId = VisualObservationProtocol.observationId(snapshot, 2L, 4L),
             routeEpoch = 2L,
             surfaceEpoch = 4L,
-            guiPlusEligible = false,
+            guiPlusEligible = true,
         )
         val payload = buildVisualAgentPayload(
             goal = "在京东搜索压缩饼干",
@@ -186,12 +155,13 @@ class VisualAgentClientTest {
             runtimeContext = runtimeContext,
         )
 
-        assertTrue(payload.getBoolean("routeRefreshRequested"))
-        assertTrue(payload.getBoolean("invalidateCachedAgentBrainRoute"))
-        assertEquals("deepseek", payload.getString("visualDecisionOwner"))
-        assertTrue(payload.getBoolean("allowAgentBrain"))
-        assertFalse(payload.getBoolean("exclusiveVisualSession"))
-        assertEquals("deepseek_replan", payload.getJSONObject("controllerHandoff").getString("requiredHandoffAction"))
+        assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertFalse(payload.getBoolean("invalidateCachedAgentBrainRoute"))
+        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertFalse(payload.getBoolean("allowAgentBrain"))
+        assertTrue(payload.getBoolean("exclusiveVisualSession"))
+        assertEquals("work_surface", payload.getJSONObject("runtimeExecutionContext").getString("surfaceState"))
+        assertFalse(payload.getJSONObject("runtimeExecutionContext").getBoolean("currentPackageMatchesVerifiedTarget"))
     }
 
     @Test
@@ -220,6 +190,24 @@ class VisualAgentClientTest {
         assertEquals("visual_local_retry", feedback.getString("lastVerification"))
         assertTrue(feedback.getBoolean("localVisualRetryRequested"))
         assertFalse(feedback.getBoolean("routeRefreshRequested"))
+    }
+
+    @Test
+    fun structuralVisualFailureAlsoStaysInsideGuiPlusSession() {
+        val snapshot = testSnapshot(packageName = "com.jingdong.app.mall")
+        val payload = buildVisualAgentPayload(
+            goal = "搜索压缩饼干",
+            snapshot = snapshot,
+            recentActions = listOf(
+                "visual_action_rejected:type=open_app|failureClass=structural_route|reason=gui_plus_cannot_select_app|replanRequired=true",
+            ),
+            runtimeContext = verifiedRuntimeContext(snapshot, snapshot.packageName),
+        )
+
+        assertTrue(payload.getBoolean("guiPlusReplanRequested"))
+        assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertFalse(payload.getBoolean("allowAgentBrain"))
     }
 
     @Test
