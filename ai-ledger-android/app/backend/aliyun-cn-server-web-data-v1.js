@@ -63,7 +63,7 @@ const AGENT_GUI_PROVIDER_BASE_URL = String(process.env.AGENT_GUI_PROVIDER_BASE_U
 const AGENT_GUI_PROVIDER_API_KEY = String(process.env.AGENT_GUI_PROVIDER_API_KEY || process.env.GUI_PROVIDER_API_KEY || "").trim();
 const AGENT_GUI_PROVIDER_MODEL = String(process.env.AGENT_GUI_PROVIDER_MODEL || process.env.GUI_PROVIDER_MODEL || "").trim();
 const AGENT_GUI_PROVIDER_TIMEOUT_MS = Number(process.env.AGENT_GUI_PROVIDER_TIMEOUT_MS || process.env.GUI_PROVIDER_TIMEOUT_MS || AGENT_STEP_VISION_TIMEOUT_MS);
-const AGENT_GUI_PROVIDER_MAX_TOKENS = Number(process.env.AGENT_GUI_PROVIDER_MAX_TOKENS || process.env.GUI_PROVIDER_MAX_TOKENS || 220);
+const AGENT_GUI_PROVIDER_MAX_TOKENS = Number(process.env.AGENT_GUI_PROVIDER_MAX_TOKENS || process.env.GUI_PROVIDER_MAX_TOKENS || 480);
 const AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN = String(process.env.AGENT_GUI_PROVIDER_FALLBACK_TO_QWEN || "false").toLowerCase() === "true";
 const AGENT_GUI_STRICT_OFFICIAL_LOOP = String(process.env.AGENT_GUI_STRICT_OFFICIAL_LOOP || "true").toLowerCase() !== "false";
 const ALIYUN_GUI_API_KEY = String(process.env.ALIYUN_GUI_API_KEY || process.env.QWEN_API_KEY || "").trim();
@@ -71,11 +71,11 @@ const ALIYUN_GUI_BASE_URL = String(process.env.ALIYUN_GUI_BASE_URL || "https://d
 const ALIYUN_GUI_MODEL = String(process.env.ALIYUN_GUI_MODEL || "gui-plus-2026-02-26").trim();
 const CLOUD_DECISION_OWNERSHIP = "normal_chat_models_and_gui_plus_exclusive_visual"; // Visual sessions explicitly owned by GUI Plus bypass AgentBrain and local semantic routing.
 const ALIYUN_GUI_TIMEOUT_MS = Number(process.env.ALIYUN_GUI_TIMEOUT_MS || 15000);
-const ALIYUN_GUI_MAX_TOKENS = Number(process.env.ALIYUN_GUI_MAX_TOKENS || 220);
+const ALIYUN_GUI_MAX_TOKENS = Number(process.env.ALIYUN_GUI_MAX_TOKENS || 480);
 const ALIYUN_GUI_API_MODE = String(process.env.ALIYUN_GUI_API_MODE || "dashscope_native").trim().toLowerCase();
 const ALIYUN_GUI_HIGH_RESOLUTION_IMAGES = String(process.env.ALIYUN_GUI_HIGH_RESOLUTION_IMAGES || "true").toLowerCase() !== "false";
 const ALIYUN_GUI_ENABLE_THINKING = String(process.env.ALIYUN_GUI_ENABLE_THINKING || "false").toLowerCase() === "true";
-const AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS = Math.max(4000, Math.min(12000, Number(process.env.AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS || 10500)));
+const AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS = Math.max(4000, Math.min(16000, Number(process.env.AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS || 11500)));
 const AGENT_GUI_INTERACTION_REVIEW_TIMEOUT_MS = Math.max(800, Math.min(5000, Number(process.env.AGENT_GUI_INTERACTION_REVIEW_TIMEOUT_MS || 3200)));
 const AGENT_GUI_DEEP_THINKING_MODE = String(process.env.AGENT_GUI_DEEP_THINKING_MODE || process.env.AGENT_DEEP_THINKING_MODE || "adaptive").trim().toLowerCase();
 const AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS = Math.max(2, Math.min(8, Number(process.env.AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS || 2)));
@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v109-stable-gui-tool-loop";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v110-adaptive-gui-thinking";
 const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
@@ -4401,6 +4401,28 @@ function normalizeAgentDeepThinkingMode(value) {
   return "adaptive";
 }
 
+function structuralGuiThinkingDecision(agentMemory = null) {
+  const m = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const s = m.loopSignals || {}, f = m.executionFeedback || {}, t = m.lastToolResponse || {};
+  const noProgress = Math.max(0, Number(s.noProgressCount || 0));
+  const sameAction = Math.max(0, Number(s.sameActionCount || 0));
+  const blocked = runtimeBlockedActionSignatures(m);
+  const reasons = [
+    noProgress >= AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS ? `noProgress=${noProgress}` : "",
+    sameAction >= 2 ? `sameAction=${sameAction}` : "",
+    blocked.length ? `blocked=${blocked.slice(0, 4).join("/")}` : "",
+    f.lastResultOk === false || t.success === false ? "lastActionFailed" : "",
+  ].filter(Boolean);
+  const mode = normalizeAgentDeepThinkingMode(AGENT_GUI_DEEP_THINKING_MODE);
+  const enabled = ALIYUN_GUI_ENABLE_THINKING || mode === "deep" || (mode === "adaptive" && reasons.length > 0);
+  return {
+    mode, enabled,
+    level: mode === "deep" ? "deep" : enabled ? "adaptive_deep" : "fast",
+    reasons: reasons.slice(0, AGENT_GUI_DEEP_THINKING_REASON_MAX),
+    timeoutExtraMs: enabled ? AGENT_GUI_DEEP_THINKING_TIMEOUT_EXTRA_MS : 0,
+  };
+}
+
 function adaptiveDeepThinkingDecision(goal, snapshot = null, deviceContext = null, agentMemory = null, recentActions = []) {
   const mode = normalizeAgentDeepThinkingMode(AGENT_GUI_DEEP_THINKING_MODE);
   const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
@@ -5236,7 +5258,7 @@ function buildAgentBrainRouteMessages(goal, snapshot, recentActions, deviceConte
     "当 verifiedSurface.guiPlusEligible=true 时，App 已打开且 Android 已验证包名；需要页面操作的任务 route=visual_agent，并把用户原始目标逐字保留给 GUI Plus。",
     "route=device_tool 仅用于无需 GUI 的确定性系统或内部工具。只有 installedApps 中确实无法唯一确定目标且缺少信息时才 route=ask_user；用户明确说 QQ 且目录存在唯一 QQ 时不得 ask_user。",
     "GUI Plus 不负责在桌面、最近任务或助手界面寻找和启动 App。Android 只执行你返回的真实 packageName，并校验安装、可启动、安全确认和执行结果，不参与语义选 App。",
-    "This call only selects the executor and, when needed, one installed app. It never performs the user's transaction or irreversible action. For purchases, payments, transfers, orders, posts, deletions, or other consequential GUI tasks, select/open the uniquely identifiable app and hand the original goal to GUI Plus; confirmation belongs immediately before the final consequential action inside that visual loop. Do not return empty merely because the eventual task is high risk.",
+    "This call only selects the executor and app; GUI Plus performs and confirms consequential actions.",
     "高风险内部工具必须标注 risk 和 requiresConfirmation；不允许的任务 route=refuse。",
     `仅返回一个紧凑 JSON：{"route":"device_tool|visual_agent|hybrid|ask_user|refuse","tool":"${[...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"].join("|")}","appName":"","packageName":"","args":{},"risk":"low|medium|high|critical","requiresConfirmation":false,"reason":"","question":""}`,
   ].join("\n");
@@ -8534,11 +8556,14 @@ function buildPureOfficialGuiPlusInstruction(goal, recentActions = [], deviceCon
     ? agentBrainRoutePromptBlock(agentBrainRoute)
     : "DeepSeek AgentBrain route: visual_agent.";
   const feedback = runtimeVerificationHintForPrompt(agentMemory);
+  const thinking = structuralGuiThinkingDecision(agentMemory);
   return [
-    "Generate exactly one official mobile_use tool call for the next move. Never return prose outside the tool call.",
-    "Keep the complete original instruction authoritative across every turn. Treat the latest GUI Plus/User interaction reply as a continuation of the same task, not as a new task.",
-    "Before acting, compare the current screenshot, previous actions and latest Android tool response with the remaining goal. Choose the action most likely to create visible progress; if the last route opened an unrelated or dead-end page, recover with Back or another visually justified route instead of random exploration.",
-    "Judge user involvement contextually from the actual next action, never from words in the instruction or UI. Continue ordinary navigation autonomously; use action=interact only when information or user participation is genuinely required, including immediately before a consequential external effect.",
+    "Return exactly one official mobile_use tool call, with no prose.",
+    "Preserve the original goal and latest reply. Use the screenshot, action history and Android result; after no progress choose a different grounded route.",
+    "Use contextual judgment, not keyword matching. Navigate autonomously; use interact only for genuinely required user participation or immediately before a consequential effect.",
+    thinking.enabled
+      ? `Deep thinking (${thinking.reasons.join(", ") || "configured"}): re-observe the failure and choose a different grounded route without revealing analysis.`
+      : "Thinking mode is fast; choose one visually grounded action.",
     `Instruction: ${aliyunGuiDateInfo()}${safeText(goal, 240)}`,
     `Installed applications available to mobile_use action=open: ${formatCanonicalVisualAppPairs(deviceContext, goal, 160)}.`,
     routeContext,
@@ -9114,7 +9139,7 @@ async function callDashScopeNativeGuiPlus(model, messages, sessionId, timeoutMs,
     parameters: {
       vl_high_resolution_images: ALIYUN_GUI_HIGH_RESOLUTION_IMAGES,
       enable_thinking: enableThinking,
-      max_tokens: Math.min(ALIYUN_GUI_MAX_TOKENS, AGENT_GUI_PROVIDER_MAX_TOKENS, 256),
+      max_tokens: Math.min(ALIYUN_GUI_MAX_TOKENS, AGENT_GUI_PROVIDER_MAX_TOKENS, 512),
     },
   };
   const { response: r, text: t } = await fetchTextWithTimeout(endpoint, {
@@ -9220,11 +9245,7 @@ async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session
   const requestedTimeoutMs = Number(timeoutMs || 0) > 0
     ? Number(timeoutMs)
     : Math.min(Number(ALIYUN_GUI_TIMEOUT_MS || 15000), AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS);
-  const deepThinking = {
-    enabled: ALIYUN_GUI_ENABLE_THINKING,
-    level: ALIYUN_GUI_ENABLE_THINKING ? "enabled" : "off",
-    reasons: ALIYUN_GUI_ENABLE_THINKING ? ["explicit_environment_configuration"] : [],
-  };
+  const deepThinking = structuralGuiThinkingDecision(agentMemory);
   const boundedTimeoutMs = Math.max(
     300,
     Math.min(
@@ -9684,7 +9705,7 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
   let parsed;
   let providerMs = 0;
   try {
-    const preCallThinking = { enabled: ALIYUN_GUI_ENABLE_THINKING, timeoutExtraMs: 0 };
+    const preCallThinking = structuralGuiThinkingDecision(agentMemory);
     const timeoutMs = boundedAgentTimeoutMs(
       Math.min(ALIYUN_GUI_TIMEOUT_MS, AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS) + Number(preCallThinking.timeoutExtraMs || 0),
       agentRemainingBudgetMs(startedAt),
