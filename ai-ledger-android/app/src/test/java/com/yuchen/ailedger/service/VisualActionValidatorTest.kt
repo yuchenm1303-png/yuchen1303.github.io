@@ -210,11 +210,27 @@ class VisualActionValidatorTest {
     }
 
     @Test
-    fun highRiskStillRequiresAndroidConfirmation() {
+    fun explicitModelConfirmationStillRequiresAndroidAuthorization() {
         assertTrue(
             AgentSafetyPolicy.requiresConfirmation(
                 "test",
-                CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f, riskLevel = "high"),
+                CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f, requiresConfirmation = true),
+            ),
+        )
+    }
+
+    @Test
+    fun AndroidDoesNotInferConfirmationFromRiskWordsOrLabels() {
+        assertFalse(
+            AgentSafetyPolicy.requiresConfirmation(
+                "search for the definition of password",
+                CloudAgentStep(
+                    type = "tap_xy",
+                    x = 0.5f,
+                    y = 0.5f,
+                    targetText = "payment password documentation",
+                    riskLevel = "high",
+                ),
             ),
         )
     }

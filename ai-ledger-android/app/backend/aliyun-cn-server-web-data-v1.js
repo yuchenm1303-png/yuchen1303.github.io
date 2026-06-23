@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v107-route-execution-boundary";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v108-contextual-gui-authorization";
 const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
@@ -8495,13 +8495,15 @@ function buildOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext
     "You have direct mobile_use capability to open installed apps and operate their normal UI. Being on the AI Assistant host is not a limitation and is never a reason to ask the user to open an app manually.",
     "If the instruction names an app and that app appears uniquely in the canonical installed-app list, do not ask which app to use and do not tell the user to open it. If it is not foreground, output action=open with the exact canonical label; if it is foreground, continue inside it.",
     "For external-app tasks while assistantHost=true, the normal recovery action is action=open for the intended canonical app. Do not answer that you cannot directly operate the app, and do not delegate ordinary opening, searching, navigation, selection, or clicking steps to the user.",
-    "Ask for user help only when GUI Plus genuinely cannot infer a required fact from the complete instruction, screenshot, installed-app list, history and tool_response, or when the next step is genuinely user-only such as password, SMS code, biometric verification, identity verification, or irreversible confirmation.",
+    "Judge user involvement from the actual consequence of the next action in the current UI context, never from keyword matching. The same visible words may be harmless search content or a real credential/commit control.",
+    "Continue ordinary navigation and form preparation autonomously. Immediately before a next action would actually commit a consequential external effect, use action=interact with a concrete confirmation question; after the user's reply, inspect the fresh screenshot and decide the next action yourself.",
+    "When private input or human authentication is genuinely required, use action=interact and ask the user to complete it directly in the target app. Never ask the user to disclose the secret in chat.",
+    "Ask for clarification only when GUI Plus genuinely cannot infer a required fact from the complete instruction, screenshot, installed-app list, history and tool_response.",
     "The GUI Plus/User interaction history below is authoritative dialogue context. Treat the latest user reply as a direct continuation of your latest interact request, preserve all stated constraints, and continue the same visual session. You may ask another interact question when further clarification is genuinely necessary.",
     "When the interaction history says the user completed a sensitive step in the target app, do not request the secret itself. Inspect the fresh screenshot and continue or ask the user to retry only if the screen still requires private input.",
     "Do not use action=interact merely because the user left subjective preferences unspecified. For requests such as '挑一个合适的', make a reasonable visible choice yourself from the available products or options and continue.",
-    "Use action=interact only when the next step truly requires user-only participation, such as password, SMS code, biometric/identity verification, an explicit irreversible confirmation, or a required choice that cannot be safely inferred from the instruction and screen.",
+    "Use action=interact only when contextual visual reasoning finds that the next step requires user participation or a required choice cannot be inferred. Do not classify actions by matching words in labels, goals or page text.",
     "Use action=answer only when the requested visual task has been completed and you are returning the final result to the user. The backend will treat answer as a completion candidate and Android will verify it on a fresh screenshot.",
-    "For shopping tasks that ask to enter the order page, you may click Buy Now/立即购买 to reach the order-confirmation page, but stop before Submit Order/提交订单 or payment unless the user explicitly asks and confirms the irreversible action.",
     exclusiveGuiPlusVisualSession
       ? "When an action fails, the screen does not change, or finish verification is requested, replan inside GUI Plus using the latest screenshot and Android tool_response. Never request AgentBrain route refresh."
       : "Use the supplied AgentBrain route only as high-level context; visual decisions still come from the current screenshot.",
@@ -9176,7 +9178,7 @@ function buildGuiPlusInteractionSelfReviewPrompt(goal, snapshot, deviceContext, 
     "You can directly use mobile_use open, click, type, swipe, Back, Home and wait.",
     "If the previous interact merely asked the user to manually open an installed app, search, navigate, select, click, or perform another ordinary UI step that mobile_use can do, replace it now with the single executable mobile_use action you should perform yourself.",
     "When assistantHost=true and the target app is present in the canonical installed-app list, use action=open with the exact canonical app label instead of claiming that you cannot operate the app.",
-    "Keep action=interact only when the missing information is genuinely unavailable and necessary, or the next step is genuinely user-only: password, SMS code, biometric/identity verification, or irreversible confirmation.",
+    "Keep action=interact only when contextual visual reasoning shows that information or user participation is genuinely necessary, including immediately before an action with a consequential external effect. Never decide this by keyword matching.",
     "If interact is still correct after review, repeat action=interact with a clear question that contains exactly what the user must provide or complete.",
     "Output exactly one mobile_use action in the required Action + <tool_call> format, and nothing else.",
     "</interaction_self_review>",
