@@ -710,6 +710,7 @@ class VisualLoopRunner(
                 "back", "home" -> GLOBAL_ACTION_DELAY_MS
                 else -> DEFAULT_STEP_DELAY_MS
             }
+        }
         if (delayMs > 0L) delay(delayMs)
     }
 
@@ -750,6 +751,7 @@ class VisualLoopRunner(
         private const val MAX_INTERACTION_TEXT_CHARS = 1_000
         private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
+        private const val MAX_STRUCTURED_REPLAN_REJECTIONS = 3
         private const val REPEATED_ACTION_CLUSTER_LIMIT = 3
         private const val STRUCTURAL_NO_PROGRESS_LIMIT = 3
         private const val USER_TAKEOVER_POLL_MS = 120L
