@@ -854,7 +854,7 @@ object VisualActionValidator {
         if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
             return VisualActionValidation(false, "Invalid tap coordinates.")
         }
-        if (step.type == "input_text") {
+        if (step.type == "input_text" && runtimeContext == null) {
             if (step.text.isNullOrBlank()) {
                 return VisualActionValidation(false, "Input text is empty.")
             }

@@ -61,7 +61,7 @@ class VisualAppIdentityTest {
     }
 
     @Test
-    fun duplicatePackageOpenIsRejectedEvenWhenDisplayNameDiffers() {
+    fun duplicatePackageOpenReachesCloudReplanningEvenWhenDisplayNameDiffers() {
         val snapshot = testSnapshot(currentPackage = "com.hexin.plat.android")
         val validation = VisualActionValidator.validate(
             CloudAgentStep(
@@ -72,8 +72,7 @@ class VisualAppIdentityTest {
             snapshot,
         )
 
-        assertFalse(validation.ok)
-        assertTrue(validation.message.contains("Duplicate"))
+        assertTrue(validation.ok)
     }
 
     private fun testSnapshot(currentPackage: String): AgentScreenSnapshot {

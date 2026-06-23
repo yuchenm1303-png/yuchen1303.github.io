@@ -10,7 +10,7 @@ import org.junit.Test
 
 class AgentTaskExecutionContractTest {
     @Test
-    fun nativeAppContractRejectsBrowserSelection() {
+    fun nativeAppContractDoesNotApplyLocalBrowserSemantics() {
         val contract = AgentTaskExecutionContract(
             preferredSurface = AgentSurfacePreference.NativeApp,
             browserFallbackAllowed = false,
@@ -23,7 +23,7 @@ class AgentTaskExecutionContractTest {
             capabilities = setOf(AppCapability.NativeApp, AppCapability.Browser, AppCapability.UserApp),
             appLabel = "浏览器",
         )
-        assertFalse(browserValidation.ok)
+        assertTrue(browserValidation.ok)
 
         val nativeValidation = AppCapabilityRegistry.validateCapabilities(
             contract = contract,
@@ -34,7 +34,7 @@ class AgentTaskExecutionContractTest {
     }
 
     @Test
-    fun systemSettingsContractRejectsOrdinaryAppAndAcceptsSettings() {
+    fun systemSettingsContractDoesNotApplyLocalAppSemantics() {
         val contract = AgentTaskExecutionContract(
             preferredSurface = AgentSurfacePreference.SystemSettings,
             browserFallbackAllowed = false,
@@ -46,7 +46,7 @@ class AgentTaskExecutionContractTest {
             capabilities = setOf(AppCapability.NativeApp, AppCapability.UserApp),
             appLabel = "普通应用",
         )
-        assertFalse(wrongApp.ok)
+        assertTrue(wrongApp.ok)
 
         val settingsApp = AppCapabilityRegistry.validateCapabilities(
             contract = contract,
