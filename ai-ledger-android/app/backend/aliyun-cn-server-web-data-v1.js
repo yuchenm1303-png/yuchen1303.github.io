@@ -20,7 +20,7 @@ const AGENT_STEP_FALLBACK_MIN_BUDGET_MS = Number(process.env.AGENT_STEP_FALLBACK
 const AGENT_ROUTE_PLANNER_TIMEOUT_MS = Number(process.env.AGENT_ROUTE_PLANNER_TIMEOUT_MS || 1800);
 const AGENT_ROUTE_PLANNER_MAX_TOKENS = Number(process.env.AGENT_ROUTE_PLANNER_MAX_TOKENS || 360);
 const AGENT_BRAIN_ROUTE_TIMEOUT_MS = Number(process.env.AGENT_BRAIN_ROUTE_TIMEOUT_MS || 15000);
-const AGENT_BRAIN_ROUTE_MAX_TOKENS = Number(process.env.AGENT_BRAIN_ROUTE_MAX_TOKENS || 640);
+const AGENT_BRAIN_ROUTE_MAX_TOKENS = Number(process.env.AGENT_BRAIN_ROUTE_MAX_TOKENS || 900);
 const AGENT_BRAIN_ROUTE_CACHE_TTL_MS = Number(process.env.AGENT_BRAIN_ROUTE_CACHE_TTL_MS || 45 * 1000);
 const AGENT_BRAIN_ROUTE_CACHE_MAX = Math.max(16, Math.min(256, Number(process.env.AGENT_BRAIN_ROUTE_CACHE_MAX || 96)));
 const AGENT_BRAIN_ROUTE_APP_CANDIDATES_MAX = Math.max(16, Math.min(160, Number(process.env.AGENT_BRAIN_ROUTE_APP_CANDIDATES_MAX || 160)));
@@ -104,7 +104,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v106-stable-main-brain-budget";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v107-route-execution-boundary";
 const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
@@ -5236,6 +5236,7 @@ function buildAgentBrainRouteMessages(goal, snapshot, recentActions, deviceConte
     "当 verifiedSurface.guiPlusEligible=true 时，App 已打开且 Android 已验证包名；需要页面操作的任务 route=visual_agent，并把用户原始目标逐字保留给 GUI Plus。",
     "route=device_tool 仅用于无需 GUI 的确定性系统或内部工具。只有 installedApps 中确实无法唯一确定目标且缺少信息时才 route=ask_user；用户明确说 QQ 且目录存在唯一 QQ 时不得 ask_user。",
     "GUI Plus 不负责在桌面、最近任务或助手界面寻找和启动 App。Android 只执行你返回的真实 packageName，并校验安装、可启动、安全确认和执行结果，不参与语义选 App。",
+    "This call only selects the executor and, when needed, one installed app. It never performs the user's transaction or irreversible action. For purchases, payments, transfers, orders, posts, deletions, or other consequential GUI tasks, select/open the uniquely identifiable app and hand the original goal to GUI Plus; confirmation belongs immediately before the final consequential action inside that visual loop. Do not return empty merely because the eventual task is high risk.",
     "高风险内部工具必须标注 risk 和 requiresConfirmation；不允许的任务 route=refuse。",
     `仅返回一个紧凑 JSON：{"route":"device_tool|visual_agent|hybrid|ask_user|refuse","tool":"${[...INTERNAL_TOOL_AGENT_STEP_TYPES, "visual_agent"].join("|")}","appName":"","packageName":"","args":{},"risk":"low|medium|high|critical","requiresConfirmation":false,"reason":"","question":""}`,
   ].join("\n");
