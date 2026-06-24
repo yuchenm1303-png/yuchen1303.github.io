@@ -36,32 +36,36 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun packageDriftKeepsGuiPlusOwnershipAfterVerifiedHandoff() {
+    fun packageDriftRevokesGuiPlusOwnershipAndRequestsFreshRoute() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
         session.markTargetVerified("com.jingdong.app.mall")
+        val routeEpochBeforeDrift = session.routeEpoch
 
-        val transientSurface = session.runtimeContext(testSnapshot("com.android.permissioncontroller"))
+        val interrupted = session.runtimeContext(testSnapshot("com.android.permissioncontroller"))
 
-        assertEquals(VisualSurfaceState.WorkSurface, transientSurface.surfaceState)
-        assertTrue(transientSurface.guiPlusEligible)
-        assertEquals("com.jingdong.app.mall", transientSurface.selectedTargetPackage)
-        assertEquals("com.jingdong.app.mall", transientSurface.verifiedTargetPackage)
-        assertEquals("com.android.permissioncontroller", transientSurface.currentPackage)
+        assertEquals(VisualSurfaceState.Replanning, interrupted.surfaceState)
+        assertFalse(interrupted.guiPlusEligible)
+        assertEquals("com.jingdong.app.mall", interrupted.selectedTargetPackage)
+        assertEquals("", interrupted.verifiedTargetPackage)
+        assertEquals("com.android.permissioncontroller", interrupted.currentPackage)
+        assertEquals(routeEpochBeforeDrift + 1L, interrupted.routeEpoch)
     }
 
     @Test
-    fun structuralReplanCannotStealOwnershipAfterGuiPlusHandoff() {
+    fun structuralReplanAfterVerifiedHandoffRevokesGuiPlusOwnership() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
         session.markTargetVerified("com.jingdong.app.mall")
         session.markStructuralReplan()
-        val routeEpoch = session.routeEpoch
 
-        val stillVisual = session.runtimeContext(testSnapshot("com.android.permissioncontroller"))
-        assertEquals(VisualSurfaceState.WorkSurface, stillVisual.surfaceState)
-        assertTrue(stillVisual.guiPlusEligible)
-        assertEquals(routeEpoch, stillVisual.routeEpoch)
+        val replanning = session.runtimeContext(testSnapshot("com.jingdong.app.mall"))
+
+        assertEquals(VisualSurfaceState.Replanning, replanning.surfaceState)
+        assertFalse(replanning.guiPlusEligible)
+        assertEquals("com.jingdong.app.mall", replanning.selectedTargetPackage)
+        assertEquals("", replanning.verifiedTargetPackage)
+        assertEquals(1L, replanning.routeEpoch)
     }
 
     @Test
@@ -77,34 +81,40 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun observationIdChangesAcrossSurfaceEpochOrScreenContext() {
-        val first = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"))
-        val changed = testSnapshot("com.jingdong.app.mall", texts = listOf("商品详情", "立即购买"))
+    fun observationIdChangesAcrossSurfaceEpochScreenContextOrVisualFrame() {
+        val first = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "YWJj")
+        val changed = testSnapshot("com.jingdong.app.mall", texts = listOf("商品详情", "立即购买"), visualBase64 = "YWJj")
+        val changedVisual = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "ZGVm")
 
         val firstId = VisualObservationProtocol.observationId(first, routeEpoch = 1L, surfaceEpoch = 2L)
         val changedScreenId = VisualObservationProtocol.observationId(changed, routeEpoch = 1L, surfaceEpoch = 2L)
+        val changedVisualId = VisualObservationProtocol.observationId(changedVisual, routeEpoch = 1L, surfaceEpoch = 2L)
         val changedEpochId = VisualObservationProtocol.observationId(first, routeEpoch = 1L, surfaceEpoch = 3L)
 
         assertNotEquals(firstId, changedScreenId)
+        assertNotEquals(firstId, changedVisualId)
         assertNotEquals(firstId, changedEpochId)
         assertEquals(24, firstId.length)
     }
 
     @Test
-    fun actionFreshnessRequiresSamePackageAndSameScreenContext() {
-        val observed = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"))
-        val same = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"))
-        val changed = testSnapshot("com.jingdong.app.mall", texts = listOf("商品详情", "立即购买"))
-        val anotherPackage = testSnapshot("com.taobao.taobao", texts = listOf("首页", "搜索"))
+    fun actionFreshnessRequiresSamePackageScreenContextAndVisualFrame() {
+        val observed = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "YWJj")
+        val same = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "YWJj")
+        val changed = testSnapshot("com.jingdong.app.mall", texts = listOf("商品详情", "立即购买"), visualBase64 = "YWJj")
+        val changedVisual = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "ZGVm")
+        val anotherPackage = testSnapshot("com.taobao.taobao", texts = listOf("首页", "搜索"), visualBase64 = "YWJj")
 
         assertTrue(VisualObservationProtocol.isActionContextFresh(observed, same))
         assertFalse(VisualObservationProtocol.isActionContextFresh(observed, changed))
+        assertFalse(VisualObservationProtocol.isActionContextFresh(observed, changedVisual))
         assertFalse(VisualObservationProtocol.isActionContextFresh(observed, anotherPackage))
     }
 
     private fun testSnapshot(
         packageName: String,
         texts: List<String> = listOf("首页"),
+        visualBase64: String = "YWJj",
     ): AgentScreenSnapshot {
         return AgentScreenSnapshot(
             currentApp = packageName,
@@ -123,7 +133,7 @@ class VisualExecutionSessionStateTest {
                 height = 1280,
                 displayWidth = 1080,
                 displayHeight = 2400,
-                base64Jpeg = "YWJj",
+                base64Jpeg = visualBase64,
                 source = "test",
                 reason = "test",
             ),
