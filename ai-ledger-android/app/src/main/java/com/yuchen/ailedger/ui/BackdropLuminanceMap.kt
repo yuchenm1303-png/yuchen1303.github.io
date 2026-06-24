@@ -68,6 +68,9 @@ class BackdropLuminanceMap private constructor(
             .coerceIn(0f, 1f)
     }
 
+    internal fun matchesDimensions(widthPx: Int, heightPx: Int): Boolean =
+        fullWidthPx == widthPx && fullHeightPx == heightPx
+
     internal fun writeTo(output: DataOutput) {
         output.writeInt(LUMINANCE_CACHE_MAGIC)
         output.writeInt(LUMINANCE_CACHE_VERSION)
@@ -76,7 +79,9 @@ class BackdropLuminanceMap private constructor(
         output.writeInt(fullWidthPx)
         output.writeInt(fullHeightPx)
         output.writeInt(integral.size)
-        integral.forEach(output::writeFloat)
+        for (value in integral) {
+            output.writeFloat(value)
+        }
     }
 
     companion object {
@@ -140,7 +145,7 @@ class BackdropLuminanceMap private constructor(
             require(valueCount == expectedValueCount)
             require(valueCount in 4..MAX_LUMINANCE_CACHE_VALUES)
             val integral = FloatArray(valueCount) { input.readFloat() }
-            require(integral.all(Float::isFinite))
+            require(integral.all { it.isFinite() })
             BackdropLuminanceMap(
                 columns = columns,
                 rows = rows,
