@@ -53,13 +53,23 @@ class VisualExecutionSessionState {
     }
 
     fun markStructuralReplan() {
-        if (verifiedTargetPackage.isNotBlank()) return
         if (surfaceState != VisualSurfaceState.Replanning) routeEpoch += 1L
+        verifiedTargetPackage = ""
         transitionTo(VisualSurfaceState.Replanning)
     }
 
-    fun synchronizeWith() {
+    fun synchronizeWith(snapshot: AgentScreenSnapshot? = null) {
         if (surfaceState == VisualSurfaceState.Replanning) return
+
+        if (
+            snapshot != null &&
+            verifiedTargetPackage.isNotBlank() &&
+            snapshot.packageName != verifiedTargetPackage
+        ) {
+            markStructuralReplan()
+            return
+        }
+
         val nextState = when {
             verifiedTargetPackage.isBlank() -> {
                 if (surfaceState == VisualSurfaceState.Launching) VisualSurfaceState.Launching
@@ -70,14 +80,16 @@ class VisualExecutionSessionState {
         transitionTo(nextState)
     }
 
-    @Suppress("UNUSED_PARAMETER")
     fun isVerifiedWorkSurface(snapshot: AgentScreenSnapshot): Boolean {
         return surfaceState == VisualSurfaceState.WorkSurface &&
-            verifiedTargetPackage.isNotBlank()
+            selectedTargetPackage.isNotBlank() &&
+            verifiedTargetPackage.isNotBlank() &&
+            selectedTargetPackage == verifiedTargetPackage &&
+            snapshot.packageName == verifiedTargetPackage
     }
 
     fun runtimeContext(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext {
-        synchronizeWith()
+        synchronizeWith(snapshot)
         val observationId = VisualObservationProtocol.observationId(
             snapshot = snapshot,
             routeEpoch = routeEpoch,
@@ -117,10 +129,7 @@ object VisualObservationProtocol {
             surfaceEpoch.toString(),
             actionContextFingerprint(snapshot),
         ).joinToString("|")
-        return MessageDigest.getInstance("SHA-256")
-            .digest(canonical.toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
-            .take(24)
+        return sha256(canonical).take(24)
     }
 
     fun isActionContextFresh(
@@ -161,9 +170,30 @@ object VisualObservationProtocol {
             clickable,
             inputs,
             scrollable,
+            visualFrameFingerprint(snapshot),
         ).joinToString("::")
+    }
+
+    private fun visualFrameFingerprint(snapshot: AgentScreenSnapshot): String {
+        val visual = snapshot.visual ?: return "visual:none"
+        if (!visual.hasImage) {
+            return "visual:unavailable:${visual.width}x${visual.height}:${visual.displayWidth}x${visual.displayHeight}"
+        }
+        return buildString {
+            append("visual:")
+            append(visual.width).append('x').append(visual.height)
+            append(':').append(visual.displayWidth).append('x').append(visual.displayHeight)
+            append(':').append(sha256(visual.base64Jpeg).take(VISUAL_DIGEST_CHARS))
+        }
+    }
+
+    private fun sha256(value: String): String {
+        return MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }
     }
 
     private const val MAX_TEXT_ITEMS = 24
     private const val MAX_NODE_ITEMS = 20
+    private const val VISUAL_DIGEST_CHARS = 16
 }
