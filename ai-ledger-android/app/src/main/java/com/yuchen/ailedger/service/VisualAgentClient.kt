@@ -706,6 +706,61 @@ private fun String.visualActionSignatureOrNull(): String? {
     return signature?.trim()?.take(160)?.takeIf { it.isNotBlank() }
 }
 
+/**
+ * A visual action is valid only for the exact observation returned by the server. The response may
+ * repeat the identifier in several protocol envelopes, but every non-empty copy must agree with
+ * the request. Missing, stale or internally conflicting identifiers are rejected before parsing an
+ * executable action.
+ */
+@Throws(IOException::class)
+internal fun validateVisualAgentResponseObservationId(
+    expectedObservationId: String,
+    data: JSONObject?,
+): String {
+    val expected = expectedObservationId.trim()
+    if (expected.isBlank()) {
+        throw IOException("visual_agent_step request is missing expectedActionObservationId")
+    }
+    if (data == null) {
+        throw IOException("visual_agent_step returned invalid JSON without an observationId")
+    }
+
+    val envelopes = buildList {
+        add(data)
+        data.optJSONObject("data")?.let(::add)
+        data.optJSONObject("result")?.let(::add)
+        data.optJSONObject("agentPlan")?.let(::add)
+    }
+    val echoedIds = linkedSetOf<String>()
+    envelopes.forEach { envelope ->
+        listOf("expectedActionObservationId", "actionObservationId", "observationId")
+            .map { key -> envelope.optString(key).trim() }
+            .filterTo(echoedIds) { it.isNotBlank() }
+        envelope.optJSONObject("verifiedSurfaceProtocol")
+            ?.optString("observationId")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let(echoedIds::add)
+        envelope.optJSONObject("runtimeExecutionContext")
+            ?.optString("observationId")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let(echoedIds::add)
+    }
+
+    if (echoedIds.isEmpty()) {
+        throw IOException("visual_agent_step response did not echo expectedActionObservationId")
+    }
+    if (echoedIds.size != 1) {
+        throw IOException("visual_agent_step response contains conflicting observationIds")
+    }
+    val actual = echoedIds.single()
+    if (actual != expected) {
+        throw IOException("visual_agent_step returned a stale observationId")
+    }
+    return actual
+}
+
 private fun AiWorkerClient.postVisualAgentStep(
     endpoint: String,
     payload: JSONObject,
@@ -741,6 +796,10 @@ private fun AiWorkerClient.postVisualAgentStep(
                 ?: body.take(120).ifBlank { "visual_agent_step HTTP $status" }
             throw IOException(message)
         }
+        validateVisualAgentResponseObservationId(
+            expectedObservationId = payload.optString("expectedActionObservationId"),
+            data = data,
+        )
         CloudAgentPlan.fromJson(data)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
             ?: throw IOException("visual_agent_step did not return one agentStep")
