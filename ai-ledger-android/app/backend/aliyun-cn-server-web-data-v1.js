@@ -628,10 +628,6 @@ function boundedAgentTimeoutMs(preferredMs, remainingMs, fallbackMs = 1200) {
   return Math.max(300, Math.min(base, room));
 }
 
-function isAgentBudgetNearlyExhausted(startedAt, minMs = AGENT_STEP_FALLBACK_MIN_BUDGET_MS) {
-  return agentRemainingBudgetMs(startedAt) < minMs;
-}
-
 function isTimeoutLikeError(error) {
   const name = String(error?.name || "").toLowerCase();
   const message = String(error?.message || error || "").toLowerCase();
@@ -1525,21 +1521,6 @@ function normalizeExplicitDeviceIntent(body, prompt = "") {
   return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "no_explicit_device_intent", source: "none" };
 }
 
-function buildDirectAgentAction(prompt, body = {}) {
-  const explicit = normalizeExplicitDeviceIntent(body, prompt);
-  return explicit.agentAction || null;
-}
-
-function normalizeDeviceRouterPayload(value) {
-  if (!value || typeof value !== "object") return { agentAction: null, mobileAction: null, preferenceUpdate: null, reason: "" };
-  return {
-    agentAction: normalizeAgentAction(value.agentAction),
-    mobileAction: normalizeMobileAction(value.mobileAction),
-    preferenceUpdate: normalizePreferenceUpdate(value.preferenceUpdate),
-    reason: String(value.reason || "").trim().slice(0, 160),
-  };
-}
-
 async function detectDeviceIntentByModel(prompt, body) {
   const explicit = normalizeExplicitDeviceIntent(body, prompt);
   if (explicit.agentAction || explicit.mobileAction || explicit.preferenceUpdate) {
@@ -1871,14 +1852,6 @@ function agentBrainStepArgs(step) {
   return normalizeAgentStepArgs(raw);
 }
 
-function isDeviceToolAgentStepType(type) {
-  return DEVICE_TOOL_AGENT_STEP_TYPES.includes(normalizeAgentStepType(type));
-}
-
-function isLedgerToolAgentStepType(type) {
-  return LEDGER_TOOL_AGENT_STEP_TYPES.includes(normalizeAgentStepType(type));
-}
-
 function isInternalToolAgentStepType(type) {
   return INTERNAL_TOOL_AGENT_STEP_TYPES.includes(normalizeAgentStepType(type));
 }
@@ -1886,15 +1859,6 @@ function isInternalToolAgentStepType(type) {
 
 // TEST MODE: backend action-safety judging and action rewriting are intentionally disabled.
 // GUI Plus / DeepSeek cloud decisions pass through unchanged except for protocol normalization.
-
-function ensurePrimaryStepInBatch(agentSteps, agentStep) {
-  const out = Array.isArray(agentSteps) ? agentSteps.slice() : [];
-  if (!agentStep || ["finish", "need_user_help"].includes(agentStep.type)) return out;
-  if (agentStep.riskLevel !== "low" || agentStep.requiresConfirmation) return out;
-  const key = agentStepBatchKey(agentStep);
-  if (!out.some((step) => agentStepBatchKey(step) === key)) out.unshift(agentStep);
-  return out.slice(0, AGENT_ACTION_BATCH_MAX);
-}
 
 function compactAgentNode(node, index) {
   if (!node || typeof node !== "object") return null;
@@ -2157,16 +2121,6 @@ function normalizedContainsAny(value, candidates) {
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function snapshotTextForOutcome(snapshot) {
-  const nodes = [
-    ...(Array.isArray(snapshot?.texts) ? snapshot.texts : []),
-    ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes.map((n) => n?.text || "") : []),
-    ...(Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes.map((n) => n?.text || "") : []),
-    ...(Array.isArray(snapshot?.scrollableNodes) ? snapshot.scrollableNodes.map((n) => n?.text || "") : []),
-  ];
-  return normalizeForMatch(nodes.join(" "));
 }
 
 function quickVerifyAgentOutcome(goal, action, snapshot) {
@@ -2513,25 +2467,6 @@ function agentStepBatchKey(step) {
   ].join("|");
 }
 
-function normalizeAgentStepBatch(parsed, fallbackStep, snapshot, supportedSteps, goal, screenshotInfo = null, deviceContext = null) {
-  const out = [];
-  const seen = new Set();
-  const candidates = agentBatchCandidatesFromParsed(parsed);
-  if (!candidates.length && fallbackStep) candidates.push(fallbackStep);
-
-  for (const candidate of candidates) {
-    const step = normalizeAgentStep(candidate, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    if (!step || ["finish", "need_user_help"].includes(step.type)) continue;
-    if (step.riskLevel !== "low" || step.requiresConfirmation) continue;
-    const key = agentStepBatchKey(step);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(step);
-    if (out.length >= AGENT_ACTION_BATCH_MAX) break;
-  }
-  return out;
-}
-
 function normalizeAgentStopConditions(value) {
   const raw = value && typeof value === "object" ? value : {};
   const containers = [raw, raw.plan, raw.data, raw.result, raw.agentPlan].filter((item) => item && typeof item === "object");
@@ -2732,11 +2667,6 @@ function semanticRequiredCapabilities(contract) {
   );
 }
 
-function appCandidatesForPrompt(deviceContext, max = 120) {
-  const apps = installedAppsFromDeviceContext(deviceContext);
-  return apps.slice(0, max).map((app) => `${app.label}(${app.packageName})`).join(" / ");
-}
-
 function findInstalledAppForOpenApp(appName, packageName, deviceContext) {
   const apps = installedAppsFromDeviceContext(deviceContext);
   if (!apps.length) return null;
@@ -2867,49 +2797,6 @@ function explicitAppPreflightShouldOpen(goal, snapshot, deviceContext, explicitA
   const openLike = normalizedContainsAny(cleanGoal, ["打开", "启动", "进入", "前往", "去到", "切到", "跳到", "设置页", "页面", "界面"]);
   return Boolean(assistantHost || !currentPackage || openLike);
 }
-
-function buildExplicitAppOpenPreflightPlan(goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentActions, source = "explicit_app_preflight") {
-  if (!Array.isArray(supportedSteps) || !supportedSteps.includes("open_app")) return null;
-  const explicitApp = findExplicitAppMentionForPreflight(goal, deviceContext);
-  if (!explicitAppPreflightShouldOpen(goal, snapshot, deviceContext, explicitApp)) return null;
-  const appName = explicitApp.label || explicitApp.explicitName || explicitApp.packageName || "";
-  if (!appName && !explicitApp.packageName) return null;
-  const reason = [
-    `显式 App 预检：用户目标中明确出现应用“${appName}”，当前页不是该应用。`,
-    "先打开目标 App，再由 GUI Plus 在 App 内完成页面导航；不要在 AI 助手聊天页直接结束或输入整句目标。"
-  ].join(" ");
-  const step = normalizeAgentStep({
-    agentStep: {
-      type: "open_app",
-      appName,
-      packageName: explicitApp.packageName || undefined,
-      targetText: appName,
-      reason,
-      riskLevel: "low",
-      requiresConfirmation: false,
-    },
-  }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-  if (!step || step.type !== "open_app") return null;
-  const state = normalizeAgentState({
-    agentState: {
-      isComplete: false,
-      expectedProgress: true,
-      isWrong: false,
-      confidence: explicitApp.confidence || 0.9,
-      reason,
-      nextHint: `打开 ${appName} 后继续完成：${safeText(goal, 120)}`,
-    },
-  }, step);
-  return {
-    agentStep: step,
-    agentState: state,
-    source,
-    explicitAppPreflight: true,
-    explicitApp,
-  };
-}
-
-
 
 function deviceContextSummaryForPrompt(deviceContext) {
   const ctx = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
@@ -3289,75 +3176,6 @@ function inferTaskContractTargetPage(domain, goal) {
   return "goal_satisfied_page";
 }
 
-function buildRuleTaskSemanticContract(goal, snapshot = null, deviceContext = null, agentMemory = null) {
-  const assistantHost = isAssistantHostAppPackage(snapshot?.packageName || snapshot?.currentApp || "") || snapshotLooksLikeAssistantChat(snapshot);
-  const domain = inferAgentInstructionDomain(goal);
-  const explicitApp = findExplicitAppConstraint(goal, deviceContext, domain);
-  const targetEntity = extractContractTaskEntity(goal, domain, explicitApp);
-  const requiredCapabilities = defaultRequiredCapabilitiesForTask(domain, domain === "stock_trade" ? "open_order_entry" : "");
-  const targetAction = domain === "stock_trade"
-    ? "open_order_entry"
-    : ["stock_detail", "stock_index"].includes(domain)
-      ? "open_detail"
-      : domain === "navigation"
-        ? "navigate"
-        : isDomainTask(domain)
-          ? "open"
-          : "";
-  const targetPage = inferTaskContractTargetPage(domain, goal);
-  const targetSubPage = domain === "stock_trade"
-    ? "order_entry"
-    : ["stock_detail", "stock_index"].includes(domain)
-      ? "detail_main"
-      : "goal_satisfied_page";
-  const appCandidates = rankTaskContractAppCandidates(deviceContext, domain, explicitApp, 10);
-  const domainRecognized = isDomainTask(domain);
-  const completionEvidenceKeywords = [targetEntity].filter(Boolean);
-  if (domain === "stock_trade") completionEvidenceKeywords.push("买入", "卖出", "委托", "价格", "数量");
-  if (domain === "stock_detail" || domain === "stock_index") completionEvidenceKeywords.push("现价", "涨跌", "分时", "K线", "成交");
-  if (domain === "navigation") completionEvidenceKeywords.push("路线", "导航", "驾车", "步行");
-
-  return {
-    schema: domainRecognized
-      ? "agent_task_semantic_contract_v73_deterministic_capability_fallback"
-      : "agent_task_semantic_contract_v73_neutral_fallback",
-    sourceGoal: safeText(goal, 240),
-    domain: domainRecognized ? domain : "general",
-    targetEntity: domainRecognized ? targetEntity : "",
-    targetKind: domainRecognized ? domain : "",
-    targetPage: domainRecognized ? targetPage : "goal_satisfied_page",
-    targetSubPage: domainRecognized ? targetSubPage : "goal_satisfied_page",
-    targetAction: domainRecognized ? targetAction : "",
-    requiredCapabilities: domainRecognized ? requiredCapabilities : [],
-    requiredApp: explicitApp || null,
-    explicitAppRequired: Boolean(explicitApp),
-    allowAlternativeApp: !explicitApp,
-    appCandidates,
-    current: {
-      requiredAppActive: explicitApp ? currentAppSatisfiesTaskContract({ requiredApp: explicitApp }, snapshot, deviceContext) : false,
-      assistantHost,
-      entityVisible: Boolean(targetEntity && normalizeForMatch(collectSnapshotEvidenceText(snapshot)).includes(normalizeForMatch(targetEntity))),
-      completionLike: false,
-      phase: "observe",
-    },
-    completionCriteria: domainRecognized
-      ? buildDomainTaskInterpretation(goal, domain, targetEntity, appCandidates).split("\n").filter(Boolean).slice(-2)
-      : [],
-    completionEvidenceKeywords: domainRecognized ? completionEvidenceKeywords : [],
-    safeNavigationActions: domainRecognized ? ["open_app", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "back", "wait"] : [],
-    dangerousActions: domain === "stock_trade" ? ["submit_order", "confirm_buy", "confirm_sell"] : [],
-    forbiddenActions: [
-      "不要把 AI 助手聊天气泡、历史消息或底部输入框当作外部任务目标。",
-      "任何 packageName 必须来自设备安装清单或设备解析结果。",
-    ],
-    confidence: domainRecognized ? 0.76 : 0.1,
-    contractSource: domainRecognized ? "deterministic_capability_fallback" : "neutral_local_fallback",
-    modelReason: domainRecognized
-      ? "TaskContractJudge 不可用时，使用可验证的领域、能力和设备应用清单规则维持任务链路。"
-      : "无法可靠判断任务领域，保持中性合同。",
-  };
-}
-
 function normalizeTaskContractSubPage(value) {
   const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
   const mapped = {
@@ -3378,19 +3196,6 @@ function normalizeTaskContractSubPage(value) {
   return mapped[raw] || raw || "detail_main";
 }
 
-function normalizeTaskContractJudgeMode(value) {
-  const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
-  if (["0", "false", "off", "none", "disable", "disabled", "rule", "rules"].includes(raw)) return "rule";
-  if (["always", "force", "model", "llm", "semantic"].includes(raw)) return "always";
-  return "adaptive";
-}
-
-function shouldUseTaskContractJudge() {
-  // Two-brain architecture: semantic routing belongs to DeepSeek AgentBrain.
-  // No keyword/regex task-contract judge is allowed in the visual execution chain.
-  return false;
-}
-
 function taskContractJudgeSnapshotPayload(snapshot) {
   return {
     app: safeText(snapshot?.currentApp || snapshot?.packageName || "", 100),
@@ -3402,124 +3207,6 @@ function taskContractJudgeSnapshotPayload(snapshot) {
   };
 }
 
-
-function normalizeTaskContractJudgeDecision(value, fallbackContract) {
-  const raw = value && typeof value === "object" ? value : {};
-  const nested = raw.taskSemanticContract || raw.semanticTaskContract || raw.taskContract || raw.contract || raw.result || raw;
-  const fallback = fallbackContract && typeof fallbackContract === "object" ? fallbackContract : {};
-  const requiredRaw = nested.requiredApp && typeof nested.requiredApp === "object" ? nested.requiredApp : fallback.requiredApp;
-  const requiredApp = requiredRaw && (requiredRaw.label || requiredRaw.packageName || requiredRaw.explicitName)
-    ? {
-        label: safeText(requiredRaw.label || requiredRaw.appName || requiredRaw.name || fallback.requiredApp?.label || "", 80),
-        packageName: safeText(requiredRaw.packageName || requiredRaw.package || fallback.requiredApp?.packageName || "", 120),
-        explicitName: safeText(requiredRaw.explicitName || requiredRaw.label || requiredRaw.appName || fallback.requiredApp?.explicitName || "", 80),
-        aliases: Array.isArray(requiredRaw.aliases) ? requiredRaw.aliases.map((item) => safeText(item, 80)).filter(Boolean).slice(0, 8) : (fallback.requiredApp?.aliases || []),
-        source: safeText(requiredRaw.source || "task_contract_judge", 80),
-        confidence: Math.max(0, Math.min(1, Number(requiredRaw.confidence || fallback.requiredApp?.confidence || 0.8))),
-      }
-    : null;
-  const targetAction = safeText(
-    nested.targetAction || nested.desiredAction || nested.action || fallback.targetAction || "",
-    80
-  ).trim().toLowerCase().replace(/[\s\-]+/g, "_");
-  let domain = safeText(nested.domain || fallback.domain || "general", 60) || "general";
-  if (
-    domain === "stock_detail" &&
-    ["open_order_entry", "order_entry", "place_order", "buy", "sell"].includes(targetAction)
-  ) {
-    domain = "stock_trade";
-  }
-  const requiredCapabilities = normalizeRequiredCapabilities(
-    nested.requiredCapabilities ||
-      nested.requiredAppCapabilities ||
-      nested.capabilities ||
-      fallback.requiredCapabilities ||
-      defaultRequiredCapabilitiesForTask(domain, targetAction)
-  );
-  const targetPage = safeText(nested.targetPage || fallback.targetPage || inferTaskContractTargetPage(domain, fallback.sourceGoal || ""), 80);
-  const targetSubPage = normalizeTaskContractSubPage(nested.targetSubPage || nested.subPage || fallback.targetSubPage || "");
-  const completionCriteria = Array.isArray(nested.completionCriteria) && nested.completionCriteria.length
-    ? nested.completionCriteria.map((item) => safeText(item, 120)).filter(Boolean).slice(0, 10)
-    : (Array.isArray(fallback.completionCriteria) ? fallback.completionCriteria : []);
-  const completionEvidenceKeywords = Array.isArray(nested.completionEvidenceKeywords)
-    ? nested.completionEvidenceKeywords.map((item) => safeText(item, 40)).filter(Boolean).slice(0, 16)
-    : Array.isArray(nested.completionEvidence)
-      ? nested.completionEvidence.map((item) => safeText(item, 40)).filter(Boolean).slice(0, 16)
-      : Array.isArray(fallback.completionEvidenceKeywords) ? fallback.completionEvidenceKeywords : [];
-  const safeNavigationActions = [];
-  const dangerousActions = [];
-  const current = nested.current && typeof nested.current === "object" ? nested.current : fallback.current || {};
-  const confidenceRaw = Number(nested.confidence ?? nested.score ?? fallback.confidence ?? 0.65);
-  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0.65;
-  const nestedAppCandidates = Array.isArray(nested.appCandidates)
-    ? nested.appCandidates
-        .map((item) => {
-          if (!item) return null;
-          if (typeof item === "string") return { label: safeText(item, 80), packageName: "", source: "task_contract_judge" };
-          if (typeof item !== "object") return null;
-          const label = safeText(item.label || item.appName || item.name || item.title || "", 80);
-          const packageName = safeText(item.packageName || item.package || "", 120);
-          if (!label && !packageName) return null;
-          return {
-            label: label || packageName,
-            packageName,
-            aliases: Array.isArray(item.aliases) ? item.aliases.map((alias) => safeText(alias, 80)).filter(Boolean).slice(0, 8) : [],
-            source: safeText(item.source || "task_contract_judge", 80),
-            confidence: Math.max(0, Math.min(1, Number(item.confidence || item.score || 0.7))),
-          };
-        })
-        .filter(Boolean)
-        .slice(0, 10)
-    : [];
-  const fallbackAppCandidates = Array.isArray(fallback.appCandidates) ? fallback.appCandidates : [];
-
-  return {
-    schema: "agent_task_semantic_contract_v13_capabilities",
-    sourceGoal: safeText(nested.sourceGoal || fallback.sourceGoal || "", 240),
-    domain,
-    targetEntity: safeText(nested.targetEntity || nested.entity || fallback.targetEntity || "", 80),
-    targetKind: safeText(nested.targetKind || fallback.targetKind || "", 100),
-    targetPage,
-    targetSubPage,
-    targetAction,
-    requiredCapabilities,
-    requiredApp,
-    explicitAppRequired: Boolean(requiredApp && (fallback.explicitAppRequired || nested.explicitAppRequired !== false)),
-    allowAlternativeApp: requiredApp ? false : nested.allowAlternativeApp !== false,
-    appCandidates: nestedAppCandidates.length ? nestedAppCandidates : fallbackAppCandidates,
-    current: {
-      requiredAppActive: Boolean(current.requiredAppActive),
-      assistantHost: Boolean(current.assistantHost),
-      entityVisible: Boolean(current.entityVisible),
-      completionLike: Boolean(current.completionLike),
-      phase: safeText(current.phase || fallback.current?.phase || "observe", 80),
-    },
-    completionCriteria,
-    completionEvidenceKeywords,
-    safeNavigationActions,
-    dangerousActions,
-    forbiddenActions: Array.isArray(fallback.forbiddenActions) ? fallback.forbiddenActions : [],
-    confidence,
-    contractSource: safeText(nested.contractSource || nested.source || "task_contract_judge", 80),
-    modelReason: safeText(nested.reason || nested.rationale || "", 260),
-  };
-}
-
-function inferRuleTargetSubPage(goal) {
-  return "detail_main";
-}
-
-function enrichRuleContractWithSubPage(contract, goal) {
-  if (!contract || typeof contract !== "object") return contract;
-  return {
-    ...contract,
-    schema: contract.schema || "agent_task_semantic_contract_v13_capabilities_rule_fallback",
-    targetSubPage: contract.targetSubPage || "detail_main",
-    safeNavigationActions: [],
-    dangerousActions: [],
-    contractSource: contract.contractSource || "rule_fallback_enriched_no_keywords",
-  };
-}
 
 function buildTaskSemanticContract(goal, snapshot = null, deviceContext = null, agentMemory = null) {
   const memoryContract = agentMemory && typeof agentMemory === "object"
@@ -3563,84 +3250,6 @@ function buildTaskSemanticContract(goal, snapshot = null, deviceContext = null, 
   };
 }
 
-
-function buildTaskContractJudgeMessages(goal, snapshot, deviceContext, fallbackContract) {
-  const payload = {
-    goal: safeText(goal, 240),
-    currentScreen: taskContractJudgeSnapshotPayload(snapshot),
-    device: deviceContextSummaryForPrompt(deviceContext),
-    neutralFallback: fallbackContract || null,
-    task: "Parse semantic requirements first. Declare required app capabilities; the Android device resolves the actual installed app.",
-  };
-  const system = [
-    "你是 Android 手机智能体的 TaskContractJudge，属于内部控制主脑的一部分，只输出严格 JSON。",
-    "先理解用户真实意图，再写任务契约；禁止照抄本地 fallback，禁止被股票名、公司名、人名、地点名中的 App 名子串带偏。",
-    "requiredApp 只能在用户明确指定 App 时填写。用户未指定 App 时，requiredApp 必须为 null，由 requiredCapabilities 描述需要的能力。",
-    "必须区分 stock_detail 与 stock_trade：查看行情/详情属于 stock_detail；打开买入、卖出、委托、下单界面属于 stock_trade。",
-    "stock_trade 只表示导航到下单入口，不代表填写或提交订单。targetAction=open_order_entry；requiredCapabilities 至少包含 stock_search、securities_trade、order_entry。",
-    "查看股票详情时 requiredCapabilities 使用 stock_quote、stock_search。导航任务使用 navigation。",
-    "不要编造 packageName。真实目标 App 必须由 Android 上传的 targetAppResolution 或 installedApps capabilityProfile 解析。",
-    "你只描述任务契约，不负责点击坐标；风险由 ActionSafetyJudge 判断候选动作后果。",
-    "输出 JSON：{\"taskSemanticContract\":{\"sourceGoal\":\"\",\"domain\":\"stock_trade|stock_detail|stock_index|finance_news|chat|social|navigation|music|video|travel|system_control|general\",\"targetEntity\":\"\",\"targetKind\":\"\",\"targetPage\":\"\",\"targetSubPage\":\"detail_main|order_entry|comment_community|news_tab|chat_thread|profile_page|goal_satisfied_page\",\"targetAction\":\"open_order_entry|open_detail|navigate|open|\",\"requiredCapabilities\":[\"\"],\"requiredApp\":null,\"explicitAppRequired\":false,\"allowAlternativeApp\":true,\"appCandidates\":[],\"completionCriteria\":[\"\"],\"completionEvidenceKeywords\":[\"\"],\"confidence\":0.0,\"reason\":\"\"}}",
-  ].join("\n");
-  return [
-    { role: "system", content: system },
-    { role: "user", content: JSON.stringify(payload) },
-  ];
-}
-
-async function judgeTaskSemanticContract(goal, snapshot, deviceContext, agentMemory, startedAt) {
-  // Disabled by design. DeepSeek AgentBrain is the only semantic router.
-  return buildTaskSemanticContract(goal, snapshot, deviceContext, agentMemory);
-}
-
-
-function taskSemanticContractPromptBlock(contract) {
-  if (!contract || typeof contract !== "object") return "Task semantic contract: unavailable. Use original goal and current screenshot.";
-  const source = String(contract.contractSource || contract.source || "").toLowerCase();
-  const neutral = source.includes("neutral") || source.includes("rule_fallback");
-  const required = neutral ? null : contract.requiredApp;
-  const candidateLine = (contract.appCandidates || [])
-    .slice(0, 6)
-    .map((app, index) => `${index + 1}. ${app.label || app.appName || "未知"}${app.packageName ? `(${app.packageName})` : ""}`)
-    .join(" / ") || "无";
-
-  if (neutral && !contract.targetEntity && !required) {
-    return [
-      "Task semantic contract: neutral local fallback only.",
-      `- Original goal: ${contract.sourceGoal || ""}`,
-      "- Local backend did not interpret domain/entity/requiredApp. GUI/AgentBrain must infer from original goal + screenshot.",
-      `- Candidate apps from device context: ${candidateLine}`,
-      "- Do not treat this fallback as a hard route constraint.",
-    ].join("\n");
-  }
-
-  return [
-    "Task semantic contract (from AgentBrain/TaskContractJudge; obey unless runtime screenshot clearly contradicts it):",
-    `- Original goal: ${contract.sourceGoal || ""}`,
-    `- Domain/target: ${contract.domain || "general"} / ${contract.targetEntity || "未指定"} / ${contract.targetPage || "goal_satisfied_page"} / sub=${contract.targetSubPage || "goal_satisfied_page"}`,
-    required
-      ? `- Required app: ${required.label}${required.packageName ? `(${required.packageName})` : ""}. This is a hard user constraint only because AgentBrain judged it explicit.`
-      : `- Required app: none explicit. Candidate apps: ${candidateLine}`,
-    `- Current phase: ${contract.current?.phase || "observe"}; requiredAppActive=${Boolean(contract.current?.requiredAppActive)}; entityVisible=${Boolean(contract.current?.entityVisible)}; completionLike=${Boolean(contract.current?.completionLike)}.`,
-    `- Completion criteria: ${(contract.completionCriteria || []).join("；") || "视觉上确认任务目标完成"}`,
-    `- Completion evidence keywords from contract: ${(contract.completionEvidenceKeywords || []).join(" / ") || "由视觉模型判断"}`,
-    `- Forbidden actions: ${(contract.forbiddenActions || []).join("；")}`,
-    "Use this contract as semantic guidance; Android runtime feedback and current screenshot still have priority for execution validity.",
-  ].join("\n");
-}
-
-function compactActionTargetsApp(compact, targetApp) {
-  if (!compact || !targetApp) return false;
-  const action = String(compact.a || compact.action || compact.type || "").toLowerCase().trim().replace(/-/g, "_");
-  if (action !== "open_app" && action !== "open") return false;
-  const candidate = {
-    label: safeText(compact.appName || compact.app || compact.t || compact.targetText || "", 100),
-    packageName: safeText(compact.packageName || compact.package || "", 120),
-    aliases: [],
-  };
-  return appMatchesTaskContractApp(candidate, targetApp);
-}
 
 function isAssistantHostAppPackage(packageName) {
   const clean = normalizeForMatch(packageName);
@@ -4047,22 +3656,6 @@ function structuralGuiThinkingDecision(agentMemory = null) {
   };
 }
 
-function deepThinkingPromptBlock(decision) {
-  const d = decision && typeof decision === "object" ? decision : { mode: "adaptive", enabled: false, reasons: [] };
-  if (!d.enabled) {
-    return "Deep thinking policy: adaptive-fast. 当前没有强卡死/风险信号，本轮快速决策；但仍需避免重复无效动作。";
-  }
-  const reasons = Array.isArray(d.reasons) && d.reasons.length ? d.reasons.join("；") : "manual/deep mode enabled";
-  return [
-    `Deep thinking policy: ${d.level || "adaptive_deep"} ENABLED.`,
-    `Trigger reasons: ${reasons}.`,
-    "Before choosing the next mobile_use action, internally re-check: current page, task goal, last failed action, Android verification feedback, and a different route that can create visible progress.",
-    "Do not output chain-of-thought or analysis. Output only the next valid mobile_use action/tool call, but make it the result of this deeper replan.",
-    "When blockedActionSignatures/noProgress exist, the next action must change at least one of: route, target element, tap area, app entry, search query strategy, Back/Home recovery, or wait-for-state reason.",
-  ].join("\n");
-}
-
-
 function runtimeGuardBlockedReasonForCompact(compact, agentMemory, screenshotInfo = null) {
   const blocked = new Set(runtimeBlockedActionSignatures(agentMemory));
   if (!blocked.size) return null;
@@ -4071,24 +3664,6 @@ function runtimeGuardBlockedReasonForCompact(compact, agentMemory, screenshotInf
   if (!hit) return null;
   return `后端 v12G runtime guard：Android 已把动作 ${hit} 判定为无进展/临时拉黑；本轮禁止再次下发同一动作。请重新观察并换路线、换落点、重新搜索、返回上一层或选择其他入口。`;
 }
-
-function guardGuiPlusParsedPlan(parsed, goal, snapshot, supportedSteps, screenshotInfo, deviceContext, agentMemory, recentActions) {
-  const compact = parsed?.guiPlusCompact || parsed?.compactVision || parsed || {};
-
-  // The guard layer validates runtime safety only. It never interprets user semantics,
-  // selects an App, or rewrites the GUI Plus route.
-  const runtimeBlockedReason = runtimeGuardBlockedReasonForCompact(compact, agentMemory, screenshotInfo);
-  if (runtimeBlockedReason) {
-    const replan = buildGuardedNeedReplanPlan(runtimeBlockedReason, 0.74);
-    replan.guardReason = "runtime_blocked_action_signature";
-    replan.sourceDetail = "guarded_android_runtime_no_progress_signature";
-    replan.runtimeBlockedSignatures = runtimeActionSignaturesFromCompact(compact, screenshotInfo);
-    return replan;
-  }
-
-  return parsed;
-}
-
 
 function nullableBooleanFromValue(value) {
   if (value === true || value === "true" || value === 1 || value === "1" || value === "yes") return true;
@@ -5025,16 +4600,6 @@ function agentBrainRouteStepToAgentStepPayload(route, routeStep, tool, goal) {
   };
 }
 
-function shouldUseAgentBrainDirectPreflight(preflightPlan, route) {
-  if (!preflightPlan?.agentStep || !route || typeof route !== "object") return false;
-  const routeName = normalizeAgentBrainRouteName(route.route || "visual_agent");
-  const stepType = normalizeAgentStepType(preflightPlan.agentStep.type);
-  if (["ask_user", "refuse"].includes(routeName)) return true;
-  if (routeName === "device_tool") return stepType === "open_app" || isInternalToolAgentStepType(stepType);
-  if (routeName === "hybrid") return stepType === "open_app" || isInternalToolAgentStepType(stepType);
-  return false;
-}
-
 function canonicalInstalledAppForAgentBrainStep(routeStep, deviceContext) {
   if (!routeStep || typeof routeStep !== "object") return null;
   const args = agentBrainStepArgs(routeStep);
@@ -5110,37 +4675,6 @@ function agentBrainRouteToDirectAgentPlan(route, snapshot, supportedSteps, goal,
 
   // visual_agent / hybrid after deterministic preflight: GUI Plus owns the next visual decision.
   return null;
-}
-
-function buildRootInternalDeviceToolPlan(tool, args, goal, snapshot, supportedSteps, screenshotInfo, deviceContext, reason, risk = "low") {
-  const type = normalizeAgentStepType(tool);
-  if (!SUPPORTED_AGENT_STEP_TYPES.includes(type) || !supportedSteps.includes(type)) return null;
-  const finalRisk = normalizeRiskLevel(risk);
-  const step = normalizeAgentStep({
-    agentStep: {
-      type,
-      reason: safeText(reason || "普通聊天内部设备工具快速规划器直接命中结构化工具。", 260),
-      riskLevel: finalRisk,
-      requiresConfirmation: ["high", "critical"].includes(finalRisk),
-      args: args && typeof args === "object" ? args : {},
-      arguments: args && typeof args === "object" ? args : {},
-    },
-  }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-  const state = normalizeAgentState({
-    agentState: {
-      isComplete: false,
-      expectedProgress: true,
-      isWrong: false,
-      confidence: 0.96,
-      reason: step.reason,
-      nextHint: safeText(goal, 120),
-    },
-  }, step);
-  return {
-    agentStep: step,
-    agentState: state,
-    source: `normal_chat_root_internal_${type}`,
-  };
 }
 
 function buildAiInternalDeviceToolPlannerMessages(goal, body, deviceContext, agentMemory) {
@@ -5645,29 +5179,6 @@ function normalChatNoInternalDeviceToolPlan(goal, snapshot, supportedSteps, scre
 }
 
 
-function taskContractOpenCandidatePlan(contract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, reasonTag = "task_contract_open_candidate") {
-  if (!contract || typeof contract !== "object" || !supportedSteps.includes("open_app")) return null;
-  const source = String(contract.contractSource || contract.source || "").toLowerCase();
-  const neutral = source.includes("neutral") || source.includes("rule_fallback");
-  if (neutral || Number(contract.confidence || 0) < 0.45) return null;
-  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || deviceContext?.currentApp?.packageName || "", 120);
-  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
-  const required = contract.requiredApp && typeof contract.requiredApp === "object" ? contract.requiredApp : null;
-  const candidate = required || (Array.isArray(contract.appCandidates) ? contract.appCandidates[0] : null);
-  if (!candidate || (!candidate.label && !candidate.packageName && !candidate.appName)) return null;
-  if (required && currentAppSatisfiesTaskContract(contract, snapshot, deviceContext)) return null;
-  if (!required && !assistantHost && currentPackage) return null;
-  const appName = safeText(candidate.label || candidate.appName || candidate.name || candidate.packageName || "目标 App", 80);
-  const packageName = safeText(candidate.packageName || candidate.package || "", 120);
-  const reason = safeText(required ? `AgentBrain/TaskContractJudge 要求先打开指定 App：${appName}。` : `AgentBrain/TaskContractJudge 给出候选 App：${appName}，当前仍在非目标页，先打开该 App 再交给 GUI Plus 视觉执行。`, 260);
-  const step = normalizeAgentStep({ agentStep: { type: "open_app", appName, packageName: packageName || undefined, targetText: appName, reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-  const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: Math.max(0.55, Number(contract.confidence || 0.6)), reason, nextHint: `打开 ${appName} 后继续：${contract.targetEntity || goal}` } }, step);
-  return { agentStep: step, agentState: state, source: reasonTag };
-}
-
-
-const AGENT_TASK_EXECUTION_CONTRACT_SCHEMA = "agent_task_execution_contract_v1";
-
 function normalizeTaskExecutionPhase(value) {
   const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
   if (["resolve_requirements", "resolving_requirements"].includes(raw)) return "resolve_requirements";
@@ -5821,26 +5332,6 @@ function appTaskResolutionScore(app, semanticContract, requiredCapabilities) {
   return score;
 }
 
-function selectResolvedAppCandidate(candidates, semanticContract, requiredCapabilities, deviceContext) {
-  const ranked = candidates
-    .map((app) => ({ app, score: appTaskResolutionScore(app, semanticContract, requiredCapabilities) }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score);
-  if (!ranked.length) return { status: "not_found", selectedApp: null, candidates: [] };
-  const normalizedCandidates = ranked.slice(0, 12).map((item) => ({ ...item.app, resolutionScore: item.score }));
-  const top = ranked[0];
-  const second = ranked[1];
-  const uniqueStrong = !second || top.score >= second.score + 300;
-  if (uniqueStrong) {
-    return {
-      status: "resolved",
-      selectedApp: normalizeExecutionTargetApp({ ...top.app, source: "server_inventory_ranked_match", confidence: Math.min(1, Math.max(0.72, top.score / 4000)) }, deviceContext),
-      candidates: normalizedCandidates,
-    };
-  }
-  return { status: "ambiguous", selectedApp: null, candidates: normalizedCandidates };
-}
-
 function deriveTargetAppResolutionFromInventory(semanticContract, deviceContext, requiredCapabilitiesOverride = []) {
   const installed = installedAppsFromDeviceContext(deviceContext);
   const explicit = semanticContract?.requiredApp && typeof semanticContract.requiredApp === "object"
@@ -5891,65 +5382,6 @@ function effectiveTargetAppResolution(semanticContract, deviceContext, requiredC
 }
 
 
-function resolveTaskExecutionTargetApp(semanticContract, agentBrainRoute, snapshot, deviceContext) {
-  const domain = safeText(semanticContract?.domain || "general", 60) || "general";
-  const resolution = effectiveTargetAppResolution(semanticContract, deviceContext);
-  if (resolution?.status === "resolved" && resolution.selectedApp) {
-    return normalizeExecutionTargetApp(
-      { ...resolution.selectedApp, source: resolution.source || "android_target_app_resolution" },
-      deviceContext
-    );
-  }
-
-  const routeStep = taskExecutionRouteOpenStep(agentBrainRoute);
-  const candidates = [
-    semanticContract?.requiredApp,
-    routeStep ? {
-      label: routeStep.appName || routeStep.targetText || routeStep.text || "",
-      packageName: routeStep.packageName || routeStep.package || "",
-      source: "agent_brain_route",
-      confidence: Number(agentBrainRoute?.confidence || 0.8),
-    } : null,
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const normalized = normalizeExecutionTargetApp(candidate, deviceContext);
-    if (normalized?.packageName || normalized?.label) return normalized;
-  }
-
-  const requiredCapabilities = semanticRequiredCapabilities(semanticContract);
-  if (!requiredCapabilities.length && isDomainTask(domain)) {
-    const ranked = bestDomainOpenAppCandidate(deviceContext, domain);
-    if (ranked) {
-      const normalized = normalizeExecutionTargetApp(
-        { ...ranked, source: ranked.source || "domain_candidate", confidence: 0.8 },
-        deviceContext
-      );
-      if (normalized?.packageName || normalized?.label) return normalized;
-    }
-  }
-
-  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
-  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
-  if (!assistantHost && currentPackage && currentPackage !== "android" && !currentPackage.includes("systemui")) {
-    const installed = installedAppsFromDeviceContext(deviceContext);
-    const active = installed.find((app) => app.packageName === currentPackage);
-    if (
-      active &&
-      (
-        !requiredCapabilities.length ||
-        appSupportsRequiredCapabilities(active, requiredCapabilities)
-      )
-    ) {
-      return normalizeExecutionTargetApp(
-        { ...active, source: "current_foreground_app", confidence: 0.72 },
-        deviceContext
-      );
-    }
-  }
-  return null;
-}
-
 function taskExecutionTargetAppActive(contract, snapshot) {
   const target = contract?.targetApp;
   if (!target) return false;
@@ -5969,101 +5401,6 @@ function taskExecutionGoalMatches(contract, goal) {
   return Boolean(previous && current && previous === current);
 }
 
-
-function reconcileTaskExecutionContract({ existing, session, goal, semanticContract, agentBrainRoute, snapshot, deviceContext }) {
-  const restored = taskExecutionGoalMatches(existing, goal) ? existing : null;
-  const routeName = normalizeAgentBrainRouteName(agentBrainRoute?.route || "visual_agent");
-  const mode = routeName === "device_tool" ? "internal_device_tool" : "visual";
-  const routeOpenStep = firstAgentBrainStep(agentBrainRoute, (step) => {
-    const executor = normalizeAgentBrainExecutorName(step?.executor || step?.route, routeName);
-    const tool = normalizeAgentBrainToolName(step?.tool || step?.action || step?.name, executor);
-    return executor === "device_tool" && tool === "open_app";
-  });
-  const targetApp = routeOpenStep ? canonicalInstalledAppForAgentBrainStep(routeOpenStep, deviceContext) : null;
-  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
-  const targetActive = Boolean(targetApp?.packageName && currentPackage === targetApp.packageName);
-  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
-
-  let phase = "visual_navigation";
-  let phaseReason = safeText(agentBrainRoute?.reason || "GUI Plus owns visual App/page understanding.", 260);
-  if (mode === "internal_device_tool") {
-    phase = "internal_control";
-  } else if (["ask_user", "refuse"].includes(routeName)) {
-    phase = "user_assistance";
-  } else if (targetApp && !targetActive) {
-    phase = "open_target_app";
-  }
-
-  const now = Date.now();
-  return {
-    schema: "agent_task_execution_contract_v2_two_brain",
-    taskId: safeText(restored?.taskId || session?.id || `task-${now}`, 120),
-    sourceGoal: safeText(goal, 240),
-    mode,
-    domain: "agent_brain_routed",
-    targetEntity: "",
-    targetAction: "",
-    requiredCapabilities: [],
-    targetPage: "goal_satisfied_page",
-    targetSubPage: "goal_satisfied_page",
-    targetApp: targetApp || null,
-    targetAppResolution: targetApp
-      ? { schema: "target_app_resolution_v2_two_brain", status: "resolved", selectedApp: targetApp, candidates: [targetApp], requiredCapabilities: [], reason: "Resolved from DeepSeek AgentBrain canonical open_app step.", source: "agent_brain_canonical_app" }
-      : { schema: "target_app_resolution_v2_two_brain", status: "not_required", selectedApp: null, candidates: [], requiredCapabilities: [], reason: "GUI Plus directly understands the original visual task and current screen.", source: "two_brain_visual_runtime" },
-    targetAppResolutionStatus: targetApp ? "resolved" : "not_required",
-    appInventoryHash: safeText(deviceContext?.appInventoryHash || deviceContext?.inventory?.inventoryHash || "", 120),
-    phase,
-    previousPhase: safeText(restored?.phase || "", 80),
-    phaseVersion: Math.max(1, Number(restored?.phaseVersion || 0) + (restored?.phase !== phase ? 1 : 0)),
-    allowedActions: taskExecutionAllowedActions(phase, mode),
-    completionCriteria: [],
-    completionEvidenceKeywords: [],
-    targetAppActive: targetActive,
-    completionSatisfied: false,
-    assistantHost,
-    createdAt: Number(restored?.createdAt || now),
-    updatedAt: now,
-    confidence: Math.max(0, Math.min(1, Number(agentBrainRoute?.confidence || 0.55))),
-    phaseReason,
-  };
-}
-
-
-function taskExecutionContractPlan(contract, semanticContract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, reasonTag = "task_execution_contract") {
-  if (!contract || typeof contract !== "object") return null;
-  const phase = normalizeTaskExecutionPhase(contract.phase);
-  const target = contract.targetApp;
-
-  if (["internal_control", "visual_navigation", "resolve_target_app", "verify_target_app", "resolve_requirements"].includes(phase)) {
-    // GUI Plus owns visual interpretation. These phases must never block on local App-resolution rules.
-    return null;
-  }
-
-  if (phase === "completed") {
-    const reason = safeText(`任务已完成：${contract.sourceGoal || goal}`, 260);
-    const step = normalizeAgentStep({ agentStep: { type: "finish", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: Math.max(0.82, Number(contract.confidence || 0.82)), reason } }, step);
-    return { agentStep: step, agentState: state, source: `${reasonTag}_completed` };
-  }
-
-  if (phase === "open_target_app" && target && supportedSteps.includes("open_app")) {
-    if (taskExecutionTargetAppActive(contract, snapshot)) return null;
-    const appName = safeText(target.label || target.packageName || "目标 App", 80);
-    const packageName = safeText(target.packageName || "", 120);
-    const reason = safeText(`DeepSeek AgentBrain 已解析 canonical App，先打开 ${appName}，随后由 GUI Plus 完成页面内导航。`, 260);
-    const step = normalizeAgentStep({ agentStep: { type: "open_app", appName, packageName: packageName || undefined, targetText: appName, reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: Math.max(0.8, Number(contract.confidence || 0.8)), reason } }, step);
-    return { agentStep: step, agentState: state, source: `${reasonTag}_open_target_app` };
-  }
-
-  if (phase === "user_assistance") {
-    const reason = safeText(contract.phaseReason || "DeepSeek AgentBrain requires user clarification.", 300);
-    const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.86, reason } }, step);
-    return { agentStep: step, agentState: state, source: `${reasonTag}_need_user_help` };
-  }
-  return null;
-}
 
 function enforceTaskExecutionContractPlan(contract, semanticContract, agentStep, agentState, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, source = "two_brain_runtime_validation") {
   const currentContract = contract && typeof contract === "object" ? contract : null;
@@ -6254,23 +5591,6 @@ function hasLikelyWritableFocus(snapshot, recentActions = []) {
   return /正在输入|键盘已打开|光标|输入法|IME/.test(evidence);
 }
 
-function guardUnfocusedInputStep(agentStep, agentState, route, contract, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentActions, reasonTag = "input_phase_guard") {
-  if (!agentStep || agentStep.type !== "input_text") return { guarded: false, agentStep, agentState, source: "" };
-  if (hasLikelyWritableFocus(snapshot, recentActions)) return { guarded: false, agentStep, agentState, source: "" };
-
-  const brainOpen = agentBrainRouteToDirectAgentPlan(route, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, `${reasonTag}_agent_brain`);
-  if (brainOpen && brainOpen.agentStep?.type === "open_app") {
-    brainOpen.agentStep.reason = safeText(`输入动作校验失败：当前没有可写焦点。${brainOpen.agentStep.reason || "按 AgentBrain 路线先打开目标 App。"}`, 260);
-    brainOpen.source = `${reasonTag}_to_agent_brain_open_app`;
-    return { guarded: true, ...brainOpen };
-  }
-
-  const reason = safeText("输入动作校验失败：当前截图和 Android 状态都没有显示可写入的输入框、焦点或键盘。GUI Plus 必须先点击真实输入框后再输入。", 260);
-  const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-  const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.62, reason } }, step);
-  return { guarded: true, agentStep: step, agentState: state, source: `${reasonTag}_blocked_unfocused_input` };
-}
-
 function buildAgentPlannerSystemPrompt(supportedSteps, hasScreenshot = false) {
   return [
     "你是 Android 手机 Computer Use 智能体的快速规划器，只能输出严格 JSON。",
@@ -6332,66 +5652,6 @@ function plannerAppsForPrompt(deviceContext, goal, hasScreenshot) {
 
   if (matched.length) return matched.slice(0, 12);
   return hasScreenshot ? [] : apps.slice(0, 24);
-}
-
-function buildAgentPlannerMessages(goal, snapshot, supportedSteps, screenshotInfo = null, recentActions = [], deviceContext = null, agentMemory = null) {
-  const compactDeviceContext = deviceContextSummaryForPrompt(deviceContext);
-  const compactMemory = compactAgentMemoryForPrompt(agentMemory, recentActions);
-  const hasScreenshot = Boolean(screenshotInfo?.hasImage);
-  const plannerApps = plannerAppsForPrompt(deviceContext, goal, hasScreenshot);
-  const payload = {
-    goal,
-    currentApp: snapshot.currentApp || snapshot.packageName || "",
-    supportedSteps,
-    deviceContext: {
-      currentApp: compactDeviceContext.currentApp,
-      screen: compactDeviceContext.screen,
-      installedApps: plannerApps,
-      installedAppCount: compactDeviceContext.installedAppCount,
-    },
-    memory: compactMemory,
-    snapshot: {
-      packageName: snapshot.packageName,
-      nodeCount: snapshot.nodeCount,
-      texts: (snapshot.texts || []).slice(0, 16),
-      clickableNodes: (snapshot.clickableNodes || []).slice(0, 18),
-      inputNodes: (snapshot.inputNodes || []).slice(0, 4),
-      scrollableNodes: (snapshot.scrollableNodes || []).slice(0, 4),
-      confidence: snapshot.confidence,
-    },
-    screenshot: hasScreenshot
-      ? {
-          width: screenshotInfo.width,
-          height: screenshotInfo.height,
-          displayWidth: screenshotInfo.displayWidth,
-          displayHeight: screenshotInfo.displayHeight,
-        }
-      : null,
-    rules: [
-      "只输出 JSON",
-      "截图主导，节点辅助",
-      "每次只返回一步",
-      "入口可见不等于完成",
-      "tap_xy 返回 0-1 归一化坐标",
-      "如果 memory.blockedActionSignatures 或 memory.verificationEvents 提示某动作无进展，禁止再次输出同一动作签名；必须换路线。"
-    ],
-  };
-
-  const content = [{ type: "text", text: JSON.stringify(payload) }];
-
-  if (hasScreenshot) {
-    content.push({
-      type: "image_url",
-      image_url: {
-        url: `data:${screenshotInfo.mimeType};base64,${screenshotInfo.base64}`,
-      },
-    });
-  }
-
-  return [
-    { role: "system", content: buildAgentPlannerSystemPrompt(supportedSteps, hasScreenshot) },
-    { role: "user", content },
-  ];
 }
 
 async function handleAgentOutcomeVerificationRequest(body, prompt, resolvedModel) {
@@ -6598,21 +5858,6 @@ function aliyunGuiDateInfo() {
     return "";
   }
 }
-
-function extractMobileUseActionSummary(output) {
-  const raw = String(output || "").trim();
-  const actionLine = (raw.match(/^Action:\s*(.*)$/im) || [])[1];
-  if (actionLine) return safeText(actionLine, 120);
-  const args = extractAliyunMobileUseToolCall(raw);
-  if (args) {
-    const action = safeText(args.action || "", 24);
-    const text = safeText(args.text || args.button || "", 80);
-    const coordinate = Array.isArray(args.coordinate) ? ` @${args.coordinate.slice(0, 2).join(",")}` : "";
-    return safeText([action, text, coordinate].filter(Boolean).join(" "), 120);
-  }
-  return safeText(raw.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, ""), 120);
-}
-
 
 function screenFingerprint(snapshot, screenshotInfo) {
   const texts = [
@@ -7473,94 +6718,6 @@ function guiPlusNeedUserHelp(targetText, reason, raw = "") {
   };
 }
 
-function normalizeGuiPlusRawToCompact(rawOutput, screenshotInfo) {
-  const rawText = String(rawOutput || "");
-  const parsed = extractGuiPlusJsonOrArray(rawText);
-  let action = "";
-  let xRaw;
-  let yRaw;
-  let targetText = "点击目标";
-  let confidence = 0;
-  let reason = "";
-
-  if (Array.isArray(parsed) && parsed.length >= 2) {
-    action = "tap_xy";
-    xRaw = parsed[0];
-    yRaw = parsed[1];
-    confidence = 0.55;
-    reason = "GUI Plus 返回坐标数组。";
-  } else if (parsed && typeof parsed === "object") {
-    const nested = parsed.agentStep || parsed.step || parsed.actionStep || parsed.result || parsed.action || parsed;
-    const coordinate = nested.coordinate || nested.coordinates || nested.point || nested.position || nested.xy || nested.center || nested.coord;
-    action = normalizeGuiPlusActionName(nested.action || nested.type || nested.a || nested.operation || parsed.action || parsed.type);
-    if (Array.isArray(coordinate) && coordinate.length >= 2) {
-      xRaw = coordinate[0];
-      yRaw = coordinate[1];
-    } else if (coordinate && typeof coordinate === "object") {
-      xRaw = coordinate.x ?? coordinate[0] ?? coordinate.cx ?? coordinate.centerX;
-      yRaw = coordinate.y ?? coordinate[1] ?? coordinate.cy ?? coordinate.centerY;
-    }
-    xRaw = xRaw ?? nested.x ?? nested.targetX ?? nested.cx ?? nested.centerX ?? nested.tapX ?? parsed.x ?? parsed.targetX;
-    yRaw = yRaw ?? nested.y ?? nested.targetY ?? nested.cy ?? nested.centerY ?? nested.tapY ?? parsed.y ?? parsed.targetY;
-    targetText = safeText(nested.targetText || nested.label || nested.t || nested.text || parsed.t || parsed.targetText || "点击目标", 80);
-    confidence = clamp01(nested.confidence ?? nested.score ?? nested.c ?? parsed.confidence ?? parsed.c ?? 0);
-    reason = safeText(nested.reason || nested.evidence || nested.e || parsed.reason || parsed.e || "GUI Plus predicted clickable coordinate.", 180);
-  } else {
-    const xyPairs = rawText.match(/[xy][:=：]\s*(-?\d+(?:\.\d+)?)/gi) || [];
-    const numbers = rawText.match(/-?\d+(?:\.\d+)?/g)?.map(Number).filter(Number.isFinite) || [];
-    if (xyPairs.length >= 2 || numbers.length >= 2) {
-      action = "tap_xy";
-      xRaw = numbers[0];
-      yRaw = numbers[1];
-      confidence = 0.35;
-      reason = "从 GUI Plus 非 JSON 文本中提取到坐标，置信度较低。";
-    }
-  }
-
-  if (!action) action = "need_user_help";
-  if (action !== "tap_xy") {
-    return guiPlusNeedUserHelp(targetText, `第一阶段不自动执行 ${action}，已保守暂停。${reason || ""}`, rawText);
-  }
-
-  const point = normalizeGuiPlusPoint(xRaw, yRaw, screenshotInfo);
-  if (!point) return guiPlusNeedUserHelp(targetText, "GUI Plus 没有给出可靠坐标，禁止猜测点击。", rawText);
-
-  const safeConfidence = confidence > 0 ? confidence : 0.6;
-  if (safeConfidence < 0.25) {
-    return guiPlusNeedUserHelp(targetText, `GUI Plus 坐标置信度过低：${safeConfidence.toFixed(2)}`, rawText);
-  }
-
-  return {
-    s: "p",
-    a: "tap_xy",
-    x: point.x,
-    y: point.y,
-    t: targetText || "点击目标",
-    c: safeConfidence,
-    e: `${reason || "GUI Plus predicted clickable coordinate."} 坐标来源=${point.source || "unknown"}.`,
-    raw: rawText.slice(0, 240),
-  };
-}
-
-function compactNodesForGuiPlusPrompt(snapshot) {
-  const nodes = [
-    ...(Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes : []),
-    ...(Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes : []),
-    ...(Array.isArray(snapshot?.scrollableNodes) ? snapshot.scrollableNodes : []),
-  ];
-  return nodes
-    .map((node) => ({
-      id: safeText(node?.id || "", 24),
-      text: safeText(node?.text || node?.label || node?.contentDescription || "", 60),
-      bounds: safeText(node?.bounds || "", 48),
-      clickable: Boolean(node?.clickable),
-      editable: Boolean(node?.editable),
-      scrollable: Boolean(node?.scrollable),
-    }))
-    .filter((node) => node.text || node.bounds)
-    .slice(0, 28);
-}
-
 function buildAliyunMobileUseToolProtocolPrompt() {
   return [
     "# Tools",
@@ -8402,19 +7559,6 @@ function buildGuiPlusInteractionSelfReviewMessages(messages, raw, goal, snapshot
   ];
 }
 
-function isBackendGeneratedGuiProtocolFallback(compact) {
-  const value = compact && typeof compact === "object" ? compact : {};
-  const reason = safeText(value.e || value.reason || "", 320);
-  if (value.s === "u" && reason.startsWith("MODEL_CONTRACT_ERROR:")) return true;
-  return Boolean(
-    reason.includes("缺少可靠坐标") ||
-    reason.includes("未知 mobile_use action=") ||
-    reason.includes("第一阶段不自动执行 system_button=") ||
-    reason.includes("第一阶段不自动执行 key=") ||
-    reason.includes("第一阶段不自动执行 mobile_use long_press")
-  );
-}
-
 async function callAliyunGuiPlusProvider(goal, snapshot, screenshotInfo, session, recentActions, supportedSteps, deviceContext, agentMemory, providerConfig, timeoutMs) {
   if (!ALIYUN_GUI_API_KEY) throw new Error("Aliyun GUI Plus key missing: set ALIYUN_GUI_API_KEY or QWEN_API_KEY");
   if (!ALIYUN_GUI_BASE_URL) throw new Error("Aliyun GUI Plus base url missing: set ALIYUN_GUI_BASE_URL");
@@ -8619,93 +7763,6 @@ function parsedVisionPlanHasUsableStep(parsed) {
 
 function findGoalMatchedClickableNode(goal, snapshot) {
   return null;
-}
-
-function buildLocalAgentFallbackPlan(goal, snapshot, supportedSteps, visualFrame, screenshotInfo, deviceContext, recentAgentActions, reasonTag = "local_fallback") {
-  const direct = visualFrameToDirectAgentPlan(visualFrame, snapshot, supportedSteps, goal, screenshotInfo, deviceContext, recentAgentActions, true);
-  if (direct) {
-    return {
-      agentStep: direct.agentStep,
-      agentState: direct.agentState,
-      parsed: null,
-      source: `${direct.source || "visual_frame"}_${reasonTag}`,
-      reason: direct.agentStep?.reason || direct.agentState?.reason || "",
-    };
-  }
-
-  const completionEvidence = goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext);
-  if (completionEvidence) {
-    const step = normalizeAgentStep({ agentStep: { type: "finish", reason: completionEvidence.reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: true, expectedProgress: true, isWrong: false, confidence: completionEvidence.confidence, reason: completionEvidence.reason } }, step);
-    return { agentStep: step, agentState: state, parsed: null, source: `completion_evidence_${reasonTag}`, reason: completionEvidence.reason };
-  }
-
-  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
-  const targetApps = targetAppCandidatesFromDeviceContext(deviceContext || {});
-  const firstTargetApp = targetApps[0];
-  if (firstTargetApp && supportedSteps.includes("open_app") && firstTargetApp.packageName && firstTargetApp.packageName !== currentPackage) {
-    const step = normalizeAgentStep({
-      agentStep: {
-        type: "open_app",
-        appName: firstTargetApp.label,
-        packageName: firstTargetApp.packageName,
-        reason: `视觉云端超时，先用 deviceContext 打开目标应用：${firstTargetApp.label}。`,
-        riskLevel: "low",
-        requiresConfirmation: false,
-      },
-    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.62, reason: "本地设备上下文命中目标应用，先打开目标 App。" } }, step);
-    return { agentStep: step, agentState: state, parsed: null, source: `open_app_${reasonTag}`, reason: step.reason };
-  }
-
-  const matchedNode = findGoalMatchedClickableNode(goal, snapshot);
-  if (matchedNode && supportedSteps.includes("tap_node")) {
-    const step = normalizeAgentStep({
-      agentStep: {
-        type: "tap_node",
-        targetNodeId: matchedNode.id,
-        targetText: matchedNode.text,
-        reason: `视觉云端超时，节点中已出现与目标匹配的低风险入口：${matchedNode.text}。`,
-        riskLevel: "low",
-        requiresConfirmation: false,
-      },
-    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.58, reason: "使用节点 affordance 进行低风险兜底点击。" } }, step);
-    return { agentStep: step, agentState: state, parsed: null, source: `tap_node_${reasonTag}`, reason: step.reason };
-  }
-
-  if ((snapshot?.scrollableNodes || []).length > 0 && supportedSteps.includes("scroll") && countRecentActionKind(recentAgentActions, "scroll") === 0 && countRecentActionKind(recentAgentActions, "swipe") === 0) {
-    const step = normalizeAgentStep({
-      agentStep: {
-        type: "scroll",
-        direction: "down",
-        reason: "视觉云端超时，当前页面可滚动，先执行一次低风险滚动探索。",
-        riskLevel: "low",
-        requiresConfirmation: false,
-      },
-    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.46, reason: "低风险滚动探索后继续视觉复核。" } }, step);
-    return { agentStep: step, agentState: state, parsed: null, source: `scroll_${reasonTag}`, reason: step.reason };
-  }
-
-  if (screenshotInfo?.hasImage && countRecentActionKind(recentAgentActions, "wait") === 0 && isLikelyLoadingOrTransition(snapshot, visualFrame)) {
-    const step = normalizeAgentStep({
-      agentStep: {
-        type: "wait",
-        durationMs: 500,
-        reason: "视觉云端超时且页面可能仍在加载，短暂等待后重新观察。",
-        riskLevel: "low",
-        requiresConfirmation: false,
-      },
-    }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-    const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: true, isWrong: false, confidence: 0.42, reason: "页面可能处于加载或过渡状态。" } }, step);
-    return { agentStep: step, agentState: state, parsed: null, source: `wait_${reasonTag}`, reason: step.reason };
-  }
-
-  const reason = "视觉云端超时且本地没有足够可靠的低风险兜底动作，已暂停避免盲目操作。";
-  const step = normalizeAgentStep({ agentStep: { type: "need_user_help", reason, riskLevel: "low", requiresConfirmation: false } }, snapshot, supportedSteps, goal, screenshotInfo, deviceContext);
-  const state = normalizeAgentState({ agentState: { isComplete: false, expectedProgress: false, isWrong: false, confidence: 0.28, reason } }, step);
-  return { agentStep: step, agentState: state, parsed: null, source: `need_help_${reasonTag}`, reason };
 }
 
 function pureAgentStepFromGuiPlusCompact(compact, supportedSteps, goal) {
@@ -8937,21 +7994,6 @@ async function handleOfficialAliyunGuiPlusLoopStep(context) {
       decisionOwner: "gui_plus",
     },
     version: WORKER_VERSION,
-  };
-}
-
-function refreshCachedTaskContractForScreen(contract, snapshot, deviceContext) {
-  if (!contract || typeof contract !== "object") return contract;
-  const requiredAppActive = currentAppSatisfiesTaskContract(contract, snapshot, deviceContext);
-  const assistantHost = isAssistantHostAppPackage(snapshot?.packageName || snapshot?.currentApp || "") || snapshotLooksLikeAssistantChat(snapshot);
-  return {
-    ...contract,
-    current: {
-      ...(contract.current && typeof contract.current === "object" ? contract.current : {}),
-      requiredAppActive,
-      assistantHost,
-      phase: requiredAppActive ? "visual_execute" : assistantHost ? "leave_assistant_open_target_app" : "visual_execute",
-    },
   };
 }
 
