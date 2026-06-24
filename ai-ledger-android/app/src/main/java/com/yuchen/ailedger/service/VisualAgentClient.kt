@@ -134,7 +134,7 @@ internal fun buildVisualAgentPayload(
     val lastScreenChangeIndex = feedbackLines.indexOfLast { it.isVisualScreenChangedFeedback() }
     val activeFeedbackWindow = if (lastScreenChangeIndex >= 0) feedbackLines.drop(lastScreenChangeIndex + 1) else feedbackLines
     val activeVerificationEvents = activeFeedbackWindow.filter { it.isVisualRuntimeFeedback() }
-    val screenChangedCount = activeVerificationEvents.count { it.isVisualScreenChangedFeedback() }
+    val screenChangedCount = verificationEvents.count { it.isVisualScreenChangedFeedback() }
     val noProgressCount = activeVerificationEvents.count { it.isVisualNoProgressFeedback() }
     val structuralFailureCount = activeVerificationEvents.count { it.isStructuralRouteFailureFeedback() }
     val localVisualRetryCount = activeVerificationEvents.count { it.isLocalVisualRetryFeedback() }
