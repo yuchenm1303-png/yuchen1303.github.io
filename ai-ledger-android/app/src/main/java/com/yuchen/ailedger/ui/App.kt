@@ -76,6 +76,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import com.yuchen.ailedger.model.ToolDestination
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.ChatNotificationManager
@@ -413,7 +414,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     }
                                     AppTab.Tools -> {
                                         val toolsState = rememberMotionState(state, effectiveMotionIntensity)
-                                        if (state.selectedToolTitle == STOCK_MARKET_TOOL_TITLE) {
+                                        if (state.selectedTool == ToolDestination.StockMarket) {
                                             AStockMarketScreenV2(
                                                 state = toolsState,
                                                 onBack = viewModel::closeTool,
@@ -422,7 +423,9 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                         } else {
                                             StockFirstToolsHomeScreen(
                                                 state = toolsState,
-                                                onOpenTool = viewModel::openTool
+                                                onOpenTool = { viewModel.openTool(it.title) },
+                                                onCloseTool = viewModel::closeTool,
+                                                onOpenAssistant = onOpenAssistant,
                                             )
                                         }
                                     }
@@ -645,13 +648,9 @@ private fun rememberMotionState(state: AssistantUiState, effectiveMotionIntensit
         state.selectedModelLabel,
         state.onlineEnabled,
         state.isSending,
-        state.selectedToolTitle,
+        state.selectedTool,
         state.ledgerRecords,
         state.ledgerBudgetText,
-        state.ledgerDraftTitle,
-        state.ledgerDraftAmount,
-        state.ledgerDraftType,
-        state.ledgerDraftCategory,
     ) {
         state.copy(motionIntensity = effectiveMotionIntensity)
     }
