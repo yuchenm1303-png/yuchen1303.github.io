@@ -58,14 +58,17 @@ class VisualExecutionSessionState {
         transitionTo(VisualSurfaceState.Replanning)
     }
 
+    fun requiresVisualObservation(): Boolean {
+        return selectedTargetPackage.isNotBlank()
+    }
+
     fun synchronizeWith(snapshot: AgentScreenSnapshot? = null) {
         val currentPackage = snapshot?.packageName?.trim().orEmpty()
 
-        // A fresh visual frame from the already-selected package is objective proof that the
-        // launch handoff completed. This recovers from a transient empty/SystemUI/overlay sample
-        // without asking DeepSeek to select the same app again.
+        // Package identity is objective evidence. Once DeepSeek selected a package, observing that
+        // exact package is enough to complete the handoff; screenshot bytes are not part of the
+        // local semantic decision and are supplied separately by the runner for GUI Plus.
         if (
-            snapshot?.visual?.hasImage == true &&
             selectedTargetPackage.isNotBlank() &&
             currentPackage == selectedTargetPackage &&
             verifiedTargetPackage.isBlank() &&
