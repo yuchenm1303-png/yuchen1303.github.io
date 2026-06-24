@@ -19,6 +19,7 @@ internal object AgentInputRecoveryPolicy {
             return AgentExecutionResult(
                 ok = true,
                 message = buildString {
+                    append("输入焦点暂时失效，正在让 GUI Plus 重新定位。")
                     append("visual_action_retry:type=input_text")
                     append("|failureClass=visual_local")
                     append("|reason=focused_input_unavailable:")
