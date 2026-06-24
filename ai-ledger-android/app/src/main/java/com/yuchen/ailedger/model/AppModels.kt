@@ -4,7 +4,6 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import kotlin.jvm.JvmName
 
 const val BUILTIN_THEME_BACKGROUND_PATH = "__builtin_theme_background__"
 
@@ -385,35 +384,28 @@ data class AssistantUiState(
     val ledgerDraftType: LedgerRecordType get() = LedgerRecordType.Expense
     val ledgerDraftCategory: String get() = "餐饮"
 
-    @JvmName("copySelectedToolTitle")
-    fun copy(selectedToolTitle: String?): AssistantUiState = copy(selectedTool = ToolDestination.fromTitle(selectedToolTitle))
+    @Deprecated("旧字符串路由和账本草稿已退出主状态树")
+    fun copy(
+        selectedToolTitle: String? = this.selectedToolTitle,
+        ledgerDraftTitle: String = this.ledgerDraftTitle,
+        ledgerDraftAmount: String = this.ledgerDraftAmount,
+        ledgerDraftCategory: String = this.ledgerDraftCategory,
+        ledgerBudgetText: String = this.ledgerBudgetText,
+    ): AssistantUiState {
+        return if (selectedToolTitle != this.selectedToolTitle) {
+            copy(selectedTool = ToolDestination.fromTitle(selectedToolTitle))
+        } else {
+            this
+        }
+    }
 
     @Deprecated("旧账本草稿已退出 AssistantUiState")
-    @JvmName("copyLedgerDraftTitle")
-    fun copy(ledgerDraftTitle: String): AssistantUiState = this
-
-    @Deprecated("旧账本草稿已退出 AssistantUiState")
-    @JvmName("copyLedgerDraftAmount")
-    fun copy(ledgerDraftAmount: String): AssistantUiState = this
-
-    @Deprecated("旧账本草稿已退出 AssistantUiState")
-    @JvmName("copyLedgerDraftType")
     fun copy(ledgerDraftType: LedgerRecordType): AssistantUiState = this
 
-    @Deprecated("旧账本草稿已退出 AssistantUiState")
-    @JvmName("copyLedgerDraftCategory")
-    fun copy(ledgerDraftCategory: String): AssistantUiState = this
-
-    @Deprecated("预算由 LedgerStore 统一管理")
-    @JvmName("copyLedgerBudgetText")
-    fun copy(ledgerBudgetText: String): AssistantUiState = this
-
     @Deprecated("账单由 LedgerStore 统一管理")
-    @JvmName("copyLedgerRecords")
     fun copy(ledgerRecords: List<LedgerRecord>): AssistantUiState = this
 
     @Deprecated("账单由 LedgerStore 统一管理")
-    @JvmName("copyLedgerRecordsAndDraft")
     fun copy(
         ledgerRecords: List<LedgerRecord>,
         ledgerDraftTitle: String,
