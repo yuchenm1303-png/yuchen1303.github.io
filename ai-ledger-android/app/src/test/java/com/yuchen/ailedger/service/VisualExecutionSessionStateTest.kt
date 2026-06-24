@@ -36,14 +36,18 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun selectedTargetAlwaysRequestsAVisualObservationUntilTaskEnds() {
+    fun launchingAndReplanningUseLightweightProbeUntilTargetIsVerified() {
         val session = VisualExecutionSessionState()
         assertFalse(session.requiresVisualObservation())
 
         session.beginLaunch("com.hexin.plat.android")
+        assertFalse(session.requiresVisualObservation())
 
-        assertTrue(session.requiresVisualObservation())
         session.markStructuralReplan()
+        assertFalse(session.requiresVisualObservation())
+
+        session.runtimeContext(testSnapshot("com.hexin.plat.android", includeVisual = false))
+        assertEquals(VisualSurfaceState.WorkSurface, session.surfaceState)
         assertTrue(session.requiresVisualObservation())
     }
 
