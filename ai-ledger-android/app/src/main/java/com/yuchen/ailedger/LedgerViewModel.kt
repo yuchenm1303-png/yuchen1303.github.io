@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -63,6 +64,17 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         )
     )
         private set
+
+    init {
+        viewModelScope.launch {
+            ledgerStore.observeSnapshots().collect { snapshot ->
+                state = state.copy(
+                    records = snapshot.records,
+                    budgetText = snapshot.budgetText,
+                )
+            }
+        }
+    }
 
     fun onScreenOpened() {
         reloadLocalState()
