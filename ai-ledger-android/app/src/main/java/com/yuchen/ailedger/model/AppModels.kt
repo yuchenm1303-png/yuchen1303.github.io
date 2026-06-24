@@ -26,13 +26,6 @@ enum class ToolDestination(
     AppControl("应用控制", "打开常用应用入口", "控"),
     Shortcuts("快捷指令", "保存常用任务", "捷"),
     TaskHistory("任务记录", "查看助手执行历史", "记");
-
-    companion object {
-        fun fromTitle(title: String?): ToolDestination? {
-            val clean = title?.trim().orEmpty()
-            return entries.firstOrNull { it.title == clean }
-        }
-    }
 }
 
 enum class RenderQuality(
@@ -376,41 +369,8 @@ data class AssistantUiState(
     val isSending: Boolean = false,
     val selectedTool: ToolDestination? = null,
 ) {
-    val selectedToolTitle: String? get() = selectedTool?.title
     val ledgerRecords: List<LedgerRecord> get() = LedgerStateBridge.records
     val ledgerBudgetText: String get() = LedgerStateBridge.budgetText
-    val ledgerDraftTitle: String get() = ""
-    val ledgerDraftAmount: String get() = ""
-    val ledgerDraftType: LedgerRecordType get() = LedgerRecordType.Expense
-    val ledgerDraftCategory: String get() = "餐饮"
-
-    @Deprecated("旧字符串路由和账本草稿已退出主状态树")
-    fun copy(
-        selectedToolTitle: String? = this.selectedToolTitle,
-        ledgerDraftTitle: String = this.ledgerDraftTitle,
-        ledgerDraftAmount: String = this.ledgerDraftAmount,
-        ledgerDraftCategory: String = this.ledgerDraftCategory,
-        ledgerBudgetText: String = this.ledgerBudgetText,
-    ): AssistantUiState {
-        return if (selectedToolTitle != this.selectedToolTitle) {
-            copy(selectedTool = ToolDestination.fromTitle(selectedToolTitle))
-        } else {
-            this
-        }
-    }
-
-    @Deprecated("旧账本草稿已退出 AssistantUiState")
-    fun copy(ledgerDraftType: LedgerRecordType): AssistantUiState = this
-
-    @Deprecated("账单由 LedgerStore 统一管理")
-    fun copy(ledgerRecords: List<LedgerRecord>): AssistantUiState = this
-
-    @Deprecated("账单由 LedgerStore 统一管理")
-    fun copy(
-        ledgerRecords: List<LedgerRecord>,
-        ledgerDraftTitle: String,
-        ledgerDraftAmount: String,
-    ): AssistantUiState = this
 }
 
 @Immutable
