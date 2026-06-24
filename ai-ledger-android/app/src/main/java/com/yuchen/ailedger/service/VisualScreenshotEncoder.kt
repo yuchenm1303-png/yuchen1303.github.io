@@ -23,6 +23,7 @@ internal object VisualScreenshotEncoder {
     private const val MIN_JPEG_QUALITY = 76
     private const val JPEG_QUALITY_STEP = 6
     private const val MAX_ENCODED_BYTES = 1_250_000
+    private const val ENCODE_BUFFER_INITIAL_BYTES = 512 * 1024
     private const val SCALE_NUMERATOR = 9
     private const val SCALE_DENOMINATOR = 10
 
@@ -81,7 +82,7 @@ internal object VisualScreenshotEncoder {
     }
 
     private fun compress(bitmap: Bitmap, quality: Int): ByteArray {
-        return ByteArrayOutputStream().use { output ->
+        return ByteArrayOutputStream(ENCODE_BUFFER_INITIAL_BYTES).use { output ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
             output.toByteArray()
         }
