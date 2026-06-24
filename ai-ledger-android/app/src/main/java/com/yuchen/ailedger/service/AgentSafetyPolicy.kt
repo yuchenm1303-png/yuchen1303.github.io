@@ -25,9 +25,17 @@ object AgentSafetyPolicy {
         "enable_app",
     )
 
+    /**
+     * Android only enforces structured cloud safety metadata here; it never guesses action meaning
+     * from button text, coordinates or the user's sentence. GUI Plus/backend owns semantic risk
+     * classification, while Android makes the resulting confirmation requirement non-bypassable.
+     */
     @Suppress("UNUSED_PARAMETER")
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
-        return step.requiresConfirmation || step.type in confirmationProtectedDeviceTools
+        val level = step.riskLevel.normalizedPolicyLevel()
+        return step.requiresConfirmation ||
+            step.type in confirmationProtectedDeviceTools ||
+            level in confirmationRequiredRiskLevels
     }
 
     fun canAutoExecuteInCurrentStage(goal: String, step: CloudAgentStep): Boolean {
@@ -49,4 +57,14 @@ object AgentSafetyPolicy {
             .replace('-', '_')
             .replace(' ', '_')
     }
+
+    private val confirmationRequiredRiskLevels = setOf(
+        "high",
+        "critical",
+        "consequential",
+        "financial",
+        "financial_transaction",
+        "purchase",
+        "irreversible",
+    )
 }
