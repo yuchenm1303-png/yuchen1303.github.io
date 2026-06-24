@@ -58,8 +58,14 @@ class VisualExecutionSessionState {
         transitionTo(VisualSurfaceState.Replanning)
     }
 
+    /**
+     * Launching and replanning use the lightweight package/node probe first. A full screenshot is
+     * requested only after the exact target package has been verified as the work surface. This
+     * keeps package identity and the GUI Plus frame in the correct order and avoids reading the
+     * old overlay/system window before it has disappeared.
+     */
     fun requiresVisualObservation(): Boolean {
-        return selectedTargetPackage.isNotBlank()
+        return surfaceState == VisualSurfaceState.WorkSurface && verifiedTargetPackage.isNotBlank()
     }
 
     fun synchronizeWith(snapshot: AgentScreenSnapshot? = null) {
