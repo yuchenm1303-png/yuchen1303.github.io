@@ -31,18 +31,40 @@ data class StockRealtimeFrame(
 class StockRealtimeRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
+    @Volatile
+    private var unifiedRetryAfterMs: Long = 0L
+
     fun loadRealtimeFrame(
         query: String,
         current: StockDetailUiState,
         minuteDays: Int = 1
-    ): Result<StockRealtimeFrame> = runCatching {
+    ): Result<StockRealtimeFrame> {
         val normalized = query.trim().ifBlank { current.quote.code }
         val safeDays = minuteDays.coerceIn(1, 5)
-        loadUnifiedRealtime(normalized, safeDays, current)
-    }.recoverCatching {
-        val normalized = query.trim().ifBlank { current.quote.code }
-        val safeDays = minuteDays.coerceIn(1, 5)
-        loadLegacyRealtime(normalized, safeDays, current)
+        val now = System.currentTimeMillis()
+        val unifiedResult = if (now >= unifiedRetryAfterMs) {
+            runCatching {
+                loadUnifiedRealtime(normalized, safeDays, current).also {
+                    unifiedRetryAfterMs = 0L
+                }
+            }
+        } else {
+            Result.failure(IllegalStateException("统一实时接口冷却中"))
+        }
+        return unifiedResult.recoverCatching { error ->
+            if (now >= unifiedRetryAfterMs) {
+                val retryDelay = if (
+                    error.message?.contains("HTTP 404") == true ||
+                    error.message?.contains("HTTP 405") == true
+                ) {
+                    UNIFIED_NOT_FOUND_RETRY_MS
+                } else {
+                    UNIFIED_TRANSIENT_RETRY_MS
+                }
+                unifiedRetryAfterMs = now + retryDelay
+            }
+            loadLegacyRealtime(normalized, safeDays, current)
+        }
     }
 
     private fun loadUnifiedRealtime(
@@ -62,7 +84,7 @@ class StockRealtimeRepository(
             payload = payload,
             current = current,
             minuteDays = minuteDays,
-            fallbackLabel = "A股统一实时行情 · realtime"
+            fallbackLabel = "A股统一实时行情"
         )
     }
 
@@ -175,7 +197,6 @@ class StockRealtimeRepository(
             append(fallbackLabel)
             append(if (minuteDays >= 5) " · 5日" else " · 1日")
             if (!sourceHost.isNullOrBlank()) append(" · $sourceHost")
-            if (cacheHit) append(" · 热缓存")
         }
 
         return StockRealtimeFrame(
@@ -202,6 +223,10 @@ class StockRealtimeRepository(
     }
 
     private fun parseMinuteDelta(payload: JSONObject): List<StockMinutePoint> {
+        val array = payload.optJSONArray("minuteDelta")
+            ?: payload.optJSONArray("latestMinutePoints")
+            ?: payload.optJSONObject("snapshot")?.optJSONArray("minuteDelta")
+        if (array != null) return parseMinutePointArray(array)
         val direct = payload.optJSONObject("latestMinutePoint")
             ?: payload.optJSONObject("minuteDelta")
             ?: payload.optJSONObject("snapshot")?.optJSONObject("latestMinutePoint")
@@ -234,7 +259,9 @@ class StockRealtimeRepository(
     }
 
     private fun hasArray(obj: JSONObject, keys: List<String>): Boolean {
-        return keys.any { obj.optJSONArray(it) != null }
+        if (keys.any { obj.optJSONArray(it) != null }) return true
+        val snapshot = obj.optJSONObject("snapshot") ?: return false
+        return keys.any { snapshot.optJSONArray(it) != null }
     }
 
     private fun findArray(obj: JSONObject, keys: List<String>): JSONArray? {
@@ -262,11 +289,21 @@ class StockRealtimeRepository(
                 }
             }
         }
-        return if (payload.has("code") || payload.has("name") || payload.has("price")) {
-            listOf(payload)
-        } else {
-            emptyList()
+        if (payload.has("code") || payload.has("name") || payload.has("price")) {
+            return listOf(payload)
         }
+        val nestedObjects = buildList {
+            val keys = payload.keys()
+            while (keys.hasNext()) {
+                val value = payload.opt(keys.next())
+                if (value is JSONObject && (
+                    value.has("code") || value.has("name") || value.has("price")
+                )) {
+                    add(value)
+                }
+            }
+        }
+        return nestedObjects
     }
 
     private data class RawMinutePoint(
@@ -295,6 +332,14 @@ class StockRealtimeRepository(
                 volumeRatio = raw.explicitRatio?.coerceIn(0.02f, 1f)
                     ?: (raw.volume / maxVolume).coerceIn(0.02f, 1f)
             )
+        }
+    }
+
+    private fun parseMinutePointArray(array: JSONArray): List<StockMinutePoint> {
+        return buildList {
+            for (index in 0 until array.length()) {
+                array.optJSONObject(index)?.let(::parseMinutePoint)?.let(::add)
+            }
         }
     }
 
@@ -510,7 +555,7 @@ class StockRealtimeRepository(
                 useCaches = false
                 setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
                 setRequestProperty("Accept", "application/json")
-                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("Connection", "keep-alive")
             }
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -523,5 +568,10 @@ class StockRealtimeRepository(
         } finally {
             connection?.disconnect()
         }
+    }
+
+    companion object {
+        private const val UNIFIED_NOT_FOUND_RETRY_MS = 30_000L
+        private const val UNIFIED_TRANSIENT_RETRY_MS = 5_000L
     }
 }
