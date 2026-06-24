@@ -7,14 +7,32 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import org.json.JSONArray
 import org.json.JSONObject
+
+data class LedgerSnapshot(
+    val records: List<LedgerRecord>,
+    val budgetText: String,
+)
 
 class LedgerStore(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFS_NAME,
         Context.MODE_PRIVATE
     )
+
+    fun observeSnapshots(): Flow<LedgerSnapshot> {
+        return changeEvents
+            .onStart { emit(Unit) }
+            .map { LedgerSnapshot(loadRecords(), loadBudget()) }
+            .distinctUntilChanged()
+    }
 
     fun loadRecords(): List<LedgerRecord> {
         val raw = preferences.getString(KEY_RECORDS, null).orEmpty()
@@ -45,6 +63,7 @@ class LedgerStore(context: Context) {
             )
         }
         preferences.edit().putString(KEY_RECORDS, array.toString()).apply()
+        notifyChanged()
     }
 
     fun loadBudget(): String {
@@ -59,6 +78,7 @@ class LedgerStore(context: Context) {
     fun saveBudget(value: String) {
         val amount = value.toDoubleOrNull()?.coerceAtLeast(0.0) ?: return
         preferences.edit().putString(KEY_BUDGET, formatPlainNumber(amount)).apply()
+        notifyChanged()
     }
 
     fun loadDeletedIds(): Set<String> {
@@ -137,6 +157,16 @@ class LedgerStore(context: Context) {
     companion object {
         const val DEFAULT_BUDGET = "3000"
         val LEDGER_CATEGORIES = listOf("餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他")
+
+        private val changeEvents = MutableSharedFlow<Unit>(
+            replay = 0,
+            extraBufferCapacity = 1,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
+
+        private fun notifyChanged() {
+            changeEvents.tryEmit(Unit)
+        }
 
         fun todayIso(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
