@@ -95,14 +95,14 @@ fun CompactLiquidBottomBar(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            navIcon(tab),
+                            text = tab.icon,
                             color = Color.White.copy(alpha = if (selected) 0.94f else 0.44f),
                             fontSize = 14.sp,
                             maxLines = 1
                         )
                         Spacer(Modifier.height(1.dp))
                         Text(
-                            tabLabel(tab),
+                            text = tab.title,
                             color = Color.White.copy(alpha = if (selected) 0.90f else 0.42f),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
