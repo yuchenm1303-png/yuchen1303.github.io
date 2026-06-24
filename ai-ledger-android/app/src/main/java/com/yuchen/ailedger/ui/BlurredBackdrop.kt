@@ -22,7 +22,12 @@ import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -144,13 +149,15 @@ private object BackdropBuildRegistry {
 }
 
 /**
- * V5 缓存与旧版 box-blur 纹理彻底隔离。升级后只重建一次，之后继续使用原有磁盘命中路径。
+ * V6 在 V5 纹理缓存基础上同步保存亮度积分表。磁盘命中后直接读取小型二进制表，
+ * 不再缩放 medium Bitmap、读取像素并重新计算积分数据。
  */
 private object BackdropDiskCache {
-    private const val CACHE_VERSION = 5
+    private const val CACHE_VERSION = 6
     private const val MAX_ENTRIES = 2
-    private const val ROOT_DIRECTORY = "glass_backdrop_v5"
+    private const val ROOT_DIRECTORY = "glass_backdrop_v6"
     private const val METADATA_FILE = "metadata.txt"
+    private const val LUMINANCE_FILE = "luminance.bin"
 
     fun load(context: Context, textureKey: String): BackdropTextureSet? = runCatching {
         val directory = entryDirectory(context, textureKey)
@@ -171,11 +178,8 @@ private object BackdropDiskCache {
         } else {
             decodeBitmap(File(directory, "high.png")) ?: return@runCatching null
         }
-        val luminanceMap = BackdropLuminanceMap.build(
-            source = medium.asAndroidBitmap(),
-            fullWidthPx = fullWidth,
-            fullHeightPx = fullHeight
-        )
+        val luminanceMap = readLuminanceMap(File(directory, LUMINANCE_FILE))
+            ?: return@runCatching null
 
         directory.setLastModified(System.currentTimeMillis())
         BackdropTextureSet(
@@ -209,7 +213,8 @@ private object BackdropDiskCache {
             writeBitmap(textures.clearImage, File(temporary, "clear.png")) &&
                 writeBitmap(textures.blurLowImage, File(temporary, "low.png")) &&
                 writeBitmap(textures.blurMediumImage, File(temporary, "medium.png")) &&
-                (highAliasesMedium || writeBitmap(textures.blurHighImage, File(temporary, "high.png")))
+                (highAliasesMedium || writeBitmap(textures.blurHighImage, File(temporary, "high.png"))) &&
+                writeLuminanceMap(textures.luminanceMap, File(temporary, LUMINANCE_FILE))
 
         if (!wroteAll) {
             temporary.deleteRecursively()
@@ -246,10 +251,26 @@ private object BackdropDiskCache {
         return bitmap.asImageBitmap()
     }
 
+    private fun readLuminanceMap(file: File): BackdropLuminanceMap? {
+        if (!file.isFile) return null
+        return runCatching {
+            DataInputStream(BufferedInputStream(FileInputStream(file))).use { input ->
+                BackdropLuminanceMap.readFrom(input)
+            }
+        }.getOrNull()
+    }
+
     private fun writeBitmap(image: ImageBitmap, file: File): Boolean =
         FileOutputStream(file).use { output ->
             image.asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, output)
         }
+
+    private fun writeLuminanceMap(map: BackdropLuminanceMap, file: File): Boolean = runCatching {
+        DataOutputStream(BufferedOutputStream(FileOutputStream(file))).use { output ->
+            map.writeTo(output)
+        }
+        true
+    }.getOrDefault(false)
 
     private fun cacheRoot(context: Context): File =
         File(context.cacheDir, ROOT_DIRECTORY).apply { mkdirs() }
@@ -316,7 +337,7 @@ fun rememberBlurredBackdropBitmap(
             "custom:${file.absolutePath}:${file.lastModified()}:${file.length()}"
         }
     }
-    val textureKey = "v5|$width×$height|$textureParamsKey|levels:$FULL_BACKDROP_BLUR_LEVEL_COUNT|$sourceKey"
+    val textureKey = "v6|$width×$height|$textureParamsKey|levels:$FULL_BACKDROP_BLUR_LEVEL_COUNT|$sourceKey"
     var textures by remember(textureKey) {
         mutableStateOf(BlurredBackdropMemoryCache.get(textureKey))
     }
