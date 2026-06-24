@@ -1,3 +1,2 @@
-trigger: forced-rollback-validation-2026-06-23
-source-commit: e102846c74b20b63afebe2402d59a9704487ffd6
-scope: force-reset-dev-update-1-and-build-compose-apk
+Build Compose Android APK verification
+stock unified realtime app integration
