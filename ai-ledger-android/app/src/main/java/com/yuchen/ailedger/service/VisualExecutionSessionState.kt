@@ -59,12 +59,27 @@ class VisualExecutionSessionState {
     }
 
     fun synchronizeWith(snapshot: AgentScreenSnapshot? = null) {
+        val currentPackage = snapshot?.packageName?.trim().orEmpty()
+
+        // A fresh visual frame from the already-selected package is objective proof that the
+        // launch handoff completed. This recovers from a transient empty/SystemUI/overlay sample
+        // without asking DeepSeek to select the same app again.
+        if (
+            snapshot?.visual?.hasImage == true &&
+            selectedTargetPackage.isNotBlank() &&
+            currentPackage == selectedTargetPackage &&
+            verifiedTargetPackage.isBlank() &&
+            surfaceState in setOf(VisualSurfaceState.Launching, VisualSurfaceState.Replanning)
+        ) {
+            markTargetVerified(selectedTargetPackage)
+            return
+        }
+
         if (surfaceState == VisualSurfaceState.Replanning) return
 
         if (
-            snapshot != null &&
             verifiedTargetPackage.isNotBlank() &&
-            snapshot.packageName != verifiedTargetPackage
+            isConfidentForeignPackage(currentPackage, verifiedTargetPackage)
         ) {
             markStructuralReplan()
             return
@@ -113,8 +128,21 @@ class VisualExecutionSessionState {
         surfaceEpoch += 1L
     }
 
+    private fun isConfidentForeignPackage(currentPackage: String, expectedPackage: String): Boolean {
+        if (currentPackage.isBlank() || currentPackage == expectedPackage) return false
+        if (currentPackage == ASSISTANT_HOST_PACKAGE) return false
+        if (currentPackage in TRANSIENT_SYSTEM_SURFACE_PACKAGES) return false
+        return true
+    }
+
     companion object {
         const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
+
+        private val TRANSIENT_SYSTEM_SURFACE_PACKAGES = setOf(
+            "android",
+            "com.android.systemui",
+            "com.android.permissioncontroller",
+        )
     }
 }
 
