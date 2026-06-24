@@ -1,3 +1,3 @@
 package com.yuchen.ailedger.service
 
-// Intentionally empty.
+class VisualLoopRunnerTest
