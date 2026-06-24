@@ -156,6 +156,7 @@ private object BackdropDiskCache {
     private const val CACHE_VERSION = 6
     private const val MAX_ENTRIES = 2
     private const val ROOT_DIRECTORY = "glass_backdrop_v6"
+    private const val LEGACY_ROOT_DIRECTORY = "glass_backdrop_v5"
     private const val METADATA_FILE = "metadata.txt"
     private const val LUMINANCE_FILE = "luminance.bin"
 
@@ -169,6 +170,9 @@ private object BackdropDiskCache {
         val blurScale = metadata[3].toFloatOrNull()?.takeIf { it > 0f } ?: return@runCatching null
         if (metadata[4] != textureKey) return@runCatching null
         val highAliasesMedium = metadata[5].toBooleanStrictOrNull() ?: false
+        val luminanceMap = readLuminanceMap(File(directory, LUMINANCE_FILE))
+            ?.takeIf { it.matchesDimensions(fullWidth, fullHeight) }
+            ?: return@runCatching null
 
         val clear = decodeBitmap(File(directory, "clear.png")) ?: return@runCatching null
         val low = decodeBitmap(File(directory, "low.png")) ?: return@runCatching null
@@ -178,8 +182,6 @@ private object BackdropDiskCache {
         } else {
             decodeBitmap(File(directory, "high.png")) ?: return@runCatching null
         }
-        val luminanceMap = readLuminanceMap(File(directory, LUMINANCE_FILE))
-            ?: return@runCatching null
 
         directory.setLastModified(System.currentTimeMillis())
         BackdropTextureSet(
@@ -239,6 +241,7 @@ private object BackdropDiskCache {
         }
         target.setLastModified(System.currentTimeMillis())
         trimOldEntries(root)
+        File(context.cacheDir, LEGACY_ROOT_DIRECTORY).deleteRecursively()
     }
 
     private fun decodeBitmap(file: File): ImageBitmap? {
