@@ -119,6 +119,10 @@ class VisualExecutionSessionState {
 }
 
 object VisualObservationProtocol {
+    /**
+     * Identifies the exact observation sent to the cloud. Visual bytes intentionally participate
+     * here so a returned action can be bound to the frame the model actually saw.
+     */
     fun observationId(
         snapshot: AgentScreenSnapshot,
         routeEpoch: Long,
@@ -132,14 +136,28 @@ object VisualObservationProtocol {
         return sha256(canonical).take(24)
     }
 
+    /**
+     * Execution freshness is a deterministic surface check, not a semantic screen comparison.
+     * Dynamic content such as time, battery, market prices, cursors, animations and JPEG encoding
+     * may legitimately change between model observation and action execution. Their meaning is
+     * evaluated by the next GUI Plus observation after the action, never by local pixel equality.
+     *
+     * The caller separately enforces verified-target ownership and route/surface state. This check
+     * therefore only rejects an objective foreground-package change.
+     */
     fun isActionContextFresh(
         observedSnapshot: AgentScreenSnapshot,
         currentSnapshot: AgentScreenSnapshot,
     ): Boolean {
-        return observedSnapshot.packageName == currentSnapshot.packageName &&
-            actionContextFingerprint(observedSnapshot) == actionContextFingerprint(currentSnapshot)
+        val observedPackage = observedSnapshot.packageName.trim()
+        val currentPackage = currentSnapshot.packageName.trim()
+        return observedPackage.isNotBlank() && observedPackage == currentPackage
     }
 
+    /**
+     * Observation identity may remain exact because it is never used to decide whether two live
+     * screens are semantically equivalent. It only binds a cloud response to one captured frame.
+     */
     fun actionContextFingerprint(snapshot: AgentScreenSnapshot): String {
         val texts = snapshot.texts
             .asSequence()
