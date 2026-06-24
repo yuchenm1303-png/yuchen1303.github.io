@@ -36,30 +36,65 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun packageDriftRevokesGuiPlusOwnershipAndRequestsFreshRoute() {
+    fun realContentPackageDriftRevokesGuiPlusOwnershipAndRequestsFreshRoute() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
         session.markTargetVerified("com.jingdong.app.mall")
         val routeEpochBeforeDrift = session.routeEpoch
 
-        val interrupted = session.runtimeContext(testSnapshot("com.android.permissioncontroller"))
+        val interrupted = session.runtimeContext(testSnapshot("com.tencent.mobileqq"))
 
         assertEquals(VisualSurfaceState.Replanning, interrupted.surfaceState)
         assertFalse(interrupted.guiPlusEligible)
         assertEquals("com.jingdong.app.mall", interrupted.selectedTargetPackage)
         assertEquals("", interrupted.verifiedTargetPackage)
-        assertEquals("com.android.permissioncontroller", interrupted.currentPackage)
+        assertEquals("com.tencent.mobileqq", interrupted.currentPackage)
         assertEquals(routeEpochBeforeDrift + 1L, interrupted.routeEpoch)
     }
 
     @Test
-    fun structuralReplanAfterVerifiedHandoffRevokesGuiPlusOwnership() {
+    fun transientSystemOrOverlayPackageDoesNotDestroyVerifiedTargetBinding() {
+        val session = VisualExecutionSessionState()
+        session.beginLaunch("com.hexin.plat.android")
+        session.markTargetVerified("com.hexin.plat.android")
+        val routeEpochBeforeTransientSurface = session.routeEpoch
+
+        val permissionSurface = session.runtimeContext(testSnapshot("com.android.permissioncontroller", includeVisual = false))
+        val emptySurface = session.runtimeContext(testSnapshot("", includeVisual = false))
+        val overlaySurface = session.runtimeContext(testSnapshot("com.yuchen.ailedger", includeVisual = false))
+
+        assertEquals(VisualSurfaceState.WorkSurface, permissionSurface.surfaceState)
+        assertEquals("com.hexin.plat.android", permissionSurface.verifiedTargetPackage)
+        assertFalse(permissionSurface.guiPlusEligible)
+        assertEquals(VisualSurfaceState.WorkSurface, emptySurface.surfaceState)
+        assertEquals(VisualSurfaceState.WorkSurface, overlaySurface.surfaceState)
+        assertEquals(routeEpochBeforeTransientSurface, session.routeEpoch)
+    }
+
+    @Test
+    fun freshVisualFrameFromSelectedPackageRecoversLaunchHandoff() {
+        val session = VisualExecutionSessionState()
+        session.beginLaunch("com.hexin.plat.android")
+        session.markStructuralReplan()
+
+        val recovered = session.runtimeContext(
+            testSnapshot("com.hexin.plat.android", includeVisual = true),
+        )
+
+        assertEquals(VisualSurfaceState.WorkSurface, recovered.surfaceState)
+        assertEquals("com.hexin.plat.android", recovered.selectedTargetPackage)
+        assertEquals("com.hexin.plat.android", recovered.verifiedTargetPackage)
+        assertTrue(recovered.guiPlusEligible)
+    }
+
+    @Test
+    fun structuralReplanAfterVerifiedHandoffRevokesGuiPlusOwnershipUntilFreshTargetFrameReturns() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
         session.markTargetVerified("com.jingdong.app.mall")
         session.markStructuralReplan()
 
-        val replanning = session.runtimeContext(testSnapshot("com.jingdong.app.mall"))
+        val replanning = session.runtimeContext(testSnapshot("com.yuchen.ailedger", includeVisual = false))
 
         assertEquals(VisualSurfaceState.Replanning, replanning.surfaceState)
         assertFalse(replanning.guiPlusEligible)
