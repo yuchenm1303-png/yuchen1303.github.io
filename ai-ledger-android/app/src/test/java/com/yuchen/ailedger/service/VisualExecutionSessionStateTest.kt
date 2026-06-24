@@ -36,6 +36,18 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
+    fun selectedTargetAlwaysRequestsAVisualObservationUntilTaskEnds() {
+        val session = VisualExecutionSessionState()
+        assertFalse(session.requiresVisualObservation())
+
+        session.beginLaunch("com.hexin.plat.android")
+
+        assertTrue(session.requiresVisualObservation())
+        session.markStructuralReplan()
+        assertTrue(session.requiresVisualObservation())
+    }
+
+    @Test
     fun realContentPackageDriftRevokesGuiPlusOwnershipAndRequestsFreshRoute() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
@@ -72,13 +84,13 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun freshVisualFrameFromSelectedPackageRecoversLaunchHandoff() {
+    fun exactSelectedPackageRecoversLaunchHandoffWithoutSemanticScreenGuessing() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.hexin.plat.android")
         session.markStructuralReplan()
 
         val recovered = session.runtimeContext(
-            testSnapshot("com.hexin.plat.android", includeVisual = true),
+            testSnapshot("com.hexin.plat.android", includeVisual = false),
         )
 
         assertEquals(VisualSurfaceState.WorkSurface, recovered.surfaceState)
@@ -88,7 +100,7 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun structuralReplanAfterVerifiedHandoffRevokesGuiPlusOwnershipUntilFreshTargetFrameReturns() {
+    fun structuralReplanAfterVerifiedHandoffRevokesGuiPlusOwnershipUntilTargetReturns() {
         val session = VisualExecutionSessionState()
         session.beginLaunch("com.jingdong.app.mall")
         session.markTargetVerified("com.jingdong.app.mall")
