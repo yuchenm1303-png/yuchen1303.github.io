@@ -464,7 +464,7 @@ class VisualLoopRunner(
 
     private suspend fun captureOnce(
         forceVisual: Boolean,
-        settleMs: Long = if (forceVisual) 0L else NON_VISUAL_CAPTURE_SETTLE_MS,
+        settleMs: Long = if (forceVisual) FULL_VISUAL_CAPTURE_SETTLE_MS else NON_VISUAL_CAPTURE_SETTLE_MS,
     ): ScreenObservation {
         AgentRuntimeController.beginCleanVisualCapture()
         return try {
@@ -485,30 +485,39 @@ class VisualLoopRunner(
         val deadline = SystemClock.elapsedRealtime() + OPEN_APP_VERIFY_TIMEOUT_MS
         var stableSamples = 0
         var lastSnapshot: AgentScreenSnapshot? = null
-        var lastObservation: ScreenObservation? = null
         delay(OPEN_APP_INITIAL_SETTLE_MS)
         while (!isStopped(stopGeneration) && SystemClock.elapsedRealtime() < deadline) {
-            val observation = captureOnce(
-                forceVisual = true,
-                settleMs = PACKAGE_CHECK_OVERLAY_SETTLE_MS,
+            val probeObservation = captureOnce(
+                forceVisual = false,
+                settleMs = PACKAGE_PROBE_SETTLE_MS,
             )
-            val snapshot = observation.toAgentScreenSnapshot()
-            lastObservation = observation
-            lastSnapshot = snapshot
-            if (snapshot.packageName == expectedPackage) {
+            val probeSnapshot = probeObservation.toAgentScreenSnapshot()
+            lastSnapshot = probeSnapshot
+            if (probeSnapshot.packageName == expectedPackage) {
                 stableSamples += 1
                 if (stableSamples >= OPEN_APP_REQUIRED_STABLE_SAMPLES) {
-                    return LaunchPackageVerification(true, stableSamples, snapshot, observation)
+                    val visualObservation = captureOnce(forceVisual = true)
+                    val visualSnapshot = visualObservation.toAgentScreenSnapshot()
+                    lastSnapshot = visualSnapshot
+                    if (visualSnapshot.packageName == expectedPackage && visualSnapshot.visual?.hasImage == true) {
+                        return LaunchPackageVerification(true, stableSamples, visualSnapshot, visualObservation)
+                    }
+                    if (visualSnapshot.packageName.isNotBlank() &&
+                        visualSnapshot.packageName != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
+                        visualSnapshot.packageName !in TRANSIENT_HANDOFF_PACKAGES
+                    ) {
+                        stableSamples = 0
+                    }
                 }
-            } else if (snapshot.packageName.isNotBlank() &&
-                snapshot.packageName != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
-                snapshot.packageName !in TRANSIENT_HANDOFF_PACKAGES
+            } else if (probeSnapshot.packageName.isNotBlank() &&
+                probeSnapshot.packageName != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
+                probeSnapshot.packageName !in TRANSIENT_HANDOFF_PACKAGES
             ) {
                 stableSamples = 0
             }
             delay(OPEN_APP_VERIFY_POLL_MS)
         }
-        return LaunchPackageVerification(false, stableSamples, lastSnapshot, lastObservation)
+        return LaunchPackageVerification(false, stableSamples, lastSnapshot, null)
     }
 
     private suspend fun executeStep(
@@ -833,8 +842,10 @@ class VisualLoopRunner(
         private const val STRUCTURAL_NO_PROGRESS_LIMIT = 3
         private const val EXPLORATION_SPRAWL_LIMIT = 4
         private const val USER_TAKEOVER_POLL_MS = 120L
-        private const val NON_VISUAL_CAPTURE_SETTLE_MS = 35L
-        private const val PACKAGE_CHECK_OVERLAY_SETTLE_MS = 20L
+        private const val FULL_VISUAL_CAPTURE_SETTLE_MS = 260L
+        private const val NON_VISUAL_CAPTURE_SETTLE_MS = 160L
+        private const val PACKAGE_CHECK_OVERLAY_SETTLE_MS = 160L
+        private const val PACKAGE_PROBE_SETTLE_MS = 160L
         private const val DEFAULT_STEP_DELAY_MS = 130L
         private const val TAP_DELAY_MS = 110L
         private const val INPUT_DELAY_MS = 130L
