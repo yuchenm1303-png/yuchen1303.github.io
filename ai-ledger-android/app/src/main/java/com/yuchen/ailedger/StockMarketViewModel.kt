@@ -45,6 +45,7 @@ class StockMarketViewModel(
 
     private var quoteJob: Job? = null
     private var marketJob: Job? = null
+    private var slowDetailJob: Job? = null
     private var kLineJob: Job? = null
     private var minuteJob: Job? = null
     private var realtimeJob: Job? = null
@@ -64,6 +65,7 @@ class StockMarketViewModel(
 
     fun refreshHome() {
         stopRealtimeLoop()
+        slowDetailJob?.cancel()
         loadLite(openDetail = false)
     }
 
@@ -78,7 +80,9 @@ class StockMarketViewModel(
             return
         }
         _uiState.update { it.copy(showDetail = true, activeAction = null) }
-        startRealtimeLoop(state.stock.quote.code)
+        val code = state.stock.quote.code
+        startRealtimeLoop(code)
+        loadSlowDetail(code)
         if (isMinuteTab(state.selectedTab)) {
             loadMinute(daysForTab(state.selectedTab))
         } else {
@@ -88,6 +92,7 @@ class StockMarketViewModel(
 
     fun backToHome() {
         stopRealtimeLoop()
+        slowDetailJob?.cancel()
         _uiState.update { it.copy(showDetail = false, activeAction = null) }
     }
 
@@ -120,7 +125,10 @@ class StockMarketViewModel(
             _uiState.update {
                 it.copy(
                     selectedTab = tab,
-                    stock = it.stock.copy(kLinePoints = cached ?: emptyList()),
+                    stock = it.stock.copy(
+                        kLinePoints = cached ?: emptyList(),
+                        minutePoints = emptyList()
+                    ),
                     requestMessage = "正在加载真实${tab}"
                 )
             }
@@ -156,6 +164,7 @@ class StockMarketViewModel(
 
     fun openCode(code: String) {
         stopRealtimeLoop()
+        slowDetailJob?.cancel()
         _uiState.update {
             it.copy(
                 query = code,
@@ -180,9 +189,8 @@ class StockMarketViewModel(
                     requestMessage = "连接新版A股行情代理中"
                 )
             }
-            val mode = if (openDetail || _uiState.value.showDetail) "full" else "lite"
             val loaded = withContext(Dispatchers.IO) {
-                repository.loadAStock(target, mode = mode)
+                repository.loadAStock(target, mode = "lite")
             }
             if (seq != requestSeq) return@launch
 
@@ -199,6 +207,7 @@ class StockMarketViewModel(
             loadMarketOverview(loaded.quote.code)
             if (openDetail || _uiState.value.showDetail) {
                 startRealtimeLoop(loaded.quote.code)
+                loadSlowDetail(loaded.quote.code)
             }
             val tab = _uiState.value.selectedTab
             if (isMinuteTab(tab)) {
@@ -228,14 +237,43 @@ class StockMarketViewModel(
                 repository.loadMarketOverview(query, _uiState.value.stock)
             }
             _uiState.update { state ->
-                state.copy(
-                    stock = state.stock.copy(
-                        indices = merged.indices,
-                        watchlist = merged.watchlist,
-                        marketBoards = merged.marketBoards
-                    ),
-                    marketLoading = false
-                )
+                if (state.stock.quote.code != query) {
+                    state.copy(marketLoading = false)
+                } else {
+                    state.copy(
+                        stock = state.stock.copy(
+                            indices = merged.indices,
+                            watchlist = merged.watchlist,
+                            marketBoards = merged.marketBoards
+                        ),
+                        marketLoading = false
+                    )
+                }
+            }
+        }
+    }
+
+    private fun loadSlowDetail(query: String) {
+        if (query.isBlank()) return
+        slowDetailJob?.cancel()
+        slowDetailJob = viewModelScope.launch {
+            delay(SLOW_DETAIL_DELAY_MS)
+            if (!_uiState.value.showDetail || activeCode() != query) return@launch
+            val full = withContext(Dispatchers.IO) {
+                repository.loadAStock(query, mode = "full")
+            }
+            _uiState.update { state ->
+                if (!state.showDetail || state.stock.quote.code != query) {
+                    state
+                } else {
+                    state.copy(
+                        stock = state.stock.copy(
+                            moneyFlow = full.moneyFlow,
+                            fundamentals = full.fundamentals,
+                            aiSummary = full.aiSummary
+                        )
+                    )
+                }
             }
         }
     }
@@ -289,7 +327,10 @@ class StockMarketViewModel(
             _uiState.update {
                 it.copy(
                     kLineLoading = true,
-                    stock = it.stock.copy(kLinePoints = cached ?: emptyList()),
+                    stock = it.stock.copy(
+                        kLinePoints = cached ?: emptyList(),
+                        minutePoints = emptyList()
+                    ),
                     requestMessage = "正在加载真实${tab}"
                 )
             }
@@ -390,8 +431,8 @@ class StockMarketViewModel(
         minuteDays: Int,
         exposeMinutePoints: Boolean
     ): StockMarketUiState {
-        val minuteKey = minuteKey(code, minuteDays)
-        val previousMinutes = minuteCache[minuteKey].orEmpty()
+        val minuteCacheKey = minuteKey(code, minuteDays)
+        val previousMinutes = minuteCache[minuteCacheKey].orEmpty()
         val mergedMinutes = mergeMinutePoints(
             previous = previousMinutes,
             incoming = frame.minutePoints,
@@ -399,13 +440,12 @@ class StockMarketViewModel(
             maxSize = if (minuteDays >= 5) MAX_FIVE_DAY_POINTS else MAX_ONE_DAY_POINTS
         )
         if (mergedMinutes.isNotEmpty()) {
-            minuteCache[minuteKey] = mergedMinutes
+            minuteCache[minuteCacheKey] = mergedMinutes
         }
 
         val mergedTicks = mergeTradeTicks(
             previous = state.stock.tradeTicks,
-            incoming = frame.tradeTicks,
-            isSnapshot = frame.ticksAreSnapshot
+            incoming = frame.tradeTicks
         )
         val visibleMinutes = if (exposeMinutePoints) {
             mergedMinutes.ifEmpty { state.stock.minutePoints }
@@ -433,11 +473,7 @@ class StockMarketViewModel(
         maxSize: Int
     ): List<StockMinutePoint> {
         if (incoming.isEmpty()) return previous
-        val source = if (isSnapshot && incoming.size > 1) {
-            incoming
-        } else {
-            previous + incoming
-        }
+        val source = if (isSnapshot && incoming.size > 1) incoming else previous + incoming
         val merged = LinkedHashMap<String, StockMinutePoint>()
         source.forEachIndexed { index, point ->
             val key = point.time.ifBlank { "index:$index:${point.price}" }
@@ -448,13 +484,11 @@ class StockMarketViewModel(
 
     private fun mergeTradeTicks(
         previous: List<StockTradeTick>,
-        incoming: List<StockTradeTick>,
-        isSnapshot: Boolean
+        incoming: List<StockTradeTick>
     ): List<StockTradeTick> {
         if (incoming.isEmpty()) return previous
-        val source = if (isSnapshot) incoming + previous else incoming + previous
         val seen = HashSet<String>()
-        return source.filter { tick ->
+        return (incoming + previous).filter { tick ->
             seen.add("${tick.time}|${tick.price}|${tick.volume}|${tick.direction}")
         }.take(MAX_TRADE_TICKS)
     }
@@ -476,6 +510,7 @@ class StockMarketViewModel(
         stopRealtimeLoop()
         quoteJob?.cancel()
         marketJob?.cancel()
+        slowDetailJob?.cancel()
         kLineJob?.cancel()
         minuteJob?.cancel()
         super.onCleared()
@@ -501,6 +536,7 @@ class StockMarketViewModel(
 
     companion object {
         private const val REALTIME_INTERVAL_MS = 1000L
+        private const val SLOW_DETAIL_DELAY_MS = 1200L
         private const val MAX_ONE_DAY_POINTS = 600
         private const val MAX_FIVE_DAY_POINTS = 2600
         private const val MAX_TRADE_TICKS = 120
