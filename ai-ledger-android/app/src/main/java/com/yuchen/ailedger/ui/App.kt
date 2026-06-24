@@ -423,7 +423,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                         } else {
                                             StockFirstToolsHomeScreen(
                                                 state = toolsState,
-                                                onOpenTool = { viewModel.openTool(it.title) },
+                                                onOpenTool = viewModel::openTool,
                                                 onCloseTool = viewModel::closeTool,
                                                 onOpenAssistant = onOpenAssistant,
                                             )
