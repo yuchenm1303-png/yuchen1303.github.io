@@ -710,7 +710,16 @@ async function callOpenAICompatible(base, key, model, messages, name, options = 
   const reply = String(contentReply || "").trim() || (nativeToolPayload.length ? JSON.stringify({ tool_calls: nativeToolPayload }) : "");
 
   if (!String(reply).trim()) {
-    throw new Error(`${name} empty`);
+    const reasoningContent = message.reasoning_content ?? message.reasoningContent ?? choice.reasoning_content ?? "";
+    const diagnostics = [
+      `finish_reason=${safeText(choice.finish_reason || data?.finish_reason || "none", 40) || "none"}`,
+      `choices=${Array.isArray(data?.choices) ? data.choices.length : 0}`,
+      `content_chars=${String(contentReply || "").length}`,
+      `reasoning_chars=${String(reasoningContent || "").length}`,
+      `tool_calls=${toolCalls.length + (functionCall ? 1 : 0)}`,
+      `completion_tokens=${Math.max(0, Number(data?.usage?.completion_tokens || data?.usage?.output_tokens || 0) || 0)}`,
+    ].join(" ");
+    throw new Error(`${name} empty ${diagnostics}`);
   }
 
   return String(reply).trim();
@@ -3904,14 +3913,46 @@ async function resolveAgentBrainRouteForStep(goal, snapshot, recentActions, devi
   }
 
   try {
-    const raw = await callOpenAICompatible(
-      process.env.DEEPSEEK_BASE_URL,
-      process.env.DEEPSEEK_API_KEY,
-      process.env.DEEPSEEK_MODEL,
-      buildAgentBrainRouteMessages(cleanGoal, snapshot, recentActions, deviceContext, agentMemory),
-      "DeepSeek AgentBrain Route Step",
-      { temperature: 0, max_tokens: AGENT_BRAIN_ROUTE_MAX_TOKENS, timeoutMs }
-    );
+    const routeMessages = buildAgentBrainRouteMessages(cleanGoal, snapshot, recentActions, deviceContext, agentMemory);
+    let raw = "";
+    try {
+      raw = await callOpenAICompatible(
+        process.env.DEEPSEEK_BASE_URL,
+        process.env.DEEPSEEK_API_KEY,
+        process.env.DEEPSEEK_MODEL,
+        routeMessages,
+        "DeepSeek AgentBrain Route Step",
+        { temperature: 0, max_tokens: AGENT_BRAIN_ROUTE_MAX_TOKENS, timeoutMs }
+      );
+    } catch (error) {
+      const firstError = String(error?.message || error || "");
+      if (!/DeepSeek AgentBrain Route Step empty\b/.test(firstError)) throw error;
+      const remainingMs = boundedAgentTimeoutMs(
+        AGENT_BRAIN_ROUTE_TIMEOUT_MS,
+        agentRemainingBudgetMs(startedAt),
+        AGENT_BRAIN_ROUTE_TIMEOUT_MS
+      );
+      if (remainingMs < 500) throw error;
+      raw = await callOpenAICompatible(
+        process.env.DEEPSEEK_BASE_URL,
+        process.env.DEEPSEEK_API_KEY,
+        process.env.DEEPSEEK_MODEL,
+        [
+          ...routeMessages,
+          {
+            role: "system",
+            content: "The previous attempt produced no final content. Return only one compact route JSON object now. Do not include reasoning or prose.",
+          },
+        ],
+        "DeepSeek AgentBrain Route Step RetryCompact",
+        {
+          temperature: 0,
+          max_tokens: AGENT_BRAIN_ROUTE_MAX_TOKENS,
+          timeoutMs: remainingMs,
+          response_format: { type: "json_object" },
+        }
+      );
+    }
     let parsed = {};
     try { parsed = JSON.parse(extractJsonText(raw)); } catch (_) { parsed = {}; }
     const nested = parsed?.agentBrainRoute || parsed?.agentBrain || parsed?.routePlan || parsed?.result || parsed?.plan || parsed;
@@ -7200,6 +7241,20 @@ function cachedAgentBrainRouteUsable(route) {
   return confidence >= 0.18 || Array.isArray(route.steps);
 }
 
+function reusableAgentBrainEntryOpenAppRoute(route, deviceContext) {
+  if (!route || typeof route !== "object") return false;
+  const routeName = normalizeAgentBrainRouteName(route.route || "visual_agent");
+  const steps = Array.isArray(route.steps) ? route.steps : [];
+  return steps.some((routeStep) => {
+    if (!routeStep || typeof routeStep !== "object") return false;
+    const executor = normalizeAgentBrainExecutorName(routeStep.executor || routeStep.route, routeName);
+    const tool = normalizeAgentBrainToolName(routeStep.tool || routeStep.action || routeStep.name, executor);
+    return executor === "device_tool" && tool === "open_app" && Boolean(
+      canonicalInstalledAppForAgentBrainStep(routeStep, deviceContext)
+    );
+  });
+}
+
 async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const startedAt = Date.now();
   const goal = safeText(body.agentGoal || body.goal || prompt, 240);
@@ -7351,21 +7406,48 @@ async function handleAgentStepRequest(body, prompt, resolvedModel) {
   const cloudRouteVisualLoopRequest = isCloudRouteVisualLoopRequest(body);
 
   if (cloudRouteVisualLoopRequest) {
+    const routeRefreshRequested = Boolean(
+      verifiedSurface.routeRefreshRequested || agentMemoryRequestsRouteRefresh(rawAgentMemory)
+    );
+    if (routeRefreshRequested) {
+      session.agentBrainRoute = null;
+      session.agentBrainSource = "";
+      session.agentBrainError = "";
+    }
+    const sessionEntryRoute = !routeRefreshRequested && reusableAgentBrainEntryOpenAppRoute(
+      session.agentBrainRoute,
+      deviceContext
+    )
+      ? session.agentBrainRoute
+      : null;
     const routeResult = exclusiveGuiPlusVisualSession
       ? null
-      : await resolveAgentBrainRouteForStep(
-          goal,
-          snapshot,
-          recentAgentActions,
-          deviceContext,
-          rawAgentMemory,
-          startedAt,
-          { forceRefresh: true, useCache: false }
-        );
+      : sessionEntryRoute
+        ? {
+            route: sessionEntryRoute,
+            source: "agent_brain_session_entry_route",
+            elapsedMs: 0,
+            error: "",
+            cached: true,
+          }
+        : await resolveAgentBrainRouteForStep(
+            goal,
+            snapshot,
+            recentAgentActions,
+            deviceContext,
+            rawAgentMemory,
+            startedAt,
+            { forceRefresh: routeRefreshRequested, useCache: true }
+          );
     const effectiveAgentBrainRoute = routeResult?.route || null;
     const agentBrainMs = Number(routeResult?.elapsedMs || 0);
     const agentBrainSource = routeResult?.source || (exclusiveGuiPlusVisualSession ? "gui_plus_verified_surface" : "deepseek_cloud_route");
     const agentBrainError = routeResult?.error || "";
+    if (!exclusiveGuiPlusVisualSession && effectiveAgentBrainRoute) {
+      session.agentBrainRoute = effectiveAgentBrainRoute;
+      session.agentBrainSource = agentBrainSource;
+      session.agentBrainError = "";
+    }
     if (!exclusiveGuiPlusVisualSession && !effectiveAgentBrainRoute && agentBrainError) {
       return {
         ok: false,
