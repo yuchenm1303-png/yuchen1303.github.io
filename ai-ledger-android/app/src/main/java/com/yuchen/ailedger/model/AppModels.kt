@@ -10,6 +10,21 @@ enum class AppTab(val title: String, val icon: String) {
     Settings("设置", "⚙")
 }
 
+enum class ToolDestination(
+    val title: String,
+    val subtitle: String,
+    val icon: String = "✦",
+    val available: Boolean = false,
+) {
+    StockMarket("股票行情", "A股看盘、分时、盘口和资金", "股", true),
+    LedgerCenter("账单中心", "查看和管理收入支出", "账", true),
+    Statistics("数据统计", "按周、月、年查看趋势", "统", true),
+    Reminder("提醒闹钟", "创建提醒和闹钟", "醒"),
+    AppControl("应用控制", "打开常用应用入口", "控"),
+    Shortcuts("快捷指令", "保存常用任务", "捷"),
+    TaskHistory("任务记录", "查看助手执行历史", "记");
+}
+
 enum class RenderQuality(
     val title: String,
     val desc: String,
@@ -322,7 +337,12 @@ data class ChatMessage(
 data class StatSummary(val title: String, val value: String)
 
 @Immutable
-data class ToolEntry(val title: String, val subtitle: String, val icon: String = "✦")
+data class ToolEntry(
+    val destination: ToolDestination,
+    val title: String = destination.title,
+    val subtitle: String = destination.subtitle,
+    val icon: String = destination.icon,
+)
 
 @Immutable
 data class LedgerRecord(
@@ -362,13 +382,7 @@ data class AssistantUiState(
     val onlineEnabled: Boolean = false,
     val agentEnabled: Boolean = true,
     val isSending: Boolean = false,
-    val selectedToolTitle: String? = null,
-    val ledgerRecords: List<LedgerRecord> = emptyList(),
-    val ledgerBudgetText: String = "1500",
-    val ledgerDraftTitle: String = "",
-    val ledgerDraftAmount: String = "",
-    val ledgerDraftType: LedgerRecordType = LedgerRecordType.Expense,
-    val ledgerDraftCategory: String = "餐饮"
+    val selectedTool: ToolDestination? = null,
 )
 
 @Immutable
