@@ -49,13 +49,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yuchen.ailedger.data.FullScreenOpenGlPreferences
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
@@ -745,7 +743,7 @@ private fun SettingsDetailPanel(
                         )
                         SettingsPanel.Data -> DataContent(state)
                         SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
-                        SettingsPanel.Advanced -> AdvancedContent(state)
+                        SettingsPanel.Advanced -> AdvancedContent()
                         SettingsPanel.Debug -> GlassDebugFloatingPanel(
                             state,
                             onBackdropChange,
@@ -936,10 +934,10 @@ private fun DataContent(state: AssistantUiState) {
             "¥${state.ledgerBudgetText.ifBlank { "0" }}",
             Modifier.weight(1f)
         )
-        MiniSettingMetric("同步", "账号", Modifier.weight(1f))
+        MiniSettingMetric("同步", "自动", Modifier.weight(1f))
     }
-    SettingInfoRow("数据保存", "当前账单仍由原生本地状态管理")
-    SettingInfoRow("云同步", "账号登录已完成，账单云同步下一步接入")
+    SettingInfoRow("数据保存", "LedgerStore 统一持久化，手动与 AI 记账共用数据源")
+    SettingInfoRow("云同步", "登录后自动合并并同步；未登录时保存在本机")
     SettingInfoRow("家", state.navigationHomeAddress.ifBlank { "未设置" })
     SettingInfoRow("学校", state.navigationSchoolAddress.ifBlank { "未设置" })
     SettingInfoRow("公司", state.navigationCompanyAddress.ifBlank { "未设置" })
@@ -958,69 +956,12 @@ private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) {
 }
 
 @Composable
-private fun AdvancedContent(state: AssistantUiState) {
-    val context = LocalContext.current
-    val fullScreenOpenGlPreferences = remember(context) {
-        FullScreenOpenGlPreferences.get(context)
-    }
-    val fullScreenOpenGlEnabled = fullScreenOpenGlPreferences.enabled
-
-    FullScreenOpenGlSettingRow(
-        enabled = fullScreenOpenGlEnabled,
-        onEnabledChange = fullScreenOpenGlPreferences::setEnabled
-    )
-    SettingInfoRow(
-        "玻璃渲染",
-        if (fullScreenOpenGlEnabled) {
-            "首页大玻璃与功能页六个栏目使用 OpenGL"
-        } else {
-            "首页大玻璃使用 OpenGL，功能页栏目保持 Compose"
-        }
-    )
-    SettingInfoRow(
-        "功能页栏目",
-        if (fullScreenOpenGlEnabled) "6 个入口使用单卡 OpenGL" else "保持普通 Compose 玻璃"
-    )
-    SettingInfoRow("其他控件", "Chip / Nav / Floating / Flex 继续隔离")
+private fun AdvancedContent() {
+    SettingInfoRow("玻璃渲染", "仅真正的大型 Shell 使用 OpenGL")
+    SettingInfoRow("功能页栏目", "普通入口卡片固定使用 Compose 玻璃")
+    SettingInfoRow("隔离范围", "Card / Chip / Floating / Nav / Flex")
+    SettingInfoRow("几何同步", "普通控件不注册 registry，也不请求 geometry sync")
     SettingInfoRow("账号控件", "纯 Compose + REST API，不接入 OpenGL registry")
-}
-
-@Composable
-private fun FullScreenOpenGlSettingRow(
-    enabled: Boolean,
-    onEnabledChange: (Boolean) -> Unit
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(68.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.070f))
-            .padding(horizontal = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(3.dp)
-        ) {
-            Text(
-                "全屏opengl",
-                color = Color.White,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1
-            )
-            Text(
-                "开启后功能页六个功能栏目卡片使用 OpenGL 玻璃。",
-                color = Color.White.copy(alpha = 0.52f),
-                fontSize = 11.5.sp,
-                lineHeight = 16.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Switch(checked = enabled, onCheckedChange = onEnabledChange)
-    }
 }
 
 @Composable
