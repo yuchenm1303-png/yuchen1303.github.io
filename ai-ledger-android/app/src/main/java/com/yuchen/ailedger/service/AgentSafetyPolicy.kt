@@ -26,16 +26,13 @@ object AgentSafetyPolicy {
     )
 
     /**
-     * Android only enforces structured cloud safety metadata here; it never guesses action meaning
-     * from button text, coordinates or the user's sentence. GUI Plus/backend owns semantic risk
-     * classification, while Android makes the resulting confirmation requirement non-bypassable.
+     * Android does not infer semantic risk from goal text, target labels, coordinates or riskLevel
+     * wording. The cloud semantic owner must explicitly set requiresConfirmation=true for a
+     * consequential action; Android then enforces that confirmation and cannot silently bypass it.
      */
     @Suppress("UNUSED_PARAMETER")
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
-        val level = step.riskLevel.normalizedPolicyLevel()
-        return step.requiresConfirmation ||
-            step.type in confirmationProtectedDeviceTools ||
-            level in confirmationRequiredRiskLevels
+        return step.requiresConfirmation || step.type in confirmationProtectedDeviceTools
     }
 
     fun canAutoExecuteInCurrentStage(goal: String, step: CloudAgentStep): Boolean {
@@ -57,14 +54,4 @@ object AgentSafetyPolicy {
             .replace('-', '_')
             .replace(' ', '_')
     }
-
-    private val confirmationRequiredRiskLevels = setOf(
-        "high",
-        "critical",
-        "consequential",
-        "financial",
-        "financial_transaction",
-        "purchase",
-        "irreversible",
-    )
 }
