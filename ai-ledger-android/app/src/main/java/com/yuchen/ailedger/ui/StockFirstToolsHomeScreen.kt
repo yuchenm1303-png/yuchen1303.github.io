@@ -50,7 +50,9 @@ const val STOCK_MARKET_TOOL_TITLE = "股票行情"
 @Composable
 fun StockFirstToolsHomeScreen(
     state: AssistantUiState,
-    onOpenTool: (String) -> Unit
+    onOpenTool: (ToolDestination) -> Unit,
+    onCloseTool: () -> Unit,
+    onOpenAssistant: () -> Unit,
 ) {
     val pageVisible = LocalPageVisible.current
     val pageState = if (pageVisible) {
@@ -67,8 +69,8 @@ fun StockFirstToolsHomeScreen(
                 appState = pageState,
                 ledgerViewModel = ledgerViewModel,
                 statisticsOnly = selectedTool == ToolDestination.Statistics,
-                onBack = { onOpenTool("") },
-                onOpenAssistant = { }
+                onBack = onCloseTool,
+                onOpenAssistant = onOpenAssistant,
             )
         }
         return
@@ -78,7 +80,7 @@ fun StockFirstToolsHomeScreen(
         PendingToolScreen(
             destination = selectedTool,
             state = pageState,
-            onBack = { onOpenTool("") },
+            onBack = onCloseTool,
         )
         return
     }
@@ -114,7 +116,7 @@ fun StockFirstToolsHomeScreen(
                         StockToolEntryCard(
                             destination = destination,
                             state = pageState,
-                            onClick = { onOpenTool(destination.title) },
+                            onClick = { onOpenTool(destination) },
                         )
                     }
                 }
@@ -239,7 +241,7 @@ private fun StockToolsHeader() {
 }
 
 @Composable
-private fun StockMarketHeroEntry(state: AssistantUiState, onOpenTool: (String) -> Unit) {
+private fun StockMarketHeroEntry(state: AssistantUiState, onOpenTool: (ToolDestination) -> Unit) {
     OpenGlShellGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 1.03f,
@@ -247,7 +249,7 @@ private fun StockMarketHeroEntry(state: AssistantUiState, onOpenTool: (String) -
         radius = 28,
         modifier = Modifier.fillMaxWidth().height(198.dp),
         mood = OpenGlShellMood.Hero,
-        onClick = { onOpenTool(ToolDestination.StockMarket.title) }
+        onClick = { onOpenTool(ToolDestination.StockMarket) }
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 17.dp, vertical = 16.dp),
@@ -280,7 +282,7 @@ private fun StockHeroMetric(label: String, value: String, modifier: Modifier = M
 }
 
 @Composable
-private fun StockToolsQuickRow(state: AssistantUiState, onOpenTool: (String) -> Unit) {
+private fun StockToolsQuickRow(state: AssistantUiState, onOpenTool: (ToolDestination) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
         StockQuickPill("股票", "行情", ToolDestination.StockMarket, state, Modifier.weight(1f), onOpenTool)
         StockQuickPill("账单", "明细", ToolDestination.LedgerCenter, state, Modifier.weight(1f), onOpenTool)
@@ -295,7 +297,7 @@ private fun StockQuickPill(
     target: ToolDestination,
     state: AssistantUiState,
     modifier: Modifier,
-    onOpenTool: (String) -> Unit,
+    onOpenTool: (ToolDestination) -> Unit,
 ) {
     PressableGlass(
         state.quality,
@@ -304,7 +306,7 @@ private fun StockQuickPill(
         22,
         modifier.height(62.dp),
         if (target == ToolDestination.StockMarket) GlassRole.Floating else GlassRole.Chip,
-        onClick = { onOpenTool(target.title) }
+        onClick = { onOpenTool(target) }
     ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
