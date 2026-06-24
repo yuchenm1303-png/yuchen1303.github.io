@@ -3,6 +3,8 @@ package com.yuchen.ailedger.ui
 import android.graphics.Bitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import java.io.DataInput
+import java.io.DataOutput
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.pow
@@ -12,12 +14,17 @@ private const val LUMINANCE_GRID_COLUMNS = 64
 private const val LUMINANCE_GRID_MIN_ROWS = 64
 private const val LUMINANCE_GRID_MAX_ROWS = 160
 private const val INVALID_LUMINANCE_REGION = Long.MIN_VALUE
+private const val LUMINANCE_CACHE_MAGIC = 0x424C4D31
+private const val LUMINANCE_CACHE_VERSION = 1
+private const val MAX_LUMINANCE_CACHE_DIMENSION = 512
+private const val MAX_LUMINANCE_CACHE_VALUES = 263169
 
 /**
  * 背景亮度积分表。
  *
- * 纹理构建或磁盘缓存解码时只生成一次。运行时查询任意玻璃区域只需要四次数组读取，
- * 不再通过 Bitmap.getPixel() 跨 JNI 逐点采样，也不会在滚动帧创建临时像素对象。
+ * 纹理构建时只生成一次，并随背景纹理一起持久化。运行时查询任意玻璃区域只需要
+ * 四次数组读取，不再通过 Bitmap.getPixel() 跨 JNI 逐点采样，也不会在滚动帧创建
+ * 临时像素对象；磁盘缓存命中时也无需重新缩放 Bitmap 和重建积分表。
  */
 class BackdropLuminanceMap private constructor(
     private val columns: Int,
@@ -59,6 +66,17 @@ class BackdropLuminanceMap private constructor(
         val topLeft = integral[y0 * stride + x0]
         return ((bottomRight - topRight - bottomLeft + topLeft) / area)
             .coerceIn(0f, 1f)
+    }
+
+    internal fun writeTo(output: DataOutput) {
+        output.writeInt(LUMINANCE_CACHE_MAGIC)
+        output.writeInt(LUMINANCE_CACHE_VERSION)
+        output.writeInt(columns)
+        output.writeInt(rows)
+        output.writeInt(fullWidthPx)
+        output.writeInt(fullHeightPx)
+        output.writeInt(integral.size)
+        integral.forEach(output::writeFloat)
     }
 
     companion object {
@@ -106,6 +124,31 @@ class BackdropLuminanceMap private constructor(
                 integral = integral
             )
         }
+
+        internal fun readFrom(input: DataInput): BackdropLuminanceMap? = runCatching {
+            require(input.readInt() == LUMINANCE_CACHE_MAGIC)
+            require(input.readInt() == LUMINANCE_CACHE_VERSION)
+            val columns = input.readInt()
+            val rows = input.readInt()
+            val fullWidthPx = input.readInt()
+            val fullHeightPx = input.readInt()
+            val valueCount = input.readInt()
+            require(columns in 1..MAX_LUMINANCE_CACHE_DIMENSION)
+            require(rows in 1..MAX_LUMINANCE_CACHE_DIMENSION)
+            require(fullWidthPx > 0 && fullHeightPx > 0)
+            val expectedValueCount = (columns + 1) * (rows + 1)
+            require(valueCount == expectedValueCount)
+            require(valueCount in 4..MAX_LUMINANCE_CACHE_VALUES)
+            val integral = FloatArray(valueCount) { input.readFloat() }
+            require(integral.all(Float::isFinite))
+            BackdropLuminanceMap(
+                columns = columns,
+                rows = rows,
+                fullWidthPx = fullWidthPx,
+                fullHeightPx = fullHeightPx,
+                integral = integral
+            )
+        }.getOrNull()
     }
 }
 
