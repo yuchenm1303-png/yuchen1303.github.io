@@ -25,13 +25,12 @@ import com.yuchen.ailedger.model.ComposerAttachment
 import com.yuchen.ailedger.model.ComposerAttachmentStatus
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
-import com.yuchen.ailedger.model.LedgerRecord
-import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.model.ToolDestination
 import com.yuchen.ailedger.service.AgentExecutionMode
 import com.yuchen.ailedger.service.AgentOrchestrator
 import com.yuchen.ailedger.service.AgentRuntimeController
@@ -126,39 +125,8 @@ class AssistantViewModel(
     val aiEndpoint: String get() = aiWorkerClient.endpoint
 
     fun selectTab(tab: AppTab) { uiState = uiState.copy(currentTab = tab) }
-    fun openTool(title: String) { uiState = uiState.copy(selectedToolTitle = title) }
-    fun closeTool() { uiState = uiState.copy(selectedToolTitle = null) }
-    fun updateLedgerDraftTitle(value: String) { uiState = uiState.copy(ledgerDraftTitle = value) }
-    fun updateLedgerDraftAmount(value: String) { uiState = uiState.copy(ledgerDraftAmount = value.filter { it.isDigit() || it == '.' }.take(10)) }
-    fun selectLedgerDraftType(type: LedgerRecordType) { uiState = uiState.copy(ledgerDraftType = type) }
-    fun selectLedgerCategory(category: String) { uiState = uiState.copy(ledgerDraftCategory = category) }
-    fun updateLedgerBudget(value: String) { uiState = uiState.copy(ledgerBudgetText = value.filter { it.isDigit() || it == '.' }.take(10)) }
-
-    fun addLedgerRecord() {
-        val amount = uiState.ledgerDraftAmount.toFloatOrNull() ?: return
-        val title = uiState.ledgerDraftTitle.trim().ifBlank {
-            if (uiState.ledgerDraftType == LedgerRecordType.Income) "未命名收入" else "未命名支出"
-        }
-        if (amount <= 0f) return
-        val record = LedgerRecord(
-            nextLocalId("record"),
-            title.take(24),
-            amount,
-            uiState.ledgerDraftType,
-            uiState.ledgerDraftCategory,
-            "今天"
-        )
-        uiState = uiState.copy(
-            ledgerRecords = listOf(record) + uiState.ledgerRecords,
-            ledgerDraftTitle = "",
-            ledgerDraftAmount = ""
-        )
-        appendAssistantNotice("已添加账单：${record.title} ${formatCurrency(record.amount)}。", source = "local_ledger")
-    }
-
-    fun deleteLedgerRecord(id: String) {
-        uiState = uiState.copy(ledgerRecords = uiState.ledgerRecords.filterNot { it.id == id })
-    }
+    fun openTool(destination: ToolDestination) { uiState = uiState.copy(selectedTool = destination) }
+    fun closeTool() { uiState = uiState.copy(selectedTool = null) }
 
     fun updateComposer(text: String) {
         if (text != uiState.composerText) uiState = uiState.copy(composerText = text)
@@ -1075,14 +1043,11 @@ class AssistantViewModel(
 
     private fun sourceLabel(source: String?): String? = when (source) {
         "local" -> "本地"
-        "local_ledger" -> "本地记账"
         "local_mobile" -> "手机动作"
         "local_agent" -> "手机智能体"
         "cloud_fetch_failed" -> "云端连接失败"
         else -> null
     }
-
-    private fun formatCurrency(value: Float): String = "¥${String.format("%.2f", value)}"
 
     private fun shouldAutoEnableOnline(messages: List<ChatMessage>): Boolean {
         if (messages.any { it.hasImageAttachments }) return false
