@@ -53,7 +53,7 @@ class StockMarketViewModel(
 
     private val minuteCache = mutableMapOf<String, List<StockMinutePoint>>()
     private val kLineCache = mutableMapOf<String, List<StockKLinePoint>>()
-    private val lastSequenceByCode = mutableMapOf<String, Long>()
+    private val lastSequenceByStream = mutableMapOf<String, Long>()
 
     init {
         refreshHome()
@@ -83,9 +83,7 @@ class StockMarketViewModel(
         val code = state.stock.quote.code
         startRealtimeLoop(code)
         loadSlowDetail(code)
-        if (isMinuteTab(state.selectedTab)) {
-            loadMinute(daysForTab(state.selectedTab))
-        } else {
+        if (!isMinuteTab(state.selectedTab)) {
             loadKLineForTab(state.selectedTab)
         }
     }
@@ -208,12 +206,10 @@ class StockMarketViewModel(
             if (openDetail || _uiState.value.showDetail) {
                 startRealtimeLoop(loaded.quote.code)
                 loadSlowDetail(loaded.quote.code)
-            }
-            val tab = _uiState.value.selectedTab
-            if (isMinuteTab(tab)) {
-                loadMinute(daysForTab(tab), loaded.quote.code)
-            } else {
-                loadKLineForTab(tab, loaded.quote.code)
+                val tab = _uiState.value.selectedTab
+                if (!isMinuteTab(tab)) {
+                    loadKLineForTab(tab, loaded.quote.code)
+                }
             }
         }
     }
@@ -266,13 +262,12 @@ class StockMarketViewModel(
                 if (!state.showDetail || state.stock.quote.code != query) {
                     state
                 } else {
-                    state.copy(
-                        stock = state.stock.copy(
-                            moneyFlow = full.moneyFlow,
-                            fundamentals = full.fundamentals,
-                            aiSummary = full.aiSummary
-                        )
+                    val nextStock = state.stock.copy(
+                        moneyFlow = full.moneyFlow,
+                        fundamentals = full.fundamentals,
+                        aiSummary = full.aiSummary
                     )
+                    if (nextStock == state.stock) state else state.copy(stock = nextStock)
                 }
             }
         }
@@ -295,22 +290,37 @@ class StockMarketViewModel(
             _uiState.update { state ->
                 result.fold(
                     onSuccess = { frame ->
-                        applyRealtimeFrame(
-                            state = state,
-                            frame = frame,
-                            code = target,
-                            minuteDays = days,
-                            exposeMinutePoints = true
-                        ).copy(
-                            kLineLoading = false,
-                            requestMessage = null
-                        )
+                        if (state.stock.quote.code != target) {
+                            state
+                        } else {
+                            val isCurrentView = isMinuteTab(state.selectedTab) &&
+                                daysForTab(state.selectedTab) == days
+                            val updated = applyRealtimeFrame(
+                                state = state,
+                                frame = frame,
+                                code = target,
+                                minuteDays = days,
+                                exposeMinutePoints = isCurrentView
+                            )
+                            if (isCurrentView) {
+                                updated.copy(kLineLoading = false, requestMessage = null)
+                            } else {
+                                updated
+                            }
+                        }
                     },
                     onFailure = { error ->
-                        state.copy(
-                            kLineLoading = false,
-                            requestMessage = "${if (days >= 5) "五日分时" else "分时"}加载失败：${error.message ?: error.javaClass.simpleName}"
-                        )
+                        val isCurrentView = state.stock.quote.code == target &&
+                            isMinuteTab(state.selectedTab) &&
+                            daysForTab(state.selectedTab) == days
+                        if (!isCurrentView) {
+                            state
+                        } else {
+                            state.copy(
+                                kLineLoading = false,
+                                requestMessage = "${if (days >= 5) "五日分时" else "分时"}加载失败：${error.message ?: error.javaClass.simpleName}"
+                            )
+                        }
                     }
                 )
             }
@@ -342,6 +352,13 @@ class StockMarketViewModel(
                     onSuccess = { points ->
                         if (points.size >= 2) {
                             kLineCache[cacheKey] = points
+                        }
+                        val isCurrentView = state.stock.quote.code == target &&
+                            !isMinuteTab(state.selectedTab) &&
+                            periodForTab(state.selectedTab) == period
+                        if (!isCurrentView) {
+                            state
+                        } else if (points.size >= 2) {
                             state.copy(
                                 stock = state.stock.copy(kLinePoints = points),
                                 kLineLoading = false,
@@ -360,15 +377,22 @@ class StockMarketViewModel(
                         }
                     },
                     onFailure = { error ->
-                        state.copy(
-                            stock = state.stock.copy(kLinePoints = cached ?: emptyList()),
-                            kLineLoading = false,
-                            requestMessage = if (cached != null) {
-                                "${tab}刷新失败，当前显示本地缓存"
-                            } else {
-                                "${tab}加载失败：${error.message ?: error.javaClass.simpleName}"
-                            }
-                        )
+                        val isCurrentView = state.stock.quote.code == target &&
+                            !isMinuteTab(state.selectedTab) &&
+                            periodForTab(state.selectedTab) == period
+                        if (!isCurrentView) {
+                            state
+                        } else {
+                            state.copy(
+                                stock = state.stock.copy(kLinePoints = cached ?: emptyList()),
+                                kLineLoading = false,
+                                requestMessage = if (cached != null) {
+                                    "${tab}刷新失败，当前显示本地缓存"
+                                } else {
+                                    "${tab}加载失败：${error.message ?: error.javaClass.simpleName}"
+                                }
+                            )
+                        }
                     }
                 )
             }
@@ -379,6 +403,8 @@ class StockMarketViewModel(
         val target = code.ifBlank { activeCode() }.ifBlank { _uiState.value.query }
         if (realtimeJob?.isActive == true && activeCode() == target) return
         realtimeJob?.cancel()
+        lastSequenceByStream.remove(minuteKey(target, 1))
+        lastSequenceByStream.remove(minuteKey(target, 5))
         realtimeJob = viewModelScope.launch {
             var nextTickAt = SystemClock.elapsedRealtime()
             while (isActive) {
@@ -398,17 +424,19 @@ class StockMarketViewModel(
                     )
                 }
                 result.onSuccess { frame ->
-                    if (acceptSequence(activeCode, frame.sequence)) {
+                    if (acceptSequence(activeCode, minuteDays, frame.sequence)) {
                         _uiState.update { state ->
                             if (!state.showDetail || state.stock.quote.code != activeCode) {
                                 state
                             } else {
+                                val exposeMinutes = isMinuteTab(state.selectedTab) &&
+                                    daysForTab(state.selectedTab) == minuteDays
                                 applyRealtimeFrame(
                                     state = state,
                                     frame = frame,
                                     code = activeCode,
                                     minuteDays = minuteDays,
-                                    exposeMinutePoints = isMinuteTab(state.selectedTab)
+                                    exposeMinutePoints = exposeMinutes
                                 )
                             }
                         }
@@ -452,15 +480,35 @@ class StockMarketViewModel(
         } else {
             state.stock.minutePoints
         }
+        val nextSellLevels = frame.sellLevels.ifEmpty { state.stock.sellLevels }
+        val nextBuyLevels = frame.buyLevels.ifEmpty { state.stock.buyLevels }
+        val nextTradeTicks = mergedTicks.ifEmpty { state.stock.tradeTicks }
+        val nextTopMetrics = if (frame.quote == state.stock.quote) {
+            state.stock.topMetrics
+        } else {
+            realtimeRepository.topMetricsFor(frame.quote)
+        }
+
+        if (
+            frame.quote == state.stock.quote &&
+            nextTopMetrics == state.stock.topMetrics &&
+            visibleMinutes == state.stock.minutePoints &&
+            nextSellLevels == state.stock.sellLevels &&
+            nextBuyLevels == state.stock.buyLevels &&
+            nextTradeTicks == state.stock.tradeTicks &&
+            frame.dataSourceLabel == state.stock.dataSourceLabel
+        ) {
+            return state
+        }
 
         return state.copy(
             stock = state.stock.copy(
                 quote = frame.quote,
-                topMetrics = realtimeRepository.topMetricsFor(frame.quote),
+                topMetrics = nextTopMetrics,
                 minutePoints = visibleMinutes,
-                sellLevels = frame.sellLevels.ifEmpty { state.stock.sellLevels },
-                buyLevels = frame.buyLevels.ifEmpty { state.stock.buyLevels },
-                tradeTicks = mergedTicks.ifEmpty { state.stock.tradeTicks },
+                sellLevels = nextSellLevels,
+                buyLevels = nextBuyLevels,
+                tradeTicks = nextTradeTicks,
                 dataSourceLabel = frame.dataSourceLabel
             )
         )
@@ -493,11 +541,12 @@ class StockMarketViewModel(
         }.take(MAX_TRADE_TICKS)
     }
 
-    private fun acceptSequence(code: String, sequence: Long): Boolean {
+    private fun acceptSequence(code: String, minuteDays: Int, sequence: Long): Boolean {
         if (sequence <= 0L) return true
-        val previous = lastSequenceByCode[code] ?: 0L
+        val streamKey = minuteKey(code, minuteDays)
+        val previous = lastSequenceByStream[streamKey] ?: 0L
         if (sequence <= previous) return false
-        lastSequenceByCode[code] = sequence
+        lastSequenceByStream[streamKey] = sequence
         return true
     }
 
