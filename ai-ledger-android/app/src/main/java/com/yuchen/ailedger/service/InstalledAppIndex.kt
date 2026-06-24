@@ -19,10 +19,9 @@ data class InstalledAppEntry(
 )
 
 class InstalledAppIndex(
-    private val context: Context,
+    context: Context,
 ) {
-    private var cachedApps: List<InstalledAppEntry> = emptyList()
-    private var lastLoadedAt: Long = 0L
+    private val context = context.applicationContext
 
     /**
      * Supplies neutral identifiers to the cloud context only. These values are never used locally
@@ -39,8 +38,10 @@ class InstalledAppIndex(
 
     fun getLaunchableApps(forceReload: Boolean = false): List<InstalledAppEntry> {
         val now = System.currentTimeMillis()
-        if (!forceReload && cachedApps.isNotEmpty() && now - lastLoadedAt < CACHE_TTL_MS) {
-            return cachedApps
+        synchronized(cacheLock) {
+            if (!forceReload && sharedCachedApps.isNotEmpty() && now - sharedLastLoadedAt < CACHE_TTL_MS) {
+                return sharedCachedApps
+            }
         }
 
         val packageManager = context.packageManager
@@ -63,8 +64,10 @@ class InstalledAppIndex(
                     .thenBy { app -> app.packageName },
             )
 
-        cachedApps = apps
-        lastLoadedAt = now
+        synchronized(cacheLock) {
+            sharedCachedApps = apps
+            sharedLastLoadedAt = now
+        }
         return apps
     }
 
@@ -92,6 +95,9 @@ class InstalledAppIndex(
     }
 
     companion object {
+        private val cacheLock = Any()
+        private var sharedCachedApps: List<InstalledAppEntry> = emptyList()
+        private var sharedLastLoadedAt: Long = 0L
         private const val CACHE_TTL_MS = 5 * 60_000L
     }
 }
