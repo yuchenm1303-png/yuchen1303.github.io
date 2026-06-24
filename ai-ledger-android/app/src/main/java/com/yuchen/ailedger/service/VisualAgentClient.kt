@@ -134,6 +134,7 @@ internal fun buildVisualAgentPayload(
     val lastScreenChangeIndex = feedbackLines.indexOfLast { it.isVisualScreenChangedFeedback() }
     val activeFeedbackWindow = if (lastScreenChangeIndex >= 0) feedbackLines.drop(lastScreenChangeIndex + 1) else feedbackLines
     val activeVerificationEvents = activeFeedbackWindow.filter { it.isVisualRuntimeFeedback() }
+    val screenChangedCount = activeVerificationEvents.count { it.isVisualScreenChangedFeedback() }
     val noProgressCount = activeVerificationEvents.count { it.isVisualNoProgressFeedback() }
     val structuralFailureCount = activeVerificationEvents.count { it.isStructuralRouteFailureFeedback() }
     val localVisualRetryCount = activeVerificationEvents.count { it.isLocalVisualRetryFeedback() }
@@ -203,10 +204,12 @@ internal fun buildVisualAgentPayload(
                 noProgressCount > 0 ||
                 structuralFailureCount > 0
             ))
+    val currentPackageMatchesVerifiedTarget = snapshot.packageName == resolvedRuntimeContext.verifiedTargetPackage
 
     val executionFeedback = JSONObject().apply {
         put("lastResultOk", lastResultOk ?: JSONObject.NULL)
         put("lastVerification", lastVerification)
+        put("screenChangedCount", screenChangedCount)
         put("noProgressCount", noProgressCount)
         put("structuralFailureCount", structuralFailureCount)
         put("localVisualRetryCount", localVisualRetryCount)
@@ -230,6 +233,7 @@ internal fun buildVisualAgentPayload(
         put("verification", lastVerification)
         put("actionSignature", lastActionSignature)
         put("screenChanged", lastVerification == "visual_screen_changed")
+        put("screenChangedCount", screenChangedCount)
         put("finishVerificationRequested", finishVerificationRequested)
         put("localVisualRetryRequested", localVisualRetryRequested)
         put("routeRefreshRequested", routeRefreshRequested)
@@ -322,8 +326,18 @@ internal fun buildVisualAgentPayload(
         put("surfaceEpoch", resolvedRuntimeContext.surfaceEpoch)
         put("guiPlusEligible", guiPlusEligible)
         put("targetPackageBound", resolvedRuntimeContext.verifiedTargetPackage.isNotBlank())
-        put("currentPackageMatchesVerifiedTarget", snapshot.packageName == resolvedRuntimeContext.verifiedTargetPackage)
+        put("currentPackageMatchesVerifiedTarget", currentPackageMatchesVerifiedTarget)
         put("localSemanticDecision", false)
+    }
+    val surfaceContext = JSONObject().apply {
+        put("role", if (guiPlusEligible) "work_surface" else "planning")
+        put("surfaceState", resolvedRuntimeContext.surfaceState.wireValue)
+        put("selectedTargetPackage", resolvedRuntimeContext.selectedTargetPackage)
+        put("verifiedTargetPackage", resolvedRuntimeContext.verifiedTargetPackage)
+        put("currentPackage", snapshot.packageName)
+        put("currentPackageMatchesVerifiedTarget", currentPackageMatchesVerifiedTarget)
+        put("guiPlusEligible", guiPlusEligible)
+        put("observationId", resolvedRuntimeContext.observationId)
     }
     val deviceProfileJson = deviceProfile?.toVisualAgentJson()
     return JSONObject().apply {
@@ -361,6 +375,7 @@ internal fun buildVisualAgentPayload(
         put("appCatalog", appCatalog)
         put("appSelectionProtocol", appSelectionProtocol)
         put("runtimeExecutionContext", runtimeExecutionContext)
+        put("surfaceContext", surfaceContext)
         put("observationId", resolvedRuntimeContext.observationId)
         put("expectedActionObservationId", resolvedRuntimeContext.observationId)
         put("currentPackage", snapshot.packageName)
@@ -389,6 +404,7 @@ internal fun buildVisualAgentPayload(
             put("executionFeedback", executionFeedback)
             put("lastToolResponse", lastToolResponse)
             put("runtimeExecutionContext", runtimeExecutionContext)
+            put("surfaceContext", surfaceContext)
             put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
             put("appInventoryHash", appInventoryHash)
             put("appSelectionProtocol", appSelectionProtocol)
@@ -396,6 +412,7 @@ internal fun buildVisualAgentPayload(
                 put("agentSessionId", cleanSessionId)
                 put("loopIndex", cleanRecentActionLines.size)
                 put("executedStepCount", executedActionSignatures.size)
+                put("screenChangedCount", screenChangedCount)
                 put("noProgressCount", noProgressCount)
                 put("structuralFailureCount", structuralFailureCount)
                 put("localVisualRetryCount", localVisualRetryCount)
@@ -413,6 +430,7 @@ internal fun buildVisualAgentPayload(
                 put("routeEpoch", resolvedRuntimeContext.routeEpoch)
                 put("surfaceEpoch", resolvedRuntimeContext.surfaceEpoch)
                 put("lastActionSignature", lastActionSignature)
+                put("currentPackageMatchesVerifiedTarget", currentPackageMatchesVerifiedTarget)
                 put("postActionFeedback", executionFeedback)
                 put("lastToolResponse", lastToolResponse)
             })
@@ -437,9 +455,10 @@ internal fun buildVisualAgentPayload(
             put("appCatalog", appCatalog)
             put("appSelectionProtocol", appSelectionProtocol)
             put("runtimeExecutionContext", runtimeExecutionContext)
+            put("surfaceContext", surfaceContext)
             put("currentApp", JSONObject().apply {
                 put("packageName", snapshot.packageName)
-                put("matchesVerifiedTarget", snapshot.packageName == resolvedRuntimeContext.verifiedTargetPackage)
+                put("matchesVerifiedTarget", currentPackageMatchesVerifiedTarget)
             })
             put("screen", JSONObject().apply {
                 put("widthPx", visual?.displayWidth ?: 0)

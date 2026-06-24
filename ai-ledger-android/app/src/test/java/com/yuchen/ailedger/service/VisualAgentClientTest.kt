@@ -64,6 +64,10 @@ class VisualAgentClientTest {
         assertTrue(runtime.getBoolean("currentPackageMatchesVerifiedTarget"))
         assertTrue(runtime.getBoolean("guiPlusEligible"))
         assertFalse(runtime.getBoolean("localSemanticDecision"))
+        val surfaceContext = payload.getJSONObject("surfaceContext")
+        assertEquals("work_surface", surfaceContext.getString("role"))
+        assertEquals("com.tencent.mobileqq", surfaceContext.getString("currentPackage"))
+        assertTrue(surfaceContext.getBoolean("currentPackageMatchesVerifiedTarget"))
 
         val app = payload.getJSONArray("appContext").getJSONObject(0)
         assertEquals("QQ", app.getString("label"))
@@ -104,9 +108,11 @@ class VisualAgentClientTest {
         val memory = payload.getJSONObject("agentMemory")
         assertEquals("android_visual_agent_loop_memory_v13_cloud_route_visual_loop", memory.getString("schema"))
         assertEquals(runtimeContext.observationId, memory.getJSONObject("runtimeExecutionContext").getString("observationId"))
+        assertEquals("work_surface", memory.getJSONObject("surfaceContext").getString("role"))
         val deviceContext = payload.getJSONObject("deviceContext")
         assertEquals("android_visual_agent_context_v7_cloud_route_visual_loop", deviceContext.getString("schema"))
         assertTrue(deviceContext.getJSONObject("currentApp").getBoolean("matchesVerifiedTarget"))
+        assertEquals("work_surface", deviceContext.getJSONObject("surfaceContext").getString("role"))
     }
 
     @Test
@@ -188,8 +194,31 @@ class VisualAgentClientTest {
 
         val feedback = payload.getJSONObject("executionFeedback")
         assertEquals("visual_local_retry", feedback.getString("lastVerification"))
+        assertEquals(0, feedback.getInt("screenChangedCount"))
         assertTrue(feedback.getBoolean("localVisualRetryRequested"))
         assertFalse(feedback.getBoolean("routeRefreshRequested"))
+    }
+
+    @Test
+    fun screenChangedFeedbackIsCarriedIntoPayloadSignals() {
+        val snapshot = testSnapshot(packageName = "com.jingdong.app.mall")
+        val payload = buildVisualAgentPayload(
+            goal = "打开商品详情",
+            snapshot = snapshot,
+            recentActions = listOf(
+                "tap_xy|0.5|0.5:ok:result=已点击",
+                "visual_screen_changed:action=tap_xy|0.5|0.5:reason=navigated",
+            ),
+            runtimeContext = verifiedRuntimeContext(snapshot, snapshot.packageName),
+        )
+
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertEquals(1, feedback.getInt("screenChangedCount"))
+        val toolResponse = payload.getJSONObject("lastToolResponse")
+        assertEquals(1, toolResponse.getInt("screenChangedCount"))
+        val loopSignals = payload.getJSONObject("agentMemory").getJSONObject("loopSignals")
+        assertEquals(1, loopSignals.getInt("screenChangedCount"))
+        assertTrue(loopSignals.getBoolean("currentPackageMatchesVerifiedTarget"))
     }
 
     @Test
