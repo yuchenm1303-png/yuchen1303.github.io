@@ -2109,16 +2109,6 @@ function normalizeForMatch(value) {
   return String(value || "").toLowerCase().replace(/[\s\u3000，。,.、:：/\\\-]+/g, "");
 }
 
-function normalizedContainsAny(value, candidates) {
-  const haystack = normalizeForMatch(value);
-  const list = Array.isArray(candidates) ? candidates : [candidates];
-  if (!haystack || list.length === 0) return false;
-  return list.some((candidate) => {
-    const needle = normalizeForMatch(candidate);
-    return Boolean(needle && haystack.includes(needle));
-  });
-}
-
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -2453,20 +2443,6 @@ function agentBatchCandidatesFromParsed(value) {
   return candidates;
 }
 
-function agentStepBatchKey(step) {
-  return [
-    step?.type || "",
-    step?.targetNodeId || "",
-    step?.targetText || "",
-    step?.text || "",
-    step?.appName || "",
-    step?.packageName || "",
-    Number.isFinite(step?.x) ? Number(step.x).toFixed(3) : "",
-    Number.isFinite(step?.y) ? Number(step.y).toFixed(3) : "",
-    step?.args && typeof step.args === "object" ? JSON.stringify(step.args) : "",
-  ].join("|");
-}
-
 function normalizeAgentStopConditions(value) {
   const raw = value && typeof value === "object" ? value : {};
   const containers = [raw, raw.plan, raw.data, raw.result, raw.agentPlan].filter((item) => item && typeof item === "object");
@@ -2697,107 +2673,6 @@ function findInstalledAppForOpenApp(appName, packageName, deviceContext) {
 }
 
 
-function explicitAppMentionKnownApps() {
-  return [
-    "QQ", "微信", "支付宝", "淘宝", "京东", "拼多多", "微博", "抖音", "快手", "哔哩哔哩", "B站", "小红书",
-    "同花顺", "东方财富", "雪球", "大智慧", "通达信", "腾讯自选股",
-    "高德地图", "百度地图", "腾讯地图",
-    "网易云音乐", "QQ音乐", "酷狗音乐", "酷我音乐",
-    "携程旅行", "去哪儿旅行", "飞猪", "美团", "大众点评"
-  ];
-}
-
-function isAsciiAppToken(value) {
-  return /^[a-z0-9][a-z0-9._+\-]{1,24}$/i.test(String(value || ""));
-}
-
-function compactGoalForExplicitApp(value) {
-  return String(value || "")
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/\s+/g, "");
-}
-
-function explicitAppMentionMatchedInGoal(goal, appName) {
-  const app = normalizeAppMatchText(appName);
-  if (!app || app.length < 2) return false;
-  const raw = String(goal || "").normalize("NFKC").toLowerCase();
-  const compact = compactGoalForExplicitApp(goal);
-  if (!compact.includes(app)) return false;
-
-  if (isAsciiAppToken(app)) {
-    const token = escapeRegExp(app);
-    const regex = new RegExp(`(^|[^a-z0-9])${token}([^a-z0-9]|$)`, "i");
-    return regex.test(raw);
-  }
-
-  let index = compact.indexOf(app);
-  while (index >= 0) {
-    const before = compact.slice(Math.max(0, index - 4), index);
-    const after = compact.slice(index + app.length, index + app.length + 6);
-    const prefixOk = index === 0 || /(打开|启动|进入|前往|去到|切到|跳到|用|在|到)$/.test(before);
-    const suffixOk = after === "" || /^(app|应用|客户端|里面|里|内|首页|主页|设置|设置页|页面|界面|搜索|消息|联系人|通讯录|公众号|小程序|钱包|我的|个人中心|频道|空间|好友|群|热榜|榜单)/.test(after);
-    if (prefixOk && suffixOk) return true;
-    index = compact.indexOf(app, index + 1);
-  }
-  return false;
-}
-
-function findExplicitAppMentionForPreflight(goal, deviceContext) {
-  const installed = installedAppsFromDeviceContext(deviceContext);
-  const candidates = [];
-  const pushCandidate = (label, packageName = "", aliases = [], source = "known") => {
-    const appLabel = safeText(label, 80);
-    const normalized = normalizeAppMatchText(appLabel);
-    if (!appLabel || normalized.length < 2) return;
-    if (["股票", "证券", "行情", "地图", "音乐", "视频", "酒店", "旅行", "新闻", "资讯", "设置", "应用"].includes(appLabel)) return;
-    candidates.push({ label: appLabel, packageName: safeText(packageName, 120), aliases, source });
-  };
-
-  installed.forEach((app) => {
-    pushCandidate(app.label, app.packageName, app.aliases || [], "installed");
-    (Array.isArray(app.aliases) ? app.aliases : []).forEach((alias) => pushCandidate(alias, app.packageName, [app.label, ...(app.aliases || [])], "installed_alias"));
-  });
-  explicitAppMentionKnownApps().forEach((name) => pushCandidate(name, "", [], "known_app_name"));
-
-  let best = null;
-  for (const candidate of candidates) {
-    const names = [candidate.label, ...(Array.isArray(candidate.aliases) ? candidate.aliases : [])].filter(Boolean);
-    for (const name of names) {
-      if (!explicitAppMentionMatchedInGoal(goal, name)) continue;
-      const installedMatch = findInstalledAppForOpenApp(candidate.label || name, candidate.packageName, deviceContext);
-      const normalized = normalizeAppMatchText(name);
-      const score = (candidate.source.startsWith("installed") ? 2000 : 1000) + normalized.length * 10 + (installedMatch ? 400 : 0);
-      if (!best || score > best.score) {
-        best = {
-          label: installedMatch?.label || candidate.label || name,
-          packageName: installedMatch?.packageName || candidate.packageName || "",
-          aliases: installedMatch?.aliases || candidate.aliases || [],
-          explicitName: name,
-          source: candidate.source,
-          confidence: candidate.source.startsWith("installed") ? 0.94 : 0.78,
-          score,
-        };
-      }
-    }
-  }
-  return best;
-}
-
-function explicitAppPreflightShouldOpen(goal, snapshot, deviceContext, explicitApp) {
-  if (!explicitApp || (!explicitApp.label && !explicitApp.packageName)) return false;
-  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || deviceContext?.currentApp?.packageName || "", 120);
-  if (explicitApp.packageName && currentPackage && explicitApp.packageName === currentPackage) return false;
-  const currentLabel = safeText(deviceContext?.currentApp?.label || deviceContext?.currentApp?.name || snapshot?.currentAppLabel || "", 80);
-  const currentApp = { label: currentLabel || currentPackage, packageName: currentPackage, aliases: [] };
-  if (appMatchesTaskContractApp(currentApp, explicitApp)) return false;
-
-  const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
-  const cleanGoal = normalizeForMatch(goal);
-  const openLike = normalizedContainsAny(cleanGoal, ["打开", "启动", "进入", "前往", "去到", "切到", "跳到", "设置页", "页面", "界面"]);
-  return Boolean(assistantHost || !currentPackage || openLike);
-}
-
 function deviceContextSummaryForPrompt(deviceContext) {
   const ctx = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
   const device = ctx.device || {};
@@ -2911,221 +2786,6 @@ function rankDomainAppCandidates(deviceContext, domain, max = 10) {
 }
 
 
-function inferAgentInstructionDomain(goal) {
-  const clean = normalizeForMatch(goal);
-  const stockEntityHints = [
-    "光电", "信息", "锂业", "科技", "股份", "能源", "电力", "通信", "电子", "医药", "药业", "银行", "证券",
-    "保险", "汽车", "材料", "半导体", "茅台", "宁德", "比亚迪", "中芯", "海康", "浪潮", "恒瑞", "隆基",
-  ];
-  const hasTradeWords = normalizedContainsAny(clean, [
-    "下单界面", "下单页面", "交易界面", "交易页面", "委托界面", "委托页面",
-    "买入界面", "买入页面", "卖出界面", "卖出页面", "证券下单", "股票下单", "挂单",
-  ]);
-  const hasStockWords = normalizedContainsAny(clean, ["股票", "股价", "个股", "行情", "走势", "涨跌", "K线", "k线", "分时", "证券", "自选", "详情页", "详情界面"]);
-  const hasIndexWords = normalizedContainsAny(clean, ["上证指数", "创业板指", "深证成指", "沪深300", "中证", "指数行情", "大盘"]);
-  const hasFinanceNewsWords = normalizedContainsAny(clean, ["头条新闻", "公司新闻", "公告", "研报", "资讯", "财报", "财经新闻"]);
-  if (hasTradeWords) return "stock_trade";
-  if (hasIndexWords) return "stock_index";
-  if (hasStockWords || (normalizedContainsAny(clean, ["详情页", "详情界面", "打开", "查看"]) && stockEntityHints.some((word) => clean.includes(normalizeForMatch(word))))) {
-    return hasFinanceNewsWords ? "finance_news" : "stock_detail";
-  }
-  if (hasFinanceNewsWords && stockEntityHints.some((word) => clean.includes(normalizeForMatch(word)))) return "finance_news";
-  if (normalizedContainsAny(clean, ["导航", "路线", "怎么去", "带我去", "开车去", "步行去", "骑行去"])) return "navigation";
-  if (normalizedContainsAny(clean, ["播放", "听歌", "歌曲", "歌单", "音乐"])) return "music";
-  if (normalizedContainsAny(clean, ["视频", "番剧", "直播", "up主", "哔哩", "b站", "抖音", "快手"])) return "video";
-  if (normalizedContainsAny(clean, ["酒店", "机票", "火车票", "高铁票", "旅游", "旅行", "携程", "民宿"])) return "travel";
-  return "general";
-}
-
-
-function extractAgentTaskEntity(goal, domain) {
-  let text = safeText(goal, 160);
-  const removeWords = [
-    "帮我", "请", "麻烦", "一下", "打开", "进入", "查看", "看一下", "看", "找到", "搜索", "搜一下", "去到", "跳到", "前往",
-    "详情界面", "详情页", "详情", "下单界面", "下单页面", "交易界面", "交易页面", "委托界面", "委托页面",
-    "买入界面", "买入页面", "卖出界面", "卖出页面", "页面", "界面", "行情", "走势", "股票", "股价", "证券", "个股", "资讯", "新闻", "头条",
-    "播放", "导航到", "导航", "路线", "酒店", "价格",
-  ];
-  for (const word of removeWords) text = text.replace(new RegExp(escapeRegExp(word), "gi"), "");
-  text = text.replace(/[，。,.、:：/\\\-_]+/g, " ").replace(/\s+/g, " ").trim().replace(/的$/u, "");
-  if (!text) return "";
-  if (["stock_trade", "stock_detail", "finance_news", "stock_index"].includes(domain)) {
-    const match = text.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,24}/);
-    return safeText(match ? match[0] : text, 32);
-  }
-  return safeText(text, 48);
-}
-
-function buildDomainTaskInterpretation(goal, domain, entity, appCandidates) {
-  const appNames = (appCandidates || []).map((app) => `${app.label}${app.packageName ? `(${app.packageName})` : ""}`).slice(0, 6);
-  const appLine = appNames.length ? `可用候选 App：${appNames.join(" / ")}。` : "没有可靠 App 候选时，不要猜包名；先利用当前屏幕可见入口，实在不可达再 terminate failure。";
-  if (domain === "stock_trade") {
-    return [
-      `任务理解：用户要打开“${entity || goal}”的证券下单/委托入口，但不是自动提交订单。`,
-      appLine,
-      "所需能力：stock_search + securities_trade + order_entry。必须优先使用设备上由 App 能力目录确认的真实交易 App；多候选时请求用户选择，禁止根据名称猜测包名。",
-      "建议路线：确定性打开已解析的交易 App，验证前台包名后，再由 GUI Plus 搜索目标股票并导航到买入/卖出/委托入口。",
-      "安全边界：只允许打开下单界面。任何价格、数量、买卖方向填写以及提交委托都必须重新确认；提交订单不得自动完成。",
-      "完成标准：截图主体显示目标股票名称和买入/卖出/委托表单入口，但尚未提交订单时 terminate success。",
-    ].join("\n");
-  }
-  if (domain === "stock_detail") {
-    return [
-      `任务理解：用户要打开“${entity || goal}”的股票/证券行情详情页。`,
-      appLine,
-      "建议路线：若当前不在行情/证券 App，优先使用 mobile_use open 打开候选股票行情 App；进入后寻找搜索栏，搜索目标名称，点击正确股票结果进入详情页。",
-      "完成标准：截图主体显示目标名称及价格/涨跌幅/分时/K线/盘口等股票详情信息时 terminate success。",
-    ].join("\n");
-  }
-  if (domain === "stock_index") {
-    return [
-      `任务理解：用户要查看“${entity || goal}”的指数/大盘行情详情页。`,
-      appLine,
-      "建议路线：优先打开行情/证券 App，搜索或进入指数/大盘入口，点击对应指数结果。",
-      "完成标准：截图主体显示指数名称、点位、涨跌幅、分时/K线等行情信息时 terminate success。",
-    ].join("\n");
-  }
-  if (domain === "finance_news") {
-    return [
-      `任务理解：用户要查看“${entity || goal}”相关财经新闻/资讯。`,
-      appLine,
-      "建议路线：优先打开财经/行情/新闻类候选 App，搜索目标名称，进入新闻/资讯/公告/头条结果。",
-      "完成标准：截图主体显示目标相关新闻列表或新闻详情时 terminate success。",
-    ].join("\n");
-  }
-  if (domain === "navigation") {
-    return [
-      `任务理解：用户要导航或查路线到“${entity || goal}”。`,
-      appLine,
-      "建议路线：优先打开地图 App，点击搜索框，输入目的地，选择正确地点。",
-      "完成标准：显示目的地路线/地图结果页时 terminate success。",
-    ].join("\n");
-  }
-  if (domain === "music") {
-    return [
-      `任务理解：用户要播放或搜索音乐“${entity || goal}”。`,
-      appLine,
-      "建议路线：优先打开音乐 App，搜索目标歌曲/歌手/歌单，进入结果；真正播放前如无风险可点击播放。",
-      "完成标准：显示目标歌曲/播放页/搜索结果时 terminate success。",
-    ].join("\n");
-  }
-  if (domain === "video") {
-    return [
-      `任务理解：用户要打开或搜索视频内容“${entity || goal}”。`,
-      appLine,
-      "建议路线：优先打开视频/短视频 App，搜索目标内容，点击匹配结果。",
-      "完成标准：显示目标视频详情、播放页或搜索结果时 terminate success。",
-    ].join("\n");
-  }
-  if (domain === "travel") {
-    return [
-      `任务理解：用户要完成旅行/酒店/票务相关查询“${entity || goal}”。`,
-      appLine,
-      "建议路线：优先打开旅行/酒店 App，根据页面逐步搜索城市、日期、酒店或票务关键词。",
-      "完成标准：显示相关价格列表或详情页时 terminate success。",
-    ].join("\n");
-  }
-  return "";
-}
-
-
-function flattenKnownExplicitAppNames(deviceContext, domain = "") {
-  const installed = installedAppsFromDeviceContext(deviceContext);
-  const names = [];
-  const add = (value) => {
-    const text = safeText(value, 80);
-    const normalized = normalizeAppMatchText(text);
-    if (!text || normalized.length < 2) return;
-    if (["股票", "证券", "行情", "地图", "音乐", "视频", "酒店", "旅行", "新闻", "资讯", "设置"].includes(text)) return;
-    names.push(text);
-  };
-  installed.forEach((app) => {
-    add(app.label);
-    (Array.isArray(app.aliases) ? app.aliases : []).forEach(add);
-  });
-  [
-    "同花顺", "东方财富", "雪球", "大智慧", "通达信", "腾讯自选股", "富途牛牛", "老虎证券",
-    "高德地图", "百度地图", "腾讯地图",
-    "微信", "QQ", "支付宝", "淘宝", "京东", "拼多多",
-    "抖音", "快手", "哔哩哔哩", "B站", "小红书",
-    "网易云音乐", "QQ音乐", "酷狗音乐", "酷我音乐",
-    "携程旅行", "去哪儿旅行", "飞猪", "美团", "大众点评",
-  ].forEach(add);
-  agentDomainAppKeywords(domain).forEach(add);
-  return [...new Set(names)].sort((a, b) => normalizeAppMatchText(b).length - normalizeAppMatchText(a).length).slice(0, 120);
-}
-
-function findExplicitAppConstraint(goal, deviceContext, domain = "") {
-  // v52：本地不再用“包含某个 App 名”来解释用户意图。
-  // 这里只允许非常明确的 App 指定表达通过，例如“用京东 App”“在同花顺里”“打开微信应用”。
-  // 像“京东方A”“东方电气”“腾讯控股”这类实体名里包含 App 名时，绝不能被识别为 requiredApp。
-  const rawGoal = String(goal || "");
-  if (!rawGoal.trim()) return null;
-  const installed = installedAppsFromDeviceContext(deviceContext);
-  let best = null;
-
-  const isExplicitAppMention = (name) => {
-    const label = safeText(name, 80);
-    if (!label || normalizeAppMatchText(label).length < 2) return false;
-    const escaped = escapeRegExp(label);
-    const boundary = "(?:$|[\\s\\u3000，。,.、:：；;!?！？）)】》]|app|App|APP|应用|客户端|里|里面|中|内)";
-    const prefix = "(?:^|[\\s\\u3000，。,.、:：；;!?！？（(【《])";
-    const patterns = [
-      new RegExp(`${prefix}(?:用|使用|通过)\\s*${escaped}\\s*(?:app|App|APP|应用|客户端|里|里面|中|内)?${boundary}`, "i"),
-      new RegExp(`${prefix}在\\s*${escaped}\\s*(?:app|App|APP|应用|客户端|里|里面|中|内)${boundary}`, "i"),
-      new RegExp(`${prefix}(?:打开|启动|进入|切到|切换到)\\s*${escaped}\\s*(?:app|App|APP|应用|客户端)?${boundary}`, "i"),
-      new RegExp(`${prefix}${escaped}\\s*(?:app|App|APP|应用|客户端)${boundary}`, "i"),
-    ];
-    return patterns.some((pattern) => pattern.test(rawGoal));
-  };
-
-  const consider = (candidate, source) => {
-    const label = safeText(candidate?.label || candidate?.appName || candidate?.name || "", 80);
-    const packageName = safeText(candidate?.packageName || candidate?.package || "", 120);
-    const aliases = Array.isArray(candidate?.aliases) ? candidate.aliases.map((item) => safeText(item, 80)).filter(Boolean) : [];
-    const names = [label, ...aliases].filter(Boolean);
-    for (const name of names) {
-      if (!isExplicitAppMention(name)) continue;
-      const n = normalizeAppMatchText(name);
-      const score = (source === "installed" ? 2000 : 1000) + n.length * 10 + (label && normalizeAppMatchText(label) === n ? 8 : 0);
-      if (!best || score > best.score) {
-        best = { label: label || name, packageName, aliases, explicitName: name, source, score };
-      }
-    }
-  };
-
-  installed.forEach((app) => consider(app, "installed"));
-  flattenKnownExplicitAppNames(deviceContext, domain).forEach((name) => consider({ label: name, aliases: [] }, "known_app_name"));
-  if (!best) return null;
-  return {
-    label: best.label,
-    packageName: best.packageName || "",
-    aliases: best.aliases || [],
-    explicitName: best.explicitName || best.label,
-    source: best.source,
-    confidence: best.source === "installed" ? 0.92 : 0.78,
-  };
-}
-
-function removeExplicitAppWordsFromGoal(goal, explicitApp) {
-  let text = safeText(goal, 220);
-  const names = [
-    explicitApp?.explicitName,
-    explicitApp?.label,
-    ...(Array.isArray(explicitApp?.aliases) ? explicitApp.aliases : []),
-  ].filter(Boolean);
-  for (const name of names) {
-    const clean = safeText(name, 80);
-    if (clean) text = text.replace(new RegExp(escapeRegExp(clean), "gi"), " ");
-  }
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function extractContractTaskEntity(goal, domain, explicitApp) {
-  const cleanedGoal = explicitApp ? removeExplicitAppWordsFromGoal(goal, explicitApp) : goal;
-  return extractAgentTaskEntity(cleanedGoal, domain);
-}
-
 function appMatchesTaskContractApp(app, requiredApp) {
   if (!app || !requiredApp) return false;
   const appNames = [app.label, app.packageName, ...(Array.isArray(app.aliases) ? app.aliases : [])].map(normalizeAppMatchText).filter(Boolean);
@@ -3145,68 +2805,6 @@ function currentAppSatisfiesTaskContract(contract, snapshot, deviceContext) {
   const matchedInstalled = installed.find((app) => app.packageName && currentPackage && app.packageName === currentPackage);
   return Boolean(matchedInstalled && appMatchesTaskContractApp(matchedInstalled, required));
 }
-
-function rankTaskContractAppCandidates(deviceContext, domain, explicitApp, max = 10) {
-  const domainCandidates = rankDomainAppCandidates(deviceContext, domain, max + 4);
-  const out = [];
-  const push = (app, reason) => {
-    if (!app || (!app.label && !app.packageName)) return;
-    const normalizedKey = normalizeAppMatchText(`${app.packageName || ""}|${app.label || ""}`);
-    if (out.some((item) => normalizeAppMatchText(`${item.packageName || ""}|${item.label || ""}`) === normalizedKey)) return;
-    out.push({ ...app, reason });
-  };
-  if (explicitApp) {
-    const installed = findInstalledAppForOpenApp(explicitApp.label || explicitApp.explicitName, explicitApp.packageName, deviceContext);
-    push(installed || explicitApp, "explicit_user_app_constraint");
-  }
-  domainCandidates.forEach((app) => push(app, "domain_candidate"));
-  return out.slice(0, max);
-}
-
-function inferTaskContractTargetPage(domain, goal) {
-  if (domain === "stock_trade") return "stock_order_entry_page";
-  if (domain === "stock_detail") return "stock_detail_page";
-  if (domain === "stock_index") return "stock_index_detail_page";
-  if (domain === "finance_news") return "finance_news_or_article";
-  if (domain === "navigation") return "map_route_or_place_page";
-  if (domain === "music") return "music_result_or_player_page";
-  if (domain === "video") return "video_result_or_player_page";
-  if (domain === "travel") return "travel_result_or_detail_page";
-  if (normalizedContainsAny(goal, ["详情页", "详情界面", "详情"])) return "detail_page";
-  return "goal_satisfied_page";
-}
-
-function normalizeTaskContractSubPage(value) {
-  const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
-  const mapped = {
-    comments: "comment_community",
-    comment: "comment_community",
-    community: "comment_community",
-    discussion: "comment_community",
-    forum: "comment_community",
-    stock_forum: "comment_community",
-    chat: "chat_thread",
-    conversation: "chat_thread",
-    profile: "profile_page",
-    detail: "detail_main",
-    main: "detail_main",
-    news: "news_tab",
-    announcement: "announcement_tab",
-  };
-  return mapped[raw] || raw || "detail_main";
-}
-
-function taskContractJudgeSnapshotPayload(snapshot) {
-  return {
-    app: safeText(snapshot?.currentApp || snapshot?.packageName || "", 100),
-    packageName: safeText(snapshot?.packageName || snapshot?.currentApp || "", 100),
-    nodeCount: Number(snapshot?.nodeCount || 0),
-    texts: (Array.isArray(snapshot?.texts) ? snapshot.texts : []).map((item) => safeText(item, 60)).filter(Boolean).slice(0, 18),
-    clickableTexts: (Array.isArray(snapshot?.clickableNodes) ? snapshot.clickableNodes : []).map((node) => safeText(node?.text || "", 60)).filter(Boolean).slice(0, 18),
-    inputTexts: (Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes : []).map((node) => safeText(node?.text || "", 60)).filter(Boolean).slice(0, 6),
-  };
-}
-
 
 function buildTaskSemanticContract(goal, snapshot = null, deviceContext = null, agentMemory = null) {
   const memoryContract = agentMemory && typeof agentMemory === "object"
@@ -3275,78 +2873,6 @@ function snapshotLooksLikeAssistantChat(snapshot) {
       texts.includes("复制重试")
   );
 }
-
-function isDomainTask(domain) {
-  return ["stock_trade", "stock_detail", "stock_index", "finance_news", "navigation", "music", "video", "travel"].includes(domain);
-}
-
-
-const AGENT_TASK_SKILL_REGISTRY = {
-  stock_trade: {
-    label: "证券下单入口",
-    targetKind: "证券买入/卖出/委托入口",
-    preferredRecovery: "resolve_trade_app_then_open_and_search",
-    completionWords: ["买入", "卖出", "委托", "下单", "价格", "数量", "可用资金", "持仓"],
-    searchWords: ["搜索", "股票", "代码", "名称", "交易", "买入", "卖出"],
-    forbiddenOnAssistant: "禁止在 AI 助手聊天页输入交易目标；禁止自动填写价格、数量或提交委托。",
-  },
-  stock_detail: {
-    label: "股票详情页",
-    targetKind: "股票/证券行情详情页",
-    preferredRecovery: "open_stock_app_then_search",
-    completionWords: ["分时", "K线", "k线", "盘口", "五档", "成交", "涨跌幅", "现价", "最新价", "买入", "卖出", "自选"],
-    searchWords: ["搜索", "股票", "代码", "名称", "自选", "行情"],
-    forbiddenOnAssistant: "禁止点击聊天气泡里的股票名称；那只是历史指令。",
-  },
-  stock_index: {
-    label: "指数行情页",
-    targetKind: "指数/大盘行情详情页",
-    preferredRecovery: "open_stock_app_then_search_index",
-    completionWords: ["分时", "K线", "k线", "大盘", "指数", "点位", "涨跌幅", "成交额"],
-    searchWords: ["搜索", "指数", "行情", "大盘"],
-    forbiddenOnAssistant: "禁止点击聊天气泡里的指数名称；那只是历史指令。",
-  },
-  finance_news: {
-    label: "财经资讯页",
-    targetKind: "财经新闻/资讯页",
-    preferredRecovery: "open_finance_app_then_search_news",
-    completionWords: ["新闻", "资讯", "公告", "研报", "财报", "头条", "快讯", "要闻"],
-    searchWords: ["搜索", "资讯", "新闻", "公告", "研报"],
-    forbiddenOnAssistant: "禁止点击聊天气泡里的新闻标题；那只是历史指令。",
-  },
-  navigation: {
-    label: "地图导航页",
-    targetKind: "地图路线/目的地结果页",
-    preferredRecovery: "open_map_app_then_search_destination",
-    completionWords: ["路线", "导航", "公交", "驾车", "步行", "骑行", "到这去", "目的地"],
-    searchWords: ["搜索", "去哪", "目的地", "地点", "路线"],
-    forbiddenOnAssistant: "禁止点击聊天气泡里的地点名；那只是历史指令。",
-  },
-  music: {
-    label: "音乐搜索/播放页",
-    targetKind: "音乐搜索结果或播放页",
-    preferredRecovery: "open_music_app_then_search",
-    completionWords: ["播放", "歌曲", "歌手", "专辑", "歌单", "暂停", "歌词"],
-    searchWords: ["搜索", "歌曲", "歌手", "音乐"],
-    forbiddenOnAssistant: "禁止点击聊天气泡里的歌曲名；那只是历史指令。",
-  },
-  video: {
-    label: "视频搜索/播放页",
-    targetKind: "视频搜索结果或播放页",
-    preferredRecovery: "open_video_app_then_search",
-    completionWords: ["播放", "视频", "番剧", "直播", "关注", "弹幕", "相关推荐"],
-    searchWords: ["搜索", "视频", "影视", "直播"],
-    forbiddenOnAssistant: "禁止点击聊天气泡里的视频标题；那只是历史指令。",
-  },
-  travel: {
-    label: "旅行/票务查询页",
-    targetKind: "旅行酒店票务查询页",
-    preferredRecovery: "open_travel_app_then_query",
-    completionWords: ["酒店", "机票", "火车票", "价格", "入住", "出发", "到达", "预订", "筛选"],
-    searchWords: ["搜索", "目的地", "城市", "酒店", "车票", "机票"],
-    forbiddenOnAssistant: "禁止点击聊天气泡里的地点或酒店名；那只是历史指令。",
-  },
-};
 
 function agentSkillForDomain(domain) {
   return AGENT_TASK_SKILL_REGISTRY[domain] || null;
@@ -3432,24 +2958,6 @@ function scoreAgentTaskProgress(goal, snapshot, domain, entity, deviceContext) {
   };
 }
 
-function defaultDomainOpenAppCandidate(domain) {
-  if (domain === "stock_trade") return null;
-  if (domain === "stock_detail" || domain === "stock_index" || domain === "finance_news") return { label: "同花顺", packageName: "", source: "default_stock_app" };
-  if (domain === "navigation") return { label: "高德地图", packageName: "", source: "default_navigation_app" };
-  if (domain === "music") return { label: "网易云音乐", packageName: "", source: "default_music_app" };
-  if (domain === "video") return { label: "哔哩哔哩", packageName: "", source: "default_video_app" };
-  if (domain === "travel") return { label: "携程旅行", packageName: "", source: "default_travel_app" };
-  return null;
-}
-
-function bestDomainOpenAppCandidate(deviceContext, domain) {
-  const ranked = rankDomainAppCandidates(deviceContext, domain, 8);
-  if (ranked.length) return { ...ranked[0], source: "device_installed_apps" };
-  const installed = installedAppsFromDeviceContext(deviceContext);
-  if (installed.length) return null;
-  return defaultDomainOpenAppCandidate(domain);
-}
-
 function isCurrentAppAlreadyDomainCandidate(snapshot, deviceContext, domain) {
   const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
   if (!currentPackage) return false;
@@ -3459,120 +2967,6 @@ function isCurrentAppAlreadyDomainCandidate(snapshot, deviceContext, domain) {
   return appMatchesAnyKeyword({ label: currentPackage, packageName: currentPackage, aliases: [] }, keywords);
 }
 
-
-function buildGuardedNeedReplanPlan(reason, confidence = 0.62) {
-  const cleanReason = safeText(reason, 260);
-  return {
-    agentState: {
-      isComplete: false,
-      expectedProgress: false,
-      isWrong: false,
-      confidence,
-      reason: cleanReason,
-      nextHint: "动作被护栏拦截，需要重新规划或请求用户接管。",
-    },
-    visualFrame: {
-      pageTitle: "动作被后端护栏拦截",
-      pageType: "guarded_replan",
-      summary: cleanReason,
-      isComplete: false,
-      isWrong: false,
-      targetVisible: false,
-      suggestedAction: { type: "need_user_help", targetText: "请求接管/重新规划", reason: cleanReason },
-      reason: cleanReason,
-      confidence,
-    },
-    agentStep: {
-      type: "need_user_help",
-      targetText: "请求接管/重新规划",
-      reason: `USER_TAKEOVER_REQUIRED: ${cleanReason}`,
-      riskLevel: "low",
-      requiresConfirmation: false,
-    },
-    stopConditions: ["visual_after_uncertain_progress"],
-    guiPlusCompact: { s: "p", a: "need_user_help", t: "请求接管/重新规划", c: confidence, e: cleanReason },
-    guarded: true,
-  };
-}
-
-function normalizeRuntimeCompactActionName(value) {
-  const raw = String(value || "").toLowerCase().trim().replace(/[\s\-]+/g, "_");
-  if (["click", "tap", "press", "point", "tap_point", "click_xy", "coordinate_click", "coordinate_tap"].includes(raw)) return "tap_xy";
-  if (["type", "input", "enter_text", "text"].includes(raw)) return "input_text";
-  if (["open", "launch", "launch_app", "open_application"].includes(raw)) return "open_app";
-  if (["system_button", "button"].includes(raw)) return "system_button";
-  return normalizeAgentStepType(raw);
-}
-
-function quantizedRuntimeTapSignature(x, y) {
-  const nx = Number(x);
-  const ny = Number(y);
-  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return "";
-  const cx = Math.max(0, Math.min(49, Math.floor(nx * 50)));
-  const cy = Math.max(0, Math.min(49, Math.floor(ny * 50)));
-  return `tap@${cx},${cy}`;
-}
-
-function runtimeTapSignatureCandidates(rawX, rawY, screenshotInfo = null) {
-  const out = new Set();
-  const x = Number(rawX);
-  const y = Number(rawY);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return [];
-
-  if (x >= 0 && x <= 1 && y >= 0 && y <= 1) {
-    out.add(quantizedRuntimeTapSignature(x, y));
-  }
-
-  // 阿里 GUI Plus/mobile_use 官方坐标是 1000x1000。
-  if (x >= 0 && x <= 1000 && y >= 0 && y <= 1000) {
-    out.add(quantizedRuntimeTapSignature(x / 1000, y / 1000));
-  }
-
-  const imageWidth = Number(screenshotInfo?.width) || 0;
-  const imageHeight = Number(screenshotInfo?.height) || 0;
-  const displayWidth = Number(screenshotInfo?.displayWidth) || imageWidth;
-  const displayHeight = Number(screenshotInfo?.displayHeight) || imageHeight;
-  if (imageWidth > 1 && imageHeight > 1 && x >= 0 && x <= imageWidth + 24 && y >= 0 && y <= imageHeight + 24) {
-    out.add(quantizedRuntimeTapSignature(x / imageWidth, y / imageHeight));
-  }
-  if (displayWidth > 1 && displayHeight > 1 && x >= 0 && x <= displayWidth + 24 && y >= 0 && y <= displayHeight + 24) {
-    out.add(quantizedRuntimeTapSignature(x / displayWidth, y / displayHeight));
-  }
-
-  return Array.from(out).filter(Boolean);
-}
-
-function runtimeActionSignaturesFromCompact(compact, screenshotInfo = null) {
-  const raw = compact?.agentStep || compact?.step || compact?.actionStep || compact?.suggestedAction || compact || {};
-  const action = normalizeRuntimeCompactActionName(raw.a || raw.action || raw.type || raw.name || "");
-  const out = new Set();
-
-  if (action === "tap_xy") {
-    const coordinate = Array.isArray(raw.coordinate) ? raw.coordinate : Array.isArray(raw.coord) ? raw.coord : [];
-    const x = raw.x ?? raw.cx ?? raw.centerX ?? raw.targetX ?? raw.tapX ?? coordinate[0];
-    const y = raw.y ?? raw.cy ?? raw.centerY ?? raw.targetY ?? raw.tapY ?? coordinate[1];
-    runtimeTapSignatureCandidates(x, y, screenshotInfo).forEach((item) => out.add(item));
-  } else if (action === "tap_node") {
-    const key = safeText(raw.n || raw.nodeId || raw.targetNodeId || raw.t || raw.targetText || raw.text || "", 32);
-    if (key) out.add(`tap_node@${key}`);
-  } else if (action === "open_app") {
-    const key = safeText(raw.packageName || raw.package || raw.appName || raw.app || raw.t || raw.targetText || "", 64);
-    if (key) out.add(`open@${key}`);
-  } else if (action === "input_text") {
-    const key = safeText(raw.v || raw.text || raw.inputText || raw.value || "", 32);
-    if (key) out.add(`input@${key}`);
-  } else if (action === "scroll" || action === "swipe") {
-    out.add(`${action}@${normalizeAgentDirection(raw.d || raw.direction || "") || "up"}`);
-  } else if (["back", "home", "recents", "notifications", "quick_settings"].includes(action)) {
-    out.add(action);
-  } else if (action === "system_button") {
-    const button = String(raw.button || raw.key || raw.t || "").toLowerCase();
-    if (button.includes("back") || button.includes("返回")) out.add("back");
-    if (button.includes("home") || button.includes("主页")) out.add("home");
-  }
-
-  return Array.from(out).filter(Boolean);
-}
 
 function runtimeBlockedActionSignatures(agentMemory) {
   const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
@@ -3654,15 +3048,6 @@ function structuralGuiThinkingDecision(agentMemory = null) {
     reasons: reasons.slice(0, AGENT_GUI_DEEP_THINKING_REASON_MAX),
     timeoutExtraMs: enabled ? AGENT_GUI_DEEP_THINKING_TIMEOUT_EXTRA_MS : 0,
   };
-}
-
-function runtimeGuardBlockedReasonForCompact(compact, agentMemory, screenshotInfo = null) {
-  const blocked = new Set(runtimeBlockedActionSignatures(agentMemory));
-  if (!blocked.size) return null;
-  const signatures = runtimeActionSignaturesFromCompact(compact, screenshotInfo);
-  const hit = signatures.find((item) => blocked.has(item));
-  if (!hit) return null;
-  return `后端 v12G runtime guard：Android 已把动作 ${hit} 判定为无进展/临时拉黑；本轮禁止再次下发同一动作。请重新观察并换路线、换落点、重新搜索、返回上一层或选择其他入口。`;
 }
 
 function nullableBooleanFromValue(value) {
@@ -4573,11 +3958,6 @@ function agentBrainRoutePromptBlock(route) {
   ].join("\n");
 }
 
-function firstAgentBrainStep(route, predicate) {
-  const steps = Array.isArray(route?.steps) ? route.steps : [];
-  return steps.find((step) => step && typeof step === "object" && (typeof predicate === "function" ? predicate(step) : true)) || null;
-}
-
 function agentBrainRouteStepToAgentStepPayload(route, routeStep, tool, goal) {
   const args = agentBrainStepArgs(routeStep);
   const risk = normalizeAgentBrainRisk(routeStep?.risk || route?.risk);
@@ -5179,20 +4559,6 @@ function normalChatNoInternalDeviceToolPlan(goal, snapshot, supportedSteps, scre
 }
 
 
-function normalizeTaskExecutionPhase(value) {
-  const raw = String(value || "").trim().toLowerCase().replace(/[\s\-]+/g, "_");
-  if (["resolve_requirements", "resolving_requirements"].includes(raw)) return "resolve_requirements";
-  if (["resolve_target_app", "resolve_app", "resolving_target_app"].includes(raw)) return "resolve_target_app";
-  if (["open_target_app", "opening_target_app", "leave_assistant_open_target_app"].includes(raw)) return "open_target_app";
-  if (["verify_target_app", "verifying_target_app"].includes(raw)) return "verify_target_app";
-  if (["visual_navigation", "visual_execute", "navigate", "navigating"].includes(raw)) return "visual_navigation";
-  if (["verify_result", "verifying_result", "verify_completion"].includes(raw)) return "verify_result";
-  if (["completed", "complete", "done", "success"].includes(raw)) return "completed";
-  if (["internal_control", "device_tool"].includes(raw)) return "internal_control";
-  if (["need_user_help", "user_assistance", "blocked", "paused"].includes(raw)) return "user_assistance";
-  return "resolve_target_app";
-}
-
 function taskExecutionAllowedActions(phase, mode = "visual") {
   if (mode === "internal_device_tool" || phase === "internal_control") {
     return ["open_app", "open_system_settings", "open_app_settings", "set_brightness", "set_screen_timeout", "set_auto_rotate", "set_media_volume", "set_wifi_enabled", "set_bluetooth_enabled", "set_mobile_data_enabled", "set_dark_mode", "device_status", "shizuku_status", "request_shizuku_permission", "set_animation_scale", "force_stop_app", "clear_app_data", "uninstall_app", "disable_app", "enable_app", "ledger_add_record", "ledger_set_budget", "ledger_query_summary", "ledger_list_records", "need_user_help"];
@@ -5206,16 +4572,6 @@ function taskExecutionAllowedActions(phase, mode = "visual") {
   if (phase === "user_assistance") return ["need_user_help"];
   return ["open_app", "tap_node", "tap_xy", "input_text", "scroll", "swipe", "back", "wait", "finish", "need_user_help"];
 }
-
-function taskExecutionRouteOpenStep(route) {
-  if (!route || typeof route !== "object") return null;
-  const candidates = [];
-  if (Array.isArray(route.steps)) candidates.push(...route.steps);
-  if (route.step && typeof route.step === "object") candidates.push(route.step);
-  if (route.agentStep && typeof route.agentStep === "object") candidates.push(route.agentStep);
-  return candidates.find((step) => normalizeAgentStepType(step?.type || step?.tool || step?.action || "") === "open_app") || null;
-}
-
 
 function normalizeExecutionTargetApp(candidate, deviceContext) {
   if (!candidate || typeof candidate !== "object") return null;
@@ -5299,39 +4655,6 @@ function normalizeTargetAppResolution(value, deviceContext) {
   };
 }
 
-function appTaskResolutionScore(app, semanticContract, requiredCapabilities) {
-  if (!app) return 0;
-  const required = normalizeRequiredCapabilities(requiredCapabilities);
-  const domain = safeText(semanticContract?.domain || "general", 60);
-  const targetAction = safeText(semanticContract?.targetAction || "", 80);
-  let score = 0;
-  if (required.length && appSupportsRequiredCapabilities(app, required)) {
-    score += 2200 + Math.round(Number(app.capabilityProfile?.confidence || 0) * 500);
-  }
-  const domainKeywords = agentDomainAppKeywords(domain);
-  if (appMatchesAnyKeyword(app, domainKeywords)) score += 1200;
-  const names = [app.label, app.packageName, ...(Array.isArray(app.aliases) ? app.aliases : [])]
-    .map(normalizeAppMatchText)
-    .filter(Boolean);
-  const metadataTokens = {
-    stock_trade: ["证券", "券商", "交易", "委托", "财富", "佣金", "stock", "trade", "broker", "securities", "finance"],
-    stock_detail: ["股票", "行情", "证券", "财富", "stock", "quote", "finance"],
-    stock_index: ["股票", "行情", "证券", "财富", "stock", "quote", "finance"],
-    navigation: ["地图", "导航", "map", "nav"],
-    video: ["视频", "直播", "video"],
-    music: ["音乐", "歌曲", "music"],
-    travel: ["旅行", "旅游", "酒店", "机票", "travel"],
-  }[domain] || [];
-  for (const token of metadataTokens) {
-    const normalized = normalizeAppMatchText(token);
-    if (normalized && names.some((name) => name.includes(normalized) || normalized.includes(name))) score += 360;
-  }
-  const explicit = semanticContract?.requiredApp;
-  if (explicit && appMatchesTaskContractApp(app, explicit)) score += 4000;
-  if (["open_order_entry", "order_entry", "place_order", "buy", "sell"].includes(targetAction) && names.some((name) => /证券|交易|trade|broker|securit/.test(name))) score += 700;
-  return score;
-}
-
 function deriveTargetAppResolutionFromInventory(semanticContract, deviceContext, requiredCapabilitiesOverride = []) {
   const installed = installedAppsFromDeviceContext(deviceContext);
   const explicit = semanticContract?.requiredApp && typeof semanticContract.requiredApp === "object"
@@ -5379,26 +4702,6 @@ function effectiveTargetAppResolution(semanticContract, deviceContext, requiredC
   );
   if (deviceCompatible) return fromDevice;
   return deriveTargetAppResolutionFromInventory(semanticContract, deviceContext, requiredCapabilities);
-}
-
-
-function taskExecutionTargetAppActive(contract, snapshot) {
-  const target = contract?.targetApp;
-  if (!target) return false;
-  const currentPackage = safeText(snapshot?.packageName || snapshot?.currentApp || "", 120);
-  if (target.packageName && currentPackage === target.packageName) return true;
-  const currentKey = normalizeForMatch(currentPackage);
-  const candidates = [target.label, target.packageName, ...(Array.isArray(target.aliases) ? target.aliases : [])]
-    .map(normalizeForMatch)
-    .filter(Boolean);
-  return Boolean(currentKey && candidates.some((value) => currentKey === value || currentKey.includes(value) || value.includes(currentKey)));
-}
-
-function taskExecutionGoalMatches(contract, goal) {
-  if (!contract || typeof contract !== "object") return false;
-  const previous = normalizeForMatch(contract.sourceGoal || contract.goal || "");
-  const current = normalizeForMatch(goal || "");
-  return Boolean(previous && current && previous === current);
 }
 
 
@@ -5581,42 +4884,6 @@ async function resolveTaskOrchestrationContext({ body, goal, snapshot, deviceCon
     agentMemory,
   };
 }
-
-function hasLikelyWritableFocus(snapshot, recentActions = []) {
-  const inputNodes = Array.isArray(snapshot?.inputNodes) ? snapshot.inputNodes : [];
-  if (inputNodes.length > 0) return true;
-  const recentText = (Array.isArray(recentActions) ? recentActions.slice(-4) : []).join(" ");
-  if (/输入框|搜索框|search box|input box|edit text|EditText|已聚焦|焦点|键盘|IME|光标|点击.*搜索|点击.*输入/i.test(recentText)) return true;
-  const evidence = collectSnapshotEvidenceText(snapshot);
-  return /正在输入|键盘已打开|光标|输入法|IME/.test(evidence);
-}
-
-function buildAgentPlannerSystemPrompt(supportedSteps, hasScreenshot = false) {
-  return [
-    "你是 Android 手机 Computer Use 智能体的快速规划器，只能输出严格 JSON。",
-    "你的任务不是聊天，而是根据用户目标、截图、节点提示、设备上下文和短期记忆，返回当前状态 agentState 与下一步 agentStep。",
-    "",
-    `允许动作：${supportedSteps.join(", ")}`,
-    "",
-    "输出必须是单个 JSON 对象，不能有 Markdown、解释文字或代码块：",
-    "{\"agentState\":{\"isComplete\":false,\"expectedProgress\":false,\"isWrong\":false,\"confidence\":0.0,\"reason\":\"\",\"nextHint\":\"\"},\"agentStep\":{\"type\":\"open_app|tap_xy|tap_node|input_text|scroll|swipe|back|home|wait|finish|need_user_help\",\"appName\":\"\",\"packageName\":\"\",\"targetNodeId\":\"\",\"targetText\":\"\",\"text\":\"\",\"direction\":\"up|down|left|right\",\"x\":0,\"y\":0,\"durationMs\":700,\"reason\":\"\",\"riskLevel\":\"low|medium|high\",\"requiresConfirmation\":false}}",
-    "",
-    "核心规则：",
-    "- 有 screenshot 时，截图是主观察源；screenSnapshot 只作为可点击、可输入、可滚动提示。",
-    "- 没有 screenshot 时，只能依赖 open_app、节点、设备上下文或保守动作。",
-    "- 当前不在目标 App 且目标 App 在 installedApps 中时，优先 open_app。",
-    "- open_app 必须从 deviceContext.installedApps 选择真实 appName/packageName；不要猜包名，不要在桌面找图标。",
-    "- 入口可见不等于完成。进入页面/Tab/栏目/列表类目标，必须看到目标页已选中且主体内容切换后才能 finish。",
-    "- 如果只是更接近目标，设置 expectedProgress=true 并继续下一步，不要 finish。",
-    "- 明显走错时 isWrong=true，通常下一步 back。",
-    "- tap_xy 的 x/y 必须是 0 到 1 的归一化屏幕坐标；不要输出像素。",
-    "- 图片中能看见目标但节点没有时，用 tap_xy；节点明确对应目标时可用 tap_node。",
-    "- 页面加载、动画或空白时 wait；能探索时 scroll/swipe；不要因为节点少就直接失败。",
-    "- 风险字段必须来自候选动作语义后果：普通规划器不要用固定词语给动作升风险；不确定时保持 low，交给 ActionSafetyJudge 复核。",
-    hasScreenshot ? "- 当前请求含截图，应优先看图规划，返回一步最小动作。" : "- 当前请求无截图，不能猜复杂页面是否完成。",
-  ].join("\n");
-}
-
 
 function targetAppCandidatesFromDeviceContext(deviceContext) {
   const ctx = deviceContext && typeof deviceContext === "object" ? deviceContext : {};
@@ -6031,27 +5298,6 @@ function goalCoreForCompletion(goal, deviceContext) {
     .replace(/打开|开启|启动|进入|找到|查找|查看|看一下|看|去到|跳到|前往/g, "")
     .replace(/[\s，。,.、:：/\\\-_]+/g, "");
   return normalizeForMatch(core);
-}
-
-function goalAppearsCompleteFromEvidence(goal, snapshot, visualFrame, deviceContext) {
-  const rawGoal = safeText(goal || "", 160);
-  const normalizedGoal = normalizeForMatch(rawGoal);
-  const core = goalCoreForCompletion(rawGoal, deviceContext);
-  const evidence = evidenceTextForCompletion(snapshot, visualFrame);
-  if (!evidence) return null;
-  if (core && core.length >= 2 && evidence.includes(core)) {
-    return { confidence: 0.82, reason: `当前截图/视觉状态已经出现目标栏目：${core}` };
-  }
-  // 榜单/热榜类功能经常进入默认子栏目后标题不再完整显示“热榜”，例如热股/热度/热门/大家都在看。
-  // 这里不是用节点单独判定完成，而是作为视觉状态的完成证据补强，避免在已到达目标页后反复 wait。
-  if (normalizedGoal.includes("热榜") || normalizedGoal.includes("榜单")) {
-    const hotEvidence = ["热股", "热度", "热门", "大家都在看", "关注的股票", "排行", "榜"].some((word) => evidence.includes(normalizeForMatch(word)));
-    if (hotEvidence) return { confidence: 0.8, reason: "当前页面已显示榜单/热榜类主体内容。" };
-  }
-  if (normalizedGoal.includes("自选") && evidence.includes("自选")) {
-    return { confidence: 0.78, reason: "当前页面已显示自选相关主体内容。" };
-  }
-  return null;
 }
 
 function isLikelyLoadingOrTransition(snapshot, visualFrame) {
@@ -6638,15 +5884,6 @@ function extractGuiProviderPayload(data) {
 }
 
 
-function normalizeGuiPlusActionName(value) {
-  const raw = String(value || "").toLowerCase().trim().replace(/[-\s]+/g, "_");
-  if (["tap", "click", "press", "point", "coordinate_click", "coordinate_tap", "tap_point", "tap_xy"].includes(raw)) return "tap_xy";
-  if (["input", "type", "enter_text", "input_text"].includes(raw)) return "input_text";
-  if (["swipe", "scroll", "back", "home", "wait", "finish", "done", "complete", "completed"].includes(raw)) return raw === "done" || raw === "complete" || raw === "completed" ? "finish" : raw;
-  if (["none", "unknown", "uncertain", "ask_user", "need_help", "need_user_help"].includes(raw)) return "need_user_help";
-  return raw || "need_user_help";
-}
-
 function extractGuiPlusJsonOrArray(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
@@ -6665,44 +5902,6 @@ function extractGuiPlusJsonOrArray(text) {
     try { return JSON.parse(arrayMatch[0]); } catch (_) {}
   }
   return null;
-}
-
-function normalizeGuiPlusCoordinate(value, imageSize, displaySize) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return undefined;
-  if (numeric >= 0 && numeric <= 1) return clamp01(numeric);
-  if (numeric >= 0 && numeric <= 100) return clamp01(numeric / 100);
-  if (imageSize > 1 && numeric >= 0 && numeric <= imageSize + 24) return clamp01(numeric / imageSize);
-  if (displaySize > 1 && numeric >= 0 && numeric <= displaySize + 24) return clamp01(numeric / displaySize);
-  return undefined;
-}
-
-function normalizeGuiPlusPoint(rawX, rawY, screenshotInfo) {
-  const xRaw = Number(rawX);
-  const yRaw = Number(rawY);
-  if (!Number.isFinite(xRaw) || !Number.isFinite(yRaw)) return null;
-
-  // GUI Plus 官方 mobile_use 坐标协议是 1000x1000。
-  // 不能先按截图像素换算，否则 1080x2400 截图压缩到 648x1440 后，
-  // 例如 y=960 会被误当作 1440 高截图像素，变成 0.667，实际点击会明显偏上。
-  if (xRaw >= 0 && xRaw <= 1 && yRaw >= 0 && yRaw <= 1) {
-    return { x: clamp01(xRaw), y: clamp01(yRaw), source: "normalized_0_1" };
-  }
-  if (xRaw >= 0 && xRaw <= 100 && yRaw >= 0 && yRaw <= 100) {
-    return { x: clamp01(xRaw / 100), y: clamp01(yRaw / 100), source: "percent_0_100" };
-  }
-  if (xRaw >= 0 && xRaw <= 1000 && yRaw >= 0 && yRaw <= 1000) {
-    return { x: clamp01(xRaw / 1000), y: clamp01(yRaw / 1000), source: "mobile_use_1000" };
-  }
-
-  const imageWidth = Number(screenshotInfo?.width) || 0;
-  const imageHeight = Number(screenshotInfo?.height) || 0;
-  const displayWidth = Number(screenshotInfo?.displayWidth) || imageWidth;
-  const displayHeight = Number(screenshotInfo?.displayHeight) || imageHeight;
-  const x = normalizeGuiPlusCoordinate(xRaw, imageWidth, displayWidth);
-  const y = normalizeGuiPlusCoordinate(yRaw, imageHeight, displayHeight);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  return { x, y, source: "screenshot_or_display_pixel" };
 }
 
 function guiPlusNeedUserHelp(targetText, reason, raw = "") {
@@ -7759,10 +6958,6 @@ function parsedVisionPlanHasUsableStep(parsed) {
   if (!SUPPORTED_AGENT_STEP_TYPES.includes(type)) return false;
   if (type === "need_user_help") return false;
   return true;
-}
-
-function findGoalMatchedClickableNode(goal, snapshot) {
-  return null;
 }
 
 function pureAgentStepFromGuiPlusCompact(compact, supportedSteps, goal) {
