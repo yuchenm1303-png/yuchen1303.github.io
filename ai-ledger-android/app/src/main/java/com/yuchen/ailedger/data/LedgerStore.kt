@@ -3,6 +3,7 @@ package com.yuchen.ailedger.data
 import android.content.Context
 import com.yuchen.ailedger.model.LedgerRecord
 import com.yuchen.ailedger.model.LedgerRecordType
+import com.yuchen.ailedger.model.LedgerStateBridge
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -30,7 +31,7 @@ class LedgerStore(context: Context) {
     fun observeSnapshots(): Flow<LedgerSnapshot> {
         return changeEvents
             .onStart { emit(Unit) }
-            .map { LedgerSnapshot(loadRecords(), loadBudget()) }
+            .map { currentSnapshot().also(::publishBridge) }
             .distinctUntilChanged()
     }
 
@@ -63,7 +64,7 @@ class LedgerStore(context: Context) {
             )
         }
         preferences.edit().putString(KEY_RECORDS, array.toString()).apply()
-        notifyChanged()
+        publishCurrentSnapshot()
     }
 
     fun loadBudget(): String {
@@ -78,7 +79,7 @@ class LedgerStore(context: Context) {
     fun saveBudget(value: String) {
         val amount = value.toDoubleOrNull()?.coerceAtLeast(0.0) ?: return
         preferences.edit().putString(KEY_BUDGET, formatPlainNumber(amount)).apply()
-        notifyChanged()
+        publishCurrentSnapshot()
     }
 
     fun loadDeletedIds(): Set<String> {
@@ -133,6 +134,17 @@ class LedgerStore(context: Context) {
         )
     }
 
+    private fun currentSnapshot(): LedgerSnapshot = LedgerSnapshot(loadRecords(), loadBudget())
+
+    private fun publishCurrentSnapshot() {
+        publishBridge(currentSnapshot())
+        changeEvents.tryEmit(Unit)
+    }
+
+    private fun publishBridge(snapshot: LedgerSnapshot) {
+        LedgerStateBridge.update(snapshot.records, snapshot.budgetText)
+    }
+
     private fun parseRecord(json: JSONObject): LedgerRecord? {
         val id = json.optString("id").trim()
         val amount = json.optDouble("amount", Double.NaN).toFloat()
@@ -163,10 +175,6 @@ class LedgerStore(context: Context) {
             extraBufferCapacity = 1,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
         )
-
-        private fun notifyChanged() {
-            changeEvents.tryEmit(Unit)
-        }
 
         fun todayIso(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
