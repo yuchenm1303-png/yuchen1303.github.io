@@ -1,6 +1,10 @@
 package com.yuchen.ailedger.model
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlin.jvm.JvmName
 
 const val BUILTIN_THEME_BACKGROUND_PATH = "__builtin_theme_background__"
 
@@ -23,6 +27,13 @@ enum class ToolDestination(
     AppControl("应用控制", "打开常用应用入口", "控"),
     Shortcuts("快捷指令", "保存常用任务", "捷"),
     TaskHistory("任务记录", "查看助手执行历史", "记");
+
+    companion object {
+        fun fromTitle(title: String?): ToolDestination? {
+            val clean = title?.trim().orEmpty()
+            return entries.firstOrNull { it.title == clean }
+        }
+    }
 }
 
 enum class RenderQuality(
@@ -101,8 +112,6 @@ data class GlassBorderStyle(
     val topHighlightAlpha: Float = 1.28f,
     val bottomShadowAlpha: Float = 0.35f,
     val cornerGlintAlpha: Float = 0f,
-
-    // 9a6e4ac 原版边缘折射带参数。
     val ringWidthDp: Float = 8.294931f,
     val edgePullDp: Float = -600f,
     val edgeAlpha: Float = 0f,
@@ -119,8 +128,6 @@ data class GlassBorderStyle(
     val openGlCornerScale: Float = 200f,
     val openGlDarkScale: Float = -2.580645f,
     val openGlSampleRadiusScale: Float = 14.285714f,
-
-    // V25.3 网页版统一主体折射参数。
     val newOpenGlGlassIntensity: Float = 1.35f,
     val newOpenGlBodyVisibility: Float = 20f,
     val newOpenGlBodyMaxAlpha: Float = 1f,
@@ -136,22 +143,16 @@ data class GlassBorderStyle(
     val newOpenGlBodyCurve: Float = 0.2f,
     val newOpenGlBodyGain: Float = 12.442396f,
     val newOpenGlBrightness: Float = 0.5451613f,
-
-    // fc725b/V29.5 整圈统一映射圆肩参数。
     val newOpenGlShoulderWidthDp: Float = 21.716216f,
     val newOpenGlShoulderCaptureWidthDp: Float = 96f,
     val newOpenGlShoulderMaxAngleDeg: Float = 89.5f,
     val newOpenGlShoulderFalloffRoundness: Float = 0f,
     val newOpenGlShoulderMaterialStrength: Float = 4f,
     val newOpenGlShoulderTangentialFlowStrength: Float = 0f,
-
-    // 色散只作用于最终背景采样，不改变整圈统一映射来源点。
     val newOpenGlDispersionStrength: Float = 0.55f,
     val newOpenGlDispersionDistanceDp: Float = 2.4f,
     val newOpenGlDispersionEdgeWidthDp: Float = 26f,
     val newOpenGlDispersionConcentration: Float = 1.55f,
-
-    // 旧网页结构遗留字段，仅为兼容已有状态与旧实验代码；新版渲染器不读取。
     val newOpenGlBodyBandPos: Float = 0.98f,
     val newOpenGlBodyBandWidth: Float = 0.228f,
     val newOpenGlBodyBandGain: Float = 46f,
@@ -192,7 +193,6 @@ data class ModelCardGlassStyle(
 )
 
 enum class MessageRole { Assistant, User }
-
 enum class MessageStatus { Sending, Sent, Failed }
 
 enum class ChatModel(val id: String, val label: String, val shortLabel: String) {
@@ -235,18 +235,14 @@ data class StructuredMetric(
     val unit: String? = null,
     val detail: String? = null
 ) {
-    val displayLabel: String
-        get() = label.trim().ifBlank { "指标" }
-
+    val displayLabel: String get() = label.trim().ifBlank { "指标" }
     val displayValue: String
         get() {
             val cleanValue = value.trim().ifBlank { "--" }
             val cleanUnit = unit?.trim().orEmpty()
             return cleanValue + (cleanUnit.takeIf { it.isNotBlank() && !cleanValue.contains(it) }?.let { " $it" } ?: "")
         }
-
-    val displayDetail: String?
-        get() = detail?.trim()?.takeIf { it.isNotBlank() }
+    val displayDetail: String? get() = detail?.trim()?.takeIf { it.isNotBlank() }
 }
 
 @Immutable
@@ -271,12 +267,7 @@ data class ChatAttachment(
     val previewUri: String? = null
 )
 
-enum class ComposerAttachmentStatus {
-    Preparing,
-    Ready,
-    Uploading,
-    Failed
-}
+enum class ComposerAttachmentStatus { Preparing, Ready, Uploading, Failed }
 
 @Immutable
 data class ComposerAttachment(
@@ -293,21 +284,11 @@ data class ComposerAttachment(
     val status: ComposerAttachmentStatus = ComposerAttachmentStatus.Preparing,
     val errorText: String? = null
 ) {
-    val isReady: Boolean
-        get() = status == ComposerAttachmentStatus.Ready && !base64Data.isNullOrBlank()
+    val isReady: Boolean get() = status == ComposerAttachmentStatus.Ready && !base64Data.isNullOrBlank()
 
     fun toChatAttachment(): ChatAttachment? {
         val data = base64Data?.takeIf { it.isNotBlank() } ?: return null
-        return ChatAttachment(
-            id = id,
-            mimeType = mimeType,
-            base64Data = data,
-            fileName = fileName,
-            width = width,
-            height = height,
-            sizeBytes = sizeBytes,
-            previewUri = previewUri
-        )
+        return ChatAttachment(id, mimeType, data, fileName, width, height, sizeBytes, previewUri)
     }
 }
 
@@ -354,6 +335,18 @@ data class LedgerRecord(
     val dateLabel: String
 )
 
+object LedgerStateBridge {
+    var records by mutableStateOf<List<LedgerRecord>>(emptyList())
+        private set
+    var budgetText by mutableStateOf("3000")
+        private set
+
+    fun update(records: List<LedgerRecord>, budgetText: String) {
+        this.records = records
+        this.budgetText = budgetText
+    }
+}
+
 @Immutable
 data class AssistantUiState(
     val currentTab: AppTab = AppTab.Assistant,
@@ -383,7 +376,50 @@ data class AssistantUiState(
     val agentEnabled: Boolean = true,
     val isSending: Boolean = false,
     val selectedTool: ToolDestination? = null,
-)
+) {
+    val selectedToolTitle: String? get() = selectedTool?.title
+    val ledgerRecords: List<LedgerRecord> get() = LedgerStateBridge.records
+    val ledgerBudgetText: String get() = LedgerStateBridge.budgetText
+    val ledgerDraftTitle: String get() = ""
+    val ledgerDraftAmount: String get() = ""
+    val ledgerDraftType: LedgerRecordType get() = LedgerRecordType.Expense
+    val ledgerDraftCategory: String get() = "餐饮"
+
+    @JvmName("copySelectedToolTitle")
+    fun copy(selectedToolTitle: String?): AssistantUiState = copy(selectedTool = ToolDestination.fromTitle(selectedToolTitle))
+
+    @Deprecated("旧账本草稿已退出 AssistantUiState")
+    @JvmName("copyLedgerDraftTitle")
+    fun copy(ledgerDraftTitle: String): AssistantUiState = this
+
+    @Deprecated("旧账本草稿已退出 AssistantUiState")
+    @JvmName("copyLedgerDraftAmount")
+    fun copy(ledgerDraftAmount: String): AssistantUiState = this
+
+    @Deprecated("旧账本草稿已退出 AssistantUiState")
+    @JvmName("copyLedgerDraftType")
+    fun copy(ledgerDraftType: LedgerRecordType): AssistantUiState = this
+
+    @Deprecated("旧账本草稿已退出 AssistantUiState")
+    @JvmName("copyLedgerDraftCategory")
+    fun copy(ledgerDraftCategory: String): AssistantUiState = this
+
+    @Deprecated("预算由 LedgerStore 统一管理")
+    @JvmName("copyLedgerBudgetText")
+    fun copy(ledgerBudgetText: String): AssistantUiState = this
+
+    @Deprecated("账单由 LedgerStore 统一管理")
+    @JvmName("copyLedgerRecords")
+    fun copy(ledgerRecords: List<LedgerRecord>): AssistantUiState = this
+
+    @Deprecated("账单由 LedgerStore 统一管理")
+    @JvmName("copyLedgerRecordsAndDraft")
+    fun copy(
+        ledgerRecords: List<LedgerRecord>,
+        ledgerDraftTitle: String,
+        ledgerDraftAmount: String,
+    ): AssistantUiState = this
+}
 
 @Immutable
 data class RainbowPrismStyle(
