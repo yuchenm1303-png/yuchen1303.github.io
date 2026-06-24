@@ -3,6 +3,7 @@ package com.yuchen.ailedger.data
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
+import com.yuchen.ailedger.model.LedgerStateBridge
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.StatSummary
 import com.yuchen.ailedger.model.ToolDestination
@@ -16,9 +17,14 @@ interface AssistantRepository {
 
 class ProductionAssistantRepository : AssistantRepository {
     override fun initialState(): AssistantUiState {
-        val restoredMessages = AiLedgerApplication.contextOrNull()
-            ?.let { context -> NotificationChatStore.load(context).messages }
+        val context = AiLedgerApplication.contextOrNull()
+        val restoredMessages = context
+            ?.let { NotificationChatStore.load(it).messages }
             .orEmpty()
+        context?.let {
+            val ledgerStore = LedgerStore(it)
+            LedgerStateBridge.update(ledgerStore.loadRecords(), ledgerStore.loadBudget())
+        }
         return AssistantUiState(
             glassBorderStyle = latestOpenGlDefaultBorderStyle(),
             messages = restoredMessages.ifEmpty { listOf(welcomeMessage()) },
@@ -49,4 +55,4 @@ private fun welcomeMessage(): ChatMessage {
     )
 }
 
-private fun defaultToolEntries(): List<ToolEntry> = ToolDestination.entries.map(::ToolEntry)
+private fun defaultToolEntries(): List<ToolEntry> = ToolDestination.entries.map { ToolEntry(it) }
