@@ -98,23 +98,36 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun actionFreshnessRequiresSamePackageScreenContextAndVisualFrame() {
-        val observed = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "YWJj")
-        val same = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "YWJj")
-        val changed = testSnapshot("com.jingdong.app.mall", texts = listOf("商品详情", "立即购买"), visualBase64 = "YWJj")
-        val changedVisual = testSnapshot("com.jingdong.app.mall", texts = listOf("首页", "搜索"), visualBase64 = "ZGVm")
-        val anotherPackage = testSnapshot("com.taobao.taobao", texts = listOf("首页", "搜索"), visualBase64 = "YWJj")
+    fun actionFreshnessIgnoresDynamicPixelsAndNodeTextInsideSamePackage() {
+        val observed = testSnapshot(
+            "com.hexin.plat.android",
+            texts = listOf("亨通光电", "10.52", "电量80%"),
+            visualBase64 = "ZnJhbWUtMQ==",
+        )
+        val marketAndStatusChanged = testSnapshot(
+            "com.hexin.plat.android",
+            texts = listOf("亨通光电", "10.53", "电量79%"),
+            visualBase64 = "ZnJhbWUtMg==",
+        )
+        val lightweightPreExecutionCapture = testSnapshot(
+            "com.hexin.plat.android",
+            texts = listOf("亨通光电", "10.54"),
+            includeVisual = false,
+        )
+        val anotherPackage = testSnapshot("com.android.permissioncontroller")
+        val unknownPackage = testSnapshot("")
 
-        assertTrue(VisualObservationProtocol.isActionContextFresh(observed, same))
-        assertFalse(VisualObservationProtocol.isActionContextFresh(observed, changed))
-        assertFalse(VisualObservationProtocol.isActionContextFresh(observed, changedVisual))
+        assertTrue(VisualObservationProtocol.isActionContextFresh(observed, marketAndStatusChanged))
+        assertTrue(VisualObservationProtocol.isActionContextFresh(observed, lightweightPreExecutionCapture))
         assertFalse(VisualObservationProtocol.isActionContextFresh(observed, anotherPackage))
+        assertFalse(VisualObservationProtocol.isActionContextFresh(observed, unknownPackage))
     }
 
     private fun testSnapshot(
         packageName: String,
         texts: List<String> = listOf("首页"),
         visualBase64: String = "YWJj",
+        includeVisual: Boolean = true,
     ): AgentScreenSnapshot {
         return AgentScreenSnapshot(
             currentApp = packageName,
@@ -126,17 +139,21 @@ class VisualExecutionSessionStateTest {
             clickableNodes = emptyList(),
             inputNodes = emptyList(),
             scrollableNodes = emptyList(),
-            visual = AgentScreenVisual(
-                available = true,
-                mimeType = "image/jpeg",
-                width = 720,
-                height = 1280,
-                displayWidth = 1080,
-                displayHeight = 2400,
-                base64Jpeg = visualBase64,
-                source = "test",
-                reason = "test",
-            ),
+            visual = if (includeVisual) {
+                AgentScreenVisual(
+                    available = true,
+                    mimeType = "image/jpeg",
+                    width = 720,
+                    height = 1280,
+                    displayWidth = 1080,
+                    displayHeight = 2400,
+                    base64Jpeg = visualBase64,
+                    source = "test",
+                    reason = "test",
+                )
+            } else {
+                null
+            },
         )
     }
 }
