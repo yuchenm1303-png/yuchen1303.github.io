@@ -300,7 +300,9 @@ private class WebOpenGLGlassTextureView(
 
     fun setGlassStyle(style: GlassBorderStyle, densityScale: Float): Boolean {
         val safeDensity = densityScale.coerceAtLeast(0.1f)
-        val dirty = style != latestStyle || abs(safeDensity - latestDensityScale) > 0.0001f
+        val densityUnchanged = abs(safeDensity - latestDensityScale) <= 0.0001f
+        if (style === latestStyle && densityUnchanged) return false
+        val dirty = !densityUnchanged || style != latestStyle
         latestStyle = style
         latestDensityScale = safeDensity
         if (dirty) renderThread?.setGlassStyle(style, safeDensity)
