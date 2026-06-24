@@ -42,6 +42,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private val screenshotExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "ai-agent-screenshot").apply { isDaemon = true }
     }
+    private val deviceShellBridge by lazy(LazyThreadSafetyMode.NONE) {
+        DeviceShellBridge(applicationContext)
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -579,22 +582,29 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
         val text = step.text ?: return AgentExecutionResult(false, "缺少输入文本", false)
+        val focusedDirect = step.shouldUseFocusedDirectInput
+        if (focusedDirect) SystemClock.sleep(INPUT_DIRECT_FOCUS_SETTLE_MS)
+        setInputClipboard(text)
+
         var lastCandidateCount = 0
-
+        var shellFallbackAttempted = false
         repeat(INPUT_FOCUS_RETRY_COUNT) { attempt ->
-            val root = selectBestRoot()
-            if (root != null) {
-                val handles = collectNodeHandles(
-                    root,
-                    MAX_EXECUTION_NODES,
-                    SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
-                ).handles
-                val candidateNodes = collectInputCandidateNodes(root, handles, step)
-                lastCandidateCount = maxOf(lastCandidateCount, candidateNodes.size)
+            val candidateNodes = collectInputCandidateNodes(step)
+            lastCandidateCount = maxOf(lastCandidateCount, candidateNodes.size)
 
-                for (node in candidateNodes) {
-                    val result = tryInputTextOnNode(node, text)
-                    if (result != null) return result
+            for (node in candidateNodes) {
+                val result = tryInputTextOnNode(node, text)
+                if (result != null) return result
+            }
+
+            if (focusedDirect && !shellFallbackAttempted) {
+                shellFallbackAttempted = true
+                if (pasteIntoCurrentFocusViaShell()) {
+                    return AgentExecutionResult(
+                        ok = true,
+                        message = "已通过当前焦点剪贴板通道输入文字",
+                        shouldContinue = true,
+                    )
                 }
             }
 
@@ -603,74 +613,168 @@ class AiAgentAccessibilityService : AccessibilityService() {
             }
         }
 
-        val message = if (lastCandidateCount > 0) {
-            "已找到当前焦点/候选输入节点，但 SET_TEXT 和粘贴都失败"
-        } else {
-            "没有找到可写入的当前焦点或输入框"
-        }
-        return AgentExecutionResult(false, message, false)
+        return AgentInputRecoveryPolicy.onInputFailure(step, lastCandidateCount)
     }
 
-    private fun collectInputCandidateNodes(
-        root: AccessibilityNodeInfo,
-        handles: List<NodeHandle>,
-        step: CloudAgentStep,
-    ): List<AccessibilityNodeInfo> {
+    private fun collectInputCandidateNodes(step: CloudAgentStep): List<AccessibilityNodeInfo> {
+        val roots = collectInputRoots()
         val candidateNodes = mutableListOf<AccessibilityNodeInfo>()
+        val candidateKeys = linkedSetOf<String>()
 
         fun addCandidate(node: AccessibilityNodeInfo?) {
             if (node == null) return
-            val rect = Rect()
-            runCatching { node.getBoundsInScreen(rect) }
-            val key = listOf(
-                node.className?.toString().orEmpty(),
-                rect.flattenToString(),
-                node.text?.toString().orEmpty(),
-                node.contentDescription?.toString().orEmpty(),
-                node.hintText?.toString().orEmpty(),
-            ).joinToString("|")
-            val duplicated = candidateNodes.any { existing ->
-                val existingRect = Rect()
-                runCatching { existing.getBoundsInScreen(existingRect) }
-                listOf(
-                    existing.className?.toString().orEmpty(),
-                    existingRect.flattenToString(),
-                    existing.text?.toString().orEmpty(),
-                    existing.contentDescription?.toString().orEmpty(),
-                    existing.hintText?.toString().orEmpty(),
-                ).joinToString("|") == key
-            }
-            if (!duplicated) candidateNodes += node
+            val key = inputNodeIdentity(node)
+            if (candidateKeys.add(key)) candidateNodes += node
         }
 
-        addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT))
-        addCandidate(root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY))
-        addCandidate(findTargetHandle(handles, step)?.node)
-        addCandidate(handles.firstOrNull { it.node.isFocused || it.node.isAccessibilityFocused }?.node)
-        handles.filter { it.observed.editable }.forEach { addCandidate(it.node) }
+        // focused_direct 的核心语义是“复用目标应用当前焦点”。先跨所有窗口寻找真实输入焦点，
+        // 不再只依赖 selectBestRoot() 选出的单个根节点。
+        roots.forEach { root ->
+            addCandidate(runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) }.getOrNull())
+        }
+        roots.forEach { root ->
+            addCandidate(runCatching { root.findFocus(AccessibilityNodeInfo.FOCUS_ACCESSIBILITY) }.getOrNull())
+        }
+
+        roots.forEach { root ->
+            val deadlineMs = SystemClock.elapsedRealtime() + INPUT_NODE_SCAN_BUDGET_MS
+            val handles = collectNodeHandles(root, MAX_EXECUTION_NODES, deadlineMs).handles
+            addCandidate(findTargetHandle(handles, step)?.node)
+            handles.filter { it.node.isFocused || it.node.isAccessibilityFocused }.forEach { addCandidate(it.node) }
+            handles.filter { it.observed.editable }.forEach { addCandidate(it.node) }
+        }
+
+        if (step.shouldUseFocusedDirectInput) {
+            roots.forEach { root ->
+                collectDirectInputNodes(
+                    root = root,
+                    limit = DIRECT_INPUT_NODE_LIMIT,
+                    deadlineMs = SystemClock.elapsedRealtime() + INPUT_NODE_SCAN_BUDGET_MS,
+                ).forEach(::addCandidate)
+            }
+        }
         return candidateNodes
     }
 
+    private fun collectInputRoots(): List<AccessibilityNodeInfo> {
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        rootInActiveWindow?.let { roots += it }
+        runCatching {
+            windows.orEmpty().forEach { window -> window.root?.let { roots += it } }
+        }
+        val preferredPackage = rootInActiveWindow?.packageName?.toString().orEmpty()
+        return roots
+            .distinctBy { rootIdentity(it) }
+            .filterNot { it.packageName?.toString() == applicationContext.packageName }
+            .sortedByDescending { root ->
+                val packageName = root.packageName?.toString().orEmpty()
+                when {
+                    packageName == preferredPackage && packageName.isNotBlank() -> 4
+                    packageName.isNotBlank() && !isSystemSurfacePackage(packageName) -> 3
+                    packageName.isNotBlank() -> 2
+                    else -> 1
+                }
+            }
+    }
+
+    private fun collectDirectInputNodes(
+        root: AccessibilityNodeInfo,
+        limit: Int,
+        deadlineMs: Long,
+    ): List<AccessibilityNodeInfo> {
+        val result = mutableListOf<AccessibilityNodeInfo>()
+        val queue = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
+        queue.add(root to 0)
+        while (queue.isNotEmpty() && result.size < limit && SystemClock.elapsedRealtime() < deadlineMs) {
+            val (node, depth) = queue.removeFirst()
+            val actionIds = runCatching { node.actionList.map { it.id }.toSet() }.getOrDefault(emptySet())
+            val className = node.className?.toString().orEmpty().lowercase()
+            val inputLikeClass = className.contains("edittext") ||
+                className.contains("textfield") ||
+                className.contains("textinput")
+            val supportsInputAction = AccessibilityNodeInfo.ACTION_SET_TEXT in actionIds ||
+                AccessibilityNodeInfo.ACTION_PASTE in actionIds
+            if (
+                node.isEditable || node.isFocused || node.isAccessibilityFocused ||
+                inputLikeClass || supportsInputAction
+            ) {
+                result += node
+            }
+            if (depth < DIRECT_INPUT_MAX_DEPTH) {
+                val childLimit = node.childCount.coerceAtMost(MAX_CHILDREN_PER_NODE)
+                for (childIndex in 0 until childLimit) {
+                    if (SystemClock.elapsedRealtime() >= deadlineMs || queue.size >= MAX_PENDING_NODE_QUEUE) break
+                    node.getChild(childIndex)?.let { queue.add(it to depth + 1) }
+                }
+            }
+        }
+        return result
+    }
+
+    private fun inputNodeIdentity(node: AccessibilityNodeInfo): String {
+        val rect = Rect()
+        runCatching { node.getBoundsInScreen(rect) }
+        return listOf(
+            node.packageName?.toString().orEmpty(),
+            node.className?.toString().orEmpty(),
+            runCatching { node.viewIdResourceName }.getOrNull().orEmpty(),
+            rect.flattenToString(),
+            node.text?.toString().orEmpty(),
+            node.hintText?.toString().orEmpty(),
+        ).joinToString("|")
+    }
+
     private fun tryInputTextOnNode(node: AccessibilityNodeInfo, text: String): AgentExecutionResult? {
-        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        runCatching { node.refresh() }
+        runCatching { node.performAction(AccessibilityNodeInfo.ACTION_FOCUS) }
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }
-        if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+        if (runCatching { node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) }.getOrDefault(false)) {
             return AgentExecutionResult(ok = true, message = "已通过 SET_TEXT 输入文字", shouldContinue = true)
         }
-        if (pasteTextOnNode(node, text)) {
+        if (pasteTextOnNode(node)) {
             return AgentExecutionResult(ok = true, message = "已通过剪贴板粘贴输入文字", shouldContinue = true)
+        }
+
+        var parent = runCatching { node.parent }.getOrNull()
+        repeat(INPUT_PARENT_FALLBACK_DEPTH) {
+            val current = parent ?: return@repeat
+            runCatching { current.performAction(AccessibilityNodeInfo.ACTION_FOCUS) }
+            if (runCatching { current.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) }.getOrDefault(false)) {
+                return AgentExecutionResult(ok = true, message = "已通过父级输入节点 SET_TEXT 输入文字", shouldContinue = true)
+            }
+            if (pasteTextOnNode(current)) {
+                return AgentExecutionResult(ok = true, message = "已通过父级输入节点粘贴文字", shouldContinue = true)
+            }
+            parent = runCatching { current.parent }.getOrNull()
         }
         return null
     }
 
-    private fun pasteTextOnNode(node: AccessibilityNodeInfo, text: String): Boolean {
+    private fun setInputClipboard(text: String): Boolean {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager ?: return false
-        clipboard.setPrimaryClip(ClipData.newPlainText("AI 输入", text))
-        node.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        return runCatching {
+            clipboard.setPrimaryClip(ClipData.newPlainText("AI 输入", text))
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun pasteTextOnNode(node: AccessibilityNodeInfo): Boolean {
+        runCatching { node.performAction(AccessibilityNodeInfo.ACTION_FOCUS) }
         SystemClock.sleep(INPUT_PASTE_FOCUS_DELAY_MS)
-        return node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        return runCatching { node.performAction(AccessibilityNodeInfo.ACTION_PASTE) }.getOrDefault(false)
+    }
+
+    private fun pasteIntoCurrentFocusViaShell(): Boolean {
+        SystemClock.sleep(INPUT_PASTE_FOCUS_DELAY_MS)
+        val result = deviceShellBridge.runEnhancedCommand(
+            title = "向当前输入焦点粘贴文字",
+            command = "input keyevent $KEYCODE_PASTE",
+            timeoutMs = INPUT_SHELL_TIMEOUT_MS,
+        )
+        if (result.ok) SystemClock.sleep(INPUT_SHELL_SETTLE_MS)
+        return result.ok
     }
 
     private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
@@ -1055,7 +1159,15 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val DEFAULT_WAIT_MS = 500L
         private const val INPUT_FOCUS_RETRY_COUNT = 3
         private const val INPUT_FOCUS_RETRY_DELAY_MS = 150L
+        private const val INPUT_DIRECT_FOCUS_SETTLE_MS = 90L
         private const val INPUT_PASTE_FOCUS_DELAY_MS = 55L
+        private const val INPUT_SHELL_SETTLE_MS = 90L
+        private const val INPUT_SHELL_TIMEOUT_MS = 1_200L
+        private const val INPUT_NODE_SCAN_BUDGET_MS = 210L
+        private const val DIRECT_INPUT_NODE_LIMIT = 24
+        private const val DIRECT_INPUT_MAX_DEPTH = 6
+        private const val INPUT_PARENT_FALLBACK_DEPTH = 2
+        private const val KEYCODE_PASTE = 279
 
         private const val SCREENSHOT_TIMEOUT_MS = 2_200L
         private const val OVERLAY_HIDE_BEFORE_ACTION_MS = 90L
