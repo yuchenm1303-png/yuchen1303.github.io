@@ -222,6 +222,59 @@ class VisualAgentClientTest {
     }
 
     @Test
+    fun explorationSprawlFeedbackRequestsGuiReplanWithoutRefreshingDeepSeekRoute() {
+        val snapshot = testSnapshot(packageName = "com.tencent.mobileqq")
+        val payload = buildVisualAgentPayload(
+            goal = "缁欑洰鏍囪仈绯讳汉鍙戞秷鎭?",
+            snapshot = snapshot,
+            recentActions = listOf(
+                "tap_xy|0.8|0.2:ok:result=宸茬偣鍑?",
+                "visual_exploration_sprawl:tap_xy|0.8|0.2:count=4:screen=changed|failureClass=visual_local|reason=multi_hop_without_convergence",
+            ),
+            runtimeContext = verifiedRuntimeContext(snapshot, snapshot.packageName),
+        )
+
+        assertTrue(payload.getBoolean("localVisualRetryRequested"))
+        assertTrue(payload.getBoolean("guiPlusReplanRequested"))
+        assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertEquals("visual_exploration_sprawl", feedback.getString("lastVerification"))
+        assertEquals(1, feedback.getInt("explorationSprawlCount"))
+        assertEquals(1, payload.getJSONObject("lastToolResponse").getInt("explorationSprawlCount"))
+        assertEquals(1, payload.getJSONObject("agentMemory").getJSONObject("loopSignals").getInt("explorationSprawlCount"))
+    }
+
+    @Test
+    fun repeatedSuccessfulStepsSurfaceExplorationBudgetPressure() {
+        val snapshot = testSnapshot(packageName = "com.tencent.mobileqq")
+        val payload = buildVisualAgentPayload(
+            goal = "瀹屾垚澶栭儴搴旂敤椤甸潰浠诲姟",
+            snapshot = snapshot,
+            recentActions = listOf(
+                "tap_xy|0.1|0.1:ok:result=1",
+                "tap_xy|0.2|0.2:ok:result=2",
+                "tap_xy|0.3|0.3:ok:result=3",
+                "tap_xy|0.4|0.4:ok:result=4",
+                "tap_xy|0.5|0.5:ok:result=5",
+                "tap_xy|0.6|0.6:ok:result=6",
+            ),
+            runtimeContext = verifiedRuntimeContext(snapshot, snapshot.packageName),
+        )
+
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertEquals("medium", feedback.getString("explorationPressureLevel"))
+        assertEquals(3, feedback.getInt("explorationBudgetRemaining"))
+        assertFalse(feedback.getBoolean("explorationBudgetExceeded"))
+
+        val loopSignals = payload.getJSONObject("agentMemory").getJSONObject("loopSignals")
+        assertEquals("medium", loopSignals.getString("explorationPressureLevel"))
+        assertEquals(3, loopSignals.getInt("explorationBudgetRemaining"))
+        assertFalse(loopSignals.getBoolean("explorationBudgetExceeded"))
+    }
+
+    @Test
     fun structuralVisualFailureAlsoStaysInsideGuiPlusSession() {
         val snapshot = testSnapshot(packageName = "com.jingdong.app.mall")
         val payload = buildVisualAgentPayload(

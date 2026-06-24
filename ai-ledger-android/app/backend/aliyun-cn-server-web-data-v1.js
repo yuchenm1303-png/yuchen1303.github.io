@@ -71,16 +71,18 @@ const ALIYUN_GUI_BASE_URL = String(process.env.ALIYUN_GUI_BASE_URL || "https://d
 const ALIYUN_GUI_MODEL = String(process.env.ALIYUN_GUI_MODEL || "gui-plus-2026-02-26").trim();
 const CLOUD_DECISION_OWNERSHIP = "normal_chat_models_and_gui_plus_exclusive_visual"; // Visual sessions explicitly owned by GUI Plus bypass AgentBrain and local semantic routing.
 const ALIYUN_GUI_TIMEOUT_MS = Number(process.env.ALIYUN_GUI_TIMEOUT_MS || 15000);
-const ALIYUN_GUI_MAX_TOKENS = Number(process.env.ALIYUN_GUI_MAX_TOKENS || 480);
+const ALIYUN_GUI_MAX_TOKENS = Number(process.env.ALIYUN_GUI_MAX_TOKENS || 640);
 const ALIYUN_GUI_API_MODE = String(process.env.ALIYUN_GUI_API_MODE || "dashscope_native").trim().toLowerCase();
 const ALIYUN_GUI_HIGH_RESOLUTION_IMAGES = String(process.env.ALIYUN_GUI_HIGH_RESOLUTION_IMAGES || "true").toLowerCase() !== "false";
 const ALIYUN_GUI_ENABLE_THINKING = String(process.env.ALIYUN_GUI_ENABLE_THINKING || "false").toLowerCase() === "true";
 const AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS = Math.max(4000, Math.min(16000, Number(process.env.AGENT_OFFICIAL_GUI_PLUS_MAX_TIMEOUT_MS || 11500)));
 const AGENT_GUI_INTERACTION_REVIEW_TIMEOUT_MS = Math.max(800, Math.min(5000, Number(process.env.AGENT_GUI_INTERACTION_REVIEW_TIMEOUT_MS || 3200)));
-const AGENT_GUI_DEEP_THINKING_MODE = String(process.env.AGENT_GUI_DEEP_THINKING_MODE || process.env.AGENT_DEEP_THINKING_MODE || "adaptive").trim().toLowerCase();
+const AGENT_GUI_DEEP_THINKING_MODE = String(process.env.AGENT_GUI_DEEP_THINKING_MODE || process.env.AGENT_DEEP_THINKING_MODE || "deep").trim().toLowerCase();
 const AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS = Math.max(2, Math.min(8, Number(process.env.AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS || 2)));
 const AGENT_GUI_DEEP_THINKING_TIMEOUT_EXTRA_MS = Math.max(0, Math.min(12000, Number(process.env.AGENT_GUI_DEEP_THINKING_TIMEOUT_EXTRA_MS || 3500)));
 const AGENT_GUI_DEEP_THINKING_REASON_MAX = Math.max(2, Math.min(10, Number(process.env.AGENT_GUI_DEEP_THINKING_REASON_MAX || 6)));
+const AGENT_GUI_EXPLORATION_PRESSURE_STEPS = Math.max(4, Math.min(16, Number(process.env.AGENT_GUI_EXPLORATION_PRESSURE_STEPS || 6)));
+const AGENT_GUI_EXPLORATION_BUDGET_STEPS = Math.max(6, Math.min(24, Number(process.env.AGENT_GUI_EXPLORATION_BUDGET_STEPS || 9)));
 const AGENT_GUI_HISTORY_N = Math.max(1, Math.min(4, Number(process.env.AGENT_GUI_HISTORY_N || 4)));
 const AGENT_GUI_SESSION_MAX = Math.max(4, Math.min(64, Number(process.env.AGENT_GUI_SESSION_MAX || 24)));
 const AGENT_TASK_CONTRACT_JUDGE_MODE = String(process.env.AGENT_TASK_CONTRACT_JUDGE_MODE || "adaptive").trim().toLowerCase();
@@ -104,7 +106,7 @@ const NORMAL_CHAT_SERVER_BLOCKED_TOOL_TYPES = new Set([
 ]);
 
 
-const WORKER_VERSION = "qwen-deepseek-cn-web-data-v110-adaptive-gui-thinking";
+const WORKER_VERSION = "qwen-deepseek-cn-web-data-v111-work-surface-history-thinking";
 const ANDROID_CLOUD_ROUTE_VISUAL_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop";
 const GUI_PLUS_CONTROLLER_PLACEHOLDER_IMAGE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKElEQVR42u3NQQEAAAQEMPTvfErw2wqsk9SnqWcCgUAgEAgEAoHgygLH8QM9BsqtpQAAAABJRU5ErkJggg==";
 const RUNTIME_BOOT_AT = Date.now();
@@ -3010,6 +3012,8 @@ function runtimeVerificationHintForPrompt(agentMemory) {
   const executionFeedback = memory.executionFeedback && typeof memory.executionFeedback === "object" ? memory.executionFeedback : {};
   const lastToolResponse = memory.lastToolResponse && typeof memory.lastToolResponse === "object" ? normalizeAndroidVisualToolResponse(memory.lastToolResponse) : null;
   const noProgressCount = Number(loopSignals.noProgressCount || executionFeedback.noProgressCount || 0);
+  const explorationSprawlCount = Number(loopSignals.explorationSprawlCount || executionFeedback.explorationSprawlCount || 0);
+  const explorationPressure = computeVisualExplorationPressure(memory);
   const finishVerificationRequested = agentMemoryRequestsFinishVerification(memory);
   const routeRefreshRequested = agentMemoryRequestsRouteRefresh(memory);
 
@@ -3026,6 +3030,8 @@ function runtimeVerificationHintForPrompt(agentMemory) {
   if (finishVerificationRequested) lines.push("Android 已请求 finish 新截图复核：本轮必须重新检查当前截图；只有目标仍明确完成时才能再次输出 terminate success，否则继续操作。");
   if (routeRefreshRequested) lines.push("Android 已请求 route refresh：忽略旧路线缓存，基于当前截图、执行结果和原始目标重新判断路线。");
   if (noProgressCount > 0) lines.push(`Android noProgressCount=${noProgressCount}：当前必须换策略，不能继续 wait 或重复同一坐标。`);
+  if (explorationSprawlCount > 0) lines.push(`Android explorationSprawlCount=${explorationSprawlCount}: recent steps changed screens repeatedly without proving convergence; the next action must narrow or correct the route instead of expanding exploration.`);
+  if (explorationPressure.pressureLevel !== "low") lines.push(`Android explorationPressure=${explorationPressure.pressureLevel}; executedStepCount=${explorationPressure.executedStepCount}; budgetRemaining=${explorationPressure.budgetRemaining}; reasons=${explorationPressure.reasons.join("/") || "none"}.`);
   return lines.join("\n").slice(0, 1800);
 }
 
@@ -3037,13 +3043,72 @@ function normalizeAgentDeepThinkingMode(value) {
   return "adaptive";
 }
 
+function computeVisualExplorationPressure(agentMemory = null) {
+  const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
+  const loopSignals = memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {};
+  const executionFeedback = memory.executionFeedback && typeof memory.executionFeedback === "object" ? memory.executionFeedback : {};
+  const executedStepCount = Math.max(0, Number(loopSignals.executedStepCount || 0) || 0);
+  const loopIndex = Math.max(0, Number(loopSignals.loopIndex || 0) || 0);
+  const explorationSprawlCount = Math.max(0, Number(loopSignals.explorationSprawlCount || executionFeedback.explorationSprawlCount || 0) || 0);
+  const noProgressCount = Math.max(0, Number(loopSignals.noProgressCount || executionFeedback.noProgressCount || 0) || 0);
+  const sameActionCount = Math.max(0, Number(loopSignals.sameActionCount || executionFeedback.sameActionCount || 0) || 0);
+  const interactionTurnCount = Math.max(0, Number(memory.interactionTurnCount || memory.interactionHistory?.length || 0) || 0);
+  const budgetRemaining = Math.max(0, AGENT_GUI_EXPLORATION_BUDGET_STEPS - executedStepCount);
+  const reasons = [];
+  if (explorationSprawlCount > 0) reasons.push(`sprawl=${explorationSprawlCount}`);
+  if (executedStepCount >= AGENT_GUI_EXPLORATION_PRESSURE_STEPS) reasons.push(`steps=${executedStepCount}`);
+  if (loopIndex >= AGENT_GUI_EXPLORATION_BUDGET_STEPS) reasons.push(`loops=${loopIndex}`);
+  if (noProgressCount > 0) reasons.push(`noProgress=${noProgressCount}`);
+  if (sameActionCount >= 2) reasons.push(`sameAction=${sameActionCount}`);
+  if (interactionTurnCount > 1) reasons.push(`interactionTurns=${interactionTurnCount}`);
+  const budgetExceeded = executedStepCount >= AGENT_GUI_EXPLORATION_BUDGET_STEPS;
+  const pressureLevel = budgetExceeded || explorationSprawlCount > 0
+    ? "high"
+    : executedStepCount >= AGENT_GUI_EXPLORATION_PRESSURE_STEPS || interactionTurnCount > 0
+      ? "medium"
+      : "low";
+  return {
+    executedStepCount,
+    loopIndex,
+    explorationSprawlCount,
+    noProgressCount,
+    sameActionCount,
+    interactionTurnCount,
+    budgetRemaining,
+    budgetExceeded,
+    pressureLevel,
+    reasons,
+  };
+}
+
 function structuralGuiThinkingDecision(agentMemory = null) {
   const m = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
   const s = m.loopSignals || {}, f = m.executionFeedback || {}, t = m.lastToolResponse || {};
+  const explorationPressure = computeVisualExplorationPressure(m);
   const noProgress = Math.max(0, Number(s.noProgressCount || 0));
+  const explorationSprawl = Math.max(0, Number(s.explorationSprawlCount || f.explorationSprawlCount || 0));
   const sameAction = Math.max(0, Number(s.sameActionCount || 0));
+  const executedStepCount = Math.max(0, Number(s.executedStepCount || 0));
+  const loopIndex = Math.max(0, Number(s.loopIndex || 0));
+  const interactionTurnCount = Math.max(0, Number(m.interactionTurnCount || m.interactionHistory?.length || 0));
+  const screenChangedCount = Math.max(0, Number(s.screenChangedCount || f.screenChangedCount || 0));
+  const currentMatchesVerified = nullableBooleanFromValue(
+    m.surfaceContext?.currentPackageMatchesVerifiedTarget ??
+      s.currentPackageMatchesVerifiedTarget ??
+      f.currentPackageMatchesVerifiedTarget
+  );
   const blocked = runtimeBlockedActionSignatures(m);
   const reasons = [
+    executedStepCount <= 1 || loopIndex <= 1 ? "firstVisualTurn" : "",
+    t.finishVerificationRequested === true ? "finishVerification" : "",
+    s.visualReplanRequested === true || f.visualReplanRequested === true ? "visualReplanRequested" : "",
+    t.screenChanged === true && executedStepCount > 0 && executedStepCount <= 3 ? "earlyScreenChange" : "",
+    screenChangedCount >= 2 && executedStepCount <= 4 ? `screenChangedCount=${screenChangedCount}` : "",
+    currentMatchesVerified === false ? "crossPackageSurface" : "",
+    interactionTurnCount > 0 ? `interactionTurnCount=${interactionTurnCount}` : "",
+    explorationSprawl > 0 ? `explorationSprawl=${explorationSprawl}` : "",
+    explorationPressure.pressureLevel === "high" ? `explorationPressure=high` : "",
+    explorationPressure.budgetExceeded ? `explorationBudgetExceeded` : "",
     noProgress >= AGENT_GUI_DEEP_THINKING_MIN_NO_PROGRESS ? `noProgress=${noProgress}` : "",
     sameAction >= 2 ? `sameAction=${sameAction}` : "",
     blocked.length ? `blocked=${blocked.slice(0, 4).join("/")}` : "",
@@ -3178,6 +3243,7 @@ function normalizeAndroidVisualToolResponse(value) {
     verification: safeText(raw.verification || raw.lastVerification || "unknown", 80) || "unknown",
     actionSignature: safeText(raw.actionSignature || raw.signature || raw.lastActionSignature || "", 160),
     screenChanged: nullableBooleanFromValue(raw.screenChanged),
+    explorationSprawlCount: Math.max(0, Number(raw.explorationSprawlCount || 0) || 0),
     finishVerificationRequested: booleanFromValue(raw.finishVerificationRequested, false),
   };
 }
@@ -3256,11 +3322,34 @@ function normalizeAndroidVisualExecutionProtocol(body, rawAgentMemory = {}, rece
     bodyFeedback.lastActionSignature || memoryFeedback.lastActionSignature || lastToolResponse.actionSignature || rawLoopSignals.lastActionSignature || "",
     160
   );
+  const explorationSprawlCount = Math.max(0, Number(bodyFeedback.explorationSprawlCount ?? memoryFeedback.explorationSprawlCount ?? rawLoopSignals.explorationSprawlCount ?? 0) || 0);
   const noProgressCount = Math.max(0, Number(bodyFeedback.noProgressCount ?? memoryFeedback.noProgressCount ?? rawLoopSignals.noProgressCount ?? 0) || 0);
   const sameActionCount = Math.max(0, Number(bodyFeedback.sameActionCount ?? memoryFeedback.sameActionCount ?? rawLoopSignals.sameActionCount ?? 0) || 0);
+  const explorationPressure = computeVisualExplorationPressure({
+    ...memory,
+    interactionTurnCount: memory.interactionTurnCount,
+    interactionHistory: memory.interactionHistory,
+    loopSignals: {
+      ...rawLoopSignals,
+      executedStepCount: Math.max(0, Number(rawLoopSignals.executedStepCount || 0) || 0),
+      loopIndex: Math.max(0, Number(rawLoopSignals.loopIndex || 0) || 0),
+      explorationSprawlCount,
+      noProgressCount,
+      sameActionCount,
+    },
+    executionFeedback: {
+      ...memoryFeedback,
+      ...bodyFeedback,
+      explorationSprawlCount,
+      noProgressCount,
+      sameActionCount,
+    },
+  });
   visualReplanRequested = Boolean(
     visualReplanRequested ||
+      explorationSprawlCount > 0 ||
       noProgressCount > 0 ||
+      explorationPressure.budgetExceeded === true ||
       lastResultOk === false
   );
 
@@ -3269,6 +3358,7 @@ function normalizeAndroidVisualExecutionProtocol(body, rawAgentMemory = {}, rece
     ...bodyFeedback,
     lastResultOk,
     lastVerification,
+    explorationSprawlCount,
     noProgressCount,
     sameActionCount,
     lastActionSignature,
@@ -3279,6 +3369,9 @@ function normalizeAndroidVisualExecutionProtocol(body, rawAgentMemory = {}, rece
     visualReplanRequested,
     guiPlusReplanRequested: visualReplanRequested,
     routeRefreshRequested,
+    explorationPressureLevel: explorationPressure.pressureLevel,
+    explorationBudgetRemaining: explorationPressure.budgetRemaining,
+    explorationBudgetExceeded: explorationPressure.budgetExceeded,
   };
   const mergedRecentActions = uniqueSafeTextList([
     ...(Array.isArray(memory.recentActions) ? memory.recentActions : []),
@@ -3295,6 +3388,7 @@ function normalizeAndroidVisualExecutionProtocol(body, rawAgentMemory = {}, rece
     executedStepCount: Math.max(0, Number(rawLoopSignals.executedStepCount || 0) || 0),
     loopIndex: Math.max(0, Number(rawLoopSignals.loopIndex || 0) || 0),
     noProgressCount,
+    explorationSprawlCount,
     sameActionCount,
     lastResultOk,
     lastVerification,
@@ -3303,6 +3397,9 @@ function normalizeAndroidVisualExecutionProtocol(body, rawAgentMemory = {}, rece
     visualReplanRequested,
     guiPlusReplanRequested: visualReplanRequested,
     routeRefreshRequested,
+    explorationPressureLevel: explorationPressure.pressureLevel,
+    explorationBudgetRemaining: explorationPressure.budgetRemaining,
+    explorationBudgetExceeded: explorationPressure.budgetExceeded,
     lastToolResponse,
   };
 
@@ -3367,6 +3464,7 @@ function agentMemoryRequestsGuiPlusReplan(agentMemory) {
   const memory = agentMemory && typeof agentMemory === "object" ? agentMemory : {};
   const feedback = memory.executionFeedback && typeof memory.executionFeedback === "object" ? memory.executionFeedback : {};
   const loopSignals = memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {};
+  const explorationPressure = computeVisualExplorationPressure(memory);
   return Boolean(
     memory.visualReplanRequested === true ||
       memory.guiPlusReplanRequested === true ||
@@ -3380,7 +3478,8 @@ function agentMemoryRequestsGuiPlusReplan(agentMemory) {
       loopSignals.guiPlusReplanRequested === true ||
       loopSignals.finishVerificationRequested === true ||
       Number(loopSignals.noProgressCount || 0) > 0 ||
-      loopSignals.lastResultOk === false
+      loopSignals.lastResultOk === false ||
+      explorationPressure.budgetExceeded === true
   );
 }
 
@@ -3413,6 +3512,7 @@ function compactAgentMemoryForPrompt(agentMemory, recentActions) {
     ? {
         lastResultOk: nullableBooleanFromValue(memory.executionFeedback.lastResultOk),
         lastVerification: safeText(memory.executionFeedback.lastVerification || "unknown", 80),
+        explorationSprawlCount: Math.max(0, Number(memory.executionFeedback.explorationSprawlCount || 0) || 0),
         noProgressCount: Math.max(0, Number(memory.executionFeedback.noProgressCount || 0) || 0),
         sameActionCount: Math.max(0, Number(memory.executionFeedback.sameActionCount || 0) || 0),
         lastActionSignature: safeText(memory.executionFeedback.lastActionSignature || "", 160),
@@ -3442,6 +3542,7 @@ function compactAgentMemoryForPrompt(agentMemory, recentActions) {
     decisionOwner: safeText(memory.decisionOwner || memory.visualDecisionOwner || "", 80),
     exclusiveVisualSession: isExclusiveGuiPlusVisualMemory(memory),
     loopSignals: memory.loopSignals && typeof memory.loopSignals === "object" ? memory.loopSignals : {},
+    explorationPressure: computeVisualExplorationPressure(memory),
     policyHints: Array.isArray(memory.policyHints) ? memory.policyHints.slice(0, 8) : [],
   };
 }
@@ -6074,10 +6175,16 @@ function buildOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext
   const runtimeFeedback = runtimeVerificationHintForPrompt(agentMemory);
   const interactionHistory = resolveGuiPlusInteractionHistory(null, agentMemory, recentActions, null);
   const interactionContext = formatGuiPlusInteractionHistoryForPrompt(interactionHistory);
+  const explorationPressure = computeVisualExplorationPressure(agentMemory);
   const currentPackage = safeText(
     snapshot?.packageName || snapshot?.currentApp || deviceContext?.currentApp?.packageName || "",
     120
   );
+  const explorationSprawlCount = Math.max(0, Number(
+    agentMemory?.loopSignals?.explorationSprawlCount ||
+    agentMemory?.executionFeedback?.explorationSprawlCount ||
+    0
+  ) || 0);
   const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
   const controllerHandoffActive = isControllerHandoffSurface(null, snapshot, deviceContext, agentMemory);
   const canonicalApps = formatCanonicalVisualAppPairs(deviceContext, goal, 160);
@@ -6093,6 +6200,12 @@ function buildOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext
       ? "Controller handoff rule: Android intentionally withholds the AI Assistant screenshot because it is not a task work surface. This stage has no page state to wait for. Ignore transient host text such as preparing/generating a reply. Your only valid next action is mobile_use action=open with one exact canonical installed-app label. Do not output wait, click, type, swipe, Back, Home, interact, answer or terminate."
       : "Work-surface rule: use wait only when the actual target-app screenshot visibly shows loading, transition or processing.",
     "You have direct mobile_use capability to open installed apps and operate their normal UI. Being on the AI Assistant host is not a limitation and is never a reason to ask the user to open an app manually.",
+    explorationSprawlCount > 0
+      ? `Route contraction mode is active because Android reported explorationSprawlCount=${explorationSprawlCount}. Treat recent page changes as possible drift, not proof of progress. Your next action must reduce uncertainty from the current screen, or take a reversible corrective step, instead of opening another broad branch.`
+      : "Normal route mode: each next action should still be the smallest grounded step that reduces uncertainty from the current screen.",
+    explorationPressure.pressureLevel !== "low"
+      ? `Exploration pressure is ${explorationPressure.pressureLevel}. executedStepCount=${explorationPressure.executedStepCount}, budgetRemaining=${explorationPressure.budgetRemaining}. Prefer corrective, reversible, or ambiguity-reducing actions. Do not keep consuming global exploration budget unless the screenshot gives strong visible evidence.`
+      : "Exploration pressure is low; continue with the smallest grounded step.",
     "If the instruction names an app and that app appears uniquely in the canonical installed-app list, do not ask which app to use and do not tell the user to open it. If it is not foreground, output action=open with the exact canonical label; if it is foreground, continue inside it.",
     "For external-app tasks while assistantHost=true, the normal recovery action is action=open for the intended canonical app. Do not answer that you cannot directly operate the app, and do not delegate ordinary opening, searching, navigation, selection, or clicking steps to the user.",
     "Use contextual visual judgment for user involvement; never classify risk by keyword matching. Continue ordinary preparation, use interact immediately before a consequential external effect, and ask users to complete private input directly in the target app.",
@@ -6125,6 +6238,7 @@ function buildOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext
 }
 
 function buildPureOfficialGuiPlusInstruction(goal, recentActions = [], deviceContext = null, agentBrainRoute = null, agentMemory = null) {
+  const exclusiveGuiPlusVisualSession = isExclusiveGuiPlusVisualMemory(agentMemory);
   const previousActions = (Array.isArray(recentActions) ? recentActions : [])
     .slice(-12)
     .map((item, index) => `Step ${index + 1}: ${safeText(item, 240)}`)
@@ -6135,15 +6249,53 @@ function buildPureOfficialGuiPlusInstruction(goal, recentActions = [], deviceCon
     : "DeepSeek AgentBrain route: visual_agent.";
   const feedback = runtimeVerificationHintForPrompt(agentMemory);
   const thinking = structuralGuiThinkingDecision(agentMemory);
+  const explorationPressure = computeVisualExplorationPressure(agentMemory);
+  const explorationSprawlCount = Math.max(0, Number(
+    agentMemory?.loopSignals?.explorationSprawlCount ||
+    agentMemory?.executionFeedback?.explorationSprawlCount ||
+    0
+  ) || 0);
+  const currentPackage = safeText(
+    agentMemory?.surfaceContext?.currentPackage ||
+      deviceContext?.currentApp?.packageName ||
+      "",
+    120
+  );
+  const selectedTargetPackage = safeText(
+    agentMemory?.surfaceContext?.selectedTargetPackage || agentMemory?.selectedTargetPackage || "",
+    120
+  );
+  const verifiedTargetPackage = safeText(
+    agentMemory?.surfaceContext?.verifiedTargetPackage || agentMemory?.verifiedTargetPackage || "",
+    120
+  );
+  const workSurfaceAppContext = exclusiveGuiPlusVisualSession
+    ? [
+        currentPackage ? `current_foreground_package=${currentPackage}` : "",
+        selectedTargetPackage ? `selected_target_package=${selectedTargetPackage}` : "",
+        verifiedTargetPackage ? `verified_target_package=${verifiedTargetPackage}` : "",
+      ].filter(Boolean).join("; ") || "verified work surface: current package not provided"
+    : `Installed applications available to mobile_use action=open: ${formatCanonicalVisualAppPairs(deviceContext, goal, 24)}.`;
   return [
     "Return exactly one official mobile_use tool call, with no prose.",
     "Preserve the original goal and latest reply. Use the screenshot, action history and Android result; after no progress choose a different grounded route.",
     "Use contextual judgment, not keyword matching. Navigate autonomously; use interact only for genuinely required user participation or immediately before a consequential effect.",
+    "Before choosing the next action, briefly self-check internally whether the current screen is still serving the original goal; if not, pick a grounded corrective action instead of continuing along the current branch.",
+    "Prefer the smallest action that tests or narrows the current hypothesis from the visible screen. Avoid broad exploration that opens a new branch unless the screenshot gives concrete evidence that the branch is necessary for the original goal.",
+    "A changed screen is not automatically progress. If recent steps kept changing pages without clearly reducing uncertainty, first re-anchor on the current screen and choose a corrective, reversible, or locally disambiguating action instead of expanding exploration again.",
+    explorationSprawlCount > 0
+      ? `Route contraction mode is active (explorationSprawlCount=${explorationSprawlCount}). Do not expand to another global entry, menu, or branch unless the current screenshot itself makes that branch clearly necessary. Prefer a reversible corrective step or an action that narrows ambiguity on the current screen.`
+      : "When the current screen offers several plausible branches, prefer the branch with the strongest visible evidence for the original goal.",
+    explorationPressure.pressureLevel !== "low"
+      ? `Exploration pressure=${explorationPressure.pressureLevel}; executedStepCount=${explorationPressure.executedStepCount}; budgetRemaining=${explorationPressure.budgetRemaining}. If unsure, prefer a corrective or locally disambiguating action over opening another broad branch.`
+      : "Exploration budget is healthy; still prefer the most grounded next step.",
     thinking.enabled
       ? `Deep thinking (${thinking.reasons.join(", ") || "configured"}): re-observe the failure and choose a different grounded route without revealing analysis.`
       : "Thinking mode is fast; choose one visually grounded action.",
     `Instruction: ${aliyunGuiDateInfo()}${safeText(goal, 240)}`,
-    `Installed applications available to mobile_use action=open: ${formatCanonicalVisualAppPairs(deviceContext, goal, 160)}.`,
+    exclusiveGuiPlusVisualSession
+      ? `Verified work-surface app context: ${workSurfaceAppContext}. Stay on this task surface unless the screenshot itself proves that switching apps is required.`
+      : workSurfaceAppContext,
     routeContext,
     "Previous actions:",
     previousActions,
@@ -6195,6 +6347,7 @@ function formatOfficialGuiToolResponse(agentMemory, historyItem = null) {
       verification: normalized.verification || feedback.lastVerification || "unknown",
       action_signature: normalized.actionSignature || feedback.lastActionSignature || "",
       screen_changed: normalized.screenChanged,
+      exploration_sprawl_count: normalized.explorationSprawlCount || Number(feedback.explorationSprawlCount || 0) || 0,
       finish_verification_requested: Boolean(normalized.finishVerificationRequested),
     });
   }
@@ -6246,6 +6399,14 @@ function officialGuiCurrentUserContent(screenshotInfo, toolResponseText, interac
   }
   content.push(imagePart);
   return content;
+}
+
+function officialGuiHistoricalToolResponseContent(toolResponseText) {
+  if (!toolResponseText) return null;
+  return [{
+    type: "text",
+    text: `<tool_response>\n${String(toolResponseText)}\n</tool_response>\n`,
+  }];
 }
 
 function buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentActions = [], supportedSteps = SUPPORTED_AGENT_STEP_TYPES, deviceContext = null, agentMemory = null, session = null, routeState = null) {
@@ -6300,6 +6461,13 @@ function buildAliyunGuiPlusMessages(goal, snapshot, screenshotInfo, recentAction
         role: "assistant",
         content: String(item.output || ""),
       });
+      const historicalToolResponse = officialGuiHistoricalToolResponseContent(item.toolResponse || "");
+      if (historicalToolResponse) {
+        messages.push({
+          role: "user",
+          content: historicalToolResponse,
+        });
+      }
     });
     messages.push({
       role: "user",
@@ -6763,13 +6931,39 @@ function buildGuiPlusInteractionSelfReviewPrompt(goal, snapshot, deviceContext, 
   const assistantHost = isAssistantHostAppPackage(currentPackage) || snapshotLooksLikeAssistantChat(snapshot);
   const controllerHandoffActive = isControllerHandoffSurface(null, snapshot, deviceContext, agentMemory);
   const interactionHistory = resolveGuiPlusInteractionHistory(null, agentMemory, [], null);
+  const explorationSprawlCount = Math.max(0, Number(
+    agentMemory?.loopSignals?.explorationSprawlCount ||
+    agentMemory?.executionFeedback?.explorationSprawlCount ||
+    0
+  ) || 0);
+  const exclusiveGuiPlusVisualSession = isExclusiveGuiPlusVisualMemory(agentMemory);
+  const selectedTargetPackage = safeText(
+    agentMemory?.surfaceContext?.selectedTargetPackage || agentMemory?.selectedTargetPackage || "",
+    120
+  );
+  const verifiedTargetPackage = safeText(
+    agentMemory?.surfaceContext?.verifiedTargetPackage || agentMemory?.verifiedTargetPackage || "",
+    120
+  );
+  const appContext = exclusiveGuiPlusVisualSession
+    ? [
+        currentPackage ? `current_foreground_package=${currentPackage}` : "",
+        selectedTargetPackage ? `selected_target_package=${selectedTargetPackage}` : "",
+        verifiedTargetPackage ? `verified_target_package=${verifiedTargetPackage}` : "",
+      ].filter(Boolean).join("; ") || "verified work surface"
+    : formatCanonicalVisualAppPairs(deviceContext, goal, 12);
   return [
     "<interaction_self_review>",
     "Your immediately previous response did not satisfy the official mobile_use tool-call protocol. Correct the protocol without changing the task.",
     "This is not a new user instruction. Keep the original task and current screenshot authoritative.",
     `Original instruction: ${safeText(goal, 240)}`,
     `Current foreground package: ${currentPackage || "unknown"}; assistantHost=${assistantHost}; controllerHandoffActive=${controllerHandoffActive}.`,
-    `Canonical installed apps: ${formatCanonicalVisualAppPairs(deviceContext, goal, 160)}.`,
+    explorationSprawlCount > 0
+      ? `Route contraction mode remains active (explorationSprawlCount=${explorationSprawlCount}). When correcting the protocol, do not widen exploration; choose a reversible or ambiguity-reducing action grounded in the current screen.`
+      : "Normal correction mode: keep the next action minimal and grounded in the current screen.",
+    exclusiveGuiPlusVisualSession
+      ? `Verified work-surface app context: ${appContext}.`
+      : `Canonical installed apps: ${appContext}.`,
     `Previous proposed action: ${safeText(compact?.a || "unknown", 80)}; reason=${safeText(compact?.e || compact?.reason || compact?.t || "", 1200)}.`,
     controllerHandoffActive
       ? "Controller handoff is not a visible loading page. The AI Assistant screenshot is intentionally absent or irrelevant. Replace wait/click/type/swipe/Back/Home/interact/answer/terminate with action=open using the exact canonical target-app label."

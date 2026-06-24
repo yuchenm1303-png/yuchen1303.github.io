@@ -24,6 +24,8 @@ private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 10
 private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
 private const val VISUAL_AGENT_MAX_INTERACTION_ITEMS = 16
 private const val VISUAL_AGENT_MAX_INTERACTION_CHARS = 1_200
+private const val VISUAL_AGENT_EXPLORATION_PRESSURE_STEPS = 6
+private const val VISUAL_AGENT_EXPLORATION_BUDGET_STEPS = 9
 private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop"
 private const val VISUAL_AGENT_INTERACTION_PROTOCOL = "gui_plus_dialogue_v1"
 private const val STRUCTURAL_NO_PROGRESS_THRESHOLD = 3
@@ -135,6 +137,7 @@ internal fun buildVisualAgentPayload(
     val activeFeedbackWindow = if (lastScreenChangeIndex >= 0) feedbackLines.drop(lastScreenChangeIndex + 1) else feedbackLines
     val activeVerificationEvents = activeFeedbackWindow.filter { it.isVisualRuntimeFeedback() }
     val screenChangedCount = verificationEvents.count { it.isVisualScreenChangedFeedback() }
+    val explorationSprawlCount = activeVerificationEvents.count { it.isVisualExplorationSprawlFeedback() }
     val noProgressCount = activeVerificationEvents.count { it.isVisualNoProgressFeedback() }
     val structuralFailureCount = activeVerificationEvents.count { it.isStructuralRouteFailureFeedback() }
     val localVisualRetryCount = activeVerificationEvents.count { it.isLocalVisualRetryFeedback() }
@@ -148,6 +151,7 @@ internal fun buildVisualAgentPayload(
     val lastVerification = when {
         lastVerificationEvent.isVisualFinishVerificationFeedback() -> "finish_verification_pending"
         lastVerificationEvent.isStructuralRouteFailureFeedback() -> "structural_route_failure"
+        lastVerificationEvent.isVisualExplorationSprawlFeedback() -> "visual_exploration_sprawl"
         lastVerificationEvent.isVisualNoProgressFeedback() -> "visual_no_screen_change"
         lastVerificationEvent.isLocalVisualRetryFeedback() -> "visual_local_retry"
         lastVerificationEvent.isVisualFailureFeedback() -> "execution_failed"
@@ -168,6 +172,7 @@ internal fun buildVisualAgentPayload(
         ?: historyResultLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
     val lastResultOk = when {
         lastVerificationEvent.isVisualNoProgressFeedback() ||
+            lastVerificationEvent.isVisualExplorationSprawlFeedback() ||
             lastVerificationEvent.isVisualFailureFeedback() ||
             lastVerificationEvent.isLocalVisualRetryFeedback() -> false
         lastVerificationEvent.isVisualScreenChangedFeedback() -> true
@@ -177,6 +182,13 @@ internal fun buildVisualAgentPayload(
     val lastActionSignature = executedActionSignatures.lastOrNull()
         ?: activeVerificationEvents.asReversed().firstNotNullOfOrNull { it.visualActionSignatureOrNull() }
         ?: ""
+    val explorationBudgetRemaining = (VISUAL_AGENT_EXPLORATION_BUDGET_STEPS - executedActionSignatures.size).coerceAtLeast(0)
+    val explorationBudgetExceeded = executedActionSignatures.size >= VISUAL_AGENT_EXPLORATION_BUDGET_STEPS
+    val explorationPressureLevel = when {
+        explorationBudgetExceeded || explorationSprawlCount > 0 -> "high"
+        executedActionSignatures.size >= VISUAL_AGENT_EXPLORATION_PRESSURE_STEPS || interactionHistory.length() > 0 -> "medium"
+        else -> "low"
+    }
     val sameActionCount = if (lastActionSignature.isBlank()) {
         0
     } else {
@@ -195,6 +207,7 @@ internal fun buildVisualAgentPayload(
     val routeRefreshRequested = runtimeRequiresRouteRefresh || eventRequiresRouteRefresh
     val localVisualRetryRequested = !routeRefreshRequested && (
         localVisualRetryCount > 0 ||
+            explorationSprawlCount > 0 ||
             (noProgressCount in 1 until STRUCTURAL_NO_PROGRESS_THRESHOLD) ||
             activeVerificationEvents.any { it.isVisualFailureFeedback() && !it.isStructuralRouteFailureFeedback() }
         )
@@ -210,6 +223,10 @@ internal fun buildVisualAgentPayload(
         put("lastResultOk", lastResultOk ?: JSONObject.NULL)
         put("lastVerification", lastVerification)
         put("screenChangedCount", screenChangedCount)
+        put("explorationSprawlCount", explorationSprawlCount)
+        put("explorationPressureLevel", explorationPressureLevel)
+        put("explorationBudgetRemaining", explorationBudgetRemaining)
+        put("explorationBudgetExceeded", explorationBudgetExceeded)
         put("noProgressCount", noProgressCount)
         put("structuralFailureCount", structuralFailureCount)
         put("localVisualRetryCount", localVisualRetryCount)
@@ -234,6 +251,10 @@ internal fun buildVisualAgentPayload(
         put("actionSignature", lastActionSignature)
         put("screenChanged", lastVerification == "visual_screen_changed")
         put("screenChangedCount", screenChangedCount)
+        put("explorationSprawlCount", explorationSprawlCount)
+        put("explorationPressureLevel", explorationPressureLevel)
+        put("explorationBudgetRemaining", explorationBudgetRemaining)
+        put("explorationBudgetExceeded", explorationBudgetExceeded)
         put("finishVerificationRequested", finishVerificationRequested)
         put("localVisualRetryRequested", localVisualRetryRequested)
         put("routeRefreshRequested", routeRefreshRequested)
@@ -413,6 +434,10 @@ internal fun buildVisualAgentPayload(
                 put("loopIndex", cleanRecentActionLines.size)
                 put("executedStepCount", executedActionSignatures.size)
                 put("screenChangedCount", screenChangedCount)
+                put("explorationSprawlCount", explorationSprawlCount)
+                put("explorationPressureLevel", explorationPressureLevel)
+                put("explorationBudgetRemaining", explorationBudgetRemaining)
+                put("explorationBudgetExceeded", explorationBudgetExceeded)
                 put("noProgressCount", noProgressCount)
                 put("structuralFailureCount", structuralFailureCount)
                 put("localVisualRetryCount", localVisualRetryCount)
@@ -579,6 +604,7 @@ private fun String.isVisualRuntimeFeedback(): Boolean {
         value.contains("visual_action_retry") ||
         value.contains("visual_action_stale") ||
         value.contains("visual_local_retry") ||
+        value.contains("visual_exploration_sprawl") ||
         value.contains("visual_no_progress") ||
         value.contains("visual_screen_changed") ||
         value.contains("finish_verification_pending") ||
@@ -609,6 +635,8 @@ private fun String.isVisualScreenChangedFeedback(): Boolean {
     return value.contains("visual_screen_changed") || value.contains("screen=changed") || value.contains("visual_progress")
 }
 
+private fun String.isVisualExplorationSprawlFeedback(): Boolean = lowercase().contains("visual_exploration_sprawl")
+
 private fun String.isVisualFinishVerificationFeedback(): Boolean = lowercase().contains("finish_verification_pending")
 
 private fun String.isVisualFailureFeedback(): Boolean {
@@ -636,6 +664,7 @@ private fun String.isLocalVisualRetryFeedback(): Boolean {
     return value.contains("failureclass=visual_local") ||
         value.contains("visual_action_retry") ||
         value.contains("visual_action_stale") ||
+        value.contains("visual_exploration_sprawl") ||
         value.contains("visual_local_retry") ||
         value.contains(":retry:")
 }

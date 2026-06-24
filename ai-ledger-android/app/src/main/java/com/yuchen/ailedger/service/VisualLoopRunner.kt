@@ -234,6 +234,7 @@ class VisualLoopRunner(
                         rememberVisualTurn(visualHistory, snapshot, plan, "$resultSummary;$verification")
                         executionSession.markTargetVerified(expectedPackage)
                         state.noProgressCount = 0
+                        state.consecutiveScreenChangeCount = 0
                         state.sameActionClusterCount = 0
                         state.lastActionCluster = ""
                         state.stepCount += 1
@@ -315,6 +316,7 @@ class VisualLoopRunner(
                         updateLatestVisualTurnResult(visualHistory, "$resultSummary;$verifiedEvent")
                         executionSession.markTargetVerified(expectedPackage)
                         state.noProgressCount = 0
+                        state.consecutiveScreenChangeCount = 0
                         state.sameActionClusterCount = 0
                         state.lastActionCluster = ""
                     } else {
@@ -345,6 +347,7 @@ class VisualLoopRunner(
                 executionSession.synchronizeWith()
                 val pageChanged = VisualActionValidator.snapshotFingerprint(after) != beforeFingerprint
                 val visualChangeSummary = if (!pageChanged) {
+                    state.consecutiveScreenChangeCount = 0
                     state.noProgressCount += 1
                     if (state.noProgressCount >= STRUCTURAL_NO_PROGRESS_LIMIT) {
                         executionSession.markStructuralReplan()
@@ -356,7 +359,12 @@ class VisualLoopRunner(
                     state.noProgressCount = 0
                     state.sameActionClusterCount = 0
                     state.lastActionCluster = ""
-                    "visual_screen_changed:${state.lastAction}:screen=changed"
+                    state.consecutiveScreenChangeCount += 1
+                    if (state.consecutiveScreenChangeCount >= EXPLORATION_SPRAWL_LIMIT) {
+                        "visual_exploration_sprawl:${state.lastAction}:count=${state.consecutiveScreenChangeCount}:screen=changed|failureClass=visual_local|reason=multi_hop_without_convergence"
+                    } else {
+                        "visual_screen_changed:${state.lastAction}:screen=changed"
+                    }
                 }
                 appendRecentAction(recentActions, visualChangeSummary)
 
@@ -639,6 +647,7 @@ class VisualLoopRunner(
         val canContinue = userInstruction.isNotBlank() || waitWhileUserTakeoverPaused(stopGeneration)
         state.paused = false
         state.noProgressCount = 0
+        state.consecutiveScreenChangeCount = 0
         state.sameActionClusterCount = 0
         state.lastActionCluster = ""
         state.clearPendingFinishVerification()
@@ -704,6 +713,7 @@ class VisualLoopRunner(
         private const val MAX_STRUCTURED_REPLAN_REJECTIONS = 3
         private const val REPEATED_ACTION_CLUSTER_LIMIT = 3
         private const val STRUCTURAL_NO_PROGRESS_LIMIT = 3
+        private const val EXPLORATION_SPRAWL_LIMIT = 4
         private const val USER_TAKEOVER_POLL_MS = 120L
         private const val OVERLAY_HIDE_STABILIZE_MS = 260L
         private const val DEFAULT_STEP_DELAY_MS = 280L
@@ -735,6 +745,7 @@ data class VisualLoopState(
     var lastAction: String = "",
     var lastActionCluster: String = "",
     var sameActionClusterCount: Int = 0,
+    var consecutiveScreenChangeCount: Int = 0,
     var noProgressCount: Int = 0,
     var pendingFinishPackage: String = "",
     var pendingFinishFingerprint: String = "",
