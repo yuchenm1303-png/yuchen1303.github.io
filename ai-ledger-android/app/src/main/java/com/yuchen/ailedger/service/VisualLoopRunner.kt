@@ -69,15 +69,27 @@ class VisualLoopRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 val observation = prefetchedObservation?.also { prefetchedObservation = null }
-                    ?: captureOnce(forceVisual = executionSession.verifiedTargetPackage.isNotBlank())
+                    ?: captureOnce(forceVisual = executionSession.requiresVisualObservation())
                 val snapshot = observation.toAgentScreenSnapshot()
                 state.currentPackage = snapshot.currentApp
                 val runtimeContext = executionSession.runtimeContext(snapshot)
-                replaceRuntimeContextAction(recentActions, runtimeContext)
+                val requestObservation = if (runtimeContext.guiPlusEligible && snapshot.visual?.hasImage != true) {
+                    captureOnce(forceVisual = true)
+                } else {
+                    observation
+                }
+                val requestSnapshot = requestObservation.toAgentScreenSnapshot()
+                val requestRuntimeContext = if (requestObservation === observation) {
+                    runtimeContext
+                } else {
+                    executionSession.runtimeContext(requestSnapshot)
+                }
+                state.currentPackage = requestSnapshot.currentApp
+                replaceRuntimeContextAction(recentActions, requestRuntimeContext)
                 val requestActions = buildRequestActions(recentActions, interactionActions)
                 val requestAppContext = appContextForTurn(
                     fullContext = visualAppContext,
-                    runtimeContext = runtimeContext,
+                    runtimeContext = requestRuntimeContext,
                     fullCatalogUploaded = fullAppCatalogUploaded,
                 )
 
@@ -86,7 +98,7 @@ class VisualLoopRunner(
                     withContext(Dispatchers.IO) {
                         aiWorkerClient.requestVisualAgentStep(
                             goal = state.goal,
-                            snapshot = snapshot,
+                            snapshot = requestSnapshot,
                             recentActions = requestActions,
                             visualHistory = visualHistory,
                             appContext = requestAppContext,
@@ -94,7 +106,7 @@ class VisualLoopRunner(
                             agentSessionId = agentSessionId,
                             executionMode = executionMode,
                             deviceProfile = deviceProfile,
-                            runtimeContext = runtimeContext,
+                            runtimeContext = requestRuntimeContext,
                         )
                     }
                 } catch (error: IOException) {
@@ -106,17 +118,17 @@ class VisualLoopRunner(
                 AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
 
                 val step = plan.step
-                if (requiresAccessibilityRuntime(step) && (!observation.enabled || !observation.serviceConnected)) {
+                if (requiresAccessibilityRuntime(step) && (!requestObservation.enabled || !requestObservation.serviceConnected)) {
                     val message = "The cloud selected a visual action, but the Android accessibility service is not connected."
                     AgentRuntimeController.failTask(message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
-                val validation = VisualActionValidator.validate(step, snapshot, runtimeContext)
+                val validation = VisualActionValidator.validate(step, requestSnapshot, requestRuntimeContext)
                 if (!validation.ok) {
-                    val rejection = buildValidationFeedback(step, validation, runtimeContext)
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step.copy(reason = validation.message), null)
+                    val rejection = buildValidationFeedback(step, validation, requestRuntimeContext)
+                    logs += AgentTaskStepLog(logs.size + 1, requestSnapshot.currentApp, step.copy(reason = validation.message), null)
                     appendRecentAction(recentActions, rejection)
-                    rememberVisualTurn(visualHistory, snapshot, plan, rejection)
+                    rememberVisualTurn(visualHistory, requestSnapshot, plan, rejection)
                     if (validation.failureClass == VisualFailureClass.StructuralRoute) {
                         executionSession.markStructuralReplan()
                     }
@@ -140,16 +152,16 @@ class VisualLoopRunner(
 
                 if (step.type == "finish") {
                     val message = step.reason ?: "Visual task completed."
-                    val finishFingerprint = VisualActionValidator.completionFingerprint(snapshot)
+                    val finishFingerprint = VisualActionValidator.completionFingerprint(requestSnapshot)
                     val sameFreshScreenCandidate = state.pendingFinishCount > 0 &&
-                        state.pendingFinishPackage == snapshot.currentApp &&
+                        state.pendingFinishPackage == requestSnapshot.currentApp &&
                         state.pendingFinishFingerprint == finishFingerprint &&
-                        executionSession.isVerifiedWorkSurface(snapshot)
+                        executionSession.isVerifiedWorkSurface(requestSnapshot)
                     if (sameFreshScreenCandidate) {
                         val verifiedMessage = "$message Fresh-screen completion verification passed."
                         logs += AgentTaskStepLog(
                             logs.size + 1,
-                            snapshot.currentApp,
+                            requestSnapshot.currentApp,
                             step,
                             AgentExecutionResult(true, verifiedMessage, false),
                         )
@@ -159,24 +171,24 @@ class VisualLoopRunner(
                         return AgentTaskRunResult(true, false, verifiedMessage, logs)
                     }
 
-                    state.pendingFinishPackage = snapshot.currentApp
+                    state.pendingFinishPackage = requestSnapshot.currentApp
                     state.pendingFinishFingerprint = finishFingerprint
                     state.pendingFinishCount = 1
                     val finishVerificationSummary = buildString {
                         append("finish_verification_pending")
-                        append(":package=").append(snapshot.currentApp.take(100))
+                        append(":package=").append(requestSnapshot.currentApp.take(100))
                         append(":fingerprint=").append(Integer.toHexString(finishFingerprint.hashCode()))
-                        append(":observationId=").append(runtimeContext.observationId)
+                        append(":observationId=").append(requestRuntimeContext.observationId)
                         append(":reason=").append(message.take(80))
                     }.take(MAX_RECENT_ACTION_CHARS)
                     logs += AgentTaskStepLog(
                         logs.size + 1,
-                        snapshot.currentApp,
+                        requestSnapshot.currentApp,
                         step,
                         AgentExecutionResult(true, "Completion candidate captured; waiting for a fresh-screen verification.", true),
                     )
                     appendRecentAction(recentActions, finishVerificationSummary)
-                    rememberVisualTurn(visualHistory, snapshot, plan, finishVerificationSummary)
+                    rememberVisualTurn(visualHistory, requestSnapshot, plan, finishVerificationSummary)
                     state.reobserveCount += 1
                     delay(FINISH_VERIFICATION_DELAY_MS)
                     continue
@@ -185,7 +197,7 @@ class VisualLoopRunner(
 
                 if (step.type == "need_user_help") {
                     val message = step.reason ?: "Visual agent requested user assistance."
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
+                    logs += AgentTaskStepLog(logs.size + 1, requestSnapshot.currentApp, step, null)
                     if (!pauseForUserAndContinue(
                             message = message,
                             stopGeneration = stopGeneration,
@@ -201,15 +213,15 @@ class VisualLoopRunner(
 
                 val preparedStep = prepareStepForExecution(
                     step = step,
-                    snapshot = snapshot,
+                    snapshot = requestSnapshot,
                     installedAppsByPackage = installedAppsByPackage,
                 )
                 if (!preparedStep.ok || preparedStep.step == null) {
                     val message = preparedStep.message
                     val rejection = "visual_action_rejected:type=${step.type}|failureClass=structural_route|reason=${message.take(260)}|replanRequired=${preparedStep.replanRequired}"
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step.copy(reason = message), null)
+                    logs += AgentTaskStepLog(logs.size + 1, requestSnapshot.currentApp, step.copy(reason = message), null)
                     appendRecentAction(recentActions, rejection)
-                    rememberVisualTurn(visualHistory, snapshot, plan, rejection)
+                    rememberVisualTurn(visualHistory, requestSnapshot, plan, rejection)
                     executionSession.markStructuralReplan()
                     state.replanRejectCount += 1
                     state.reobserveCount += 1
@@ -239,9 +251,9 @@ class VisualLoopRunner(
                 if (nextRepeatCount >= REPEATED_ACTION_CLUSTER_LIMIT) {
                     val message = "Repeated visual action in the same screen area requires a new cloud route."
                     val rejection = "visual_action_rejected:type=${executableStep.type}|failureClass=structural_route|reason=repeated_action_cluster|count=$nextRepeatCount|replanRequired=true"
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep.copy(reason = message), null)
+                    logs += AgentTaskStepLog(logs.size + 1, requestSnapshot.currentApp, executableStep.copy(reason = message), null)
                     appendRecentAction(recentActions, rejection)
-                    rememberVisualTurn(visualHistory, snapshot, plan, rejection)
+                    rememberVisualTurn(visualHistory, requestSnapshot, plan, rejection)
                     executionSession.markStructuralReplan()
                     state.sameActionClusterCount = 0
                     state.lastActionCluster = ""
@@ -260,12 +272,12 @@ class VisualLoopRunner(
                         )
                         AgentRuntimeController.noteAction(executableStep)
                         AgentRuntimeController.noteResult(executableStep, result)
-                        logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep, result)
+                        logs += AgentTaskStepLog(logs.size + 1, requestSnapshot.currentApp, executableStep, result)
                         val resultSummary = buildExecutionResultSummary(executableStep, VisualActionValidator.actionSignature(executableStep), result)
                         val verification = "open_app_package_verified:package=$expectedPackage|mode=already_foreground"
                         appendRecentAction(recentActions, resultSummary)
                         appendRecentAction(recentActions, verification)
-                        rememberVisualTurn(visualHistory, snapshot, plan, "$resultSummary;$verification")
+                        rememberVisualTurn(visualHistory, requestSnapshot, plan, "$resultSummary;$verification")
                         executionSession.markTargetVerified(expectedPackage)
                         state.noProgressCount = 0
                         state.consecutiveScreenChangeCount = 0
@@ -306,15 +318,15 @@ class VisualLoopRunner(
                     ).toAgentScreenSnapshot()
                     executionSession.synchronizeWith(currentBeforeExecution)
                     val stillOnVerifiedSurface = executionSession.isVerifiedWorkSurface(currentBeforeExecution)
-                    val contextFresh = VisualObservationProtocol.isActionContextFresh(snapshot, currentBeforeExecution)
+                    val contextFresh = VisualObservationProtocol.isActionContextFresh(requestSnapshot, currentBeforeExecution)
                     if (!stillOnVerifiedSurface || !contextFresh) {
                         val staleFeedback = buildString {
                             append("visual_action_stale")
                             append(":type=").append(executableStep.type)
                             append("|failureClass=")
                             append(if (stillOnVerifiedSurface) "visual_local" else "structural_route")
-                            append("|observationId=").append(runtimeContext.observationId)
-                            append("|observedPackage=").append(snapshot.packageName.take(100))
+                            append("|observationId=").append(requestRuntimeContext.observationId)
+                            append("|observedPackage=").append(requestSnapshot.packageName.take(100))
                             append("|currentPackage=").append(currentBeforeExecution.packageName.take(100))
                             append("|reason=").append(if (stillOnVerifiedSurface) "screen_changed_before_execution" else "target_surface_lost")
                         }.take(MAX_RECENT_ACTION_CHARS)
@@ -325,15 +337,15 @@ class VisualLoopRunner(
                             null,
                         )
                         appendRecentAction(recentActions, staleFeedback)
-                        rememberVisualTurn(visualHistory, snapshot, plan, staleFeedback)
+                        rememberVisualTurn(visualHistory, requestSnapshot, plan, staleFeedback)
                         if (!stillOnVerifiedSurface) executionSession.markStructuralReplan()
                         state.reobserveCount += 1
                         continue
                     }
                 }
 
-                val beforeFingerprint = VisualActionValidator.snapshotFingerprint(snapshot)
-                val result = executeStep(executableStep, snapshot.currentApp, logs, confirmed)
+                val beforeFingerprint = VisualActionValidator.snapshotFingerprint(requestSnapshot)
+                val result = executeStep(executableStep, requestSnapshot.currentApp, logs, confirmed)
                 state.executedActionCount += 1
                 state.lastAction = VisualActionValidator.actionSignature(executableStep)
                 state.lastActionCluster = actionCluster
@@ -341,12 +353,12 @@ class VisualLoopRunner(
                 state.replanRejectCount = 0
                 val resultSummary = buildExecutionResultSummary(executableStep, state.lastAction, result)
                 appendRecentAction(recentActions, resultSummary)
-                rememberVisualTurn(visualHistory, snapshot, plan, resultSummary)
+                rememberVisualTurn(visualHistory, requestSnapshot, plan, resultSummary)
 
                 if (executableStep.type == "open_app") {
                     val expectedPackage = executableStep.packageName?.trim().orEmpty()
                     if (!result.ok) {
-                        val failure = "open_app_package_verification_failed:expected=$expectedPackage|actual=${snapshot.packageName.take(100)}|failureClass=structural_route|reason=launch_execution_failed"
+                        val failure = "open_app_package_verification_failed:expected=$expectedPackage|actual=${requestSnapshot.packageName.take(100)}|failureClass=structural_route|reason=launch_execution_failed"
                         appendRecentAction(recentActions, failure)
                         updateLatestVisualTurnResult(visualHistory, "$resultSummary;$failure")
                         executionSession.markStructuralReplan()
@@ -365,12 +377,19 @@ class VisualLoopRunner(
                         state.consecutiveScreenChangeCount = 0
                         state.sameActionClusterCount = 0
                         state.lastActionCluster = ""
+                        verification.lastObservation?.let { prefetchedObservation = it }
                     } else {
                         val actualPackage = verification.lastSnapshot?.packageName.orEmpty()
-                        val failure = "open_app_package_verification_failed:expected=$expectedPackage|actual=${actualPackage.take(100)}|failureClass=structural_route|reason=target_not_stable"
+                        val pending = actualPackage.isBlank() || actualPackage == VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE ||
+                            actualPackage in TRANSIENT_HANDOFF_PACKAGES
+                        val failure = if (pending) {
+                            "open_app_package_verification_pending:expected=$expectedPackage|actual=${actualPackage.take(100)}|reason=transient_surface"
+                        } else {
+                            "open_app_package_verification_failed:expected=$expectedPackage|actual=${actualPackage.take(100)}|failureClass=structural_route|reason=target_not_stable"
+                        }
                         appendRecentAction(recentActions, failure)
                         updateLatestVisualTurnResult(visualHistory, "$resultSummary;$failure")
-                        executionSession.markStructuralReplan()
+                        if (!pending) executionSession.markStructuralReplan()
                     }
                     continue
                 }
@@ -468,28 +487,34 @@ class VisualLoopRunner(
         expectedPackage: String,
         stopGeneration: Long,
     ): LaunchPackageVerification {
-        if (expectedPackage.isBlank()) return LaunchPackageVerification(false, 0, null)
+        if (expectedPackage.isBlank()) return LaunchPackageVerification(false, 0, null, null)
         val deadline = SystemClock.elapsedRealtime() + OPEN_APP_VERIFY_TIMEOUT_MS
         var stableSamples = 0
         var lastSnapshot: AgentScreenSnapshot? = null
+        var lastObservation: ScreenObservation? = null
         delay(OPEN_APP_INITIAL_SETTLE_MS)
         while (!isStopped(stopGeneration) && SystemClock.elapsedRealtime() < deadline) {
-            val snapshot = captureOnce(
-                forceVisual = false,
+            val observation = captureOnce(
+                forceVisual = true,
                 settleMs = PACKAGE_CHECK_OVERLAY_SETTLE_MS,
-            ).toAgentScreenSnapshot()
+            )
+            val snapshot = observation.toAgentScreenSnapshot()
+            lastObservation = observation
             lastSnapshot = snapshot
             if (snapshot.packageName == expectedPackage) {
                 stableSamples += 1
                 if (stableSamples >= OPEN_APP_REQUIRED_STABLE_SAMPLES) {
-                    return LaunchPackageVerification(true, stableSamples, snapshot)
+                    return LaunchPackageVerification(true, stableSamples, snapshot, observation)
                 }
-            } else {
+            } else if (snapshot.packageName.isNotBlank() &&
+                snapshot.packageName != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
+                snapshot.packageName !in TRANSIENT_HANDOFF_PACKAGES
+            ) {
                 stableSamples = 0
             }
             delay(OPEN_APP_VERIFY_POLL_MS)
         }
-        return LaunchPackageVerification(false, stableSamples, lastSnapshot)
+        return LaunchPackageVerification(false, stableSamples, lastSnapshot, lastObservation)
     }
 
     private suspend fun executeStep(
@@ -779,6 +804,7 @@ class VisualLoopRunner(
         val verified: Boolean,
         val stableSamples: Int,
         val lastSnapshot: AgentScreenSnapshot?,
+        val lastObservation: ScreenObservation?,
     )
 
     private fun rememberVisualTurn(
@@ -824,15 +850,20 @@ class VisualLoopRunner(
         private const val FINISH_VERIFICATION_DELAY_MS = 280L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_WAIT_DELAY_MS = 60_000L
-        private const val OPEN_APP_INITIAL_SETTLE_MS = 180L
-        private const val OPEN_APP_VERIFY_POLL_MS = 100L
-        private const val OPEN_APP_VERIFY_TIMEOUT_MS = 3_200L
+        private const val OPEN_APP_INITIAL_SETTLE_MS = 260L
+        private const val OPEN_APP_VERIFY_POLL_MS = 140L
+        private const val OPEN_APP_VERIFY_TIMEOUT_MS = 4_200L
         private const val OPEN_APP_REQUIRED_STABLE_SAMPLES = 2
         private const val MODEL_TURN_MULTIPLIER = 3
         private const val MIN_EXTRA_MODEL_TURNS = 8
         private const val MAX_MODEL_TURN_BUDGET = 120
         private const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
         private const val RUNTIME_CONTEXT_PREFIX = "visual_runtime_context:v1|"
+        private val TRANSIENT_HANDOFF_PACKAGES = setOf(
+            "android",
+            "com.android.systemui",
+            "com.android.permissioncontroller",
+        )
 
         internal fun requiresAgentSwitch(executionMode: AgentExecutionMode): Boolean {
             return executionMode == AgentExecutionMode.VisualForce
