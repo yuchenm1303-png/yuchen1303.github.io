@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from copy import deepcopy
 from datetime import datetime, timezone
+import json
 from time import monotonic
 from typing import Any
 from urllib.parse import urlencode
@@ -10,9 +11,19 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+
+from realtime_runtime import RealtimeRuntime
 
 
 app = FastAPI(title="AI Ledger A股行情爬虫代理", version="0.8.0")
+
+realtime_runtime = RealtimeRuntime()
+
+
+def _fast_json_response(payload: dict[str, Any]) -> Response:
+    content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return Response(content=content, media_type="application/json")
 
 app.add_middleware(
     CORSMiddleware,
@@ -87,6 +98,16 @@ def _close_realtime_client() -> None:
     if _realtime_http_client is not None:
         _realtime_http_client.close()
         _realtime_http_client = None
+
+
+@app.on_event("startup")
+async def _start_async_realtime_runtime() -> None:
+    await realtime_runtime.start()
+
+
+@app.on_event("shutdown")
+async def _close_async_realtime_runtime() -> None:
+    await realtime_runtime.close()
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -543,6 +564,7 @@ def _load_eastmoney_history_kline(client: httpx.Client, security: dict[str, str]
         try:
             rows = _parse_eastmoney_kline_rows(_eastmoney_get(client, url, params), limit)
             if rows:
+                warnings.append(f"{canonical_period}_kline: eastmoney_history source={url.split('/')[2]}")
                 return rows
             last_error = f"{url}: empty_klines"
         except (httpx.HTTPError, ValueError) as exc:
@@ -601,10 +623,7 @@ def _load_kline(client: httpx.Client, security: dict[str, str], warnings: list[s
         if rebuilt:
             warnings.append("daily_kline: rebuilt_from_minute_trends")
         return rebuilt
-    rebuilt = _load_daily_kline_from_trends(client, security, warnings)
-    if rebuilt:
-        warnings.append(f"{canonical_period}_kline: rebuilt_from_daily_trends")
-    return rebuilt
+    raise ValueError(f"{canonical_period} real historical kline unavailable; refusing intraday reconstruction")
 
 
 def _load_daily_kline(client: httpx.Client, security: dict[str, str], warnings: list[str], limit: int = 120) -> list[dict[str, Any]]:
@@ -1006,6 +1025,21 @@ def crawl_a_share_list(
     return _cached_response("list", f"{page}:{pageSize}", sort, lambda: _build_list_payload(page, pageSize, sort))
 
 
+@app.get("/api/stock/a-share/realtime", response_class=Response)
+async def a_share_realtime(
+    query: str = Query(...),
+    ndays: int = Query(1, ge=1, le=5),
+) -> Response:
+    if ndays not in {1, 5}:
+        raise HTTPException(status_code=400, detail="ndays must be 1 or 5")
+    return _fast_json_response(await realtime_runtime.realtime(query, ndays))
+
+
+@app.get("/api/stock/a-share/realtime/diagnostics")
+async def a_share_realtime_diagnostics() -> dict[str, Any]:
+    return realtime_runtime.diagnostics()
+
+
 @app.get("/api/stock/crawl/a-share/search")
 def crawl_a_share_search(
     query: str = Query(..., description="股票代码、名称或拼音，例如 600519 / 贵州茅台"),
@@ -1014,11 +1048,11 @@ def crawl_a_share_search(
     return _cached_response("search", query, str(limit), lambda: _build_search_payload(query, limit))
 
 
-@app.get("/api/stock/crawl/a-share/quotes")
-def crawl_a_share_quotes(
+@app.get("/api/stock/crawl/a-share/quotes", response_class=Response)
+async def crawl_a_share_quotes(
     codes: str = Query(..., description="逗号分隔股票代码，例如 600519,000001,300750"),
-) -> dict[str, Any]:
-    return _realtime_cached_response("quotes", codes, "batch", lambda: _build_quotes_payload(codes))
+) -> Response:
+    return _fast_json_response(await realtime_runtime.quotes(codes))
 
 
 @app.get("/api/stock/crawl/a-share/detail")
@@ -1048,11 +1082,11 @@ def crawl_a_share_kline(
     return _cached_response("kline", query, f"{period}:{limit}", build)
 
 
-@app.get("/api/stock/crawl/a-share/minute")
-def crawl_a_share_minute(
+@app.get("/api/stock/crawl/a-share/minute", response_class=Response)
+async def crawl_a_share_minute(
     query: str = Query(..., description="股票代码或名称，例如 600519 / 贵州茅台"),
-) -> dict[str, Any]:
-    return _realtime_cached_response("minute", query, "1d", lambda: _build_minute_payload(query))
+) -> Response:
+    return _fast_json_response(await realtime_runtime.minute_compat(query))
 
 
 @app.get("/api/stock/crawl/a-share/market/overview")
@@ -1081,9 +1115,9 @@ def a_share_search(query: str = Query(...), limit: int = Query(10, ge=1, le=30))
     return crawl_a_share_search(query=query, limit=limit)
 
 
-@app.get("/api/stock/a-share/quotes")
-def a_share_quotes(codes: str = Query(...)) -> dict[str, Any]:
-    return crawl_a_share_quotes(codes=codes)
+@app.get("/api/stock/a-share/quotes", response_class=Response)
+async def a_share_quotes(codes: str = Query(...)) -> Response:
+    return _fast_json_response(await realtime_runtime.quotes(codes))
 
 
 @app.get("/api/stock/a-share/kline")
@@ -1091,9 +1125,9 @@ def a_share_kline(query: str = Query(...), period: str = Query("daily"), limit: 
     return crawl_a_share_kline(query=query, period=period, limit=limit)
 
 
-@app.get("/api/stock/a-share/minute")
-def a_share_minute(query: str = Query(...)) -> dict[str, Any]:
-    return crawl_a_share_minute(query=query)
+@app.get("/api/stock/a-share/minute", response_class=Response)
+async def a_share_minute(query: str = Query(...)) -> Response:
+    return _fast_json_response(await realtime_runtime.minute_compat(query))
 
 
 @app.get("/api/stock/futu/a-share/detail")
