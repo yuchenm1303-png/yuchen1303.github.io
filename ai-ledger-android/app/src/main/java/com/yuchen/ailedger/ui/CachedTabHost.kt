@@ -13,6 +13,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
@@ -35,6 +36,7 @@ private const val PAGE_EXIT_FADE_MS = 150
 private const val PAGE_ENTER_OFFSET_DP = 8f
 private const val PAGE_EXIT_OFFSET_DP = -4f
 private const val PAGE_MIN_SCALE = 0.992f
+private const val PAGE_HIDDEN_ALPHA_EPSILON = 0.001f
 
 private fun AppTab.cacheBit(): Int = 1 shl ordinal
 
@@ -50,6 +52,7 @@ fun CachedAppTabHost(
     val diagnostics = LocalPerformanceDiagnostics.current
     val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
     var renderedTabMask by remember { mutableIntStateOf(currentTab.cacheBit()) }
+    val saveableStateHolder = rememberSaveableStateHolder()
     val activationCounter = remember { intArrayOf(0) }
     val activationTicks = remember { IntArray(AppTab.entries.size) }
     remember(currentTab) {
@@ -104,8 +107,8 @@ fun CachedAppTabHost(
 
     Box(modifier) {
         AppTab.entries.forEach { tab ->
-            // 当前目标页同步进入 Composition；renderedTabMask 只负责离开后的缓存。
-            // 这样首次进入设置页不会先空一帧、再由 LaunchedEffect 补挂页面。
+            // 只保留当前页和正在淡出的上一页。淡出结束后释放整页 Composition，
+            // SaveableStateHolder 继续保存滚动位置和可保存交互状态。
             if (tab == currentTab || renderedTabMask and tab.cacheBit() != 0) {
                 val active = tab == currentTab
                 val alpha by animateFloatAsState(
@@ -113,7 +116,7 @@ fun CachedAppTabHost(
                     animationSpec = tween(durationMillis = if (active) PAGE_ENTER_FADE_MS else PAGE_EXIT_FADE_MS),
                     label = "tabAlpha-${tab.name}"
                 )
-                val visibleDuringTransition = active || alpha > 0.001f
+                val visibleDuringTransition = active || alpha > PAGE_HIDDEN_ALPHA_EPSILON
                 val leaving = !active && visibleDuringTransition
                 // 离场期间保持原激活序号，避免子页面把整套卡片入退场动画重新启动。
                 val activationKey = activationTicks[tab.ordinal]
@@ -129,6 +132,12 @@ fun CachedAppTabHost(
                 val pageOffsetDp = if (active) PAGE_ENTER_OFFSET_DP else PAGE_EXIT_OFFSET_DP
                 val pageScale = PAGE_MIN_SCALE + (1f - PAGE_MIN_SCALE) * alpha
 
+                LaunchedEffect(active, alpha, tab) {
+                    if (!active && alpha <= PAGE_HIDDEN_ALPHA_EPSILON) {
+                        renderedTabMask = renderedTabMask and tab.cacheBit().inv()
+                    }
+                }
+
                 OrdinaryGlassSceneHost(
                     group = sceneGroup,
                     modifier = Modifier
@@ -142,29 +151,31 @@ fun CachedAppTabHost(
                         },
                     renderMode = ordinaryRenderMode
                 ) {
-                    CompositionLocalProvider(
-                        // 页面淡出交给最外层统一完成。子页面在完全不可见后才收到 inactive，
-                        // 避免数十个 AnimatedVisibility 与整页淡出同时执行。
-                        LocalPageActive provides visibleDuringTransition,
-                        LocalPageVisible provides visibleDuringTransition,
-                        LocalPageLeaving provides leaving,
-                        LocalPageActivationTick provides activationKey,
-                        LocalPageHeavyEffectsEnabled provides visualEffectsEnabled,
-                        LocalOpenGLGlassViewportActive provides false,
-                        LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
-                        LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
-                        LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null),
-                        LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
-                    ) {
-                        key(tab) {
-                            if (tab == AppTab.Settings) {
-                                SettingsComposeGlassBatchHost(Modifier.fillMaxSize()) {
-                                    InsetGlassSliderBatchGroup(Modifier.fillMaxSize()) {
-                                        content(tab)
+                    saveableStateHolder.SaveableStateProvider(tab.name) {
+                        CompositionLocalProvider(
+                            // 页面淡出交给最外层统一完成。子页面在完全不可见后才收到 inactive，
+                            // 避免数十个 AnimatedVisibility 与整页淡出同时执行。
+                            LocalPageActive provides visibleDuringTransition,
+                            LocalPageVisible provides visibleDuringTransition,
+                            LocalPageLeaving provides leaving,
+                            LocalPageActivationTick provides activationKey,
+                            LocalPageHeavyEffectsEnabled provides visualEffectsEnabled,
+                            LocalOpenGLGlassViewportActive provides false,
+                            LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
+                            LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
+                            LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null),
+                            LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
+                        ) {
+                            key(tab) {
+                                if (tab == AppTab.Settings) {
+                                    SettingsComposeGlassBatchHost(Modifier.fillMaxSize()) {
+                                        InsetGlassSliderBatchGroup(Modifier.fillMaxSize()) {
+                                            content(tab)
+                                        }
                                     }
+                                } else {
+                                    content(tab)
                                 }
-                            } else {
-                                content(tab)
                             }
                         }
                     }
