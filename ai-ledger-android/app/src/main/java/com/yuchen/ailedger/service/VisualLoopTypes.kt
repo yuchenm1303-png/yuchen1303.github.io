@@ -1,0 +1,132 @@
+package com.yuchen.ailedger.service
+
+internal data class VisualLoopState(
+    val goal: String,
+    var modelTurns: Int = 0,
+    var executedActions: Int = 0,
+    var reobservations: Int = 0,
+    var currentPackage: String = "",
+    var lastAction: String = "",
+    var pendingFinishPackage: String = "",
+    var pendingFinishFingerprint: String = "",
+    var pendingFinishCount: Int = 0,
+    var rejectedPlans: Int = 0,
+    var executionFailures: Int = 0,
+    var paused: Boolean = false,
+    var completed: Boolean = false,
+) {
+    fun clearFinishCandidate() {
+        pendingFinishPackage = ""
+        pendingFinishFingerprint = ""
+        pendingFinishCount = 0
+    }
+}
+
+internal enum class VisualFailureClass(val wireValue: String) {
+    VisualLocal("visual_local"),
+    StructuralRoute("structural_route"),
+}
+
+internal data class VisualActionValidation(
+    val ok: Boolean,
+    val message: String = "",
+    val failureClass: VisualFailureClass = VisualFailureClass.VisualLocal,
+)
+
+internal object VisualActionValidator {
+    fun validate(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        runtime: VisualAgentRuntimeContext? = null,
+    ): VisualActionValidation {
+        if (step.type !in CloudAgentStep.supportedTypes) return structural("Unsupported visual action: ${step.type}")
+        if (step.type == "open_app" && step.packageName.isNullOrBlank()) {
+            return structural("open_app requires a packageName from the current device app catalog.")
+        }
+        if (runtime?.guiPlusEligible == true && step.type in CloudAgentStep.deviceToolTypes) {
+            return structural("GUI Plus cannot execute internal device tools after visual handoff.")
+        }
+        if (runtime != null && !runtime.guiPlusEligible && step.type !in PRE_WORK_SURFACE_ACTIONS) {
+            return structural("A verified target work surface is required before visual actions.")
+        }
+        if (
+            runtime == null &&
+            snapshot.packageName == VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
+            step.type !in PRE_WORK_SURFACE_ACTIONS
+        ) return structural("The assistant controller is not a verified target work surface.")
+        if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
+            return VisualActionValidation(false, "Invalid tap coordinates.")
+        }
+        if (step.type == "input_text" && step.text.isNullOrBlank()) {
+            return VisualActionValidation(false, "Input text is empty.")
+        }
+        return VisualActionValidation(true)
+    }
+
+    fun actionSignature(step: CloudAgentStep): String = listOfNotNull(
+        step.type, step.packageName, step.appName, step.targetText, step.text?.take(32),
+        step.direction, step.x?.toString(), step.y?.toString(), step.milestoneId, step.hypothesisId,
+    ).joinToString("|")
+
+    fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
+        val text = snapshot.texts.take(16).joinToString("|") { it.take(40) }
+        val nodes = snapshot.clickableNodes.take(16).joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
+        val visual = if (snapshot.capturedNodeCount <= 3 || snapshot.clickableNodes.isEmpty()) {
+            sampledVisualFingerprint(snapshot.visual)
+        } else ""
+        return listOf(snapshot.currentApp, snapshot.capturedNodeCount.toString(), text, nodes, visual).joinToString("::")
+    }
+
+    fun completionFingerprint(snapshot: AgentScreenSnapshot): String {
+        val text = snapshot.texts.asSequence().map { it.trim().take(40) }
+            .filter(String::isNotBlank).take(20).joinToString("|")
+        val nodes = snapshot.clickableNodes.asSequence()
+            .map { "${it.text.trim().take(24)}#${it.bounds}" }.take(16).joinToString("|")
+        return listOf(snapshot.currentApp, text, nodes).joinToString("::")
+    }
+
+    private fun structural(message: String) =
+        VisualActionValidation(false, message, VisualFailureClass.StructuralRoute)
+
+    private fun sampledVisualFingerprint(visual: AgentScreenVisual?): String {
+        val image = visual?.takeIf { it.hasImage } ?: return ""
+        val data = image.base64Jpeg
+        if (data.isBlank()) return ""
+        val stride = (data.length / 256).coerceAtLeast(1)
+        var hash = 1_125_899_906_842_597L
+        var index = 0
+        while (index < data.length) {
+            hash = hash * 31L + data[index].code
+            index += stride
+        }
+        return "${image.width}x${image.height}:${data.length}:${hash.toString(16)}"
+    }
+
+    private val PRE_WORK_SURFACE_ACTIONS = CloudAgentStep.deviceToolTypes + "need_user_help"
+}
+
+internal data class PreparedVisualStep(
+    val ok: Boolean,
+    val message: String = "",
+    val step: CloudAgentStep? = null,
+    val replanRequired: Boolean = false,
+    val alreadyForeground: Boolean = false,
+)
+
+internal data class VisualTurn(
+    val observation: ScreenObservation,
+    val snapshot: AgentScreenSnapshot,
+    val runtime: VisualAgentRuntimeContext,
+)
+
+internal sealed interface VisualPlanRequest {
+    data class Ready(val plan: CloudAgentPlan) : VisualPlanRequest
+    data object Retry : VisualPlanRequest
+    data class Fatal(val result: AgentTaskRunResult) : VisualPlanRequest
+}
+
+internal sealed interface VisualLoopDecision {
+    data object Continue : VisualLoopDecision
+    data class Return(val result: AgentTaskRunResult) : VisualLoopDecision
+    data object Stop : VisualLoopDecision
+}
