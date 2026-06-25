@@ -17,6 +17,11 @@ object VisualRouteRetryPolicy {
     const val maxRetries: Int = 2
 
     fun decide(error: IOException, completedRetries: Int): VisualRouteRetryDecision {
+        // 一次 visual_agent_step 已经等待完整的客户端读取超时后，不再自动重复两轮同样的
+        // 长等待。其他快速的 429/5xx/路由瞬态错误仍保留原有有界重试能力。
+        if (isCompletedClientRequestTimeout(error)) {
+            return VisualRouteRetryDecision.Stop("request_timeout")
+        }
         return decide(
             retryable = isRetryableVisualRouteFailure(error),
             completedRetries = completedRetries,
@@ -73,6 +78,12 @@ object VisualRouteRetryPolicy {
                 (detail.contains("agent_brain_route_failed") || detail.contains("deepseek 主脑路由失败")) &&
                     detail.hasTransientRouteFailureMarker()
                 )
+    }
+
+    private fun isCompletedClientRequestTimeout(error: IOException): Boolean {
+        val structured = error as? VisualAgentRequestException
+        if (structured?.code?.trim()?.equals("network_timeout", ignoreCase = true) == true) return true
+        return error.message.orEmpty().contains("visual_agent_step timed out", ignoreCase = true)
     }
 
     private fun String.hasTransientRouteFailureMarker(): Boolean {
