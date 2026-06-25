@@ -63,6 +63,17 @@ data class VisualAgentAppContextItem(
     val capabilities: List<String> = emptyList(),
 )
 
+class VisualAgentRequestException(
+    val httpStatus: Int?,
+    val code: String,
+    val retryable: Boolean,
+    val backendMessage: String,
+    cause: Throwable? = null,
+) : IOException(
+    buildVisualAgentErrorMessage(httpStatus, code, retryable, backendMessage),
+    cause,
+)
+
 @Throws(IOException::class)
 fun AiWorkerClient.requestVisualAgentStep(
     goal: String,
@@ -791,10 +802,7 @@ private fun AiWorkerClient.postVisualAgentStep(
             "VisualDirect q=${visualAgentBytesToKb(requestBytes.size)}K r=${visualAgentBytesToKb(body.length)}K h=${SystemClock.elapsedRealtime() - requestStart}",
         )
         if (status !in 200..299) {
-            val message = data?.optString("error")?.takeIf { it.isNotBlank() }
-                ?: data?.optString("message")?.takeIf { it.isNotBlank() }
-                ?: body.take(120).ifBlank { "visual_agent_step HTTP $status" }
-            throw IOException(message)
+            throw parseVisualAgentHttpFailure(status, body)
         }
         validateVisualAgentResponseObservationId(
             expectedObservationId = payload.optString("expectedActionObservationId"),
@@ -804,10 +812,67 @@ private fun AiWorkerClient.postVisualAgentStep(
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
             ?: throw IOException("visual_agent_step did not return one agentStep")
     } catch (error: SocketTimeoutException) {
-        throw IOException("visual_agent_step timed out after ${VISUAL_AGENT_READ_TIMEOUT_MS / 1000}s", error)
+        throw VisualAgentRequestException(
+            httpStatus = null,
+            code = "network_timeout",
+            retryable = true,
+            backendMessage = "visual_agent_step timed out after ${VISUAL_AGENT_READ_TIMEOUT_MS / 1000}s",
+            cause = error,
+        )
     } finally {
         connection.disconnect()
     }
+}
+
+internal fun parseVisualAgentHttpFailure(status: Int, body: String): VisualAgentRequestException {
+    val data = body.visualAgentJsonOrNull()
+    val errorObject = data?.optJSONObject("error")
+    val code = listOfNotNull(
+        data?.visualAgentString("code"),
+        errorObject?.visualAgentString("code"),
+        data?.visualAgentString("errorCode"),
+        errorObject?.visualAgentString("errorCode"),
+    ).firstOrNull { it.isNotBlank() } ?: "http_$status"
+    val message = listOfNotNull(
+        data?.visualAgentString("message"),
+        errorObject?.visualAgentString("message"),
+        data?.visualAgentString("error"),
+        errorObject?.visualAgentString("error"),
+        body.trim().take(240),
+    ).firstOrNull { it.isNotBlank() } ?: "visual_agent_step HTTP $status"
+    val explicitRetryable = when {
+        data?.has("retryable") == true -> data.optBoolean("retryable")
+        errorObject?.has("retryable") == true -> errorObject.optBoolean("retryable")
+        else -> null
+    }
+    val retryable = explicitRetryable ?: status in RETRYABLE_VISUAL_AGENT_HTTP_STATUSES
+    return VisualAgentRequestException(
+        httpStatus = status,
+        code = code.take(120),
+        retryable = retryable,
+        backendMessage = message.take(320),
+    )
+}
+
+private fun buildVisualAgentErrorMessage(
+    httpStatus: Int?,
+    code: String,
+    retryable: Boolean,
+    backendMessage: String,
+): String {
+    return buildString {
+        append(backendMessage.ifBlank { "visual_agent_step failed" })
+        append(" [")
+        httpStatus?.let { append("HTTP ").append(it).append(", ") }
+        append("code=").append(code.ifBlank { "unknown" })
+        append(", retryable=").append(retryable)
+        append(']')
+    }
+}
+
+private fun JSONObject.visualAgentString(key: String): String? {
+    val value = opt(key)
+    return (value as? String)?.trim()?.takeIf { it.isNotBlank() }
 }
 
 private fun HttpURLConnection.visualAgentReadBody(status: Int): String {
@@ -824,3 +889,5 @@ private fun String.visualAgentJsonOrNull(): JSONObject? {
 }
 
 private fun visualAgentBytesToKb(bytes: Int): Int = if (bytes <= 0) 0 else ((bytes + 1023) / 1024)
+
+private val RETRYABLE_VISUAL_AGENT_HTTP_STATUSES = setOf(408, 425, 429, 500, 502, 503, 504)
