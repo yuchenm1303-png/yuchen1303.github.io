@@ -133,14 +133,17 @@ class VisualObservationCoordinatorTest {
             sleeper = {},
         )
 
-        val result = runCatching {
+        var failed = false
+        try {
             coordinator.captureTrustedObservation(
                 forceVisual = true,
                 expectedPackage = "com.example.target",
             )
+        } catch (_: IllegalStateException) {
+            failed = true
         }
 
-        assertFalse(result.isSuccess)
+        assertTrue(failed)
         assertEquals(1, overlay.beginCount)
         assertEquals(1, overlay.endCount)
     }
