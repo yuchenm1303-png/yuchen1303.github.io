@@ -14,6 +14,8 @@ import com.yuchen.ailedger.model.StockSlowDataSnapshot
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -27,28 +29,37 @@ class StockMarketDataRepository(
                 timeoutMs = MARKET_TIMEOUT_MS
             )
         )
+        val payload = payloadObject(root)
 
         val boards = buildList {
-            addBoard(root, "gainers", "涨幅榜", "真实涨幅排序")
-            addBoard(root, "losers", "跌幅榜", "真实跌幅排序")
-            addBoard(root, "amountRanking", "成交额榜", "真实成交额排序")
-            addBoard(root, "turnoverRanking", "换手率榜", "真实换手率排序")
-            addBoard(root, "volumeRatioRanking", "量比榜", "真实量比排序")
-            addBoard(root, "speedRanking", "涨速榜", "真实涨速排序")
-            loadRankingBoard("main_inflow", "主力净流入榜")?.let { add(it) }
-            loadRankingBoard("main_outflow", "主力净流出榜")?.let { add(it) }
+            addBoard(payload, "gainers", "涨幅榜", "真实涨幅排序")
+            addBoard(payload, "losers", "跌幅榜", "真实跌幅排序")
+            addBoard(payload, "amountRanking", "成交额榜", "真实成交额排序")
+            addBoard(payload, "turnoverRanking", "换手率榜", "真实换手率排序")
+            addBoard(payload, "volumeRatioRanking", "量比榜", "真实量比排序")
+            addBoard(payload, "speedRanking", "涨速榜", "真实涨速排序")
+
+            val inflowFuture = CompletableFuture.supplyAsync {
+                loadRankingBoard("main_inflow", "主力净流入榜")
+            }
+            val outflowFuture = CompletableFuture.supplyAsync {
+                loadRankingBoard("main_outflow", "主力净流出榜")
+            }
+            awaitRanking(inflowFuture)?.let(::add)
+            awaitRanking(outflowFuture)?.let(::add)
         }
 
-        val indicesModule = root.optJSONObject("indices")
-        val breadthModule = root.optJSONObject("marketBreadth")
-        val sentimentModule = root.optJSONObject("sentiment")
-        val sectorModule = root.optJSONObject("sectorHotRanking")
-        val marketNewsModule = root.optJSONObject("marketNews")
-        val popularityModule = root.optJSONObject("popularityRanking")
-        val limitUpModule = root.optJSONObject("limitUpSummary")
+        val indicesModule = payload.optJSONObject("indices")
+        val breadthModule = payload.optJSONObject("marketBreadth")
+        val sentimentModule = payload.optJSONObject("sentiment")
+        val sectorModule = payload.optJSONObject("sectorHotRanking")
+        val marketNewsModule = payload.optJSONObject("marketNews")
+        val popularityModule = payload.optJSONObject("popularityRanking")
+        val limitUpModule = payload.optJSONObject("limitUpSummary")
 
         StockMarketHomeSnapshot(
             indices = parseIndices(indicesModule),
+            indicesMeta = metaFromModule(indicesModule),
             marketBreadth = parseBreadth(breadthModule),
             sentiment = parseSentiment(sentimentModule),
             boards = boards.distinctBy { it.title },
@@ -57,8 +68,8 @@ class StockMarketDataRepository(
             marketNewsMeta = metaFromModule(marketNewsModule),
             popularityMeta = metaFromModule(popularityModule),
             limitUpMeta = metaFromModule(limitUpModule),
-            updatedAt = firstText(root, "updatedAt").orEmpty(),
-            warnings = stringList(root.optJSONArray("warnings"))
+            updatedAt = firstText(payload, "updatedAt").orEmpty(),
+            warnings = stringList(payload.optJSONArray("warnings"))
         )
     }
 
@@ -70,18 +81,19 @@ class StockMarketDataRepository(
                 timeoutMs = SLOW_TIMEOUT_MS
             )
         )
+        val payload = payloadObject(root)
 
-        val profile = root.optJSONObject("profile")
-        val financials = root.optJSONObject("financialsSummary")
-        val capital = root.optJSONObject("capitalSummary")
-        val popularity = root.optJSONObject("popularity")
-        val announcements = root.optJSONObject("announcements")
-        val news = root.optJSONObject("news")
-        val research = root.optJSONObject("research")
-        val performanceForecast = root.optJSONObject("performanceForecast")
-        val shareholders = root.optJSONObject("shareholders")
-        val unlocks = root.optJSONObject("unlocks")
-        val dividends = root.optJSONObject("dividends")
+        val profile = payload.optJSONObject("profile")
+        val financials = payload.optJSONObject("financialsSummary")
+        val capital = payload.optJSONObject("capitalSummary")
+        val popularity = payload.optJSONObject("popularity")
+        val announcements = payload.optJSONObject("announcements")
+        val news = payload.optJSONObject("news")
+        val research = payload.optJSONObject("research")
+        val performanceForecast = payload.optJSONObject("performanceForecast")
+        val shareholders = payload.optJSONObject("shareholders")
+        val unlocks = payload.optJSONObject("unlocks")
+        val dividends = payload.optJSONObject("dividends")
 
         StockSlowDataSnapshot(
             profileMeta = metaFromModule(profile),
@@ -98,8 +110,8 @@ class StockMarketDataRepository(
             shareholdersMeta = metaFromModule(shareholders),
             unlocksMeta = metaFromModule(unlocks),
             dividendsMeta = metaFromModule(dividends),
-            updatedAt = firstText(root, "updatedAt").orEmpty(),
-            warnings = stringList(root.optJSONArray("warnings"))
+            updatedAt = firstText(payload, "updatedAt").orEmpty(),
+            warnings = stringList(payload.optJSONArray("warnings"))
         )
     }
 
@@ -112,7 +124,7 @@ class StockMarketDataRepository(
         val module = root.optJSONObject(key) ?: return
         val items = parseRankingItems(module)
         val meta = metaFromModule(module)
-        if (items.isNotEmpty()) {
+        if (items.isNotEmpty() && meta.hasRealData) {
             add(
                 StockMarketBoard(
                     title = title,
@@ -123,6 +135,12 @@ class StockMarketDataRepository(
         }
     }
 
+    private fun awaitRanking(
+        future: CompletableFuture<StockMarketBoard?>
+    ): StockMarketBoard? = runCatching {
+        future.get((RANKING_TIMEOUT_MS + 1_000).toLong(), TimeUnit.MILLISECONDS)
+    }.getOrNull()
+
     private fun loadRankingBoard(type: String, title: String): StockMarketBoard? {
         return runCatching {
             val root = JSONObject(
@@ -131,11 +149,12 @@ class StockMarketDataRepository(
                     timeoutMs = RANKING_TIMEOUT_MS
                 )
             )
-            val items = parseRankingItems(root)
-            if (items.isEmpty()) {
+            val payload = payloadObject(root)
+            val meta = metaFromModule(payload)
+            val items = parseRankingItems(payload)
+            if (items.isEmpty() || !meta.hasRealData) {
                 null
             } else {
-                val meta = metaFromModule(root)
                 StockMarketBoard(
                     title = title,
                     subtitle = "真实资金排序 · ${meta.source.ifBlank { "公开数据" }}",
@@ -150,13 +169,16 @@ class StockMarketDataRepository(
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
+                val name = firstText(item, "name").orEmpty()
+                val value = firstText(item, "price", "value").orEmpty()
+                if (name.isBlank() || value.isBlank() || value == "--") continue
                 val changePercent = firstText(item, "changePercent", "pct")
                     .orEmpty()
                     .ifBlank { "--" }
                 add(
                     StockIndexSnapshot(
-                        name = firstText(item, "name").orEmpty().ifBlank { "指数" },
-                        value = firstText(item, "price", "value").orEmpty().ifBlank { "--" },
+                        name = name,
+                        value = value,
                         changePercent = changePercent,
                         isRising = !changePercent.startsWith("-")
                     )
@@ -166,7 +188,6 @@ class StockMarketDataRepository(
     }
 
     private fun parseBreadth(module: JSONObject?): StockMarketBreadth {
-        val meta = metaFromModule(module)
         val item = moduleItemsObject(module)
         return StockMarketBreadth(
             upCount = firstInt(item, "upCount"),
@@ -184,12 +205,11 @@ class StockMarketDataRepository(
             bjAmount = firstText(item, "bjAmount").orEmpty().ifBlank { "--" },
             moneyMakingEffect = firstDouble(item, "moneyMakingEffect"),
             updatedAt = firstText(item, "updatedAt").orEmpty(),
-            meta = meta
+            meta = metaFromModule(module)
         )
     }
 
     private fun parseSentiment(module: JSONObject?): StockMarketSentiment {
-        val meta = metaFromModule(module)
         val item = moduleItemsObject(module)
         return StockMarketSentiment(
             temperature = firstDouble(item, "sentimentTemperature", "temperature"),
@@ -198,7 +218,7 @@ class StockMarketDataRepository(
             redRate = firstDouble(item, "redRate"),
             limitUpCount = firstInt(item, "limitUpCount"),
             moneyMakingEffect = firstDouble(item, "moneyMakingEffect"),
-            meta = meta
+            meta = metaFromModule(module)
         )
     }
 
@@ -245,12 +265,11 @@ class StockMarketDataRepository(
                 val changePercent = firstText(item, "changePercent", "pct")
                     .orEmpty()
                     .ifBlank { "--" }
-                val displayValue = rankingDisplayValue(item)
                 add(
                     StockRankItem(
                         name = name.ifBlank { code },
                         code = code,
-                        value = displayValue,
+                        value = rankingDisplayValue(item),
                         changePercent = changePercent,
                         isRising = !changePercent.startsWith("-")
                     )
@@ -270,12 +289,16 @@ class StockMarketDataRepository(
             "value"
         )
         priorityKeys.forEach { key ->
-            firstText(item, key)?.takeIf { it.isNotBlank() && it != "--" }?.let { return it }
+            firstText(item, key)
+                ?.takeIf { it.isNotBlank() && it != "--" }
+                ?.let { return it }
         }
         return "--"
     }
 
     private fun parseInformationItems(module: JSONObject?): List<StockInformationItem> {
+        val meta = metaFromModule(module)
+        if (!meta.hasRealData) return emptyList()
         val array = moduleItemsArray(module) ?: return emptyList()
         return buildList {
             for (index in 0 until array.length()) {
@@ -304,23 +327,55 @@ class StockMarketDataRepository(
             sourceUrlType = firstText(module, "sourceUrlType").orEmpty(),
             updatedAt = firstText(module, "updatedAt").orEmpty(),
             cacheAgeMs = firstLong(module, "cacheAgeMs") ?: 0L,
-            isDerived = module.optBoolean("isDerived", false),
+            isDerived = firstBoolean(module, "isDerived") ?: false,
             warnings = stringList(module.optJSONArray("warnings"))
         )
     }
 
+    private fun payloadObject(root: JSONObject): JSONObject {
+        val data = root.optJSONObject("data")
+        if (data != null && hasMarketPayload(data)) return data
+        val payload = root.optJSONObject("payload")
+        if (payload != null && hasMarketPayload(payload)) return payload
+        val result = root.optJSONObject("result")
+        if (result != null && hasMarketPayload(result)) return result
+        return root
+    }
+
+    private fun hasMarketPayload(value: JSONObject): Boolean =
+        value.has("indices") ||
+            value.has("marketBreadth") ||
+            value.has("profile") ||
+            value.has("items") ||
+            value.has("status")
+
     private fun moduleItemsArray(module: JSONObject?): JSONArray? {
         if (module == null) return null
-        return module.optJSONArray("items")
-            ?: module.optJSONArray("data")
-            ?: module.optJSONObject("data")?.optJSONArray("items")
+        module.optJSONArray("items")?.let { return it }
+        module.optJSONArray("data")?.let { return it }
+        module.optJSONArray("result")?.let { return it }
+        val containers = listOf("data", "result", "payload")
+        for (key in containers) {
+            val nested = module.optJSONObject(key) ?: continue
+            nested.optJSONArray("items")?.let { return it }
+            nested.optJSONArray("data")?.let { return it }
+            nested.optJSONArray("result")?.let { return it }
+        }
+        return null
     }
 
     private fun moduleItemsObject(module: JSONObject?): JSONObject {
         if (module == null) return JSONObject()
-        return module.optJSONObject("items")
-            ?: module.optJSONObject("data")
-            ?: JSONObject()
+        module.optJSONObject("items")?.let { return it }
+        module.optJSONObject("data")?.let { data ->
+            data.optJSONObject("items")?.let { return it }
+            return data
+        }
+        module.optJSONObject("result")?.let { result ->
+            result.optJSONObject("items")?.let { return it }
+            return result
+        }
+        return JSONObject()
     }
 
     private fun stringList(array: JSONArray?): List<String> {
@@ -385,6 +440,24 @@ class StockMarketDataRepository(
         return null
     }
 
+    private fun firstBoolean(obj: JSONObject?, vararg keys: String): Boolean? {
+        if (obj == null) return null
+        for (key in keys) {
+            if (!obj.has(key) || obj.isNull(key)) continue
+            return when (val raw = obj.opt(key)) {
+                is Boolean -> raw
+                is Number -> raw.toInt() != 0
+                is String -> when (raw.trim().lowercase()) {
+                    "true", "1", "yes" -> true
+                    "false", "0", "no" -> false
+                    else -> null
+                }
+                else -> null
+            }
+        }
+        return null
+    }
+
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
     private fun baseUrl(): String {
@@ -405,11 +478,11 @@ class StockMarketDataRepository(
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Connection", "keep-alive")
             }
-            val code = connection.responseCode
-            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            val responseCode = connection.responseCode
+            val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) {
-                throw IllegalStateException("HTTP $code ${body.take(160)}".trim())
+            if (responseCode !in 200..299) {
+                throw IllegalStateException("HTTP $responseCode ${body.take(160)}".trim())
             }
             if (body.isBlank()) throw IllegalStateException("股票扩展数据返回为空")
             return body
