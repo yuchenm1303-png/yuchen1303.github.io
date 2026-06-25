@@ -29,6 +29,33 @@ class VisualExecutionSessionState(
         stateMachine.beginLaunch(packageName)?.let(sessionBinding::bind)
     }
 
+    /**
+     * Grants WorkSurface only from the coordinator's complete verification proof: the exact
+     * DeepSeek-selected package, at least two stable samples and a final visual frame.
+     */
+    fun markTargetVerified(
+        expectedPackage: String,
+        verification: VisualTargetPackageVerification,
+    ): Boolean {
+        val cleanExpected = expectedPackage.trim()
+        val finalSnapshot = verification.lastSnapshot
+        val proofValid = verification.verified &&
+            verification.stableSamples >= MIN_STABLE_TARGET_SAMPLES &&
+            verification.lastObservation != null &&
+            finalSnapshot?.packageName == cleanExpected &&
+            finalSnapshot.visual?.hasImage == true &&
+            cleanExpected.isNotBlank() &&
+            cleanExpected == stateMachine.selectedTargetPackage
+        if (!proofValid) return false
+        val verified = stateMachine.markTargetVerified(cleanExpected) ?: return false
+        sessionBinding.bind(verified)
+        return true
+    }
+
+    /**
+     * Kept only while the visual runner is migrated to proof-bearing verification in the same
+     * source update sequence. No new call site may use this package-only entry point.
+     */
     fun markTargetVerified(packageName: String) {
         stateMachine.markTargetVerified(packageName)?.let(sessionBinding::bind)
     }
@@ -79,5 +106,6 @@ class VisualExecutionSessionState(
 
     companion object {
         const val ASSISTANT_HOST_PACKAGE = VisualExecutionStateMachine.ASSISTANT_HOST_PACKAGE
+        private const val MIN_STABLE_TARGET_SAMPLES = 2
     }
 }
