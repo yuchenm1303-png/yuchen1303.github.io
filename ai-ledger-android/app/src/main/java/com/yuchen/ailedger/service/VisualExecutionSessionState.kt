@@ -4,7 +4,9 @@ package com.yuchen.ailedger.service
  * Deterministic execution state only. It never reads the user's instruction and never chooses,
  * ranks or substitutes an app. The selected package can only come from a cloud open_app action.
  */
-class VisualExecutionSessionState {
+class VisualExecutionSessionState(
+    private val targetBinding: VisualTargetBinding = GlobalVisualTargetBinding,
+) {
     var surfaceState: VisualSurfaceState = VisualSurfaceState.Planning
         private set
     var selectedTargetPackage: String = ""
@@ -17,7 +19,7 @@ class VisualExecutionSessionState {
         private set
 
     init {
-        ForegroundTargetBinding.reset()
+        targetBinding.reset()
     }
 
     fun beginLaunch(packageName: String) {
@@ -25,7 +27,7 @@ class VisualExecutionSessionState {
         if (cleanPackage.isBlank()) return
         selectedTargetPackage = cleanPackage
         verifiedTargetPackage = ""
-        ForegroundTargetBinding.bind(cleanPackage)
+        targetBinding.bind(cleanPackage)
         transitionTo(VisualSurfaceState.Launching)
     }
 
@@ -34,7 +36,7 @@ class VisualExecutionSessionState {
         if (cleanPackage.isBlank()) return
         selectedTargetPackage = cleanPackage
         verifiedTargetPackage = cleanPackage
-        ForegroundTargetBinding.bind(cleanPackage)
+        targetBinding.bind(cleanPackage)
         transitionTo(VisualSurfaceState.WorkSurface)
     }
 
