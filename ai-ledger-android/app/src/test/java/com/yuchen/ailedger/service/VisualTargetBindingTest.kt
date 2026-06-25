@@ -19,6 +19,35 @@ class VisualTargetBindingTest {
         )
     }
 
+    @Test
+    fun objectivePackageHandoffBindsOnlyOnActualVerificationTransition() {
+        val binding = RecordingVisualTargetBinding()
+        val session = VisualExecutionSessionState(binding)
+        val snapshot = snapshot("com.example.target")
+
+        session.beginLaunch("com.example.target")
+        session.runtimeContext(snapshot)
+        session.runtimeContext(snapshot)
+
+        assertEquals(
+            listOf("com.example.target", "com.example.target"),
+            binding.boundPackages,
+        )
+    }
+
+    private fun snapshot(packageName: String) = AgentScreenSnapshot(
+        currentApp = packageName,
+        packageName = packageName,
+        nodeCount = 0,
+        capturedNodeCount = 0,
+        texts = emptyList(),
+        allNodes = emptyList(),
+        clickableNodes = emptyList(),
+        inputNodes = emptyList(),
+        scrollableNodes = emptyList(),
+        visual = null,
+    )
+
     private class RecordingVisualTargetBinding : VisualTargetBinding {
         var resetCount: Int = 0
         val boundPackages = mutableListOf<String>()
