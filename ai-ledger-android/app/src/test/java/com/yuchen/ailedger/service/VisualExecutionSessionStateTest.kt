@@ -75,7 +75,7 @@ class VisualExecutionSessionStateTest {
 
         val error = parseVisualAgentHttpFailure(503, body)
 
-        assertEquals(503, error.httpStatus)
+        assertEquals(503L, error.httpStatus?.toLong())
         assertEquals("route_unavailable", error.code)
         assertTrue(error.retryable)
         assertEquals("temporary", error.backendMessage)
