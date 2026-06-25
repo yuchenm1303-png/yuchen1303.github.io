@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, wait
 from copy import deepcopy
 from datetime import datetime, timezone
-from threading import Lock
+from threading import Lock, Thread
 from time import monotonic
 from typing import Any, Callable
 
@@ -16,13 +15,19 @@ app = legacy.app
 MARKET_HOME_PATH = "/api/stock/a-share/market/home"
 MARKET_HOME_CACHE_VERSION = "v2-parallel"
 MARKET_HOME_WORKERS = 10
-MARKET_HOME_BUDGET_SECONDS = 8.5
+MARKET_HOME_BUDGET_SECONDS = 5.5
 INDEX_BUDGET_SECONDS = 5.5
-EASTMONEY_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
+EASTMONEY_ULIST_URLS = [
+    "https://push2.eastmoney.com/api/qt/ulist.np/get",
+    "https://push2delay.eastmoney.com/api/qt/ulist.np/get",
+    "https://push2his.eastmoney.com/api/qt/ulist.np/get",
+]
 
 _market_home_lock = Lock()
+_market_home_refresh_lock = Lock()
 _client_lock = Lock()
 _shared_client: httpx.Client | None = None
+_home_refresh_running = False
 
 _INDEX_SECURITIES = [
     {"name": "上证指数", "code": "000001", "secid": "1.000001"},
@@ -136,15 +141,12 @@ def _load_indices_parallel() -> dict[str, Any]:
     started_at = monotonic()
     warnings: list[str] = []
     secids = ",".join(index["secid"] for index in _INDEX_SECURITIES)
-    raw = legacy._eastmoney_get(
-        _get_shared_client(),
-        EASTMONEY_ULIST_URL,
-        {
-            "secids": secids,
-            "fields": "f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18",
-            "fltt": "2",
-        },
-    )
+    params = {
+        "secids": secids,
+        "fields": "f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18",
+        "fltt": "2",
+    }
+    raw = legacy._eastmoney_get_first(_get_shared_client(), EASTMONEY_ULIST_URLS, params, "indices_batch", warnings)
     diff = list((raw.get("data") or {}).get("diff") or [])
     by_code = {str(item.get("f12") or ""): item for item in diff}
     items: list[dict[str, Any]] = []
@@ -229,69 +231,32 @@ def _load_market_module(name: str, builder: Callable[[], dict[str, Any]]) -> dic
 
 def _build_market_home_parallel() -> dict[str, Any]:
     started_at = monotonic()
-    module_builders: dict[str, Callable[[], dict[str, Any]]] = {
-        "indices": lambda: _cached_module(
-            "market", "indices", "full-parallel", _load_indices_parallel
-        ),
-        "marketBreadth": lambda: _cached_module(
-            "market", "breadth", "v1", legacy._load_market_breadth
-        ),
-        "gainers": lambda: _cached_module(
-            "ranking", "gainers", "20", lambda: legacy._load_ranking("gainers", 20)
-        ),
-        "losers": lambda: _cached_module(
-            "ranking", "losers", "20", lambda: legacy._load_ranking("losers", 20)
-        ),
-        "amountRanking": lambda: _cached_module(
-            "ranking", "amount", "20", lambda: legacy._load_ranking("amount", 20)
-        ),
-        "turnoverRanking": lambda: _cached_module(
-            "ranking", "turnover", "20", lambda: legacy._load_ranking("turnover", 20)
-        ),
-        "volumeRatioRanking": lambda: _cached_module(
-            "ranking", "volume_ratio", "20", lambda: legacy._load_ranking("volume_ratio", 20)
-        ),
-        "speedRanking": lambda: _cached_module(
-            "ranking", "speed", "20", lambda: legacy._load_ranking("speed", 20)
-        ),
-        "mainInflowRanking": lambda: _cached_module(
-            "ranking", "main_inflow", "20", lambda: legacy._load_ranking("main_inflow", 20)
-        ),
-        "mainOutflowRanking": lambda: _cached_module(
-            "ranking", "main_outflow", "20", lambda: legacy._load_ranking("main_outflow", 20)
-        ),
-        "sectorHotRanking": lambda: _cached_module(
-            "sectors", "industry", "20", lambda: legacy._load_sectors("industry", 20)
-        ),
-    }
-
-    executor = ThreadPoolExecutor(max_workers=MARKET_HOME_WORKERS, thread_name_prefix="market-home")
-    futures: dict[Future[dict[str, Any]], str] = {
-        executor.submit(_load_market_module, name, builder): name
-        for name, builder in module_builders.items()
-    }
-    done, pending = wait(futures, timeout=MARKET_HOME_BUDGET_SECONDS)
     modules: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
+    priority_builders: list[tuple[str, Callable[[], dict[str, Any]]]] = [
+        ("indices", lambda: _cached_module("market", "indices", "full-parallel", _load_indices_parallel)),
+        ("marketBreadth", lambda: _cached_module("market", "breadth", "v1", legacy._load_market_breadth)),
+    ]
+    for name, builder in priority_builders:
+        if monotonic() - started_at > MARKET_HOME_BUDGET_SECONDS:
+            modules[name] = _cached_or_unavailable("market", name, "home-lite", name)
+            warnings.append(f"{name}: skipped_budget_exhausted")
+            continue
+        modules[name] = _load_market_module(name, builder)
 
-    for future in done:
-        name = futures[future]
-        try:
-            modules[name] = future.result()
-        except Exception as exc:
-            modules[name] = _module_unavailable(name, f"{type(exc).__name__}: {exc}")
-
-    for future in pending:
-        name = futures[future]
-        future.cancel()
-        modules[name] = _module_unavailable(name, "module timeout")
-        warnings.append(f"{name}: timeout")
-
-    executor.shutdown(wait=False, cancel_futures=True)
+    modules["gainers"] = _cached_or_unavailable("ranking", "gainers", "20", "gainers")
+    modules["losers"] = _cached_or_unavailable("ranking", "losers", "20", "losers")
+    modules["amountRanking"] = _cached_or_unavailable("ranking", "amount", "20", "amountRanking")
+    modules["sectorHotRanking"] = _cached_or_unavailable("sectors", "industry", "20", "sectorHotRanking")
     breadth = modules.get("marketBreadth") or _module_unavailable(
         "marketBreadth", "module missing"
     )
     modules["sentiment"] = _sentiment_from_breadth(breadth)
+    modules["turnoverRanking"] = _cached_or_unavailable("ranking", "turnover", "20", "turnoverRanking")
+    modules["volumeRatioRanking"] = _cached_or_unavailable("ranking", "volume_ratio", "20", "volumeRatioRanking")
+    modules["speedRanking"] = _cached_or_unavailable("ranking", "speed", "20", "speedRanking")
+    modules["mainInflowRanking"] = _cached_or_unavailable("ranking", "main_inflow", "20", "mainInflowRanking")
+    modules["mainOutflowRanking"] = _cached_or_unavailable("ranking", "main_outflow", "20", "mainOutflowRanking")
     modules["popularityRanking"] = legacy._load_ranking("popularity", 50)
     modules["limitUpSummary"] = legacy._unavailable_module("limit_up_summary")
     modules["marketNews"] = legacy._unavailable_module("market_news")
@@ -302,10 +267,7 @@ def _build_market_home_parallel() -> dict[str, Any]:
         for name in critical_names
         if str((modules.get(name) or {}).get("status", "")).lower() in _REAL_STATUSES
     )
-    if critical_real == 0:
-        raise ValueError("all critical market-home modules unavailable")
-
-    status = "ok" if critical_real == len(critical_names) else "partial"
+    status = "ok" if critical_real == len(critical_names) else ("partial" if critical_real > 0 else "unavailable")
     for name, module in modules.items():
         for warning in module.get("warnings") or []:
             warnings.append(f"{name}: {warning}")
@@ -335,6 +297,19 @@ def _load_market_home_cached() -> dict[str, Any]:
         ]
         return cached
 
+    stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
+    if stale is not None:
+        payload, age = stale
+        _start_market_home_background_refresh()
+        cached = deepcopy(payload)
+        cached["status"] = "stale" if str(cached.get("status", "")).lower() in {"ok", "partial"} else cached.get("status", "stale")
+        cached["cacheAgeMs"] = age * 1000
+        cached["warnings"] = list(cached.get("warnings") or []) + [
+            f"market_home_cache: stale_immediate age={age}s",
+            "market_home_cache: background_refresh_started",
+        ]
+        return cached
+
     try:
         payload = _build_market_home_parallel()
     except Exception:
@@ -352,6 +327,33 @@ def _load_market_home_cached() -> dict[str, Any]:
 
     legacy._cache_put(key, payload)
     return payload
+
+
+def _cached_or_unavailable(kind: str, query: str, mode: str, name: str) -> dict[str, Any]:
+    cached = legacy._cache_get(legacy._cache_key(kind, query, mode), legacy.STALE_CACHE_SECONDS)
+    if cached is not None:
+        payload, age = cached
+        return _mark_cached_module(payload, age, stale=True)
+    return _module_unavailable(name, "skipped_on_cold_lightweight_home")
+
+
+def _refresh_market_home_background() -> None:
+    global _home_refresh_running
+    try:
+        payload = _build_market_home_parallel()
+        legacy._cache_put(legacy._cache_key("market", "home", MARKET_HOME_CACHE_VERSION), payload)
+    finally:
+        with _market_home_refresh_lock:
+            _home_refresh_running = False
+
+
+def _start_market_home_background_refresh() -> None:
+    global _home_refresh_running
+    with _market_home_refresh_lock:
+        if _home_refresh_running:
+            return
+        _home_refresh_running = True
+    Thread(target=_refresh_market_home_background, name="market-home-refresh", daemon=True).start()
 
 
 _remove_legacy_market_home_route()

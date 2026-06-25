@@ -178,6 +178,13 @@ class RealtimeRuntime:
             self.hot_task.cancel()
             await asyncio.gather(self.hot_task, return_exceptions=True)
             self.hot_task = None
+        async with self.inflight_lock:
+            tasks = list(self.inflight.values())
+            self.inflight.clear()
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         if self.client is not None:
             await self.client.aclose()
             self.client = None
@@ -682,9 +689,9 @@ class RealtimeRuntime:
         if quote_result.waited or minute_result.waited:
             warnings.append("singleflight: waited")
         try:
-            ticks_outcome = await asyncio.wait_for(asyncio.shield(ticks_task), timeout=0.35)
+            ticks_outcome = await asyncio.wait_for(asyncio.shield(ticks_task), timeout=0.12)
         except asyncio.TimeoutError:
-            ticks_outcome = TimeoutError("trade ticks budget exceeded")
+            ticks_outcome = TimeoutError("trade ticks budget exceeded 120ms")
             ticks_task.cancel()
         if isinstance(ticks_outcome, Exception):
             ticks = []
@@ -774,7 +781,7 @@ class RealtimeRuntime:
     async def _refresh_hot_symbol(self, code: str) -> None:
         async with self.hot_semaphore:
             security = {"code": code, "name": code, "secid": _secid(code), "resolveSource": "hot-code"}
-            tasks = [self.quote_raw(security, force=True), self.minute(security, 1, force=True), self.ticks(security, force=True)]
+            tasks = [self.quote_raw(security, force=True), self.minute(security, 1, force=True)]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             if isinstance(results[1], CacheResult):
                 await self._merge_today_into_five_day(code, results[1])
