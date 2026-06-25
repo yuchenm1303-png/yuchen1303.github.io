@@ -1,8 +1,10 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 internal class VisualTaskExecutor(
@@ -170,4 +172,80 @@ internal fun VisualTaskExecutor.appContextForTurn(
         return session.appContext
     }
     return session.appContext.filter { it.packageName == runtime.verifiedTargetPackage }.take(1)
+}
+
+internal suspend fun VisualTaskExecutor.requestPlan(
+    session: VisualTaskSession,
+    turn: VisualTurn,
+): VisualPlanRequest {
+    val memory = session.semantic.memorySnapshot(turn.snapshot)
+    val historyLimit = if (memory.recoveryMode) {
+        VisualLoopSupport.RECOVERY_HISTORY_ITEMS
+    } else {
+        VisualLoopSupport.NORMAL_HISTORY_ITEMS
+    }
+    val requestApps = appContextForTurn(session, turn.runtime)
+    session.state.modelTurns += 1
+    val plan = try {
+        withContext(Dispatchers.IO) {
+            aiWorkerClient.requestVisualAgentStep(
+                goal = session.state.goal,
+                snapshot = turn.snapshot,
+                recentActions = VisualLoopSupport.requestActions(
+                    session.recentActions,
+                    session.interactionActions,
+                ),
+                visualHistory = session.visualHistory.takeLast(historyLimit),
+                appContext = requestApps,
+                deviceId = clientDeviceId,
+                agentSessionId = session.agentSessionId,
+                executionMode = session.executionMode,
+                deviceProfile = session.deviceProfile,
+                runtimeContext = turn.runtime,
+                taskMemory = memory,
+            )
+        }
+    } catch (error: IOException) {
+        if (session.stopped()) return VisualPlanRequest.Retry
+        return when (val decision = session.routeRetry.onFailure(error)) {
+            is VisualRouteRetryDecision.Retry -> {
+                session.state.reobservations += 1
+                val recovered = observationCoordinator.captureTrustedObservation(
+                    forceVisual = true,
+                    expectedPackage = session.execution.selectedTargetPackage,
+                )
+                val recoveredSnapshot = recovered.toAgentScreenSnapshot()
+                val recoveredRuntime = session.execution.runtimeContext(recoveredSnapshot)
+                session.prefetchedObservation = recovered
+                VisualLoopMemorySupport.replaceRuntimeLine(session.recentActions, recoveredRuntime)
+                val structured = error as? VisualAgentRequestException
+                VisualLoopSupport.appendRecent(
+                    session.recentActions,
+                    buildString {
+                        append("visual_route_retry:attempt=").append(decision.attempt)
+                        append("|code=").append(structured?.code ?: "io_error")
+                        append("|httpStatus=").append(structured?.httpStatus ?: 0)
+                        append("|retryable=true|currentPackage=")
+                        append(recoveredSnapshot.packageName.take(100))
+                        append("|workSurfaceRecovered=").append(recoveredRuntime.guiPlusEligible)
+                        append("|observationId=").append(recoveredRuntime.observationId)
+                    },
+                )
+                if (!recoveredRuntime.guiPlusEligible) delay(decision.backoffMs)
+                VisualPlanRequest.Retry
+            }
+            is VisualRouteRetryDecision.Stop -> {
+                val message = "visual_agent_step failed: ${error.message ?: "unknown error"}; retryStopReason=${decision.reason}"
+                AgentRuntimeController.failTask(session.runtimeTaskId, message)
+                VisualPlanRequest.Fatal(
+                    AgentTaskRunResult(false, false, message, session.logs),
+                )
+            }
+        }
+    }
+    session.routeRetry.onSuccess()
+    if (requestApps.size == session.appContext.size) session.fullAppCatalogUploaded = true
+    AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
+    session.semantic.updateTaskContract(plan.taskContract, session.state.goal)
+    return VisualPlanRequest.Ready(plan)
 }
