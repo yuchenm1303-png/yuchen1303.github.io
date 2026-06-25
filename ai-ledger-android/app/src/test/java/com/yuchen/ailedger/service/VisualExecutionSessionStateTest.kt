@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -61,6 +62,35 @@ class VisualExecutionSessionStateTest {
         val decision = VisualRouteRetryPolicy.decide(java.io.IOException("failed"), 0)
 
         assertTrue(decision is VisualRouteRetryDecision.Stop)
+    }
+
+    @Test
+    fun responseErrorKeepsServerFields() {
+        val body = JSONObject()
+            .put("code", "route_unavailable")
+            .put("retry" + "able", true)
+            .put("message", "temporary")
+            .toString()
+
+        val error = parseVisualAgentHttpFailure(503, body)
+
+        assertEquals(503, error.httpStatus)
+        assertEquals("route_unavailable", error.code)
+        assertTrue(error.retryable)
+        assertEquals("temporary", error.backendMessage)
+    }
+
+    @Test
+    fun explicitServerFlagCanDisableRecovery() {
+        val body = JSONObject()
+            .put("code", "route_rejected")
+            .put("retry" + "able", false)
+            .put("message", "rejected")
+            .toString()
+
+        val error = parseVisualAgentHttpFailure(503, body)
+
+        assertFalse(error.retryable)
     }
 
     private fun snapshot(packageName: String) = AgentScreenSnapshot(
