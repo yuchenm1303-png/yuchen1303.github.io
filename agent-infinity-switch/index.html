@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Agent Infinity Switch Preview</title>
+<style>
+    html,body{
+        margin:0;
+        height:100%;
+        background: radial-gradient(circle at 30% 20%, #0b1430, #050814 60%, #03040a);
+        overflow:hidden;
+        font-family: sans-serif;
+        color:#cfe8ff;
+    }
+
+    .panel{
+        position:absolute;
+        top:20px;
+        left:20px;
+        width:260px;
+        background:rgba(10,18,40,0.55);
+        border:1px solid rgba(120,180,255,0.15);
+        border-radius:16px;
+        padding:12px;
+        backdrop-filter: blur(10px);
+    }
+
+    .row{margin:8px 0;}
+    label{font-size:12px;opacity:0.8;display:block;margin-bottom:4px;}
+    input{width:100%;}
+
+    canvas{
+        position:absolute;
+        top:50%;
+        left:50%;
+        transform:translate(-50%,-50%);
+    }
+
+    .title{
+        font-size:14px;
+        margin-bottom:8px;
+        font-weight:600;
+    }
+
+    button{
+        width:100%;
+        padding:8px;
+        border-radius:10px;
+        border:none;
+        background:#1c3cff33;
+        color:#cfe8ff;
+        cursor:pointer;
+    }
+</style>
+</head>
+<body>
+
+<div class="panel">
+    <div class="title">∞ Agent Switch Debug</div>
+
+    <div class="row">
+        <label>非对称程度</label>
+        <input id="a" type="range" min="0" max="1" step="0.01" value="0.65" />
+    </div>
+
+    <div class="row">
+        <label>发光强度</label>
+        <input id="g" type="range" min="0" max="2" step="0.01" value="1.2" />
+    </div>
+
+    <div class="row">
+        <label>动画速度</label>
+        <input id="s" type="range" min="0.2" max="3" step="0.01" value="1.2" />
+    </div>
+
+    <button onclick="toggle()">切换状态</button>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+
+function resize(){
+    c.width = window.innerWidth;
+    c.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+let t = 0;
+let running = true;
+
+function getParams(){
+    return {
+        asym: parseFloat(a.value),
+        glow: parseFloat(g.value),
+        speed: parseFloat(s.value)
+    }
+}
+
+function drawInfinityPath(asym){
+    const w = c.width;
+    const h = c.height;
+    const cx = w/2;
+    const cy = h/2;
+
+    const size = 180;
+
+    const leftShift = -size * (1 + asym*0.4);
+    const rightShift = size * (1 - asym*0.2);
+
+    ctx.beginPath();
+
+    // 非对称∞路径（两个loop不同形状）
+    ctx.moveTo(cx, cy);
+
+    ctx.bezierCurveTo(
+        cx + leftShift, cy - size,
+        cx + leftShift*0.2, cy + size,
+        cx, cy
+    );
+
+    ctx.bezierCurveTo(
+        cx + rightShift, cy - size*0.8,
+        cx + rightShift*0.3, cy + size,
+        cx, cy
+    );
+
+    return ctx;
+}
+
+function drawGlowPath(asym, glow){
+    for(let i=0;i<3;i++){
+        ctx.save();
+        ctx.lineWidth = 2 + i*2;
+        ctx.strokeStyle = `rgba(120,200,255,${0.08*glow*(3-i)})`;
+        ctx.shadowBlur = 20*glow;
+        ctx.shadowColor = '#66ccff';
+        drawInfinityPath(asym);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+function drawCore(asym, glow){
+    ctx.save();
+    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#bfe9ff';
+    ctx.shadowBlur = 18*glow;
+    ctx.shadowColor = '#7fd0ff';
+    drawInfinityPath(asym);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawParticle(asym, speed, glow){
+    const w = c.width;
+    const h = c.height;
+    const cx = w/2;
+    const cy = h/2;
+
+    const radius = 160;
+
+    const p = (t*speed)%1;
+
+    const x = cx + Math.cos(p*Math.PI*2) * radius*(1+asym*0.3);
+    const y = cy + Math.sin(p*Math.PI*4) * radius*0.5;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x,y,3.5,0,Math.PI*2);
+    ctx.fillStyle = '#8fe2ff';
+    ctx.shadowBlur = 25*glow;
+    ctx.shadowColor = '#7fd0ff';
+    ctx.fill();
+    ctx.restore();
+}
+
+function render(){
+    ctx.clearRect(0,0,c.width,c.height);
+
+    const p = getParams();
+
+    drawGlowPath(p.asym,p.glow);
+    drawCore(p.asym,p.glow);
+    if(running) drawParticle(p.asym,p.speed,p.glow);
+
+    t += 0.016;
+    requestAnimationFrame(render);
+}
+
+function toggle(){
+    running = !running;
+}
+
+render();
+</script>
+
+</body>
+</html>
