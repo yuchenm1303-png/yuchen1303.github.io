@@ -134,15 +134,17 @@ object VisualObservationProtocol {
         if (step.type == "tap_xy") {
             val x = step.x ?: return null
             val y = step.y ?: return null
-            val observedHit = hitNode(observedSnapshot, x, y)
-            val currentHit = hitNode(currentSnapshot, x, y)
+            val observedHits = hitNodes(observedSnapshot, x, y)
+            val currentHits = hitNodes(currentSnapshot, x, y)
+            val sameTargetStillUnderPoint = observedHits.any { observed ->
+                currentHits.any { current -> samePhysicalTarget(observed, current) }
+            }
             return when {
-                observedHit == null && currentHit == null -> null
-                observedHit == null -> VisualActionContextFreshness(false, "coordinate_target_covered")
-                currentHit == null -> VisualActionContextFreshness(false, "coordinate_target_missing")
-                !samePhysicalTarget(observedHit, currentHit) ->
-                    VisualActionContextFreshness(false, "coordinate_target_changed")
-                else -> null
+                observedHits.isEmpty() && currentHits.isEmpty() -> null
+                observedHits.isEmpty() -> VisualActionContextFreshness(false, "coordinate_target_covered")
+                currentHits.isEmpty() -> VisualActionContextFreshness(false, "coordinate_target_missing")
+                sameTargetStillUnderPoint -> null
+                else -> VisualActionContextFreshness(false, "coordinate_target_changed")
             }
         }
 
@@ -182,19 +184,29 @@ object VisualObservationProtocol {
         return targetId.takeIf(String::isNotBlank)?.let { id -> candidates.firstOrNull { it.id == id } }
     }
 
-    private fun hitNode(snapshot: AgentScreenSnapshot, x: Float, y: Float): AgentScreenNode? {
+    private fun hitNodes(snapshot: AgentScreenSnapshot, x: Float, y: Float): List<AgentScreenNode> {
         return interactionNodes(snapshot)
             .asSequence()
             .mapNotNull { node -> parseBounds(node.bounds)?.takeIf { it.contains(x, y) }?.let { node to it } }
-            .minByOrNull { (_, bounds) -> bounds.area }
-            ?.first
+            .sortedBy { (_, bounds) -> bounds.area }
+            .map { (node, _) -> node }
+            .take(MAX_COORDINATE_HIT_CANDIDATES)
+            .toList()
     }
 
     private fun samePhysicalTarget(first: AgentScreenNode, second: AgentScreenNode): Boolean {
         if (nodeRole(first) != nodeRole(second)) return false
         val firstClass = stableClassName(first.className)
         val secondClass = stableClassName(second.className)
-        if (firstClass.isNotBlank() && secondClass.isNotBlank() && firstClass != secondClass) return false
+        val firstText = normalizeStableText(first.text)
+        val secondText = normalizeStableText(second.text)
+        val stableLabelMatch = firstText.isNotBlank() && firstText == secondText
+        if (
+            firstClass.isNotBlank() &&
+            secondClass.isNotBlank() &&
+            firstClass != secondClass &&
+            !stableLabelMatch
+        ) return false
         val firstBounds = parseBounds(first.bounds) ?: return first.bounds == second.bounds
         val secondBounds = parseBounds(second.bounds) ?: return first.bounds == second.bounds
         return firstBounds.isNear(secondBounds) || firstBounds.iou(secondBounds) >= MIN_TARGET_IOU
@@ -318,6 +330,7 @@ object VisualObservationProtocol {
     private const val MAX_TEXT_ITEMS = 24
     private const val MAX_NODE_ITEMS = 20
     private const val MAX_EXECUTION_SURFACE_NODES = 64
+    private const val MAX_COORDINATE_HIT_CANDIDATES = 8
     private const val MIN_RICH_SURFACE_TOKENS = 4
     private const val MIN_SURFACE_OVERLAP = 0.58f
     private const val MIN_TARGET_IOU = 0.62f
