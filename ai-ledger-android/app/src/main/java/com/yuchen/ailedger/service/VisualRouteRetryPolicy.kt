@@ -40,7 +40,22 @@ object VisualRouteRetryPolicy {
 
     private fun isRetryableVisualRouteFailure(error: IOException): Boolean {
         val structured = error as? VisualAgentRequestException
-        if (structured != null) return structured.retryable
+        if (structured != null) {
+            if (structured.retryable) return true
+            if (structured.code == "agent_brain_route_failed") {
+                val detail = listOf(
+                    structured.backendMessage,
+                    structured.message.orEmpty(),
+                ).joinToString(" ").lowercase()
+                return detail.contains("finish_reason=length") ||
+                    detail.contains("content_chars=0") ||
+                    detail.contains("empty") ||
+                    detail.contains("timed out") ||
+                    detail.contains("timeout") ||
+                    detail.contains("temporar")
+            }
+            return false
+        }
 
         val text = error.message.orEmpty().lowercase()
         return text.contains("agent_brain_route_failed") ||
