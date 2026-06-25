@@ -61,7 +61,10 @@ class VisualExecutionStateMachine {
 
         if (
             verifiedTargetPackage.isNotBlank() &&
-            isConfidentForeignPackage(cleanCurrentPackage, verifiedTargetPackage)
+            VisualSurfacePackagePolicy.isConfidentForeignPackage(
+                cleanCurrentPackage,
+                verifiedTargetPackage,
+            )
         ) {
             markStructuralReplan()
             return
@@ -95,20 +98,7 @@ class VisualExecutionStateMachine {
         return state == VisualSurfaceState.Launching || state == VisualSurfaceState.Replanning
     }
 
-    private fun isConfidentForeignPackage(currentPackage: String, expectedPackage: String): Boolean {
-        if (currentPackage.isBlank() || currentPackage == expectedPackage) return false
-        if (currentPackage == ASSISTANT_HOST_PACKAGE) return false
-        if (currentPackage in TRANSIENT_SYSTEM_SURFACE_PACKAGES) return false
-        return true
-    }
-
     companion object {
-        const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
-
-        private val TRANSIENT_SYSTEM_SURFACE_PACKAGES = setOf(
-            "android",
-            "com.android.systemui",
-            "com.android.permissioncontroller",
-        )
+        const val ASSISTANT_HOST_PACKAGE = VisualSurfacePackagePolicy.ASSISTANT_HOST_PACKAGE
     }
 }
