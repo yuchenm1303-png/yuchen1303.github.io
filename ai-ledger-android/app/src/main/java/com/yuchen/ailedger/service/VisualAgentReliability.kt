@@ -201,3 +201,24 @@ object VisualRouteRetryPolicy {
             text.contains("route step timeout")
     }
 }
+
+/**
+ * Owns the consecutive route-failure budget for one visual session. Recovery observations never
+ * reset the budget; only a successfully returned cloud plan does.
+ */
+class VisualRouteRetryState {
+    var completedRetries: Int = 0
+        private set
+
+    fun onFailure(error: IOException): VisualRouteRetryDecision {
+        return VisualRouteRetryPolicy.decide(error, completedRetries).also { decision ->
+            if (decision is VisualRouteRetryDecision.Retry) {
+                completedRetries = decision.attempt
+            }
+        }
+    }
+
+    fun onSuccess() {
+        completedRetries = 0
+    }
+}
