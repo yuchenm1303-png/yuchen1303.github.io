@@ -35,9 +35,8 @@ class StockMarketDataRepository(
             addBoard(root, "turnoverRanking", "换手率榜", "真实换手率排序")
             addBoard(root, "volumeRatioRanking", "量比榜", "真实量比排序")
             addBoard(root, "speedRanking", "涨速榜", "真实涨速排序")
-
-            loadRankingBoard("main_inflow", "主力净流入榜")?.let(::add)
-            loadRankingBoard("main_outflow", "主力净流出榜")?.let(::add)
+            loadRankingBoard("main_inflow", "主力净流入榜")?.let { add(it) }
+            loadRankingBoard("main_outflow", "主力净流出榜")?.let { add(it) }
         }
 
         val indicesModule = root.optJSONObject("indices")
@@ -151,7 +150,9 @@ class StockMarketDataRepository(
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
-                val changePercent = firstText(item, "changePercent", "pct").orEmpty().ifBlank { "--" }
+                val changePercent = firstText(item, "changePercent", "pct")
+                    .orEmpty()
+                    .ifBlank { "--" }
                 add(
                     StockIndexSnapshot(
                         name = firstText(item, "name").orEmpty().ifBlank { "指数" },
@@ -214,7 +215,9 @@ class StockMarketDataRepository(
                         sectorCode = code,
                         sectorName = name.ifBlank { code },
                         type = firstText(item, "type").orEmpty(),
-                        changePercent = firstText(item, "changePercent", "pct").orEmpty().ifBlank { "--" },
+                        changePercent = firstText(item, "changePercent", "pct")
+                            .orEmpty()
+                            .ifBlank { "--" },
                         upCount = firstInt(item, "upCount"),
                         downCount = firstInt(item, "downCount"),
                         flatCount = firstInt(item, "flatCount"),
@@ -239,17 +242,10 @@ class StockMarketDataRepository(
                 val code = firstText(item, "code", "symbol").orEmpty()
                 val name = firstText(item, "name", "stockName").orEmpty()
                 if (code.isBlank() && name.isBlank()) continue
-                val changePercent = firstText(item, "changePercent", "pct").orEmpty().ifBlank { "--" }
-                val displayValue = firstText(
-                    item,
-                    "price",
-                    "mainInflow",
-                    "amount",
-                    "turnoverRate",
-                    "volumeRatio",
-                    "changeSpeed",
-                    "value"
-                ).orEmpty().ifBlank { "--" }
+                val changePercent = firstText(item, "changePercent", "pct")
+                    .orEmpty()
+                    .ifBlank { "--" }
+                val displayValue = rankingDisplayValue(item)
                 add(
                     StockRankItem(
                         name = name.ifBlank { code },
@@ -261,6 +257,22 @@ class StockMarketDataRepository(
                 )
             }
         }
+    }
+
+    private fun rankingDisplayValue(item: JSONObject): String {
+        val priorityKeys = listOf(
+            "mainInflow",
+            "amount",
+            "turnoverRate",
+            "volumeRatio",
+            "changeSpeed",
+            "price",
+            "value"
+        )
+        priorityKeys.forEach { key ->
+            firstText(item, key)?.takeIf { it.isNotBlank() && it != "--" }?.let { return it }
+        }
+        return "--"
     }
 
     private fun parseInformationItems(module: JSONObject?): List<StockInformationItem> {
