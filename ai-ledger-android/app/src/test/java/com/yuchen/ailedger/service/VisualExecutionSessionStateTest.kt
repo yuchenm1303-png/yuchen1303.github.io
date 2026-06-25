@@ -9,7 +9,7 @@ import org.junit.Test
 
 class VisualExecutionSessionStateTest {
     @Test
-    fun trustedProbeCanCompleteExactPackageHandoff() {
+    fun trustedProbeAloneCannotCompleteExactPackageHandoff() {
         val target = "com.example.target"
         val evidence = ForegroundPackageEvidenceResolver.resolve(
             accessibilityPackage = "",
@@ -22,8 +22,64 @@ class VisualExecutionSessionStateTest {
         val session = VisualExecutionSessionState().apply { beginLaunch(target) }
         val runtime = session.runtimeContext(snapshot(evidence.packageName))
 
+        assertEquals(VisualSurfaceState.Launching, runtime.surfaceState)
+        assertFalse(runtime.guiPlusEligible)
+    }
+
+    @Test
+    fun stableCoordinatorProofCompletesExactPackageHandoff() {
+        val target = "com.example.target"
+        val session = VisualExecutionSessionState().apply { beginLaunch(target) }
+
+        val accepted = session.markTargetVerified(target, verification(target))
+        val runtime = session.runtimeContext(snapshot(target, "YWJj"))
+
+        assertTrue(accepted)
         assertEquals(VisualSurfaceState.WorkSurface, runtime.surfaceState)
         assertTrue(runtime.guiPlusEligible)
+    }
+
+    @Test
+    fun oneStableSampleCannotGrantWorkSurface() {
+        val target = "com.example.target"
+        val session = VisualExecutionSessionState().apply { beginLaunch(target) }
+
+        val accepted = session.markTargetVerified(
+            target,
+            verification(target, stableSamples = 1),
+        )
+
+        assertFalse(accepted)
+        assertEquals(VisualSurfaceState.Launching, session.surfaceState)
+        assertEquals("", session.verifiedTargetPackage)
+    }
+
+    @Test
+    fun proofWithoutVisualFrameCannotGrantWorkSurface() {
+        val target = "com.example.target"
+        val session = VisualExecutionSessionState().apply { beginLaunch(target) }
+
+        val accepted = session.markTargetVerified(
+            target,
+            verification(target, visualBase64 = ""),
+        )
+
+        assertFalse(accepted)
+        assertEquals(VisualSurfaceState.Launching, session.surfaceState)
+    }
+
+    @Test
+    fun proofForAnotherPackageCannotReplaceSelectedTarget() {
+        val session = VisualExecutionSessionState().apply { beginLaunch("com.example.target") }
+
+        val accepted = session.markTargetVerified(
+            "com.example.target",
+            verification("com.example.other"),
+        )
+
+        assertFalse(accepted)
+        assertEquals("com.example.target", session.selectedTargetPackage)
+        assertEquals("", session.verifiedTargetPackage)
     }
 
     @Test
@@ -205,10 +261,9 @@ class VisualExecutionSessionStateTest {
 
     @Test
     fun verifiedPackageDriftRevokesGuiOwnershipAndIncrementsRouteEpoch() {
-        val session = VisualExecutionSessionState().apply {
-            beginLaunch("com.example.target")
-            markTargetVerified("com.example.target")
-        }
+        val target = "com.example.target"
+        val session = VisualExecutionSessionState().apply { beginLaunch(target) }
+        assertTrue(session.markTargetVerified(target, verification(target)))
         val before = session.routeEpoch
 
         val runtime = session.runtimeContext(snapshot("com.example.other"))
@@ -229,6 +284,39 @@ class VisualExecutionSessionStateTest {
 
         assertNotEquals(firstId, changedFrameId)
         assertNotEquals(firstId, changedEpochId)
+    }
+
+    private fun verification(
+        packageName: String,
+        stableSamples: Int = 2,
+        verified: Boolean = true,
+        visualBase64: String = "YWJj",
+    ): VisualTargetPackageVerification {
+        val snapshot = snapshot(packageName, visualBase64)
+        val visual = visualBase64.takeIf(String::isNotBlank)?.let {
+            ScreenVisualObservation(
+                available = true,
+                mimeType = "image/jpeg",
+                width = 720,
+                height = 1280,
+                displayWidth = 1080,
+                displayHeight = 2400,
+                base64Jpeg = it,
+                source = "test",
+                reason = "test",
+            )
+        }
+        return VisualTargetPackageVerification(
+            verified = verified,
+            stableSamples = stableSamples,
+            lastSnapshot = snapshot,
+            lastObservation = ScreenObservation(
+                enabled = true,
+                serviceConnected = true,
+                packageName = packageName,
+                visual = visual,
+            ),
+        )
     }
 
     private fun snapshot(
