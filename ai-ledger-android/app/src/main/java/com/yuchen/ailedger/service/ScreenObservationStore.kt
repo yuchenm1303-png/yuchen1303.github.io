@@ -117,9 +117,11 @@ object ScreenObservationStore {
         nowMs: Long = System.currentTimeMillis(),
     ): AccessibilityWindowPackageHint? {
         val hint = latestWindowPackageHint ?: return null
-        return hint.takeIf {
-            nowMs >= it.observedAt && nowMs - it.observedAt <= maxAgeMs.coerceAtLeast(0L)
-        }
+        val latestCaptureStartedAt = mutableObservation.value.updatedAt
+        val belongsToLatestCapture = latestCaptureStartedAt > 0L && hint.observedAt >= latestCaptureStartedAt
+        val recentByAge = nowMs >= hint.observedAt &&
+            nowMs - hint.observedAt <= maxAgeMs.coerceAtLeast(0L)
+        return hint.takeIf { belongsToLatestCapture || recentByAge }
     }
 
     fun markDisabled() {
