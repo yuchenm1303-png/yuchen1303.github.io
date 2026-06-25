@@ -35,6 +35,7 @@ import com.yuchen.ailedger.service.AgentExecutionMode
 import com.yuchen.ailedger.service.AgentOrchestrator
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.AgentSafetyPolicy
+import com.yuchen.ailedger.service.AgentTaskOutcome
 import com.yuchen.ailedger.service.AgentTaskRunResult
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.AiChatResponse
@@ -45,6 +46,8 @@ import com.yuchen.ailedger.service.CloudPreferenceUpdate
 import com.yuchen.ailedger.service.DeviceControlActionVerifier
 import com.yuchen.ailedger.service.DeviceToolExecutor
 import com.yuchen.ailedger.service.MobileCommand
+import com.yuchen.ailedger.service.resolvedOutcome
+import com.yuchen.ailedger.service.toTerminalPresentation
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
@@ -273,15 +276,13 @@ class AssistantViewModel(
     }
 
     private fun buildAgentRunMessage(id: String, goal: String, result: AgentTaskRunResult): ChatMessage {
-        val status = when {
-            result.completed -> "已完成"
-            result.stoppedForConfirmation -> "等待确认"
-            else -> "已暂停"
-        }
+        val outcome = result.resolvedOutcome()
+        val presentation = outcome.toTerminalPresentation()
+        val failed = outcome is AgentTaskOutcome.Failed
         val text = buildString {
             append("手机智能体任务执行\n\n")
             append("目标：$goal\n")
-            append("状态：$status\n")
+            append("状态：${presentation.status}\n")
             append("结果：${result.message}\n")
             if (result.logs.isNotEmpty()) {
                 append("\n执行记录：\n")
@@ -305,9 +306,10 @@ class AssistantViewModel(
             id = id,
             text = text,
             role = MessageRole.Assistant,
-            status = MessageStatus.Sent,
+            status = if (failed) MessageStatus.Failed else MessageStatus.Sent,
             source = "local_agent",
-            modelLabel = "手机智能体"
+            modelLabel = presentation.status,
+            errorText = result.message.takeIf { failed }
         )
     }
 
