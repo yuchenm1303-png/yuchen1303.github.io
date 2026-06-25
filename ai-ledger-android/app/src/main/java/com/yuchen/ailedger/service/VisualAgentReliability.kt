@@ -162,8 +162,10 @@ object VisualRouteRetryPolicy {
     const val maxRetries: Int = 2
 
     fun decide(error: IOException, completedRetries: Int): VisualRouteRetryDecision {
-        val structured = error as? VisualAgentRequestException
-        return decide(retryable = structured?.retryable == true, completedRetries = completedRetries)
+        return decide(
+            retryable = isRetryableVisualRouteFailure(error),
+            completedRetries = completedRetries,
+        )
     }
 
     internal fun decide(retryable: Boolean, completedRetries: Int): VisualRouteRetryDecision {
@@ -179,5 +181,16 @@ object VisualRouteRetryPolicy {
             else -> 850L
         }
         return VisualRouteRetryDecision.Retry(attempt = attempt, backoffMs = backoffMs)
+    }
+
+    private fun isRetryableVisualRouteFailure(error: IOException): Boolean {
+        val structured = error as? VisualAgentRequestException
+        if (structured != null) return structured.retryable
+
+        val text = error.message.orEmpty().lowercase()
+        return text.contains("agent_brain_route_failed") ||
+            text.contains("deepseek 主脑路由失败") ||
+            text.contains("visual_agent_step timed out") ||
+            text.contains("route step timeout")
     }
 }
