@@ -1,9 +1,13 @@
 package com.yuchen.ailedger.service
 
+fun interface ForegroundPackageReader {
+    fun probe(): ForegroundPackageProbeResult
+}
+
 class ForegroundPackageProbe(
     private val shellBridge: DeviceShellBridge,
-) {
-    fun probe(): ForegroundPackageProbeResult {
+) : ForegroundPackageReader {
+    override fun probe(): ForegroundPackageProbeResult {
         val accessibilityHint = ScreenObservationStore.recentWindowPackageHint()
         if (
             accessibilityHint != null &&
