@@ -5,6 +5,7 @@ internal object WebOpenGLGlassMainShader {
         void main(){
             vec2 coord=vec2(gl_FragCoord.x,uResolution.y-gl_FragCoord.y);
             vec2 z=max(uRect.zw,vec2(1.0));
+            vec2 rectInv=1.0/z;
             vec2 p=coord-uRect.xy;
             vec2 center=z*0.5;
             vec2 safeHalfSize=max(center,vec2(1.0));
@@ -55,11 +56,11 @@ internal object WebOpenGLGlassMainShader {
                 pressAspect=min(z.x/max(z.y,1.0),2.2);
                 vec2 pressCenterPx=pressCenter*z;
                 pressField=pressFieldAt(
-                    p,z,pressCenter,pressAspect,press
+                    p,rectInv,pressCenter,pressAspect,press
                 );
                 pressWide=press*pow(
                     sat(1.0-length(
-                        (p/z-pressCenter)*vec2(pressAspect,1.0)
+                        (p*rectInv-pressCenter)*vec2(pressAspect,1.0)
                     )*0.58),
                     1.25
                 );
@@ -127,6 +128,7 @@ internal object WebOpenGLGlassMainShader {
                     sourceDepth,
                     sourceNormal,
                     z,
+                    rectInv,
                     center,
                     invSafeCenter,
                     minSize,
