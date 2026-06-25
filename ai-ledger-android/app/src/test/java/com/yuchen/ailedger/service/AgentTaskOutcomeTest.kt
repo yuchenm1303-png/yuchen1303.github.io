@@ -32,6 +32,19 @@ class AgentTaskOutcomeTest {
     }
 
     @Test
+    fun confirmationOutcomeKeepsWaitingStatus() {
+        val outcome = AgentTaskOutcomeResolver.resolve(
+            completed = false,
+            stoppedForConfirmation = true,
+            message = "该动作需要确认。",
+        )
+        val presentation = outcome.toTerminalPresentation()
+
+        assertTrue(outcome is AgentTaskOutcome.AwaitingConfirmation)
+        assertEquals("等待确认", presentation.status)
+    }
+
+    @Test
     fun routeFailureFromLegacyBooleanApiResolvesToFailed() {
         val outcome = AgentTaskOutcomeResolver.resolveLegacyCompletion(
             completed = false,
