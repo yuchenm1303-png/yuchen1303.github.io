@@ -14,12 +14,14 @@ import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockKLinePoint
 import com.yuchen.ailedger.model.StockMarketHomeSnapshot
 import com.yuchen.ailedger.model.StockMinutePoint
-import com.yuchen.ailedger.model.StockModuleStatus
+import com.yuchen.ailedger.model.StockMoneyFlow
 import com.yuchen.ailedger.model.StockSlowDataSnapshot
 import com.yuchen.ailedger.model.StockTradeTick
 import com.yuchen.ailedger.model.sampleAStockDetailUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,11 +31,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class StockMarketUiState(
-    val stock: StockDetailUiState = initialStockState(),
+    val stock: StockDetailUiState = emptyStockState(),
     val marketHome: StockMarketHomeSnapshot = StockMarketHomeSnapshot(),
     val slowData: StockSlowDataSnapshot = StockSlowDataSnapshot(),
     val depthState: StockDepthState = StockDepthState(),
-    val query: String = "600396",
+    val query: String = DEFAULT_STOCK_CODE,
     val loading: Boolean = false,
     val marketLoading: Boolean = false,
     val slowDataLoading: Boolean = false,
@@ -47,19 +49,49 @@ data class StockMarketUiState(
     val requestMessage: String? = null
 )
 
-private fun initialStockState(): StockDetailUiState = sampleAStockDetailUiState().copy(
-    indices = emptyList(),
-    watchlist = emptyList(),
-    marketBoards = emptyList(),
-    sellLevels = emptyList(),
-    buyLevels = emptyList(),
-    tradeTicks = emptyList(),
-    fundamentals = emptyList(),
-    minutePoints = emptyList(),
-    kLinePoints = emptyList(),
-    aiSummary = "等待真实行情数据",
-    dataSourceLabel = "等待真实行情"
-)
+private const val DEFAULT_STOCK_CODE = "600396"
+
+private fun emptyStockState(code: String = ""): StockDetailUiState {
+    val sample = sampleAStockDetailUiState()
+    return sample.copy(
+        quote = sample.quote.copy(
+            name = code,
+            code = code,
+            market = "",
+            price = "--",
+            changeAmount = "--",
+            changePercent = "--",
+            isRising = true,
+            previousClose = 0f,
+            high = "--",
+            low = "--",
+            open = "--",
+            totalMarketValue = "--",
+            floatMarketValue = "--",
+            volumeRatio = "--",
+            turnoverRate = "--",
+            peTtm = "--",
+            pb = "--",
+            amount = "--",
+            popularityRank = "--"
+        ),
+        topMetrics = emptyList(),
+        minutePoints = emptyList(),
+        sellLevels = emptyList(),
+        buyLevels = emptyList(),
+        tradeTicks = emptyList(),
+        moneyFlow = StockMoneyFlow("--", "--", "--", "--", "--"),
+        fundamentals = emptyList(),
+        indices = emptyList(),
+        watchlist = emptyList(),
+        featureGroups = emptyList(),
+        marketBoards = emptyList(),
+        aiSummary = "等待真实行情数据",
+        kLinePoints = emptyList(),
+        dataSourceLabel = "等待真实行情",
+        errorMessage = null
+    )
+}
 
 class StockMarketViewModel(
     private val repository: StockRepository = StockRepository(),
@@ -67,10 +99,7 @@ class StockMarketViewModel(
     private val marketDataRepository: StockMarketDataRepository = StockMarketDataRepository()
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
-        StockMarketUiState(
-            loading = true,
-            marketLoading = true
-        )
+        StockMarketUiState(loading = true, marketLoading = true)
     )
     val uiState: StateFlow<StockMarketUiState> = _uiState
 
@@ -124,9 +153,7 @@ class StockMarketViewModel(
         val code = state.stock.quote.code
         startRealtimeLoop(code)
         loadSlowDetail(code)
-        if (!isMinuteTab(state.selectedTab)) {
-            loadKLineForTab(state.selectedTab)
-        }
+        if (!isMinuteTab(state.selectedTab)) loadKLineForTab(state.selectedTab)
     }
 
     fun backToHome() {
@@ -136,18 +163,15 @@ class StockMarketViewModel(
             it.copy(
                 showDetail = false,
                 activeAction = null,
-                slowDataLoading = false
+                slowDataLoading = false,
+                depthState = StockDepthState()
             )
         }
         startMarketLoop()
     }
 
     fun refreshCurrent() {
-        if (_uiState.value.showDetail) {
-            loadLite(openDetail = true)
-        } else {
-            refreshHome()
-        }
+        if (_uiState.value.showDetail) loadLite(openDetail = true) else refreshHome()
     }
 
     fun selectTab(tab: String) {
@@ -160,11 +184,7 @@ class StockMarketViewModel(
                 it.copy(
                     selectedTab = tab,
                     stock = it.stock.copy(minutePoints = cached ?: emptyList()),
-                    requestMessage = if (tab == "五日") {
-                        "正在同步真实五日分时"
-                    } else {
-                        "正在同步真实分时"
-                    }
+                    requestMessage = if (tab == "五日") "正在同步真实五日分时" else "正在同步真实分时"
                 )
             }
             loadMinute(days)
@@ -221,6 +241,7 @@ class StockMarketViewModel(
                 query = code,
                 selectedTab = "分时",
                 depthState = StockDepthState(),
+                slowData = StockSlowDataSnapshot(),
                 requestMessage = null
             )
         }
@@ -258,7 +279,7 @@ class StockMarketViewModel(
         val seq = ++requestSeq
         val target = (forcedQuery ?: _uiState.value.query)
             .trim()
-            .ifBlank { _uiState.value.stock.quote.code.ifBlank { "600396" } }
+            .ifBlank { activeCode().ifBlank { DEFAULT_STOCK_CODE } }
         quoteJob?.cancel()
         quoteJob = viewModelScope.launch {
             if (openDetail) {
@@ -277,7 +298,7 @@ class StockMarketViewModel(
             }
             if (seq != requestSeq) return@launch
 
-            val sanitized = sanitizeLoadedStock(loaded)
+            val sanitized = sanitizeLoadedStock(loaded, target)
             seedCaches(sanitized)
             _uiState.update { state ->
                 state.copy(
@@ -285,35 +306,37 @@ class StockMarketViewModel(
                     query = sanitized.quote.code.ifBlank { target },
                     loading = false,
                     showDetail = if (openDetail) true else state.showDetail,
+                    slowData = if (openDetail) StockSlowDataSnapshot() else state.slowData,
                     requestMessage = sanitized.errorMessage
                 )
             }
 
+            val code = sanitized.quote.code.ifBlank { target }
             if (openDetail || _uiState.value.showDetail) {
-                startRealtimeLoop(sanitized.quote.code.ifBlank { target })
-                loadSlowDetail(sanitized.quote.code.ifBlank { target })
+                startRealtimeLoop(code)
+                loadSlowDetail(code)
                 val tab = _uiState.value.selectedTab
-                if (!isMinuteTab(tab)) {
-                    loadKLineForTab(tab, sanitized.quote.code.ifBlank { target })
-                }
+                if (!isMinuteTab(tab)) loadKLineForTab(tab, code)
             } else {
                 startMarketLoop()
             }
         }
     }
 
-    private fun sanitizeLoadedStock(loaded: StockDetailUiState): StockDetailUiState {
-        val isFallback = loaded.errorMessage != null ||
+    private fun sanitizeLoadedStock(
+        loaded: StockDetailUiState,
+        requestedQuery: String
+    ): StockDetailUiState {
+        val fallback = loaded.errorMessage != null ||
             loaded.dataSourceLabel.contains("示例", ignoreCase = true) ||
             loaded.dataSourceLabel.contains("回退", ignoreCase = true)
-        if (!isFallback) {
-            return loaded.copy(
-                indices = emptyList(),
-                watchlist = emptyList(),
-                marketBoards = emptyList(),
-                sellLevels = emptyList(),
-                buyLevels = emptyList(),
-                tradeTicks = emptyList()
+        if (fallback) {
+            val code = requestedQuery.filter(Char::isDigit).takeIf { it.length == 6 }.orEmpty()
+            return emptyStockState(code).copy(
+                quote = emptyStockState(code).quote.copy(name = code.ifBlank { requestedQuery }),
+                aiSummary = "真实行情暂不可用，未展示本地示例数据。",
+                dataSourceLabel = "真实行情暂不可用",
+                errorMessage = loaded.errorMessage ?: "真实行情暂不可用"
             )
         }
         return loaded.copy(
@@ -322,12 +345,7 @@ class StockMarketViewModel(
             marketBoards = emptyList(),
             sellLevels = emptyList(),
             buyLevels = emptyList(),
-            tradeTicks = emptyList(),
-            fundamentals = emptyList(),
-            minutePoints = emptyList(),
-            kLinePoints = emptyList(),
-            aiSummary = "真实行情暂不可用，未展示本地示例数据。",
-            dataSourceLabel = "真实行情暂不可用"
+            tradeTicks = emptyList()
         )
     }
 
@@ -353,9 +371,7 @@ class StockMarketViewModel(
                 if (waitMs > 0L) delay(waitMs)
                 if (!pageActive || _uiState.value.showDetail) break
 
-                if (firstRound) {
-                    _uiState.update { it.copy(marketLoading = true) }
-                }
+                if (firstRound) _uiState.update { it.copy(marketLoading = true) }
                 val result = withContext(Dispatchers.IO) {
                     marketDataRepository.loadMarketHome()
                 }
@@ -370,11 +386,7 @@ class StockMarketViewModel(
                                     watchlist = emptyList()
                                 ),
                                 marketLoading = false,
-                                requestMessage = if (state.requestMessage?.startsWith("市场数据") == true) {
-                                    null
-                                } else {
-                                    state.requestMessage
-                                }
+                                requestMessage = if (state.requestMessage?.startsWith("市场数据") == true) null else state.requestMessage
                             )
                         },
                         onFailure = { error ->
@@ -392,9 +404,7 @@ class StockMarketViewModel(
                 firstRound = false
                 nextTickAt += MARKET_REFRESH_INTERVAL_MS
                 val now = SystemClock.elapsedRealtime()
-                while (nextTickAt <= now) {
-                    nextTickAt += MARKET_REFRESH_INTERVAL_MS
-                }
+                while (nextTickAt <= now) nextTickAt += MARKET_REFRESH_INTERVAL_MS
             }
         }
     }
@@ -411,10 +421,10 @@ class StockMarketViewModel(
             delay(SLOW_DETAIL_DELAY_MS)
             if (!pageActive || !_uiState.value.showDetail || activeCode() != query) return@launch
             _uiState.update { it.copy(slowDataLoading = true) }
-            val result = withContext(Dispatchers.IO) {
-                val full = repository.loadAStock(query, mode = "full")
-                val slow = marketDataRepository.loadSlowStock(query)
-                full to slow
+            val result = coroutineScope {
+                val full = async(Dispatchers.IO) { repository.loadAStock(query, mode = "full") }
+                val slow = async(Dispatchers.IO) { marketDataRepository.loadSlowStock(query) }
+                full.await() to slow.await()
             }
             _uiState.update { state ->
                 if (!pageActive || !state.showDetail || state.stock.quote.code != query) {
@@ -425,17 +435,16 @@ class StockMarketViewModel(
                     val fullIsReal = full.errorMessage == null &&
                         !full.dataSourceLabel.contains("示例", ignoreCase = true) &&
                         !full.dataSourceLabel.contains("回退", ignoreCase = true)
-                    val nextStock = state.stock.copy(
-                        moneyFlow = if (fullIsReal) full.moneyFlow else state.stock.moneyFlow,
-                        fundamentals = if (fullIsReal) full.fundamentals else emptyList(),
-                        aiSummary = if (fullIsReal && full.aiSummary.isNotBlank()) {
-                            full.aiSummary
-                        } else {
-                            state.stock.aiSummary
-                        }
-                    )
                     state.copy(
-                        stock = nextStock,
+                        stock = state.stock.copy(
+                            moneyFlow = if (fullIsReal) full.moneyFlow else state.stock.moneyFlow,
+                            fundamentals = if (fullIsReal) full.fundamentals else emptyList(),
+                            aiSummary = if (fullIsReal && full.aiSummary.isNotBlank()) {
+                                full.aiSummary
+                            } else {
+                                state.stock.aiSummary
+                            }
+                        ),
                         slowData = slow,
                         slowDataLoading = false
                     )
@@ -449,11 +458,7 @@ class StockMarketViewModel(
         val target = (forcedQuery ?: activeCode()).ifBlank { _uiState.value.query }
         minuteJob?.cancel()
         minuteJob = viewModelScope.launch {
-            val message = if (days >= 5) {
-                "正在同步真实五日分时"
-            } else {
-                "正在同步真实分时"
-            }
+            val message = if (days >= 5) "正在同步真实五日分时" else "正在同步真实分时"
             _uiState.update { it.copy(kLineLoading = true, requestMessage = message) }
             val current = _uiState.value.stock
             val result = withContext(Dispatchers.IO) {
@@ -465,35 +470,27 @@ class StockMarketViewModel(
                         if (!pageActive || state.stock.quote.code != target) {
                             state
                         } else {
-                            val isCurrentView = isMinuteTab(state.selectedTab) &&
+                            val currentView = isMinuteTab(state.selectedTab) &&
                                 daysForTab(state.selectedTab) == days
                             val updated = applyRealtimeFrame(
-                                state = state,
-                                frame = frame,
-                                code = target,
-                                minuteDays = days,
-                                exposeMinutePoints = isCurrentView
+                                state,
+                                frame,
+                                target,
+                                days,
+                                exposeMinutePoints = currentView
                             )
-                            if (isCurrentView) {
-                                updated.copy(kLineLoading = false, requestMessage = null)
-                            } else {
-                                updated
-                            }
+                            if (currentView) updated.copy(kLineLoading = false, requestMessage = null) else updated
                         }
                     },
                     onFailure = { error ->
-                        val isCurrentView = pageActive &&
+                        val currentView = pageActive &&
                             state.stock.quote.code == target &&
                             isMinuteTab(state.selectedTab) &&
                             daysForTab(state.selectedTab) == days
-                        if (!isCurrentView) {
-                            state
-                        } else {
-                            state.copy(
-                                kLineLoading = false,
-                                requestMessage = "${if (days >= 5) "五日分时" else "分时"}加载失败：${error.message ?: error.javaClass.simpleName}"
-                            )
-                        }
+                        if (!currentView) state else state.copy(
+                            kLineLoading = false,
+                            requestMessage = "${if (days >= 5) "五日分时" else "分时"}加载失败：${error.message ?: error.javaClass.simpleName}"
+                        )
                     }
                 )
             }
@@ -524,23 +521,19 @@ class StockMarketViewModel(
             _uiState.update { state ->
                 result.fold(
                     onSuccess = { points ->
-                        if (points.size >= 2) {
-                            kLineCache[cacheKey] = points
-                        }
-                        val isCurrentView = pageActive &&
+                        if (points.size >= 2) kLineCache[cacheKey] = points
+                        val currentView = pageActive &&
                             state.stock.quote.code == target &&
                             !isMinuteTab(state.selectedTab) &&
                             periodForTab(state.selectedTab) == period
-                        if (!isCurrentView) {
-                            state
-                        } else if (points.size >= 2) {
-                            state.copy(
+                        when {
+                            !currentView -> state
+                            points.size >= 2 -> state.copy(
                                 stock = state.stock.copy(kLinePoints = points),
                                 kLineLoading = false,
                                 requestMessage = null
                             )
-                        } else {
-                            state.copy(
+                            else -> state.copy(
                                 stock = state.stock.copy(kLinePoints = cached ?: emptyList()),
                                 kLineLoading = false,
                                 requestMessage = if (cached != null) {
@@ -552,23 +545,19 @@ class StockMarketViewModel(
                         }
                     },
                     onFailure = { error ->
-                        val isCurrentView = pageActive &&
+                        val currentView = pageActive &&
                             state.stock.quote.code == target &&
                             !isMinuteTab(state.selectedTab) &&
                             periodForTab(state.selectedTab) == period
-                        if (!isCurrentView) {
-                            state
-                        } else {
-                            state.copy(
-                                stock = state.stock.copy(kLinePoints = cached ?: emptyList()),
-                                kLineLoading = false,
-                                requestMessage = if (cached != null) {
-                                    "${tab}刷新失败，当前显示本地缓存"
-                                } else {
-                                    "${tab}加载失败：${error.message ?: error.javaClass.simpleName}"
-                                }
-                            )
-                        }
+                        if (!currentView) state else state.copy(
+                            stock = state.stock.copy(kLinePoints = cached ?: emptyList()),
+                            kLineLoading = false,
+                            requestMessage = if (cached != null) {
+                                "${tab}刷新失败，当前显示本地缓存"
+                            } else {
+                                "${tab}加载失败：${error.message ?: error.javaClass.simpleName}"
+                            }
+                        )
                     }
                 )
             }
@@ -589,16 +578,11 @@ class StockMarketViewModel(
                 if (waitMs > 0L) delay(waitMs)
                 if (!pageActive || !_uiState.value.showDetail) break
 
-                val beforeRequest = _uiState.value
-                val activeCode = beforeRequest.stock.quote.code.ifBlank { target }
-                val minuteDays = daysForTab(beforeRequest.selectedTab)
-                val current = beforeRequest.stock
+                val before = _uiState.value
+                val activeCode = before.stock.quote.code.ifBlank { target }
+                val minuteDays = daysForTab(before.selectedTab)
                 val result = withContext(Dispatchers.IO) {
-                    realtimeRepository.loadRealtimeFrame(
-                        query = activeCode,
-                        current = current,
-                        minuteDays = minuteDays
-                    )
+                    realtimeRepository.loadRealtimeFrame(activeCode, before.stock, minuteDays)
                 }
                 result.onSuccess { frame ->
                     if (pageActive && acceptSequence(activeCode, minuteDays, frame.sequence)) {
@@ -609,11 +593,11 @@ class StockMarketViewModel(
                                 val exposeMinutes = isMinuteTab(state.selectedTab) &&
                                     daysForTab(state.selectedTab) == minuteDays
                                 applyRealtimeFrame(
-                                    state = state,
-                                    frame = frame,
-                                    code = activeCode,
-                                    minuteDays = minuteDays,
-                                    exposeMinutePoints = exposeMinutes
+                                    state,
+                                    frame,
+                                    activeCode,
+                                    minuteDays,
+                                    exposeMinutes
                                 )
                             }
                         }
@@ -622,9 +606,7 @@ class StockMarketViewModel(
 
                 nextTickAt += REALTIME_INTERVAL_MS
                 val now = SystemClock.elapsedRealtime()
-                while (nextTickAt <= now) {
-                    nextTickAt += REALTIME_INTERVAL_MS
-                }
+                while (nextTickAt <= now) nextTickAt += REALTIME_INTERVAL_MS
             }
         }
     }
@@ -637,21 +619,14 @@ class StockMarketViewModel(
         exposeMinutePoints: Boolean
     ): StockMarketUiState {
         val minuteCacheKey = minuteKey(code, minuteDays)
-        val previousMinutes = minuteCache[minuteCacheKey].orEmpty()
         val mergedMinutes = mergeMinutePoints(
-            previous = previousMinutes,
+            previous = minuteCache[minuteCacheKey].orEmpty(),
             incoming = frame.minutePoints,
             isSnapshot = frame.minuteIsSnapshot,
             maxSize = if (minuteDays >= 5) MAX_FIVE_DAY_POINTS else MAX_ONE_DAY_POINTS
         )
-        if (mergedMinutes.isNotEmpty()) {
-            minuteCache[minuteCacheKey] = mergedMinutes
-        }
+        if (mergedMinutes.isNotEmpty()) minuteCache[minuteCacheKey] = mergedMinutes
 
-        val mergedTicks = mergeTradeTicks(
-            previous = state.stock.tradeTicks,
-            incoming = frame.tradeTicks
-        )
         val visibleMinutes = if (exposeMinutePoints) {
             mergedMinutes.ifEmpty { state.stock.minutePoints }
         } else {
@@ -660,7 +635,12 @@ class StockMarketViewModel(
         val depthState = depthStateFor(frame)
         val nextSellLevels = if (depthState.canDisplayLevels) frame.sellLevels else emptyList()
         val nextBuyLevels = if (depthState.canDisplayLevels) frame.buyLevels else emptyList()
-        val nextTradeTicks = mergedTicks.ifEmpty { state.stock.tradeTicks }
+        val nextTradeTicks = when {
+            frame.tradeTicksDerived -> emptyList()
+            frame.ticksAreSnapshot -> frame.tradeTicks.takeLast(MAX_TRADE_TICKS)
+            frame.tradeTicks.isNotEmpty() -> mergeTradeTicks(state.stock.tradeTicks, frame.tradeTicks)
+            else -> state.stock.tradeTicks
+        }
         val nextTopMetrics = if (frame.quote == state.stock.quote) {
             state.stock.topMetrics
         } else {
@@ -669,15 +649,8 @@ class StockMarketViewModel(
         val sourceLabel = buildString {
             append(frame.dataSourceLabel)
             append(" · 盘口")
-            append(
-                when (depthState.status) {
-                    StockModuleStatus.Ok -> "实时"
-                    StockModuleStatus.Partial -> "部分"
-                    StockModuleStatus.Stale -> "缓存"
-                    StockModuleStatus.Empty -> "空"
-                    StockModuleStatus.Unavailable -> "不可用"
-                }
-            )
+            append(depthState.status.displayLabel())
+            if (frame.tradeTicksDerived) append(" · 逐笔不可用")
         }
 
         if (
@@ -708,24 +681,14 @@ class StockMarketViewModel(
     }
 
     private fun depthStateFor(frame: StockRealtimeFrame): StockDepthState {
-        val sellCount = frame.sellLevels.size
-        val buyCount = frame.buyLevels.size
-        val status = when {
-            sellCount >= 5 && buyCount >= 5 -> StockModuleStatus.Ok
-            sellCount > 0 || buyCount > 0 -> StockModuleStatus.Partial
-            else -> StockModuleStatus.Unavailable
-        }
         return StockDepthState(
-            status = status,
-            source = "eastmoney_push2",
-            isDerived = false,
-            sourceTimestamp = frame.sourceTimestamp,
-            cacheAgeMs = frame.cacheAgeMs,
-            warnings = if (status == StockModuleStatus.Unavailable) {
-                listOf("真实盘口暂不可用，已清空旧盘口")
-            } else {
-                emptyList()
-            }
+            status = frame.depthStatus,
+            source = frame.depthSource,
+            isDerived = frame.depthIsDerived,
+            updatedAt = frame.depthUpdatedAt,
+            sourceTimestamp = frame.depthSourceTimestamp,
+            cacheAgeMs = frame.depthCacheAgeMs,
+            warnings = frame.depthWarnings
         )
     }
 
@@ -739,8 +702,7 @@ class StockMarketViewModel(
         val source = if (isSnapshot && incoming.size > 1) incoming else previous + incoming
         val merged = LinkedHashMap<String, StockMinutePoint>()
         source.forEachIndexed { index, point ->
-            val key = point.time.ifBlank { "index:$index:${point.price}" }
-            merged[key] = point
+            merged[point.time.ifBlank { "index:$index:${point.price}" }] = point
         }
         return merged.values.toList().takeLast(maxSize)
     }
@@ -781,9 +743,8 @@ class StockMarketViewModel(
         super.onCleared()
     }
 
-    private fun activeCode(): String {
-        return _uiState.value.stock.quote.code.ifBlank { _uiState.value.query }
-    }
+    private fun activeCode(): String =
+        _uiState.value.stock.quote.code.ifBlank { _uiState.value.query }
 
     private fun isMinuteTab(tab: String): Boolean = tab == "分时" || tab == "五日"
 
@@ -799,12 +760,20 @@ class StockMarketViewModel(
 
     private fun kLineKey(code: String, period: String): String = "$code:$period"
 
+    private fun com.yuchen.ailedger.model.StockModuleStatus.displayLabel(): String = when (this) {
+        com.yuchen.ailedger.model.StockModuleStatus.Ok -> "实时"
+        com.yuchen.ailedger.model.StockModuleStatus.Partial -> "部分"
+        com.yuchen.ailedger.model.StockModuleStatus.Stale -> "缓存"
+        com.yuchen.ailedger.model.StockModuleStatus.Empty -> "空"
+        com.yuchen.ailedger.model.StockModuleStatus.Unavailable -> "不可用"
+    }
+
     companion object {
-        private const val REALTIME_INTERVAL_MS = 1000L
+        private const val REALTIME_INTERVAL_MS = 1_000L
         private const val MARKET_REFRESH_INTERVAL_MS = 20_000L
-        private const val SLOW_DETAIL_DELAY_MS = 1200L
+        private const val SLOW_DETAIL_DELAY_MS = 1_200L
         private const val MAX_ONE_DAY_POINTS = 600
-        private const val MAX_FIVE_DAY_POINTS = 2600
+        private const val MAX_FIVE_DAY_POINTS = 2_600
         private const val MAX_TRADE_TICKS = 120
     }
 }
