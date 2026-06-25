@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.data.StockRealtimeFrame
 import com.yuchen.ailedger.data.StockRealtimeRepository
 import com.yuchen.ailedger.data.StockRepository
+import com.yuchen.ailedger.model.AppPageActivity
+import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockKLinePoint
 import com.yuchen.ailedger.model.StockMinutePoint
@@ -50,12 +52,18 @@ class StockMarketViewModel(
     private var minuteJob: Job? = null
     private var realtimeJob: Job? = null
     private var requestSeq = 0
+    private var pageActive = AppPageActivity.activeTab.value == AppTab.Tools
 
     private val minuteCache = mutableMapOf<String, List<StockMinutePoint>>()
     private val kLineCache = mutableMapOf<String, List<StockKLinePoint>>()
     private val lastSequenceByStream = mutableMapOf<String, Long>()
 
     init {
+        viewModelScope.launch {
+            AppPageActivity.activeTab.collect { tab ->
+                setPageActive(tab == AppTab.Tools)
+            }
+        }
         refreshHome()
     }
 
@@ -173,6 +181,29 @@ class StockMarketViewModel(
         loadLite(openDetail = true, forcedQuery = code)
     }
 
+    private fun setPageActive(active: Boolean) {
+        if (pageActive == active) return
+        pageActive = active
+        if (!active) {
+            stopRealtimeLoop()
+            slowDetailJob?.cancel()
+            minuteJob?.cancel()
+            kLineJob?.cancel()
+            return
+        }
+
+        val state = _uiState.value
+        if (!state.showDetail) return
+        val code = activeCode()
+        startRealtimeLoop(code)
+        loadSlowDetail(code)
+        if (isMinuteTab(state.selectedTab)) {
+            loadMinute(daysForTab(state.selectedTab), code)
+        } else {
+            loadKLineForTab(state.selectedTab, code)
+        }
+    }
+
     private fun loadLite(openDetail: Boolean, forcedQuery: String? = null) {
         val seq = ++requestSeq
         val target = (forcedQuery ?: _uiState.value.query)
@@ -250,16 +281,16 @@ class StockMarketViewModel(
     }
 
     private fun loadSlowDetail(query: String) {
-        if (query.isBlank()) return
+        if (!pageActive || query.isBlank()) return
         slowDetailJob?.cancel()
         slowDetailJob = viewModelScope.launch {
             delay(SLOW_DETAIL_DELAY_MS)
-            if (!_uiState.value.showDetail || activeCode() != query) return@launch
+            if (!pageActive || !_uiState.value.showDetail || activeCode() != query) return@launch
             val full = withContext(Dispatchers.IO) {
                 repository.loadAStock(query, mode = "full")
             }
             _uiState.update { state ->
-                if (!state.showDetail || state.stock.quote.code != query) {
+                if (!pageActive || !state.showDetail || state.stock.quote.code != query) {
                     state
                 } else {
                     val nextStock = state.stock.copy(
@@ -274,6 +305,7 @@ class StockMarketViewModel(
     }
 
     private fun loadMinute(days: Int = 1, forcedQuery: String? = null) {
+        if (!pageActive) return
         val target = (forcedQuery ?: activeCode()).ifBlank { _uiState.value.query }
         minuteJob?.cancel()
         minuteJob = viewModelScope.launch {
@@ -290,7 +322,7 @@ class StockMarketViewModel(
             _uiState.update { state ->
                 result.fold(
                     onSuccess = { frame ->
-                        if (state.stock.quote.code != target) {
+                        if (!pageActive || state.stock.quote.code != target) {
                             state
                         } else {
                             val isCurrentView = isMinuteTab(state.selectedTab) &&
@@ -310,7 +342,8 @@ class StockMarketViewModel(
                         }
                     },
                     onFailure = { error ->
-                        val isCurrentView = state.stock.quote.code == target &&
+                        val isCurrentView = pageActive &&
+                            state.stock.quote.code == target &&
                             isMinuteTab(state.selectedTab) &&
                             daysForTab(state.selectedTab) == days
                         if (!isCurrentView) {
@@ -328,6 +361,7 @@ class StockMarketViewModel(
     }
 
     private fun loadKLineForTab(tab: String, forcedQuery: String? = null) {
+        if (!pageActive) return
         val target = (forcedQuery ?: activeCode()).ifBlank { _uiState.value.query }
         val period = periodForTab(tab)
         val cacheKey = kLineKey(target, period)
@@ -353,7 +387,8 @@ class StockMarketViewModel(
                         if (points.size >= 2) {
                             kLineCache[cacheKey] = points
                         }
-                        val isCurrentView = state.stock.quote.code == target &&
+                        val isCurrentView = pageActive &&
+                            state.stock.quote.code == target &&
                             !isMinuteTab(state.selectedTab) &&
                             periodForTab(state.selectedTab) == period
                         if (!isCurrentView) {
@@ -377,7 +412,8 @@ class StockMarketViewModel(
                         }
                     },
                     onFailure = { error ->
-                        val isCurrentView = state.stock.quote.code == target &&
+                        val isCurrentView = pageActive &&
+                            state.stock.quote.code == target &&
                             !isMinuteTab(state.selectedTab) &&
                             periodForTab(state.selectedTab) == period
                         if (!isCurrentView) {
@@ -400,6 +436,7 @@ class StockMarketViewModel(
     }
 
     private fun startRealtimeLoop(code: String) {
+        if (!pageActive) return
         val target = code.ifBlank { activeCode() }.ifBlank { _uiState.value.query }
         if (realtimeJob?.isActive == true && activeCode() == target) return
         realtimeJob?.cancel()
@@ -410,7 +447,7 @@ class StockMarketViewModel(
             while (isActive) {
                 val waitMs = nextTickAt - SystemClock.elapsedRealtime()
                 if (waitMs > 0L) delay(waitMs)
-                if (!_uiState.value.showDetail) break
+                if (!pageActive || !_uiState.value.showDetail) break
 
                 val beforeRequest = _uiState.value
                 val activeCode = beforeRequest.stock.quote.code.ifBlank { target }
@@ -424,9 +461,9 @@ class StockMarketViewModel(
                     )
                 }
                 result.onSuccess { frame ->
-                    if (acceptSequence(activeCode, minuteDays, frame.sequence)) {
+                    if (pageActive && acceptSequence(activeCode, minuteDays, frame.sequence)) {
                         _uiState.update { state ->
-                            if (!state.showDetail || state.stock.quote.code != activeCode) {
+                            if (!pageActive || !state.showDetail || state.stock.quote.code != activeCode) {
                                 state
                             } else {
                                 val exposeMinutes = isMinuteTab(state.selectedTab) &&
