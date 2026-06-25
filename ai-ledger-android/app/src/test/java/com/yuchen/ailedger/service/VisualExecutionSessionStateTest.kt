@@ -73,7 +73,7 @@ class VisualExecutionSessionStateTest {
             backendMessage = "temporary",
         )
 
-        assertEquals(503, error.httpStatus)
+        assertTrue("HTTP status should remain 503 but was ${error.httpStatus}", error.httpStatus == 503)
         assertEquals("route_unavailable", error.code)
         assertTrue(error.retryable)
         assertEquals("temporary", error.backendMessage)
