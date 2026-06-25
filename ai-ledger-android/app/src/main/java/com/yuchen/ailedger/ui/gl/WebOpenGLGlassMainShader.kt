@@ -6,9 +6,13 @@ internal object WebOpenGLGlassMainShader {
             vec2 coord=vec2(gl_FragCoord.x,uResolution.y-gl_FragCoord.y);
             vec2 z=max(uRect.zw,vec2(1.0));
             vec2 p=coord-uRect.xy;
+            vec2 center=z*0.5;
+            vec2 safeHalfSize=max(center,vec2(1.0));
+            vec2 invSafeCenter=1.0/safeHalfSize;
             float minSize=min(z.x,z.y);
             float r=min(uRadius,minSize*0.5);
-            float sd=roundedBoxSdf(p,z,r);
+            vec2 sdfCore=max(center-vec2(r),vec2(0.0));
+            float sd=roundedBoxSdfPrepared(p,center,sdfCore,r);
             // 以几何边界为中心做对称像素覆盖，避免圆弧转直边处出现外扩台阶。
             float mask=1.0-smoothstep(-0.75,0.75,sd);
             if(mask<=0.001)discard;
@@ -21,7 +25,7 @@ internal object WebOpenGLGlassMainShader {
             float pressWide=0.0;
 
             float depth=insideFromSdf(sd);
-            vec2 normal=perimeterNormalAt(p,z,r);
+            vec2 normal=perimeterNormalPrepared(p,center,sdfCore);
 
             // 这些量只依赖本次 draw 的 uniform/几何，主体与圆肩来源点共用一次结果。
             float bodyReach=bodyLensReach(minSize,r);
@@ -74,7 +78,13 @@ internal object WebOpenGLGlassMainShader {
             vec2 mainBodyFlow=bodyRefractionFlow(
                 normal,depth,bodyWeight,lensParams
             );
-            vec2 centerFlow=centerTransport(p,z,transportParams);
+            vec2 centerFlow=centerTransport(
+                p,
+                center,
+                invSafeCenter,
+                minSize,
+                transportParams
+            );
             vec2 bodyOpticalCoord=p+mainBodyFlow+centerFlow+pressBodyFlow;
             float materialWeight=bodyWeight;
             vec2 shoulderOptics=vec2(0.0);
@@ -94,7 +104,10 @@ internal object WebOpenGLGlassMainShader {
                 vec4 shoulderData=evaluateShoulderSource(
                     p,
                     normal,
-                    z,
+                    center,
+                    safeHalfSize,
+                    sdfCore,
+                    invSafeCenter,
                     r,
                     depth,
                     shoulderGeometry,
@@ -114,6 +127,9 @@ internal object WebOpenGLGlassMainShader {
                     sourceDepth,
                     sourceNormal,
                     z,
+                    center,
+                    invSafeCenter,
+                    minSize,
                     lensParams,
                     sourceWeight,
                     transportParams,
@@ -122,8 +138,9 @@ internal object WebOpenGLGlassMainShader {
                 shoulderActive=true;
             }
             vec2 uvRoot=max(uRootResolution,vec2(1.0));
-            vec2 uvTexel=0.5/uvRoot;
-            vec2 bodyUv=globalUvAt(bodyOpticalCoord,uvRoot,uvTexel);
+            vec2 rootInv=1.0/uvRoot;
+            vec2 uvTexel=0.5*rootInv;
+            vec2 bodyUv=globalUvAt(bodyOpticalCoord,rootInv,uvTexel);
     """
 
     const val BODY_SUFFIX = """
@@ -163,14 +180,14 @@ internal object WebOpenGLGlassMainShader {
                     vec3 redSample=clearBackdrop(
                         globalUvAt(
                             bodyOpticalCoord+splitPx,
-                            uvRoot,
+                            rootInv,
                             uvTexel
                         )
                     );
                     vec3 blueSample=clearBackdrop(
                         globalUvAt(
                             bodyOpticalCoord-splitPx,
-                            uvRoot,
+                            rootInv,
                             uvTexel
                         )
                     );
