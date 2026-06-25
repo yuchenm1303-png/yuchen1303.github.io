@@ -6,6 +6,7 @@ sealed interface AgentTaskOutcome {
     data class Completed(override val message: String) : AgentTaskOutcome
     data class Failed(override val message: String) : AgentTaskOutcome
     data class Paused(override val message: String) : AgentTaskOutcome
+    data class AwaitingConfirmation(override val message: String) : AgentTaskOutcome
     data class Cancelled(override val message: String) : AgentTaskOutcome
     data class BudgetExceeded(override val message: String) : AgentTaskOutcome
 }
@@ -37,6 +38,12 @@ internal fun AgentTaskOutcome.toTerminalPresentation(): AgentTaskTerminalPresent
             defaultMessage = "任务暂停",
             logPrefix = "暂停",
         )
+        is AgentTaskOutcome.AwaitingConfirmation -> AgentTaskTerminalPresentation(
+            status = "等待确认",
+            currentAction = "等待用户确认",
+            defaultMessage = "该动作需要用户确认。",
+            logPrefix = "确认",
+        )
         is AgentTaskOutcome.Cancelled -> AgentTaskTerminalPresentation(
             status = "已手动停止",
             currentAction = "用户手动停止",
@@ -60,7 +67,7 @@ internal object AgentTaskOutcomeResolver {
     ): AgentTaskOutcome {
         val clean = message.trim()
         if (completed) return AgentTaskOutcome.Completed(clean)
-        if (stoppedForConfirmation) return AgentTaskOutcome.Paused(clean)
+        if (stoppedForConfirmation) return AgentTaskOutcome.AwaitingConfirmation(clean)
 
         val normalized = clean.lowercase()
         return when {
@@ -78,7 +85,8 @@ internal object AgentTaskOutcomeResolver {
                 normalized.contains("planning budget") ||
                 normalized.contains("budget reached") -> AgentTaskOutcome.BudgetExceeded(clean)
 
-            normalized.contains("已暂停") ||
+            normalized.contains("视觉智能体已关闭") ||
+                normalized.contains("已暂停") ||
                 normalized.contains("暂停等待") ||
                 normalized.contains("等待用户接管") ||
                 normalized.contains("用户接管") ||
