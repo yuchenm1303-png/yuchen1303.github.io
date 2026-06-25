@@ -107,6 +107,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         lazy(kotlin.LazyThreadSafetyMode.NONE) { InstalledAppIndex(context.applicationContext) }
     }
     val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
     val imeOpenThresholdPx = with(density) { 48.dp.toPx() }.toInt()
     var dockCollapsedByIme by remember { mutableStateOf(false) }
     var imeHidden by remember { mutableStateOf(true) }
@@ -117,14 +118,14 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
 
     // Insets 的像素值在输入法动画期间每帧变化。只在协程中观察像素，Compose 根节点
     // 仅接收“折叠”和“完全隐藏”两个离散状态，避免整棵页面树随每个像素重组。
-    LaunchedEffect(density, imeOpenThresholdPx) {
-        var previousImeBottomPx = WindowInsets.ime.getBottom(density)
+    LaunchedEffect(imeInsets, density, imeOpenThresholdPx) {
+        var previousImeBottomPx = imeInsets.getBottom(density)
         val initialCollapsed = previousImeBottomPx >= imeOpenThresholdPx
         val initialHidden = previousImeBottomPx == 0
         if (dockCollapsedByIme != initialCollapsed) dockCollapsedByIme = initialCollapsed
         if (imeHidden != initialHidden) imeHidden = initialHidden
 
-        snapshotFlow { WindowInsets.ime.getBottom(density) }.collect { imeBottomPx ->
+        snapshotFlow { imeInsets.getBottom(density) }.collect { imeBottomPx ->
             val retreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
             val nextCollapsed = when {
                 imeBottomPx == 0 || retreating -> false
