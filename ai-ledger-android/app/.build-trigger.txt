@@ -1,2 +1,2 @@
 Build Compose Android APK verification
-2026-06-25 股票市场首页顶部面板视觉整理验证
+2026-06-25 股票详情页专业布局、真实五档与首尾集合竞价验证
