@@ -47,6 +47,24 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
+    fun taskWindowPackageHintIsRecentOnly() {
+        ScreenObservationStore.markDisabled()
+        ScreenObservationStore.updateWindowHint("com.example.target", "Target")
+        val hint = ScreenObservationStore.recentWindowPackageHint()
+
+        assertEquals("com.example.target", hint?.packageName)
+        assertEquals("Target", hint?.windowTitle)
+        assertEquals(
+            null,
+            ScreenObservationStore.recentWindowPackageHint(
+                maxAgeMs = 1_500L,
+                nowMs = (hint?.observedAt ?: 0L) + 1_501L,
+            ),
+        )
+        ScreenObservationStore.markDisabled()
+    }
+
+    @Test
     fun finiteAttemptsStopAtLimit() {
         assertTrue(VisualRouteRetryPolicy.decide(true, 0) is VisualRouteRetryDecision.Retry)
         assertTrue(VisualRouteRetryPolicy.decide(true, 1) is VisualRouteRetryDecision.Retry)
