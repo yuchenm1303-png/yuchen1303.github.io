@@ -15,7 +15,6 @@ enum class VisualSemanticProgressStatus(val wireValue: String) {
 data class VisualSemanticProgressResult(
     val status: VisualSemanticProgressStatus,
     val actionSignature: String,
-    val hypothesisKey: String,
     val milestoneId: String,
     val pageChanged: Boolean,
     val packageChanged: Boolean,
@@ -81,13 +80,14 @@ class VisualSemanticProgressTracker(
     private var consecutiveRegressions: Int = 0
 
     fun onVerifiedSurface(snapshot: AgentScreenSnapshot) {
+        currentMilestoneId = DEFAULT_MILESTONE_ID
         clearTransientState()
         rememberConfirmed(snapshot)
     }
 
     fun resetAfterUserTakeover(snapshot: AgentScreenSnapshot? = null) {
-        clearTransientState()
         currentMilestoneId = DEFAULT_MILESTONE_ID
+        clearTransientState()
         snapshot?.let(::rememberConfirmed)
     }
 
@@ -122,7 +122,9 @@ class VisualSemanticProgressTracker(
 
         val beforeEvidence = screenEvidence(before)
         val afterEvidence = screenEvidence(after)
-        val expectedMatched = matchEvidence(intent.expectedEvidence, afterEvidence)
+        val expectedBefore = matchEvidence(intent.expectedEvidence, beforeEvidence)
+        val expectedAfter = matchEvidence(intent.expectedEvidence, afterEvidence)
+        val newlyMatchedExpected = expectedAfter.filterNot(expectedBefore::contains)
         val failureMatched = matchEvidence(intent.failureEvidence, afterEvidence)
         val newEvidence = afterEvidence.values
             .filterNot { it.normalized in beforeEvidence.normalizedValues }
@@ -131,7 +133,8 @@ class VisualSemanticProgressTracker(
             .take(MAX_FEEDBACK_EVIDENCE)
 
         val inputTextVisible = step.type == "input_text" &&
-            step.text?.takeIf { it.isNotBlank() }?.let(afterEvidence::contains) == true
+            step.text?.takeIf { it.isNotBlank() }?.let(afterEvidence::contains) == true &&
+            step.text?.takeIf { it.isNotBlank() }?.let(beforeEvidence::contains) != true
         val inputSurfaceChanged = step.type == "input_text" &&
             inputNodeFingerprint(before) != inputNodeFingerprint(after)
         val targetTransitionObserved = step.targetText
@@ -146,7 +149,7 @@ class VisualSemanticProgressTracker(
         val status = when {
             structuralRegression -> VisualSemanticProgressStatus.Regressed
             failureMatched.isNotEmpty() -> VisualSemanticProgressStatus.Regressed
-            expectedMatched.isNotEmpty() -> VisualSemanticProgressStatus.Advanced
+            newlyMatchedExpected.isNotEmpty() -> VisualSemanticProgressStatus.Advanced
             !pageChanged -> VisualSemanticProgressStatus.Stalled
             returnedToConfirmedPage -> VisualSemanticProgressStatus.Advanced
             inputTextVisible || inputSurfaceChanged -> VisualSemanticProgressStatus.Advanced
@@ -163,7 +166,7 @@ class VisualSemanticProgressTracker(
             status = status,
             intent = intent,
             pageChanged = pageChanged,
-            expectedMatched = expectedMatched,
+            expectedMatched = newlyMatchedExpected,
             failureMatched = failureMatched,
             newEvidence = newEvidence,
             structuralRegression = structuralRegression,
@@ -172,11 +175,10 @@ class VisualSemanticProgressTracker(
         return VisualSemanticProgressResult(
             status = status,
             actionSignature = actionSignature,
-            hypothesisKey = hypothesisKey,
             milestoneId = currentMilestoneId,
             pageChanged = pageChanged,
             packageChanged = packageChanged,
-            expectedEvidenceMatched = expectedMatched,
+            expectedEvidenceMatched = newlyMatchedExpected,
             failureEvidenceMatched = failureMatched,
             newEvidence = newEvidence,
             failedHypothesisCount = failedHypotheses.size,
