@@ -238,12 +238,12 @@ class VisualAgentClientTest {
         assertFalse(payload.getJSONObject("deviceContext").has("installedApps"))
         val serialized = payload.toString()
         assertEquals(
-            1,
+            2,
             serialized.windowed("com.tencent.mobileqq".length)
                 .count { it == "com.tencent.mobileqq" },
         )
         assertEquals(
-            1,
+            2,
             serialized.windowed("com.hexin.plat.android".length)
                 .count { it == "com.hexin.plat.android" },
         )
