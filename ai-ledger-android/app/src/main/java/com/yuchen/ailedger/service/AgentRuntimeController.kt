@@ -107,6 +107,7 @@ object AgentRuntimeController {
         mutableEnabled.value = value
         publishProgress(
             current.copy(
+                taskId = if (value) current.taskId else 0L,
                 enabled = value,
                 running = if (value) current.running else false,
                 status = if (value) "待命" else "已关闭",
@@ -168,6 +169,8 @@ object AgentRuntimeController {
 
     fun startTask(goal: String): Long {
         return synchronized(taskStateLock) {
+            // 新任务开始即让旧 Runner 的 stopGeneration 失效；旧任务终态还会被 taskId 再次拦截。
+            manualStopGeneration += 1L
             completePendingConfirmation(false)
             completePendingUserInput(null)
             userTakeoverPaused = false
