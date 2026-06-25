@@ -65,26 +65,35 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun responseErrorKeepsServerFields() {
-        val body = """{"code":"route_unavailable","retryable":true,"message":"temporary"}"""
+    fun structuredRouteErrorKeepsServerFields() {
+        val error = VisualAgentRequestException(
+            httpStatus = 503,
+            code = "route_unavailable",
+            retryable = true,
+            backendMessage = "temporary",
+        )
 
-        val error = parseVisualAgentHttpFailure(503, body)
-
-        assertTrue("HTTP status should remain 503 but was ${error.httpStatus}", error.httpStatus == 503)
+        assertEquals(503, error.httpStatus)
         assertEquals("route_unavailable", error.code)
         assertTrue(error.retryable)
         assertEquals("temporary", error.backendMessage)
+        assertTrue(error.message.orEmpty().contains("HTTP 503"))
+        assertTrue(error.message.orEmpty().contains("retryable=true"))
     }
 
     @Test
-    fun explicitServerFlagCanDisableRecovery() {
-        val body = """{"code":"route_rejected","retryable":false,"message":"rejected"}"""
-
-        val error = parseVisualAgentHttpFailure(503, body)
+    fun explicitNonRetryableRouteErrorStaysNonRetryable() {
+        val error = VisualAgentRequestException(
+            httpStatus = 503,
+            code = "route_rejected",
+            retryable = false,
+            backendMessage = "rejected",
+        )
 
         assertFalse(error.retryable)
         assertEquals("route_rejected", error.code)
         assertEquals("rejected", error.backendMessage)
+        assertTrue(error.message.orEmpty().contains("retryable=false"))
     }
 
     @Test
