@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
-import android.os.SystemClock
 import java.io.IOException
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
@@ -16,8 +15,11 @@ class VisualLoopRunner(
     private val applicationContext = appContext.applicationContext
     private val installedAppIndex = InstalledAppIndex(applicationContext)
     private val deviceToolExecutor = DeviceToolExecutor(applicationContext, installedAppIndex)
-    private val foregroundPackageProbe by lazy(LazyThreadSafetyMode.NONE) {
-        ForegroundPackageProbe(DeviceShellBridge(applicationContext))
+    private val observationCoordinator by lazy(LazyThreadSafetyMode.NONE) {
+        VisualObservationCoordinator(
+            captureSource = AccessibilityVisualObservationCaptureSource,
+            foregroundPackageReader = ForegroundPackageProbe(DeviceShellBridge(applicationContext)),
+        )
     }
     private val clientDeviceId by lazy { AgentClientIdentity.getOrCreateDeviceId(applicationContext) }
 
@@ -72,7 +74,7 @@ class VisualLoopRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 var observation = prefetchedObservation?.also { prefetchedObservation = null }
-                    ?: captureTrustedObservation(
+                    ?: observationCoordinator.captureTrustedObservation(
                         forceVisual = executionSession.requiresVisualObservation(),
                         expectedPackage = executionSession.selectedTargetPackage,
                     )
@@ -80,7 +82,7 @@ class VisualLoopRunner(
                 state.currentPackage = snapshot.currentApp
                 var runtimeContext = executionSession.runtimeContext(snapshot)
                 if (runtimeContext.guiPlusEligible && snapshot.visual?.hasImage != true) {
-                    observation = captureTrustedObservation(
+                    observation = observationCoordinator.captureTrustedObservation(
                         forceVisual = true,
                         expectedPackage = executionSession.selectedTargetPackage,
                     )
@@ -124,7 +126,7 @@ class VisualLoopRunner(
                         is VisualRouteRetryDecision.Retry -> {
                             state.reobserveCount += 1
                             val structuredError = error as? VisualAgentRequestException
-                            val recoveredObservation = captureTrustedObservation(
+                            val recoveredObservation = observationCoordinator.captureTrustedObservation(
                                 forceVisual = true,
                                 expectedPackage = executionSession.selectedTargetPackage,
                             )
@@ -379,7 +381,7 @@ class VisualLoopRunner(
                 }
 
                 if (requiresFreshObservation(executableStep)) {
-                    val currentBeforeExecution = captureTrustedObservation(
+                    val currentBeforeExecution = observationCoordinator.captureTrustedObservation(
                         forceVisual = false,
                         expectedPackage = executionSession.selectedTargetPackage,
                         settleMs = PACKAGE_CHECK_OVERLAY_SETTLE_MS,
@@ -434,9 +436,9 @@ class VisualLoopRunner(
                         continue
                     }
                     AgentRuntimeController.noteDiagnostic("正在确认目标应用并准备视觉画面")
-                    val verification = awaitStableTargetPackage(
+                    val verification = observationCoordinator.awaitStableTargetPackage(
                         expectedPackage = expectedPackage,
-                        stopGeneration = stopGeneration,
+                        isStopped = { isStopped(stopGeneration) },
                     )
                     if (verification.verified) {
                         val verifiedEvent = "open_app_package_verified:package=$expectedPackage|stableSamples=${verification.stableSamples}"
@@ -450,8 +452,7 @@ class VisualLoopRunner(
                         verification.lastObservation?.let { prefetchedObservation = it }
                     } else {
                         val actualPackage = verification.lastSnapshot?.packageName.orEmpty()
-                        val pending = actualPackage.isBlank() || actualPackage == VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE ||
-                            actualPackage in TRANSIENT_HANDOFF_PACKAGES
+                        val pending = VisualSurfacePackagePolicy.requiresForegroundFallback(actualPackage)
                         val feedback = if (pending) {
                             "open_app_package_verification_pending:expected=$expectedPackage|actual=${actualPackage.take(100)}|reason=transient_surface"
                         } else {
@@ -493,7 +494,7 @@ class VisualLoopRunner(
                 }
 
                 delayForStep(executableStep)
-                val afterObservation = captureTrustedObservation(
+                val afterObservation = observationCoordinator.captureTrustedObservation(
                     forceVisual = true,
                     expectedPackage = executionSession.selectedTargetPackage,
                 )
@@ -559,100 +560,6 @@ class VisualLoopRunner(
             AiAgentAccessibilityService.endTaskSession()
             AgentRuntimeController.resetCleanVisualCapture()
         }
-    }
-
-    private suspend fun captureOnce(
-        forceVisual: Boolean,
-        settleMs: Long = if (forceVisual) FULL_VISUAL_CAPTURE_SETTLE_MS else NON_VISUAL_CAPTURE_SETTLE_MS,
-    ): ScreenObservation {
-        AgentRuntimeController.beginCleanVisualCapture()
-        return try {
-            if (settleMs > 0L) delay(settleMs)
-            withContext(Dispatchers.Default) {
-                AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = forceVisual)
-            }
-        } finally {
-            AgentRuntimeController.endCleanVisualCapture()
-        }
-    }
-
-    private suspend fun captureTrustedObservation(
-        forceVisual: Boolean,
-        expectedPackage: String,
-        settleMs: Long = if (forceVisual) FULL_VISUAL_CAPTURE_SETTLE_MS else NON_VISUAL_CAPTURE_SETTLE_MS,
-    ): ScreenObservation {
-        val observation = captureOnce(forceVisual = forceVisual, settleMs = settleMs)
-        if (expectedPackage.isBlank() ||
-            !ForegroundPackageEvidenceResolver.needsShellFallback(observation.packageName)
-        ) {
-            return observation
-        }
-
-        val shellProbe = withContext(Dispatchers.IO) { foregroundPackageProbe.probe() }
-        val evidence = ForegroundPackageEvidenceResolver.resolve(
-            accessibilityPackage = observation.packageName,
-            shellProbe = shellProbe,
-        )
-        if (evidence.packageName.isBlank() || evidence.packageName == observation.packageName) {
-            return observation
-        }
-
-        return observation.copy(
-            packageName = evidence.packageName,
-            windowTitle = listOf(
-                observation.windowTitle,
-                "foreground=${evidence.source.wireValue}",
-            ).filter { it.isNotBlank() }
-                .joinToString(" · ")
-                .take(120),
-        )
-    }
-
-    private suspend fun awaitStableTargetPackage(
-        expectedPackage: String,
-        stopGeneration: Long,
-    ): LaunchPackageVerification {
-        if (expectedPackage.isBlank()) return LaunchPackageVerification(false, 0, null, null)
-        val deadline = SystemClock.elapsedRealtime() + OPEN_APP_VERIFY_TIMEOUT_MS
-        var stableSamples = 0
-        var lastSnapshot: AgentScreenSnapshot? = null
-        delay(OPEN_APP_INITIAL_SETTLE_MS)
-        while (!isStopped(stopGeneration) && SystemClock.elapsedRealtime() < deadline) {
-            val probeObservation = captureTrustedObservation(
-                forceVisual = false,
-                expectedPackage = expectedPackage,
-                settleMs = PACKAGE_PROBE_SETTLE_MS,
-            )
-            val probeSnapshot = probeObservation.toAgentScreenSnapshot()
-            lastSnapshot = probeSnapshot
-            if (probeSnapshot.packageName == expectedPackage) {
-                stableSamples += 1
-                if (stableSamples >= OPEN_APP_REQUIRED_STABLE_SAMPLES) {
-                    val visualObservation = captureTrustedObservation(
-                        forceVisual = true,
-                        expectedPackage = expectedPackage,
-                    )
-                    val visualSnapshot = visualObservation.toAgentScreenSnapshot()
-                    lastSnapshot = visualSnapshot
-                    if (visualSnapshot.packageName == expectedPackage && visualSnapshot.visual?.hasImage == true) {
-                        return LaunchPackageVerification(true, stableSamples, visualSnapshot, visualObservation)
-                    }
-                    if (visualSnapshot.packageName.isNotBlank() &&
-                        visualSnapshot.packageName != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
-                        visualSnapshot.packageName !in TRANSIENT_HANDOFF_PACKAGES
-                    ) {
-                        stableSamples = 0
-                    }
-                }
-            } else if (probeSnapshot.packageName.isNotBlank() &&
-                probeSnapshot.packageName != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
-                probeSnapshot.packageName !in TRANSIENT_HANDOFF_PACKAGES
-            ) {
-                stableSamples = 0
-            }
-            delay(OPEN_APP_VERIFY_POLL_MS)
-        }
-        return LaunchPackageVerification(false, stableSamples, lastSnapshot, null)
     }
 
     private suspend fun executeStep(
@@ -938,13 +845,6 @@ class VisualLoopRunner(
         val alreadyForeground: Boolean = false,
     )
 
-    private data class LaunchPackageVerification(
-        val verified: Boolean,
-        val stableSamples: Int,
-        val lastSnapshot: AgentScreenSnapshot?,
-        val lastObservation: ScreenObservation?,
-    )
-
     private fun rememberVisualTurn(
         history: MutableList<VisualAgentHistoryItem>,
         snapshot: AgentScreenSnapshot,
@@ -977,10 +877,7 @@ class VisualLoopRunner(
         private const val STRUCTURAL_NO_PROGRESS_LIMIT = 3
         private const val EXPLORATION_SPRAWL_LIMIT = 4
         private const val USER_TAKEOVER_POLL_MS = 120L
-        private const val FULL_VISUAL_CAPTURE_SETTLE_MS = 260L
-        private const val NON_VISUAL_CAPTURE_SETTLE_MS = 160L
         private const val PACKAGE_CHECK_OVERLAY_SETTLE_MS = 160L
-        private const val PACKAGE_PROBE_SETTLE_MS = 160L
         private const val DEFAULT_STEP_DELAY_MS = 130L
         private const val TAP_DELAY_MS = 110L
         private const val INPUT_DELAY_MS = 130L
@@ -990,20 +887,11 @@ class VisualLoopRunner(
         private const val FINISH_VERIFICATION_DELAY_MS = 280L
         private const val MIN_CUSTOM_STEP_DELAY_MS = 60L
         private const val MAX_WAIT_DELAY_MS = 60_000L
-        private const val OPEN_APP_INITIAL_SETTLE_MS = 260L
-        private const val OPEN_APP_VERIFY_POLL_MS = 140L
-        private const val OPEN_APP_VERIFY_TIMEOUT_MS = 4_200L
-        private const val OPEN_APP_REQUIRED_STABLE_SAMPLES = 1
         private const val MODEL_TURN_MULTIPLIER = 3
         private const val MIN_EXTRA_MODEL_TURNS = 8
         private const val MAX_MODEL_TURN_BUDGET = 120
         private const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
         private const val RUNTIME_CONTEXT_PREFIX = "visual_runtime_context:v1|"
-        private val TRANSIENT_HANDOFF_PACKAGES = setOf(
-            "android",
-            "com.android.systemui",
-            "com.android.permissioncontroller",
-        )
 
         internal fun requiresAgentSwitch(executionMode: AgentExecutionMode): Boolean {
             return executionMode == AgentExecutionMode.VisualForce
