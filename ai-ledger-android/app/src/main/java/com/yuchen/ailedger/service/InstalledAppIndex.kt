@@ -18,6 +18,25 @@ data class InstalledAppEntry(
     val packageName: String,
 )
 
+/**
+ * The canonical label is already uploaded in its own field, so aliases only carry a genuinely
+ * different normalization variant. This avoids repeating the label and package tail for every app
+ * in each visual-agent request while preserving neutral matching information for the cloud model.
+ */
+internal fun buildNeutralInstalledAppAliases(label: String): List<String> {
+    val cleanLabel = label.trim()
+    if (cleanLabel.isBlank()) return emptyList()
+    val normalizedLabel = normalizeInstalledAppLabel(cleanLabel)
+    return listOf(normalizedLabel)
+        .filter { value -> value.isNotBlank() && !value.equals(cleanLabel, ignoreCase = true) }
+        .distinct()
+}
+
+internal fun normalizeInstalledAppLabel(value: String): String {
+    return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
+        .replace(Regex("\\s+"), "")
+}
+
 class InstalledAppIndex(
     context: Context,
 ) {
@@ -28,12 +47,7 @@ class InstalledAppIndex(
      * to parse a goal or select an application.
      */
     fun aliasesFor(app: InstalledAppEntry): List<String> {
-        val normalizedLabel = normalizeAppLabel(app.label)
-        val packageTail = app.packageName.substringAfterLast('.').trim()
-        return listOf(app.label, normalizedLabel, packageTail)
-            .map { value -> value.trim() }
-            .filter { value -> value.isNotBlank() }
-            .distinct()
+        return buildNeutralInstalledAppAliases(app.label)
     }
 
     fun getLaunchableApps(forceReload: Boolean = false): List<InstalledAppEntry> {
@@ -60,7 +74,7 @@ class InstalledAppIndex(
             }
             .distinctBy { app -> app.packageName }
             .sortedWith(
-                compareBy<InstalledAppEntry> { app -> normalizeAppLabel(app.label) }
+                compareBy<InstalledAppEntry> { app -> normalizeInstalledAppLabel(app.label) }
                     .thenBy { app -> app.packageName },
             )
 
@@ -87,11 +101,6 @@ class InstalledAppIndex(
             val info: ApplicationInfo = packageManager.getApplicationInfo(packageName, 0)
             packageManager.getApplicationLabel(info)?.toString()?.trim().orEmpty()
         }.getOrDefault("")
-    }
-
-    private fun normalizeAppLabel(value: String): String {
-        return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
-            .replace(Regex("\\s+"), "")
     }
 
     companion object {
