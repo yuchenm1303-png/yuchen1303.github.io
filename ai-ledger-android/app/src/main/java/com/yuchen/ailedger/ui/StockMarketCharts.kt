@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -80,8 +81,7 @@ private data class PositionedMinutePoint(
 
 private data class TimeShareLayout(
     val points: List<PositionedMinutePoint>,
-    val labels: List<String>,
-    val isFiveDay: Boolean
+    val labels: List<String>
 )
 
 @Composable
@@ -120,7 +120,10 @@ internal fun StockProfessionalTerminalV2(
 }
 
 @Composable
-private fun TimeShareTerminalBody(ui: StockMarketUiState, isFiveDay: Boolean) {
+private fun ColumnScope.TimeShareTerminalBody(
+    ui: StockMarketUiState,
+    isFiveDay: Boolean
+) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -174,7 +177,7 @@ private fun TimeShareTerminalBody(ui: StockMarketUiState, isFiveDay: Boolean) {
 }
 
 @Composable
-private fun KLineTerminalBody(ui: StockMarketUiState) {
+private fun ColumnScope.KLineTerminalBody(ui: StockMarketUiState) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -313,8 +316,10 @@ private fun FixedSessionTimeShareChart(
                     )
                 }
             } else {
-                val auctionEndX = width * ((9 * 60 + 30 - MorningStartMinute).toFloat() / TradingMinutesPerDay)
-                val lunchX = width * ((MorningEndMinute - MorningStartMinute).toFloat() / TradingMinutesPerDay)
+                val auctionEndX = width *
+                    ((9 * 60 + 30 - MorningStartMinute).toFloat() / TradingMinutesPerDay)
+                val lunchX = width *
+                    ((MorningEndMinute - MorningStartMinute).toFloat() / TradingMinutesPerDay)
                 drawLine(
                     Color.White.copy(alpha = 0.06f),
                     Offset(auctionEndX, 0f),
@@ -346,7 +351,11 @@ private fun FixedSessionTimeShareChart(
                 minValue = previousClose - halfRange
                 maxValue = previousClose + halfRange
             } else {
-                val padding = maxOf((rawMax - rawMin) * 0.08f, rawMax * 0.002f, 0.01f)
+                val padding = maxOf(
+                    (rawMax - rawMin) * 0.08f,
+                    rawMax * 0.002f,
+                    0.01f
+                )
                 minValue = rawMin - padding
                 maxValue = rawMax + padding
             }
@@ -447,8 +456,11 @@ private fun buildTimeShareLayout(
     if (points.isEmpty()) {
         return TimeShareLayout(
             points = emptyList(),
-            labels = if (isFiveDay) List(5) { "--" } else listOf("09:15", "11:30/13:00", "15:00"),
-            isFiveDay = isFiveDay
+            labels = if (isFiveDay) {
+                List(5) { "--" }
+            } else {
+                listOf("09:15", "11:30/13:00", "15:00")
+            }
         )
     }
 
@@ -472,14 +484,15 @@ private fun buildTimeShareLayout(
         }.sortedBy { it.xFraction }
         return TimeShareLayout(
             points = positioned,
-            labels = listOf("09:15", "11:30/13:00", "15:00"),
-            isFiveDay = false
+            labels = listOf("09:15", "11:30/13:00", "15:00")
         )
     }
 
     val dates = pointDates.distinct().sorted().takeLast(5)
     val firstSlot = (5 - dates.size).coerceAtLeast(0)
-    val dateSlots = dates.mapIndexed { index, date -> date to (firstSlot + index) }.toMap()
+    val dateSlots = dates
+        .mapIndexed { index, date -> date to (firstSlot + index) }
+        .toMap()
     val fallbackSlot = 4
     val positioned = points.mapIndexedNotNull { index, point ->
         val date = extractDate(point.time)
@@ -496,7 +509,7 @@ private fun buildTimeShareLayout(
     }.sortedBy { it.xFraction }
     val labels = MutableList(5) { "--" }
     dateSlots.forEach { (date, slot) -> labels[slot] = date.takeLast(5) }
-    return TimeShareLayout(positioned, labels, true)
+    return TimeShareLayout(positioned, labels)
 }
 
 private fun tradingMinuteOffset(raw: String): Int? {
@@ -512,7 +525,8 @@ private fun tradingMinuteOffset(raw: String): Int? {
     }
 }
 
-private fun extractDate(raw: String): String? = DatePattern.find(raw)?.groupValues?.getOrNull(1)
+private fun extractDate(raw: String): String? =
+    DatePattern.find(raw)?.groupValues?.getOrNull(1)
 
 @Composable
 private fun InteractiveKLineChart(
@@ -554,9 +568,17 @@ private fun InteractiveKLineChart(
     val visibleCount = visibleCountFor(zoom)
     val maxPan = (candles.size - visibleCount).coerceAtLeast(0)
     val roundedPan = panOffset.roundToInt().coerceIn(0, maxPan)
-    val endIndex = if (candles.isEmpty()) 0 else (candles.size - roundedPan).coerceIn(visibleCount, candles.size)
+    val endIndex = if (candles.isEmpty()) {
+        0
+    } else {
+        (candles.size - roundedPan).coerceIn(visibleCount, candles.size)
+    }
     val startIndex = (endIndex - visibleCount).coerceAtLeast(0)
-    val visibleCandles = if (candles.isEmpty()) emptyList() else candles.subList(startIndex, endIndex)
+    val visibleCandles = if (candles.isEmpty()) {
+        emptyList()
+    } else {
+        candles.subList(startIndex, endIndex)
+    }
     val selectedCandle = candles.getOrNull(selectedIndex)
 
     Column(modifier) {
@@ -564,7 +586,9 @@ private fun InteractiveKLineChart(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .onSizeChanged { chartWidthPx = it.width.toFloat().coerceAtLeast(1f) }
+                .onSizeChanged {
+                    chartWidthPx = it.width.toFloat().coerceAtLeast(1f)
+                }
                 .pointerInput(stock.quote.code, selectedTab, startIndex, visibleCount) {
                     detectTapGestures(
                         onTap = { offset ->
@@ -634,9 +658,21 @@ private fun InteractiveKLineChart(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(dateLabel(visibleCandles.firstOrNull()?.date), color = Color.White.copy(alpha = 0.34f), fontSize = 8.sp)
-            Text(dateLabel(visibleCandles.getOrNull(visibleCandles.size / 2)?.date), color = Color.White.copy(alpha = 0.34f), fontSize = 8.sp)
-            Text(dateLabel(visibleCandles.lastOrNull()?.date), color = Color.White.copy(alpha = 0.34f), fontSize = 8.sp)
+            Text(
+                dateLabel(visibleCandles.firstOrNull()?.date),
+                color = Color.White.copy(alpha = 0.34f),
+                fontSize = 8.sp
+            )
+            Text(
+                dateLabel(visibleCandles.getOrNull(visibleCandles.size / 2)?.date),
+                color = Color.White.copy(alpha = 0.34f),
+                fontSize = 8.sp
+            )
+            Text(
+                dateLabel(visibleCandles.lastOrNull()?.date),
+                color = Color.White.copy(alpha = 0.34f),
+                fontSize = 8.sp
+            )
         }
     }
 }
@@ -679,7 +715,11 @@ private fun KLineCanvas(
 
         val minValue = candles.minOfOrNull { it.low } ?: return@Canvas
         val maxValue = candles.maxOfOrNull { it.high } ?: return@Canvas
-        val padding = maxOf((maxValue - minValue) * 0.06f, maxValue * 0.0015f, 0.01f)
+        val padding = maxOf(
+            (maxValue - minValue) * 0.06f,
+            maxValue * 0.0015f,
+            0.01f
+        )
         val bottomValue = minValue - padding
         val topValue = maxValue + padding
         val range = (topValue - bottomValue).takeIf { abs(it) > 0.0001f } ?: 1f
@@ -863,7 +903,7 @@ private fun DepthRows(
                 )
                 Text(
                     level.price,
-                    color = chartQuoteColor(!level.isAsk),
+                    color = chartQuoteColor(level.isAsk),
                     fontSize = 11.sp,
                     lineHeight = 14.sp,
                     fontWeight = FontWeight.Black,
