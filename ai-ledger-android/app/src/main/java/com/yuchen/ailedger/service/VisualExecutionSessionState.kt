@@ -52,14 +52,6 @@ class VisualExecutionSessionState(
         return true
     }
 
-    /**
-     * Kept only while the visual runner is migrated to proof-bearing verification in the same
-     * source update sequence. No new call site may use this package-only entry point.
-     */
-    fun markTargetVerified(packageName: String) {
-        stateMachine.markTargetVerified(packageName)?.let(sessionBinding::bind)
-    }
-
     fun markStructuralReplan() {
         stateMachine.markStructuralReplan()
     }
@@ -73,12 +65,7 @@ class VisualExecutionSessionState(
     }
 
     fun synchronizeWith(snapshot: AgentScreenSnapshot? = null) {
-        val verifiedBefore = stateMachine.verifiedTargetPackage
         stateMachine.synchronizeWith(snapshot?.packageName.orEmpty())
-        val verifiedAfter = stateMachine.verifiedTargetPackage
-        if (verifiedAfter.isNotBlank() && verifiedAfter != verifiedBefore) {
-            sessionBinding.bind(verifiedAfter)
-        }
     }
 
     fun isVerifiedWorkSurface(snapshot: AgentScreenSnapshot): Boolean {
