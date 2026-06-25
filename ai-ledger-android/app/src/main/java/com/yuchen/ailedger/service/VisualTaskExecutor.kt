@@ -249,3 +249,195 @@ internal suspend fun VisualTaskExecutor.requestPlan(
     session.semantic.updateTaskContract(plan.taskContract, session.state.goal)
     return VisualPlanRequest.Ready(plan)
 }
+
+internal suspend fun VisualTaskExecutor.handlePlan(
+    session: VisualTaskSession,
+    turn: VisualTurn,
+    plan: CloudAgentPlan,
+): VisualLoopDecision {
+    val step = plan.step
+    if (VisualLoopSupport.requiresAccessibility(step) &&
+        (!turn.observation.enabled || !turn.observation.serviceConnected)
+    ) return fatal(session, "The Android accessibility service is not connected.")
+
+    val validation = VisualActionValidator.validate(step, turn.snapshot, turn.runtime)
+    if (!validation.ok) return rejectPlan(session, turn, plan, validation)
+    if (step.type == "finish") return handleFinish(session, turn, plan)
+    session.state.clearFinishCandidate()
+    if (step.type == "need_user_help") {
+        session.logs += AgentTaskStepLog(session.logs.size + 1, turn.snapshot.currentApp, step, null)
+        val continued = pauseForUserAndContinue(
+            session,
+            step.reason ?: "Visual agent requested user assistance.",
+            "model_help",
+            step,
+        )
+        return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
+    }
+
+    val prepared = prepareStep(step, turn.snapshot, session.installedAppsByPackage)
+    if (!prepared.ok || prepared.step == null) return rejectPrepared(session, turn, plan, prepared)
+    val executable = prepared.step
+    val blocked = session.semantic.blockedHypothesisReason(executable, turn.snapshot)
+    if (blocked != null) {
+        val memory = session.semantic.memorySnapshot(turn.snapshot)
+        val feedback = buildString {
+            append("visual_local_retry:action=").append(VisualActionValidator.actionSignature(executable))
+            append(":count=").append(memory.failedHypotheses.size)
+            append("|semanticStatus=blocked_hypothesis")
+            append("|milestone=").append(memory.currentMilestoneId.take(80))
+            append("|explorationBudgetRemaining=").append(memory.remainingExplorationBudget)
+            append("|requiresStrategyChange=true|replanRequired=true")
+            append("|reason=").append(blocked.take(260))
+        }
+        session.logs += AgentTaskStepLog(
+            session.logs.size + 1,
+            turn.snapshot.currentApp,
+            executable.copy(reason = blocked),
+            null,
+        )
+        VisualLoopSupport.appendRecent(session.recentActions, feedback)
+        VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
+        session.state.reobservations += 1
+        return VisualLoopDecision.Continue
+    }
+
+    if (executable.type == "open_app") {
+        val expectedPackage = executable.packageName.orEmpty()
+        session.execution.beginLaunch(expectedPackage)
+        if (prepared.alreadyForeground) {
+            val result = AgentExecutionResult(true, "Target package is already foreground: $expectedPackage", true)
+            recordResult(session, turn.snapshot.currentApp, executable, result)
+            val summary = VisualLoopSupport.resultSummary(executable, VisualActionValidator.actionSignature(executable), result)
+            val verified = "open_app_package_verified:package=$expectedPackage|mode=already_foreground"
+            VisualLoopSupport.appendRecent(session.recentActions, summary)
+            VisualLoopSupport.appendRecent(session.recentActions, verified)
+            VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, "$summary;$verified")
+            session.execution.markTargetVerified(expectedPackage)
+            session.semantic.onVerifiedSurface(turn.snapshot)
+            session.state.executedActions += 1
+            return VisualLoopDecision.Continue
+        }
+    }
+
+    val confirmed = if (AgentSafetyPolicy.requiresConfirmation(session.state.goal, executable)) {
+        if (!AgentRuntimeController.requestRiskConfirmation(session.state.goal, executable)) {
+            return VisualLoopDecision.Return(
+                AgentTaskRunResult(false, false, "User stopped the visual task.", session.logs),
+            )
+        }
+        true
+    } else false
+    if (!confirmed && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(session.state.goal, executable)) {
+        val continued = pauseForUserAndContinue(
+            session,
+            executable.reason ?: "Action is blocked by Android safety policy.",
+            "safety_blocked",
+            executable,
+        )
+        return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
+    }
+
+    if (VisualLoopSupport.requiresFreshObservation(executable)) {
+        val fresh = observationCoordinator.captureTrustedObservation(
+            forceVisual = false,
+            expectedPackage = session.execution.selectedTargetPackage,
+            settleMs = 160L,
+        ).toAgentScreenSnapshot()
+        session.execution.synchronizeWith(fresh)
+        val verified = session.execution.isVerifiedWorkSurface(fresh)
+        val contextFresh = VisualObservationProtocol.isActionContextFresh(turn.snapshot, fresh)
+        if (!verified || !contextFresh) {
+            val feedback = "visual_action_stale:type=${executable.type}|failureClass=${if (verified) "visual_local" else "structural_route"}|reason=${if (verified) "screen_changed_before_execution" else "target_surface_lost"}|replanRequired=true"
+            session.logs += AgentTaskStepLog(
+                session.logs.size + 1,
+                fresh.currentApp,
+                executable.copy(reason = "A fresh visual decision is required."),
+                null,
+            )
+            VisualLoopSupport.appendRecent(session.recentActions, feedback)
+            VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
+            if (!verified) session.execution.markStructuralReplan()
+            session.state.reobservations += 1
+            return VisualLoopDecision.Continue
+        }
+    }
+
+    if (session.stopped()) return VisualLoopDecision.Stop
+    val result = executeStep(session, executable, turn.snapshot.currentApp, confirmed)
+    session.state.executedActions += 1
+    session.state.lastAction = VisualActionValidator.actionSignature(executable)
+    session.state.rejectedPlans = 0
+    val summary = VisualLoopSupport.resultSummary(executable, session.state.lastAction, result)
+    VisualLoopSupport.appendRecent(session.recentActions, summary)
+    VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, summary)
+
+    if (executable.type == "open_app") {
+        handleOpenAppResult(session, executable, turn.snapshot, result, summary)
+        return VisualLoopDecision.Continue
+    }
+    if (executable.type in CloudAgentStep.deviceToolTypes) {
+        val message = result.message.ifBlank { "Internal device tool finished." }
+        if (result.ok) AgentRuntimeController.finishTask(session.runtimeTaskId, AgentTaskOutcome.Completed(message))
+        else AgentRuntimeController.failTask(session.runtimeTaskId, message)
+        return VisualLoopDecision.Return(AgentTaskRunResult(result.ok, false, message, session.logs))
+    }
+    if (!result.ok || !result.shouldContinue) {
+        session.state.executionFailures += 1
+        val feedback = "visual_local_retry:action=${session.state.lastAction}:count=${session.state.executionFailures}|semanticStatus=execution_failed|requiresStrategyChange=true|replanRequired=${session.state.executionFailures >= 2}|reason=${result.message.take(260)}"
+        VisualLoopSupport.appendRecent(session.recentActions, feedback)
+        VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
+        session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
+            forceVisual = true,
+            expectedPackage = session.execution.selectedTargetPackage,
+        )
+        return VisualLoopDecision.Continue
+    }
+    session.state.executionFailures = 0
+
+    delayForStep(executable)
+    val afterObservation = observationCoordinator.captureTrustedObservation(
+        forceVisual = true,
+        expectedPackage = session.execution.selectedTargetPackage,
+    )
+    val after = afterObservation.toAgentScreenSnapshot()
+    session.execution.synchronizeWith(after)
+    val progress = session.semantic.evaluate(
+        step = executable,
+        before = turn.snapshot,
+        after = after,
+        verifiedTargetPackage = turn.runtime.verifiedTargetPackage,
+    )
+    val feedback = progress.toFeedbackLine(executable)
+    VisualLoopSupport.appendRecent(session.recentActions, feedback)
+    VisualLoopMemorySupport.replaceMemoryLine(session.recentActions, progress.taskMemory)
+    VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
+    session.prefetchedObservation = afterObservation
+    if (progress.status == VisualSemanticProgressStatus.Ambiguous && progress.reobserveRecommended) {
+        delay(120L)
+        session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
+            forceVisual = true,
+            expectedPackage = session.execution.selectedTargetPackage,
+        )
+    }
+    if (progress.structuralRegression) {
+        session.execution.markStructuralReplan()
+        session.prefetchedObservation = null
+    }
+    if (progress.requiresReplan) {
+        VisualLoopSupport.appendRecent(
+            session.recentActions,
+            "visual_replan_requested:milestone=${progress.milestoneId.take(80)}|semanticStatus=${progress.status.wireValue}|reason=${progress.reason.take(220)}",
+        )
+    }
+    if (progress.shouldPauseForUser) {
+        val continued = pauseForUserAndContinue(
+            session,
+            "The last action regressed on a non-reversible or repeatedly failing path.",
+            "semantic_regression",
+            executable,
+        )
+        return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
+    }
+    return VisualLoopDecision.Continue
+}
