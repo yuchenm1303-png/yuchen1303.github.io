@@ -235,7 +235,10 @@ object AgentRuntimeController {
 
     fun finishTask(message: String, completed: Boolean) {
         finishTask(
-            if (completed) AgentTaskOutcome.Completed(message) else AgentTaskOutcome.Paused(message),
+            AgentTaskOutcomeResolver.resolveLegacyCompletion(
+                completed = completed,
+                message = message,
+            )
         )
     }
 
