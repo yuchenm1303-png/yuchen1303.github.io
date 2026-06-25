@@ -3,8 +3,8 @@ package com.yuchen.ailedger.ui.gl
 /**
  * 旧版玻璃视觉公式的轻量化实现。
  *
- * 保留原有厚度场、边缘拖拽、按压和材质参数；仅消除重复 SDF、有限差分法线、
- * 重复根尺寸除法及空闲按压计算。实验室入口仍将九点背景采样半径固定为 0。
+ * 保留原有厚度场、四点有限差分、边缘拖拽、按压和材质参数；只在每个像素内复用
+ * 半尺寸、圆角核心区、尺寸倒数及根尺寸倒数。实验室入口仍将九点背景采样半径固定为 0。
  */
 internal object LegacyOpenGLGlassShader {
     const val FRAGMENT_SHADER = """
@@ -24,16 +24,22 @@ internal object LegacyOpenGLGlassShader {
 
         float sat(float x){return clamp(x,0.0,1.0);}
 
-        float roundedBoxSdfAt(vec2 coord,vec2 rectSize,float radius){
-            vec2 halfSize=rectSize*0.5;
-            vec2 q=abs(coord-halfSize)-max(halfSize-vec2(radius),vec2(0.0));
+        float roundedBoxSdfPrepared(
+            vec2 coord,
+            vec2 halfSize,
+            vec2 core,
+            float radius
+        ){
+            vec2 q=abs(coord-halfSize)-core;
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-radius;
         }
 
-        vec2 perimeterNormalAt(vec2 coord,vec2 rectSize,float radius){
-            vec2 halfSize=rectSize*0.5;
+        vec2 perimeterNormalPrepared(
+            vec2 coord,
+            vec2 halfSize,
+            vec2 core
+        ){
             vec2 local=coord-halfSize;
-            vec2 core=max(halfSize-vec2(radius),vec2(0.0));
             vec2 nearest=clamp(local,-core,core);
             vec2 radial=local-nearest;
             float radialLength=length(radial);
@@ -111,8 +117,8 @@ internal object LegacyOpenGLGlassShader {
             );
         }
 
-        float bodyDomeAt(vec2 coord,vec2 rectSize,float domeAspect){
-            vec2 local=clamp(coord/rectSize,0.0,1.0);
+        float bodyDomeAt(vec2 coord,vec2 rectInv,float domeAspect){
+            vec2 local=clamp(coord*rectInv,0.0,1.0);
             vec2 p=local*2.0-1.0;
             p.x*=domeAspect;
             float d=length(p);
@@ -121,29 +127,33 @@ internal object LegacyOpenGLGlassShader {
 
         float thicknessAt(
             vec2 coord,
-            vec2 rectSize,
+            vec2 halfSize,
+            vec2 core,
+            vec2 rectInv,
             float radius,
             float edgeWidth,
             float coreWidth,
             float domeAspect
         ){
-            float sd=roundedBoxSdfAt(coord,rectSize,radius);
+            float sd=roundedBoxSdfPrepared(
+                coord,halfSize,core,radius
+            );
             float inside=max(-sd,0.0);
             float maskGuard=1.0-smoothstep(1.5,16.0,sd);
             float rimWide=rimWideFromInside(inside,edgeWidth);
             float rimCore=rimCoreFromInside(inside,coreWidth);
-            float dome=bodyDomeAt(coord,rectSize,domeAspect);
+            float dome=bodyDomeAt(coord,rectInv,domeAspect);
             return (dome*0.22+rimWide*0.46+rimCore*0.34)*maskGuard;
         }
 
         float pressFieldAt(
             vec2 coord,
-            vec2 rectSize,
+            vec2 rectInv,
             vec2 center,
             float aspect,
             float press
         ){
-            vec2 delta=clamp(coord/rectSize,0.0,1.0)-center;
+            vec2 delta=clamp(coord*rectInv,0.0,1.0)-center;
             delta.x*=aspect;
             float d=length(delta);
             return pow(sat(1.0-d*0.92),1.45)*press;
@@ -163,14 +173,16 @@ internal object LegacyOpenGLGlassShader {
 
         vec3 edgeColorDrag(
             vec2 coord,
-            vec2 rectSize,
-            float radius,
+            vec2 halfSize,
+            vec2 coreGeometry,
             float band,
             float core,
             float edgeWidth,
             vec2 rootInv
         ){
-            vec2 n=perimeterNormalAt(coord,rectSize,radius);
+            vec2 n=perimeterNormalPrepared(
+                coord,halfSize,coreGeometry
+            );
             vec2 t=vec2(-n.y,n.x);
             float pull=clamp(8.0+abs(uRefraction.y)*0.030,8.0,42.0);
             float smear=clamp(4.0+edgeWidth*0.55,4.0,22.0);
@@ -206,10 +218,17 @@ internal object LegacyOpenGLGlassShader {
         void main(){
             vec2 coord=vec2(gl_FragCoord.x,uResolution.y-gl_FragCoord.y);
             vec2 rectSize=max(uRect.zw,vec2(1.0));
+            vec2 rectInv=1.0/rectSize;
+            vec2 halfSize=rectSize*0.5;
             vec2 visualCoord=coord-uRect.xy;
             float minSize=min(rectSize.x,rectSize.y);
             float radius=min(uRadius,minSize*0.5);
-            float sd=roundedBoxSdfAt(visualCoord,rectSize,radius);
+            vec2 coreGeometry=max(
+                halfSize-vec2(radius),vec2(0.0)
+            );
+            float sd=roundedBoxSdfPrepared(
+                visualCoord,halfSize,coreGeometry,radius
+            );
             float mask=1.0-smoothstep(0.0,1.35,sd);
             if(mask<=0.001)discard;
 
@@ -217,8 +236,9 @@ internal object LegacyOpenGLGlassShader {
             float edgeWidth=clamp(uOptics.y,6.0,minSize*0.34);
             float coreWidth=max(edgeWidth*0.28,3.0);
             float dragWidth=max(edgeWidth*1.45,8.0);
-            float aspect=min(rectSize.x/max(rectSize.y,1.0),2.2);
-            float domeAspect=min(rectSize.x/max(rectSize.y,1.0),2.4)*0.38;
+            float rectAspect=rectSize.x/rectSize.y;
+            float aspect=min(rectAspect,2.2);
+            float domeAspect=min(rectAspect,2.4)*0.38;
 
             float press=uPress.x;
             vec2 pressCenter=uPress.yz;
@@ -230,7 +250,7 @@ internal object LegacyOpenGLGlassShader {
             if(press>0.0){
                 pressField=pressFieldAt(
                     visualCoord,
-                    rectSize,
+                    rectInv,
                     pressCenter,
                     aspect,
                     press
@@ -238,7 +258,8 @@ internal object LegacyOpenGLGlassShader {
                 pressWide=press*pow(
                     sat(
                         1.0-length(
-                            (visualCoord/rectSize-pressCenter)*vec2(aspect,1.0)
+                            (visualCoord*rectInv-pressCenter)
+                                *vec2(aspect,1.0)
                         )*0.58
                     ),
                     1.25
@@ -260,7 +281,9 @@ internal object LegacyOpenGLGlassShader {
             float stepPx=2.0;
             float tL=thicknessAt(
                 visualCoord-vec2(stepPx,0.0),
-                rectSize,
+                halfSize,
+                coreGeometry,
+                rectInv,
                 radius,
                 edgeWidth,
                 coreWidth,
@@ -268,7 +291,9 @@ internal object LegacyOpenGLGlassShader {
             );
             float tR=thicknessAt(
                 visualCoord+vec2(stepPx,0.0),
-                rectSize,
+                halfSize,
+                coreGeometry,
+                rectInv,
                 radius,
                 edgeWidth,
                 coreWidth,
@@ -276,7 +301,9 @@ internal object LegacyOpenGLGlassShader {
             );
             float tU=thicknessAt(
                 visualCoord-vec2(0.0,stepPx),
-                rectSize,
+                halfSize,
+                coreGeometry,
+                rectInv,
                 radius,
                 edgeWidth,
                 coreWidth,
@@ -284,7 +311,9 @@ internal object LegacyOpenGLGlassShader {
             );
             float tD=thicknessAt(
                 visualCoord+vec2(0.0,stepPx),
-                rectSize,
+                halfSize,
+                coreGeometry,
+                rectInv,
                 radius,
                 edgeWidth,
                 coreWidth,
@@ -337,8 +366,8 @@ internal object LegacyOpenGLGlassShader {
             if(dragAmount>0.002){
                 vec3 dragColor=edgeColorDrag(
                     visualCoord+inwardPx*0.72,
-                    rectSize,
-                    radius,
+                    halfSize,
+                    coreGeometry,
                     dragAmount,
                     rimCore,
                     edgeWidth,
