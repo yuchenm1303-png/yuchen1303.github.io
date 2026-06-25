@@ -88,6 +88,8 @@ class VisualLoopRunner(
                     runtimeContext = executionSession.runtimeContext(snapshot)
                     state.currentPackage = snapshot.currentApp
                 }
+                if (isStopped(stopGeneration)) break
+
                 replaceRuntimeContextAction(recentActions, runtimeContext)
                 val requestActions = buildRequestActions(recentActions, interactionActions)
                 val requestAppContext = appContextForTurn(
@@ -117,6 +119,7 @@ class VisualLoopRunner(
                         )
                     }
                 } catch (error: IOException) {
+                    if (isStopped(stopGeneration)) break
                     when (val retryDecision = routeRetryState.onFailure(error)) {
                         is VisualRouteRetryDecision.Retry -> {
                             state.reobserveCount += 1
@@ -172,6 +175,8 @@ class VisualLoopRunner(
                         }
                     }
                 }
+                if (isStopped(stopGeneration)) break
+
                 routeRetryState.onSuccess()
                 if (requestAppContext.size == visualAppContext.size) fullAppCatalogUploaded = true
                 AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
@@ -407,6 +412,7 @@ class VisualLoopRunner(
                     }
                 }
 
+                if (isStopped(stopGeneration)) break
                 val beforeFingerprint = VisualActionValidator.snapshotFingerprint(snapshot)
                 val result = executeStep(executableStep, snapshot.currentApp, logs, confirmed)
                 state.executedActionCount += 1
