@@ -46,6 +46,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -106,26 +107,38 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         lazy(kotlin.LazyThreadSafetyMode.NONE) { InstalledAppIndex(context.applicationContext) }
     }
     val density = LocalDensity.current
-    val imeBottomPx = WindowInsets.ime.getBottom(density)
     val imeOpenThresholdPx = with(density) { 48.dp.toPx() }.toInt()
-    var previousImeBottomPx by remember { mutableStateOf(imeBottomPx) }
-    var dockCollapsedByIme by remember { mutableStateOf(imeBottomPx >= imeOpenThresholdPx) }
+    var dockCollapsedByIme by remember { mutableStateOf(false) }
+    var imeHidden by remember { mutableStateOf(true) }
     var diagnostics by remember { mutableStateOf(PerformanceDiagnosticsState()) }
     var attachmentSourceMenuVisible by remember { mutableStateOf(false) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     val effectiveMotionIntensity = if (diagnostics.continuousAnimationsOff) 0f else state.motionIntensity
-    val imeHidden = imeBottomPx == 0
-    val imeIsRetreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
-    val nextDockCollapsedByIme = when {
-        imeHidden || imeIsRetreating -> false
-        imeBottomPx >= imeOpenThresholdPx -> true
-        else -> dockCollapsedByIme
+
+    // Insets 的像素值在输入法动画期间每帧变化。只在协程中观察像素，Compose 根节点
+    // 仅接收“折叠”和“完全隐藏”两个离散状态，避免整棵页面树随每个像素重组。
+    LaunchedEffect(density, imeOpenThresholdPx) {
+        var previousImeBottomPx = WindowInsets.ime.getBottom(density)
+        val initialCollapsed = previousImeBottomPx >= imeOpenThresholdPx
+        val initialHidden = previousImeBottomPx == 0
+        if (dockCollapsedByIme != initialCollapsed) dockCollapsedByIme = initialCollapsed
+        if (imeHidden != initialHidden) imeHidden = initialHidden
+
+        snapshotFlow { WindowInsets.ime.getBottom(density) }.collect { imeBottomPx ->
+            val retreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
+            val nextCollapsed = when {
+                imeBottomPx == 0 || retreating -> false
+                imeBottomPx >= imeOpenThresholdPx -> true
+                else -> dockCollapsedByIme
+            }
+            val nextHidden = imeBottomPx == 0
+            if (dockCollapsedByIme != nextCollapsed) dockCollapsedByIme = nextCollapsed
+            if (imeHidden != nextHidden) imeHidden = nextHidden
+            previousImeBottomPx = imeBottomPx
+        }
     }
-    LaunchedEffect(imeBottomPx, nextDockCollapsedByIme) {
-        dockCollapsedByIme = nextDockCollapsedByIme
-        previousImeBottomPx = imeBottomPx
-    }
-    val bottomDockVisible = !nextDockCollapsedByIme
+
+    val bottomDockVisible = !dockCollapsedByIme
     val bottomDockClickable = imeHidden
     val assistantBottomPadding = if (bottomDockVisible) 68.dp else 8.dp
     val bottomBarOffsetY = if (bottomDockVisible) 0.dp else 24.dp
