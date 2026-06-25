@@ -25,10 +25,19 @@ class VisualExecutionStateMachine {
         return cleanPackage
     }
 
+    /**
+     * Completes only an already selected handoff. Package observations never call this method
+     * implicitly; the session facade grants it only after the coordinator has produced stable
+     * package samples and a visual frame for the same target.
+     */
     fun markTargetVerified(packageName: String): String? {
         val cleanPackage = packageName.trim()
-        if (cleanPackage.isBlank()) return null
-        selectedTargetPackage = cleanPackage
+        if (
+            cleanPackage.isBlank() ||
+            selectedTargetPackage.isBlank() ||
+            cleanPackage != selectedTargetPackage ||
+            !isHandoffState(surfaceState)
+        ) return null
         verifiedTargetPackage = cleanPackage
         transitionTo(VisualSurfaceState.WorkSurface)
         return cleanPackage
@@ -44,19 +53,12 @@ class VisualExecutionStateMachine {
         return surfaceState == VisualSurfaceState.WorkSurface && verifiedTargetPackage.isNotBlank()
     }
 
+    /**
+     * Reconciles or revokes an existing surface, but never upgrades a launch/replan from one frame.
+     * Stable verification is an explicit coordinator result, not a side effect of package equality.
+     */
     fun synchronizeWith(currentPackage: String) {
         val cleanCurrentPackage = currentPackage.trim()
-
-        if (
-            selectedTargetPackage.isNotBlank() &&
-            cleanCurrentPackage == selectedTargetPackage &&
-            verifiedTargetPackage.isBlank() &&
-            isHandoffState(surfaceState)
-        ) {
-            markTargetVerified(selectedTargetPackage)
-            return
-        }
-
         if (surfaceState == VisualSurfaceState.Replanning) return
 
         if (
