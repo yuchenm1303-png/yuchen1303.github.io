@@ -1,203 +1,175 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="zh-CN">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Agent Infinity Switch Preview</title>
-<style>
-    html,body{
-        margin:0;
-        height:100%;
-        background: radial-gradient(circle at 30% 20%, #0b1430, #050814 60%, #03040a);
-        overflow:hidden;
-        font-family: sans-serif;
-        color:#cfe8ff;
-    }
-
-    .panel{
-        position:absolute;
-        top:20px;
-        left:20px;
-        width:260px;
-        background:rgba(10,18,40,0.55);
-        border:1px solid rgba(120,180,255,0.15);
-        border-radius:16px;
-        padding:12px;
-        backdrop-filter: blur(10px);
-    }
-
-    .row{margin:8px 0;}
-    label{font-size:12px;opacity:0.8;display:block;margin-bottom:4px;}
-    input{width:100%;}
-
-    canvas{
-        position:absolute;
-        top:50%;
-        left:50%;
-        transform:translate(-50%,-50%);
-    }
-
-    .title{
-        font-size:14px;
-        margin-bottom:8px;
-        font-weight:600;
-    }
-
-    button{
-        width:100%;
-        padding:8px;
-        border-radius:10px;
-        border:none;
-        background:#1c3cff33;
-        color:#cfe8ff;
-        cursor:pointer;
-    }
-</style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agent 无限循环开关 · 视觉预览</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div class="ambient"></div>
+  <main class="shell">
+    <div class="eyebrow">Procedural Optical UI Preview</div>
+    <h1>非对称无限循环 Agent 开关</h1>
+    <p class="intro">
+      所有轨道、光点、拖尾、星核和色散均由 SVG 路径与实时计算生成，没有使用任何位图贴图。
+      右侧面板可以直接调节非对称程度、倾斜、速度、光晕和线芯粗细，为后续迁移到 Compose Canvas / RuntimeShader 固化参数。
+    </p>
 
-<div class="panel">
-    <div class="title">∞ Agent Switch Debug</div>
+    <section class="layout">
+      <div class="glass-panel stage">
+        <div class="stage-topline">
+          <span>页面内实际尺寸与放大光学检查</span>
+          <span class="state-chip"><i class="state-dot"></i><b id="stateLabel">执行中</b></span>
+        </div>
 
-    <div class="row">
-        <label>非对称程度</label>
-        <input id="a" type="range" min="0" max="1" step="0.01" value="0.65" />
-    </div>
+        <div class="mock-app">
+          <div class="mock-header">
+            <div class="mock-label">对话</div>
+            <div class="mock-spacer"></div>
+            <div id="liveSwitchMount"></div>
+            <div class="mock-clear"></div>
+          </div>
+          <div class="mock-lines">
+            <div class="mock-line"></div>
+            <div class="mock-line"></div>
+            <div class="mock-line"></div>
+          </div>
+        </div>
 
-    <div class="row">
-        <label>发光强度</label>
-        <input id="g" type="range" min="0" max="2" step="0.01" value="1.2" />
-    </div>
+        <div class="preview-row">
+          <div class="preview-card">
+            <small>Actual size · 104 × 34 px</small>
+            <div id="actualSwitchMount"></div>
+          </div>
+          <div class="preview-card">
+            <small>Optical inspection · 2.65×</small>
+            <div class="inspection" id="inspectionSwitchMount"></div>
+          </div>
+        </div>
 
-    <div class="row">
-        <label>动画速度</label>
-        <input id="s" type="range" min="0.2" max="3" step="0.01" value="1.2" />
-    </div>
+        <div class="legend">
+          <span>非对称双环</span>
+          <span>双层轨道体</span>
+          <span>动态能量点</span>
+          <span>程序化拖尾</span>
+          <span>中心星核脉冲</span>
+          <span>局部色散</span>
+        </div>
+      </div>
 
-    <button onclick="toggle()">切换状态</button>
-</div>
+      <aside class="glass-panel settings">
+        <h2>调参面板</h2>
+        <p class="settings-note">开关本体点击可在关闭与待命之间切换；状态按钮用于模拟智能体执行阶段。</p>
 
-<canvas id="c"></canvas>
+        <div class="section-title">状态</div>
+        <div class="state-grid" id="stateGrid">
+          <button class="state-button" data-state="off">关闭</button>
+          <button class="state-button" data-state="standby">待命</button>
+          <button class="state-button active" data-state="running">执行中</button>
+          <button class="state-button" data-state="paused">接管暂停</button>
+          <button class="state-button" data-state="error">异常脉冲</button>
+        </div>
 
-<script>
-const c = document.getElementById('c');
-const ctx = c.getContext('2d');
+        <div class="section-title">形状</div>
+        <label class="control">
+          <span class="control-head"><span>非对称程度</span><span class="control-value" id="asymmetryValue">38%</span></span>
+          <input id="asymmetry" type="range" min="0" max="70" value="38" step="1" />
+        </label>
+        <label class="control">
+          <span class="control-head"><span>轨道倾角</span><span class="control-value" id="tiltValue">−11°</span></span>
+          <input id="tilt" type="range" min="-22" max="12" value="-11" step="1" />
+        </label>
+        <label class="control">
+          <span class="control-head"><span>中心收束</span><span class="control-value" id="pinchValue">62%</span></span>
+          <input id="pinch" type="range" min="30" max="85" value="62" step="1" />
+        </label>
+        <label class="control">
+          <span class="control-head"><span>线芯粗细</span><span class="control-value" id="thicknessValue">1.55 px</span></span>
+          <input id="thickness" type="range" min="90" max="230" value="155" step="5" />
+        </label>
 
-function resize(){
-    c.width = window.innerWidth;
-    c.height = window.innerHeight;
-}
-window.addEventListener('resize', resize);
-resize();
+        <div class="section-title">光效与动画</div>
+        <label class="control">
+          <span class="control-head"><span>光晕强度</span><span class="control-value" id="glowValue">100%</span></span>
+          <input id="glow" type="range" min="35" max="160" value="100" step="5" />
+        </label>
+        <label class="control">
+          <span class="control-head"><span>循环速度</span><span class="control-value" id="speedValue">1.10×</span></span>
+          <input id="speed" type="range" min="45" max="190" value="110" step="5" />
+        </label>
+        <label class="control">
+          <span class="control-head"><span>拖尾长度</span><span class="control-value" id="trailValue">8</span></span>
+          <input id="trail" type="range" min="3" max="14" value="8" step="1" />
+        </label>
 
-let t = 0;
-let running = true;
+        <div class="section-title">当前参数</div>
+        <div class="config-box" id="configBox"></div>
+        <div class="action-row">
+          <button class="action-button" id="copyConfig">复制参数</button>
+          <button class="action-button" id="resetConfig">恢复推荐值</button>
+        </div>
+        <p class="footer-note">预览使用 SVG 程序化光学层。迁移到 Android 时会改写为 Compose Canvas，并仅在需要极致色散时使用局部 RuntimeShader；不会接入 OpenGL registry。</p>
+      </aside>
+    </section>
+  </main>
 
-function getParams(){
-    return {
-        asym: parseFloat(a.value),
-        glow: parseFloat(g.value),
-        speed: parseFloat(s.value)
-    }
-}
+  <template id="switchTemplate">
+    <button class="agent-switch state-running" type="button" role="switch" aria-checked="true" aria-label="Agent 视觉智能开关">
+      <span class="agent-word">Agent</span>
+      <span class="infinity-wrap">
+        <svg class="infinity-svg" viewBox="0 0 240 100" aria-hidden="true">
+          <defs>
+            <linearGradient id="energyGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="var(--energy-color-a)" />
+              <stop offset="44%" stop-color="var(--energy-color-c)" />
+              <stop offset="74%" stop-color="var(--energy-color-b)" />
+              <stop offset="100%" stop-color="var(--energy-color-a)" />
+            </linearGradient>
+            <linearGradient id="glassGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="rgba(255,255,255,0.92)" />
+              <stop offset="30%" stop-color="var(--energy-color-a)" />
+              <stop offset="68%" stop-color="var(--energy-color-b)" />
+              <stop offset="100%" stop-color="rgba(75,98,255,0.68)" />
+            </linearGradient>
+            <filter id="glowLarge" x="-70%" y="-100%" width="240%" height="300%" color-interpolation-filters="sRGB">
+              <feGaussianBlur stdDeviation="8.2" />
+            </filter>
+            <filter id="glowMedium" x="-80%" y="-120%" width="260%" height="340%" color-interpolation-filters="sRGB">
+              <feGaussianBlur stdDeviation="3.8" />
+            </filter>
+            <filter id="glowTiny" x="-100%" y="-160%" width="300%" height="420%" color-interpolation-filters="sRGB">
+              <feGaussianBlur stdDeviation="1.4" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
+          <g class="optics-group">
+            <path class="orbit" stroke="rgba(101,255,239,0.82)" />
+            <path class="orbit secondary" stroke="rgba(180,112,255,0.76)" />
+            <path class="infinity-layer halo-wide" />
+            <path class="infinity-layer halo-mid" />
+            <path class="infinity-layer spectrum-cyan" />
+            <path class="infinity-layer spectrum-magenta" />
+            <path class="infinity-layer glass-body" />
+            <path class="infinity-layer energy-core motion-path" />
+            <path class="infinity-layer specular" />
 
-function drawInfinityPath(asym){
-    const w = c.width;
-    const h = c.height;
-    const cx = w/2;
-    const cy = h/2;
+            <g class="comet-trail comet-trail-primary"></g>
+            <circle class="comet-head comet-head-primary" r="2.6" />
+            <g class="comet-trail comet-trail-secondary"></g>
+            <circle class="comet-head secondary comet-head-secondary" r="2.1" />
 
-    const size = 180;
+            <line class="star-ray ray-h" />
+            <line class="star-ray ray-v" />
+            <line class="star-ray ray-d1" />
+            <line class="star-ray ray-d2" />
+            <circle class="center-star" r="1.5" />
+          </g>
+        </svg>
+      </span>
+    </button>
+  </template>
 
-    const leftShift = -size * (1 + asym*0.4);
-    const rightShift = size * (1 - asym*0.2);
-
-    ctx.beginPath();
-
-    // 非对称∞路径（两个loop不同形状）
-    ctx.moveTo(cx, cy);
-
-    ctx.bezierCurveTo(
-        cx + leftShift, cy - size,
-        cx + leftShift*0.2, cy + size,
-        cx, cy
-    );
-
-    ctx.bezierCurveTo(
-        cx + rightShift, cy - size*0.8,
-        cx + rightShift*0.3, cy + size,
-        cx, cy
-    );
-
-    return ctx;
-}
-
-function drawGlowPath(asym, glow){
-    for(let i=0;i<3;i++){
-        ctx.save();
-        ctx.lineWidth = 2 + i*2;
-        ctx.strokeStyle = `rgba(120,200,255,${0.08*glow*(3-i)})`;
-        ctx.shadowBlur = 20*glow;
-        ctx.shadowColor = '#66ccff';
-        drawInfinityPath(asym);
-        ctx.stroke();
-        ctx.restore();
-    }
-}
-
-function drawCore(asym, glow){
-    ctx.save();
-    ctx.lineWidth = 1.2;
-    ctx.strokeStyle = '#bfe9ff';
-    ctx.shadowBlur = 18*glow;
-    ctx.shadowColor = '#7fd0ff';
-    drawInfinityPath(asym);
-    ctx.stroke();
-    ctx.restore();
-}
-
-function drawParticle(asym, speed, glow){
-    const w = c.width;
-    const h = c.height;
-    const cx = w/2;
-    const cy = h/2;
-
-    const radius = 160;
-
-    const p = (t*speed)%1;
-
-    const x = cx + Math.cos(p*Math.PI*2) * radius*(1+asym*0.3);
-    const y = cy + Math.sin(p*Math.PI*4) * radius*0.5;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(x,y,3.5,0,Math.PI*2);
-    ctx.fillStyle = '#8fe2ff';
-    ctx.shadowBlur = 25*glow;
-    ctx.shadowColor = '#7fd0ff';
-    ctx.fill();
-    ctx.restore();
-}
-
-function render(){
-    ctx.clearRect(0,0,c.width,c.height);
-
-    const p = getParams();
-
-    drawGlowPath(p.asym,p.glow);
-    drawCore(p.asym,p.glow);
-    if(running) drawParticle(p.asym,p.speed,p.glow);
-
-    t += 0.016;
-    requestAnimationFrame(render);
-}
-
-function toggle(){
-    running = !running;
-}
-
-render();
-</script>
-
+  <script src="app.js"></script>
 </body>
 </html>
