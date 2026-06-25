@@ -200,6 +200,7 @@ object VisualObservationProtocol {
         val secondClass = stableClassName(second.className)
         val firstText = normalizeStableText(first.text)
         val secondText = normalizeStableText(second.text)
+        if (firstText.isNotBlank() && secondText.isNotBlank() && firstText != secondText) return false
         val stableLabelMatch = firstText.isNotBlank() && firstText == secondText
         if (
             firstClass.isNotBlank() &&
