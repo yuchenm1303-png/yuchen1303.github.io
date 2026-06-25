@@ -3,6 +3,7 @@ package com.yuchen.ailedger.service
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -93,7 +94,38 @@ class VisualExecutionSessionStateTest {
         assertFalse(error.retryable)
     }
 
-    private fun snapshot(packageName: String) = AgentScreenSnapshot(
+    @Test
+    fun verifiedPackageDriftRevokesGuiOwnershipAndIncrementsRouteEpoch() {
+        val session = VisualExecutionSessionState().apply {
+            beginLaunch("com.example.target")
+            markTargetVerified("com.example.target")
+        }
+        val before = session.routeEpoch
+
+        val runtime = session.runtimeContext(snapshot("com.example.other"))
+
+        assertEquals(VisualSurfaceState.Replanning, runtime.surfaceState)
+        assertFalse(runtime.guiPlusEligible)
+        assertEquals(before + 1L, runtime.routeEpoch)
+    }
+
+    @Test
+    fun observationIdChangesWhenVisualFrameOrSurfaceEpochChanges() {
+        val first = snapshot("com.example.target", "YWJj")
+        val changedFrame = snapshot("com.example.target", "ZGVm")
+
+        val firstId = VisualObservationProtocol.observationId(first, 1L, 2L)
+        val changedFrameId = VisualObservationProtocol.observationId(changedFrame, 1L, 2L)
+        val changedEpochId = VisualObservationProtocol.observationId(first, 1L, 3L)
+
+        assertNotEquals(firstId, changedFrameId)
+        assertNotEquals(firstId, changedEpochId)
+    }
+
+    private fun snapshot(
+        packageName: String,
+        visualBase64: String = "",
+    ) = AgentScreenSnapshot(
         currentApp = packageName,
         packageName = packageName,
         nodeCount = 0,
@@ -103,6 +135,18 @@ class VisualExecutionSessionStateTest {
         clickableNodes = emptyList(),
         inputNodes = emptyList(),
         scrollableNodes = emptyList(),
-        visual = null,
+        visual = visualBase64.takeIf { it.isNotBlank() }?.let {
+            AgentScreenVisual(
+                available = true,
+                mimeType = "image/jpeg",
+                width = 720,
+                height = 1280,
+                displayWidth = 1080,
+                displayHeight = 2400,
+                base64Jpeg = it,
+                source = "test",
+                reason = "test",
+            )
+        },
     )
 }
