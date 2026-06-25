@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import com.yuchen.ailedger.AiLedgerApplication
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -88,25 +89,55 @@ data class AgentScreenSnapshot(
 }
 
 fun ScreenObservation.toAgentScreenSnapshot(): AgentScreenSnapshot {
-    val appPackage = packageName.ifBlank { "unknown" }
-    val normalizedAllItems = if (allItems.isNotEmpty()) allItems else (clickableItems + inputItems + scrollableItems)
-        .distinctBy { it.bounds + it.text + it.className }
+    val observedPackage = packageName.ifBlank { "unknown" }
+    val expectedPackage = ForegroundTargetBinding.current()
+    val foregroundResolution = AiLedgerApplication.contextOrNull()?.let { context ->
+        ForegroundPackageResolver.resolve(
+            context = context,
+            observedPackage = observedPackage,
+            expectedPackage = expectedPackage,
+        )
+    } ?: ForegroundPackageResolutionPolicy.resolve(
+        observedPackage = observedPackage,
+        expectedPackage = expectedPackage,
+        foregroundProcessPackages = emptySet(),
+        shellForegroundPackages = emptySet(),
+    )
+    val appPackage = foregroundResolution.packageName.ifBlank { observedPackage }
+    val packageWasSubstituted = appPackage != observedPackage
+
+    // A fallback package may be verified by foreground process/dumpsys evidence while the selected
+    // accessibility root still belongs to the overlay or a transient system surface. In that case
+    // keep the screenshot, but never attach another window's semantic nodes to the verified target.
+    val sourceAllItems = if (packageWasSubstituted) {
+        emptyList()
+    } else if (allItems.isNotEmpty()) {
+        allItems
+    } else {
+        (clickableItems + inputItems + scrollableItems)
+            .distinctBy { it.bounds + it.text + it.className }
+    }
+    val sourceTexts = if (packageWasSubstituted) emptyList() else textItems
+    val sourceClickable = if (packageWasSubstituted) emptyList() else clickableItems
+    val sourceInputs = if (packageWasSubstituted) emptyList() else inputItems
+    val sourceScrollable = if (packageWasSubstituted) emptyList() else scrollableItems
+
     return AgentScreenSnapshot(
         currentApp = appPackage,
         packageName = appPackage,
-        nodeCount = nodeCount,
-        capturedNodeCount = capturedNodeCount.takeIf { it > 0 } ?: normalizedAllItems.size,
-        texts = textItems
+        nodeCount = if (packageWasSubstituted) 0 else nodeCount,
+        capturedNodeCount = if (packageWasSubstituted) 0 else capturedNodeCount.takeIf { it > 0 } ?: sourceAllItems.size,
+        texts = sourceTexts
             .asSequence()
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
             .take(SNAPSHOT_TEXT_LIMIT)
             .toList(),
-        allNodes = normalizedAllItems.toAgentNodes(SNAPSHOT_ALL_NODE_LIMIT),
-        clickableNodes = clickableItems.toAgentNodes(SNAPSHOT_CLICKABLE_LIMIT),
-        inputNodes = inputItems.toAgentNodes(SNAPSHOT_INPUT_LIMIT),
-        scrollableNodes = scrollableItems.toAgentNodes(SNAPSHOT_SCROLLABLE_LIMIT),
+        allNodes = sourceAllItems.toAgentNodes(SNAPSHOT_ALL_NODE_LIMIT),
+        clickableNodes = sourceClickable.toAgentNodes(SNAPSHOT_CLICKABLE_LIMIT),
+        inputNodes = sourceInputs.toAgentNodes(SNAPSHOT_INPUT_LIMIT),
+        scrollableNodes = sourceScrollable.toAgentNodes(SNAPSHOT_SCROLLABLE_LIMIT),
         visual = visual?.toAgentVisual(),
     )
 }
