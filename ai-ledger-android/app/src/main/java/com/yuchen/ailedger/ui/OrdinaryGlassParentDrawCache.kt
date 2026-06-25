@@ -47,8 +47,77 @@ internal class OrdinaryGlassParentDrawCache {
     var backdropMilk: Float = 0f
 }
 
+private const val OrdinaryParentSignatureSeed = 1125899906842597L
+
+internal fun ordinaryParentSignatureOf(
+    value1: Int,
+    value2: Int,
+    value3: Int,
+    value4: Int,
+    value5: Int
+): Long {
+    var result = OrdinaryParentSignatureSeed
+    result = result * 31L + value1.toLong()
+    result = result * 31L + value2.toLong()
+    result = result * 31L + value3.toLong()
+    result = result * 31L + value4.toLong()
+    return result * 31L + value5.toLong()
+}
+
+internal fun ordinaryParentSignatureOf(
+    value1: Int,
+    value2: Int,
+    value3: Int,
+    value4: Int,
+    value5: Int,
+    value6: Int,
+    value7: Int,
+    value8: Int,
+    value9: Int
+): Long {
+    var result = OrdinaryParentSignatureSeed
+    result = result * 31L + value1.toLong()
+    result = result * 31L + value2.toLong()
+    result = result * 31L + value3.toLong()
+    result = result * 31L + value4.toLong()
+    result = result * 31L + value5.toLong()
+    result = result * 31L + value6.toLong()
+    result = result * 31L + value7.toLong()
+    result = result * 31L + value8.toLong()
+    return result * 31L + value9.toLong()
+}
+
+internal fun ordinaryParentSignatureOf(
+    value1: Int,
+    value2: Int,
+    value3: Int,
+    value4: Int,
+    value5: Int,
+    value6: Int,
+    value7: Int,
+    value8: Int,
+    value9: Int,
+    value10: Int,
+    value11: Int,
+    value12: Int
+): Long {
+    var result = OrdinaryParentSignatureSeed
+    result = result * 31L + value1.toLong()
+    result = result * 31L + value2.toLong()
+    result = result * 31L + value3.toLong()
+    result = result * 31L + value4.toLong()
+    result = result * 31L + value5.toLong()
+    result = result * 31L + value6.toLong()
+    result = result * 31L + value7.toLong()
+    result = result * 31L + value8.toLong()
+    result = result * 31L + value9.toLong()
+    result = result * 31L + value10.toLong()
+    result = result * 31L + value11.toLong()
+    return result * 31L + value12.toLong()
+}
+
 internal fun ordinaryParentSignatureOf(vararg values: Int): Long {
-    var result = 1125899906842597L
+    var result = OrdinaryParentSignatureSeed
     values.forEach { value -> result = result * 31L + value.toLong() }
     return result
 }
