@@ -8,4 +8,9 @@ class CloudAgentStepContractTest {
     fun protocolUsesSingleSourceOfTruth() {
         assertEquals(CloudAgentStep.supportedTypes, VisualAgentProtocol.supportedStepTypes)
     }
+
+    @Test
+    fun legacyModeDefaultsToTrue() {
+        assertEquals(true, CloudAgentStep(type = "tap_xy").legacyIntent)
+    }
 }
