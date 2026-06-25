@@ -5,9 +5,11 @@ package com.yuchen.ailedger.service
  * It never reads the user's instruction and never chooses, ranks or substitutes an app.
  */
 class VisualExecutionSessionState(
-    private val targetBinding: VisualTargetBinding = GlobalVisualTargetBinding,
+    targetBinding: VisualTargetBinding = GlobalVisualTargetBinding,
     private val stateMachine: VisualExecutionStateMachine = VisualExecutionStateMachine(),
 ) {
+    private val sessionBinding = SessionVisualTargetBinding(targetBinding)
+
     val surfaceState: VisualSurfaceState
         get() = stateMachine.surfaceState
     val selectedTargetPackage: String
@@ -20,15 +22,15 @@ class VisualExecutionSessionState(
         get() = stateMachine.surfaceEpoch
 
     init {
-        targetBinding.reset()
+        sessionBinding.reset()
     }
 
     fun beginLaunch(packageName: String) {
-        stateMachine.beginLaunch(packageName)?.let(targetBinding::bind)
+        stateMachine.beginLaunch(packageName)?.let(sessionBinding::bind)
     }
 
     fun markTargetVerified(packageName: String) {
-        stateMachine.markTargetVerified(packageName)?.let(targetBinding::bind)
+        stateMachine.markTargetVerified(packageName)?.let(sessionBinding::bind)
     }
 
     fun markStructuralReplan() {
@@ -48,7 +50,7 @@ class VisualExecutionSessionState(
         stateMachine.synchronizeWith(snapshot?.packageName.orEmpty())
         val verifiedAfter = stateMachine.verifiedTargetPackage
         if (verifiedAfter.isNotBlank() && verifiedAfter != verifiedBefore) {
-            targetBinding.bind(verifiedAfter)
+            sessionBinding.bind(verifiedAfter)
         }
     }
 
