@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.os.Handler
 import android.os.Looper
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +34,7 @@ data class AgentPendingUserInput(
 )
 
 data class AgentOverlayProgress(
+    val taskId: Long = 0L,
     val enabled: Boolean = false,
     val running: Boolean = false,
     val title: String = "AI 智能体",
@@ -70,12 +72,17 @@ object AgentRuntimeController {
     private var overlayCaptureDepth: Int = 0
     private var overlayCaptureGeneration: Long = 0L
 
+    private val taskStateLock = Any()
+    private val taskIdSequence = AtomicLong(0L)
+
     @Volatile private var manualStopGeneration: Long = 0L
     @Volatile private var userTakeoverPaused: Boolean = false
 
     fun isEnabled(): Boolean = mutableEnabled.value
 
     fun currentManualStopGeneration(): Long = manualStopGeneration
+
+    fun currentTaskId(): Long = mutableProgress.value.taskId
 
     fun isManualStopRequested(startGeneration: Long): Boolean {
         return manualStopGeneration != startGeneration
@@ -91,6 +98,7 @@ object AgentRuntimeController {
             userTakeoverPaused = false
             completePendingConfirmation(false)
             completePendingUserInput(null)
+            // 关闭总开关属于紧急清理边界；正常任务结束只由 Runner 的 finally 释放会话。
             AiAgentAccessibilityService.endTaskSession()
             resetCleanVisualCapture()
         } else {
@@ -158,46 +166,33 @@ object AgentRuntimeController {
         }
     }
 
-    fun startTask(goal: String) {
-        completePendingConfirmation(false)
-        completePendingUserInput(null)
-        userTakeoverPaused = false
-        resetCleanVisualCapture()
-        val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
-        publishProgress(
-            AgentOverlayProgress(
-                enabled = mutableEnabled.value,
-                running = true,
-                title = "AI 智能体",
-                status = "准备执行",
-                currentAction = cleanGoal,
-                logs = listOf("目标：$cleanGoal"),
+    fun startTask(goal: String): Long {
+        return synchronized(taskStateLock) {
+            completePendingConfirmation(false)
+            completePendingUserInput(null)
+            userTakeoverPaused = false
+            resetCleanVisualCapture()
+            val taskId = taskIdSequence.incrementAndGet()
+            val cleanGoal = goal.trim().take(48).ifBlank { "手机智能体任务" }
+            publishProgress(
+                AgentOverlayProgress(
+                    taskId = taskId,
+                    enabled = mutableEnabled.value,
+                    running = true,
+                    title = "AI 智能体",
+                    status = "准备执行",
+                    currentAction = cleanGoal,
+                    logs = listOf("目标：$cleanGoal"),
+                )
             )
-        )
+            taskId
+        }
     }
 
     fun stopTaskByUser(message: String = "用户手动停止了本次智能体任务。") {
         manualStopGeneration += 1L
-        userTakeoverPaused = false
-        completePendingConfirmation(false)
-        completePendingUserInput(null)
-        AiAgentAccessibilityService.endTaskSession()
-        resetCleanVisualCapture()
-        val current = mutableProgress.value
-        val resultText = message.trim().take(72).ifBlank { "用户手动停止了本次智能体任务。" }
-        publishProgress(
-            current.copy(
-                running = false,
-                status = "已手动停止",
-                currentAction = "用户手动停止",
-                lastResult = resultText,
-                pendingConfirmation = null,
-                pendingUserInput = null,
-                userTakeoverPaused = false,
-                logs = (current.logs + "停止：$resultText").takeLast(MAX_LOGS),
-                updatedAt = System.currentTimeMillis(),
-            )
-        )
+        val taskId = currentTaskId()
+        finishTask(taskId, AgentTaskOutcome.Cancelled(message))
     }
 
     fun pauseForUserTakeover(message: String = "用户接管中，智能体暂停自动点击。") {
@@ -236,49 +231,50 @@ object AgentRuntimeController {
     }
 
     fun finishTask(message: String, completed: Boolean) {
-        completePendingConfirmation(false)
-        completePendingUserInput(null)
-        userTakeoverPaused = false
-        AiAgentAccessibilityService.endTaskSession()
-        resetCleanVisualCapture()
-        val current = mutableProgress.value
-        val resultText = message.trim().take(72).ifBlank { if (completed) "任务完成" else "任务暂停" }
-        publishProgress(
-            current.copy(
-                running = false,
-                status = if (completed) "已完成" else "已暂停",
-                currentAction = if (completed) "任务完成" else "任务已暂停",
-                lastResult = resultText,
-                pendingConfirmation = null,
-                pendingUserInput = null,
-                userTakeoverPaused = false,
-                logs = (current.logs + "最终：$resultText").takeLast(MAX_LOGS),
-                updatedAt = System.currentTimeMillis(),
-            )
+        finishTask(
+            if (completed) AgentTaskOutcome.Completed(message) else AgentTaskOutcome.Paused(message),
         )
     }
 
-    fun failTask(message: String) {
-        completePendingConfirmation(false)
-        completePendingUserInput(null)
-        userTakeoverPaused = false
-        AiAgentAccessibilityService.endTaskSession()
-        resetCleanVisualCapture()
-        val current = mutableProgress.value
-        val resultText = message.trim().take(72).ifBlank { "智能体执行失败" }
-        publishProgress(
-            current.copy(
-                running = false,
-                status = "执行失败",
-                currentAction = "任务异常",
-                lastResult = resultText,
-                pendingConfirmation = null,
-                pendingUserInput = null,
-                userTakeoverPaused = false,
-                logs = (current.logs + "失败：$resultText").takeLast(MAX_LOGS),
-                updatedAt = System.currentTimeMillis(),
+    fun finishTask(outcome: AgentTaskOutcome): Boolean {
+        return finishTask(currentTaskId(), outcome)
+    }
+
+    fun finishTask(taskId: Long, outcome: AgentTaskOutcome): Boolean {
+        return synchronized(taskStateLock) {
+            val current = mutableProgress.value
+            if (taskId <= 0L || current.taskId != taskId) return@synchronized false
+
+            completePendingConfirmation(false)
+            completePendingUserInput(null)
+            userTakeoverPaused = false
+            resetCleanVisualCapture()
+
+            val presentation = outcome.toTerminalPresentation()
+            val resultText = outcome.message.trim().take(72).ifBlank { presentation.defaultMessage }
+            publishProgress(
+                current.copy(
+                    running = false,
+                    status = presentation.status,
+                    currentAction = presentation.currentAction,
+                    lastResult = resultText,
+                    pendingConfirmation = null,
+                    pendingUserInput = null,
+                    userTakeoverPaused = false,
+                    logs = (current.logs + "${presentation.logPrefix}：$resultText").takeLast(MAX_LOGS),
+                    updatedAt = System.currentTimeMillis(),
+                )
             )
-        )
+            true
+        }
+    }
+
+    fun failTask(message: String) {
+        finishTask(AgentTaskOutcome.Failed(message))
+    }
+
+    fun failTask(taskId: Long, message: String): Boolean {
+        return finishTask(taskId, AgentTaskOutcome.Failed(message))
     }
 
     fun noteAction(step: CloudAgentStep) {
@@ -308,7 +304,7 @@ object AgentRuntimeController {
         publishProgress(
             current.copy(
                 // noteResult 只记录中间结果，不提前关闭 running。
-                // 真正结束必须由 AgentTaskRunner.finishTask/failTask 统一收口，避免一次性内部工具被误判成“任务已暂停”。
+                // 真正结束必须由 Runner 统一收口，避免一次性内部工具被误判成“任务已暂停”。
                 running = current.running,
                 status = when {
                     result.ok && result.shouldContinue -> "执行中"
@@ -565,7 +561,8 @@ object AgentRuntimeController {
     }
 
     private fun AgentOverlayProgress.hasSameOverlayContent(other: AgentOverlayProgress): Boolean {
-        return enabled == other.enabled &&
+        return taskId == other.taskId &&
+            enabled == other.enabled &&
             running == other.running &&
             title == other.title &&
             status == other.status &&
