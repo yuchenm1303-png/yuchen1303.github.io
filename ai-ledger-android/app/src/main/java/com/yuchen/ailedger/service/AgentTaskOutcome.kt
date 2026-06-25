@@ -51,3 +51,53 @@ internal fun AgentTaskOutcome.toTerminalPresentation(): AgentTaskTerminalPresent
         )
     }
 }
+
+internal object AgentTaskOutcomeResolver {
+    fun resolve(
+        completed: Boolean,
+        stoppedForConfirmation: Boolean,
+        message: String,
+    ): AgentTaskOutcome {
+        val clean = message.trim()
+        if (completed) return AgentTaskOutcome.Completed(clean)
+        if (stoppedForConfirmation) return AgentTaskOutcome.Paused(clean)
+
+        val normalized = clean.lowercase()
+        return when {
+            normalized.contains("用户已手动停止") ||
+                normalized.contains("用户手动停止") ||
+                normalized.contains("本次智能体任务已取消") ||
+                normalized.contains("user stopped") ||
+                normalized.contains("cancelled") ||
+                normalized.contains("canceled") -> AgentTaskOutcome.Cancelled(clean)
+
+            normalized.contains("达到执行上限") ||
+                normalized.contains("达到安全动作预算") ||
+                normalized.contains("达到安全运行时长") ||
+                normalized.contains("action budget") ||
+                normalized.contains("planning budget") ||
+                normalized.contains("budget reached") -> AgentTaskOutcome.BudgetExceeded(clean)
+
+            normalized.contains("已暂停") ||
+                normalized.contains("暂停等待") ||
+                normalized.contains("等待用户接管") ||
+                normalized.contains("用户接管") ||
+                normalized.contains("visual loop stopped") ||
+                normalized.contains("task paused") -> AgentTaskOutcome.Paused(clean)
+
+            else -> AgentTaskOutcome.Failed(clean)
+        }
+    }
+
+    fun resolveLegacyCompletion(completed: Boolean, message: String): AgentTaskOutcome {
+        return resolve(completed, false, message)
+    }
+}
+
+internal fun AgentTaskRunResult.resolvedOutcome(): AgentTaskOutcome {
+    return AgentTaskOutcomeResolver.resolve(
+        completed = completed,
+        stoppedForConfirmation = stoppedForConfirmation,
+        message = message,
+    )
+}
