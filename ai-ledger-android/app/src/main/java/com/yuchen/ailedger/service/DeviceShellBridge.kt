@@ -132,6 +132,41 @@ class DeviceShellBridge(
         return DeviceShellExecResult(result.ok, title, result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" }, result.exitCode, result.error.take(MAX_OUTPUT_CHARS))
     }
 
+    /**
+     * Fast path used only for trusted foreground-package observation. It never launches the slow
+     * general shell capability probe. Shizuku is checked directly; raw ADB shell is accepted only
+     * when a recent full probe has already verified that identity.
+     */
+    fun runTrustedReadOnlyEnhancedCommand(
+        title: String,
+        command: String,
+        timeoutMs: Long = 800L,
+    ): DeviceShellExecResult {
+        val shizukuGranted = isShizukuAvailable() && isShizukuPermissionGranted()
+        val cachedAdbShellLike = hasFreshCachedAdbShellIdentity()
+        if (!shizukuGranted && !cachedAdbShellLike) {
+            return DeviceShellExecResult(
+                ok = false,
+                title = title,
+                output = "",
+                error = "trusted_enhanced_shell_unavailable",
+            )
+        }
+        val boundedTimeout = timeoutMs.coerceIn(250L, 1_500L)
+        val result = if (shizukuGranted) {
+            executeShizukuRaw(command, boundedTimeout)
+        } else {
+            executeRaw(command, boundedTimeout)
+        }
+        return DeviceShellExecResult(
+            ok = result.ok,
+            title = title,
+            output = result.output.take(MAX_OUTPUT_CHARS).ifBlank { "无输出" },
+            exitCode = result.exitCode,
+            error = result.error.take(MAX_OUTPUT_CHARS),
+        )
+    }
+
     fun runVerifiedEnhancedCommand(
         title: String,
         command: String,
@@ -215,6 +250,13 @@ class DeviceShellBridge(
             preferShizuku && status.shizukuGranted -> executeShizukuRaw(command, timeoutMs)
             else -> executeRaw(command, timeoutMs)
         }
+    }
+
+    private fun hasFreshCachedAdbShellIdentity(): Boolean {
+        val now = System.currentTimeMillis()
+        return cachedProbeStatus
+            ?.takeIf { now - cachedProbeAtMs < PROBE_CACHE_TTL_MS }
+            ?.isAdbShellLike == true
     }
 
     private fun executeRaw(command: String, timeoutMs: Long): ShellRawResult {
