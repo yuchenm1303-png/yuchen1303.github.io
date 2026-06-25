@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -58,8 +59,19 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
+    fun legacyRouteFailureRetriesInsideCurrentLoop() {
+        val decision = VisualRouteRetryPolicy.decide(
+            IOException("visual_agent_step failed: agent_brain_route_failed timeout"),
+            completedRetries = 0,
+        )
+
+        assertTrue(decision is VisualRouteRetryDecision.Retry)
+        assertEquals(1, (decision as VisualRouteRetryDecision.Retry).attempt)
+    }
+
+    @Test
     fun ordinaryIoFailureStops() {
-        val decision = VisualRouteRetryPolicy.decide(java.io.IOException("failed"), 0)
+        val decision = VisualRouteRetryPolicy.decide(IOException("failed"), 0)
 
         assertTrue(decision is VisualRouteRetryDecision.Stop)
     }
