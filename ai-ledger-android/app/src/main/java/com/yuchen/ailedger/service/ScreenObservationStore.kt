@@ -127,5 +127,5 @@ object ScreenObservationStore {
         mutableObservation.value = ScreenObservation(updatedAt = System.currentTimeMillis())
     }
 
-    private const val WINDOW_PACKAGE_HINT_MAX_AGE_MS = 1_500L
+    private const val WINDOW_PACKAGE_HINT_MAX_AGE_MS = 600L
 }
