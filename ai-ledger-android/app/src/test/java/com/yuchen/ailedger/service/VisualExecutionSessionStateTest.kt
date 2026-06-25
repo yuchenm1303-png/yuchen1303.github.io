@@ -44,6 +44,13 @@ class VisualExecutionSessionStateTest {
         assertFalse(evidence.available)
     }
 
+    @Test
+    fun ordinaryIoFailureStops() {
+        val decision = VisualRouteRetryPolicy.decide(java.io.IOException("failed"), 0)
+
+        assertTrue(decision is VisualRouteRetryDecision.Stop)
+    }
+
     private fun snapshot(packageName: String) = AgentScreenSnapshot(
         currentApp = packageName,
         packageName = packageName,
