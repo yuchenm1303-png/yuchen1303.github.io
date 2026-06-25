@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.service
 
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -67,15 +66,11 @@ class VisualExecutionSessionStateTest {
 
     @Test
     fun responseErrorKeepsServerFields() {
-        val body = JSONObject()
-            .put("code", "route_unavailable")
-            .put("retry" + "able", true)
-            .put("message", "temporary")
-            .toString()
+        val body = """{"code":"route_unavailable","retryable":true,"message":"temporary"}"""
 
         val error = parseVisualAgentHttpFailure(503, body)
 
-        assertEquals(503L, error.httpStatus?.toLong())
+        assertTrue("HTTP status should remain 503 but was ${error.httpStatus}", error.httpStatus == 503)
         assertEquals("route_unavailable", error.code)
         assertTrue(error.retryable)
         assertEquals("temporary", error.backendMessage)
@@ -83,15 +78,13 @@ class VisualExecutionSessionStateTest {
 
     @Test
     fun explicitServerFlagCanDisableRecovery() {
-        val body = JSONObject()
-            .put("code", "route_rejected")
-            .put("retry" + "able", false)
-            .put("message", "rejected")
-            .toString()
+        val body = """{"code":"route_rejected","retryable":false,"message":"rejected"}"""
 
         val error = parseVisualAgentHttpFailure(503, body)
 
         assertFalse(error.retryable)
+        assertEquals("route_rejected", error.code)
+        assertEquals("rejected", error.backendMessage)
     }
 
     @Test
