@@ -14,63 +14,30 @@ import com.yuchen.ailedger.model.StockSlowDataSnapshot
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONObject
 
 class StockMarketDataRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
-    fun loadMarketHome(): Result<StockMarketHomeSnapshot> = runCatching {
-        val root = JSONObject(
-            httpGet(
-                "${baseUrl()}/api/stock/a-share/market/home",
-                timeoutMs = MARKET_TIMEOUT_MS
+    @Volatile
+    private var lastSuccessfulHome: StockMarketHomeSnapshot? = null
+
+    fun loadMarketHome(): Result<StockMarketHomeSnapshot> {
+        return runCatching {
+            val root = JSONObject(
+                httpGet(
+                    "${baseUrl()}/api/stock/a-share/market/home",
+                    timeoutMs = MARKET_TIMEOUT_MS
+                )
             )
-        )
-        val payload = payloadObject(root)
-
-        val boards = buildList {
-            addBoard(payload, "gainers", "涨幅榜", "真实涨幅排序")
-            addBoard(payload, "losers", "跌幅榜", "真实跌幅排序")
-            addBoard(payload, "amountRanking", "成交额榜", "真实成交额排序")
-            addBoard(payload, "turnoverRanking", "换手率榜", "真实换手率排序")
-            addBoard(payload, "volumeRatioRanking", "量比榜", "真实量比排序")
-            addBoard(payload, "speedRanking", "涨速榜", "真实涨速排序")
-
-            val inflowFuture = CompletableFuture.supplyAsync {
-                loadRankingBoard("main_inflow", "主力净流入榜")
+            parseMarketHome(root).also { snapshot ->
+                if (snapshot.hasUsefulData()) lastSuccessfulHome = snapshot
             }
-            val outflowFuture = CompletableFuture.supplyAsync {
-                loadRankingBoard("main_outflow", "主力净流出榜")
-            }
-            awaitRanking(inflowFuture)?.let(::add)
-            awaitRanking(outflowFuture)?.let(::add)
+        }.recoverCatching { error ->
+            lastSuccessfulHome?.asClientStale(error)
+                ?: throw error
         }
-
-        val indicesModule = payload.optJSONObject("indices")
-        val breadthModule = payload.optJSONObject("marketBreadth")
-        val sentimentModule = payload.optJSONObject("sentiment")
-        val sectorModule = payload.optJSONObject("sectorHotRanking")
-        val marketNewsModule = payload.optJSONObject("marketNews")
-        val popularityModule = payload.optJSONObject("popularityRanking")
-        val limitUpModule = payload.optJSONObject("limitUpSummary")
-
-        StockMarketHomeSnapshot(
-            indices = parseIndices(indicesModule),
-            indicesMeta = metaFromModule(indicesModule),
-            marketBreadth = parseBreadth(breadthModule),
-            sentiment = parseSentiment(sentimentModule),
-            boards = boards.distinctBy { it.title },
-            sectors = parseSectors(sectorModule),
-            marketNews = parseInformationItems(marketNewsModule),
-            marketNewsMeta = metaFromModule(marketNewsModule),
-            popularityMeta = metaFromModule(popularityModule),
-            limitUpMeta = metaFromModule(limitUpModule),
-            updatedAt = firstText(payload, "updatedAt").orEmpty(),
-            warnings = stringList(payload.optJSONArray("warnings"))
-        )
     }
 
     fun loadSlowStock(query: String): Result<StockSlowDataSnapshot> = runCatching {
@@ -115,6 +82,70 @@ class StockMarketDataRepository(
         )
     }
 
+    private fun parseMarketHome(root: JSONObject): StockMarketHomeSnapshot {
+        val payload = payloadObject(root)
+        val boards = buildList {
+            addBoard(payload, "gainers", "涨幅榜", "真实涨幅排序")
+            addBoard(payload, "losers", "跌幅榜", "真实跌幅排序")
+            addBoard(payload, "amountRanking", "成交额榜", "真实成交额排序")
+            addBoard(payload, "turnoverRanking", "换手率榜", "真实换手率排序")
+            addBoard(payload, "volumeRatioRanking", "量比榜", "真实量比排序")
+            addBoard(payload, "speedRanking", "涨速榜", "真实涨速排序")
+            addBoard(payload, "mainInflowRanking", "主力净流入榜", "真实主力净流入排序")
+            addBoard(payload, "mainOutflowRanking", "主力净流出榜", "真实主力净流出排序")
+        }
+
+        val indicesModule = payload.optJSONObject("indices")
+        val breadthModule = payload.optJSONObject("marketBreadth")
+        val sentimentModule = payload.optJSONObject("sentiment")
+        val sectorModule = payload.optJSONObject("sectorHotRanking")
+        val marketNewsModule = payload.optJSONObject("marketNews")
+        val popularityModule = payload.optJSONObject("popularityRanking")
+        val limitUpModule = payload.optJSONObject("limitUpSummary")
+
+        return StockMarketHomeSnapshot(
+            indices = parseIndices(indicesModule),
+            indicesMeta = metaFromModule(indicesModule),
+            marketBreadth = parseBreadth(breadthModule),
+            sentiment = parseSentiment(sentimentModule),
+            boards = boards.distinctBy { it.title },
+            sectors = parseSectors(sectorModule),
+            marketNews = parseInformationItems(marketNewsModule),
+            marketNewsMeta = metaFromModule(marketNewsModule),
+            popularityMeta = metaFromModule(popularityModule),
+            limitUpMeta = metaFromModule(limitUpModule),
+            updatedAt = firstText(payload, "updatedAt").orEmpty(),
+            warnings = stringList(payload.optJSONArray("warnings"))
+        )
+    }
+
+    private fun StockMarketHomeSnapshot.hasUsefulData(): Boolean =
+        indices.isNotEmpty() ||
+            marketBreadth.meta.hasRealData ||
+            sentiment.meta.hasRealData ||
+            boards.isNotEmpty() ||
+            sectors.isNotEmpty()
+
+    private fun StockMarketHomeSnapshot.asClientStale(error: Throwable): StockMarketHomeSnapshot {
+        val warning = "android_refresh_failed: ${error.javaClass.simpleName}: ${error.message.orEmpty()}"
+        return copy(
+            indicesMeta = indicesMeta.asClientStale(warning),
+            marketBreadth = marketBreadth.copy(meta = marketBreadth.meta.asClientStale(warning)),
+            sentiment = sentiment.copy(meta = sentiment.meta.asClientStale(warning)),
+            marketNewsMeta = marketNewsMeta.asClientStale(warning),
+            popularityMeta = popularityMeta.asClientStale(warning),
+            limitUpMeta = limitUpMeta.asClientStale(warning),
+            warnings = (warnings + warning).distinct()
+        )
+    }
+
+    private fun StockModuleMeta.asClientStale(warning: String): StockModuleMeta {
+        return copy(
+            status = if (hasRealData) StockModuleStatus.Stale else status,
+            warnings = (warnings + warning).distinct()
+        )
+    }
+
     private fun MutableList<StockMarketBoard>.addBoard(
         root: JSONObject,
         key: String,
@@ -133,35 +164,6 @@ class StockMarketDataRepository(
                 )
             )
         }
-    }
-
-    private fun awaitRanking(
-        future: CompletableFuture<StockMarketBoard?>
-    ): StockMarketBoard? = runCatching {
-        future.get((RANKING_TIMEOUT_MS + 1_000).toLong(), TimeUnit.MILLISECONDS)
-    }.getOrNull()
-
-    private fun loadRankingBoard(type: String, title: String): StockMarketBoard? {
-        return runCatching {
-            val root = JSONObject(
-                httpGet(
-                    "${baseUrl()}/api/stock/a-share/rankings?type=${encode(type)}&limit=20",
-                    timeoutMs = RANKING_TIMEOUT_MS
-                )
-            )
-            val payload = payloadObject(root)
-            val meta = metaFromModule(payload)
-            val items = parseRankingItems(payload)
-            if (items.isEmpty() || !meta.hasRealData) {
-                null
-            } else {
-                StockMarketBoard(
-                    title = title,
-                    subtitle = "真实资金排序 · ${meta.source.ifBlank { "公开数据" }}",
-                    items = items
-                )
-            }
-        }.getOrNull()
     }
 
     private fun parseIndices(module: JSONObject?): List<StockIndexSnapshot> {
@@ -493,7 +495,6 @@ class StockMarketDataRepository(
 
     companion object {
         private const val MARKET_TIMEOUT_MS = 18_000
-        private const val RANKING_TIMEOUT_MS = 8_000
         private const val SLOW_TIMEOUT_MS = 12_000
     }
 }
