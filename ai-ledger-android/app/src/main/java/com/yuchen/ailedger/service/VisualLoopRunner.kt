@@ -16,6 +16,9 @@ class VisualLoopRunner(
     private val applicationContext = appContext.applicationContext
     private val installedAppIndex = InstalledAppIndex(applicationContext)
     private val deviceToolExecutor = DeviceToolExecutor(applicationContext, installedAppIndex)
+    private val foregroundPackageProbe by lazy(LazyThreadSafetyMode.NONE) {
+        ForegroundPackageProbe(DeviceShellBridge(applicationContext))
+    }
     private val clientDeviceId by lazy { AgentClientIdentity.getOrCreateDeviceId(applicationContext) }
 
     suspend fun run(
@@ -69,12 +72,18 @@ class VisualLoopRunner(
                 if (!waitWhileUserTakeoverPaused(stopGeneration)) break
 
                 var observation = prefetchedObservation?.also { prefetchedObservation = null }
-                    ?: captureOnce(forceVisual = executionSession.requiresVisualObservation())
+                    ?: captureTrustedObservation(
+                        forceVisual = executionSession.requiresVisualObservation(),
+                        expectedPackage = executionSession.selectedTargetPackage,
+                    )
                 var snapshot = observation.toAgentScreenSnapshot()
                 state.currentPackage = snapshot.currentApp
                 var runtimeContext = executionSession.runtimeContext(snapshot)
                 if (runtimeContext.guiPlusEligible && snapshot.visual?.hasImage != true) {
-                    observation = captureOnce(forceVisual = true)
+                    observation = captureTrustedObservation(
+                        forceVisual = true,
+                        expectedPackage = executionSession.selectedTargetPackage,
+                    )
                     snapshot = observation.toAgentScreenSnapshot()
                     runtimeContext = executionSession.runtimeContext(snapshot)
                     state.currentPackage = snapshot.currentApp
@@ -104,10 +113,64 @@ class VisualLoopRunner(
                         )
                     }
                 } catch (error: IOException) {
-                    val message = "visual_agent_step failed: ${error.message ?: "unknown error"}"
-                    AgentRuntimeController.finishTask(message, completed = false)
-                    return AgentTaskRunResult(false, false, message, logs)
+                    when (val retryDecision = VisualRouteRetryPolicy.decide(error, state.routeRetryCount)) {
+                        is VisualRouteRetryDecision.Retry -> {
+                            state.routeRetryCount = retryDecision.attempt
+                            state.reobserveCount += 1
+                            val structuredError = error as? VisualAgentRequestException
+                            val recoveredObservation = captureTrustedObservation(
+                                forceVisual = true,
+                                expectedPackage = executionSession.selectedTargetPackage,
+                            )
+                            val recoveredSnapshot = recoveredObservation.toAgentScreenSnapshot()
+                            val recoveredContext = executionSession.runtimeContext(recoveredSnapshot)
+                            prefetchedObservation = recoveredObservation
+                            replaceRuntimeContextAction(recentActions, recoveredContext)
+                            appendRecentAction(
+                                recentActions,
+                                buildString {
+                                    append("visual_route_retry")
+                                    append(":attempt=").append(retryDecision.attempt)
+                                    append("|code=").append(structuredError?.code ?: "io_error")
+                                    append("|httpStatus=").append(structuredError?.httpStatus ?: 0)
+                                    append("|retryable=true")
+                                    append("|selectedTargetPackage=")
+                                    append(executionSession.selectedTargetPackage.take(100))
+                                    append("|currentPackage=").append(recoveredSnapshot.packageName.take(100))
+                                    append("|workSurfaceRecovered=").append(recoveredContext.guiPlusEligible)
+                                    append("|observationId=").append(recoveredContext.observationId)
+                                },
+                            )
+                            if (recoveredContext.guiPlusEligible) {
+                                state.routeRetryCount = 0
+                                appendRecentAction(
+                                    recentActions,
+                                    "visual_route_handoff_recovered:package=${recoveredSnapshot.packageName.take(100)}|observationId=${recoveredContext.observationId}",
+                                )
+                            } else {
+                                delay(retryDecision.backoffMs)
+                            }
+                            continue
+                        }
+
+                        is VisualRouteRetryDecision.Stop -> {
+                            val structuredError = error as? VisualAgentRequestException
+                            val message = buildString {
+                                append("visual_agent_step failed: ")
+                                append(error.message ?: "unknown error")
+                                append("; retryStopReason=").append(retryDecision.reason)
+                                structuredError?.let {
+                                    append("; code=").append(it.code)
+                                    append("; httpStatus=").append(it.httpStatus ?: 0)
+                                    append("; retryable=").append(it.retryable)
+                                }
+                            }
+                            AgentRuntimeController.finishTask(message, completed = false)
+                            return AgentTaskRunResult(false, false, message, logs)
+                        }
+                    }
                 }
+                state.routeRetryCount = 0
                 if (requestAppContext.size == visualAppContext.size) fullAppCatalogUploaded = true
                 AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
 
@@ -306,8 +369,9 @@ class VisualLoopRunner(
                 }
 
                 if (requiresFreshObservation(executableStep)) {
-                    val currentBeforeExecution = captureOnce(
+                    val currentBeforeExecution = captureTrustedObservation(
                         forceVisual = false,
+                        expectedPackage = executionSession.selectedTargetPackage,
                         settleMs = PACKAGE_CHECK_OVERLAY_SETTLE_MS,
                     ).toAgentScreenSnapshot()
                     executionSession.synchronizeWith(currentBeforeExecution)
@@ -410,7 +474,10 @@ class VisualLoopRunner(
                 }
 
                 delayForStep(executableStep)
-                val afterObservation = captureOnce(forceVisual = true)
+                val afterObservation = captureTrustedObservation(
+                    forceVisual = true,
+                    expectedPackage = executionSession.selectedTargetPackage,
+                )
                 val after = afterObservation.toAgentScreenSnapshot()
                 executionSession.synchronizeWith(after)
                 prefetchedObservation = afterObservation
@@ -477,6 +544,38 @@ class VisualLoopRunner(
         }
     }
 
+    private suspend fun captureTrustedObservation(
+        forceVisual: Boolean,
+        expectedPackage: String,
+        settleMs: Long = if (forceVisual) FULL_VISUAL_CAPTURE_SETTLE_MS else NON_VISUAL_CAPTURE_SETTLE_MS,
+    ): ScreenObservation {
+        val observation = captureOnce(forceVisual = forceVisual, settleMs = settleMs)
+        if (expectedPackage.isBlank() ||
+            !ForegroundPackageEvidenceResolver.needsShellFallback(observation.packageName)
+        ) {
+            return observation
+        }
+
+        val shellProbe = withContext(Dispatchers.IO) { foregroundPackageProbe.probe() }
+        val evidence = ForegroundPackageEvidenceResolver.resolve(
+            accessibilityPackage = observation.packageName,
+            shellProbe = shellProbe,
+        )
+        if (evidence.packageName.isBlank() || evidence.packageName == observation.packageName) {
+            return observation
+        }
+
+        return observation.copy(
+            packageName = evidence.packageName,
+            windowTitle = listOf(
+                observation.windowTitle,
+                "foreground=${evidence.source.wireValue}",
+            ).filter { it.isNotBlank() }
+                .joinToString(" · ")
+                .take(120),
+        )
+    }
+
     private suspend fun awaitStableTargetPackage(
         expectedPackage: String,
         stopGeneration: Long,
@@ -487,8 +586,9 @@ class VisualLoopRunner(
         var lastSnapshot: AgentScreenSnapshot? = null
         delay(OPEN_APP_INITIAL_SETTLE_MS)
         while (!isStopped(stopGeneration) && SystemClock.elapsedRealtime() < deadline) {
-            val probeObservation = captureOnce(
+            val probeObservation = captureTrustedObservation(
                 forceVisual = false,
+                expectedPackage = expectedPackage,
                 settleMs = PACKAGE_PROBE_SETTLE_MS,
             )
             val probeSnapshot = probeObservation.toAgentScreenSnapshot()
@@ -496,7 +596,10 @@ class VisualLoopRunner(
             if (probeSnapshot.packageName == expectedPackage) {
                 stableSamples += 1
                 if (stableSamples >= OPEN_APP_REQUIRED_STABLE_SAMPLES) {
-                    val visualObservation = captureOnce(forceVisual = true)
+                    val visualObservation = captureTrustedObservation(
+                        forceVisual = true,
+                        expectedPackage = expectedPackage,
+                    )
                     val visualSnapshot = visualObservation.toAgentScreenSnapshot()
                     lastSnapshot = visualSnapshot
                     if (visualSnapshot.packageName == expectedPackage && visualSnapshot.visual?.hasImage == true) {
@@ -891,6 +994,7 @@ data class VisualLoopState(
     var pendingFinishFingerprint: String = "",
     var pendingFinishCount: Int = 0,
     var replanRejectCount: Int = 0,
+    var routeRetryCount: Int = 0,
     var running: Boolean = false,
     var paused: Boolean = false,
     var completed: Boolean = false,
