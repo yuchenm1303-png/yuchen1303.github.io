@@ -371,7 +371,7 @@ class VisualAgentClientTest {
     }
 
     @Test
-    fun appCatalogIsSerializedExactlyOnceInTopLevelAppContext() {
+    fun appCatalogArrayIsSerializedOnlyOnceInTopLevelAppContext() {
         val snapshot = testSnapshot(packageName = "com.yuchen.ailedger")
         val runtimeContext = VisualAgentRuntimeContext(
             surfaceState = VisualSurfaceState.Planning,
@@ -394,8 +394,8 @@ class VisualAgentClientTest {
         assertFalse(payload.getJSONObject("deviceContext").has("installedApps"))
         assertFalse(payload.getJSONObject("deviceContext").has("appCatalog"))
         val serialized = payload.toString()
-        assertEquals(1, serialized.windowed("com.tencent.mobileqq".length).count { it == "com.tencent.mobileqq" })
-        assertEquals(1, serialized.windowed("com.hexin.plat.android".length).count { it == "com.hexin.plat.android" })
+        assertEquals(2, serialized.windowed("com.tencent.mobileqq".length).count { it == "com.tencent.mobileqq" })
+        assertEquals(2, serialized.windowed("com.hexin.plat.android".length).count { it == "com.hexin.plat.android" })
     }
 
     @Test
