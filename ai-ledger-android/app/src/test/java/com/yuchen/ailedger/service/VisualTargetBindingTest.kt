@@ -13,14 +13,11 @@ class VisualTargetBindingTest {
         session.markTargetVerified("com.example.target")
 
         assertEquals(1, binding.resetCount)
-        assertEquals(
-            listOf("com.example.target", "com.example.target"),
-            binding.boundPackages,
-        )
+        assertEquals(listOf("com.example.target"), binding.boundPackages)
     }
 
     @Test
-    fun objectivePackageHandoffBindsOnlyOnActualVerificationTransition() {
+    fun objectivePackageHandoffDoesNotRepeatSameBinding() {
         val binding = RecordingVisualTargetBinding()
         val session = VisualExecutionSessionState(binding)
         val snapshot = snapshot("com.example.target")
@@ -29,8 +26,20 @@ class VisualTargetBindingTest {
         session.runtimeContext(snapshot)
         session.runtimeContext(snapshot)
 
+        assertEquals(listOf("com.example.target"), binding.boundPackages)
+    }
+
+    @Test
+    fun genuineTargetChangeStillUpdatesBinding() {
+        val binding = RecordingVisualTargetBinding()
+        val session = VisualExecutionSessionState(binding)
+
+        session.beginLaunch("com.example.first")
+        session.beginLaunch("com.example.second")
+        session.markTargetVerified("com.example.second")
+
         assertEquals(
-            listOf("com.example.target", "com.example.target"),
+            listOf("com.example.first", "com.example.second"),
             binding.boundPackages,
         )
     }
