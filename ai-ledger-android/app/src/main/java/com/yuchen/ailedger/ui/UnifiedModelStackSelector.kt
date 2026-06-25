@@ -130,6 +130,10 @@ private data class ModelStackMaterialItem(
     val strength: Float = 1f
 )
 
+private val ModelMaterialZComparator = Comparator<ModelStackMaterialItem> { left, right ->
+    left.zIndex.compareTo(right.zIndex)
+}
+
 private val AutoModelTheme = ModelCardPrismTheme(Color(0xFF77FFF0), Color.White, Color(0xFF07142D), Color(0xFF62FFF0), Color(0xFFFF70D9), Color(0xFF8EA2FF), Color(0xFFFFE08A), 0.00f)
 private val GeminiModelTheme = ModelCardPrismTheme(Color(0xFF2F8CFF), Color(0xFFE2F7FF), Color(0xFF061A42), Color(0xFF37F6FF), Color(0xFF4F6CFF), Color(0xFF126BFF), Color(0xFFBEEFFF), 0.98f)
 private val KimiModelTheme = ModelCardPrismTheme(Color(0xFFE35CFF), Color(0xFFFFE0FF), Color(0xFF2A0C45), Color(0xFFFF7AE4), Color(0xFFB85CFF), Color(0xFFFF4FC6), Color(0xFFFFB5F0), 1.00f)
@@ -189,16 +193,17 @@ internal fun UnifiedParentModelStackSelector(
         val density = LocalDensity.current
         val models = remember { ChatModel.entries }
         val style = ModelCardGlassLabState.style
+        val animationScope = rememberCoroutineScope()
         val currentIsSending by rememberUpdatedState(state.isSending)
         val currentExpanded by rememberUpdatedState(expanded)
         val currentOnToggleExpanded by rememberUpdatedState(onToggleExpanded)
         val currentOnSelected by rememberUpdatedState(onSelected)
         val stackTransitionKey = remember(expanded, state.selectedModel) { Any() }
         val currentStackTransitionKey by rememberUpdatedState(stackTransitionKey)
-        val tapSlopPx = with(density) { ModelStackTapSlopDp.dp.toPx() }
+        val tapSlopPx = remember(density.density) { with(density) { ModelStackTapSlopDp.dp.toPx() } }
         val stackPressAnim = remember { Animatable(0f) }
         val stackPress = stackPressAnim.value.coerceIn(0f, 1f)
-        val materialItems = mutableListOf<ModelStackMaterialItem>()
+        val materialItems = ArrayList<ModelStackMaterialItem>(models.size * 2)
 
         val gap = 10.dp
         val rowStep = 74.dp
@@ -208,16 +213,37 @@ internal fun UnifiedParentModelStackSelector(
         val collapsedWidth = (maxWidth - reservedGap) * 0.642f
         val halfWidth = (maxWidth - gap) / 2f
         val selectedModel = state.selectedModel
-        val behindModels = remember(selectedModel) { models.filter { it != selectedModel } }
-        val totalBackCount = behindModels.size
+        val totalBackCount = (models.size - 1).coerceAtLeast(0)
+        val stackRanks = remember(selectedModel) {
+            val result = HashMap<ChatModel, Int>(models.size)
+            var nextRank = 1
+            models.forEach { model ->
+                if (model == selectedModel) {
+                    result[model] = 0
+                } else {
+                    result[model] = nextRank
+                    nextRank += 1
+                }
+            }
+            result
+        }
+
+        val collapsedWidthPx = with(density) { collapsedWidth.toPx() }
+        val halfWidthPx = with(density) { halfWidth.toPx() }
+        val collapsedHeightPx = with(density) { collapsedHeight.toPx() }
+        val expandedHeightPx = with(density) { expandedHeight.toPx() }
+        val gapPx = with(density) { gap.toPx() }
+        val rowStepPx = with(density) { rowStep.toPx() }
+        val collapsedStepXPx = with(density) { 5.dp.toPx() }
+        val collapsedStepYPx = with(density) { 1.6.dp.toPx() }
+        val distanceReferencePx = with(density) { 220.dp.toPx() }
 
         Box(Modifier.fillMaxSize().drawModelStackGlassMaterials(materialItems)) {
             models.forEachIndexed { index, model ->
                 val selected = model == selectedModel
-                val theme = remember(model) { model.modelCardPrismTheme() }
-                val layoutSlot = remember(model) { model.modelExpandedLayoutSlot() }
-                val stackRank = if (selected) 0 else behindModels.indexOf(model) + 1
-                val scope = rememberCoroutineScope()
+                val theme = model.modelCardPrismTheme()
+                val layoutSlot = model.modelExpandedLayoutSlot()
+                val stackRank = stackRanks[model] ?: 0
                 val pressAnim = remember(model.id) { Animatable(0f) }
                 val opticsAnim = remember(model.id) { Animatable(0f) }
                 val visualAnim = remember(model.id) { Animatable(if (expanded) 1f else 0f) }
@@ -233,20 +259,35 @@ internal fun UnifiedParentModelStackSelector(
                 var renderAsFullCard by remember(model.id) { mutableStateOf(false) }
                 var hasModelStackEntered by remember(model.id) { mutableStateOf(false) }
 
-                val geometry = remember(density.density, collapsedWidth, halfWidth, selectedModel, layoutSlot, stackRank) {
-                    val expandedX = if (layoutSlot % 2 == 1) halfWidth + gap else 0.dp
-                    val expandedY = rowStep * (layoutSlot / 2).toFloat()
-                    val collapsedX = if (selected) 0.dp else (stackRank * 5).dp
-                    val collapsedY = if (selected) 0.dp else (stackRank * 1.6f).dp
-                    val collapsedXPx = with(density) { collapsedX.toPx() }
-                    val collapsedYPx = with(density) { collapsedY.toPx() }
-                    val expandedXPx = with(density) { expandedX.toPx() }
-                    val expandedYPx = with(density) { expandedY.toPx() }
+                val geometry = remember(
+                    collapsedWidthPx,
+                    halfWidthPx,
+                    selectedModel,
+                    layoutSlot,
+                    stackRank,
+                    gapPx,
+                    rowStepPx,
+                    collapsedStepXPx,
+                    collapsedStepYPx,
+                    distanceReferencePx
+                ) {
+                    val expandedXPx = if (layoutSlot % 2 == 1) halfWidthPx + gapPx else 0f
+                    val expandedYPx = rowStepPx * (layoutSlot / 2).toFloat()
+                    val collapsedXPx = if (selected) 0f else stackRank * collapsedStepXPx
+                    val collapsedYPx = if (selected) 0f else stackRank * collapsedStepYPx
                     val motionX = expandedXPx - collapsedXPx
                     val motionY = expandedYPx - collapsedYPx
                     val travelTotal = abs(motionX) + abs(motionY) + 0.001f
-                    val distanceWeight = (travelTotal / with(density) { 220.dp.toPx() }).coerceIn(0.35f, 1f)
-                    ModelCardGeometry(collapsedXPx, collapsedYPx, expandedXPx, expandedYPx, abs(motionX) / travelTotal, abs(motionY) / travelTotal, 0.040f + 0.020f * distanceWeight)
+                    val distanceWeight = (travelTotal / distanceReferencePx).coerceIn(0.35f, 1f)
+                    ModelCardGeometry(
+                        collapsedXPx,
+                        collapsedYPx,
+                        expandedXPx,
+                        expandedYPx,
+                        abs(motionX) / travelTotal,
+                        abs(motionY) / travelTotal,
+                        0.040f + 0.020f * distanceWeight
+                    )
                 }
 
                 val selectionProgress by animateFloatAsState(
@@ -279,7 +320,7 @@ internal fun UnifiedParentModelStackSelector(
                     capsuleAnim.stop()
                     capsuleAnim.snapTo(0f)
 
-                    val reverseRank = (behindModels.size - stackRank).coerceAtLeast(0)
+                    val reverseRank = (totalBackCount - stackRank).coerceAtLeast(0)
                     val visualDuration =
                         if (expanded) (460 + stackRank * 30).coerceAtMost(610)
                         else if (selected) 430
@@ -323,8 +364,8 @@ internal fun UnifiedParentModelStackSelector(
                     val foldedAlpha = (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f)
                     materialItems.add(
                         foldedMaterialItem(
-                            width = collapsedWidth,
-                            height = collapsedHeight,
+                            widthPx = collapsedWidthPx,
+                            heightPx = collapsedHeightPx,
                             zIndex = 18f - index,
                             geometry = geometry,
                             style = style,
@@ -332,8 +373,7 @@ internal fun UnifiedParentModelStackSelector(
                             stackRank = stackRank,
                             stackCompression = stackCompression,
                             layerFactor = layerFactor,
-                            alpha = foldedAlpha,
-                            density = density
+                            alpha = foldedAlpha
                         )
                     )
                     FoldedModelBackPlate(
@@ -357,8 +397,8 @@ internal fun UnifiedParentModelStackSelector(
                     val foldedAlpha = foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f)
                     materialItems.add(
                         foldedMaterialItem(
-                            width = collapsedWidth,
-                            height = collapsedHeight,
+                            widthPx = collapsedWidthPx,
+                            heightPx = collapsedHeightPx,
                             zIndex = 18f - index,
                             geometry = geometry,
                             style = style,
@@ -366,8 +406,7 @@ internal fun UnifiedParentModelStackSelector(
                             stackRank = stackRank,
                             stackCompression = stackCompression,
                             layerFactor = layerFactor,
-                            alpha = foldedAlpha,
-                            density = density
+                            alpha = foldedAlpha
                         )
                     )
                     FoldedModelBackPlate(
@@ -422,6 +461,8 @@ internal fun UnifiedParentModelStackSelector(
 
                 val width = modelLerpDp(collapsedWidth, halfWidth, targetProgress)
                 val height = modelLerpDp(collapsedHeight, expandedHeight, targetProgress)
+                val widthPx = modelLerpRawFloat(collapsedWidthPx, halfWidthPx, targetProgress)
+                val heightPx = modelLerpRawFloat(collapsedHeightPx, expandedHeightPx, targetProgress)
                 val releaseStretchX = capsuleLaunch * (0.014f * geometry.horizontalMotion - 0.004f * geometry.verticalMotion)
                 val releaseStretchY = capsuleLaunch * (0.006f * geometry.verticalMotion - 0.008f * geometry.horizontalMotion)
                 val dockScaleX = dockGlow * (0.0105f * geometry.horizontalMotion - 0.0030f * geometry.verticalMotion)
@@ -458,8 +499,8 @@ internal fun UnifiedParentModelStackSelector(
                         zIndex = if (selected) 50f else 30f - index,
                         xPx = xPx,
                         yPx = yPx,
-                        widthPx = with(density) { width.toPx() },
-                        heightPx = with(density) { height.toPx() },
+                        widthPx = widthPx,
+                        heightPx = heightPx,
                         scaleX = scaleX,
                         scaleY = scaleY,
                         alpha = alpha,
@@ -521,21 +562,21 @@ internal fun UnifiedParentModelStackSelector(
                                 band = Random.nextInt(0, 4)
                                 strength = 1.06f + Random.nextFloat() * 0.62f
 
-                                scope.launch {
+                                animationScope.launch {
                                     pressAnim.stop()
                                     if (pressAnim.value < 0.34f) pressAnim.snapTo(0.34f)
                                     pressAnim.animateTo(0.88f, tween(82, easing = ModelPressPulse))
                                     pressAnim.animateTo(0.78f, tween(160, easing = ModelPressSink))
                                     pressAnim.animateTo(0.74f, tween(220, easing = FastOutSlowInEasing))
                                 }
-                                scope.launch {
+                                animationScope.launch {
                                     opticsAnim.stop()
                                     opticsAnim.animateTo(0.46f, tween(104, easing = ModelPressPreload))
                                     opticsAnim.animateTo(1.05f, tween(260, easing = ModelPressSink))
                                     opticsAnim.animateTo(1.08f, tween(360, easing = FastOutSlowInEasing))
                                 }
                                 if (!currentExpanded) {
-                                    scope.launch {
+                                    animationScope.launch {
                                         stackPressAnim.stop()
                                         if (stackPressAnim.value < 0.28f) stackPressAnim.snapTo(0.28f)
                                         stackPressAnim.animateTo(0.78f, tween(92, easing = ModelPressPulse))
@@ -570,14 +611,14 @@ internal fun UnifiedParentModelStackSelector(
                                     if (currentExpanded) currentOnSelected(model) else currentOnToggleExpanded()
                                 }
 
-                                scope.launch {
+                                animationScope.launch {
                                     opticsAnim.stop()
                                     if (released && !movedBeyondTapSlop && opticsAnim.value < 0.52f) {
                                         opticsAnim.animateTo(0.64f, tween(74, easing = ModelPressPulse))
                                     }
                                     opticsAnim.animateTo(0f, tween(if (released && !movedBeyondTapSlop) 620 else 340, easing = FastOutSlowInEasing))
                                 }
-                                scope.launch {
+                                animationScope.launch {
                                     pressAnim.stop()
                                     if (released) {
                                         if (pressAnim.value.coerceIn(0f, 1.16f) < 0.58f) {
@@ -592,7 +633,7 @@ internal fun UnifiedParentModelStackSelector(
                                     }
                                 }
                                 if (!currentExpanded) {
-                                    scope.launch {
+                                    animationScope.launch {
                                         stackPressAnim.stop()
                                         stackPressAnim.animateTo(-0.070f, tween(142, easing = ModelPressRelease))
                                         stackPressAnim.animateTo(0f, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessLow))
@@ -604,13 +645,14 @@ internal fun UnifiedParentModelStackSelector(
                     UnifiedModelCardContent(model, selected, stackRank, totalBackCount, selection, targetProgress, stackReveal, theme)
                 }
             }
+            materialItems.sortWith(ModelMaterialZComparator)
         }
     }
 }
 
 private fun foldedMaterialItem(
-    width: Dp,
-    height: Dp,
+    widthPx: Float,
+    heightPx: Float,
     zIndex: Float,
     geometry: ModelCardGeometry,
     style: ModelCardGlassStyle,
@@ -618,16 +660,15 @@ private fun foldedMaterialItem(
     stackRank: Int,
     stackCompression: Float,
     layerFactor: Float,
-    alpha: Float,
-    density: androidx.compose.ui.unit.Density
+    alpha: Float
 ): ModelStackMaterialItem {
     return ModelStackMaterialItem(
         kind = ModelStackMaterialKind.Folded,
         zIndex = zIndex,
         xPx = geometry.collapsedXPx - stackCompression * 1.8f * layerFactor,
         yPx = geometry.collapsedYPx + stackCompression * 5.6f * layerFactor,
-        widthPx = with(density) { width.toPx() },
-        heightPx = with(density) { height.toPx() },
+        widthPx = widthPx,
+        heightPx = heightPx,
         scaleX = 1f + stackCompression * 0.032f * layerFactor,
         scaleY = 1f - stackCompression * 0.046f * layerFactor,
         alpha = alpha,
@@ -777,8 +818,11 @@ private fun UnifiedModelCardContent(
 
 private fun Modifier.drawModelStackGlassMaterials(items: List<ModelStackMaterialItem>): Modifier = drawWithCache {
     onDrawWithContent {
-        items.sortedBy { it.zIndex }.forEach { item ->
-            if (item.alpha <= 0.001f || item.widthPx <= 1f || item.heightPx <= 1f) return@forEach
+        var itemIndex = 0
+        while (itemIndex < items.size) {
+            val item = items[itemIndex]
+            itemIndex += 1
+            if (item.alpha <= 0.001f || item.widthPx <= 1f || item.heightPx <= 1f) continue
             withTransform({
                 translate(item.xPx, item.yPx)
                 scale(
@@ -915,9 +959,11 @@ private fun DrawScope.drawModelCardGlassSurface(
     val radius = minOf(cardSize.height * 0.42f, 30.dp.toPx()) * style.radiusScale.coerceIn(0.20f, 3f)
     val corner = CornerRadius(radius, radius)
     val press = materialPress.coerceIn(0f, 1.12f)
+    val hasPress = press > 0.001f
     val compression = modelSmooth((press / 0.72f).coerceIn(0f, 1f))
     val optics = modelSmooth((maxOf(delayed, press * 0.72f) / 1.04f).coerceIn(0f, 1f))
     val selectedGlow = selection.coerceIn(0f, 1f)
+    val hasSelectedGlow = selectedGlow > 0.001f
     val collapsedReveal = modelSmooth(stackReveal.coerceIn(0f, 1f))
     val stackBoost = collapsedReveal * if (selected) 0.45f else 1.12f
     val themeBoost = (theme.themeWeight * (0.62f + selectedGlow * 0.70f + stackBoost * 0.40f)).coerceIn(0f, 1.55f)
@@ -943,17 +989,19 @@ private fun DrawScope.drawModelCardGlassSurface(
         statusCenter,
         statusDiameter * 0.58f
     )
-    val statusPressGlow = Brush.radialGradient(
-        listOf(
-            Color.White.modelAlpha(0.16f * statusPress, surfaceAlpha),
-            theme.main.modelAlpha(0.30f * statusPress, surfaceAlpha),
-            theme.prismB.modelAlpha(0.130f * statusPress, surfaceAlpha),
-            theme.gold.modelAlpha(0.095f * statusPress, surfaceAlpha),
-            Color.Transparent
-        ),
-        statusCenter,
-        statusDiameter * (0.68f + 0.18f * statusPress)
-    )
+    val statusPressGlow = if (hasPress) {
+        Brush.radialGradient(
+            listOf(
+                Color.White.modelAlpha(0.16f * statusPress, surfaceAlpha),
+                theme.main.modelAlpha(0.30f * statusPress, surfaceAlpha),
+                theme.prismB.modelAlpha(0.130f * statusPress, surfaceAlpha),
+                theme.gold.modelAlpha(0.095f * statusPress, surfaceAlpha),
+                Color.Transparent
+            ),
+            statusCenter,
+            statusDiameter * (0.68f + 0.18f * statusPress)
+        )
+    } else null
     val bodyVeil = Brush.verticalGradient(
         listOf(
             Color.White.modelAlpha((0.020f + selectedGlow * 0.006f) * body, surfaceAlpha),
@@ -975,29 +1023,33 @@ private fun DrawScope.drawModelCardGlassSurface(
         Offset(cardSize.width * 0.08f, 0f),
         Offset(cardSize.width * 0.94f, cardSize.height)
     )
-    val aura = Brush.linearGradient(
-        listOf(
-            theme.main.modelAlpha((0.050f + 0.060f * themeBoost) * selectedGlow * s(style.selectedAura), surfaceAlpha),
-            theme.bright.modelAlpha(0.014f * selectedGlow * s(style.selectedAura), surfaceAlpha),
-            theme.prismB.modelAlpha(0.024f * selectedGlow * s(style.selectedAura), surfaceAlpha),
-            theme.gold.modelAlpha(0.010f * selectedGlow * s(style.selectedAura), surfaceAlpha),
-            Color.Transparent
-        ),
-        Offset(cardSize.width * -0.14f, cardSize.height * -0.20f),
-        Offset(cardSize.width * 1.08f, cardSize.height * 1.10f)
-    )
-    val pressMaterial = Brush.radialGradient(
-        listOf(
-            Color.Transparent,
-            theme.deep.modelAlpha(0.080f * compression, surfaceAlpha),
-            theme.main.modelAlpha((0.050f + 0.060f * themeBoost) * optics, surfaceAlpha),
-            theme.prismA.modelAlpha(0.032f * optics, surfaceAlpha),
-            theme.gold.modelAlpha(0.020f * optics, surfaceAlpha),
-            Color.Transparent
-        ),
-        materialCenter,
-        maxOf(cardSize.width, cardSize.height) * (0.72f + 0.12f * compression)
-    )
+    val aura = if (hasSelectedGlow) {
+        Brush.linearGradient(
+            listOf(
+                theme.main.modelAlpha((0.050f + 0.060f * themeBoost) * selectedGlow * s(style.selectedAura), surfaceAlpha),
+                theme.bright.modelAlpha(0.014f * selectedGlow * s(style.selectedAura), surfaceAlpha),
+                theme.prismB.modelAlpha(0.024f * selectedGlow * s(style.selectedAura), surfaceAlpha),
+                theme.gold.modelAlpha(0.010f * selectedGlow * s(style.selectedAura), surfaceAlpha),
+                Color.Transparent
+            ),
+            Offset(cardSize.width * -0.14f, cardSize.height * -0.20f),
+            Offset(cardSize.width * 1.08f, cardSize.height * 1.10f)
+        )
+    } else null
+    val pressMaterial = if (hasPress) {
+        Brush.radialGradient(
+            listOf(
+                Color.Transparent,
+                theme.deep.modelAlpha(0.080f * compression, surfaceAlpha),
+                theme.main.modelAlpha((0.050f + 0.060f * themeBoost) * optics, surfaceAlpha),
+                theme.prismA.modelAlpha(0.032f * optics, surfaceAlpha),
+                theme.gold.modelAlpha(0.020f * optics, surfaceAlpha),
+                Color.Transparent
+            ),
+            materialCenter,
+            maxOf(cardSize.width, cardSize.height) * (0.72f + 0.12f * compression)
+        )
+    } else null
     val combinedRim = Brush.linearGradient(
         listOf(
             theme.bright.modelAlpha(0.260f * rimPower * s(style.outerRim) + 0.070f * rimPower * stackBoost, surfaceAlpha),
@@ -1010,22 +1062,24 @@ private fun DrawScope.drawModelCardGlassSurface(
         Offset.Zero,
         Offset(cardSize.width, cardSize.height)
     )
-    val selectedRainbow = Brush.linearGradient(
-        listOf(
-            theme.main.modelAlpha((0.680f + 0.420f * themeBoost) * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
-            theme.bright.modelAlpha(0.170f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
-            theme.prismA.modelAlpha(0.155f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
-            theme.prismB.modelAlpha(0.145f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
-            theme.prismC.modelAlpha(0.190f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
-            Color.Transparent
-        ),
-        Offset(cardSize.width * -0.08f, 0f),
-        Offset(cardSize.width * 1.02f, cardSize.height * 0.78f)
-    )
+    val selectedRainbow = if (hasSelectedGlow) {
+        Brush.linearGradient(
+            listOf(
+                theme.main.modelAlpha((0.680f + 0.420f * themeBoost) * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
+                theme.bright.modelAlpha(0.170f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
+                theme.prismA.modelAlpha(0.155f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
+                theme.prismB.modelAlpha(0.145f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
+                theme.prismC.modelAlpha(0.190f * s(style.selectedRainbowRim) * selectedGlow, surfaceAlpha),
+                Color.Transparent
+            ),
+            Offset(cardSize.width * -0.08f, 0f),
+            Offset(cardSize.width * 1.02f, cardSize.height * 0.78f)
+        )
+    } else null
 
-    if (selectedGlow > 0.001f) {
+    aura?.let {
         drawRoundRect(
-            brush = aura,
+            brush = it,
             topLeft = Offset(-3.4.dp.toPx(), -3.4.dp.toPx()),
             size = Size(cardSize.width + 6.8.dp.toPx(), cardSize.height + 6.8.dp.toPx()),
             cornerRadius = CornerRadius(radius + 3.4.dp.toPx(), radius + 3.4.dp.toPx()),
@@ -1034,11 +1088,11 @@ private fun DrawScope.drawModelCardGlassSurface(
     }
     drawRoundRect(mistBrush, size = cardSize, cornerRadius = corner, blendMode = BlendMode.Screen)
     drawRoundRect(bodyVeil, size = cardSize, cornerRadius = corner, blendMode = BlendMode.Screen)
-    if (press > 0.001f) drawRoundRect(pressMaterial, size = cardSize, cornerRadius = corner, blendMode = BlendMode.Screen)
+    pressMaterial?.let { drawRoundRect(it, size = cardSize, cornerRadius = corner, blendMode = BlendMode.Screen) }
 
     drawCircle(brush = statusGlow, radius = statusDiameter * 0.47f, center = statusCenter, blendMode = BlendMode.Screen)
-    if (press > 0.001f) {
-        drawCircle(brush = statusPressGlow, radius = statusDiameter * 0.64f, center = statusCenter, blendMode = BlendMode.Screen)
+    statusPressGlow?.let {
+        drawCircle(brush = it, radius = statusDiameter * 0.64f, center = statusCenter, blendMode = BlendMode.Screen)
     }
 
     if (autoRainbow) {
@@ -1051,9 +1105,9 @@ private fun DrawScope.drawModelCardGlassSurface(
         drawCircle(Color.White.modelAlpha((0.70f * (1f - selectedGlow) + 0.94f * selectedGlow + 0.09f * statusPress).coerceIn(0f, 1f), surfaceAlpha), radius = statusDiameter * (0.090f + 0.014f * statusPress), center = statusCenter)
     }
 
-    if (selectedGlow > 0.001f) {
+    selectedRainbow?.let {
         drawRoundRect(
-            brush = selectedRainbow,
+            brush = it,
             topLeft = Offset(0.62.dp.toPx(), 0.62.dp.toPx()),
             size = Size(cardSize.width - 1.24.dp.toPx(), cardSize.height - 1.24.dp.toPx()),
             cornerRadius = corner,
@@ -1070,7 +1124,7 @@ private fun DrawScope.drawModelCardGlassSurface(
         blendMode = BlendMode.Screen
     )
 
-    if (press > 0.001f) {
+    if (hasPress) {
         val flow = modelSmooth((maxOf(press, delayed) / 0.62f).coerceIn(0f, 1f))
         val shift = (seed - 0.5f) * 0.36f
         val sweepX = if (direction >= 0f) -0.24f + shift + flow * 1.42f else 1.24f + shift - flow * 1.42f
