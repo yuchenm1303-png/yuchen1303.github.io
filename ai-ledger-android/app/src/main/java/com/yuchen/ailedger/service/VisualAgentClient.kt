@@ -318,7 +318,7 @@ internal fun buildVisualAgentPayload(
         }
     }
     val appCatalog = JSONObject().apply {
-        put("schema", "android_visual_app_catalog_v3_cloud_selected")
+        put("schema", "android_visual_app_catalog_v4_single_directory")
         put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
         put("identityField", "packageName")
         put("appRefField", "appRef")
@@ -328,10 +328,11 @@ internal fun buildVisualAgentPayload(
         put("validationOwner", "android_package_identity_and_safety_only")
         put("inventoryHash", appInventoryHash)
         put("entryCount", canonicalApps.length())
-        put("entries", canonicalApps)
+        put("entriesField", "appContext")
+        put("entriesIncludedOnce", true)
     }
     val appSelectionProtocol = JSONObject().apply {
-        put("schema", "android_app_selection_protocol_v3_cloud_first")
+        put("schema", "android_app_selection_protocol_v4_single_directory")
         put("semanticOwner", "deepseek")
         put("machineIdentity", "packageName")
         put("acceptedModelFields", JSONArray(listOf("packageName", "appRef")))
@@ -341,6 +342,7 @@ internal fun buildVisualAgentPayload(
         put("androidRanksApps", false)
         put("androidResolvesUserIntent", false)
         put("localKeywordMatching", false)
+        put("catalogEntriesField", "appContext")
         put("mustSelectFromInventoryHash", appInventoryHash)
     }
 
@@ -484,11 +486,12 @@ internal fun buildVisualAgentPayload(
         })
         put("appContext", canonicalApps)
         put("deviceContext", JSONObject().apply {
-            put("schema", "android_visual_agent_context_v7_cloud_route_visual_loop")
+            put("schema", "android_visual_agent_context_v8_single_app_directory")
             put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
             put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
             put("appInventoryHash", appInventoryHash)
-            put("appCatalog", appCatalog)
+            put("appCatalogEntryCount", canonicalApps.length())
+            put("appCatalogEntriesField", "appContext")
             put("appSelectionProtocol", appSelectionProtocol)
             put("runtimeExecutionContext", runtimeExecutionContext)
             put("surfaceContext", surfaceContext)
@@ -502,7 +505,6 @@ internal fun buildVisualAgentPayload(
                 put("coordinateProtocol", VisualAgentProtocol.coordinateProtocol)
                 put("observationId", resolvedRuntimeContext.observationId)
             })
-            put("installedApps", canonicalApps)
             put("installedAppCount", canonicalApps.length())
             put("uploadedAppCount", canonicalApps.length())
             put("installedAppsTruncated", appContext.size > canonicalApps.length())
@@ -540,7 +542,7 @@ internal fun buildVisualAgentPayload(
             put("echoObservationId", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "cloud-route-verified-visual-loop-v1")
+        put("clientVersion", "cloud-route-single-app-directory-v2")
         put("now", System.currentTimeMillis())
     }
 }
@@ -798,8 +800,16 @@ private fun AiWorkerClient.postVisualAgentStep(
         val status = connection.responseCode
         val body = connection.visualAgentReadBody(status)
         val data = body.visualAgentJsonOrNull()
+        val workerVersion = connection.getHeaderField("X-AI-Ledger-Worker-Version").orEmpty().take(48)
+        val routeProtocol = connection.getHeaderField("X-AI-Ledger-Route-Protocol").orEmpty().take(48)
         AgentRuntimeController.noteDiagnostic(
-            "VisualDirect q=${visualAgentBytesToKb(requestBytes.size)}K r=${visualAgentBytesToKb(body.length)}K h=${SystemClock.elapsedRealtime() - requestStart}",
+            buildString {
+                append("VisualDirect q=").append(visualAgentBytesToKb(requestBytes.size)).append("K")
+                append(" r=").append(visualAgentBytesToKb(body.length)).append("K")
+                append(" h=").append(SystemClock.elapsedRealtime() - requestStart)
+                if (workerVersion.isNotBlank()) append(" w=").append(workerVersion)
+                if (routeProtocol.isNotBlank()) append(" p=").append(routeProtocol)
+            },
         )
         if (status !in 200..299) {
             throw parseVisualAgentHttpFailure(status, body)
