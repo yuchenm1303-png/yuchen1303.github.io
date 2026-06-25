@@ -137,6 +137,34 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
+    fun explicitlyFalseTruncatedAgentBrainOutputStillRetriesBoundedly() {
+        val error = VisualAgentRequestException(
+            httpStatus = 400,
+            code = "agent_brain_route_failed",
+            retryable = false,
+            backendMessage = "RetryCompact empty finish_reason=length content_chars=0 completion_tokens=420",
+        )
+
+        val first = VisualRouteRetryPolicy.decide(error, 0)
+        val exhausted = VisualRouteRetryPolicy.decide(error, VisualRouteRetryPolicy.maxRetries)
+
+        assertTrue(first is VisualRouteRetryDecision.Retry)
+        assertTrue(exhausted is VisualRouteRetryDecision.Stop)
+    }
+
+    @Test
+    fun explicitRouteRejectionDoesNotBecomeRetryable() {
+        val error = VisualAgentRequestException(
+            httpStatus = 400,
+            code = "route_rejected",
+            retryable = false,
+            backendMessage = "request rejected",
+        )
+
+        assertTrue(VisualRouteRetryPolicy.decide(error, 0) is VisualRouteRetryDecision.Stop)
+    }
+
+    @Test
     fun ordinaryIoFailureStops() {
         val decision = VisualRouteRetryPolicy.decide(IOException("failed"), 0)
 
