@@ -109,6 +109,63 @@ class VisualObservationProtocolTest {
     }
 
     @Test
+    fun nestedCoordinateCandidateDoesNotHideTheStableOriginalTarget() {
+        val observed = snapshot(
+            nodes = listOf(
+                node("parent", "播放", "[0,0][200,200]", clickable = true),
+            ),
+        )
+        val current = snapshot(
+            nodes = listOf(
+                node("child", "图标", "[30,30][90,90]", clickable = true),
+                node("parent2", "播放", "[0,0][200,200]", clickable = true),
+            ),
+        )
+
+        val result = VisualObservationProtocol.evaluateActionContextFreshness(
+            step = CloudAgentStep(type = "tap_xy", x = 50f, y = 50f),
+            observedSnapshot = observed,
+            currentSnapshot = current,
+        )
+
+        assertTrue(result.fresh)
+    }
+
+    @Test
+    fun stableLabelAndBoundsTolerateAccessibilityClassWrapperChange() {
+        val observed = snapshot(
+            nodes = listOf(
+                node(
+                    id = "n1",
+                    text = "继续",
+                    bounds = "[100,300][300,400]",
+                    clickable = true,
+                    className = "android.widget.Button",
+                ),
+            ),
+        )
+        val current = snapshot(
+            nodes = listOf(
+                node(
+                    id = "n9",
+                    text = "继续",
+                    bounds = "[102,302][302,402]",
+                    clickable = true,
+                    className = "android.view.View",
+                ),
+            ),
+        )
+
+        val result = VisualObservationProtocol.evaluateActionContextFreshness(
+            step = CloudAgentStep(type = "tap_node", targetText = "继续"),
+            observedSnapshot = observed,
+            currentSnapshot = current,
+        )
+
+        assertTrue(result.fresh)
+    }
+
+    @Test
     fun packageChangeIsAlwaysRejected() {
         val observed = snapshot(packageName = "com.example.target")
         val current = snapshot(packageName = "com.example.other")
@@ -162,11 +219,12 @@ class VisualObservationProtocolTest {
         clickable: Boolean = false,
         editable: Boolean = false,
         scrollable: Boolean = false,
+        className: String? = null,
     ): AgentScreenNode {
         return AgentScreenNode(
             id = id,
             text = text,
-            className = when {
+            className = className ?: when {
                 editable -> "android.widget.EditText"
                 scrollable -> "android.widget.ScrollView"
                 else -> "android.widget.Button"
