@@ -39,40 +39,49 @@ internal object ForegroundPackageResolutionPolicy {
     ): ForegroundPackageResolution {
         val observed = observedPackage.normalizedPackage()
         val expected = expectedPackage.normalizedPackage()
-        val processPackages = foregroundProcessPackages.mapNotNullTo(linkedSetOf()) { it.normalizedPackage().takeIf(::isPackageName) }
-        val shellPackages = shellForegroundPackages.mapNotNullTo(linkedSetOf()) { it.normalizedPackage().takeIf(::isPackageName) }
+        val processPackages = foregroundProcessPackages.mapNotNullTo(linkedSetOf()) {
+            it.normalizedPackage().takeIf(::isPackageName)
+        }
+        val shellPackages = shellForegroundPackages.mapNotNullTo(linkedSetOf()) {
+            it.normalizedPackage().takeIf(::isPackageName)
+        }
         val evidence = linkedSetOf<String>().apply {
             observed.takeIf(::isPackageName)?.let(::add)
             addAll(shellPackages)
             addAll(processPackages)
         }
+        val observedIsWeak = observed.isBlank() || observed in WEAK_FOREGROUND_PACKAGES
+        val strongShellPackages = shellPackages.filterTo(linkedSetOf()) { it !in WEAK_FOREGROUND_PACKAGES }
 
         if (expected.isNotBlank() && observed == expected) {
             return ForegroundPackageResolution(expected, true, "accessibility_exact", evidence)
         }
-        if (expected.isNotBlank() && expected in shellPackages) {
+        if (
+            expected.isNotBlank() &&
+            observedIsWeak &&
+            expected in strongShellPackages &&
+            strongShellPackages.all { it == expected }
+        ) {
             return ForegroundPackageResolution(expected, true, "shell_foreground_exact", evidence)
         }
-
-        val observedIsWeak = observed.isBlank() || observed in WEAK_FOREGROUND_PACKAGES
         if (expected.isNotBlank() && observedIsWeak && expected in processPackages) {
             return ForegroundPackageResolution(expected, true, "foreground_process_exact", evidence)
         }
 
         val resolved = when {
             observed.isNotBlank() && observed !in WEAK_FOREGROUND_PACKAGES -> observed
-            shellPackages.isNotEmpty() -> shellPackages.firstOrNull { it !in WEAK_FOREGROUND_PACKAGES }.orEmpty()
-            processPackages.isNotEmpty() -> processPackages.firstOrNull { it !in WEAK_FOREGROUND_PACKAGES }.orEmpty()
+            strongShellPackages.size == 1 -> strongShellPackages.single()
+            observedIsWeak -> processPackages.firstOrNull { it !in WEAK_FOREGROUND_PACKAGES }.orEmpty()
             observed.isNotBlank() -> observed
             else -> "unknown"
         }
         val source = when {
             resolved == observed && observed.isNotBlank() -> "accessibility"
-            resolved in shellPackages -> "shell_foreground"
+            resolved in strongShellPackages -> "shell_foreground"
             resolved in processPackages -> "foreground_process"
             else -> "unknown"
         }
-        return ForegroundPackageResolution(resolved, false, source, evidence)
+        return ForegroundPackageResolution(resolved.ifBlank { observed.ifBlank { "unknown" } }, false, source, evidence)
     }
 
     private val WEAK_FOREGROUND_PACKAGES = setOf(
