@@ -45,6 +45,18 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
+    fun finiteAttemptsStopAtLimit() {
+        assertTrue(VisualRouteRetryPolicy.decide(true, 0) is VisualRouteRetryDecision.Retry)
+        assertTrue(VisualRouteRetryPolicy.decide(true, 1) is VisualRouteRetryDecision.Retry)
+        assertTrue(VisualRouteRetryPolicy.decide(true, 2) is VisualRouteRetryDecision.Stop)
+    }
+
+    @Test
+    fun disabledRecoveryStopsImmediately() {
+        assertTrue(VisualRouteRetryPolicy.decide(false, 0) is VisualRouteRetryDecision.Stop)
+    }
+
+    @Test
     fun ordinaryIoFailureStops() {
         val decision = VisualRouteRetryPolicy.decide(java.io.IOException("failed"), 0)
 
