@@ -18,8 +18,8 @@ object ForegroundPackageEvidenceResolver {
     fun resolve(
         accessibilityPackage: String,
         shellProbe: ForegroundPackageProbeResult,
-        assistantHostPackage: String = VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE,
-        transientPackages: Set<String> = transientSystemPackages,
+        assistantHostPackage: String = VisualSurfacePackagePolicy.ASSISTANT_HOST_PACKAGE,
+        transientPackages: Set<String> = VisualSurfacePackagePolicy.transientSystemPackages,
     ): ForegroundPackageProbeResult {
         val accessibility = accessibilityPackage.trim()
         if (
@@ -54,16 +54,10 @@ object ForegroundPackageEvidenceResolver {
 
     fun needsShellFallback(
         accessibilityPackage: String,
-        assistantHostPackage: String = VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE,
-        transientPackages: Set<String> = transientSystemPackages,
+        assistantHostPackage: String = VisualSurfacePackagePolicy.ASSISTANT_HOST_PACKAGE,
+        transientPackages: Set<String> = VisualSurfacePackagePolicy.transientSystemPackages,
     ): Boolean {
         val clean = accessibilityPackage.trim()
         return clean.isBlank() || clean == assistantHostPackage || clean in transientPackages
     }
-
-    private val transientSystemPackages = setOf(
-        "android",
-        "com.android.systemui",
-        "com.android.permissioncontroller",
-    )
 }
