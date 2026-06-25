@@ -39,7 +39,7 @@ data class VisualObservationTiming(
     val openAppInitialSettleMs: Long = 260L,
     val openAppVerifyPollMs: Long = 140L,
     val openAppVerifyTimeoutMs: Long = 4_200L,
-    val requiredStableSamples: Int = 1,
+    val requiredStableSamples: Int = 2,
 )
 
 data class VisualTargetPackageVerification(
@@ -114,7 +114,7 @@ class VisualObservationCoordinator(
 
             if (probeSnapshot.packageName == expectedPackage) {
                 stableSamples += 1
-                if (stableSamples >= timing.requiredStableSamples) {
+                if (stableSamples >= timing.requiredStableSamples.coerceAtLeast(2)) {
                     val visualObservation = captureTrustedObservation(
                         forceVisual = true,
                         expectedPackage = expectedPackage,
