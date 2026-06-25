@@ -78,10 +78,14 @@ class VisualAgentClientTest {
         assertEquals(setOf(AppCapability.NativeApp, "social_chat"), capabilitySet)
 
         val catalog = payload.getJSONObject("appCatalog")
-        assertEquals("android_visual_app_catalog_v3_cloud_selected", catalog.getString("schema"))
+        assertEquals("android_visual_app_catalog_v4_single_directory", catalog.getString("schema"))
         assertEquals("deepseek", catalog.getString("selectionOwner"))
+        assertEquals("appContext", catalog.getString("entriesField"))
+        assertTrue(catalog.getBoolean("entriesIncludedOnce"))
+        assertFalse(catalog.has("entries"))
         val selectionProtocol = payload.getJSONObject("appSelectionProtocol")
         assertEquals("deepseek", selectionProtocol.getString("semanticOwner"))
+        assertEquals("appContext", selectionProtocol.getString("catalogEntriesField"))
         assertFalse(selectionProtocol.getBoolean("androidSelectsApps"))
         assertFalse(selectionProtocol.getBoolean("androidRanksApps"))
         assertFalse(selectionProtocol.getBoolean("androidResolvesUserIntent"))
@@ -110,9 +114,12 @@ class VisualAgentClientTest {
         assertEquals(runtimeContext.observationId, memory.getJSONObject("runtimeExecutionContext").getString("observationId"))
         assertEquals("work_surface", memory.getJSONObject("surfaceContext").getString("role"))
         val deviceContext = payload.getJSONObject("deviceContext")
-        assertEquals("android_visual_agent_context_v7_cloud_route_visual_loop", deviceContext.getString("schema"))
+        assertEquals("android_visual_agent_context_v8_single_app_directory", deviceContext.getString("schema"))
         assertTrue(deviceContext.getJSONObject("currentApp").getBoolean("matchesVerifiedTarget"))
         assertEquals("work_surface", deviceContext.getJSONObject("surfaceContext").getString("role"))
+        assertEquals("appContext", deviceContext.getString("appCatalogEntriesField"))
+        assertFalse(deviceContext.has("installedApps"))
+        assertFalse(deviceContext.has("appCatalog"))
     }
 
     @Test
@@ -361,6 +368,34 @@ class VisualAgentClientTest {
         )
 
         assertNotEquals(base.getString("appInventoryHash"), changed.getString("appInventoryHash"))
+    }
+
+    @Test
+    fun appCatalogIsSerializedExactlyOnceInTopLevelAppContext() {
+        val snapshot = testSnapshot(packageName = "com.yuchen.ailedger")
+        val runtimeContext = VisualAgentRuntimeContext(
+            surfaceState = VisualSurfaceState.Planning,
+            currentPackage = snapshot.packageName,
+            observationId = VisualObservationProtocol.observationId(snapshot, 0L, 0L),
+        )
+        val payload = buildVisualAgentPayload(
+            goal = "打开目标应用",
+            snapshot = snapshot,
+            recentActions = emptyList(),
+            appContext = listOf(
+                VisualAgentAppContextItem("QQ", "com.tencent.mobileqq"),
+                VisualAgentAppContextItem("同花顺炒股票", "com.hexin.plat.android"),
+            ),
+            runtimeContext = runtimeContext,
+        )
+
+        assertEquals(2, payload.getJSONArray("appContext").length())
+        assertFalse(payload.getJSONObject("appCatalog").has("entries"))
+        assertFalse(payload.getJSONObject("deviceContext").has("installedApps"))
+        assertFalse(payload.getJSONObject("deviceContext").has("appCatalog"))
+        val serialized = payload.toString()
+        assertEquals(1, serialized.windowed("com.tencent.mobileqq".length).count { it == "com.tencent.mobileqq" })
+        assertEquals(1, serialized.windowed("com.hexin.plat.android".length).count { it == "com.hexin.plat.android" })
     }
 
     @Test
