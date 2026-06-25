@@ -83,6 +83,44 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
+    fun retryStateDoesNotResetWhenWorkSurfaceRecoveryOnlySucceeds() {
+        val retryState = VisualRouteRetryState()
+        val error = VisualAgentRequestException(
+            httpStatus = 503,
+            code = "route_unavailable",
+            retryable = true,
+            backendMessage = "temporary",
+        )
+
+        val first = retryState.onFailure(error)
+        val second = retryState.onFailure(error)
+        val third = retryState.onFailure(error)
+
+        assertTrue(first is VisualRouteRetryDecision.Retry && first.attempt == 1)
+        assertTrue(second is VisualRouteRetryDecision.Retry && second.attempt == 2)
+        assertTrue(third is VisualRouteRetryDecision.Stop)
+        assertTrue(retryState.completedRetries == 2)
+    }
+
+    @Test
+    fun retryStateResetsOnlyAfterSuccessfulCloudPlan() {
+        val retryState = VisualRouteRetryState()
+        val error = VisualAgentRequestException(
+            httpStatus = 503,
+            code = "route_unavailable",
+            retryable = true,
+            backendMessage = "temporary",
+        )
+
+        retryState.onFailure(error)
+        retryState.onFailure(error)
+        retryState.onSuccess()
+        val next = retryState.onFailure(error)
+
+        assertTrue(next is VisualRouteRetryDecision.Retry && next.attempt == 1)
+    }
+
+    @Test
     fun disabledRecoveryStopsImmediately() {
         assertTrue(VisualRouteRetryPolicy.decide(false, 0) is VisualRouteRetryDecision.Stop)
     }
