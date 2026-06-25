@@ -39,9 +39,11 @@ class VisualExecutionSessionState(
     ): Boolean {
         val cleanExpected = expectedPackage.trim()
         val finalSnapshot = verification.lastSnapshot
+        val finalObservation = verification.lastObservation
         val proofValid = verification.verified &&
             verification.stableSamples >= MIN_STABLE_TARGET_SAMPLES &&
-            verification.lastObservation != null &&
+            finalObservation?.packageName == cleanExpected &&
+            finalObservation.visual?.hasImage == true &&
             finalSnapshot?.packageName == cleanExpected &&
             finalSnapshot.visual?.hasImage == true &&
             cleanExpected.isNotBlank() &&
