@@ -3,14 +3,19 @@ package com.yuchen.ailedger
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yuchen.ailedger.data.StockMarketDataRepository
 import com.yuchen.ailedger.data.StockRealtimeFrame
 import com.yuchen.ailedger.data.StockRealtimeRepository
 import com.yuchen.ailedger.data.StockRepository
 import com.yuchen.ailedger.model.AppPageActivity
 import com.yuchen.ailedger.model.AppTab
+import com.yuchen.ailedger.model.StockDepthState
 import com.yuchen.ailedger.model.StockDetailUiState
 import com.yuchen.ailedger.model.StockKLinePoint
+import com.yuchen.ailedger.model.StockMarketHomeSnapshot
 import com.yuchen.ailedger.model.StockMinutePoint
+import com.yuchen.ailedger.model.StockModuleStatus
+import com.yuchen.ailedger.model.StockSlowDataSnapshot
 import com.yuchen.ailedger.model.StockTradeTick
 import com.yuchen.ailedger.model.sampleAStockDetailUiState
 import kotlinx.coroutines.Dispatchers
@@ -24,10 +29,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class StockMarketUiState(
-    val stock: StockDetailUiState = sampleAStockDetailUiState(),
+    val stock: StockDetailUiState = initialStockState(),
+    val marketHome: StockMarketHomeSnapshot = StockMarketHomeSnapshot(),
+    val slowData: StockSlowDataSnapshot = StockSlowDataSnapshot(),
+    val depthState: StockDepthState = StockDepthState(),
     val query: String = "600396",
     val loading: Boolean = false,
     val marketLoading: Boolean = false,
+    val slowDataLoading: Boolean = false,
     val kLineLoading: Boolean = false,
     val showDetail: Boolean = false,
     val selectedTab: String = "分时",
@@ -38,19 +47,39 @@ data class StockMarketUiState(
     val requestMessage: String? = null
 )
 
+private fun initialStockState(): StockDetailUiState = sampleAStockDetailUiState().copy(
+    indices = emptyList(),
+    watchlist = emptyList(),
+    marketBoards = emptyList(),
+    sellLevels = emptyList(),
+    buyLevels = emptyList(),
+    tradeTicks = emptyList(),
+    fundamentals = emptyList(),
+    minutePoints = emptyList(),
+    kLinePoints = emptyList(),
+    aiSummary = "等待真实行情数据",
+    dataSourceLabel = "等待真实行情"
+)
+
 class StockMarketViewModel(
     private val repository: StockRepository = StockRepository(),
-    private val realtimeRepository: StockRealtimeRepository = StockRealtimeRepository()
+    private val realtimeRepository: StockRealtimeRepository = StockRealtimeRepository(),
+    private val marketDataRepository: StockMarketDataRepository = StockMarketDataRepository()
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(StockMarketUiState(loading = true, marketLoading = true))
+    private val _uiState = MutableStateFlow(
+        StockMarketUiState(
+            loading = true,
+            marketLoading = true
+        )
+    )
     val uiState: StateFlow<StockMarketUiState> = _uiState
 
     private var quoteJob: Job? = null
-    private var marketJob: Job? = null
     private var slowDetailJob: Job? = null
     private var kLineJob: Job? = null
     private var minuteJob: Job? = null
     private var realtimeJob: Job? = null
+    private var marketLoopJob: Job? = null
     private var requestSeq = 0
     private var pageActive = AppPageActivity.activeTab.value == AppTab.Tools
 
@@ -73,20 +102,24 @@ class StockMarketViewModel(
 
     fun refreshHome() {
         stopRealtimeLoop()
+        stopMarketLoop()
         slowDetailJob?.cancel()
         loadLite(openDetail = false)
     }
 
     fun searchAndOpen() {
+        stopMarketLoop()
         loadLite(openDetail = true)
     }
 
     fun openDetail() {
         val state = _uiState.value
-        if (state.stock.errorMessage != null) {
+        if (state.stock.errorMessage != null || state.stock.quote.code.isBlank()) {
+            stopMarketLoop()
             loadLite(openDetail = true)
             return
         }
+        stopMarketLoop()
         _uiState.update { it.copy(showDetail = true, activeAction = null) }
         val code = state.stock.quote.code
         startRealtimeLoop(code)
@@ -99,11 +132,22 @@ class StockMarketViewModel(
     fun backToHome() {
         stopRealtimeLoop()
         slowDetailJob?.cancel()
-        _uiState.update { it.copy(showDetail = false, activeAction = null) }
+        _uiState.update {
+            it.copy(
+                showDetail = false,
+                activeAction = null,
+                slowDataLoading = false
+            )
+        }
+        startMarketLoop()
     }
 
     fun refreshCurrent() {
-        loadLite(openDetail = _uiState.value.showDetail)
+        if (_uiState.value.showDetail) {
+            loadLite(openDetail = true)
+        } else {
+            refreshHome()
+        }
     }
 
     fun selectTab(tab: String) {
@@ -170,11 +214,13 @@ class StockMarketViewModel(
 
     fun openCode(code: String) {
         stopRealtimeLoop()
+        stopMarketLoop()
         slowDetailJob?.cancel()
         _uiState.update {
             it.copy(
                 query = code,
                 selectedTab = "分时",
+                depthState = StockDepthState(),
                 requestMessage = null
             )
         }
@@ -186,6 +232,7 @@ class StockMarketViewModel(
         pageActive = active
         if (!active) {
             stopRealtimeLoop()
+            stopMarketLoop()
             slowDetailJob?.cancel()
             minuteJob?.cancel()
             kLineJob?.cancel()
@@ -193,7 +240,10 @@ class StockMarketViewModel(
         }
 
         val state = _uiState.value
-        if (!state.showDetail) return
+        if (!state.showDetail) {
+            startMarketLoop()
+            return
+        }
         val code = activeCode()
         startRealtimeLoop(code)
         loadSlowDetail(code)
@@ -208,13 +258,17 @@ class StockMarketViewModel(
         val seq = ++requestSeq
         val target = (forcedQuery ?: _uiState.value.query)
             .trim()
-            .ifBlank { _uiState.value.stock.quote.code }
+            .ifBlank { _uiState.value.stock.quote.code.ifBlank { "600396" } }
         quoteJob?.cancel()
         quoteJob = viewModelScope.launch {
-            if (openDetail) stopRealtimeLoop()
+            if (openDetail) {
+                stopRealtimeLoop()
+                stopMarketLoop()
+            }
             _uiState.update {
                 it.copy(
                     loading = true,
+                    depthState = if (openDetail) StockDepthState() else it.depthState,
                     requestMessage = "连接新版A股行情代理中"
                 )
             }
@@ -223,26 +277,55 @@ class StockMarketViewModel(
             }
             if (seq != requestSeq) return@launch
 
-            seedCaches(loaded)
+            val sanitized = sanitizeLoadedStock(loaded)
+            seedCaches(sanitized)
             _uiState.update { state ->
                 state.copy(
-                    stock = loaded,
-                    query = loaded.quote.code,
+                    stock = sanitized,
+                    query = sanitized.quote.code.ifBlank { target },
                     loading = false,
                     showDetail = if (openDetail) true else state.showDetail,
-                    requestMessage = loaded.errorMessage
+                    requestMessage = sanitized.errorMessage
                 )
             }
-            loadMarketOverview(loaded.quote.code)
+
             if (openDetail || _uiState.value.showDetail) {
-                startRealtimeLoop(loaded.quote.code)
-                loadSlowDetail(loaded.quote.code)
+                startRealtimeLoop(sanitized.quote.code.ifBlank { target })
+                loadSlowDetail(sanitized.quote.code.ifBlank { target })
                 val tab = _uiState.value.selectedTab
                 if (!isMinuteTab(tab)) {
-                    loadKLineForTab(tab, loaded.quote.code)
+                    loadKLineForTab(tab, sanitized.quote.code.ifBlank { target })
                 }
+            } else {
+                startMarketLoop()
             }
         }
+    }
+
+    private fun sanitizeLoadedStock(loaded: StockDetailUiState): StockDetailUiState {
+        val isFallback = loaded.errorMessage != null ||
+            loaded.dataSourceLabel.contains("示例", ignoreCase = true) ||
+            loaded.dataSourceLabel.contains("回退", ignoreCase = true)
+        if (!isFallback) {
+            return loaded.copy(
+                indices = emptyList(),
+                watchlist = emptyList(),
+                marketBoards = emptyList()
+            )
+        }
+        return loaded.copy(
+            indices = emptyList(),
+            watchlist = emptyList(),
+            marketBoards = emptyList(),
+            sellLevels = emptyList(),
+            buyLevels = emptyList(),
+            tradeTicks = emptyList(),
+            fundamentals = emptyList(),
+            minutePoints = emptyList(),
+            kLinePoints = emptyList(),
+            aiSummary = "真实行情暂不可用，未展示本地示例数据。",
+            dataSourceLabel = "真实行情暂不可用"
+        )
     }
 
     private fun seedCaches(loaded: StockDetailUiState) {
@@ -256,28 +339,66 @@ class StockMarketViewModel(
         }
     }
 
-    private fun loadMarketOverview(query: String) {
-        marketJob?.cancel()
-        marketJob = viewModelScope.launch {
-            _uiState.update { it.copy(marketLoading = true) }
-            val merged = withContext(Dispatchers.IO) {
-                repository.loadMarketOverview(query, _uiState.value.stock)
-            }
-            _uiState.update { state ->
-                if (state.stock.quote.code != query) {
-                    state.copy(marketLoading = false)
-                } else {
-                    state.copy(
-                        stock = state.stock.copy(
-                            indices = merged.indices,
-                            watchlist = merged.watchlist,
-                            marketBoards = merged.marketBoards
-                        ),
-                        marketLoading = false
+    private fun startMarketLoop() {
+        if (!pageActive || _uiState.value.showDetail) return
+        if (marketLoopJob?.isActive == true) return
+        marketLoopJob = viewModelScope.launch {
+            var firstRound = true
+            var nextTickAt = SystemClock.elapsedRealtime()
+            while (isActive && pageActive && !_uiState.value.showDetail) {
+                val waitMs = nextTickAt - SystemClock.elapsedRealtime()
+                if (waitMs > 0L) delay(waitMs)
+                if (!pageActive || _uiState.value.showDetail) break
+
+                if (firstRound) {
+                    _uiState.update { it.copy(marketLoading = true) }
+                }
+                val result = withContext(Dispatchers.IO) {
+                    marketDataRepository.loadMarketHome()
+                }
+                _uiState.update { state ->
+                    result.fold(
+                        onSuccess = { snapshot ->
+                            state.copy(
+                                marketHome = snapshot,
+                                stock = state.stock.copy(
+                                    indices = snapshot.indices,
+                                    marketBoards = snapshot.boards,
+                                    watchlist = emptyList()
+                                ),
+                                marketLoading = false,
+                                requestMessage = if (state.requestMessage?.startsWith("市场数据") == true) {
+                                    null
+                                } else {
+                                    state.requestMessage
+                                }
+                            )
+                        },
+                        onFailure = { error ->
+                            state.copy(
+                                marketLoading = false,
+                                requestMessage = if (firstRound) {
+                                    "市场数据加载失败：${error.message ?: error.javaClass.simpleName}"
+                                } else {
+                                    state.requestMessage
+                                }
+                            )
+                        }
                     )
+                }
+                firstRound = false
+                nextTickAt += MARKET_REFRESH_INTERVAL_MS
+                val now = SystemClock.elapsedRealtime()
+                while (nextTickAt <= now) {
+                    nextTickAt += MARKET_REFRESH_INTERVAL_MS
                 }
             }
         }
+    }
+
+    private fun stopMarketLoop() {
+        marketLoopJob?.cancel()
+        marketLoopJob = null
     }
 
     private fun loadSlowDetail(query: String) {
@@ -286,19 +407,35 @@ class StockMarketViewModel(
         slowDetailJob = viewModelScope.launch {
             delay(SLOW_DETAIL_DELAY_MS)
             if (!pageActive || !_uiState.value.showDetail || activeCode() != query) return@launch
-            val full = withContext(Dispatchers.IO) {
-                repository.loadAStock(query, mode = "full")
+            _uiState.update { it.copy(slowDataLoading = true) }
+            val result = withContext(Dispatchers.IO) {
+                val full = repository.loadAStock(query, mode = "full")
+                val slow = marketDataRepository.loadSlowStock(query)
+                full to slow
             }
             _uiState.update { state ->
                 if (!pageActive || !state.showDetail || state.stock.quote.code != query) {
-                    state
+                    state.copy(slowDataLoading = false)
                 } else {
+                    val full = result.first
+                    val slow = result.second.getOrElse { StockSlowDataSnapshot() }
+                    val fullIsReal = full.errorMessage == null &&
+                        !full.dataSourceLabel.contains("示例", ignoreCase = true) &&
+                        !full.dataSourceLabel.contains("回退", ignoreCase = true)
                     val nextStock = state.stock.copy(
-                        moneyFlow = full.moneyFlow,
-                        fundamentals = full.fundamentals,
-                        aiSummary = full.aiSummary
+                        moneyFlow = if (fullIsReal) full.moneyFlow else state.stock.moneyFlow,
+                        fundamentals = if (fullIsReal) full.fundamentals else emptyList(),
+                        aiSummary = if (fullIsReal && full.aiSummary.isNotBlank()) {
+                            full.aiSummary
+                        } else {
+                            state.stock.aiSummary
+                        }
                     )
-                    if (nextStock == state.stock) state else state.copy(stock = nextStock)
+                    state.copy(
+                        stock = nextStock,
+                        slowData = slow,
+                        slowDataLoading = false
+                    )
                 }
             }
         }
@@ -517,13 +654,27 @@ class StockMarketViewModel(
         } else {
             state.stock.minutePoints
         }
-        val nextSellLevels = frame.sellLevels.ifEmpty { state.stock.sellLevels }
-        val nextBuyLevels = frame.buyLevels.ifEmpty { state.stock.buyLevels }
+        val depthState = depthStateFor(frame)
+        val nextSellLevels = if (depthState.canDisplayLevels) frame.sellLevels else emptyList()
+        val nextBuyLevels = if (depthState.canDisplayLevels) frame.buyLevels else emptyList()
         val nextTradeTicks = mergedTicks.ifEmpty { state.stock.tradeTicks }
         val nextTopMetrics = if (frame.quote == state.stock.quote) {
             state.stock.topMetrics
         } else {
             realtimeRepository.topMetricsFor(frame.quote)
+        }
+        val sourceLabel = buildString {
+            append(frame.dataSourceLabel)
+            append(" · 盘口")
+            append(
+                when (depthState.status) {
+                    StockModuleStatus.Ok -> "实时"
+                    StockModuleStatus.Partial -> "部分"
+                    StockModuleStatus.Stale -> "缓存"
+                    StockModuleStatus.Empty -> "空"
+                    StockModuleStatus.Unavailable -> "不可用"
+                }
+            )
         }
 
         if (
@@ -533,7 +684,8 @@ class StockMarketViewModel(
             nextSellLevels == state.stock.sellLevels &&
             nextBuyLevels == state.stock.buyLevels &&
             nextTradeTicks == state.stock.tradeTicks &&
-            frame.dataSourceLabel == state.stock.dataSourceLabel
+            sourceLabel == state.stock.dataSourceLabel &&
+            depthState == state.depthState
         ) {
             return state
         }
@@ -546,8 +698,31 @@ class StockMarketViewModel(
                 sellLevels = nextSellLevels,
                 buyLevels = nextBuyLevels,
                 tradeTicks = nextTradeTicks,
-                dataSourceLabel = frame.dataSourceLabel
-            )
+                dataSourceLabel = sourceLabel
+            ),
+            depthState = depthState
+        )
+    }
+
+    private fun depthStateFor(frame: StockRealtimeFrame): StockDepthState {
+        val sellCount = frame.sellLevels.size
+        val buyCount = frame.buyLevels.size
+        val status = when {
+            sellCount >= 5 && buyCount >= 5 -> StockModuleStatus.Ok
+            sellCount > 0 || buyCount > 0 -> StockModuleStatus.Partial
+            else -> StockModuleStatus.Unavailable
+        }
+        return StockDepthState(
+            status = status,
+            source = "eastmoney_push2",
+            isDerived = false,
+            sourceTimestamp = frame.sourceTimestamp,
+            cacheAgeMs = frame.cacheAgeMs,
+            warnings = if (status == StockModuleStatus.Unavailable) {
+                listOf("真实盘口暂不可用，已清空旧盘口")
+            } else {
+                emptyList()
+            }
         )
     }
 
@@ -572,10 +747,11 @@ class StockMarketViewModel(
         incoming: List<StockTradeTick>
     ): List<StockTradeTick> {
         if (incoming.isEmpty()) return previous
-        val seen = HashSet<String>()
-        return (incoming + previous).filter { tick ->
-            seen.add("${tick.time}|${tick.price}|${tick.volume}|${tick.direction}")
-        }.take(MAX_TRADE_TICKS)
+        val merged = LinkedHashMap<String, StockTradeTick>()
+        (previous + incoming).forEach { tick ->
+            merged["${tick.time}|${tick.price}|${tick.volume}|${tick.direction}"] = tick
+        }
+        return merged.values.toList().takeLast(MAX_TRADE_TICKS)
     }
 
     private fun acceptSequence(code: String, minuteDays: Int, sequence: Long): Boolean {
@@ -594,8 +770,8 @@ class StockMarketViewModel(
 
     override fun onCleared() {
         stopRealtimeLoop()
+        stopMarketLoop()
         quoteJob?.cancel()
-        marketJob?.cancel()
         slowDetailJob?.cancel()
         kLineJob?.cancel()
         minuteJob?.cancel()
@@ -622,6 +798,7 @@ class StockMarketViewModel(
 
     companion object {
         private const val REALTIME_INTERVAL_MS = 1000L
+        private const val MARKET_REFRESH_INTERVAL_MS = 20_000L
         private const val SLOW_DETAIL_DELAY_MS = 1200L
         private const val MAX_ONE_DAY_POINTS = 600
         private const val MAX_FIVE_DAY_POINTS = 2600
