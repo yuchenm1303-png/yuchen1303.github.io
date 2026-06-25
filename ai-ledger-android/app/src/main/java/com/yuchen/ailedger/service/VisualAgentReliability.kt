@@ -74,6 +74,19 @@ class ForegroundPackageProbe(
     private val shellBridge: DeviceShellBridge,
 ) {
     fun probe(): ForegroundPackageProbeResult {
+        val accessibilityHint = ScreenObservationStore.recentWindowPackageHint()
+        if (
+            accessibilityHint != null &&
+            !ForegroundPackageEvidenceResolver.needsShellFallback(accessibilityHint.packageName)
+        ) {
+            return ForegroundPackageProbeResult(
+                packageName = accessibilityHint.packageName,
+                source = ForegroundPackageEvidenceSource.Accessibility,
+                available = true,
+                detail = "accessibility_working_window_event",
+            )
+        }
+
         val activity = shellBridge.runTrustedReadOnlyEnhancedCommand(
             title = "读取前台 Activity",
             command = ACTIVITY_FOREGROUND_COMMAND,
