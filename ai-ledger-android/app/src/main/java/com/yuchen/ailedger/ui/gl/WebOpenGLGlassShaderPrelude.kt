@@ -30,14 +30,13 @@ internal object WebOpenGLGlassShaderPrelude {
 
     const val FUNCTIONS = """
         float sat(float x){return clamp(x,0.0,1.0);}
-        float roundedBoxSdf(vec2 p,vec2 z,float r){
-            vec2 halfSize=z*0.5;
-            vec2 q=abs(p-halfSize)-max(halfSize-vec2(r),vec2(0.0));
+        float roundedBoxSdfPrepared(vec2 p,vec2 halfSize,vec2 core,float r){
+            vec2 q=abs(p-halfSize)-core;
             return length(max(q,0.0))+min(max(q.x,q.y),0.0)-r;
         }
         float insideFromSdf(float sdf){return max(-sdf,0.0);}
-        vec2 globalUvAt(vec2 p,vec2 root,vec2 texel){
-            return clamp((uCardOrigin+p)/root,texel,1.0-texel);
+        vec2 globalUvAt(vec2 p,vec2 rootInv,vec2 texel){
+            return clamp((uCardOrigin+p)*rootInv,texel,1.0-texel);
         }
         vec3 fallbackBackdrop(vec2 uv){
             float h=smoothstep(0.0,1.0,uv.y);
@@ -76,10 +75,8 @@ internal object WebOpenGLGlassShaderPrelude {
             float softLen=len/(1.0+len/max(limitPx,1.0));
             return v*(softLen/max(len,0.0001));
         }
-        vec2 perimeterNormalAt(vec2 p,vec2 z,float r){
-            vec2 halfSize=z*0.5;
+        vec2 perimeterNormalPrepared(vec2 p,vec2 halfSize,vec2 core){
             vec2 local=p-halfSize;
-            vec2 core=max(halfSize-vec2(r),vec2(0.0));
             vec2 nearest=clamp(local,-core,core);
             vec2 radial=local-nearest;
             float radialLength=length(radial);
@@ -138,10 +135,15 @@ internal object WebOpenGLGlassShaderPrelude {
             transport+=vec2(-u.y,u.x)*mix(0.004,0.020,curve);
             return transport;
         }
-        vec2 centerTransport(vec2 p,vec2 z,vec3 transportParams){
-            vec2 center=z*0.5;
-            vec2 u=(p-center)/max(center,vec2(1.0));
-            float amplitude=min(z.x,z.y)*0.5
+        vec2 centerTransport(
+            vec2 p,
+            vec2 center,
+            vec2 invSafeCenter,
+            float minSize,
+            vec3 transportParams
+        ){
+            vec2 u=(p-center)*invSafeCenter;
+            float amplitude=minSize*0.5
                 *transportParams.z
                 *mix(0.18,0.46,transportParams.y);
             vec2 flow=polynomialTransport(u,transportParams.y)
