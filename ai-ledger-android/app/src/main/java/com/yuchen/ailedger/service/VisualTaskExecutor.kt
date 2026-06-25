@@ -1,6 +1,9 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal class VisualTaskExecutor(
     internal val aiWorkerClient: AiWorkerClient,
@@ -49,3 +52,80 @@ internal data class VisualTaskSession(
     fun canRun(): Boolean = !stopped() &&
         state.executedActions < maxSteps && state.modelTurns < modelTurnBudget
 }
+
+internal suspend fun VisualTaskExecutor.runVisualTask(
+    goal: String,
+    maxSteps: Int,
+    executionMode: AgentExecutionMode,
+): AgentTaskRunResult {
+    if (VisualLoopRunner.requiresAgentSwitch(executionMode) && !AgentRuntimeController.isEnabled()) {
+        return AgentTaskRunResult(false, false, "Visual agent is off; forced visual loop was not started.", emptyList())
+    }
+    val apps = withContext(Dispatchers.IO) { installedAppIndex.getLaunchableApps(forceReload = false) }
+    val state = VisualLoopState(goal.trim().take(240))
+    val session = VisualTaskSession(
+        state = state,
+        routeRetry = VisualRouteRetryState(),
+        execution = VisualExecutionSessionState(),
+        semantic = VisualSemanticProgressTracker(originalGoal = state.goal),
+        agentSessionId = AgentClientIdentity.newVisualSessionId(),
+        deviceProfile = AgentDeviceProfile.current(),
+        installedAppsByPackage = apps.associateBy { it.packageName },
+        appContext = executorAppContext(apps),
+        modelTurnBudget = VisualLoopSupport.modelTurnBudget(maxSteps),
+        maxSteps = maxSteps,
+        executionMode = executionMode,
+    )
+    VisualLoopSupport.appendRecent(session.recentActions, session.deviceProfile.toPromptLine())
+    VisualLoopSupport.appendRecent(
+        session.recentActions,
+        "cloud_routing:v5|mainBrain=deepseek|visualOwner=gui_plus|taskContractHarness=true|semanticProgressVerification=true|failedHypothesisBlocking=true",
+    )
+    VisualLoopSupport.appendRecent(
+        session.recentActions,
+        "app_identity:v2|machineIdentity=packageName|appNameRole=display_only",
+    )
+    AiAgentAccessibilityService.beginTaskSession()
+    session.runtimeTaskId = AgentRuntimeController.startTask(state.goal)
+    session.stopGeneration = AgentRuntimeController.currentManualStopGeneration()
+    return try {
+        while (session.canRun() && waitWhileUserTakeoverPaused(session)) {
+            val turn = captureTurn(session) ?: break
+            when (val request = requestPlan(session, turn)) {
+                is VisualPlanRequest.Retry -> continue
+                is VisualPlanRequest.Fatal -> return request.result
+                is VisualPlanRequest.Ready -> when (val decision = handlePlan(session, turn, request.plan)) {
+                    is VisualLoopDecision.Continue -> continue
+                    is VisualLoopDecision.Return -> return decision.result
+                    is VisualLoopDecision.Stop -> break
+                }
+            }
+        }
+        finishForLoopExit(session)
+    } catch (error: CancellationException) {
+        AgentRuntimeController.finishTask(
+            session.runtimeTaskId,
+            AgentTaskOutcome.Cancelled("Visual task was cancelled."),
+        )
+        throw error
+    } finally {
+        AiAgentAccessibilityService.endTaskSession()
+        AgentRuntimeController.resetCleanVisualCapture()
+    }
+}
+
+private fun VisualTaskExecutor.executorAppContext(
+    apps: List<InstalledAppEntry>,
+): List<VisualAgentAppContextItem> = apps.asSequence()
+    .distinctBy { it.packageName }
+    .map { app ->
+        VisualAgentAppContextItem(
+            label = app.label.trim(),
+            packageName = app.packageName.trim(),
+            aliases = installedAppIndex.aliasesFor(app),
+            capabilities = emptyList(),
+        )
+    }
+    .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
+    .take(VisualLoopSupport.MAX_APP_CONTEXT_ITEMS)
+    .toList()
