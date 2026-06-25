@@ -15,7 +15,7 @@ app = legacy.app
 
 MARKET_HOME_PATH = "/api/stock/a-share/market/home"
 MARKET_HOME_CACHE_VERSION = "v2-parallel"
-MARKET_HOME_WORKERS = 8
+MARKET_HOME_WORKERS = 10
 MARKET_HOME_BUDGET_SECONDS = 10.5
 INDEX_WORKERS = 5
 INDEX_BUDGET_SECONDS = 5.5
@@ -237,6 +237,12 @@ def _build_market_home_parallel() -> dict[str, Any]:
         ),
         "speedRanking": lambda: _cached_module(
             "ranking", "speed", "20", lambda: legacy._load_ranking("speed", 20)
+        ),
+        "mainInflowRanking": lambda: _cached_module(
+            "ranking", "main_inflow", "20", lambda: legacy._load_ranking("main_inflow", 20)
+        ),
+        "mainOutflowRanking": lambda: _cached_module(
+            "ranking", "main_outflow", "20", lambda: legacy._load_ranking("main_outflow", 20)
         ),
         "sectorHotRanking": lambda: _cached_module(
             "sectors", "industry", "20", lambda: legacy._load_sectors("industry", 20)
