@@ -143,6 +143,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
             float pointDepth,
             vec2 pointNormal,
             vec2 z,
+            vec2 rectInv,
             vec2 center,
             vec2 invSafeCenter,
             float minSize,
@@ -155,7 +156,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
             if(pressOptics.w>0.0){
                 float pointPressField=pressFieldAt(
                     point,
-                    z,
+                    rectInv,
                     pressOptics.xy,
                     pressOptics.z,
                     pressOptics.w
