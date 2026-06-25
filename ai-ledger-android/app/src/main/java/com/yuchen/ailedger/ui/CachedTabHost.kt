@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.yuchen.ailedger.model.AppPageActivity
 import com.yuchen.ailedger.model.AppTab
 import kotlinx.coroutines.delay
 
@@ -85,6 +86,7 @@ fun CachedAppTabHost(
     }
 
     LaunchedEffect(currentTab) {
+        AppPageActivity.update(currentTab)
         val tabBit = currentTab.cacheBit()
         if (renderedTabMask and tabBit == 0) renderedTabMask = renderedTabMask or tabBit
     }
