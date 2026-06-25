@@ -13,7 +13,8 @@ private const val VISUAL_AGENT_CONNECT_TIMEOUT_MS = 8_000
 private const val VISUAL_AGENT_READ_TIMEOUT_MS = 25_000
 private const val VISUAL_AGENT_MAX_RECENT_ACTIONS = 14
 private const val VISUAL_AGENT_MAX_RECENT_ACTION_CHARS = 1_200
-private const val VISUAL_AGENT_MAX_HISTORY_ITEMS = 4
+private const val VISUAL_AGENT_NORMAL_HISTORY_ITEMS = 2
+private const val VISUAL_AGENT_RECOVERY_HISTORY_ITEMS = 4
 private const val VISUAL_AGENT_MAX_HISTORY_OUTPUT_CHARS = 1_200
 private const val VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS = 240
 private const val VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS = 160
@@ -21,12 +22,12 @@ private const val VISUAL_AGENT_MAX_APP_TEXT_CHARS = 120
 private const val VISUAL_AGENT_MAX_APP_ALIASES = 24
 private const val VISUAL_AGENT_MAX_APP_CAPABILITIES = 32
 private const val VISUAL_AGENT_MAX_VERIFICATION_EVENTS = 10
-private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 6
+private const val VISUAL_AGENT_MAX_BLOCKED_SIGNATURES = 8
 private const val VISUAL_AGENT_MAX_INTERACTION_ITEMS = 16
 private const val VISUAL_AGENT_MAX_INTERACTION_CHARS = 1_200
 private const val VISUAL_AGENT_EXPLORATION_PRESSURE_STEPS = 6
 private const val VISUAL_AGENT_EXPLORATION_BUDGET_STEPS = 9
-private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v13_cloud_route_visual_loop"
+private const val VISUAL_AGENT_SESSION_PROTOCOL = "android_visual_agent_v14_task_contract_harness"
 private const val VISUAL_AGENT_INTERACTION_PROTOCOL = "gui_plus_dialogue_v1"
 private const val STRUCTURAL_NO_PROGRESS_THRESHOLD = 3
 private const val STRUCTURAL_FAILURE_THRESHOLD = 3
@@ -35,19 +36,8 @@ internal object VisualAgentProtocol {
     const val coordinateProtocol = "normalized_screen_0_1"
     const val appIdentityProtocol = "package_name_v2"
 
-    val supportedStepTypes: Set<String> = linkedSetOf(
-        "open_app",
-        "tap_xy",
-        "input_text",
-        "swipe",
-        "back",
-        "home",
-        "wait",
-        "finish",
-        "need_user_help",
-    ).apply {
-        addAll(CloudAgentStep.deviceToolTypes)
-    }
+    /** Single source of truth shared by parser, validator, advertised protocol and executor. */
+    val supportedStepTypes: Set<String> = CloudAgentStep.supportedTypes
 }
 
 data class VisualAgentHistoryItem(
@@ -69,10 +59,7 @@ class VisualAgentRequestException(
     val retryable: Boolean,
     val backendMessage: String,
     cause: Throwable? = null,
-) : IOException(
-    buildVisualAgentErrorMessage(httpStatus, code, retryable, backendMessage),
-    cause,
-)
+) : IOException(buildVisualAgentErrorMessage(httpStatus, code, retryable, backendMessage), cause)
 
 @Throws(IOException::class)
 fun AiWorkerClient.requestVisualAgentStep(
@@ -86,6 +73,7 @@ fun AiWorkerClient.requestVisualAgentStep(
     executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent,
     deviceProfile: AgentDeviceProfile? = null,
     runtimeContext: VisualAgentRuntimeContext? = null,
+    taskMemory: VisualTaskMemory? = null,
 ): CloudAgentPlan {
     val endpointBase = endpoint.trim().trimEnd('/')
     if (endpointBase.isBlank()) throw IOException("AI Worker endpoint is not configured")
@@ -100,6 +88,7 @@ fun AiWorkerClient.requestVisualAgentStep(
         executionMode = executionMode,
         deviceProfile = deviceProfile,
         runtimeContext = runtimeContext,
+        taskMemory = taskMemory,
     )
     return postVisualAgentStep(endpointBase, payload, deviceId, agentSessionId)
 }
@@ -115,6 +104,7 @@ internal fun buildVisualAgentPayload(
     executionMode: AgentExecutionMode = AgentExecutionMode.ExplicitAgent,
     deviceProfile: AgentDeviceProfile? = null,
     runtimeContext: VisualAgentRuntimeContext? = null,
+    taskMemory: VisualTaskMemory? = null,
 ): JSONObject {
     val cleanGoal = goal.trim().take(240)
     val cleanDeviceId = deviceId.trim().take(120).ifBlank { "android-compose-visual" }
@@ -132,104 +122,95 @@ internal fun buildVisualAgentPayload(
     val cleanRecentActionLines = recentActions
         .takeLast(VISUAL_AGENT_MAX_RECENT_ACTIONS)
         .map { it.trim().take(VISUAL_AGENT_MAX_RECENT_ACTION_CHARS) }
-        .filter { it.isNotBlank() }
+        .filter(String::isNotBlank)
     val recentAgentActions = JSONArray(cleanRecentActionLines)
     val interactionHistory = buildInteractionHistory(cleanRecentActionLines)
     val historyExecutionResults = visualHistory
-        .takeLast(VISUAL_AGENT_MAX_HISTORY_ITEMS)
+        .takeLast(VISUAL_AGENT_RECOVERY_HISTORY_ITEMS)
         .map { it.executionResult.trim().take(VISUAL_AGENT_MAX_HISTORY_RESULT_CHARS) }
-        .filter { it.isNotBlank() }
-
-    val feedbackLines = (cleanRecentActionLines + historyExecutionResults)
-        .distinct()
-        .takeLast(VISUAL_AGENT_MAX_VERIFICATION_EVENTS)
-    val verificationEvents = feedbackLines.filter { it.isVisualRuntimeFeedback() }
-    val lastScreenChangeIndex = feedbackLines.indexOfLast { it.isVisualScreenChangedFeedback() }
-    val activeFeedbackWindow = if (lastScreenChangeIndex >= 0) feedbackLines.drop(lastScreenChangeIndex + 1) else feedbackLines
-    val activeVerificationEvents = activeFeedbackWindow.filter { it.isVisualRuntimeFeedback() }
-    val screenChangedCount = verificationEvents.count { it.isVisualScreenChangedFeedback() }
-    val explorationSprawlCount = verificationEvents.count { it.isVisualExplorationSprawlFeedback() }
-    val noProgressCount = activeVerificationEvents.count { it.isVisualNoProgressFeedback() }
-    val structuralFailureCount = activeVerificationEvents.count { it.isStructuralRouteFailureFeedback() }
-    val localVisualRetryCount = activeVerificationEvents.count { it.isLocalVisualRetryFeedback() }
-    val finishVerificationRequested = activeVerificationEvents.any { it.isVisualFinishVerificationFeedback() }
-    val blockedActionSignatures = activeVerificationEvents
-        .filter { it.isVisualNoProgressFeedback() || it.isVisualFailureFeedback() || it.isLocalVisualRetryFeedback() }
-        .mapNotNull { it.visualActionSignatureOrNull() }
-        .distinct()
-        .takeLast(VISUAL_AGENT_MAX_BLOCKED_SIGNATURES)
+        .filter(String::isNotBlank)
+    val feedbackLines = (cleanRecentActionLines + historyExecutionResults).distinct().takeLast(VISUAL_AGENT_MAX_VERIFICATION_EVENTS)
+    val verificationEvents = feedbackLines.filter(String::isVisualRuntimeFeedback)
+    val lastAdvancedIndex = feedbackLines.indexOfLast(String::isVisualAdvancedFeedback)
+    val activeFeedbackWindow = if (lastAdvancedIndex >= 0) feedbackLines.drop(lastAdvancedIndex + 1) else feedbackLines
+    val activeVerificationEvents = activeFeedbackWindow.filter(String::isVisualRuntimeFeedback)
+    val screenChangedCount = verificationEvents.count(String::isVisualAdvancedFeedback)
+    val explorationSprawlCount = verificationEvents.count(String::isVisualExplorationSprawlFeedback)
+    val noProgressCount = activeVerificationEvents.count(String::isVisualNoProgressFeedback)
+    val structuralFailureCount = activeVerificationEvents.count(String::isStructuralRouteFailureFeedback)
+    val localVisualRetryCount = activeVerificationEvents.count(String::isLocalVisualRetryFeedback)
+    val finishVerificationRequested = activeVerificationEvents.any(String::isVisualFinishVerificationFeedback)
+    val semanticReplanRequested = activeVerificationEvents.any { it.contains("replanRequired=true", ignoreCase = true) } ||
+        taskMemory?.replanRequested == true
+    val blockedActionSignatures = (
+        activeVerificationEvents
+            .filter { it.isVisualNoProgressFeedback() || it.isVisualFailureFeedback() || it.isLocalVisualRetryFeedback() }
+            .mapNotNull(String::visualActionSignatureOrNull) +
+            taskMemory.orEmptyBlockedSignatures()
+        ).distinct().takeLast(VISUAL_AGENT_MAX_BLOCKED_SIGNATURES)
     val lastVerificationEvent = verificationEvents.lastOrNull().orEmpty()
     val lastVerification = when {
         lastVerificationEvent.isVisualFinishVerificationFeedback() -> "finish_verification_pending"
         lastVerificationEvent.isStructuralRouteFailureFeedback() -> "structural_route_failure"
         lastVerificationEvent.isVisualExplorationSprawlFeedback() -> "visual_exploration_sprawl"
-        lastVerificationEvent.isVisualNoProgressFeedback() -> "visual_no_screen_change"
+        lastVerificationEvent.contains("semanticStatus=ambiguous", true) -> "semantic_ambiguous"
+        lastVerificationEvent.contains("semanticStatus=regressed", true) -> "semantic_regressed"
+        lastVerificationEvent.contains("semanticStatus=stalled", true) -> "semantic_stalled"
+        lastVerificationEvent.isVisualNoProgressFeedback() -> "visual_no_progress"
         lastVerificationEvent.isLocalVisualRetryFeedback() -> "visual_local_retry"
         lastVerificationEvent.isVisualFailureFeedback() -> "execution_failed"
-        lastVerificationEvent.isVisualScreenChangedFeedback() -> "visual_screen_changed"
-        else -> "unknown"
+        lastVerificationEvent.isVisualAdvancedFeedback() -> "semantic_advanced"
+        else -> taskMemory?.progressStatus ?: "unknown"
     }
     val executedActionLines = cleanRecentActionLines.filter {
-        it.contains(":ok:", ignoreCase = true) ||
-            it.contains(":failed:", ignoreCase = true) ||
-            it.contains(":retry:", ignoreCase = true)
+        it.contains(":ok:", true) || it.contains(":failed:", true) || it.contains(":retry:", true)
     }
     val historyResultLines = historyExecutionResults.filter {
-        it.contains(":ok:", ignoreCase = true) ||
-            it.contains(":failed:", ignoreCase = true) ||
-            it.contains(":retry:", ignoreCase = true)
+        it.contains(":ok:", true) || it.contains(":failed:", true) || it.contains(":retry:", true)
     }
-    val lastExecutionResultOk = executedActionLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
-        ?: historyResultLines.asReversed().firstNotNullOfOrNull { it.visualResultOkOrNull() }
+    val lastExecutionResultOk = executedActionLines.asReversed().firstNotNullOfOrNull(String::visualResultOkOrNull)
+        ?: historyResultLines.asReversed().firstNotNullOfOrNull(String::visualResultOkOrNull)
     val lastResultOk = when {
         lastVerificationEvent.isVisualNoProgressFeedback() ||
             lastVerificationEvent.isVisualExplorationSprawlFeedback() ||
             lastVerificationEvent.isVisualFailureFeedback() ||
             lastVerificationEvent.isLocalVisualRetryFeedback() -> false
-        lastVerificationEvent.isVisualScreenChangedFeedback() -> true
+        lastVerificationEvent.isVisualAdvancedFeedback() -> true
         else -> lastExecutionResultOk
     }
-    val executedActionSignatures = executedActionLines.mapNotNull { it.visualActionSignatureOrNull() }
+    val executedActionSignatures = executedActionLines.mapNotNull(String::visualActionSignatureOrNull)
     val lastActionSignature = executedActionSignatures.lastOrNull()
-        ?: activeVerificationEvents.asReversed().firstNotNullOfOrNull { it.visualActionSignatureOrNull() }
+        ?: activeVerificationEvents.asReversed().firstNotNullOfOrNull(String::visualActionSignatureOrNull)
         ?: ""
-    val explorationBudgetRemaining = (VISUAL_AGENT_EXPLORATION_BUDGET_STEPS - executedActionSignatures.size).coerceAtLeast(0)
-    val explorationBudgetExceeded = executedActionSignatures.size >= VISUAL_AGENT_EXPLORATION_BUDGET_STEPS
+    val fallbackBudgetRemaining = (VISUAL_AGENT_EXPLORATION_BUDGET_STEPS - executedActionSignatures.size).coerceAtLeast(0)
+    val explorationBudgetRemaining = taskMemory?.remainingExplorationBudget ?: fallbackBudgetRemaining
+    val explorationBudgetExceeded = taskMemory?.let { it.remainingExplorationBudget <= 0 && it.replanRequested }
+        ?: (executedActionSignatures.size >= VISUAL_AGENT_EXPLORATION_BUDGET_STEPS)
     val explorationPressureLevel = when {
-        explorationBudgetExceeded || explorationSprawlCount > 0 -> "high"
+        explorationBudgetExceeded || explorationSprawlCount > 0 || taskMemory?.recoveryMode == true -> "high"
         executedActionSignatures.size >= VISUAL_AGENT_EXPLORATION_PRESSURE_STEPS || interactionHistory.length() > 0 -> "medium"
         else -> "low"
     }
-    val sameActionCount = if (lastActionSignature.isBlank()) {
-        0
-    } else {
-        executedActionSignatures.asReversed().takeWhile { it == lastActionSignature }.count()
-    }
+    val sameActionCount = if (lastActionSignature.isBlank()) 0
+        else executedActionSignatures.asReversed().takeWhile { it == lastActionSignature }.count()
 
-    val visualOwnershipActive = resolvedRuntimeContext.guiPlusEligible &&
-        resolvedRuntimeContext.verifiedTargetPackage.isNotBlank()
-    val runtimeRequiresRouteRefresh = !visualOwnershipActive &&
-        resolvedRuntimeContext.surfaceState == VisualSurfaceState.Replanning
+    val visualOwnershipActive = resolvedRuntimeContext.guiPlusEligible && resolvedRuntimeContext.verifiedTargetPackage.isNotBlank()
+    val runtimeRequiresRouteRefresh = !visualOwnershipActive && resolvedRuntimeContext.surfaceState == VisualSurfaceState.Replanning
     val eventRequiresRouteRefresh = !visualOwnershipActive && (
-        activeVerificationEvents.any { it.isStructuralRouteFailureFeedback() } ||
-            noProgressCount >= STRUCTURAL_NO_PROGRESS_THRESHOLD ||
-            structuralFailureCount >= STRUCTURAL_FAILURE_THRESHOLD
+        activeVerificationEvents.any(String::isStructuralRouteFailureFeedback) ||
+            noProgressCount >= STRUCTURAL_NO_PROGRESS_THRESHOLD || structuralFailureCount >= STRUCTURAL_FAILURE_THRESHOLD
         )
     val routeRefreshRequested = runtimeRequiresRouteRefresh || eventRequiresRouteRefresh
     val localVisualRetryRequested = !routeRefreshRequested && (
-        localVisualRetryCount > 0 ||
-            explorationSprawlCount > 0 ||
+        localVisualRetryCount > 0 || explorationSprawlCount > 0 || semanticReplanRequested ||
             (noProgressCount in 1 until STRUCTURAL_NO_PROGRESS_THRESHOLD) ||
             activeVerificationEvents.any { it.isVisualFailureFeedback() && !it.isStructuralRouteFailureFeedback() }
         )
     val guiPlusReplanRequested = finishVerificationRequested || localVisualRetryRequested ||
-        (visualOwnershipActive && (
-            activeVerificationEvents.any { it.isVisualFailureFeedback() } ||
-                noProgressCount > 0 ||
-                structuralFailureCount > 0
-            ))
+        (visualOwnershipActive && (activeVerificationEvents.any(String::isVisualFailureFeedback) || noProgressCount > 0 || structuralFailureCount > 0))
     val currentPackageMatchesVerifiedTarget = snapshot.packageName == resolvedRuntimeContext.verifiedTargetPackage
 
+    val memoryJson = taskMemory?.toJson()
     val executionFeedback = JSONObject().apply {
         put("lastResultOk", lastResultOk ?: JSONObject.NULL)
         put("lastVerification", lastVerification)
@@ -252,15 +233,16 @@ internal fun buildVisualAgentPayload(
         put("guiPlusReplanRequested", guiPlusReplanRequested)
         put("routeRefreshRequested", routeRefreshRequested)
         put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
+        mergeTaskMemorySummary(taskMemory)
     }
     val lastToolResponse = JSONObject().apply {
         put("type", "tool_response")
         put("toolName", "mobile_use")
         put("success", lastResultOk ?: JSONObject.NULL)
-        put("result", executedActionLines.lastOrNull() ?: historyExecutionResults.lastOrNull() ?: lastVerificationEvent)
+        put("result", lastVerificationEvent.ifBlank { executedActionLines.lastOrNull() ?: historyExecutionResults.lastOrNull().orEmpty() })
         put("verification", lastVerification)
         put("actionSignature", lastActionSignature)
-        put("screenChanged", lastVerification == "visual_screen_changed")
+        put("screenChanged", lastVerification == "semantic_advanced")
         put("screenChangedCount", screenChangedCount)
         put("explorationSprawlCount", explorationSprawlCount)
         put("explorationPressureLevel", explorationPressureLevel)
@@ -270,38 +252,24 @@ internal fun buildVisualAgentPayload(
         put("localVisualRetryRequested", localVisualRetryRequested)
         put("routeRefreshRequested", routeRefreshRequested)
         put("observationId", resolvedRuntimeContext.observationId)
+        mergeTaskMemorySummary(taskMemory)
     }
 
-    val canonicalAppItems = appContext
-        .asSequence()
+    val canonicalAppItems = appContext.asSequence()
         .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
         .distinctBy { it.packageName }
         .take(VISUAL_AGENT_MAX_APP_CONTEXT_ITEMS)
         .map { item ->
-            val cleanPackageName = item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS)
-            val aliases = item.aliases
-                .asSequence()
-                .map { it.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .take(VISUAL_AGENT_MAX_APP_ALIASES)
-                .toList()
-            val capabilities = item.capabilities
-                .asSequence()
-                .map { it.trim().lowercase().replace('-', '_').take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .take(VISUAL_AGENT_MAX_APP_CAPABILITIES)
-                .toList()
             CanonicalVisualApp(
-                appRef = cleanPackageName,
+                appRef = item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS),
                 label = item.label.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS),
-                packageName = cleanPackageName,
-                aliases = aliases,
-                capabilities = capabilities,
+                packageName = item.packageName.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS),
+                aliases = item.aliases.map { it.trim().take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
+                    .filter(String::isNotBlank).distinct().take(VISUAL_AGENT_MAX_APP_ALIASES),
+                capabilities = item.capabilities.map { it.trim().lowercase().replace('-', '_').take(VISUAL_AGENT_MAX_APP_TEXT_CHARS) }
+                    .filter(String::isNotBlank).distinct().take(VISUAL_AGENT_MAX_APP_CAPABILITIES),
             )
-        }
-        .toList()
+        }.toList()
     val appInventoryHash = buildVisualAppInventoryHash(canonicalAppItems)
     val canonicalApps = JSONArray().apply {
         canonicalAppItems.forEach { item ->
@@ -346,7 +314,6 @@ internal fun buildVisualAgentPayload(
         put("mustSelectFromInventoryHash", appInventoryHash)
     }
 
-    val screenSnapshot = snapshot.toJson(includeImage = false)
     val visual = snapshot.visual?.takeIf { it.hasImage }
     val guiPlusEligible = resolvedRuntimeContext.guiPlusEligible && !routeRefreshRequested
     val runtimeExecutionContext = JSONObject().apply {
@@ -374,6 +341,10 @@ internal fun buildVisualAgentPayload(
         put("observationId", resolvedRuntimeContext.observationId)
     }
     val deviceProfileJson = deviceProfile?.toVisualAgentJson()
+    val historyLimit = if (
+        taskMemory?.recoveryMode == true || routeRefreshRequested || guiPlusReplanRequested
+    ) VISUAL_AGENT_RECOVERY_HISTORY_ITEMS else VISUAL_AGENT_NORMAL_HISTORY_ITEMS
+
     return JSONObject().apply {
         put("action", "visual_agent_step")
         put("intent", "visual_agent_step")
@@ -416,7 +387,7 @@ internal fun buildVisualAgentPayload(
         put("selectedTargetPackage", resolvedRuntimeContext.selectedTargetPackage)
         put("verifiedTargetPackage", resolvedRuntimeContext.verifiedTargetPackage)
         put("surfaceState", resolvedRuntimeContext.surfaceState.wireValue)
-        put("screenSnapshot", screenSnapshot)
+        put("screenSnapshot", snapshot.toJson(includeImage = false))
         put("recentAgentActions", recentAgentActions)
         put("recentActions", recentAgentActions)
         put("executionFeedback", executionFeedback)
@@ -428,8 +399,9 @@ internal fun buildVisualAgentPayload(
         put("guiPlusReplanRequested", guiPlusReplanRequested)
         put("routeRefreshRequested", routeRefreshRequested)
         put("invalidateCachedAgentBrainRoute", routeRefreshRequested)
+        taskMemory?.taskContract?.let { put("taskContract", it.toJson()) }
         put("agentMemory", JSONObject().apply {
-            put("schema", "android_visual_agent_loop_memory_v13_cloud_route_visual_loop")
+            put("schema", "android_visual_agent_loop_memory_v14_task_contract_harness")
             put("recentActions", recentAgentActions)
             put("interactionProtocol", VISUAL_AGENT_INTERACTION_PROTOCOL)
             put("interactionHistory", interactionHistory)
@@ -442,6 +414,8 @@ internal fun buildVisualAgentPayload(
             put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
             put("appInventoryHash", appInventoryHash)
             put("appSelectionProtocol", appSelectionProtocol)
+            put("taskMemory", memoryJson ?: JSONObject.NULL)
+            taskMemory?.taskContract?.let { put("taskContract", it.toJson()) }
             put("loopSignals", JSONObject().apply {
                 put("agentSessionId", cleanSessionId)
                 put("loopIndex", cleanRecentActionLines.size)
@@ -471,11 +445,11 @@ internal fun buildVisualAgentPayload(
                 put("currentPackageMatchesVerifiedTarget", currentPackageMatchesVerifiedTarget)
                 put("postActionFeedback", executionFeedback)
                 put("lastToolResponse", lastToolResponse)
+                mergeTaskMemorySummary(taskMemory)
             })
         })
         put("visualHistory", JSONArray().apply {
-            visualHistory
-                .takeLast(VISUAL_AGENT_MAX_HISTORY_ITEMS)
+            visualHistory.takeLast(historyLimit)
                 .filter { it.assistantOutput.isNotBlank() || it.executionResult.isNotBlank() }
                 .forEach { item ->
                     put(JSONObject().apply {
@@ -486,7 +460,7 @@ internal fun buildVisualAgentPayload(
         })
         put("appContext", canonicalApps)
         put("deviceContext", JSONObject().apply {
-            put("schema", "android_visual_agent_context_v8_single_app_directory")
+            put("schema", "android_visual_agent_context_v9_task_contract_harness")
             put("deviceProfile", deviceProfileJson ?: JSONObject.NULL)
             put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
             put("appInventoryHash", appInventoryHash)
@@ -539,12 +513,31 @@ internal fun buildVisualAgentPayload(
             put("includeStopConditions", true)
             put("includePerformanceDebug", true)
             put("includeAppCatalogAck", true)
+            put("includeTaskContract", true)
             put("echoObservationId", true)
         })
         put("client", "android-compose")
-        put("clientVersion", "cloud-route-single-app-directory-v2")
+        put("clientVersion", "task-contract-harness-v1")
         put("now", System.currentTimeMillis())
     }
+}
+
+private fun JSONObject.mergeTaskMemorySummary(memory: VisualTaskMemory?) {
+    if (memory == null) return
+    put("currentMilestoneId", memory.currentMilestoneId)
+    put("completedMilestoneIds", JSONArray(memory.completedMilestoneIds))
+    put("failedHypotheses", JSONArray().apply { memory.failedHypotheses.forEach { put(it.toJson()) } })
+    put("blockedActions", JSONArray().apply { memory.blockedActions.forEach { put(it.toJson()) } })
+    put("remainingExplorationBudget", memory.remainingExplorationBudget)
+    put("lastConfirmedPage", memory.lastConfirmedPage?.toJson() ?: JSONObject.NULL)
+    put("semanticProgressStatus", memory.progressStatus)
+    put("semanticReplanRequested", memory.replanRequested)
+    put("legacyTaskContract", memory.legacyMode)
+}
+
+private fun VisualTaskMemory?.orEmptyBlockedSignatures(): List<String> {
+    val memory = this ?: return emptyList()
+    return memory.blockedActions.map { it.actionCluster } + memory.failedHypotheses.map { it.actionCluster }
 }
 
 private data class CanonicalVisualApp(
@@ -556,32 +549,21 @@ private data class CanonicalVisualApp(
 )
 
 private fun buildVisualAppInventoryHash(items: List<CanonicalVisualApp>): String {
-    val canonical = items
-        .sortedBy { it.packageName }
-        .joinToString("\n") { item ->
-            listOf(
-                item.packageName,
-                item.label,
-                item.aliases.sorted().joinToString(","),
-                item.capabilities.sorted().joinToString(","),
-            ).joinToString("|")
-        }
-    return MessageDigest.getInstance("SHA-256")
-        .digest(canonical.toByteArray(Charsets.UTF_8))
-        .joinToString("") { byte -> "%02x".format(byte) }
-        .take(24)
+    val canonical = items.sortedBy { it.packageName }.joinToString("\n") { item ->
+        listOf(item.packageName, item.label, item.aliases.sorted().joinToString(","), item.capabilities.sorted().joinToString(",")).joinToString("|")
+    }
+    return MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }.take(24)
 }
 
-private fun AgentDeviceProfile.toVisualAgentJson(): JSONObject {
-    return JSONObject().apply {
-        put("schema", "android_device_profile_v1")
-        put("manufacturer", manufacturer.take(60))
-        put("brand", brand.take(60))
-        put("model", model.take(80))
-        put("androidRelease", release.take(40))
-        put("sdkInt", sdkInt)
-        put("buildDisplay", display.take(100))
-    }
+private fun AgentDeviceProfile.toVisualAgentJson(): JSONObject = JSONObject().apply {
+    put("schema", "android_device_profile_v1")
+    put("manufacturer", manufacturer.take(60))
+    put("brand", brand.take(60))
+    put("model", model.take(80))
+    put("androidRelease", release.take(40))
+    put("sdkInt", sdkInt)
+    put("buildDisplay", display.take(100))
 }
 
 private fun buildInteractionHistory(recentActions: List<String>): JSONArray {
@@ -593,105 +575,75 @@ private fun buildInteractionHistory(recentActions: List<String>): JSONArray {
             else -> null
         }
     }.takeLast(VISUAL_AGENT_MAX_INTERACTION_ITEMS)
-
     return JSONArray().apply {
         turns.forEachIndexed { index, (role, content) ->
-            val cleanContent = content.trim().take(VISUAL_AGENT_MAX_INTERACTION_CHARS)
-            if (cleanContent.isNotBlank()) {
-                put(JSONObject().apply {
-                    put("index", index)
-                    put("role", role)
-                    put("content", cleanContent)
-                    put("sensitiveRedacted", cleanContent.contains("敏感输入") || cleanContent.contains("private_step"))
-                })
-            }
+            val clean = content.trim().take(VISUAL_AGENT_MAX_INTERACTION_CHARS)
+            if (clean.isNotBlank()) put(JSONObject().apply {
+                put("index", index)
+                put("role", role)
+                put("content", clean)
+                put("sensitiveRedacted", clean.contains("敏感输入") || clean.contains("private_step"))
+            })
         }
     }
 }
 
 private fun String.isVisualRuntimeFeedback(): Boolean {
     val value = lowercase()
-    return value.contains(":failed:") ||
-        value.contains(":retry:") ||
-        value.contains("visual_action_rejected") ||
-        value.contains("visual_action_retry") ||
-        value.contains("visual_action_stale") ||
-        value.contains("visual_local_retry") ||
-        value.contains("visual_exploration_sprawl") ||
-        value.contains("visual_no_progress") ||
-        value.contains("visual_screen_changed") ||
-        value.contains("finish_verification_pending") ||
-        value.contains("open_app_package_verification_failed") ||
-        value.contains("controller_selection_rejected") ||
-        value.contains("no_progress") ||
-        value.contains("no progress") ||
-        value.contains("same screen") ||
-        value.contains("没有变化") ||
-        value.contains("未生效") ||
-        value.contains("重复循环") ||
-        value.contains("blocked")
+    return value.contains(":failed:") || value.contains(":retry:") ||
+        value.contains("visual_action_rejected") || value.contains("visual_action_retry") ||
+        value.contains("visual_action_stale") || value.contains("visual_local_retry") ||
+        value.contains("visual_exploration_sprawl") || value.contains("visual_no_progress") ||
+        value.contains("visual_screen_changed") || value.contains("visual_replan_requested") ||
+        value.contains("finish_verification_pending") || value.contains("open_app_package_verification_failed") ||
+        value.contains("controller_selection_rejected") || value.contains("no_progress") ||
+        value.contains("no progress") || value.contains("same screen") || value.contains("没有变化") ||
+        value.contains("未生效") || value.contains("重复循环") || value.contains("blocked")
 }
 
 private fun String.isVisualNoProgressFeedback(): Boolean {
     val value = lowercase()
-    return value.contains("visual_no_progress") ||
-        value.contains("no_progress") ||
-        value.contains("no progress") ||
-        value.contains("same screen") ||
-        value.contains("没有变化") ||
-        value.contains("未生效") ||
-        value.contains("重复循环")
+    return value.contains("visual_no_progress") || value.contains("semanticstatus=stalled") ||
+        value.contains("no_progress") || value.contains("no progress") || value.contains("same screen") ||
+        value.contains("没有变化") || value.contains("未生效") || value.contains("重复循环")
 }
 
-private fun String.isVisualScreenChangedFeedback(): Boolean {
+private fun String.isVisualAdvancedFeedback(): Boolean {
     val value = lowercase()
-    return value.contains("visual_screen_changed") || value.contains("screen=changed") || value.contains("visual_progress")
+    return value.contains("visual_screen_changed") || value.contains("visual_progress")
 }
 
 private fun String.isVisualExplorationSprawlFeedback(): Boolean = lowercase().contains("visual_exploration_sprawl")
-
 private fun String.isVisualFinishVerificationFeedback(): Boolean = lowercase().contains("finish_verification_pending")
 
 private fun String.isVisualFailureFeedback(): Boolean {
     val value = lowercase()
-    return value.contains(":failed:") ||
-        value.contains("visual_action_rejected") ||
-        value.contains("visual_action_retry") ||
-        value.contains("visual_action_stale") ||
-        value.contains("open_app_package_verification_failed") ||
-        value.contains("controller_selection_rejected") ||
-        value.contains("blocked") ||
-        value.contains("执行失败")
+    return value.contains(":failed:") || value.contains("visual_action_rejected") ||
+        value.contains("visual_action_retry") || value.contains("visual_action_stale") ||
+        value.contains("visual_local_retry") || value.contains("semanticstatus=regressed") ||
+        value.contains("open_app_package_verification_failed") || value.contains("controller_selection_rejected") ||
+        value.contains("blocked") || value.contains("执行失败")
 }
 
 private fun String.isStructuralRouteFailureFeedback(): Boolean {
     val value = lowercase()
-    return value.contains("failureclass=structural_route") ||
-        value.contains("open_app_package_verification_failed") ||
-        value.contains("controller_selection_rejected") ||
-        value.contains("visual_action_rejected")
+    return value.contains("failureclass=structural_route") || value.contains("open_app_package_verification_failed") ||
+        value.contains("controller_selection_rejected") || value.contains("visual_action_rejected")
 }
 
 private fun String.isLocalVisualRetryFeedback(): Boolean {
     val value = lowercase()
-    return value.contains("failureclass=visual_local") ||
-        value.contains("visual_action_retry") ||
-        value.contains("visual_action_stale") ||
-        value.contains("visual_exploration_sprawl") ||
-        value.contains("visual_local_retry") ||
-        value.contains(":retry:")
+    return value.contains("failureclass=visual_local") || value.contains("visual_action_retry") ||
+        value.contains("visual_action_stale") || value.contains("visual_exploration_sprawl") ||
+        value.contains("visual_local_retry") || value.contains("visual_replan_requested") || value.contains(":retry:")
 }
 
 private fun String.visualResultOkOrNull(): Boolean? {
     val value = lowercase()
     return when {
-        value.contains(":failed:") ||
-            value.contains(":retry:") ||
-            value.contains("visual_action_rejected") ||
-            value.contains("visual_action_retry") ||
-            value.contains("visual_action_stale") ||
-            value.contains("执行失败") ||
-            value.contains("verification_failed") -> false
+        value.contains(":failed:") || value.contains(":retry:") || value.contains("visual_action_rejected") ||
+            value.contains("visual_action_retry") || value.contains("visual_action_stale") ||
+            value.contains("执行失败") || value.contains("verification_failed") -> false
         value.contains(":ok:") || value.contains("package_verified") -> true
         else -> null
     }
@@ -703,8 +655,8 @@ private fun String.visualActionSignatureOrNull(): String? {
         ":failed:" in clean -> clean.substringBefore(":failed:")
         ":retry:" in clean -> clean.substringBefore(":retry:")
         ":ok:" in clean -> clean.substringBefore(":ok:")
-        clean.startsWith("visual_action_rejected:") -> clean.substringAfter("type=").substringBefore("|")
-        clean.startsWith("visual_action_retry:") -> clean.substringAfter("type=").substringBefore("|")
+        clean.startsWith("visual_action_rejected:") -> clean.substringAfter("action=", clean.substringAfter("type=")).substringBefore("|")
+        clean.startsWith("visual_action_retry:") -> clean.substringAfter("action=", clean.substringAfter("type=")).substringBefore("|")
         clean.startsWith("visual_action_stale:") -> clean.substringAfter("type=").substringBefore("|")
         clean.startsWith("visual_local_retry:") -> clean.substringAfter("action=").substringBefore(":count=")
         clean.startsWith("visual_no_progress:") -> clean.substringAfter("visual_no_progress:").substringBefore(":count=")
@@ -712,32 +664,20 @@ private fun String.visualActionSignatureOrNull(): String? {
         clean.startsWith("finish_verification_pending:") -> "finish"
         clean.startsWith("open_app_package_verification_failed:") -> "open_app"
         clean.startsWith("open_app_package_verified:") -> "open_app"
-        else -> Regex("(?:tap@\\d+,\\d+|tap_node@[^\\s，。；;:：]+|open@[^\\s，。；;:：]+|input@[^\\s，。；;:：]+|scroll@[a-z]+|swipe@[a-z]+|back|home|recents)")
-            .find(clean)
-            ?.value
+        else -> Regex("(?:tap@\\d+,\\d+|tap_node@[^\\s，。；;:：]+|open@[^\\s，。；;:：]+|input@[^\\s，。；;:：]+|scroll@[a-z]+|swipe@[a-z]+|back|home|recents|notifications|quick_settings)")
+            .find(clean)?.value
     }
-    return signature?.trim()?.take(160)?.takeIf { it.isNotBlank() }
+    return signature?.trim()?.take(160)?.takeIf(String::isNotBlank)
 }
 
-/**
- * A visual action is valid only for the exact observation returned by the server. The response may
- * repeat the identifier in several protocol envelopes, but every non-empty copy must agree with
- * the request. Missing, stale or internally conflicting identifiers are rejected before parsing an
- * executable action.
- */
 @Throws(IOException::class)
 internal fun validateVisualAgentResponseObservationId(
     expectedObservationId: String,
     data: JSONObject?,
 ): String {
     val expected = expectedObservationId.trim()
-    if (expected.isBlank()) {
-        throw IOException("visual_agent_step request is missing expectedActionObservationId")
-    }
-    if (data == null) {
-        throw IOException("visual_agent_step returned invalid JSON without an observationId")
-    }
-
+    if (expected.isBlank()) throw IOException("visual_agent_step request is missing expectedActionObservationId")
+    if (data == null) throw IOException("visual_agent_step returned invalid JSON without an observationId")
     val envelopes = buildList {
         add(data)
         data.optJSONObject("data")?.let(::add)
@@ -747,30 +687,16 @@ internal fun validateVisualAgentResponseObservationId(
     val echoedIds = linkedSetOf<String>()
     envelopes.forEach { envelope ->
         listOf("expectedActionObservationId", "actionObservationId", "observationId")
-            .map { key -> envelope.optString(key).trim() }
-            .filterTo(echoedIds) { it.isNotBlank() }
-        envelope.optJSONObject("verifiedSurfaceProtocol")
-            ?.optString("observationId")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.let(echoedIds::add)
-        envelope.optJSONObject("runtimeExecutionContext")
-            ?.optString("observationId")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.let(echoedIds::add)
+            .map { envelope.optString(it).trim() }.filterTo(echoedIds, String::isNotBlank)
+        envelope.optJSONObject("verifiedSurfaceProtocol")?.optString("observationId")?.trim()
+            ?.takeIf(String::isNotBlank)?.let(echoedIds::add)
+        envelope.optJSONObject("runtimeExecutionContext")?.optString("observationId")?.trim()
+            ?.takeIf(String::isNotBlank)?.let(echoedIds::add)
     }
-
-    if (echoedIds.isEmpty()) {
-        throw IOException("visual_agent_step response did not echo expectedActionObservationId")
-    }
-    if (echoedIds.size != 1) {
-        throw IOException("visual_agent_step response contains conflicting observationIds")
-    }
+    if (echoedIds.isEmpty()) throw IOException("visual_agent_step response did not echo expectedActionObservationId")
+    if (echoedIds.size != 1) throw IOException("visual_agent_step response contains conflicting observationIds")
     val actual = echoedIds.single()
-    if (actual != expected) {
-        throw IOException("visual_agent_step returned a stale observationId")
-    }
+    if (actual != expected) throw IOException("visual_agent_step returned a stale observationId")
     return actual
 }
 
@@ -788,7 +714,7 @@ private fun AiWorkerClient.postVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v13-verified-target")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v14-task-contract")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
@@ -802,22 +728,15 @@ private fun AiWorkerClient.postVisualAgentStep(
         val data = body.visualAgentJsonOrNull()
         val workerVersion = connection.getHeaderField("X-AI-Ledger-Worker-Version").orEmpty().take(48)
         val routeProtocol = connection.getHeaderField("X-AI-Ledger-Route-Protocol").orEmpty().take(48)
-        AgentRuntimeController.noteDiagnostic(
-            buildString {
-                append("VisualDirect q=").append(visualAgentBytesToKb(requestBytes.size)).append("K")
-                append(" r=").append(visualAgentBytesToKb(body.length)).append("K")
-                append(" h=").append(SystemClock.elapsedRealtime() - requestStart)
-                if (workerVersion.isNotBlank()) append(" w=").append(workerVersion)
-                if (routeProtocol.isNotBlank()) append(" p=").append(routeProtocol)
-            },
-        )
-        if (status !in 200..299) {
-            throw parseVisualAgentHttpFailure(status, body)
-        }
-        validateVisualAgentResponseObservationId(
-            expectedObservationId = payload.optString("expectedActionObservationId"),
-            data = data,
-        )
+        AgentRuntimeController.noteDiagnostic(buildString {
+            append("VisualDirect q=").append(visualAgentBytesToKb(requestBytes.size)).append("K")
+            append(" r=").append(visualAgentBytesToKb(body.length)).append("K")
+            append(" h=").append(SystemClock.elapsedRealtime() - requestStart)
+            if (workerVersion.isNotBlank()) append(" w=").append(workerVersion)
+            if (routeProtocol.isNotBlank()) append(" p=").append(routeProtocol)
+        })
+        if (status !in 200..299) throw parseVisualAgentHttpFailure(status, body)
+        validateVisualAgentResponseObservationId(payload.optString("expectedActionObservationId"), data)
         CloudAgentPlan.fromJson(data)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
             ?: throw IOException("visual_agent_step did not return one agentStep")
@@ -838,28 +757,22 @@ internal fun parseVisualAgentHttpFailure(status: Int, body: String): VisualAgent
     val data = body.visualAgentJsonOrNull()
     val errorObject = data?.optJSONObject("error")
     val code = listOfNotNull(
-        data?.visualAgentString("code"),
-        errorObject?.visualAgentString("code"),
-        data?.visualAgentString("errorCode"),
-        errorObject?.visualAgentString("errorCode"),
-    ).firstOrNull { it.isNotBlank() } ?: "http_$status"
+        data?.visualAgentString("code"), errorObject?.visualAgentString("code"),
+        data?.visualAgentString("errorCode"), errorObject?.visualAgentString("errorCode"),
+    ).firstOrNull(String::isNotBlank) ?: "http_$status"
     val message = listOfNotNull(
-        data?.visualAgentString("message"),
-        errorObject?.visualAgentString("message"),
-        data?.visualAgentString("error"),
-        errorObject?.visualAgentString("error"),
-        body.trim().take(240),
-    ).firstOrNull { it.isNotBlank() } ?: "visual_agent_step HTTP $status"
+        data?.visualAgentString("message"), errorObject?.visualAgentString("message"),
+        data?.visualAgentString("error"), errorObject?.visualAgentString("error"), body.trim().take(240),
+    ).firstOrNull(String::isNotBlank) ?: "visual_agent_step HTTP $status"
     val explicitRetryable = when {
         data?.has("retryable") == true -> data.optBoolean("retryable")
         errorObject?.has("retryable") == true -> errorObject.optBoolean("retryable")
         else -> null
     }
-    val retryable = explicitRetryable ?: status in RETRYABLE_VISUAL_AGENT_HTTP_STATUSES
     return VisualAgentRequestException(
         httpStatus = status,
         code = code.take(120),
-        retryable = retryable,
+        retryable = explicitRetryable ?: status in RETRYABLE_VISUAL_AGENT_HTTP_STATUSES,
         backendMessage = message.take(320),
     )
 }
@@ -869,35 +782,23 @@ private fun buildVisualAgentErrorMessage(
     code: String,
     retryable: Boolean,
     backendMessage: String,
-): String {
-    return buildString {
-        append(backendMessage.ifBlank { "visual_agent_step failed" })
-        append(" [")
-        httpStatus?.let { append("HTTP ").append(it).append(", ") }
-        append("code=").append(code.ifBlank { "unknown" })
-        append(", retryable=").append(retryable)
-        append(']')
-    }
+): String = buildString {
+    append(backendMessage.ifBlank { "visual_agent_step failed" }).append(" [")
+    httpStatus?.let { append("HTTP ").append(it).append(", ") }
+    append("code=").append(code.ifBlank { "unknown" })
+    append(", retryable=").append(retryable).append(']')
 }
 
-private fun JSONObject.visualAgentString(key: String): String? {
-    val value = opt(key)
-    return (value as? String)?.trim()?.takeIf { it.isNotBlank() }
-}
+private fun JSONObject.visualAgentString(key: String): String? =
+    (opt(key) as? String)?.trim()?.takeIf(String::isNotBlank)
 
 private fun HttpURLConnection.visualAgentReadBody(status: Int): String {
     val stream = if (status in 200..299) inputStream else errorStream
     return stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
 }
 
-private fun String.visualAgentJsonOrNull(): JSONObject? {
-    return try {
-        takeIf { it.isNotBlank() }?.let { JSONObject(it) }
-    } catch (_: Exception) {
-        null
-    }
-}
+private fun String.visualAgentJsonOrNull(): JSONObject? =
+    try { takeIf(String::isNotBlank)?.let(::JSONObject) } catch (_: Exception) { null }
 
-private fun visualAgentBytesToKb(bytes: Int): Int = if (bytes <= 0) 0 else ((bytes + 1023) / 1024)
-
+private fun visualAgentBytesToKb(bytes: Int): Int = if (bytes <= 0) 0 else (bytes + 1023) / 1024
 private val RETRYABLE_VISUAL_AGENT_HTTP_STATUSES = setOf(408, 425, 429, 500, 502, 503, 504)
