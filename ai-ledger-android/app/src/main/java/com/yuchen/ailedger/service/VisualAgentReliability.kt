@@ -163,7 +163,11 @@ object VisualRouteRetryPolicy {
 
     fun decide(error: IOException, completedRetries: Int): VisualRouteRetryDecision {
         val structured = error as? VisualAgentRequestException
-        if (structured?.retryable != true) {
+        return decide(retryable = structured?.retryable == true, completedRetries = completedRetries)
+    }
+
+    internal fun decide(retryable: Boolean, completedRetries: Int): VisualRouteRetryDecision {
+        if (!retryable) {
             return VisualRouteRetryDecision.Stop("non_retryable")
         }
         if (completedRetries >= maxRetries) {
