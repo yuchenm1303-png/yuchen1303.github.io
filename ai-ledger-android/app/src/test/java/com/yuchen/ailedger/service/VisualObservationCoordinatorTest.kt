@@ -83,7 +83,7 @@ class VisualObservationCoordinatorTest {
     }
 
     @Test
-    fun stablePackageAndVisualFrameCompleteHandoff() = runBlocking {
+    fun twoStablePackageSamplesAndVisualFrameCompleteHandoff() = runBlocking {
         var clock = 0L
         val overlay = RecordingOverlayController()
         val coordinator = VisualObservationCoordinator(
@@ -110,11 +110,47 @@ class VisualObservationCoordinatorTest {
         )
 
         assertTrue(verification.verified)
-        assertEquals(1, verification.stableSamples)
+        assertEquals(2, verification.stableSamples)
         assertEquals("com.example.target", verification.lastSnapshot?.packageName)
         assertTrue(verification.lastObservation?.visual?.hasImage == true)
-        assertEquals(2, overlay.beginCount)
-        assertEquals(2, overlay.endCount)
+        assertEquals(3, overlay.beginCount)
+        assertEquals(3, overlay.endCount)
+    }
+
+    @Test
+    fun oneTargetSampleFollowedByForeignPackageCannotCompleteHandoff() = runBlocking {
+        var clock = 0L
+        var captureIndex = 0
+        var visualCaptureCount = 0
+        val coordinator = VisualObservationCoordinator(
+            captureSource = VisualObservationCaptureSource { forceVisual ->
+                if (forceVisual) visualCaptureCount += 1
+                captureIndex += 1
+                ScreenObservation(
+                    enabled = true,
+                    serviceConnected = true,
+                    packageName = if (captureIndex == 1) "com.example.target" else "com.example.other",
+                    visual = if (forceVisual) visualFrame() else null,
+                )
+            },
+            foregroundPackageReader = ForegroundPackageReader {
+                ForegroundPackageProbeResult(available = false)
+            },
+            overlayController = RecordingOverlayController(),
+            timing = zeroTiming().copy(openAppVerifyTimeoutMs = 7L),
+            elapsedRealtime = { clock++ },
+            sleeper = {},
+        )
+
+        val verification = coordinator.awaitStableTargetPackage(
+            expectedPackage = "com.example.target",
+            isStopped = { false },
+        )
+
+        assertFalse(verification.verified)
+        assertEquals(0, verification.stableSamples)
+        assertEquals(0, visualCaptureCount)
+        assertEquals("com.example.other", verification.lastSnapshot?.packageName)
     }
 
     @Test
@@ -155,7 +191,7 @@ class VisualObservationCoordinatorTest {
         openAppInitialSettleMs = 0L,
         openAppVerifyPollMs = 0L,
         openAppVerifyTimeoutMs = 0L,
-        requiredStableSamples = 1,
+        requiredStableSamples = 2,
     )
 
     private fun visualFrame() = ScreenVisualObservation(
