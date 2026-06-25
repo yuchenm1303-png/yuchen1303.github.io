@@ -29,6 +29,23 @@ class VisualSemanticProgressTrackerTest {
     }
 
     @Test
+    fun evidenceAlreadyVisibleBeforeActionDoesNotFakeProgress() {
+        val tracker = VisualSemanticProgressTracker()
+        val snapshot = snapshot(texts = listOf("长电科技", "行情详情"))
+        tracker.onVerifiedSurface(snapshot)
+        val step = stepWithIntent(
+            expectedEvidence = listOf("长电科技"),
+            purpose = "打开长电科技搜索结果",
+        )
+
+        val result = tracker.evaluate(step, snapshot, snapshot, TARGET_PACKAGE)
+
+        assertEquals(VisualSemanticProgressStatus.Stalled, result.status)
+        assertTrue(result.expectedEvidenceMatched.isEmpty())
+        assertTrue(result.requiresStrategyChange)
+    }
+
+    @Test
     fun changedScreenWithoutExpectedEvidenceIsAmbiguousNotProgress() {
         val tracker = VisualSemanticProgressTracker()
         val before = snapshot(texts = listOf("首页", "搜索"))
