@@ -109,7 +109,7 @@ class RealtimeRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
     def test_depth_partial_does_not_fill_missing_levels(self) -> None:
         self.runtime = RealtimeRuntime()
-        raw = {"f43": 1000, "f31": 1005, "f32": 300, "f19": 995, "f20": 200}
+        raw = {"f43": 1000, "f39": 1005, "f40": 300, "f19": 995, "f20": 200}
         sell, buy, meta = self.runtime.parse_depth(raw, {"price": "10.00"})
 
         self.assertEqual([row["label"] for row in sell], ["卖1"])

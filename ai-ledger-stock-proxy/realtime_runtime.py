@@ -347,7 +347,7 @@ class RealtimeRuntime:
     def _quote_fields() -> str:
         base = [
             "f43", "f44", "f45", "f46", "f47", "f48", "f50", "f57", "f58", "f60", "f86",
-            "f51", "f52", "f116", "f117", "f162", "f167", "f168", "f169", "f170",
+            "f51", "f52", "f116", "f117", "f162", "f167", "f168", "f169", "f170", "f530",
         ]
         return ",".join(base + [f"f{i}" for i in range(11, 41)])
 
@@ -417,10 +417,14 @@ class RealtimeRuntime:
                 result.append({"label": label, "price": _price(value), "volume": _lots(volume), "isAsk": is_ask})
             return result
 
-        sell = rows([(31, 32), (33, 34), (35, 36), (37, 38), (39, 40)], [f"\u5356{i}" for i in range(1, 6)], True)
+        sell = rows([(39, 40), (37, 38), (35, 36), (33, 34), (31, 32)], [f"\u5356{i}" for i in range(1, 6)], True)
         buy = rows([(19, 20), (17, 18), (15, 16), (13, 14), (11, 12)], [f"\u4e70{i}" for i in range(1, 6)], False)
-        sell = sorted(sell, key=lambda row: _safe_float(row["price"]))
-        buy = sorted(buy, key=lambda row: _safe_float(row["price"]), reverse=True)
+        if any(_safe_float(sell[index]["price"]) > _safe_float(sell[index + 1]["price"]) for index in range(len(sell) - 1)):
+            warnings.append("depth: ask_levels_not_ascending")
+            sell = sorted(sell, key=lambda row: _safe_float(row["price"]))
+        if any(_safe_float(buy[index]["price"]) < _safe_float(buy[index + 1]["price"]) for index in range(len(buy) - 1)):
+            warnings.append("depth: bid_levels_not_descending")
+            buy = sorted(buy, key=lambda row: _safe_float(row["price"]), reverse=True)
         if sell and buy and _safe_float(sell[0]["price"]) < _safe_float(buy[0]["price"]):
             warnings.append("depth: crossed_book_rejected")
             sell, buy = [], []
@@ -661,7 +665,7 @@ class RealtimeRuntime:
         quote_task = asyncio.create_task(self.quote_raw(security))
         minute_task = asyncio.create_task(self.minute(security, ndays))
         ticks_task = asyncio.create_task(self.ticks(security))
-        quote_result, minute_result, ticks_outcome = await asyncio.gather(quote_task, minute_task, ticks_task, return_exceptions=True)
+        quote_result, minute_result = await asyncio.gather(quote_task, minute_task, return_exceptions=True)
         if isinstance(quote_result, Exception):
             raise HTTPException(status_code=502, detail=f"realtime quote failed: {quote_result}")
         if isinstance(minute_result, Exception):
@@ -677,9 +681,14 @@ class RealtimeRuntime:
             warnings.append("minute:5d eastmoney_incomplete_using_tencent_real_history")
         if quote_result.waited or minute_result.waited:
             warnings.append("singleflight: waited")
+        try:
+            ticks_outcome = await asyncio.wait_for(asyncio.shield(ticks_task), timeout=0.35)
+        except asyncio.TimeoutError:
+            ticks_outcome = TimeoutError("trade ticks budget exceeded")
+            ticks_task.cancel()
         if isinstance(ticks_outcome, Exception):
-            ticks = self.derived_ticks(minute_result.value, quote)
-            warnings.append("trade_ticks: derived_from_minute_not_real_ticks")
+            ticks = []
+            warnings.append(f"trade_ticks: unavailable {type(ticks_outcome).__name__}: {ticks_outcome}")
             ticks_result: CacheResult | None = None
         else:
             ticks_result = ticks_outcome

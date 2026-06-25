@@ -16,12 +16,13 @@ app = legacy.app
 MARKET_HOME_PATH = "/api/stock/a-share/market/home"
 MARKET_HOME_CACHE_VERSION = "v2-parallel"
 MARKET_HOME_WORKERS = 10
-MARKET_HOME_BUDGET_SECONDS = 10.5
-INDEX_WORKERS = 5
+MARKET_HOME_BUDGET_SECONDS = 8.5
 INDEX_BUDGET_SECONDS = 5.5
+EASTMONEY_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
 
-_cache_lock = Lock()
 _market_home_lock = Lock()
+_client_lock = Lock()
+_shared_client: httpx.Client | None = None
 
 _INDEX_SECURITIES = [
     {"name": "上证指数", "code": "000001", "secid": "1.000001"},
@@ -59,6 +60,32 @@ def _module_unavailable(name: str, warning: str) -> dict[str, Any]:
     )
 
 
+def _get_shared_client() -> httpx.Client:
+    global _shared_client
+    with _client_lock:
+        if _shared_client is None:
+            _shared_client = httpx.Client(
+                timeout=httpx.Timeout(3.6, connect=1.2),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=20.0),
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+                    "Referer": "https://quote.eastmoney.com/",
+                    "Accept": "application/json, text/plain, */*",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                },
+            )
+        return _shared_client
+
+
+@app.on_event("shutdown")
+def _close_market_home_client() -> None:
+    global _shared_client
+    with _client_lock:
+        if _shared_client is not None:
+            _shared_client.close()
+            _shared_client = None
+
+
 def _mark_cached_module(payload: dict[str, Any], age_seconds: int, stale: bool) -> dict[str, Any]:
     cached = deepcopy(payload)
     cached["cacheAgeMs"] = max(age_seconds, 0) * 1000
@@ -78,8 +105,7 @@ def _cached_module(
     builder: Callable[[], dict[str, Any]],
 ) -> dict[str, Any]:
     key = legacy._cache_key(kind, query, mode)
-    with _cache_lock:
-        fresh = legacy._cache_get(key, legacy.FAST_CACHE_SECONDS)
+    fresh = legacy._cache_get(key, legacy.FAST_CACHE_SECONDS)
     if fresh is not None:
         payload, age = fresh
         return _mark_cached_module(payload, age, stale=False)
@@ -87,70 +113,60 @@ def _cached_module(
     try:
         payload = builder()
     except Exception:
-        with _cache_lock:
-            stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
+        stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
         if stale is not None:
             payload, age = stale
             return _mark_cached_module(payload, age, stale=True)
         raise
 
-    with _cache_lock:
-        legacy._cache_put(key, payload)
+    if not legacy._payload_has_real_items(payload):
+        stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
+        if stale is not None:
+            stale_payload, age = stale
+            cached = _mark_cached_module(stale_payload, age, stale=True)
+            cached["warnings"] = list(cached.get("warnings") or []) + [
+                "module_cache: stale_used_because_builder_returned_no_real_items"
+            ]
+            return cached
+    legacy._cache_put(key, payload)
     return payload
-
-
-def _load_one_index(index: dict[str, str]) -> dict[str, Any]:
-    timeout = httpx.Timeout(3.6, connect=1.2)
-    with httpx.Client(timeout=timeout) as client:
-        raw = legacy._eastmoney_get(
-            client,
-            legacy.EASTMONEY_QUOTE_URL,
-            {
-                "secid": index["secid"],
-                "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170",
-            },
-        ).get("data") or {}
-    if not raw:
-        raise ValueError(f"index_{index['code']}: empty payload")
-    return {
-        "code": index["code"],
-        "name": legacy._safe_str(raw.get("f58"), index["name"]),
-        "price": legacy._format_price(legacy._scaled(raw.get("f43"), -1.0)),
-        "changeAmount": legacy._format_signed(legacy._scaled(raw.get("f169"))),
-        "changePercent": legacy._format_percent(legacy._scaled(raw.get("f170"))),
-        "open": legacy._format_price(legacy._scaled(raw.get("f46"), -1.0)),
-        "high": legacy._format_price(legacy._scaled(raw.get("f44"), -1.0)),
-        "low": legacy._format_price(legacy._scaled(raw.get("f45"), -1.0)),
-        "previousClose": legacy._scaled(raw.get("f60")),
-        "amount": legacy._format_cn_money(raw.get("f48")),
-        "volume": legacy._format_lots(raw.get("f47")),
-        "updatedAt": datetime.now(timezone.utc).isoformat(),
-    }
 
 
 def _load_indices_parallel() -> dict[str, Any]:
     started_at = monotonic()
-    executor = ThreadPoolExecutor(max_workers=INDEX_WORKERS, thread_name_prefix="market-index")
-    futures: dict[Future[dict[str, Any]], dict[str, str]] = {
-        executor.submit(_load_one_index, index): index for index in _INDEX_SECURITIES
-    }
-    done, pending = wait(futures, timeout=INDEX_BUDGET_SECONDS)
     warnings: list[str] = []
+    secids = ",".join(index["secid"] for index in _INDEX_SECURITIES)
+    raw = legacy._eastmoney_get(
+        _get_shared_client(),
+        EASTMONEY_ULIST_URL,
+        {
+            "secids": secids,
+            "fields": "f12,f14,f2,f3,f4,f5,f6,f15,f16,f17,f18",
+            "fltt": "2",
+        },
+    )
+    diff = list((raw.get("data") or {}).get("diff") or [])
+    by_code = {str(item.get("f12") or ""): item for item in diff}
     items: list[dict[str, Any]] = []
-
-    for future in done:
-        index = futures[future]
-        try:
-            items.append(future.result())
-        except Exception as exc:
-            warnings.append(f"index_{index['code']}_failed: {type(exc).__name__}: {exc}")
-
-    for future in pending:
-        index = futures[future]
-        future.cancel()
-        warnings.append(f"index_{index['code']}_timeout")
-
-    executor.shutdown(wait=False, cancel_futures=True)
+    for index in _INDEX_SECURITIES:
+        item = by_code.get(index["code"])
+        if not item:
+            warnings.append(f"index_{index['code']}_missing_from_batch")
+            continue
+        items.append({
+            "code": index["code"],
+            "name": legacy._safe_str(item.get("f14"), index["name"]),
+            "price": legacy._format_price(item.get("f2")),
+            "changeAmount": legacy._format_signed(item.get("f4")),
+            "changePercent": legacy._format_percent(item.get("f3")),
+            "open": legacy._format_price(item.get("f17")),
+            "high": legacy._format_price(item.get("f15")),
+            "low": legacy._format_price(item.get("f16")),
+            "previousClose": legacy._safe_float(item.get("f18")),
+            "amount": legacy._format_cn_money(item.get("f6")),
+            "volume": legacy._format_lots(item.get("f5")),
+            "updatedAt": datetime.now(timezone.utc).isoformat(),
+        })
     order = {item["code"]: position for position, item in enumerate(_INDEX_SECURITIES)}
     items.sort(key=lambda item: order.get(str(item.get("code", "")), len(order)))
     status = "ok" if len(items) == len(_INDEX_SECURITIES) else ("partial" if items else "unavailable")
@@ -309,8 +325,7 @@ def _build_market_home_parallel() -> dict[str, Any]:
 
 def _load_market_home_cached() -> dict[str, Any]:
     key = legacy._cache_key("market", "home", MARKET_HOME_CACHE_VERSION)
-    with _cache_lock:
-        fresh = legacy._cache_get(key, legacy.FAST_CACHE_SECONDS)
+    fresh = legacy._cache_get(key, legacy.FAST_CACHE_SECONDS)
     if fresh is not None:
         payload, age = fresh
         cached = deepcopy(payload)
@@ -323,8 +338,7 @@ def _load_market_home_cached() -> dict[str, Any]:
     try:
         payload = _build_market_home_parallel()
     except Exception:
-        with _cache_lock:
-            stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
+        stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
         if stale is not None:
             payload, age = stale
             cached = deepcopy(payload)
@@ -336,8 +350,7 @@ def _load_market_home_cached() -> dict[str, Any]:
             return cached
         raise
 
-    with _cache_lock:
-        legacy._cache_put(key, payload)
+    legacy._cache_put(key, payload)
     return payload
 
 

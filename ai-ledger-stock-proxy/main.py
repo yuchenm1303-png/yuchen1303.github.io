@@ -1,9 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections import OrderedDict
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
+from threading import RLock
 from time import monotonic
 from typing import Any
 from urllib.parse import urlencode
@@ -79,6 +80,7 @@ REALTIME_STALE_SECONDS = 20
 STALE_CACHE_SECONDS = 6 * 60 * 60
 MAX_CACHE_ITEMS = 360
 _cache: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
+_cache_lock = RLock()
 _realtime_http_client: httpx.Client | None = None
 
 
@@ -193,34 +195,41 @@ def _cache_key(kind: str, query: str, mode: str = "lite") -> str:
 
 
 def _cache_get(key: str, max_age_seconds: int) -> tuple[dict[str, Any], int] | None:
-    entry = _cache.get(key)
-    if entry is None:
-        return None
-    created_at, payload = entry
-    age = int(monotonic() - created_at)
-    if age > max_age_seconds:
-        return None
-    _cache.move_to_end(key)
-    return deepcopy(payload), age
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry is None:
+            return None
+        created_at, payload = entry
+        age = int(monotonic() - created_at)
+        if age > max_age_seconds:
+            return None
+        _cache.move_to_end(key)
+        return deepcopy(payload), age
 
 
 def _cache_get_seconds(key: str, max_age_seconds: float) -> tuple[dict[str, Any], float] | None:
-    entry = _cache.get(key)
-    if entry is None:
-        return None
-    created_at, payload = entry
-    age = monotonic() - created_at
-    if age > max_age_seconds:
-        return None
-    _cache.move_to_end(key)
-    return deepcopy(payload), age
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry is None:
+            return None
+        created_at, payload = entry
+        age = monotonic() - created_at
+        if age > max_age_seconds:
+            return None
+        _cache.move_to_end(key)
+        return deepcopy(payload), age
 
 
 def _cache_put(key: str, payload: dict[str, Any]) -> None:
-    _cache[key] = (monotonic(), deepcopy(payload))
-    _cache.move_to_end(key)
-    while len(_cache) > MAX_CACHE_ITEMS:
-        _cache.popitem(last=False)
+    status = str(payload.get("status", "")).lower()
+    items = payload.get("items")
+    if status == "unavailable" or (status == "empty" and items in (None, [], {})):
+        return
+    with _cache_lock:
+        _cache[key] = (monotonic(), deepcopy(payload))
+        _cache.move_to_end(key)
+        while len(_cache) > MAX_CACHE_ITEMS:
+            _cache.popitem(last=False)
 
 
 def _with_cache_label(payload: dict[str, Any], age: int) -> dict[str, Any]:
@@ -236,6 +245,14 @@ def _with_realtime_cache_label(payload: dict[str, Any], age: float, stale: bool 
     prefix = "realtime_cache: stale" if stale else "realtime_cache: hit"
     cached["warnings"] = list(cached.get("warnings") or []) + [f"{prefix} age={age:.2f}s"]
     return cached
+
+
+def _payload_has_real_items(payload: dict[str, Any]) -> bool:
+    status = str(payload.get("status", "")).lower()
+    if status in {"ok", "partial", "stale"}:
+        return True
+    items = payload.get("items")
+    return bool(items) and status not in {"unavailable", "empty"}
 
 
 def _eastmoney_get(client: httpx.Client, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -347,7 +364,7 @@ def _normalize_period(period: str) -> tuple[str, str]:
 def _quote_fields() -> str:
     base_fields = [
         "f43", "f44", "f45", "f46", "f47", "f48", "f50", "f57", "f58", "f60",
-        "f51", "f52", "f116", "f117", "f162", "f167", "f168", "f169", "f170", "f62", "f66", "f72", "f78", "f84",
+        "f51", "f52", "f116", "f117", "f162", "f167", "f168", "f169", "f170", "f530", "f62", "f66", "f72", "f78", "f84",
     ]
     order_fields = [f"f{i}" for i in range(11, 41)]
     return ",".join(dict.fromkeys(base_fields + order_fields))
@@ -414,44 +431,6 @@ def _quote_summary_from_raw(data: dict[str, Any], security: dict[str, str]) -> d
     }
 
 
-def _valid_level_price(raw_value: Any, quote_price: float) -> float | None:
-    price = _scaled(raw_value, -1.0)
-    if price <= 0:
-        return None
-    if quote_price > 0 and abs(price - quote_price) / quote_price > 0.35:
-        return None
-    return price
-
-
-def _order_book_from_raw(raw: dict[str, Any], quote: dict[str, Any], warnings: list[str]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    quote_price = _safe_float(quote.get("price"))
-
-    def read_levels(pairs: list[tuple[int, int]], labels: list[str], is_ask: bool) -> list[dict[str, str]]:
-        rows: list[dict[str, str]] = []
-        for (price_field, volume_field), label in zip(pairs, labels):
-            price = _valid_level_price(raw.get(f"f{price_field}"), quote_price)
-            volume = _safe_float(raw.get(f"f{volume_field}"))
-            if price is not None and volume > 0:
-                rows.append({"label": label, "price": _format_price(price), "volume": _format_lots(volume), "isAsk": is_ask})
-        return rows
-
-    sell_levels = read_levels([(31, 32), (33, 34), (35, 36), (37, 38), (39, 40)], ["卖1", "卖2", "卖3", "卖4", "卖5"], True)
-    buy_levels = read_levels([(19, 20), (17, 18), (15, 16), (13, 14), (11, 12)], ["买1", "买2", "买3", "买4", "买5"], False)
-    if len(sell_levels) < 5 or len(buy_levels) < 5:
-        warnings.append("order_book: rebuilt_from_quote")
-        return _fallback_order_book_from_quote(quote)
-    return sell_levels, buy_levels
-
-
-def _fallback_order_book_from_quote(quote: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    price = _safe_float(quote.get("price"), _safe_float(quote.get("previousClose"), 1.0))
-    unit = max(round(price * 0.001, 2), 0.01)
-    base_volume = max(int(_safe_float(quote.get("volumeRatio"), 1.0) * 120), 1)
-    sell = [{"label": f"卖{i}", "price": _format_price(price + unit * i), "volume": _format_lots(base_volume * (6 - i)), "isAsk": True} for i in range(5, 0, -1)]
-    buy = [{"label": f"买{i}", "price": _format_price(price - unit * i), "volume": _format_lots(base_volume * (i + 1)), "isAsk": False} for i in range(1, 6)]
-    return sell, buy
-
-
 def _valid_true_depth_price(
     raw_value: Any,
     quote_price: float,
@@ -491,8 +470,14 @@ def _order_book_from_raw(raw: dict[str, Any], quote: dict[str, Any], warnings: l
                 rows.append({"label": label, "price": _format_price(price), "volume": _format_lots(volume), "isAsk": is_ask})
         return rows
 
-    sell_levels = sorted(read_levels([(31, 32), (33, 34), (35, 36), (37, 38), (39, 40)], ["卖1", "卖2", "卖3", "卖4", "卖5"], True), key=lambda row: _safe_float(row["price"]))
-    buy_levels = sorted(read_levels([(19, 20), (17, 18), (15, 16), (13, 14), (11, 12)], ["买1", "买2", "买3", "买4", "买5"], False), key=lambda row: _safe_float(row["price"]), reverse=True)
+    sell_levels = read_levels([(39, 40), (37, 38), (35, 36), (33, 34), (31, 32)], ["卖1", "卖2", "卖3", "卖4", "卖5"], True)
+    buy_levels = read_levels([(19, 20), (17, 18), (15, 16), (13, 14), (11, 12)], ["买1", "买2", "买3", "买4", "买5"], False)
+    if any(_safe_float(sell_levels[index]["price"]) > _safe_float(sell_levels[index + 1]["price"]) for index in range(len(sell_levels) - 1)):
+        warnings.append("order_book: ask_levels_not_ascending")
+        sell_levels = sorted(sell_levels, key=lambda row: _safe_float(row["price"]))
+    if any(_safe_float(buy_levels[index]["price"]) < _safe_float(buy_levels[index + 1]["price"]) for index in range(len(buy_levels) - 1)):
+        warnings.append("order_book: bid_levels_not_descending")
+        buy_levels = sorted(buy_levels, key=lambda row: _safe_float(row["price"]), reverse=True)
     if sell_levels and buy_levels and _safe_float(sell_levels[0]["price"]) < _safe_float(buy_levels[0]["price"]):
         warnings.append("order_book: crossed_book_rejected")
         sell_levels, buy_levels = [], []
@@ -545,8 +530,8 @@ def _load_minute_points(client: httpx.Client, security: dict[str, str], quote: d
         parsed.append((parts[0][-5:], price, average, volume))
         max_volume = max(max_volume, volume)
     if not parsed:
-        warnings.append("minute_points: empty_rebuilt_from_quote")
-        return _fallback_minute_from_quote(quote)
+        warnings.append("minute_points: unavailable_empty_upstream")
+        return []
     return [{"time": t, "price": p, "average": a, "volumeRatio": min(max(v / max_volume, 0.02), 1.0)} for t, p, a, v in parsed[-120:]]
 
 
@@ -559,7 +544,7 @@ def _load_realtime_minute_points(client: httpx.Client, security: dict[str, str],
         )
     except (httpx.HTTPError, ValueError) as exc:
         warnings.append(f"minute_points_realtime_failed: {type(exc).__name__}: {exc}")
-        return _fallback_minute_from_quote(quote)
+        return []
     parsed: list[tuple[str, float, float, float]] = []
     max_volume = 1.0
     for item in (raw.get("data") or {}).get("trends") or []:
@@ -574,37 +559,9 @@ def _load_realtime_minute_points(client: httpx.Client, security: dict[str, str],
         parsed.append((parts[0][-5:], price, average, volume))
         max_volume = max(max_volume, volume)
     if not parsed:
-        warnings.append("minute_points: empty_rebuilt_from_quote")
-        return _fallback_minute_from_quote(quote)
+        warnings.append("minute_points: unavailable_empty_upstream")
+        return []
     return [{"time": t, "price": p, "average": a, "volumeRatio": min(max(v / max_volume, 0.02), 1.0)} for t, p, a, v in parsed[-120:]]
-
-
-def _fallback_minute_from_quote(quote: dict[str, Any]) -> list[dict[str, Any]]:
-    close = _safe_float(quote.get("price"))
-    previous = _safe_float(quote.get("previousClose"), close)
-    open_price = _safe_float(quote.get("open"), previous)
-    labels = ["09:30", "09:45", "10:00", "10:30", "11:00", "11:30", "13:00", "13:30", "14:00", "14:30", "14:45", "15:00"]
-    points: list[dict[str, Any]] = []
-    prices: list[float] = []
-    for index, label in enumerate(labels):
-        progress = index / max(len(labels) - 1, 1)
-        price = open_price + (close - open_price) * progress
-        prices.append(price)
-        points.append({"time": label, "price": price, "average": sum(prices) / len(prices), "volumeRatio": max(0.05, min(1.0, 0.08 + progress * 0.92))})
-    return points
-
-
-def _trade_ticks_from_minute(minute_points: list[dict[str, Any]], quote: dict[str, Any]) -> list[dict[str, Any]]:
-    previous_close = _safe_float(quote.get("previousClose"), _safe_float(quote.get("price")))
-    recent = minute_points[-8:]
-    ticks: list[dict[str, Any]] = []
-    for index, point in enumerate(reversed(recent)):
-        chronological_index = len(recent) - index - 1
-        previous = recent[chronological_index - 1]["price"] if chronological_index > 0 else previous_close
-        price = _safe_float(point.get("price"))
-        is_buy = price >= _safe_float(previous)
-        ticks.append({"time": _safe_str(point.get("time")), "price": _format_price(price), "volume": _format_lots(max(_safe_float(point.get("volumeRatio")) * 1000.0, 1.0)), "direction": "买" if is_buy else "卖", "isBuy": is_buy})
-    return ticks
 
 
 def _parse_eastmoney_kline_rows(raw: dict[str, Any], limit: int) -> list[dict[str, Any]]:
@@ -739,13 +696,15 @@ def _rank_item(name: str, code: str, value: str, change_percent: str, is_rising:
     return {"name": name, "code": code, "value": value, "changePercent": change_percent, "isRising": is_rising}
 
 
-def _clist_items(client: httpx.Client, fs: str, fid: str, page_size: int, warnings: list[str], label: str, po: str = "1") -> list[dict[str, Any]]:
+def _clist_items(client: httpx.Client, fs: str, fid: str, page_size: int, warnings: list[str], label: str, po: str = "1", strict: bool = False) -> list[dict[str, Any]]:
     params = {"pn": "1", "pz": str(page_size), "po": po, "np": "1", "fltt": "2", "invt": "2", "fid": fid, "fs": fs, "fields": "f12,f14,f2,f3,f6,f8,f9,f10,f20,f21,f22,f62,f100,f104,f105,f106,f128,f136"}
     try:
         raw = _eastmoney_get_first(client, EASTMONEY_CLIST_URLS, params, label, warnings)
         return list((raw.get("data") or {}).get("diff") or [])
     except Exception as exc:
-        warnings.append(f"{label}_fallback: {type(exc).__name__}: {exc}")
+        warnings.append(f"{label}_failed: {type(exc).__name__}: {exc}")
+        if strict:
+            raise
         return []
 
 
@@ -853,8 +812,8 @@ def _build_detail_payload(query: str, mode: str, include_market: bool) -> dict[s
         try:
             minute_points = _load_minute_points(client, security, quote, warnings)
         except Exception as exc:
-            warnings.append(f"minute_points_fallback: {type(exc).__name__}: {exc}")
-            minute_points = _fallback_minute_from_quote(quote)
+            warnings.append(f"minute_points_unavailable: {type(exc).__name__}: {exc}")
+            minute_points = []
         k_lines: list[dict[str, Any]] = []
         if mode == "full":
             try:
@@ -867,7 +826,8 @@ def _build_detail_payload(query: str, mode: str, include_market: bool) -> dict[s
         if include_market:
             indices = _load_indices(client, warnings)
             watchlist, market_boards = _load_market_boards(client, quote, warnings)
-    trade_ticks = _trade_ticks_from_minute(minute_points, quote)
+    trade_ticks: list[dict[str, Any]] = []
+    warnings.append("trade_ticks: unavailable_in_legacy_detail_no_derived_ticks")
     name = _safe_str(quote.get("name"), security["name"])
     code = _safe_str(quote.get("code"), security["code"])
     return {
@@ -989,8 +949,8 @@ def _build_minute_payload(query: str) -> dict[str, Any]:
     quote = _quote_from_raw(raw_quote, security)
     sell_levels, buy_levels, depth_meta = _order_book_from_raw(raw_quote, quote, warnings)
     points = _load_realtime_minute_points(client, security, quote, warnings)
-    trade_ticks = _trade_ticks_from_minute(points, quote)
-    warnings.append("trade_ticks: rebuilt_from_minute_tail")
+    trade_ticks: list[dict[str, Any]] = []
+    warnings.append("trade_ticks: unavailable_in_legacy_minute_no_derived_ticks")
     return {
         "provider": "crawl_eastmoney_public_json",
         "updatedAt": datetime.now(timezone.utc).isoformat(),
@@ -1013,6 +973,16 @@ def _cached_response(kind: str, query: str, mode: str, builder) -> dict[str, Any
         return _with_cache_label(payload, age)
     try:
         payload = builder()
+        if not _payload_has_real_items(payload):
+            stale = _cache_get(key, STALE_CACHE_SECONDS)
+            if stale is not None:
+                stale_payload, age = stale
+                cached = _with_cache_label(stale_payload, age)
+                cached["status"] = "stale"
+                cached["warnings"] = list(cached.get("warnings") or []) + [
+                    "cache: stale_used_because_builder_returned_no_real_items"
+                ]
+                return cached
         _cache_put(key, payload)
         return payload
     except HTTPException:
@@ -1118,7 +1088,7 @@ def _load_ranking(type_name: str, limit: int) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"unsupported ranking type: {type_name}")
     warnings: list[str] = []
     with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
-        rows = _clist_items(client, A_STOCK_FS, config["fid"], limit, warnings, f"ranking_{type_name}", po=config["po"])
+        rows = _clist_items(client, A_STOCK_FS, config["fid"], limit, warnings, f"ranking_{type_name}", po=config["po"], strict=True)
     items = [_ranking_item(item, index + 1) for index, item in enumerate(rows[:limit])]
     return _module_payload(status="ok" if items else "empty", source="eastmoney_clist", source_url_type=f"qt/clist/get fid={config['fid']} po={config['po']}", items=items, warnings=warnings)
 
@@ -1164,7 +1134,31 @@ def _load_indices_full() -> dict[str, Any]:
 def _load_market_breadth() -> dict[str, Any]:
     warnings: list[str] = []
     with httpx.Client(timeout=httpx.Timeout(8.0, connect=2.0)) as client:
-        rows = _clist_items(client, A_STOCK_FS, "f12", 5000, warnings, "market_breadth", po="1")
+        rows = _clist_items(client, A_STOCK_FS, "f12", 5000, warnings, "market_breadth", po="1", strict=True)
+    if not rows:
+        return _module_payload(
+            status="unavailable",
+            source="eastmoney_clist",
+            source_url_type="qt/clist/get breadth from real quote universe",
+            items={
+                "upCount": None,
+                "downCount": None,
+                "flatCount": None,
+                "limitUpCount": None,
+                "limitDownCount": None,
+                "brokenBoardCount": None,
+                "brokenBoardRate": None,
+                "maxConsecutiveBoards": None,
+                "redRate": None,
+                "medianChangePercent": None,
+                "marketAmount": None,
+                "shszAmount": None,
+                "bjAmount": None,
+                "moneyMakingEffect": None,
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            },
+            warnings=warnings + ["market_breadth: empty_real_universe"],
+        )
     changes = [_safe_float(item.get("f3")) for item in rows]
     up = sum(1 for value in changes if value > 0)
     down = sum(1 for value in changes if value < 0)
@@ -1189,7 +1183,7 @@ def _load_market_breadth() -> dict[str, Any]:
         "moneyMakingEffect": round(up / max(up + down, 1) * 100, 2) if rows else None,
         "updatedAt": datetime.now(timezone.utc).isoformat(),
     }
-    return _module_payload(status="ok" if rows else "unavailable", source="eastmoney_clist", source_url_type="qt/clist/get breadth from real quote universe", items=item, warnings=warnings)
+    return _module_payload(status="ok", source="eastmoney_clist", source_url_type="qt/clist/get breadth from real quote universe", items=item, warnings=warnings)
 
 
 def _load_market_sentiment() -> dict[str, Any]:
@@ -1219,7 +1213,7 @@ def _load_sectors(type_name: str, limit: int) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="type must be industry/concept/region")
     warnings: list[str] = []
     with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
-        rows = _clist_items(client, fs, "f3", limit, warnings, f"sectors_{type_name}")
+        rows = _clist_items(client, fs, "f3", limit, warnings, f"sectors_{type_name}", strict=True)
     items = [{
         "sectorCode": _safe_str(item.get("f12"), ""),
         "sectorName": _safe_str(item.get("f14"), ""),
@@ -1635,3 +1629,4 @@ def futu_compatible_detail(
     payload = _cached_response("detail", query, normalized_mode, lambda: _build_detail_payload(query, normalized_mode, False))
     payload["warnings"] = list(payload.get("warnings") or []) + ["compat: futu path maps to eastmoney crawler learning source"]
     return payload
+
