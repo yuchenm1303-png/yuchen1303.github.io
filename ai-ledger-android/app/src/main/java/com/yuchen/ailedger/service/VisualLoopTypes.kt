@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.service
 
+import kotlin.math.roundToInt
+
 internal data class VisualLoopState(
     val goal: String,
     var modelTurns: Int = 0,
@@ -68,6 +70,17 @@ internal object VisualActionValidator {
         step.direction, step.x?.toString(), step.y?.toString(), step.milestoneId, step.hypothesisId,
     ).joinToString("|")
 
+    /**
+     * Coarse physical-coordinate cluster used only when semantic purpose/hypothesis is unavailable.
+     * Nearby taps share one cluster so a failed action cannot evade blocking by moving a few pixels.
+     */
+    fun actionClusterSignature(step: CloudAgentStep): String {
+        if (step.type != "tap_xy") return actionSignature(step)
+        val x = step.x ?: return actionSignature(step)
+        val y = step.y ?: return actionSignature(step)
+        return "tap_xy|${(x / LEGACY_TAP_CLUSTER_PX).roundToInt()}|${(y / LEGACY_TAP_CLUSTER_PX).roundToInt()}"
+    }
+
     fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
         val text = snapshot.texts.take(16).joinToString("|") { it.take(40) }
         val nodes = snapshot.clickableNodes.take(16).joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
@@ -103,6 +116,7 @@ internal object VisualActionValidator {
     }
 
     private val PRE_WORK_SURFACE_ACTIONS = CloudAgentStep.deviceToolTypes + "need_user_help"
+    private const val LEGACY_TAP_CLUSTER_PX = 160f
 }
 
 internal data class PreparedVisualStep(
