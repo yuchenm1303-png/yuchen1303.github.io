@@ -47,17 +47,29 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun taskWindowPackageHintIsRecentOnly() {
+    fun taskWindowPackageHintSurvivesSlowCurrentCaptureButNotNextCapture() {
         ScreenObservationStore.markDisabled()
         ScreenObservationStore.updateWindowHint("com.example.target", "Target")
         val hint = ScreenObservationStore.recentWindowPackageHint()
+        val observedAt = hint?.observedAt ?: 0L
 
         assertEquals("com.example.target", hint?.packageName)
         assertEquals("Target", hint?.windowTitle)
+
+        ScreenObservationStore.update(ScreenObservation(updatedAt = observedAt - 1L))
+        assertEquals(
+            "com.example.target",
+            ScreenObservationStore.recentWindowPackageHint(
+                maxAgeMs = 600L,
+                nowMs = observedAt + 5_000L,
+            )?.packageName,
+        )
+
+        ScreenObservationStore.update(ScreenObservation(updatedAt = observedAt + 1L))
         assertTrue(
             ScreenObservationStore.recentWindowPackageHint(
                 maxAgeMs = 600L,
-                nowMs = (hint?.observedAt ?: 0L) + 601L,
+                nowMs = observedAt + 5_000L,
             ) == null,
         )
         ScreenObservationStore.markDisabled()
