@@ -74,19 +74,7 @@ class ForegroundPackageProbe(
     private val shellBridge: DeviceShellBridge,
 ) {
     fun probe(): ForegroundPackageProbeResult {
-        val status = shellBridge.probe(forceRefresh = false)
-        if (!status.isAdbShellLike) {
-            return ForegroundPackageProbeResult(
-                available = false,
-                detail = if (status.shizukuAvailable && !status.shizukuGranted) {
-                    "shizuku_not_granted"
-                } else {
-                    "enhanced_shell_unavailable"
-                },
-            )
-        }
-
-        val activity = shellBridge.runReadOnlyEnhancedCommand(
+        val activity = shellBridge.runTrustedReadOnlyEnhancedCommand(
             title = "读取前台 Activity",
             command = ACTIVITY_FOREGROUND_COMMAND,
             timeoutMs = FOREGROUND_PROBE_TIMEOUT_MS,
@@ -99,8 +87,14 @@ class ForegroundPackageProbe(
                 detail = "dumpsys_activity",
             )
         }
+        if (activity.error == "trusted_enhanced_shell_unavailable") {
+            return ForegroundPackageProbeResult(
+                available = false,
+                detail = activity.error,
+            )
+        }
 
-        val window = shellBridge.runReadOnlyEnhancedCommand(
+        val window = shellBridge.runTrustedReadOnlyEnhancedCommand(
             title = "读取前台窗口",
             command = WINDOW_FOREGROUND_COMMAND,
             timeoutMs = FOREGROUND_PROBE_TIMEOUT_MS,
@@ -124,7 +118,7 @@ class ForegroundPackageProbe(
     }
 
     companion object {
-        private const val FOREGROUND_PROBE_TIMEOUT_MS = 1_200L
+        private const val FOREGROUND_PROBE_TIMEOUT_MS = 700L
         private const val ACTIVITY_FOREGROUND_COMMAND =
             "dumpsys activity activities | grep -m 1 -E 'mResumedActivity|topResumedActivity|ResumedActivity'"
         private const val WINDOW_FOREGROUND_COMMAND =
