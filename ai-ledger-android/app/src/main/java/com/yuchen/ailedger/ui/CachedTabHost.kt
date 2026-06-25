@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,13 +9,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
@@ -51,6 +52,7 @@ fun CachedAppTabHost(
 ) {
     val diagnostics = LocalPerformanceDiagnostics.current
     val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
+    val initialTab = remember { currentTab }
     var renderedTabMask by remember { mutableIntStateOf(currentTab.cacheBit()) }
     val saveableStateHolder = rememberSaveableStateHolder()
     val activationCounter = remember { intArrayOf(0) }
@@ -111,15 +113,27 @@ fun CachedAppTabHost(
             // SaveableStateHolder 继续保存滚动位置和可保存交互状态。
             if (tab == currentTab || renderedTabMask and tab.cacheBit() != 0) {
                 val active = tab == currentTab
-                val alpha by animateFloatAsState(
-                    targetValue = if (active) 1f else 0f,
-                    animationSpec = tween(durationMillis = if (active) PAGE_ENTER_FADE_MS else PAGE_EXIT_FADE_MS),
-                    label = "tabAlpha-${tab.name}"
-                )
+                val activationKey = activationTicks[tab.ordinal]
+                val initialAlpha = if (tab == initialTab && activationKey == 1) 1f else 0f
+                val alphaState = remember(tab) { Animatable(initialAlpha) }
+
+                LaunchedEffect(active) {
+                    alphaState.animateTo(
+                        targetValue = if (active) 1f else 0f,
+                        animationSpec = tween(
+                            durationMillis = if (active) PAGE_ENTER_FADE_MS else PAGE_EXIT_FADE_MS,
+                            easing = FastOutSlowInEasing
+                        )
+                    )
+                    if (!active && alphaState.value <= PAGE_HIDDEN_ALPHA_EPSILON) {
+                        renderedTabMask = renderedTabMask and tab.cacheBit().inv()
+                    }
+                }
+
+                val alpha = alphaState.value
                 val visibleDuringTransition = active || alpha > PAGE_HIDDEN_ALPHA_EPSILON
                 val leaving = !active && visibleDuringTransition
                 // 离场期间保持原激活序号，避免子页面把整套卡片入退场动画重新启动。
-                val activationKey = activationTicks[tab.ordinal]
                 val pageHeavyEffectsReady = active && heavyEffectsReady
                 val visualEffectsEnabled = visibleDuringTransition && pageHeavyEffectsReady && !diagnostics.openGlGlassOff
                 val liveRegistryEnabled = pageHeavyEffectsReady && !diagnostics.openGlGlassOff
@@ -131,12 +145,6 @@ fun CachedAppTabHost(
                 }
                 val pageOffsetDp = if (active) PAGE_ENTER_OFFSET_DP else PAGE_EXIT_OFFSET_DP
                 val pageScale = PAGE_MIN_SCALE + (1f - PAGE_MIN_SCALE) * alpha
-
-                LaunchedEffect(active, alpha, tab) {
-                    if (!active && alpha <= PAGE_HIDDEN_ALPHA_EPSILON) {
-                        renderedTabMask = renderedTabMask and tab.cacheBit().inv()
-                    }
-                }
 
                 OrdinaryGlassSceneHost(
                     group = sceneGroup,
