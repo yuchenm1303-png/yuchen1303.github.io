@@ -107,6 +107,7 @@ data class StockInformationItem(
 
 data class StockMarketHomeSnapshot(
     val indices: List<StockIndexSnapshot> = emptyList(),
+    val indicesMeta: StockModuleMeta = StockModuleMeta(),
     val marketBreadth: StockMarketBreadth = StockMarketBreadth(),
     val sentiment: StockMarketSentiment = StockMarketSentiment(),
     val boards: List<StockMarketBoard> = emptyList(),
