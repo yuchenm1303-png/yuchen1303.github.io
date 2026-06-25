@@ -67,7 +67,6 @@ class VisualExecutionSessionStateTest {
     @Test
     fun responseErrorKeepsServerFields() {
         val body = """{"code":"route_unavailable","retryable":true,"message":"temporary"}"""
-            .replace("\\\"", "\"")
 
         val error = parseVisualAgentHttpFailure(503, body)
 
@@ -80,7 +79,6 @@ class VisualExecutionSessionStateTest {
     @Test
     fun explicitServerFlagCanDisableRecovery() {
         val body = """{"code":"route_rejected","retryable":false,"message":"rejected"}"""
-            .replace("\\\"", "\"")
 
         val error = parseVisualAgentHttpFailure(503, body)
 
