@@ -29,11 +29,11 @@ class VisualLoopRunner(
         val logs = mutableListOf<AgentTaskStepLog>()
         if (requiresAgentSwitch(executionMode) && !AgentRuntimeController.isEnabled()) {
             val message = "Visual agent is off; forced visual loop was not started."
-            AgentRuntimeController.finishTask(message, completed = false)
             return AgentTaskRunResult(false, false, message, logs)
         }
 
         val state = VisualLoopState(goal = goal.trim().take(240), running = true)
+        val routeRetryState = VisualRouteRetryState()
         val executionSession = VisualExecutionSessionState()
         val recentActions = mutableListOf<String>()
         val interactionActions = mutableListOf<String>()
@@ -60,7 +60,7 @@ class VisualLoopRunner(
         )
 
         AiAgentAccessibilityService.beginTaskSession()
-        AgentRuntimeController.startTask(state.goal)
+        val runtimeTaskId = AgentRuntimeController.startTask(state.goal)
         val stopGeneration = AgentRuntimeController.currentManualStopGeneration()
 
         return try {
@@ -95,6 +95,10 @@ class VisualLoopRunner(
                     runtimeContext = runtimeContext,
                     fullCatalogUploaded = fullAppCatalogUploaded,
                 )
+                when {
+                    runtimeContext.guiPlusEligible -> AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前页面")
+                    runtimeContext.surfaceState == VisualSurfaceState.Launching -> AgentRuntimeController.noteDiagnostic("正在确认目标应用前台状态")
+                }
 
                 state.modelTurnCount += 1
                 val plan = try {
@@ -113,9 +117,8 @@ class VisualLoopRunner(
                         )
                     }
                 } catch (error: IOException) {
-                    when (val retryDecision = VisualRouteRetryPolicy.decide(error, state.routeRetryCount)) {
+                    when (val retryDecision = routeRetryState.onFailure(error)) {
                         is VisualRouteRetryDecision.Retry -> {
-                            state.routeRetryCount = retryDecision.attempt
                             state.reobserveCount += 1
                             val structuredError = error as? VisualAgentRequestException
                             val recoveredObservation = captureTrustedObservation(
@@ -142,7 +145,6 @@ class VisualLoopRunner(
                                 },
                             )
                             if (recoveredContext.guiPlusEligible) {
-                                state.routeRetryCount = 0
                                 appendRecentAction(
                                     recentActions,
                                     "visual_route_handoff_recovered:package=${recoveredSnapshot.packageName.take(100)}|observationId=${recoveredContext.observationId}",
@@ -165,19 +167,19 @@ class VisualLoopRunner(
                                     append("; retryable=").append(it.retryable)
                                 }
                             }
-                            AgentRuntimeController.finishTask(message, completed = false)
+                            AgentRuntimeController.failTask(runtimeTaskId, message)
                             return AgentTaskRunResult(false, false, message, logs)
                         }
                     }
                 }
-                state.routeRetryCount = 0
+                routeRetryState.onSuccess()
                 if (requestAppContext.size == visualAppContext.size) fullAppCatalogUploaded = true
                 AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
 
                 val step = plan.step
                 if (requiresAccessibilityRuntime(step) && (!observation.enabled || !observation.serviceConnected)) {
                     val message = "The cloud selected a visual action, but the Android accessibility service is not connected."
-                    AgentRuntimeController.failTask(message)
+                    AgentRuntimeController.failTask(runtimeTaskId, message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
                 val validation = VisualActionValidator.validate(step, snapshot, runtimeContext)
@@ -224,7 +226,10 @@ class VisualLoopRunner(
                         )
                         state.completed = true
                         state.clearPendingFinishVerification()
-                        AgentRuntimeController.finishTask(verifiedMessage, completed = true)
+                        AgentRuntimeController.finishTask(
+                            runtimeTaskId,
+                            AgentTaskOutcome.Completed(verifiedMessage),
+                        )
                         return AgentTaskRunResult(true, false, verifiedMessage, logs)
                     }
 
@@ -422,6 +427,7 @@ class VisualLoopRunner(
                         executionSession.markStructuralReplan()
                         continue
                     }
+                    AgentRuntimeController.noteDiagnostic("正在确认目标应用并准备视觉画面")
                     val verification = awaitStableTargetPackage(
                         expectedPackage = expectedPackage,
                         stopGeneration = stopGeneration,
@@ -454,7 +460,14 @@ class VisualLoopRunner(
 
                 if (executableStep.type in CloudAgentStep.deviceToolTypes) {
                     val message = result.message.ifBlank { "Internal device tool finished." }
-                    AgentRuntimeController.finishTask(message, completed = result.ok)
+                    if (result.ok) {
+                        AgentRuntimeController.finishTask(
+                            runtimeTaskId,
+                            AgentTaskOutcome.Completed(message),
+                        )
+                    } else {
+                        AgentRuntimeController.failTask(runtimeTaskId, message)
+                    }
                     return AgentTaskRunResult(result.ok, false, message, logs)
                 }
 
@@ -518,10 +531,23 @@ class VisualLoopRunner(
                 state.modelTurnCount >= modelTurnBudget -> "Visual loop reached planning budget."
                 else -> "Visual loop stopped."
             }
-            AgentRuntimeController.finishTask(message, completed = false)
+            if (!isStopped(stopGeneration)) {
+                val outcome = if (
+                    state.executedActionCount >= maxSteps ||
+                    state.modelTurnCount >= modelTurnBudget
+                ) {
+                    AgentTaskOutcome.BudgetExceeded(message)
+                } else {
+                    AgentTaskOutcome.Paused(message)
+                }
+                AgentRuntimeController.finishTask(runtimeTaskId, outcome)
+            }
             AgentTaskRunResult(false, false, message, logs)
         } catch (error: CancellationException) {
-            AgentRuntimeController.stopTaskByUser("Visual task was cancelled.")
+            AgentRuntimeController.finishTask(
+                runtimeTaskId,
+                AgentTaskOutcome.Cancelled("Visual task was cancelled."),
+            )
             throw error
         } finally {
             AiAgentAccessibilityService.endTaskSession()
@@ -961,7 +987,7 @@ class VisualLoopRunner(
         private const val OPEN_APP_INITIAL_SETTLE_MS = 260L
         private const val OPEN_APP_VERIFY_POLL_MS = 140L
         private const val OPEN_APP_VERIFY_TIMEOUT_MS = 4_200L
-        private const val OPEN_APP_REQUIRED_STABLE_SAMPLES = 2
+        private const val OPEN_APP_REQUIRED_STABLE_SAMPLES = 1
         private const val MODEL_TURN_MULTIPLIER = 3
         private const val MIN_EXTRA_MODEL_TURNS = 8
         private const val MAX_MODEL_TURN_BUDGET = 120
@@ -994,7 +1020,6 @@ data class VisualLoopState(
     var pendingFinishFingerprint: String = "",
     var pendingFinishCount: Int = 0,
     var replanRejectCount: Int = 0,
-    var routeRetryCount: Int = 0,
     var running: Boolean = false,
     var paused: Boolean = false,
     var completed: Boolean = false,
