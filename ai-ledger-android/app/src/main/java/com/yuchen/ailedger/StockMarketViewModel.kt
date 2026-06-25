@@ -310,7 +310,10 @@ class StockMarketViewModel(
             return loaded.copy(
                 indices = emptyList(),
                 watchlist = emptyList(),
-                marketBoards = emptyList()
+                marketBoards = emptyList(),
+                sellLevels = emptyList(),
+                buyLevels = emptyList(),
+                tradeTicks = emptyList()
             )
         }
         return loaded.copy(
