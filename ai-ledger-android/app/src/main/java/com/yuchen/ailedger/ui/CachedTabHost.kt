@@ -16,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
 import kotlinx.coroutines.delay
@@ -29,8 +30,11 @@ val LocalPageHeavyEffectsEnabled = compositionLocalOf { true }
 private val DefaultPrewarmTabs: Set<AppTab> = emptySet()
 private const val DEFAULT_PREWARM_DELAY_MS = 5200L
 private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
-private const val PAGE_ENTER_FADE_MS = 230
-private const val PAGE_EXIT_FADE_MS = 160
+private const val PAGE_ENTER_FADE_MS = 210
+private const val PAGE_EXIT_FADE_MS = 150
+private const val PAGE_ENTER_OFFSET_DP = 8f
+private const val PAGE_EXIT_OFFSET_DP = -4f
+private const val PAGE_MIN_SCALE = 0.992f
 
 private fun AppTab.cacheBit(): Int = 1 shl ordinal
 
@@ -47,9 +51,11 @@ fun CachedAppTabHost(
     val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
     var renderedTabMask by remember { mutableIntStateOf(currentTab.cacheBit()) }
     val activationCounter = remember { intArrayOf(0) }
-    val currentActivationTick = remember(currentTab) {
+    val activationTicks = remember { IntArray(AppTab.entries.size) }
+    remember(currentTab) {
         val next = if (activationCounter[0] == Int.MAX_VALUE) 1 else activationCounter[0] + 1
         activationCounter[0] = next
+        activationTicks[currentTab.ordinal] = next
         next
     }
     var heavyEffectsReady by remember { mutableStateOf(false) }
@@ -109,7 +115,8 @@ fun CachedAppTabHost(
                 )
                 val visibleDuringTransition = active || alpha > 0.001f
                 val leaving = !active && visibleDuringTransition
-                val activationKey = if (active) currentActivationTick else 0
+                // 离场期间保持原激活序号，避免子页面把整套卡片入退场动画重新启动。
+                val activationKey = activationTicks[tab.ordinal]
                 val pageHeavyEffectsReady = active && heavyEffectsReady
                 val visualEffectsEnabled = visibleDuringTransition && pageHeavyEffectsReady && !diagnostics.openGlGlassOff
                 val liveRegistryEnabled = pageHeavyEffectsReady && !diagnostics.openGlGlassOff
@@ -119,17 +126,26 @@ fun CachedAppTabHost(
                 } else {
                     OrdinaryGlassRenderMode.Shadow
                 }
+                val pageOffsetDp = if (active) PAGE_ENTER_OFFSET_DP else PAGE_EXIT_OFFSET_DP
+                val pageScale = PAGE_MIN_SCALE + (1f - PAGE_MIN_SCALE) * alpha
 
                 OrdinaryGlassSceneHost(
                     group = sceneGroup,
                     modifier = Modifier
                         .fillMaxSize()
                         .zIndex(if (active) 1f else -1f)
-                        .graphicsLayer { this.alpha = alpha },
+                        .graphicsLayer {
+                            this.alpha = alpha
+                            translationY = pageOffsetDp.dp.toPx() * (1f - alpha)
+                            scaleX = pageScale
+                            scaleY = pageScale
+                        },
                     renderMode = ordinaryRenderMode
                 ) {
                     CompositionLocalProvider(
-                        LocalPageActive provides active,
+                        // 页面淡出交给最外层统一完成。子页面在完全不可见后才收到 inactive，
+                        // 避免数十个 AnimatedVisibility 与整页淡出同时执行。
+                        LocalPageActive provides visibleDuringTransition,
                         LocalPageVisible provides visibleDuringTransition,
                         LocalPageLeaving provides leaving,
                         LocalPageActivationTick provides activationKey,
