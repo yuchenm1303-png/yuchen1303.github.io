@@ -29,6 +29,7 @@ class VisualObservationCoordinatorTest {
             },
             overlayController = overlay,
             timing = zeroTiming(),
+            elapsedRealtime = { 0L },
             sleeper = {},
         )
 
@@ -46,6 +47,7 @@ class VisualObservationCoordinatorTest {
 
     @Test
     fun usableAccessibilityPackageSkipsShellProbe() = runBlocking {
+        val overlay = RecordingOverlayController()
         var probeCount = 0
         val coordinator = VisualObservationCoordinator(
             captureSource = VisualObservationCaptureSource {
@@ -63,7 +65,9 @@ class VisualObservationCoordinatorTest {
                     available = true,
                 )
             },
+            overlayController = overlay,
             timing = zeroTiming(),
+            elapsedRealtime = { 0L },
             sleeper = {},
         )
 
@@ -74,6 +78,8 @@ class VisualObservationCoordinatorTest {
 
         assertEquals("com.example.target", observation.packageName)
         assertEquals(0, probeCount)
+        assertEquals(1, overlay.beginCount)
+        assertEquals(1, overlay.endCount)
     }
 
     @Test
@@ -123,6 +129,7 @@ class VisualObservationCoordinatorTest {
             },
             overlayController = overlay,
             timing = zeroTiming(),
+            elapsedRealtime = { 0L },
             sleeper = {},
         )
 
