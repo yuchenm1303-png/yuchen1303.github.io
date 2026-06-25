@@ -42,7 +42,7 @@ object VisualRouteRetryPolicy {
         val structured = error as? VisualAgentRequestException
         if (structured != null) {
             if (structured.retryable) return true
-            if (structured.httpStatus in TRANSIENT_HTTP_STATUSES) return true
+            if (structured.httpStatus?.let(TRANSIENT_HTTP_STATUSES::contains) == true) return true
 
             val code = structured.code.trim().lowercase()
             val detail = listOf(
