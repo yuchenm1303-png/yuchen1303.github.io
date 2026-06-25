@@ -36,11 +36,16 @@ class VisualExecutionSessionState {
     var surfaceEpoch: Long = 0L
         private set
 
+    init {
+        ForegroundTargetBinding.reset()
+    }
+
     fun beginLaunch(packageName: String) {
         val cleanPackage = packageName.trim()
         if (cleanPackage.isBlank()) return
         selectedTargetPackage = cleanPackage
         verifiedTargetPackage = ""
+        ForegroundTargetBinding.bind(cleanPackage)
         transitionTo(VisualSurfaceState.Launching)
     }
 
@@ -49,6 +54,7 @@ class VisualExecutionSessionState {
         if (cleanPackage.isBlank()) return
         selectedTargetPackage = cleanPackage
         verifiedTargetPackage = cleanPackage
+        ForegroundTargetBinding.bind(cleanPackage)
         transitionTo(VisualSurfaceState.WorkSurface)
     }
 
