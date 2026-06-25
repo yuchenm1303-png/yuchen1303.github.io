@@ -54,12 +54,11 @@ class VisualExecutionSessionStateTest {
 
         assertEquals("com.example.target", hint?.packageName)
         assertEquals("Target", hint?.windowTitle)
-        assertEquals(
-            null,
+        assertTrue(
             ScreenObservationStore.recentWindowPackageHint(
-                maxAgeMs = 1_500L,
-                nowMs = (hint?.observedAt ?: 0L) + 1_501L,
-            ),
+                maxAgeMs = 600L,
+                nowMs = (hint?.observedAt ?: 0L) + 601L,
+            ) == null,
         )
         ScreenObservationStore.markDisabled()
     }
