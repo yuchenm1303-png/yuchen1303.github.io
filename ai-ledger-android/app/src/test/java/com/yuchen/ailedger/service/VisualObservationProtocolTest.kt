@@ -95,7 +95,7 @@ class VisualObservationProtocolTest {
             nodes = listOf(node("n1", "播放", "[0,0][200,200]", clickable = true)),
         )
         val current = snapshot(
-            nodes = listOf(node("n9", "确认删除", "[20,20][100,100]", clickable = true)),
+            nodes = listOf(node("n9", "确认删除", "[0,0][200,200]", clickable = true)),
         )
 
         val result = VisualObservationProtocol.evaluateActionContextFreshness(
