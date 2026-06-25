@@ -42,7 +42,7 @@ data class StockRealtimeFrame(
 class StockRealtimeRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
-    private val unifiedRetryAfterByQuery = ConcurrentHashMap<String, Long>()
+    private val retryAfterByQuery = ConcurrentHashMap<String, Long>()
 
     fun loadRealtimeFrame(
         query: String,
@@ -53,24 +53,22 @@ class StockRealtimeRepository(
         val safeDays = if (minuteDays >= 5) 5 else 1
         val retryKey = normalized.lowercase()
         val now = System.currentTimeMillis()
-        if (unifiedRetryAfterByQuery.size > MAX_RETRY_KEYS) {
-            unifiedRetryAfterByQuery.entries.removeIf { it.value <= now }
-        }
+        cleanupRetryMap(now)
+        val retryAfter = retryAfterByQuery[retryKey] ?: 0L
 
-        val retryAfter = unifiedRetryAfterByQuery[retryKey] ?: 0L
-        val unifiedResult = if (now >= retryAfter) {
+        val unified = if (now >= retryAfter) {
             runCatching {
                 loadUnifiedRealtime(normalized, safeDays, current).also {
-                    unifiedRetryAfterByQuery.remove(retryKey)
+                    retryAfterByQuery.remove(retryKey)
                 }
             }
         } else {
             Result.failure(IllegalStateException("统一实时接口冷却中"))
         }
 
-        return unifiedResult.recoverCatching { error ->
+        return unified.recoverCatching { error ->
             if (now >= retryAfter) {
-                val retryDelay = if (
+                val delayMs = if (
                     error.message?.contains("HTTP 404") == true ||
                     error.message?.contains("HTTP 405") == true
                 ) {
@@ -78,9 +76,17 @@ class StockRealtimeRepository(
                 } else {
                     UNIFIED_TRANSIENT_RETRY_MS
                 }
-                unifiedRetryAfterByQuery[retryKey] = now + retryDelay
+                retryAfterByQuery[retryKey] = now + delayMs
             }
             loadLegacyRealtime(normalized, safeDays, current)
+        }
+    }
+
+    private fun cleanupRetryMap(now: Long) {
+        if (retryAfterByQuery.size <= MAX_RETRY_KEYS) return
+        val iterator = retryAfterByQuery.entries.iterator()
+        while (iterator.hasNext()) {
+            if (iterator.next().value <= now) iterator.remove()
         }
     }
 
@@ -93,16 +99,10 @@ class StockRealtimeRepository(
         val root = JSONObject(
             httpGet(
                 "${baseUrl()}/api/stock/a-share/realtime?query=$encoded&ndays=$minuteDays",
-                timeoutMs = UNIFIED_TIMEOUT_MS
+                UNIFIED_TIMEOUT_MS
             )
         )
-        return parseFrame(
-            root = root,
-            payload = payloadObject(root),
-            current = current,
-            minuteDays = minuteDays,
-            fallbackLabel = "A股统一实时行情"
-        )
+        return parseFrame(root, payloadObject(root), current, minuteDays, "A股统一实时行情")
     }
 
     private fun loadLegacyRealtime(
@@ -115,29 +115,26 @@ class StockRealtimeRepository(
             JSONObject(
                 httpGet(
                     "${baseUrl()}/api/stock/a-share/minute?query=$encoded&ndays=$minuteDays&days=$minuteDays",
-                    timeoutMs = LEGACY_TIMEOUT_MS
+                    LEGACY_TIMEOUT_MS
                 )
             )
         }.recoverCatching {
             JSONObject(
                 httpGet(
                     "${baseUrl()}/api/stock/crawl/a-share/minute?query=$encoded&ndays=$minuteDays&days=$minuteDays",
-                    timeoutMs = LEGACY_TIMEOUT_MS
+                    LEGACY_TIMEOUT_MS
                 )
             )
         }.getOrThrow()
 
         val payload = payloadObject(root)
-        val frame = parseFrame(
-            root = root,
-            payload = payload,
-            current = current,
-            minuteDays = minuteDays,
-            fallbackLabel = "A股兼容实时行情"
-        )
-        if (frame.quote.code.isNotBlank()) return frame
-
-        return frame.copy(quote = loadLegacyQuote(encoded, current.quote))
+        val parsed = parseFrame(root, payload, current, minuteDays, "A股兼容实时行情")
+        val hasEmbeddedQuote = quoteObject(payload) != null || quoteObject(root) != null
+        return if (hasEmbeddedQuote) {
+            parsed
+        } else {
+            parsed.copy(quote = loadLegacyQuote(encoded, current.quote))
+        }
     }
 
     private fun loadLegacyQuote(encodedQuery: String, fallback: StockQuote): StockQuote {
@@ -145,14 +142,14 @@ class StockRealtimeRepository(
             JSONObject(
                 httpGet(
                     "${baseUrl()}/api/stock/a-share/quotes?codes=$encodedQuery",
-                    timeoutMs = QUOTE_TIMEOUT_MS
+                    QUOTE_TIMEOUT_MS
                 )
             )
         }.recoverCatching {
             JSONObject(
                 httpGet(
                     "${baseUrl()}/api/stock/crawl/a-share/quotes?codes=$encodedQuery",
-                    timeoutMs = QUOTE_TIMEOUT_MS
+                    QUOTE_TIMEOUT_MS
                 )
             )
         }.getOrThrow()
@@ -171,30 +168,22 @@ class StockRealtimeRepository(
         val quoteJson = quoteObject(payload) ?: quoteObject(root)
         val quote = quoteJson?.let { quoteFromJson(it, current.quote) } ?: current.quote
 
-        val minuteIsSnapshot = hasArray(payload, listOf("minutePoints", "minutes")) ||
-            hasArray(root, listOf("minutePoints", "minutes"))
-        val minutePoints = parseMinutePoints(payload).ifEmpty {
-            parseMinutePoints(root)
-        }.ifEmpty {
-            parseMinuteDelta(payload)
-        }
+        val minuteIsSnapshot = hasArray(payload, MINUTE_KEYS) || hasArray(root, MINUTE_KEYS)
+        val minutePoints = parseMinutePoints(payload)
+            .ifEmpty { parseMinutePoints(root) }
+            .ifEmpty { parseMinuteDelta(payload) }
 
-        val allWarnings = (stringList(root.optJSONArray("warnings")) +
-            stringList(payload.optJSONArray("warnings"))).distinct()
+        val warnings = (
+            stringList(root.optJSONArray("warnings")) +
+                stringList(payload.optJSONArray("warnings"))
+            ).distinct()
         val tradeTicksDerived = firstBoolean(root, "tradeTicksIsDerived", "ticksIsDerived")
             ?: firstBoolean(payload, "tradeTicksIsDerived", "ticksIsDerived")
-            ?: allWarnings.any {
-                it.contains("derived_from_minute", ignoreCase = true) ||
-                    it.contains("not_real_ticks", ignoreCase = true)
-            }
-
-        val rawTicksAreSnapshot = hasArray(payload, listOf("tradeTicks", "ticks", "deals")) ||
-            hasArray(root, listOf("tradeTicks", "ticks", "deals"))
-        val parsedTicks = parseTradeTicks(payload).ifEmpty {
-            parseTradeTicks(root)
-        }.ifEmpty {
-            parseTickDelta(payload)
-        }
+            ?: warnings.any(::isDerivedTickWarning)
+        val rawTicksAreSnapshot = hasArray(payload, TICK_KEYS) || hasArray(root, TICK_KEYS)
+        val parsedTicks = parseTradeTicks(payload)
+            .ifEmpty { parseTradeTicks(root) }
+            .ifEmpty { parseTickDelta(payload) }
         val tradeTicks = if (tradeTicksDerived) emptyList() else parsedTicks
 
         val depthStatus = StockModuleStatus.fromWire(
@@ -206,30 +195,21 @@ class StockRealtimeRepository(
         val depthIsDerived = firstBoolean(root, "depthIsDerived")
             ?: firstBoolean(payload, "depthIsDerived")
             ?: false
-        val depthWarnings = (stringList(root.optJSONArray("depthWarnings")) +
-            stringList(payload.optJSONArray("depthWarnings"))).distinct()
-        val mayDisplayDepth = !depthIsDerived && depthStatus in DISPLAYABLE_DEPTH_STATUSES
-        val parsedSellLevels = parseOrderLevels(payload, listOf("sellLevels", "askLevels", "asks"), true)
-            .ifEmpty { parseOrderLevels(root, listOf("sellLevels", "askLevels", "asks"), true) }
-        val parsedBuyLevels = parseOrderLevels(payload, listOf("buyLevels", "bidLevels", "bids"), false)
-            .ifEmpty { parseOrderLevels(root, listOf("buyLevels", "bidLevels", "bids"), false) }
-        val sellLevels = if (mayDisplayDepth) parsedSellLevels else emptyList()
-        val buyLevels = if (mayDisplayDepth) parsedBuyLevels else emptyList()
+        val depthWarnings = (
+            stringList(root.optJSONArray("depthWarnings")) +
+                stringList(payload.optJSONArray("depthWarnings"))
+            ).distinct()
+        val canDisplayDepth = !depthIsDerived && depthStatus in DISPLAYABLE_DEPTH_STATUSES
+        val rawSellLevels = parseOrderLevels(payload, ASK_KEYS, true)
+            .ifEmpty { parseOrderLevels(root, ASK_KEYS, true) }
+        val rawBuyLevels = parseOrderLevels(payload, BID_KEYS, false)
+            .ifEmpty { parseOrderLevels(root, BID_KEYS, false) }
 
-        val cacheAgeMs = firstLong(root, "cacheAgeMs")
-            ?: firstLong(payload, "cacheAgeMs")
-            ?: 0L
-        val cacheHit = firstBoolean(root, "cacheHit")
-            ?: firstBoolean(payload, "cacheHit")
-            ?: false
         val sourceHost = firstText(root, "sourceHost")
             ?: firstText(payload, "sourceHost")
         val sourceTimestamp = firstText(root, "sourceTimestamp", "updatedAt")
             ?: firstText(payload, "sourceTimestamp", "updatedAt")
             ?: ""
-        val sequence = firstLong(root, "sequence")
-            ?: firstLong(payload, "sequence")
-            ?: 0L
         val label = buildString {
             append(fallbackLabel)
             append(if (minuteDays >= 5) " · 5日" else " · 1日")
@@ -240,14 +220,20 @@ class StockRealtimeRepository(
             quote = quote,
             minutePoints = minutePoints,
             minuteIsSnapshot = minuteIsSnapshot,
-            sellLevels = sellLevels,
-            buyLevels = buyLevels,
+            sellLevels = if (canDisplayDepth) rawSellLevels else emptyList(),
+            buyLevels = if (canDisplayDepth) rawBuyLevels else emptyList(),
             tradeTicks = tradeTicks,
             ticksAreSnapshot = rawTicksAreSnapshot && !tradeTicksDerived,
-            sequence = sequence,
+            sequence = firstLong(root, "sequence")
+                ?: firstLong(payload, "sequence")
+                ?: 0L,
             sourceTimestamp = sourceTimestamp,
-            cacheAgeMs = cacheAgeMs,
-            cacheHit = cacheHit,
+            cacheAgeMs = firstLong(root, "cacheAgeMs")
+                ?: firstLong(payload, "cacheAgeMs")
+                ?: 0L,
+            cacheHit = firstBoolean(root, "cacheHit")
+                ?: firstBoolean(payload, "cacheHit")
+                ?: false,
             dataSourceLabel = label,
             depthStatus = depthStatus,
             depthSource = depthSource,
@@ -263,8 +249,16 @@ class StockRealtimeRepository(
                 ?: 0L,
             depthWarnings = depthWarnings,
             tradeTicksDerived = tradeTicksDerived,
-            warnings = allWarnings
+            warnings = warnings
         )
+    }
+
+    private fun isDerivedTickWarning(value: String): Boolean {
+        val normalized = value.lowercase()
+        return normalized.contains("derived_from_minute") ||
+            normalized.contains("rebuilt_from_minute") ||
+            normalized.contains("not_real_ticks") ||
+            normalized.contains("from_minute_tail")
     }
 
     private fun quoteObject(payload: JSONObject): JSONObject? {
@@ -294,19 +288,18 @@ class StockRealtimeRepository(
         return direct?.let(::parseTradeTick)?.let(::listOf).orEmpty()
     }
 
-    private fun payloadObject(obj: JSONObject): JSONObject {
-        return obj.optJSONObject("data")
-            ?: obj.optJSONObject("payload")
-            ?: obj.optJSONObject("snapshot")
-            ?: obj.optJSONObject("result")
-            ?: obj
+    private fun payloadObject(root: JSONObject): JSONObject {
+        return root.optJSONObject("data")
+            ?: root.optJSONObject("payload")
+            ?: root.optJSONObject("snapshot")
+            ?: root.optJSONObject("result")
+            ?: root
     }
 
     private fun hasArray(obj: JSONObject, keys: List<String>): Boolean {
         if (keys.any { obj.optJSONArray(it) != null }) return true
-        return obj.optJSONObject("snapshot")?.let { nested ->
-            keys.any { nested.optJSONArray(it) != null }
-        } == true
+        val snapshot = obj.optJSONObject("snapshot") ?: return false
+        return keys.any { snapshot.optJSONArray(it) != null }
     }
 
     private fun findArray(obj: JSONObject, keys: List<String>): JSONArray? {
@@ -314,17 +307,18 @@ class StockRealtimeRepository(
         obj.optJSONObject("snapshot")?.let { nested ->
             keys.forEach { key -> nested.optJSONArray(key)?.let { return it } }
         }
-        val data = obj.opt("data")
-        if (data is JSONArray) return data
-        if (data is JSONObject && data !== obj) findArray(data, keys)?.let { return it }
-        val result = obj.opt("result")
-        if (result is JSONArray) return result
-        if (result is JSONObject && result !== obj) findArray(result, keys)?.let { return it }
+        listOf("data", "payload", "result").forEach { containerKey ->
+            val nested = obj.opt(containerKey)
+            when (nested) {
+                is JSONArray -> return nested
+                is JSONObject -> findArray(nested, keys)?.let { return it }
+            }
+        }
         return null
     }
 
-    private fun parseQuoteObjects(obj: JSONObject): List<JSONObject> {
-        val payload = payloadObject(obj)
+    private fun parseQuoteObjects(root: JSONObject): List<JSONObject> {
+        val payload = payloadObject(root)
         payload.optJSONObject("quote")?.let { return listOf(it) }
         val array = findArray(payload, listOf("quotes", "items", "list", "records", "stocks"))
         if (array != null) {
@@ -358,21 +352,21 @@ class StockRealtimeRepository(
         val volume: Float
     )
 
-    private fun parseMinutePoints(obj: JSONObject): List<StockMinutePoint> {
-        val array = findArray(obj, listOf("minutePoints", "minutes")) ?: return emptyList()
-        val rawPoints = buildList {
+    private fun parseMinutePoints(root: JSONObject): List<StockMinutePoint> {
+        val array = findArray(root, MINUTE_KEYS) ?: return emptyList()
+        val raw = buildList {
             for (index in 0 until array.length()) {
                 array.optJSONObject(index)?.let(::parseRawMinutePoint)?.let(::add)
             }
         }
-        val maxVolume = rawPoints.maxOfOrNull { it.volume }?.takeIf { it > 0f } ?: 1f
-        return rawPoints.map { raw ->
+        val maxVolume = raw.maxOfOrNull { it.volume }?.takeIf { it > 0f } ?: 1f
+        return raw.map { point ->
             StockMinutePoint(
-                time = raw.time,
-                price = raw.price,
-                average = raw.average,
-                volumeRatio = raw.explicitRatio?.coerceIn(0.02f, 1f)
-                    ?: (raw.volume / maxVolume).coerceIn(0.02f, 1f)
+                time = point.time,
+                price = point.price,
+                average = point.average,
+                volumeRatio = point.explicitRatio?.coerceIn(0.02f, 1f)
+                    ?: (point.volume / maxVolume).coerceIn(0.02f, 1f)
             )
         }
     }
@@ -418,11 +412,11 @@ class StockRealtimeRepository(
     }
 
     private fun parseOrderLevels(
-        obj: JSONObject,
+        root: JSONObject,
         keys: List<String>,
         isAsk: Boolean
     ): List<StockOrderLevel> {
-        val array = findArray(obj, keys) ?: return emptyList()
+        val array = findArray(root, keys) ?: return emptyList()
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
@@ -441,8 +435,8 @@ class StockRealtimeRepository(
         }
     }
 
-    private fun parseTradeTicks(obj: JSONObject): List<StockTradeTick> {
-        val array = findArray(obj, listOf("tradeTicks", "ticks", "deals")) ?: return emptyList()
+    private fun parseTradeTicks(root: JSONObject): List<StockTradeTick> {
+        val array = findArray(root, TICK_KEYS) ?: return emptyList()
         return parseTradeTickArray(array)
     }
 
@@ -465,8 +459,7 @@ class StockRealtimeRepository(
             volume = firstText(item, "volume", "qty", "vol") ?: "--",
             direction = direction,
             isBuy = firstBoolean(item, "isBuy")
-                ?: direction.contains("买")
-                || direction.equals("buy", ignoreCase = true)
+                ?: (direction.contains("买") || direction.equals("buy", ignoreCase = true))
         )
     }
 
@@ -632,6 +625,10 @@ class StockRealtimeRepository(
     }
 
     companion object {
+        private val MINUTE_KEYS = listOf("minutePoints", "minutes")
+        private val TICK_KEYS = listOf("tradeTicks", "ticks", "deals")
+        private val ASK_KEYS = listOf("sellLevels", "askLevels", "asks")
+        private val BID_KEYS = listOf("buyLevels", "bidLevels", "bids")
         private val DISPLAYABLE_DEPTH_STATUSES = setOf(
             StockModuleStatus.Ok,
             StockModuleStatus.Partial,
