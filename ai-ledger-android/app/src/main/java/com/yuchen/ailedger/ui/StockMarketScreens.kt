@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -55,9 +57,13 @@ private val FallGreen = Color(0xFF80F7B4)
 private val Aqua = Color(0xFF8DF9EA)
 private val WarningYellow = Color(0xFFFFD36E)
 private val SectionLine = Color.White.copy(alpha = 0.085f)
+private val MarketTileFill = Color.White.copy(alpha = 0.045f)
+private val MarketTileBorder = Color.White.copy(alpha = 0.095f)
+private val MarketTileShape = RoundedCornerShape(18.dp)
+private val MarketPillShape = RoundedCornerShape(999.dp)
 
 // 高度按当前内容上限预留，避免榜单、状态和慢数据在大字体设备上被父容器裁切。
-private val MarketOverviewPanelHeight = 520.dp
+private val MarketOverviewPanelHeight = 536.dp
 private val MarketContentPanelHeight = 720.dp
 private val MarketStatusPanelHeight = 390.dp
 private val StockDetailCorePanelHeight = 980.dp
@@ -288,102 +294,143 @@ private fun TopSearchBar(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit
 ) {
+    val intensity = appState.glassIntensity.coerceIn(0.45f, 1.20f)
     Row(
-        Modifier.fillMaxWidth().height(46.dp),
+        modifier = Modifier.fillMaxWidth().height(46.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("⌕", color = Aqua, fontSize = 19.sp, fontWeight = FontWeight.Black)
-        BasicTextField(
-            value = ui.query,
-            onValueChange = onQueryChange,
-            singleLine = true,
-            textStyle = TextStyle(
-                color = Color.White,
-                fontSize = 16.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Black
-            ),
-            cursorBrush = SolidColor(Color.White.copy(alpha = 0.92f)),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Text,
-                imeAction = ImeAction.Search
-            ),
-            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-            modifier = Modifier.weight(1f),
-            decorationBox = { inner ->
-                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                    if (ui.query.isBlank()) {
-                        Text(
-                            "搜索股票代码或名称",
-                            color = Color.White.copy(alpha = 0.38f),
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .height(44.dp)
+                .background(Color.White.copy(alpha = 0.055f * intensity), MarketTileShape)
+                .border(1.dp, MarketTileBorder.copy(alpha = 0.10f * intensity), MarketTileShape)
+                .padding(horizontal = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text("⌕", color = Aqua.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.Black)
+            BasicTextField(
+                value = ui.query,
+                onValueChange = onQueryChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = Color.White.copy(alpha = 0.96f),
+                    fontSize = 15.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Black
+                ),
+                cursorBrush = SolidColor(Aqua.copy(alpha = 0.92f)),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Search
+                ),
+                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+                modifier = Modifier.weight(1f),
+                decorationBox = { inner ->
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
+                        if (ui.query.isBlank()) {
+                            Text(
+                                "股票代码或名称",
+                                color = Color.White.copy(alpha = 0.34f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        inner()
                     }
-                    inner()
                 }
-            }
-        )
-        StockButton(
-            appState,
-            if (ui.loading) "连接" else "搜索",
-            Modifier.width(70.dp).height(38.dp),
-            onSearch,
-            active = true
-        )
+            )
+        }
+        Box(
+            modifier = Modifier
+                .width(78.dp)
+                .height(44.dp)
+                .background(Aqua.copy(alpha = 0.15f * intensity), MarketPillShape)
+                .border(1.dp, Aqua.copy(alpha = 0.24f * intensity), MarketPillShape)
+                .clickable(onClick = onSearch),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                if (ui.loading) "连接中" else "搜索",
+                color = Color.White.copy(alpha = 0.96f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1
+            )
+        }
     }
 }
 
 @Composable
 private fun MarketIndexSection(ui: StockMarketUiState) {
-    Section("主要指数", "10 个沪深京核心指数 · 横向滑动")
-    val indices = ui.marketHome.indices
-    if (indices.isEmpty()) {
-        ModuleStatusLine(
-            if (ui.marketLoading) {
-                StockModuleMeta(status = StockModuleStatus.Partial, source = "正在加载真实指数")
-            } else {
-                ui.marketHome.indicesMeta
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Section("主要指数", "核心指数实时快照 · 左右滑动查看更多")
+        val indices = ui.marketHome.indices
+        if (indices.isEmpty()) {
+            ModuleStatusLine(
+                if (ui.marketLoading) {
+                    StockModuleMeta(status = StockModuleStatus.Partial, source = "正在加载真实指数")
+                } else {
+                    ui.marketHome.indicesMeta
+                }
+            )
+            return@Column
+        }
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().height(90.dp),
+            contentPadding = PaddingValues(end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            items(indices, key = { "${it.name}-${it.value}" }) { item ->
+                IndexCard(item)
             }
-        )
-        return
-    }
-    LazyRow(
-        modifier = Modifier.fillMaxWidth().height(88.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(indices, key = { "${it.name}-${it.value}" }) { item ->
-            IndexCard(item)
         }
     }
 }
 
 @Composable
 private fun IndexCard(item: StockIndexSnapshot) {
+    val tone = quoteColor(item.isRising)
     Column(
-        Modifier.width(104.dp).height(82.dp),
-        verticalArrangement = Arrangement.Center
+        modifier = Modifier
+            .width(126.dp)
+            .height(86.dp)
+            .background(MarketTileFill, MarketTileShape)
+            .border(1.dp, tone.copy(alpha = 0.16f), MarketTileShape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                item.name,
+                color = Color.White.copy(alpha = 0.58f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                if (item.isRising) "↑" else "↓",
+                color = tone.copy(alpha = 0.86f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
         Text(
-            item.name,
-            color = Color.White.copy(alpha = 0.52f),
-            fontSize = 10.sp,
+            item.value,
+            color = Color.White.copy(alpha = 0.96f),
+            fontSize = 17.sp,
+            lineHeight = 21.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Spacer(Modifier.height(5.dp))
-        Text(
-            item.value,
-            color = Color.White.copy(alpha = 0.92f),
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1
-        )
         Text(
             item.changePercent,
-            color = quoteColor(item.isRising),
+            color = tone,
             fontSize = 11.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1
@@ -395,39 +442,96 @@ private fun IndexCard(item: StockIndexSnapshot) {
 private fun MarketBreadthSection(ui: StockMarketUiState) {
     val breadth = ui.marketHome.marketBreadth
     val sentiment = ui.marketHome.sentiment
-    Section("市场宽度", "全市场涨跌分布与派生情绪温度")
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        MetricTile("上涨", breadth.upCount?.toString() ?: "--", RiseRed, Modifier.weight(1f))
-        MetricTile("下跌", breadth.downCount?.toString() ?: "--", FallGreen, Modifier.weight(1f))
-        MetricTile("涨停", breadth.limitUpCount?.toString() ?: "--", RiseRed, Modifier.weight(1f))
-        MetricTile("跌停", breadth.limitDownCount?.toString() ?: "--", FallGreen, Modifier.weight(1f))
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Section("市场宽度", "涨跌结构、赚钱效应与市场热度")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            MarketBreadthMetricCard("上涨", breadth.upCount?.toString() ?: "--", RiseRed, Modifier.weight(1f), true)
+            MarketBreadthMetricCard("下跌", breadth.downCount?.toString() ?: "--", FallGreen, Modifier.weight(1f), true)
+            MarketBreadthMetricCard("涨停", breadth.limitUpCount?.toString() ?: "--", RiseRed, Modifier.weight(1f), true)
+            MarketBreadthMetricCard("跌停", breadth.limitDownCount?.toString() ?: "--", FallGreen, Modifier.weight(1f), true)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            MarketBreadthMetricCard("红盘率", percentText(breadth.redRate), Color.White, Modifier.weight(1f))
+            MarketBreadthMetricCard("赚钱效应", percentText(breadth.moneyMakingEffect), Aqua, Modifier.weight(1f))
+            MarketBreadthMetricCard(
+                "情绪温度",
+                temperatureText(sentiment.temperature),
+                sentimentColor(sentiment.temperature),
+                Modifier.weight(1f)
+            )
+        }
+        MarketTurnoverBar(breadth.marketAmount)
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        MetricTile("红盘率", percentText(breadth.redRate), Color.White, Modifier.weight(1f))
-        MetricTile("赚钱效应", percentText(breadth.moneyMakingEffect), Aqua, Modifier.weight(1f))
-        MetricTile(
-            "情绪温度",
-            temperatureText(sentiment.temperature),
-            sentimentColor(sentiment.temperature),
-            Modifier.weight(1f)
-        )
-    }
-    Row(
-        Modifier.fillMaxWidth().height(42.dp),
-        verticalAlignment = Alignment.CenterVertically
+}
+
+@Composable
+private fun MarketBreadthMetricCard(
+    label: String,
+    value: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    prominent: Boolean = false
+) {
+    Column(
+        modifier = modifier
+            .height(if (prominent) 64.dp else 58.dp)
+            .background(MarketTileFill, MarketTileShape)
+            .border(1.dp, color.copy(alpha = if (prominent) 0.16f else 0.10f), MarketTileShape)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            "全市场成交额",
-            color = Color.White.copy(alpha = 0.48f),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold
+            label,
+            color = Color.White.copy(alpha = 0.44f),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
+        Text(
+            value.ifBlank { "--" },
+            color = color.copy(alpha = 0.96f),
+            fontSize = if (prominent) 15.sp else 13.sp,
+            lineHeight = if (prominent) 19.sp else 17.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun MarketTurnoverBar(value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .background(Color.White.copy(alpha = 0.052f), MarketTileShape)
+            .border(1.dp, MarketTileBorder, MarketTileShape)
+            .padding(horizontal = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "全市场成交额",
+                color = Color.White.copy(alpha = 0.66f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Black
+            )
+            Text(
+                "沪深京实时汇总",
+                color = Color.White.copy(alpha = 0.32f),
+                fontSize = 8.sp
+            )
+        }
         Spacer(Modifier.weight(1f))
         Text(
-            breadth.marketAmount,
-            color = Color.White.copy(alpha = 0.92f),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Black
+            value.ifBlank { "--" },
+            color = Color.White.copy(alpha = 0.96f),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -1044,7 +1148,7 @@ private fun StockButton(
     onClick: () -> Unit,
     active: Boolean = false
 ) {
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(999.dp)
+    val shape = RoundedCornerShape(999.dp)
     val intensity = appState.glassIntensity.coerceIn(0.45f, 1.20f)
     val fillAlpha = (if (active) 0.20f else 0.075f) * intensity
     Box(
