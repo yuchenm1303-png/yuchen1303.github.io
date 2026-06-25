@@ -48,7 +48,7 @@ private val DetailTileShape = RoundedCornerShape(18.dp)
 private val DetailPillShape = RoundedCornerShape(999.dp)
 
 private val DetailQuotePanelHeight = 258.dp
-private val DetailTimeTerminalHeight = 748.dp
+private val DetailTimeTerminalHeight = 604.dp
 private val DetailKTerminalHeight = 666.dp
 private val DetailActionPanelHeight = 82.dp
 private val DetailDecisionPanelHeight = 454.dp
@@ -81,11 +81,19 @@ internal fun StockDetailPageV3(
                 appState,
                 Modifier.height(if (isTimeShare) DetailTimeTerminalHeight else DetailKTerminalHeight)
             ) {
-                StockProfessionalTerminalV3(
-                    appState = appState,
-                    ui = ui,
-                    onSelectTab = onSelectTab
-                )
+                if (isTimeShare) {
+                    StockProfessionalTerminalV4(
+                        appState = appState,
+                        ui = ui,
+                        onSelectTab = onSelectTab
+                    )
+                } else {
+                    StockProfessionalTerminalV3(
+                        appState = appState,
+                        ui = ui,
+                        onSelectTab = onSelectTab
+                    )
+                }
             }
         }
         item {
