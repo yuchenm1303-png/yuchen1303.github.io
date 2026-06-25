@@ -68,7 +68,7 @@ object DeviceControlRouter {
         if (raw == null) return null
         CloudAgentStep.fromJson(raw)?.takeIf { it.type in CloudAgentStep.deviceToolTypes }?.let { return it }
 
-        val rawCapability = raw.firstNonBlank("capability", "tool", "type", "action", "name")
+        val rawCapability = raw.deviceControlFirstNonBlank("capability", "tool", "type", "action", "name")
             ?: return null
         val stepType = normalizeCapability(rawCapability) ?: return null
         val args = raw.optJSONObject("arguments")
@@ -82,7 +82,7 @@ object DeviceControlRouter {
         copyIfPresent(raw, merged, "percent", "brightness", "volume", "deltaPercent", "scale")
         copyIfPresent(raw, merged, "seconds", "minutes", "timeoutMs")
 
-        val risk = raw.firstNonBlank("riskLevel", "risk")
+        val risk = raw.deviceControlFirstNonBlank("riskLevel", "risk")
             ?: if (stepType in highRiskTypes) "high" else "low"
         val requiresConfirmation = raw.optFlexibleBooleanCompat("requiresConfirmation")
             ?: raw.optFlexibleBooleanCompat("confirm")
@@ -90,18 +90,18 @@ object DeviceControlRouter {
 
         return CloudAgentStep(
             type = stepType,
-            targetText = raw.firstNonBlank("targetText", "target", "title", "label")
-                ?: args.firstNonBlank("targetText", "target", "title", "label"),
-            text = raw.firstNonBlank("text", "value")
-                ?: args.firstNonBlank("text", "value"),
-            reason = raw.firstNonBlank("reason", "rationale")
+            targetText = raw.deviceControlFirstNonBlank("targetText", "target", "title", "label")
+                ?: args.deviceControlFirstNonBlank("targetText", "target", "title", "label"),
+            text = raw.deviceControlFirstNonBlank("text", "value")
+                ?: args.deviceControlFirstNonBlank("text", "value"),
+            reason = raw.deviceControlFirstNonBlank("reason", "rationale")
                 ?: fallbackReason?.trim()?.takeIf { it.isNotBlank() },
             riskLevel = risk.lowercase().replace('-', '_'),
             requiresConfirmation = requiresConfirmation,
-            appName = raw.firstNonBlank("appName", "app", "application")
-                ?: args.firstNonBlank("appName", "app", "application", "label", "name"),
-            packageName = raw.firstNonBlank("packageName", "package", "pkg")
-                ?: args.firstNonBlank("packageName", "package", "pkg"),
+            appName = raw.deviceControlFirstNonBlank("appName", "app", "application")
+                ?: args.deviceControlFirstNonBlank("appName", "app", "application", "label", "name"),
+            packageName = raw.deviceControlFirstNonBlank("packageName", "package", "pkg")
+                ?: args.deviceControlFirstNonBlank("packageName", "package", "pkg"),
             toolArgs = merged.takeIf { it.length() > 0 },
         )
     }
@@ -139,7 +139,7 @@ object DeviceControlRouter {
     }
 }
 
-private fun JSONObject.firstNonBlank(vararg names: String): String? {
+private fun JSONObject.deviceControlFirstNonBlank(vararg names: String): String? {
     for (name in names) {
         val value = optString(name).trim()
         if (value.isNotBlank()) return value
