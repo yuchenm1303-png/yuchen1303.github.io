@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py ./
 COPY realtime_runtime.py ./
 COPY market_home_server.py ./
+RUN python -m py_compile main.py realtime_runtime.py market_home_server.py
 
 EXPOSE 8000
 
