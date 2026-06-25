@@ -2,7 +2,7 @@ package com.yuchen.ailedger.ui.gl
 
 /**
  * 圆肩折射使用 fc725b 的 V29.5 整圈统一内部轮廓映射。
- * 仅收敛重复表达式，不改变来源点、材质或色散视觉。
+ * 仅复用同一像素内已经得到的圆角几何常量，不改变来源点、材质或色散视觉。
  */
 internal object WebOpenGLOuterPeakShoulderShader {
     const val DEFAULT_VISIBLE_WIDTH_DP = 21.716216f
@@ -29,23 +29,23 @@ internal object WebOpenGLOuterPeakShoulderShader {
         }
         vec2 unifiedInnerContourPoint(
             vec2 boundaryPoint,
-            vec2 z,
+            vec2 center,
+            vec2 safeHalfSize,
+            vec2 invSafeCenter,
             float captureWidth
         ){
-            vec2 center=z*0.5;
-            vec2 halfSize=max(center,vec2(1.0));
-            vec2 innerHalf=max(halfSize-vec2(captureWidth),vec2(1.0));
-            vec2 normalized=(boundaryPoint-center)/halfSize;
+            vec2 innerHalf=max(safeHalfSize-vec2(captureWidth),vec2(1.0));
+            vec2 normalized=(boundaryPoint-center)*invSafeCenter;
             return center+normalized*innerHalf;
         }
         float shoulderTangentialSignal(
             vec2 p,
             vec2 tangent,
-            vec2 z,
+            vec2 center,
+            vec2 invSafeCenter,
             float bodyCurve
         ){
-            vec2 center=z*0.5;
-            vec2 u=(p-center)/max(center,vec2(1.0));
+            vec2 u=(p-center)*invSafeCenter;
             vec2 contourVector=vec2(-u.y,u.x);
             float contourLength=length(contourVector);
             float contourSignal=0.0;
@@ -59,7 +59,8 @@ internal object WebOpenGLOuterPeakShoulderShader {
         float shoulderTangentialTravel(
             vec2 p,
             vec2 tangent,
-            vec2 z,
+            vec2 center,
+            vec2 invSafeCenter,
             float captureWidth,
             float envelope,
             float bodyCurve
@@ -70,13 +71,18 @@ internal object WebOpenGLOuterPeakShoulderShader {
             }
             float amplitude=captureWidth*0.30*(flowStrength/2.4);
             return amplitude
-                *shoulderTangentialSignal(p,tangent,z,bodyCurve)
+                *shoulderTangentialSignal(
+                    p,tangent,center,invSafeCenter,bodyCurve
+                )
                 *pow(envelope,0.82);
         }
         vec4 evaluateShoulderSource(
             vec2 p,
             vec2 edgeNormal,
-            vec2 z,
+            vec2 center,
+            vec2 safeHalfSize,
+            vec2 sdfCore,
+            vec2 invSafeCenter,
             float r,
             float depth,
             vec3 shoulderGeometry,
@@ -94,26 +100,39 @@ internal object WebOpenGLOuterPeakShoulderShader {
             float tangentTravel=shoulderTangentialTravel(
                 p,
                 tangent,
-                z,
+                center,
+                invSafeCenter,
                 captureWidth,
                 envelope,
                 bodyCurve
             );
             vec2 boundaryPoint=p+edgeNormal*depth;
             vec2 innerContourPoint=unifiedInnerContourPoint(
-                boundaryPoint,z,captureWidth
+                boundaryPoint,
+                center,
+                safeHalfSize,
+                invSafeCenter,
+                captureWidth
             );
             vec2 sourcePoint=
                 mix(p,innerContourPoint,envelope)
                 +tangent*tangentTravel;
-            float sourceSd=roundedBoxSdf(sourcePoint,z,r);
+            float sourceSd=roundedBoxSdfPrepared(
+                sourcePoint,center,sdfCore,r
+            );
             if(sourceSd>-0.5){
-                vec2 correctionNormal=perimeterNormalAt(sourcePoint,z,r);
+                vec2 correctionNormal=perimeterNormalPrepared(
+                    sourcePoint,center,sdfCore
+                );
                 sourcePoint-=correctionNormal*(sourceSd+0.5);
-                sourceSd=roundedBoxSdf(sourcePoint,z,r);
+                sourceSd=roundedBoxSdfPrepared(
+                    sourcePoint,center,sdfCore,r
+                );
             }
             sourceDepth=max(-sourceSd,0.0);
-            sourceNormal=perimeterNormalAt(sourcePoint,z,r);
+            sourceNormal=perimeterNormalPrepared(
+                sourcePoint,center,sdfCore
+            );
             float fresnelBase=1.0-cos(theta);
             float fresnel2=fresnelBase*fresnelBase;
             float fresnel=0.04+0.96*fresnel2*fresnel2*fresnelBase;
@@ -124,6 +143,9 @@ internal object WebOpenGLOuterPeakShoulderShader {
             float pointDepth,
             vec2 pointNormal,
             vec2 z,
+            vec2 center,
+            vec2 invSafeCenter,
+            float minSize,
             vec3 lensParams,
             float pointWeight,
             vec3 transportParams,
@@ -155,7 +177,13 @@ internal object WebOpenGLOuterPeakShoulderShader {
                 +bodyRefractionFlow(
                     pointNormal,pointDepth,pointWeight,lensParams
                 )
-                +centerTransport(point,z,transportParams)
+                +centerTransport(
+                    point,
+                    center,
+                    invSafeCenter,
+                    minSize,
+                    transportParams
+                )
                 +pressFlow;
         }
     """
