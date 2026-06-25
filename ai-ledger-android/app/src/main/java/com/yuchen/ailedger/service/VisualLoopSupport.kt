@@ -64,11 +64,14 @@ internal object VisualLoopSupport {
         }
         if (selected.bounds.contains(pointX, pointY)) return step
 
-        // A unique explicit label is safe to ground even when GUI Plus placed the coordinate farther
-        // away. Ambiguous repeated labels are corrected only when the point is already near one.
+        val targetDistance = selected.bounds.distanceTo(pointX, pointY)
         val proximityLimit = (min(displayWidth, displayHeight) * TARGET_GROUNDING_PROXIMITY_RATIO)
             .coerceIn(MIN_TARGET_GROUNDING_PX, MAX_TARGET_GROUNDING_PX)
-        if (bestCandidates.size > 1 && selected.bounds.distanceTo(pointX, pointY) > proximityLimit) return step
+        val exactDeclaredMatch = bestScore >= EXACT_TARGET_SCORE
+        // A unique exact/quoted label may be grounded across the page. Partial text matches and
+        // repeated labels are corrected only when the original coordinate is already nearby.
+        if (!exactDeclaredMatch && targetDistance > proximityLimit) return step
+        if (bestCandidates.size > 1 && targetDistance > proximityLimit) return step
 
         val corrected = selected.bounds.nearestInteriorPoint(pointX, pointY)
         val label = selected.node.text.trim().take(32)
