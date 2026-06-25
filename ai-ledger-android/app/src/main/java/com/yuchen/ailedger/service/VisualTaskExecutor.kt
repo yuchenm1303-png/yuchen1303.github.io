@@ -129,3 +129,45 @@ private fun VisualTaskExecutor.executorAppContext(
     .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
     .take(VisualLoopSupport.MAX_APP_CONTEXT_ITEMS)
     .toList()
+
+internal suspend fun VisualTaskExecutor.captureTurn(session: VisualTaskSession): VisualTurn? {
+    var observation = session.prefetchedObservation?.also { session.prefetchedObservation = null }
+        ?: observationCoordinator.captureTrustedObservation(
+            forceVisual = session.execution.requiresVisualObservation(),
+            expectedPackage = session.execution.selectedTargetPackage,
+        )
+    var snapshot = observation.toAgentScreenSnapshot()
+    session.state.currentPackage = snapshot.currentApp
+    var runtime = session.execution.runtimeContext(snapshot)
+    if (runtime.guiPlusEligible && snapshot.visual?.hasImage != true) {
+        observation = observationCoordinator.captureTrustedObservation(
+            forceVisual = true,
+            expectedPackage = session.execution.selectedTargetPackage,
+        )
+        snapshot = observation.toAgentScreenSnapshot()
+        runtime = session.execution.runtimeContext(snapshot)
+        session.state.currentPackage = snapshot.currentApp
+    }
+    if (session.stopped()) return null
+    VisualLoopMemorySupport.replaceRuntimeLine(session.recentActions, runtime)
+    VisualLoopMemorySupport.replaceMemoryLine(
+        session.recentActions,
+        session.semantic.memorySnapshot(snapshot),
+    )
+    when {
+        runtime.guiPlusEligible -> AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前子目标与页面证据")
+        runtime.surfaceState == VisualSurfaceState.Launching ->
+            AgentRuntimeController.noteDiagnostic("正在确认目标应用前台状态")
+    }
+    return VisualTurn(observation, snapshot, runtime)
+}
+
+internal fun VisualTaskExecutor.appContextForTurn(
+    session: VisualTaskSession,
+    runtime: VisualAgentRuntimeContext,
+): List<VisualAgentAppContextItem> {
+    if (!session.fullAppCatalogUploaded || runtime.surfaceState != VisualSurfaceState.WorkSurface) {
+        return session.appContext
+    }
+    return session.appContext.filter { it.packageName == runtime.verifiedTargetPackage }.take(1)
+}
