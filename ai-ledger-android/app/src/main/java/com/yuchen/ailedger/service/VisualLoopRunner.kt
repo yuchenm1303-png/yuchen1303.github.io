@@ -275,23 +275,13 @@ class VisualLoopRunner(
             if (prepared.alreadyForeground) {
                 val result = AgentExecutionResult(true, "Target package is already foreground: $expectedPackage", true)
                 recordResult(session, turn.snapshot.currentApp, executable, result)
-                val summary = VisualLoopSupport.resultSummary(
-                    executable,
-                    VisualActionValidator.actionSignature(executable),
-                    result,
-                )
-                val verified = "open_app_package_verified:package=$expectedPackage|mode=already_foreground"
-                VisualLoopSupport.appendRecent(session.recentActions, summary)
-                VisualLoopSupport.appendRecent(session.recentActions, verified)
-                VisualLoopMemorySupport.rememberTurn(
-                    session.visualHistory,
-                    turn.snapshot,
-                    plan,
-                    "$summary;$verified",
-                )
-                session.execution.markTargetVerified(expectedPackage)
-                session.semantic.onVerifiedSurface(turn.snapshot)
                 session.state.executedActions += 1
+                session.state.lastAction = VisualActionValidator.actionSignature(executable)
+                session.state.rejectedPlans = 0
+                val summary = VisualLoopSupport.resultSummary(executable, session.state.lastAction, result)
+                VisualLoopSupport.appendRecent(session.recentActions, summary)
+                VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, summary)
+                handleOpenAppResult(session, executable, turn.snapshot, result, summary)
                 return VisualLoopDecision.Continue
             }
         }
@@ -322,11 +312,21 @@ class VisualLoopRunner(
             ).toAgentScreenSnapshot()
             session.execution.synchronizeWith(fresh)
             val verified = session.execution.isVerifiedWorkSurface(fresh)
-            val contextFresh = VisualObservationProtocol.isActionContextFresh(turn.snapshot, fresh)
-            if (!verified || !contextFresh) {
+            val freshness = VisualObservationProtocol.evaluateActionContextFreshness(
+                step = executable,
+                observedSnapshot = turn.snapshot,
+                currentSnapshot = fresh,
+            )
+            if (!verified || !freshness.fresh) {
                 val failureClass = if (verified) "visual_local" else "structural_route"
-                val reason = if (verified) "screen_changed_before_execution" else "target_surface_lost"
-                val feedback = "visual_action_stale:type=${executable.type}|failureClass=$failureClass|reason=$reason|replanRequired=true"
+                val reason = if (verified) freshness.reason else "target_surface_lost"
+                val feedback = buildString {
+                    append("visual_action_stale:type=").append(executable.type)
+                    append("|failureClass=").append(failureClass)
+                    append("|reason=").append(reason)
+                    append("|surfaceSimilarity=").append(freshness.surfaceSimilarity)
+                    append("|replanRequired=true")
+                }
                 session.logs += AgentTaskStepLog(
                     session.logs.size + 1,
                     fresh.currentApp,
@@ -619,12 +619,20 @@ class VisualLoopRunner(
             isStopped = session::stopped,
         )
         if (verification.verified) {
-            val feedback = "open_app_package_verified:package=$expectedPackage|stableSamples=${verification.stableSamples}"
-            VisualLoopSupport.appendRecent(session.recentActions, feedback)
-            VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-            session.execution.markTargetVerified(expectedPackage)
-            session.semantic.onVerifiedSurface(verification.lastSnapshot ?: snapshot)
-            session.prefetchedObservation = verification.lastObservation
+            val accepted = session.execution.markTargetVerified(expectedPackage, verification)
+            if (accepted) {
+                val feedback = "open_app_package_verified:package=$expectedPackage|stableSamples=${verification.stableSamples}|visualFrame=true"
+                VisualLoopSupport.appendRecent(session.recentActions, feedback)
+                VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
+                session.semantic.onVerifiedSurface(verification.lastSnapshot ?: snapshot)
+                session.prefetchedObservation = verification.lastObservation
+            } else {
+                val actual = verification.lastSnapshot?.packageName.orEmpty()
+                val feedback = "open_app_package_verification_failed:expected=$expectedPackage|actual=${actual.take(100)}|failureClass=structural_route|reason=verification_proof_invalid"
+                VisualLoopSupport.appendRecent(session.recentActions, feedback)
+                VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
+                session.execution.markStructuralReplan()
+            }
         } else {
             val actual = verification.lastSnapshot?.packageName.orEmpty()
             val pending = VisualSurfacePackagePolicy.requiresForegroundFallback(actual)
