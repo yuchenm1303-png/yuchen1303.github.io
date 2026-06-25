@@ -49,15 +49,24 @@ data class ScreenObservation(
     val visual: ScreenVisualObservation? = null,
 )
 
+data class AccessibilityWindowPackageHint(
+    val packageName: String,
+    val windowTitle: String,
+    val observedAt: Long,
+)
+
 object ScreenObservationStore {
     private val mutableObservation = MutableStateFlow(ScreenObservation())
     val observation: StateFlow<ScreenObservation> = mutableObservation.asStateFlow()
+
+    @Volatile private var latestWindowPackageHint: AccessibilityWindowPackageHint? = null
 
     fun update(observation: ScreenObservation) {
         mutableObservation.value = observation
     }
 
     fun markConnectedWaitingForWindow() {
+        latestWindowPackageHint = null
         val current = mutableObservation.value
         mutableObservation.value = current.copy(
             enabled = true,
@@ -77,11 +86,19 @@ object ScreenObservationStore {
     }
 
     fun updateWindowHint(packageName: String, windowTitle: String = "") {
+        val cleanPackage = packageName.trim()
+        if (cleanPackage.isBlank()) return
+        val now = System.currentTimeMillis()
+        latestWindowPackageHint = AccessibilityWindowPackageHint(
+            packageName = cleanPackage,
+            windowTitle = windowTitle.trim(),
+            observedAt = now,
+        )
         val current = mutableObservation.value
         mutableObservation.value = current.copy(
             enabled = true,
             serviceConnected = true,
-            packageName = packageName.ifBlank { current.packageName },
+            packageName = cleanPackage,
             windowTitle = windowTitle.ifBlank { current.windowTitle },
             textItems = emptyList(),
             allItems = emptyList(),
@@ -91,11 +108,24 @@ object ScreenObservationStore {
             nodeCount = 0,
             capturedNodeCount = 0,
             visual = current.visual?.takeIf { it.hasReferenceFrame },
-            updatedAt = System.currentTimeMillis(),
+            updatedAt = now,
         )
     }
 
+    fun recentWindowPackageHint(
+        maxAgeMs: Long = WINDOW_PACKAGE_HINT_MAX_AGE_MS,
+        nowMs: Long = System.currentTimeMillis(),
+    ): AccessibilityWindowPackageHint? {
+        val hint = latestWindowPackageHint ?: return null
+        return hint.takeIf {
+            nowMs >= it.observedAt && nowMs - it.observedAt <= maxAgeMs.coerceAtLeast(0L)
+        }
+    }
+
     fun markDisabled() {
+        latestWindowPackageHint = null
         mutableObservation.value = ScreenObservation(updatedAt = System.currentTimeMillis())
     }
+
+    private const val WINDOW_PACKAGE_HINT_MAX_AGE_MS = 1_500L
 }
