@@ -133,6 +133,7 @@ class StockMarketViewModel(
         stopRealtimeLoop()
         stopMarketLoop()
         slowDetailJob?.cancel()
+        startMarketLoop()
         loadLite(openDetail = false)
     }
 
@@ -290,7 +291,7 @@ class StockMarketViewModel(
                 it.copy(
                     loading = true,
                     depthState = if (openDetail) StockDepthState() else it.depthState,
-                    requestMessage = "连接新版A股行情代理中"
+                    requestMessage = if (openDetail) "连接新版A股行情代理中" else it.requestMessage
                 )
             }
             val loaded = withContext(Dispatchers.IO) {
@@ -307,7 +308,7 @@ class StockMarketViewModel(
                     loading = false,
                     showDetail = if (openDetail) true else state.showDetail,
                     slowData = if (openDetail) StockSlowDataSnapshot() else state.slowData,
-                    requestMessage = sanitized.errorMessage
+                    requestMessage = if (openDetail) sanitized.errorMessage else state.requestMessage
                 )
             }
 
@@ -365,16 +366,13 @@ class StockMarketViewModel(
         if (marketLoopJob?.isActive == true) return
         marketLoopJob = viewModelScope.launch {
             var firstRound = true
-            var nextTickAt = SystemClock.elapsedRealtime()
+            var warmupRetryIndex = 0
             while (isActive && pageActive && !_uiState.value.showDetail) {
-                val waitMs = nextTickAt - SystemClock.elapsedRealtime()
-                if (waitMs > 0L) delay(waitMs)
-                if (!pageActive || _uiState.value.showDetail) break
-
                 if (firstRound) _uiState.update { it.copy(marketLoading = true) }
                 val result = withContext(Dispatchers.IO) {
                     marketDataRepository.loadMarketHome()
                 }
+                val warmupComplete = result.getOrNull()?.hasWarmupData() == true
                 _uiState.update { state ->
                     result.fold(
                         onSuccess = { snapshot ->
@@ -402,11 +400,25 @@ class StockMarketViewModel(
                     )
                 }
                 firstRound = false
-                nextTickAt += MARKET_REFRESH_INTERVAL_MS
-                val now = SystemClock.elapsedRealtime()
-                while (nextTickAt <= now) nextTickAt += MARKET_REFRESH_INTERVAL_MS
+                if (!pageActive || _uiState.value.showDetail) break
+
+                val nextDelay = if (
+                    !warmupComplete && warmupRetryIndex < MARKET_WARMUP_RETRY_DELAYS_MS.size
+                ) {
+                    MARKET_WARMUP_RETRY_DELAYS_MS[warmupRetryIndex++]
+                } else {
+                    MARKET_REFRESH_INTERVAL_MS
+                }
+                delay(nextDelay)
             }
         }
+    }
+
+    private fun StockMarketHomeSnapshot.hasWarmupData(): Boolean {
+        return indices.isNotEmpty() &&
+            marketBreadth.meta.hasRealData &&
+            boards.isNotEmpty() &&
+            sectors.isNotEmpty()
     }
 
     private fun stopMarketLoop() {
@@ -771,6 +783,7 @@ class StockMarketViewModel(
     companion object {
         private const val REALTIME_INTERVAL_MS = 1_000L
         private const val MARKET_REFRESH_INTERVAL_MS = 20_000L
+        private val MARKET_WARMUP_RETRY_DELAYS_MS = longArrayOf(1_200L, 2_400L, 4_800L)
         private const val SLOW_DETAIL_DELAY_MS = 1_200L
         private const val MAX_ONE_DAY_POINTS = 600
         private const val MAX_FIVE_DAY_POINTS = 2_600
