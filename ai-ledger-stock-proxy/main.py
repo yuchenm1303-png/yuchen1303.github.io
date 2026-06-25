@@ -347,7 +347,7 @@ def _normalize_period(period: str) -> tuple[str, str]:
 def _quote_fields() -> str:
     base_fields = [
         "f43", "f44", "f45", "f46", "f47", "f48", "f50", "f57", "f58", "f60",
-        "f116", "f117", "f162", "f167", "f168", "f169", "f170", "f62", "f66", "f72", "f78", "f84",
+        "f51", "f52", "f116", "f117", "f162", "f167", "f168", "f169", "f170", "f62", "f66", "f72", "f78", "f84",
     ]
     order_fields = [f"f{i}" for i in range(11, 41)]
     return ",".join(dict.fromkeys(base_fields + order_fields))
@@ -450,6 +450,67 @@ def _fallback_order_book_from_quote(quote: dict[str, Any]) -> tuple[list[dict[st
     sell = [{"label": f"卖{i}", "price": _format_price(price + unit * i), "volume": _format_lots(base_volume * (6 - i)), "isAsk": True} for i in range(5, 0, -1)]
     buy = [{"label": f"买{i}", "price": _format_price(price - unit * i), "volume": _format_lots(base_volume * (i + 1)), "isAsk": False} for i in range(1, 6)]
     return sell, buy
+
+
+def _valid_true_depth_price(
+    raw_value: Any,
+    quote_price: float,
+    *,
+    is_ask: bool,
+    limit_up: float,
+    limit_down: float,
+    warnings: list[str],
+    label: str,
+) -> float | None:
+    price = _scaled(raw_value, -1.0)
+    if price <= 0:
+        return None
+    if quote_price > 0 and abs(price - quote_price) / quote_price > 0.35:
+        warnings.append(f"order_book: {label}_price_out_of_range")
+        return None
+    if is_ask and limit_up > 0 and price > limit_up + 0.0001:
+        warnings.append(f"order_book: {label}_above_limit_up")
+        return None
+    if not is_ask and limit_down > 0 and price < limit_down - 0.0001:
+        warnings.append(f"order_book: {label}_below_limit_down")
+        return None
+    return price
+
+
+def _order_book_from_raw(raw: dict[str, Any], quote: dict[str, Any], warnings: list[str]) -> tuple[list[dict[str, str]], list[dict[str, str]], dict[str, Any]]:
+    quote_price = _safe_float(quote.get("price"))
+    limit_up = _scaled(raw.get("f51"), -1.0)
+    limit_down = _scaled(raw.get("f52"), -1.0)
+
+    def read_levels(pairs: list[tuple[int, int]], labels: list[str], is_ask: bool) -> list[dict[str, str]]:
+        rows: list[dict[str, str]] = []
+        for (price_field, volume_field), label in zip(pairs, labels):
+            price = _valid_true_depth_price(raw.get(f"f{price_field}"), quote_price, is_ask=is_ask, limit_up=limit_up, limit_down=limit_down, warnings=warnings, label=label)
+            volume = _safe_float(raw.get(f"f{volume_field}"))
+            if price is not None and volume > 0:
+                rows.append({"label": label, "price": _format_price(price), "volume": _format_lots(volume), "isAsk": is_ask})
+        return rows
+
+    sell_levels = sorted(read_levels([(31, 32), (33, 34), (35, 36), (37, 38), (39, 40)], ["卖1", "卖2", "卖3", "卖4", "卖5"], True), key=lambda row: _safe_float(row["price"]))
+    buy_levels = sorted(read_levels([(19, 20), (17, 18), (15, 16), (13, 14), (11, 12)], ["买1", "买2", "买3", "买4", "买5"], False), key=lambda row: _safe_float(row["price"]), reverse=True)
+    if sell_levels and buy_levels and _safe_float(sell_levels[0]["price"]) < _safe_float(buy_levels[0]["price"]):
+        warnings.append("order_book: crossed_book_rejected")
+        sell_levels, buy_levels = [], []
+    status = "ok" if len(sell_levels) == 5 and len(buy_levels) == 5 else ("partial" if sell_levels or buy_levels else "unavailable")
+    depth_meta = {
+        "depthStatus": status,
+        "depthSource": "eastmoney_push2",
+        "depthIsDerived": False,
+        "depthUpdatedAt": datetime.now(timezone.utc).isoformat(),
+        "depthSourceTimestamp": datetime.now(timezone.utc).isoformat(),
+        "depthCacheAgeMs": 0,
+        "depthWarnings": [] if status == "ok" else ["order_book: true_depth_partial_or_empty"],
+    }
+    return sell_levels, buy_levels, depth_meta
+
+
+def _fallback_order_book_from_quote(quote: dict[str, Any]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    raise RuntimeError("simulated order book fallback is disabled; only true upstream depth may be returned")
 
 
 def _money_flow_from_raw(raw: dict[str, Any]) -> dict[str, str]:
@@ -678,8 +739,8 @@ def _rank_item(name: str, code: str, value: str, change_percent: str, is_rising:
     return {"name": name, "code": code, "value": value, "changePercent": change_percent, "isRising": is_rising}
 
 
-def _clist_items(client: httpx.Client, fs: str, fid: str, page_size: int, warnings: list[str], label: str) -> list[dict[str, Any]]:
-    params = {"pn": "1", "pz": str(page_size), "po": "1", "np": "1", "fltt": "2", "invt": "2", "fid": fid, "fs": fs, "fields": "f12,f14,f2,f3,f6,f8,f9,f20,f21,f62,f100,f104,f105,f106"}
+def _clist_items(client: httpx.Client, fs: str, fid: str, page_size: int, warnings: list[str], label: str, po: str = "1") -> list[dict[str, Any]]:
+    params = {"pn": "1", "pz": str(page_size), "po": po, "np": "1", "fltt": "2", "invt": "2", "fid": fid, "fs": fs, "fields": "f12,f14,f2,f3,f6,f8,f9,f10,f20,f21,f22,f62,f100,f104,f105,f106,f128,f136"}
     try:
         raw = _eastmoney_get_first(client, EASTMONEY_CLIST_URLS, params, label, warnings)
         return list((raw.get("data") or {}).get("diff") or [])
@@ -787,7 +848,7 @@ def _build_detail_payload(query: str, mode: str, include_market: bool) -> dict[s
         security = _resolve_security(client, query)
         raw_quote = _load_quote_raw(client, security)
         quote = _quote_from_raw(raw_quote, security)
-        sell_levels, buy_levels = _order_book_from_raw(raw_quote, quote, warnings)
+        sell_levels, buy_levels, depth_meta = _order_book_from_raw(raw_quote, quote, warnings)
         money_flow = _money_flow_from_raw(raw_quote)
         try:
             minute_points = _load_minute_points(client, security, quote, warnings)
@@ -821,6 +882,7 @@ def _build_detail_payload(query: str, mode: str, include_market: bool) -> dict[s
         "minutePoints": minute_points,
         "sellLevels": sell_levels,
         "buyLevels": buy_levels,
+        **depth_meta,
         "tradeTicks": trade_ticks,
         "moneyFlow": money_flow,
         "fundamentals": _fundamentals_from_quote(quote),
@@ -925,7 +987,7 @@ def _build_minute_payload(query: str) -> dict[str, Any]:
     security = _resolve_security(client, query)
     raw_quote = _load_quote_raw(client, security)
     quote = _quote_from_raw(raw_quote, security)
-    sell_levels, buy_levels = _order_book_from_raw(raw_quote, quote, warnings)
+    sell_levels, buy_levels, depth_meta = _order_book_from_raw(raw_quote, quote, warnings)
     points = _load_realtime_minute_points(client, security, quote, warnings)
     trade_ticks = _trade_ticks_from_minute(points, quote)
     warnings.append("trade_ticks: rebuilt_from_minute_tail")
@@ -937,6 +999,7 @@ def _build_minute_payload(query: str) -> dict[str, Any]:
         "minutePoints": points,
         "sellLevels": sell_levels,
         "buyLevels": buy_levels,
+        **depth_meta,
         "tradeTicks": trade_ticks,
         "warnings": warnings,
     }
@@ -994,6 +1057,192 @@ def _realtime_cached_response(kind: str, query: str, mode: str, builder) -> dict
         raise HTTPException(status_code=502, detail=f"realtime quote/minute request failed: {type(exc).__name__}: {exc}") from exc
 
 
+def _module_payload(
+    *,
+    status: str,
+    source: str,
+    source_url_type: str,
+    items: list[Any] | dict[str, Any] | None = None,
+    is_derived: bool = False,
+    warnings: list[str] | None = None,
+    cache_age_ms: int = 0,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "source": source,
+        "sourceUrlType": source_url_type,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "cacheAgeMs": cache_age_ms,
+        "isDerived": is_derived,
+        "warnings": warnings or [],
+        "items": [] if items is None else items,
+    }
+
+
+RANKING_CONFIGS: dict[str, dict[str, str]] = {
+    "gainers": {"fid": "f3", "po": "1", "label": "涨幅榜"},
+    "losers": {"fid": "f3", "po": "0", "label": "跌幅榜"},
+    "amount": {"fid": "f6", "po": "1", "label": "成交额榜"},
+    "turnover": {"fid": "f8", "po": "1", "label": "换手率榜"},
+    "volume_ratio": {"fid": "f10", "po": "1", "label": "量比榜"},
+    "speed": {"fid": "f22", "po": "1", "label": "涨速榜"},
+    "new_high": {"fid": "f3", "po": "1", "label": "近期新高候选"},
+    "new_low": {"fid": "f3", "po": "0", "label": "近期新低候选"},
+    "main_inflow": {"fid": "f62", "po": "1", "label": "主力净流入榜"},
+    "main_outflow": {"fid": "f62", "po": "0", "label": "主力净流出榜"},
+}
+
+
+def _ranking_item(item: dict[str, Any], rank: int) -> dict[str, Any]:
+    return {
+        "rank": rank,
+        "code": _safe_str(item.get("f12"), ""),
+        "name": _safe_str(item.get("f14"), ""),
+        "price": _format_price(item.get("f2")),
+        "changePercent": _format_percent(item.get("f3")),
+        "changeSpeed": _format_percent(item.get("f22")),
+        "amount": _format_cn_money(item.get("f6")),
+        "turnoverRate": _format_percent(item.get("f8"), signed=False),
+        "volumeRatio": _format_price(item.get("f10")),
+        "mainInflow": _format_cn_money(item.get("f62")),
+        "industry": _safe_str(item.get("f100"), ""),
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _load_ranking(type_name: str, limit: int) -> dict[str, Any]:
+    if type_name == "popularity":
+        return _module_payload(status="unavailable", source="eastmoney_guba_popularity", source_url_type="popularity ranking endpoint not stable in current public JSON", warnings=["popularity: no verified stable public JSON source; refusing to reuse gainers ranking"])
+    config = RANKING_CONFIGS.get(type_name)
+    if not config:
+        raise HTTPException(status_code=400, detail=f"unsupported ranking type: {type_name}")
+    warnings: list[str] = []
+    with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
+        rows = _clist_items(client, A_STOCK_FS, config["fid"], limit, warnings, f"ranking_{type_name}", po=config["po"])
+    items = [_ranking_item(item, index + 1) for index, item in enumerate(rows[:limit])]
+    return _module_payload(status="ok" if items else "empty", source="eastmoney_clist", source_url_type=f"qt/clist/get fid={config['fid']} po={config['po']}", items=items, warnings=warnings)
+
+
+def _load_indices_full() -> dict[str, Any]:
+    index_items = [
+        {"name": "上证指数", "code": "000001", "secid": "1.000001"},
+        {"name": "深证成指", "code": "399001", "secid": "0.399001"},
+        {"name": "创业板指", "code": "399006", "secid": "0.399006"},
+        {"name": "沪深300", "code": "000300", "secid": "1.000300"},
+        {"name": "科创50", "code": "000688", "secid": "1.000688"},
+        {"name": "中证A500", "code": "000510", "secid": "1.000510"},
+        {"name": "上证50", "code": "000016", "secid": "1.000016"},
+        {"name": "中证500", "code": "000905", "secid": "1.000905"},
+        {"name": "中证1000", "code": "000852", "secid": "1.000852"},
+        {"name": "北证50", "code": "899050", "secid": "0.899050"},
+    ]
+    warnings: list[str] = []
+    items: list[dict[str, Any]] = []
+    with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
+        for index in index_items:
+            try:
+                raw = _eastmoney_get(client, EASTMONEY_QUOTE_URL, {"secid": index["secid"], "fields": "f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170"}).get("data") or {}
+                items.append({
+                    "code": index["code"],
+                    "name": _safe_str(raw.get("f58"), index["name"]),
+                    "price": _format_price(_scaled(raw.get("f43"), -1.0)),
+                    "changeAmount": _format_signed(_scaled(raw.get("f169"))),
+                    "changePercent": _format_percent(_scaled(raw.get("f170"))),
+                    "open": _format_price(_scaled(raw.get("f46"), -1.0)),
+                    "high": _format_price(_scaled(raw.get("f44"), -1.0)),
+                    "low": _format_price(_scaled(raw.get("f45"), -1.0)),
+                    "previousClose": _scaled(raw.get("f60")),
+                    "amount": _format_cn_money(raw.get("f48")),
+                    "volume": _format_lots(raw.get("f47")),
+                    "updatedAt": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception as exc:
+                warnings.append(f"index_{index['code']}_failed: {type(exc).__name__}: {exc}")
+    return _module_payload(status="ok" if items else "unavailable", source="eastmoney_quote", source_url_type="qt/stock/get batch-controlled", items=items, warnings=warnings)
+
+
+def _load_market_breadth() -> dict[str, Any]:
+    warnings: list[str] = []
+    with httpx.Client(timeout=httpx.Timeout(8.0, connect=2.0)) as client:
+        rows = _clist_items(client, A_STOCK_FS, "f12", 5000, warnings, "market_breadth", po="1")
+    changes = [_safe_float(item.get("f3")) for item in rows]
+    up = sum(1 for value in changes if value > 0)
+    down = sum(1 for value in changes if value < 0)
+    flat = sum(1 for value in changes if value == 0)
+    limit_up = sum(1 for value in changes if value >= 9.8)
+    limit_down = sum(1 for value in changes if value <= -9.8)
+    amount = sum(_safe_float(item.get("f6")) for item in rows)
+    item = {
+        "upCount": up,
+        "downCount": down,
+        "flatCount": flat,
+        "limitUpCount": limit_up,
+        "limitDownCount": limit_down,
+        "brokenBoardCount": None,
+        "brokenBoardRate": None,
+        "maxConsecutiveBoards": None,
+        "redRate": round(up / len(rows) * 100, 2) if rows else None,
+        "medianChangePercent": sorted(changes)[len(changes) // 2] if changes else None,
+        "marketAmount": _format_cn_money(amount),
+        "shszAmount": _format_cn_money(amount),
+        "bjAmount": None,
+        "moneyMakingEffect": round(up / max(up + down, 1) * 100, 2) if rows else None,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    return _module_payload(status="ok" if rows else "unavailable", source="eastmoney_clist", source_url_type="qt/clist/get breadth from real quote universe", items=item, warnings=warnings)
+
+
+def _load_market_sentiment() -> dict[str, Any]:
+    breadth = _load_market_breadth()
+    data = dict(breadth.get("items") or {})
+    red_rate = _safe_float(data.get("redRate"))
+    limit_score = min(_safe_float(data.get("limitUpCount")) * 1.5, 25.0)
+    temperature = max(0.0, min(100.0, red_rate * 0.75 + limit_score))
+    data.update({
+        "sentimentTemperature": round(temperature, 2),
+        "sentimentLevel": "hot" if temperature >= 70 else ("warm" if temperature >= 55 else ("cold" if temperature < 35 else "neutral")),
+        "formula": "redRate * 0.75 + min(limitUpCount * 1.5, 25)",
+    })
+    return _module_payload(status=breadth["status"], source=breadth["source"], source_url_type="derived from market breadth", items=data, is_derived=True, warnings=list(breadth.get("warnings") or []) + ["sentiment: derived_from_real_breadth_formula"])
+
+
+SECTOR_FS = {
+    "industry": "m:90+t:2",
+    "concept": "m:90+t:3",
+    "region": "m:90+t:1",
+}
+
+
+def _load_sectors(type_name: str, limit: int) -> dict[str, Any]:
+    fs = SECTOR_FS.get(type_name)
+    if not fs:
+        raise HTTPException(status_code=400, detail="type must be industry/concept/region")
+    warnings: list[str] = []
+    with httpx.Client(timeout=httpx.Timeout(6.0, connect=2.0)) as client:
+        rows = _clist_items(client, fs, "f3", limit, warnings, f"sectors_{type_name}")
+    items = [{
+        "sectorCode": _safe_str(item.get("f12"), ""),
+        "sectorName": _safe_str(item.get("f14"), ""),
+        "type": type_name,
+        "changePercent": _format_percent(item.get("f3")),
+        "upCount": item.get("f104"),
+        "downCount": item.get("f105"),
+        "flatCount": item.get("f106"),
+        "leaderName": _safe_str(item.get("f128"), ""),
+        "leaderChangePercent": _format_percent(item.get("f136")),
+        "amount": _format_cn_money(item.get("f6")),
+        "turnoverRate": _format_percent(item.get("f8"), signed=False),
+        "mainInflow": _format_cn_money(item.get("f62")),
+        "heatRank": idx + 1,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+    } for idx, item in enumerate(rows[:limit])]
+    return _module_payload(status="ok" if items else "empty", source="eastmoney_clist", source_url_type=f"qt/clist/get fs={fs}", items=items, warnings=warnings)
+
+
+def _unavailable_module(name: str, source: str = "eastmoney_public_json") -> dict[str, Any]:
+    return _module_payload(status="unavailable", source=source, source_url_type="not yet verified stable public JSON endpoint", warnings=[f"{name}: unavailable; no sample, mock, or locally generated data returned"])
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     return {
@@ -1038,6 +1287,253 @@ async def a_share_realtime(
 @app.get("/api/stock/a-share/realtime/diagnostics")
 async def a_share_realtime_diagnostics() -> dict[str, Any]:
     return realtime_runtime.diagnostics()
+
+
+@app.get("/api/stock/a-share/popularity")
+def a_share_popularity(query: str = Query(...)) -> dict[str, Any]:
+    with httpx.Client(timeout=httpx.Timeout(4.0, connect=1.5)) as client:
+        security = _resolve_security(client, query)
+    payload = _unavailable_module("popularity", "eastmoney_guba_popularity")
+    payload.update({"code": security["code"], "name": security["name"], "rank": None, "total": None, "rankChange": None})
+    return payload
+
+
+@app.get("/api/stock/a-share/rankings/popularity")
+def a_share_popularity_ranking(limit: int = Query(50, ge=1, le=100)) -> dict[str, Any]:
+    return _load_ranking("popularity", limit)
+
+
+@app.get("/api/stock/a-share/rankings")
+def a_share_rankings(type: str = Query("gainers"), limit: int = Query(50, ge=1, le=100)) -> dict[str, Any]:
+    return _cached_response("ranking", type, str(limit), lambda: _load_ranking(type, limit))
+
+
+@app.get("/api/stock/a-share/market/breadth")
+def a_share_market_breadth() -> dict[str, Any]:
+    return _cached_response("market", "breadth", "v1", _load_market_breadth)
+
+
+@app.get("/api/stock/a-share/market/sentiment")
+def a_share_market_sentiment() -> dict[str, Any]:
+    return _cached_response("market", "sentiment", "v1", _load_market_sentiment)
+
+
+@app.get("/api/stock/a-share/indices")
+def a_share_indices() -> dict[str, Any]:
+    return _cached_response("market", "indices", "full", _load_indices_full)
+
+
+@app.get("/api/stock/a-share/sectors")
+def a_share_sectors(type: str = Query("industry"), limit: int = Query(50, ge=1, le=100)) -> dict[str, Any]:
+    return _cached_response("sectors", type, str(limit), lambda: _load_sectors(type, limit))
+
+
+@app.get("/api/stock/a-share/sectors/{sectorCode}/constituents")
+def a_share_sector_constituents(sectorCode: str, limit: int = Query(50, ge=1, le=200)) -> dict[str, Any]:
+    return _unavailable_module(f"sector_constituents:{sectorCode}")
+
+
+@app.get("/api/stock/a-share/sectors/flow")
+def a_share_sector_flow(limit: int = Query(50, ge=1, le=100)) -> dict[str, Any]:
+    return _cached_response("sectors", "flow", str(limit), lambda: _load_sectors("industry", limit))
+
+
+@app.get("/api/stock/a-share/market/home")
+def a_share_market_home() -> dict[str, Any]:
+    return _cached_response("market", "home", "v1", lambda: {
+        "status": "ok",
+        "source": "eastmoney_public_json",
+        "sourceUrlType": "composed medium-speed market endpoint",
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "cacheAgeMs": 0,
+        "isDerived": False,
+        "warnings": ["home: popularity unavailable if upstream popularity endpoint is not verified"],
+        "indices": _load_indices_full(),
+        "marketBreadth": _load_market_breadth(),
+        "sentiment": _load_market_sentiment(),
+        "popularityRanking": _load_ranking("popularity", 50),
+        "gainers": _load_ranking("gainers", 20),
+        "losers": _load_ranking("losers", 20),
+        "amountRanking": _load_ranking("amount", 20),
+        "turnoverRanking": _load_ranking("turnover", 20),
+        "volumeRatioRanking": _load_ranking("volume_ratio", 20),
+        "speedRanking": _load_ranking("speed", 20),
+        "limitUpSummary": _unavailable_module("limit_up_summary"),
+        "sectorHotRanking": _load_sectors("industry", 20),
+        "marketNews": _unavailable_module("market_news"),
+    })
+
+
+@app.get("/api/stock/a-share/stock/full")
+def a_share_stock_full(query: str = Query(...)) -> dict[str, Any]:
+    return {
+        "status": "ok",
+        "source": "eastmoney_public_json",
+        "sourceUrlType": "composed slow stock endpoint",
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "cacheAgeMs": 0,
+        "isDerived": False,
+        "warnings": ["slow modules return unavailable unless a verified public source is wired"],
+        "profile": _unavailable_module("profile"),
+        "financialsSummary": _unavailable_module("financials"),
+        "capitalSummary": _unavailable_module("capital_stock"),
+        "popularity": a_share_popularity(query),
+        "announcements": _unavailable_module("announcements"),
+        "news": _unavailable_module("stock_news"),
+        "research": _unavailable_module("research"),
+        "performanceForecast": _unavailable_module("performance_forecast"),
+        "shareholders": _unavailable_module("shareholders"),
+        "unlocks": _unavailable_module("unlocks"),
+        "dividends": _unavailable_module("dividends"),
+    }
+
+
+@app.post("/api/stock/a-share/watchlist/quotes", response_class=Response)
+async def a_share_watchlist_quotes(payload: dict[str, Any]) -> Response:
+    codes = payload.get("codes")
+    if not isinstance(codes, list) or not all(isinstance(code, str) for code in codes):
+        raise HTTPException(status_code=400, detail="codes must be a string array")
+    return _fast_json_response(await realtime_runtime.quotes(",".join(codes)))
+
+
+@app.get("/api/stock/a-share/limit-up")
+def a_share_limit_up() -> dict[str, Any]:
+    return _unavailable_module("limit_up")
+
+
+@app.get("/api/stock/a-share/limit-down")
+def a_share_limit_down() -> dict[str, Any]:
+    return _unavailable_module("limit_down")
+
+
+@app.get("/api/stock/a-share/limit-chain")
+def a_share_limit_chain() -> dict[str, Any]:
+    return _unavailable_module("limit_chain")
+
+
+@app.get("/api/stock/a-share/broken-board")
+def a_share_broken_board() -> dict[str, Any]:
+    return _unavailable_module("broken_board")
+
+
+@app.get("/api/stock/a-share/auction")
+def a_share_auction() -> dict[str, Any]:
+    return _unavailable_module("auction")
+
+
+@app.get("/api/stock/a-share/abnormal")
+def a_share_abnormal() -> dict[str, Any]:
+    return _unavailable_module("abnormal")
+
+
+@app.get("/api/stock/a-share/suspensions")
+def a_share_suspensions() -> dict[str, Any]:
+    return _unavailable_module("suspensions")
+
+
+@app.get("/api/stock/a-share/dragon-tiger")
+def a_share_dragon_tiger() -> dict[str, Any]:
+    return _unavailable_module("dragon_tiger")
+
+
+@app.get("/api/stock/a-share/dragon-tiger/{code}")
+def a_share_dragon_tiger_stock(code: str) -> dict[str, Any]:
+    return _unavailable_module(f"dragon_tiger:{code}")
+
+
+@app.get("/api/stock/a-share/block-trades")
+def a_share_block_trades() -> dict[str, Any]:
+    return _unavailable_module("block_trades")
+
+
+@app.get("/api/stock/a-share/block-trades/{code}")
+def a_share_block_trades_stock(code: str) -> dict[str, Any]:
+    return _unavailable_module(f"block_trades:{code}")
+
+
+@app.get("/api/stock/a-share/capital/stock")
+def a_share_capital_stock(query: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"capital_stock:{query}")
+
+
+@app.get("/api/stock/a-share/capital/market")
+def a_share_capital_market() -> dict[str, Any]:
+    return _unavailable_module("capital_market")
+
+
+@app.get("/api/stock/a-share/capital/northbound")
+def a_share_capital_northbound() -> dict[str, Any]:
+    return _unavailable_module("capital_northbound")
+
+
+@app.get("/api/stock/a-share/capital/margin")
+def a_share_capital_margin(query: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"capital_margin:{query}")
+
+
+@app.get("/api/stock/a-share/capital/etf")
+def a_share_capital_etf() -> dict[str, Any]:
+    return _unavailable_module("capital_etf")
+
+
+@app.get("/api/stock/a-share/profile")
+def a_share_profile(query: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"profile:{query}")
+
+
+@app.get("/api/stock/a-share/financials")
+def a_share_financials(query: str = Query(...), period: str = Query("quarterly")) -> dict[str, Any]:
+    return _unavailable_module(f"financials:{query}:{period}")
+
+
+@app.get("/api/stock/a-share/announcements")
+def a_share_announcements(query: str = Query(...), page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
+    return _unavailable_module(f"announcements:{query}:{page}:{pageSize}")
+
+
+@app.get("/api/stock/a-share/news")
+def a_share_news(query: str = Query(...), page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
+    return _unavailable_module(f"news:{query}:{page}:{pageSize}")
+
+
+@app.get("/api/stock/a-share/news/market")
+def a_share_news_market(page: int = Query(1, ge=1), pageSize: int = Query(30, ge=1, le=100)) -> dict[str, Any]:
+    return _unavailable_module(f"news_market:{page}:{pageSize}")
+
+
+@app.get("/api/stock/a-share/news/sectors")
+def a_share_news_sectors(sectorCode: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"news_sector:{sectorCode}")
+
+
+@app.get("/api/stock/a-share/research")
+def a_share_research(query: str = Query(...), page: int = Query(1, ge=1), pageSize: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
+    return _unavailable_module(f"research:{query}:{page}:{pageSize}")
+
+
+@app.get("/api/stock/a-share/research/latest")
+def a_share_research_latest(page: int = Query(1, ge=1), pageSize: int = Query(30, ge=1, le=100)) -> dict[str, Any]:
+    return _unavailable_module(f"research_latest:{page}:{pageSize}")
+
+
+@app.get("/api/stock/a-share/performance-forecast")
+def a_share_performance_forecast(query: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"performance_forecast:{query}")
+
+
+@app.get("/api/stock/a-share/shareholders")
+def a_share_shareholders(query: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"shareholders:{query}")
+
+
+@app.get("/api/stock/a-share/unlocks")
+def a_share_unlocks(query: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"unlocks:{query}")
+
+
+@app.get("/api/stock/a-share/dividends")
+def a_share_dividends(query: str = Query(...)) -> dict[str, Any]:
+    return _unavailable_module(f"dividends:{query}")
 
 
 @app.get("/api/stock/crawl/a-share/search")

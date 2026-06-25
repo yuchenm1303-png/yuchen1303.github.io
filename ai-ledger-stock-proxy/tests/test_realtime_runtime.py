@@ -4,6 +4,7 @@ import asyncio
 import sys
 import unittest
 from pathlib import Path
+from time import monotonic
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,6 +97,71 @@ class RealtimeRuntimeTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.cache_hit)
         self.assertTrue(result.stale)
         await asyncio.sleep(0)
+
+    def test_depth_empty_never_builds_fake_levels(self) -> None:
+        self.runtime = RealtimeRuntime()
+        sell, buy, meta = self.runtime.parse_depth({"f43": 1000}, {"price": "10.00"})
+
+        self.assertEqual(sell, [])
+        self.assertEqual(buy, [])
+        self.assertEqual(meta["depthStatus"], "empty")
+        self.assertFalse(meta["depthIsDerived"])
+
+    def test_depth_partial_does_not_fill_missing_levels(self) -> None:
+        self.runtime = RealtimeRuntime()
+        raw = {"f43": 1000, "f31": 1005, "f32": 300, "f19": 995, "f20": 200}
+        sell, buy, meta = self.runtime.parse_depth(raw, {"price": "10.00"})
+
+        self.assertEqual([row["label"] for row in sell], ["卖1"])
+        self.assertEqual([row["label"] for row in buy], ["买1"])
+        self.assertEqual(meta["depthStatus"], "partial")
+
+    def test_depth_sorting_and_limit_price_filters(self) -> None:
+        self.runtime = RealtimeRuntime()
+        raw = {
+            "f43": 1000,
+            "f51": 1020,
+            "f52": 980,
+            "f31": 1005, "f32": 100,
+            "f33": 1025, "f34": 100,
+            "f35": 1010, "f36": 100,
+            "f19": 995, "f20": 100,
+            "f17": 975, "f18": 100,
+            "f15": 990, "f16": 100,
+        }
+        sell, buy, meta = self.runtime.parse_depth(raw, {"price": "10.00"})
+
+        self.assertEqual([row["price"] for row in sell], ["10.05", "10.10"])
+        self.assertEqual([row["price"] for row in buy], ["9.95", "9.90"])
+        self.assertTrue(any("above_limit_up" in item for item in meta["depthWarnings"]))
+        self.assertTrue(any("below_limit_down" in item for item in meta["depthWarnings"]))
+        self.assertFalse(meta["depthIsDerived"])
+
+    async def test_depth_stale_cache_is_only_previous_true_depth_and_code_isolated(self) -> None:
+        self.runtime = RealtimeRuntime()
+        self.runtime.cache["depth:600396"] = CacheEntry(
+            {
+                "sellLevels": [{"label": "卖1", "price": "10.05", "volume": "100", "isAsk": True}],
+                "buyLevels": [{"label": "买1", "price": "9.95", "volume": "200", "isAsk": False}],
+                "depthMeta": {"depthStatus": "partial", "depthSource": "eastmoney_push2", "depthIsDerived": False, "depthWarnings": []},
+            },
+            monotonic() - 2.0,
+            "updated",
+            "source",
+            "push2.eastmoney.com",
+            10,
+        )
+        empty_quote = CacheResult({}, False, 0, False, False, "source", "push2.eastmoney.com", 10, "updated")
+
+        sell, buy, meta = await self.runtime.depth({"code": "600396"}, empty_quote, {"price": "10.00"})
+        other_sell, other_buy, other_meta = await self.runtime.depth({"code": "000001"}, empty_quote, {"price": "10.00"})
+
+        self.assertEqual(meta["depthStatus"], "stale")
+        self.assertEqual(sell[0]["price"], "10.05")
+        self.assertEqual(other_sell, [])
+        self.assertEqual(other_buy, [])
+        self.assertEqual(other_meta["depthStatus"], "unavailable")
+        self.assertFalse(meta["depthIsDerived"])
 
 
 if __name__ == "__main__":

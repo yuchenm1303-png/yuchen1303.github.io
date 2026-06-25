@@ -347,7 +347,7 @@ class RealtimeRuntime:
     def _quote_fields() -> str:
         base = [
             "f43", "f44", "f45", "f46", "f47", "f48", "f50", "f57", "f58", "f60", "f86",
-            "f116", "f117", "f162", "f167", "f168", "f169", "f170",
+            "f51", "f52", "f116", "f117", "f162", "f167", "f168", "f169", "f170",
         ]
         return ",".join(base + [f"f{i}" for i in range(11, 41)])
 
@@ -392,8 +392,10 @@ class RealtimeRuntime:
         }
 
     @staticmethod
-    def parse_depth(raw: dict[str, Any], quote: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    def parse_depth(raw: dict[str, Any], quote: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
         current = _safe_float(quote.get("price"))
+        limit_up = _scaled(raw.get("f51"), -1.0)
+        limit_down = _scaled(raw.get("f52"), -1.0)
         warnings: list[str] = []
 
         def rows(pairs: list[tuple[int, int]], labels: list[str], is_ask: bool) -> list[dict[str, Any]]:
@@ -404,34 +406,65 @@ class RealtimeRuntime:
                 if value <= 0 or volume <= 0:
                     continue
                 if current > 0 and abs(value - current) / current > 0.35:
+                    warnings.append(f"depth: level_{label}_price_out_of_range")
+                    continue
+                if is_ask and limit_up > 0 and value > limit_up + 0.0001:
+                    warnings.append(f"depth: level_{label}_above_limit_up")
+                    continue
+                if not is_ask and limit_down > 0 and value < limit_down - 0.0001:
+                    warnings.append(f"depth: level_{label}_below_limit_down")
                     continue
                 result.append({"label": label, "price": _price(value), "volume": _lots(volume), "isAsk": is_ask})
             return result
 
         sell = rows([(31, 32), (33, 34), (35, 36), (37, 38), (39, 40)], [f"\u5356{i}" for i in range(1, 6)], True)
         buy = rows([(19, 20), (17, 18), (15, 16), (13, 14), (11, 12)], [f"\u4e70{i}" for i in range(1, 6)], False)
-        if not sell or not buy:
-            warnings.append("depth: unavailable_kept_from_cache_or_empty")
-        return sell, buy, warnings
+        sell = sorted(sell, key=lambda row: _safe_float(row["price"]))
+        buy = sorted(buy, key=lambda row: _safe_float(row["price"]), reverse=True)
+        if sell and buy and _safe_float(sell[0]["price"]) < _safe_float(buy[0]["price"]):
+            warnings.append("depth: crossed_book_rejected")
+            sell, buy = [], []
+        status = "ok" if len(sell) == 5 and len(buy) == 5 else ("partial" if sell or buy else "empty")
+        meta = {
+            "depthStatus": status,
+            "depthSource": "eastmoney_push2",
+            "depthIsDerived": False,
+            "depthWarnings": warnings,
+        }
+        return sell, buy, meta
 
-    async def depth(self, security: dict[str, str], quote_result: CacheResult, quote: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[str]]:
+    async def depth(self, security: dict[str, str], quote_result: CacheResult, quote: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
         key = f"depth:{security['code']}"
-        sell, buy, warnings = self.parse_depth(quote_result.value, quote)
-        if sell and buy:
+        sell, buy, meta = self.parse_depth(quote_result.value, quote)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        meta.update({
+            "depthUpdatedAt": now_iso,
+            "depthSourceTimestamp": quote_result.source_timestamp,
+            "depthCacheAgeMs": 0,
+        })
+        if sell or buy:
             self.cache[key] = CacheEntry(
-                {"sellLevels": sell, "buyLevels": buy},
+                {"sellLevels": sell, "buyLevels": buy, "depthMeta": meta},
                 monotonic(),
                 quote_result.updated_at,
                 quote_result.source_timestamp,
                 quote_result.source_host,
                 quote_result.upstream_latency_ms,
             )
-            return sell, buy, warnings
+            return sell, buy, meta
         old = self.cache.get(key)
         if old is not None:
-            warnings.append("depth: stale_cache")
-            return old.value["sellLevels"], old.value["buyLevels"], warnings
-        return sell, buy, warnings
+            old_meta = dict(old.value.get("depthMeta") or {})
+            old_meta.update({
+                "depthStatus": "stale",
+                "depthIsDerived": False,
+                "depthCacheAgeMs": max(int((monotonic() - old.stored_at) * 1000), 0),
+                "depthWarnings": list(old_meta.get("depthWarnings") or []) + ["depth: stale_true_cache"],
+            })
+            return old.value["sellLevels"], old.value["buyLevels"], old_meta
+        meta["depthStatus"] = "unavailable"
+        meta["depthWarnings"] = list(meta.get("depthWarnings") or []) + ["depth: unavailable_no_true_cache"]
+        return sell, buy, meta
 
     async def _minute_loader(self, security: dict[str, str], ndays: int) -> tuple[Any, str, int, str]:
         payload, host, latency = await self._get_json(
@@ -634,7 +667,8 @@ class RealtimeRuntime:
         if isinstance(minute_result, Exception):
             raise HTTPException(status_code=502, detail=f"realtime minute failed: {minute_result}")
         quote = self.parse_quote(quote_result.value, security)
-        sell, buy, warnings = await self.depth(security, quote_result, quote)
+        sell, buy, depth_meta = await self.depth(security, quote_result, quote)
+        warnings = list(depth_meta.get("depthWarnings") or [])
         if quote_result.stale:
             warnings.append("quote: stale_cache")
         if minute_result.stale:
@@ -670,6 +704,7 @@ class RealtimeRuntime:
             "minutePoints": minute_result.value,
             "sellLevels": sell,
             "buyLevels": buy,
+            **depth_meta,
             "tradeTicks": ticks,
             "warnings": warnings,
         }
