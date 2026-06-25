@@ -28,6 +28,11 @@ import java.util.ArrayDeque
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 
 class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var lastWindowHintAtMs: Long = 0L
@@ -141,6 +146,15 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private inline fun <T> withWorkingAccessibilityMode(block: () -> T): T {
+        beginWorkingSession()
+        return try {
+            block()
+        } finally {
+            endWorkingSession()
+        }
+    }
+
+    private suspend fun <T> withWorkingAccessibilityModeSuspending(block: suspend () -> T): T {
         beginWorkingSession()
         return try {
             block()
@@ -460,16 +474,17 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return parts.distinct().joinToString(" ").take(80)
     }
 
-    private fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
-        SystemClock.sleep(OVERLAY_HIDE_BEFORE_ACTION_MS)
+    private suspend fun executeStepInternal(step: CloudAgentStep): AgentExecutionResult {
+        // 让出主线程给悬浮窗先应用 INVISIBLE/NOT_TOUCHABLE，避免点击被自己的浮窗截获。
+        delay(OVERLAY_HIDE_BEFORE_ACTION_MS)
         return if (step.requiresWindowContent()) {
-            withWorkingAccessibilityMode { executeStepInternalUnchecked(step) }
+            withWorkingAccessibilityModeSuspending { executeStepInternalUnchecked(step) }
         } else {
             executeStepInternalUnchecked(step)
         }
     }
 
-    private fun executeStepInternalUnchecked(step: CloudAgentStep): AgentExecutionResult {
+    private suspend fun executeStepInternalUnchecked(step: CloudAgentStep): AgentExecutionResult {
         return when (step.type) {
             "open_app" -> executeOpenApp(step)
             "back" -> executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回")
@@ -528,10 +543,12 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return AgentExecutionResult(ok = ok, message = if (ok) "已执行：$label" else "执行失败：$label", shouldContinue = ok)
     }
 
-    private fun executeTapNode(step: CloudAgentStep): AgentExecutionResult {
+    private suspend fun executeTapNode(step: CloudAgentStep): AgentExecutionResult {
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
-        step.targetText?.takeIf { it.isNotBlank() }?.let { text ->
-            findNodeByTextFast(root, text)?.let { return tapRect(it.bounds, "已点击：$text") }
+        val targetText = step.targetText?.takeIf { it.isNotBlank() }
+        if (targetText != null) {
+            val fastTarget = findNodeByTextFast(root, targetText)
+            if (fastTarget != null) return tapRect(fastTarget.bounds, "已点击：$targetText")
         }
         val handles = collectNodeHandles(
             root,
@@ -546,7 +563,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return tapRect(target.bounds, "已点击节点 ${target.observed.id}")
     }
 
-    private fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
+    private suspend fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
         val x = step.x ?: return AgentExecutionResult(false, "缺少点击 x 坐标", false)
         val y = step.y ?: return AgentExecutionResult(false, "缺少点击 y 坐标", false)
         val point = normalizeTapPoint(x, y)
@@ -777,7 +794,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return result.ok
     }
 
-    private fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
+    private suspend fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
         if (step.indicatesBackNavigation()) {
             return executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回上一界面（纠正 scroll 返回语义）")
         }
@@ -800,7 +817,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return executeSwipe(step.copy(type = "swipe", direction = direction.ifBlank { "up" }))
     }
 
-    private fun executeSwipe(step: CloudAgentStep): AgentExecutionResult {
+    private suspend fun executeSwipe(step: CloudAgentStep): AgentExecutionResult {
         if (step.indicatesBackNavigation()) {
             return executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回上一界面（纠正 swipe 返回语义）")
         }
@@ -814,12 +831,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
             "right" -> listOf(w * 0.22f, h * 0.5f, w * 0.78f, h * 0.5f)
             else -> listOf(w * 0.5f, h * 0.72f, w * 0.5f, h * 0.32f)
         }
-        val ok = dispatchSwipe(startX, startY, endX, endY, step.durationMs ?: DEFAULT_SWIPE_MS)
-        return AgentExecutionResult(
-            ok = ok,
-            message = if (ok) "已滑动：$direction" else "滑动失败：$direction",
-            shouldContinue = ok,
-        )
+        val durationMs = (step.durationMs ?: DEFAULT_SWIPE_MS).coerceIn(160L, 900L)
+        val outcome = dispatchSwipe(startX, startY, endX, endY, durationMs)
+        return VisualGestureExecutionPolicy.swipeResult(outcome, direction)
     }
 
     private fun CloudAgentStep.indicatesBackNavigation(): Boolean {
@@ -948,24 +962,27 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return null
     }
 
-    private fun tapRect(rect: Rect, successMessage: String): AgentExecutionResult {
+    private suspend fun tapRect(rect: Rect, successMessage: String): AgentExecutionResult {
         if (rect.isEmpty) return AgentExecutionResult(false, "目标区域无效", false)
         return dispatchTap(rect.centerX().toFloat(), rect.centerY().toFloat(), successMessage)
     }
 
-    private fun dispatchTap(x: Float, y: Float, successMessage: String): AgentExecutionResult {
+    private suspend fun dispatchTap(x: Float, y: Float, successMessage: String): AgentExecutionResult {
         val (safeX, safeY) = safeTapPoint(x, y)
         val path = Path().apply { moveTo(safeX, safeY) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, DEFAULT_TAP_MS))
             .build()
-        val ok = dispatchGesture(gesture, null, null)
         val finalMessage = if (safeX != x || safeY != y) {
             "$successMessage · 实际落点 ${safeX.toInt()},${safeY.toInt()}（边界保护）"
         } else {
             "$successMessage · 实际落点 ${safeX.toInt()},${safeY.toInt()}"
         }
-        return AgentExecutionResult(ok = ok, message = if (ok) finalMessage else "点击手势提交失败", shouldContinue = ok)
+        val outcome = dispatchGestureAndAwait(
+            gesture = gesture,
+            timeoutMs = GESTURE_COMPLETION_TIMEOUT_MS,
+        )
+        return VisualGestureExecutionPolicy.tapResult(outcome, finalMessage)
     }
 
     private fun safeTapPoint(x: Float, y: Float): Pair<Float, Float> {
@@ -978,15 +995,53 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return x.coerceIn(minX, maxX) to y.coerceIn(minY, maxY)
     }
 
-    private fun dispatchSwipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long): Boolean {
+    private suspend fun dispatchSwipe(
+        startX: Float,
+        startY: Float,
+        endX: Float,
+        endY: Float,
+        durationMs: Long,
+    ): VisualGestureDispatchOutcome {
         val path = Path().apply {
             moveTo(startX, startY)
             lineTo(endX, endY)
         }
         val gesture = GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(160L, 900L)))
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
             .build()
-        return dispatchGesture(gesture, null, null)
+        return dispatchGestureAndAwait(
+            gesture = gesture,
+            timeoutMs = maxOf(GESTURE_COMPLETION_TIMEOUT_MS, durationMs + GESTURE_COMPLETION_GRACE_MS),
+        )
+    }
+
+    private suspend fun dispatchGestureAndAwait(
+        gesture: GestureDescription,
+        timeoutMs: Long,
+    ): VisualGestureDispatchOutcome {
+        return withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine { continuation ->
+                val resolved = AtomicBoolean(false)
+                fun complete(outcome: VisualGestureDispatchOutcome) {
+                    if (resolved.compareAndSet(false, true) && continuation.isActive) {
+                        continuation.resume(outcome)
+                    }
+                }
+
+                val callback = object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription) {
+                        complete(VisualGestureDispatchOutcome.Completed)
+                    }
+
+                    override fun onCancelled(gestureDescription: GestureDescription) {
+                        complete(VisualGestureDispatchOutcome.Cancelled)
+                    }
+                }
+                val accepted = runCatching { dispatchGesture(gesture, callback, null) }.getOrDefault(false)
+                if (!accepted) complete(VisualGestureDispatchOutcome.Rejected)
+                continuation.invokeOnCancellation { resolved.set(true) }
+            }
+        } ?: VisualGestureDispatchOutcome.TimedOut
     }
 
     private fun startTaskForegroundNotification() {
@@ -1104,7 +1159,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
             return snapshot
         }
 
-        fun executeStep(step: CloudAgentStep): AgentExecutionResult {
+        suspend fun executeStep(step: CloudAgentStep): AgentExecutionResult {
             val service = activeService ?: return AgentExecutionResult(false, "无障碍服务未连接", false)
             return service.executeStepInternal(step)
         }
@@ -1172,6 +1227,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val SCREENSHOT_TIMEOUT_MS = 2_200L
         private const val OVERLAY_HIDE_BEFORE_ACTION_MS = 90L
         private const val OVERLAY_HIDE_BEFORE_SCREENSHOT_MS = 150L
+        private const val GESTURE_COMPLETION_TIMEOUT_MS = 1_500L
+        private const val GESTURE_COMPLETION_GRACE_MS = 650L
 
         private const val SNAPSHOT_NODE_BUDGET_MS = 220L
         private const val VISUAL_AFFORDANCE_BUDGET_MS = 100L
