@@ -8,6 +8,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
+/**
+ * Verified visual execution loop.
+ *
+ * DeepSeek owns target-app selection before handoff. GUI Plus exclusively owns visual decisions on
+ * the verified work surface. Android only captures factual observations, validates protocol and
+ * safety boundaries, executes one action, and verifies observable progress.
+ */
 class VisualLoopRunner(
     private val aiWorkerClient: AiWorkerClient,
     appContext: Context,
@@ -37,6 +44,7 @@ class VisualLoopRunner(
         val state = VisualLoopState(goal = goal.trim().take(240), running = true)
         val routeRetryState = VisualRouteRetryState()
         val executionSession = VisualExecutionSessionState()
+        val semanticProgress = VisualSemanticProgressTracker()
         val recentActions = mutableListOf<String>()
         val interactionActions = mutableListOf<String>()
         val visualHistory = mutableListOf<VisualAgentHistoryItem>()
@@ -54,7 +62,7 @@ class VisualLoopRunner(
         appendRecentAction(recentActions, deviceProfile.toPromptLine())
         appendRecentAction(
             recentActions,
-            "cloud_routing:v3|mainBrain=deepseek|appSelectionOwner=deepseek|visualOwner=gui_plus|androidSemanticRouting=false|localKeywordMatching=false|targetBindingRequired=true",
+            "cloud_routing:v4|mainBrain=deepseek|appSelectionOwner=deepseek|visualOwner=gui_plus|androidSemanticRouting=false|semanticProgressVerification=true|failedHypothesisBlocking=true|targetBindingRequired=true",
         )
         appendRecentAction(
             recentActions,
@@ -81,6 +89,7 @@ class VisualLoopRunner(
                 var snapshot = observation.toAgentScreenSnapshot()
                 state.currentPackage = snapshot.currentApp
                 var runtimeContext = executionSession.runtimeContext(snapshot)
+
                 if (runtimeContext.guiPlusEligible && snapshot.visual?.hasImage != true) {
                     observation = observationCoordinator.captureTrustedObservation(
                         forceVisual = true,
@@ -100,8 +109,10 @@ class VisualLoopRunner(
                     fullCatalogUploaded = fullAppCatalogUploaded,
                 )
                 when {
-                    runtimeContext.guiPlusEligible -> AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前页面")
-                    runtimeContext.surfaceState == VisualSurfaceState.Launching -> AgentRuntimeController.noteDiagnostic("正在确认目标应用前台状态")
+                    runtimeContext.guiPlusEligible ->
+                        AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前子目标与页面证据")
+                    runtimeContext.surfaceState == VisualSurfaceState.Launching ->
+                        AgentRuntimeController.noteDiagnostic("正在确认目标应用前台状态")
                 }
 
                 state.modelTurnCount += 1
@@ -189,10 +200,16 @@ class VisualLoopRunner(
                     AgentRuntimeController.failTask(runtimeTaskId, message)
                     return AgentTaskRunResult(false, false, message, logs)
                 }
+
                 val validation = VisualActionValidator.validate(step, snapshot, runtimeContext)
                 if (!validation.ok) {
                     val rejection = buildValidationFeedback(step, validation, runtimeContext)
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step.copy(reason = validation.message), null)
+                    logs += AgentTaskStepLog(
+                        logs.size + 1,
+                        snapshot.currentApp,
+                        step.copy(reason = validation.message),
+                        null,
+                    )
                     appendRecentAction(recentActions, rejection)
                     rememberVisualTurn(visualHistory, snapshot, plan, rejection)
                     if (validation.failureClass == VisualFailureClass.StructuralRoute) {
@@ -207,6 +224,7 @@ class VisualLoopRunner(
                                 state,
                                 recentActions,
                                 interactionActions,
+                                semanticProgress,
                                 "validation_rejected",
                                 step,
                             )
@@ -217,48 +235,19 @@ class VisualLoopRunner(
                 }
 
                 if (step.type == "finish") {
-                    val message = step.reason ?: "Visual task completed."
-                    val finishFingerprint = VisualActionValidator.completionFingerprint(snapshot)
-                    val sameFreshScreenCandidate = state.pendingFinishCount > 0 &&
-                        state.pendingFinishPackage == snapshot.currentApp &&
-                        state.pendingFinishFingerprint == finishFingerprint &&
-                        executionSession.isVerifiedWorkSurface(snapshot)
-                    if (sameFreshScreenCandidate) {
-                        val verifiedMessage = "$message Fresh-screen completion verification passed."
-                        logs += AgentTaskStepLog(
-                            logs.size + 1,
-                            snapshot.currentApp,
-                            step,
-                            AgentExecutionResult(true, verifiedMessage, false),
-                        )
-                        state.completed = true
-                        state.clearPendingFinishVerification()
-                        AgentRuntimeController.finishTask(
-                            runtimeTaskId,
-                            AgentTaskOutcome.Completed(verifiedMessage),
-                        )
-                        return AgentTaskRunResult(true, false, verifiedMessage, logs)
-                    }
-
-                    state.pendingFinishPackage = snapshot.currentApp
-                    state.pendingFinishFingerprint = finishFingerprint
-                    state.pendingFinishCount = 1
-                    val finishVerificationSummary = buildString {
-                        append("finish_verification_pending")
-                        append(":package=").append(snapshot.currentApp.take(100))
-                        append(":fingerprint=").append(Integer.toHexString(finishFingerprint.hashCode()))
-                        append(":observationId=").append(runtimeContext.observationId)
-                        append(":reason=").append(message.take(80))
-                    }.take(MAX_RECENT_ACTION_CHARS)
-                    logs += AgentTaskStepLog(
-                        logs.size + 1,
-                        snapshot.currentApp,
-                        step,
-                        AgentExecutionResult(true, "Completion candidate captured; waiting for a fresh-screen verification.", true),
+                    val finishResult = handleFinishCandidate(
+                        step = step,
+                        snapshot = snapshot,
+                        runtimeContext = runtimeContext,
+                        executionSession = executionSession,
+                        state = state,
+                        logs = logs,
+                        recentActions = recentActions,
+                        visualHistory = visualHistory,
+                        plan = plan,
+                        runtimeTaskId = runtimeTaskId,
                     )
-                    appendRecentAction(recentActions, finishVerificationSummary)
-                    rememberVisualTurn(visualHistory, snapshot, plan, finishVerificationSummary)
-                    state.reobserveCount += 1
+                    if (finishResult != null) return finishResult
                     delay(FINISH_VERIFICATION_DELAY_MS)
                     continue
                 }
@@ -268,13 +257,14 @@ class VisualLoopRunner(
                     val message = step.reason ?: "Visual agent requested user assistance."
                     logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, step, null)
                     if (!pauseForUserAndContinue(
-                            message = message,
-                            stopGeneration = stopGeneration,
-                            state = state,
-                            recentActions = recentActions,
-                            interactionActions = interactionActions,
-                            reason = "model_help",
-                            requestStep = step,
+                            message,
+                            stopGeneration,
+                            state,
+                            recentActions,
+                            interactionActions,
+                            semanticProgress,
+                            "model_help",
+                            step,
                         )
                     ) break
                     continue
@@ -301,6 +291,7 @@ class VisualLoopRunner(
                                 state,
                                 recentActions,
                                 interactionActions,
+                                semanticProgress,
                                 "prepare_blocked",
                                 step,
                             )
@@ -312,18 +303,56 @@ class VisualLoopRunner(
 
                 val executableStep = preparedStep.step
                 val actionCluster = VisualActionValidator.actionClusterSignature(executableStep)
+
+                val failedHypothesisReason = semanticProgress.blockedHypothesisReason(executableStep, snapshot)
+                if (failedHypothesisReason != null) {
+                    state.noProgressCount += 1
+                    val rejection = buildString {
+                        append("visual_local_retry:action=")
+                        append(VisualActionValidator.actionSignature(executableStep))
+                        append(":count=").append(state.noProgressCount)
+                        append("|semanticStatus=blocked_hypothesis")
+                        append("|requiresStrategyChange=true")
+                        append("|reason=failed_hypothesis_reuse")
+                    }
+                    logs += AgentTaskStepLog(
+                        logs.size + 1,
+                        snapshot.currentApp,
+                        executableStep.copy(reason = failedHypothesisReason),
+                        null,
+                    )
+                    appendRecentAction(recentActions, rejection)
+                    rememberVisualTurn(visualHistory, snapshot, plan, rejection)
+                    state.sameActionClusterCount = 0
+                    state.lastActionCluster = ""
+                    state.reobserveCount += 1
+                    continue
+                }
+
                 val nextRepeatCount = if (actionCluster == state.lastActionCluster) {
                     state.sameActionClusterCount + 1
                 } else {
                     1
                 }
                 if (nextRepeatCount >= REPEATED_ACTION_CLUSTER_LIMIT) {
-                    val message = "Repeated visual action in the same screen area requires a new cloud route."
-                    val rejection = "visual_action_rejected:type=${executableStep.type}|failureClass=structural_route|reason=repeated_action_cluster|count=$nextRepeatCount|replanRequired=true"
-                    logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep.copy(reason = message), null)
+                    state.noProgressCount += 1
+                    val message = "The same visual action cluster was repeated without proven semantic progress. GUI Plus must choose a materially different hypothesis."
+                    val rejection = buildString {
+                        append("visual_local_retry:action=")
+                        append(VisualActionValidator.actionSignature(executableStep))
+                        append(":count=").append(nextRepeatCount)
+                        append("|semanticStatus=repeated_hypothesis")
+                        append("|requiresStrategyChange=true")
+                        append("|reason=repeated_action_cluster")
+                    }
+                    logs += AgentTaskStepLog(
+                        logs.size + 1,
+                        snapshot.currentApp,
+                        executableStep.copy(reason = message),
+                        null,
+                    )
                     appendRecentAction(recentActions, rejection)
                     rememberVisualTurn(visualHistory, snapshot, plan, rejection)
-                    executionSession.markStructuralReplan()
                     state.sameActionClusterCount = 0
                     state.lastActionCluster = ""
                     state.reobserveCount += 1
@@ -342,16 +371,18 @@ class VisualLoopRunner(
                         AgentRuntimeController.noteAction(executableStep)
                         AgentRuntimeController.noteResult(executableStep, result)
                         logs += AgentTaskStepLog(logs.size + 1, snapshot.currentApp, executableStep, result)
-                        val resultSummary = buildExecutionResultSummary(executableStep, VisualActionValidator.actionSignature(executableStep), result)
+                        val resultSummary = buildExecutionResultSummary(
+                            executableStep,
+                            VisualActionValidator.actionSignature(executableStep),
+                            result,
+                        )
                         val verification = "open_app_package_verified:package=$expectedPackage|mode=already_foreground"
                         appendRecentAction(recentActions, resultSummary)
                         appendRecentAction(recentActions, verification)
                         rememberVisualTurn(visualHistory, snapshot, plan, "$resultSummary;$verification")
                         executionSession.markTargetVerified(expectedPackage)
-                        state.noProgressCount = 0
-                        state.consecutiveScreenChangeCount = 0
-                        state.sameActionClusterCount = 0
-                        state.lastActionCluster = ""
+                        semanticProgress.onVerifiedSurface(snapshot)
+                        state.resetProgressCounters()
                         state.executedActionCount += 1
                         continue
                     }
@@ -373,6 +404,7 @@ class VisualLoopRunner(
                             state,
                             recentActions,
                             interactionActions,
+                            semanticProgress,
                             "safety_blocked",
                             executableStep,
                         )
@@ -398,7 +430,8 @@ class VisualLoopRunner(
                             append("|observationId=").append(runtimeContext.observationId)
                             append("|observedPackage=").append(snapshot.packageName.take(100))
                             append("|currentPackage=").append(currentBeforeExecution.packageName.take(100))
-                            append("|reason=").append(if (stillOnVerifiedSurface) "screen_changed_before_execution" else "target_surface_lost")
+                            append("|reason=")
+                            append(if (stillOnVerifiedSurface) "screen_changed_before_execution" else "target_surface_lost")
                         }.take(MAX_RECENT_ACTION_CHARS)
                         logs += AgentTaskStepLog(
                             logs.size + 1,
@@ -415,7 +448,6 @@ class VisualLoopRunner(
                 }
 
                 if (isStopped(stopGeneration)) break
-                val beforeFingerprint = VisualActionValidator.snapshotFingerprint(snapshot)
                 val result = executeStep(executableStep, snapshot.currentApp, logs, confirmed)
                 state.executedActionCount += 1
                 state.lastAction = VisualActionValidator.actionSignature(executableStep)
@@ -427,51 +459,26 @@ class VisualLoopRunner(
                 rememberVisualTurn(visualHistory, snapshot, plan, resultSummary)
 
                 if (executableStep.type == "open_app") {
-                    val expectedPackage = executableStep.packageName?.trim().orEmpty()
-                    if (!result.ok) {
-                        val failure = "open_app_package_verification_failed:expected=$expectedPackage|actual=${snapshot.packageName.take(100)}|failureClass=structural_route|reason=launch_execution_failed"
-                        appendRecentAction(recentActions, failure)
-                        updateLatestVisualTurnResult(visualHistory, "$resultSummary;$failure")
-                        executionSession.markStructuralReplan()
-                        continue
-                    }
-                    AgentRuntimeController.noteDiagnostic("正在确认目标应用并准备视觉画面")
-                    val verification = observationCoordinator.awaitStableTargetPackage(
-                        expectedPackage = expectedPackage,
-                        isStopped = { isStopped(stopGeneration) },
+                    handleOpenAppResult(
+                        executableStep = executableStep,
+                        snapshot = snapshot,
+                        result = result,
+                        resultSummary = resultSummary,
+                        executionSession = executionSession,
+                        semanticProgress = semanticProgress,
+                        state = state,
+                        recentActions = recentActions,
+                        visualHistory = visualHistory,
+                        stopGeneration = stopGeneration,
+                        onPrefetchedObservation = { prefetchedObservation = it },
                     )
-                    if (verification.verified) {
-                        val verifiedEvent = "open_app_package_verified:package=$expectedPackage|stableSamples=${verification.stableSamples}"
-                        appendRecentAction(recentActions, verifiedEvent)
-                        updateLatestVisualTurnResult(visualHistory, "$resultSummary;$verifiedEvent")
-                        executionSession.markTargetVerified(expectedPackage)
-                        state.noProgressCount = 0
-                        state.consecutiveScreenChangeCount = 0
-                        state.sameActionClusterCount = 0
-                        state.lastActionCluster = ""
-                        verification.lastObservation?.let { prefetchedObservation = it }
-                    } else {
-                        val actualPackage = verification.lastSnapshot?.packageName.orEmpty()
-                        val pending = VisualSurfacePackagePolicy.requiresForegroundFallback(actualPackage)
-                        val feedback = if (pending) {
-                            "open_app_package_verification_pending:expected=$expectedPackage|actual=${actualPackage.take(100)}|reason=transient_surface"
-                        } else {
-                            "open_app_package_verification_failed:expected=$expectedPackage|actual=${actualPackage.take(100)}|failureClass=structural_route|reason=target_not_stable"
-                        }
-                        appendRecentAction(recentActions, feedback)
-                        updateLatestVisualTurnResult(visualHistory, "$resultSummary;$feedback")
-                        if (!pending) executionSession.markStructuralReplan()
-                    }
                     continue
                 }
 
                 if (executableStep.type in CloudAgentStep.deviceToolTypes) {
                     val message = result.message.ifBlank { "Internal device tool finished." }
                     if (result.ok) {
-                        AgentRuntimeController.finishTask(
-                            runtimeTaskId,
-                            AgentTaskOutcome.Completed(message),
-                        )
+                        AgentRuntimeController.finishTask(runtimeTaskId, AgentTaskOutcome.Completed(message))
                     } else {
                         AgentRuntimeController.failTask(runtimeTaskId, message)
                     }
@@ -486,6 +493,7 @@ class VisualLoopRunner(
                             state,
                             recentActions,
                             interactionActions,
+                            semanticProgress,
                             "action_stopped",
                             executableStep,
                         )
@@ -500,37 +508,69 @@ class VisualLoopRunner(
                 )
                 val after = afterObservation.toAgentScreenSnapshot()
                 executionSession.synchronizeWith(after)
-                prefetchedObservation = afterObservation
-                val pageChanged = VisualActionValidator.snapshotFingerprint(after) != beforeFingerprint
-                val visualChangeSummary = if (!pageChanged) {
-                    state.consecutiveScreenChangeCount = 0
-                    state.noProgressCount += 1
-                    if (state.noProgressCount >= STRUCTURAL_NO_PROGRESS_LIMIT) {
-                        executionSession.markStructuralReplan()
-                        prefetchedObservation = null
-                        "visual_no_progress:${state.lastAction}:count=${state.noProgressCount}:screen=unchanged|failureClass=structural_route"
-                    } else {
-                        "visual_local_retry:action=${state.lastAction}:count=${state.noProgressCount}|reason=screen_unchanged"
-                    }
-                } else {
-                    state.noProgressCount = 0
-                    state.sameActionClusterCount = 0
-                    state.lastActionCluster = ""
-                    state.consecutiveScreenChangeCount += 1
-                    if (state.consecutiveScreenChangeCount >= EXPLORATION_SPRAWL_LIMIT) {
-                        "visual_exploration_sprawl:${state.lastAction}:count=${state.consecutiveScreenChangeCount}:screen=changed|failureClass=visual_local|reason=multi_hop_without_convergence"
-                    } else {
-                        "visual_screen_changed:${state.lastAction}:screen=changed"
-                    }
-                }
-                appendRecentAction(recentActions, visualChangeSummary)
 
+                val semanticResult = semanticProgress.evaluate(
+                    step = executableStep,
+                    before = snapshot,
+                    after = after,
+                    verifiedTargetPackage = runtimeContext.verifiedTargetPackage,
+                )
+                val semanticFeedback = semanticResult.toFeedbackLine(executableStep)
+                appendRecentAction(recentActions, semanticFeedback)
                 updateLatestVisualTurnResult(
                     visualHistory,
-                    listOf(resultSummary, visualChangeSummary)
-                        .filter { it.isNotBlank() }
-                        .joinToString(";"),
+                    listOf(resultSummary, semanticFeedback).joinToString(";"),
                 )
+
+                when (semanticResult.status) {
+                    VisualSemanticProgressStatus.Advanced -> {
+                        state.resetProgressCounters()
+                        prefetchedObservation = afterObservation
+                    }
+
+                    VisualSemanticProgressStatus.Stalled -> {
+                        state.noProgressCount += 1
+                        state.ambiguousProgressCount = 0
+                        state.sameActionClusterCount = 0
+                        state.lastActionCluster = ""
+                        prefetchedObservation = afterObservation
+                    }
+
+                    VisualSemanticProgressStatus.Ambiguous -> {
+                        state.ambiguousProgressCount += 1
+                        state.sameActionClusterCount = 0
+                        state.lastActionCluster = ""
+                        prefetchedObservation = afterObservation
+                    }
+
+                    VisualSemanticProgressStatus.Regressed -> {
+                        state.noProgressCount += 1
+                        state.ambiguousProgressCount = 0
+                        state.sameActionClusterCount = 0
+                        state.lastActionCluster = ""
+                        if (semanticResult.structuralRegression) {
+                            executionSession.markStructuralReplan()
+                            prefetchedObservation = null
+                        } else {
+                            prefetchedObservation = afterObservation
+                        }
+                    }
+                }
+
+                if (semanticResult.shouldPauseForUser) {
+                    val message = "GUI Plus has exhausted the evidence-grounded exploration budget for the current subgoal. Automatic exploration is paused to avoid wandering through unrelated pages."
+                    if (!pauseForUserAndContinue(
+                            message,
+                            stopGeneration,
+                            state,
+                            recentActions,
+                            interactionActions,
+                            semanticProgress,
+                            "semantic_exploration_budget_exhausted",
+                            executableStep,
+                        )
+                    ) break
+                }
             }
 
             val message = when {
@@ -560,6 +600,110 @@ class VisualLoopRunner(
             AiAgentAccessibilityService.endTaskSession()
             AgentRuntimeController.resetCleanVisualCapture()
         }
+    }
+
+    private suspend fun handleOpenAppResult(
+        executableStep: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        result: AgentExecutionResult,
+        resultSummary: String,
+        executionSession: VisualExecutionSessionState,
+        semanticProgress: VisualSemanticProgressTracker,
+        state: VisualLoopState,
+        recentActions: MutableList<String>,
+        visualHistory: MutableList<VisualAgentHistoryItem>,
+        stopGeneration: Long,
+        onPrefetchedObservation: (ScreenObservation) -> Unit,
+    ) {
+        val expectedPackage = executableStep.packageName?.trim().orEmpty()
+        if (!result.ok) {
+            val failure = "open_app_package_verification_failed:expected=$expectedPackage|actual=${snapshot.packageName.take(100)}|failureClass=structural_route|reason=launch_execution_failed"
+            appendRecentAction(recentActions, failure)
+            updateLatestVisualTurnResult(visualHistory, "$resultSummary;$failure")
+            executionSession.markStructuralReplan()
+            return
+        }
+
+        AgentRuntimeController.noteDiagnostic("正在确认目标应用并准备视觉画面")
+        val verification = observationCoordinator.awaitStableTargetPackage(
+            expectedPackage = expectedPackage,
+            isStopped = { isStopped(stopGeneration) },
+        )
+        if (verification.verified) {
+            val verifiedEvent = "open_app_package_verified:package=$expectedPackage|stableSamples=${verification.stableSamples}"
+            appendRecentAction(recentActions, verifiedEvent)
+            updateLatestVisualTurnResult(visualHistory, "$resultSummary;$verifiedEvent")
+            executionSession.markTargetVerified(expectedPackage)
+            val verifiedSnapshot = verification.lastSnapshot ?: snapshot
+            semanticProgress.onVerifiedSurface(verifiedSnapshot)
+            state.resetProgressCounters()
+            verification.lastObservation?.let(onPrefetchedObservation)
+        } else {
+            val actualPackage = verification.lastSnapshot?.packageName.orEmpty()
+            val pending = VisualSurfacePackagePolicy.requiresForegroundFallback(actualPackage)
+            val feedback = if (pending) {
+                "open_app_package_verification_pending:expected=$expectedPackage|actual=${actualPackage.take(100)}|reason=transient_surface"
+            } else {
+                "open_app_package_verification_failed:expected=$expectedPackage|actual=${actualPackage.take(100)}|failureClass=structural_route|reason=target_not_stable"
+            }
+            appendRecentAction(recentActions, feedback)
+            updateLatestVisualTurnResult(visualHistory, "$resultSummary;$feedback")
+            if (!pending) executionSession.markStructuralReplan()
+        }
+    }
+
+    private fun handleFinishCandidate(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        runtimeContext: VisualAgentRuntimeContext,
+        executionSession: VisualExecutionSessionState,
+        state: VisualLoopState,
+        logs: MutableList<AgentTaskStepLog>,
+        recentActions: MutableList<String>,
+        visualHistory: MutableList<VisualAgentHistoryItem>,
+        plan: CloudAgentPlan,
+        runtimeTaskId: Long,
+    ): AgentTaskRunResult? {
+        val message = step.reason ?: "Visual task completed."
+        val finishFingerprint = VisualActionValidator.completionFingerprint(snapshot)
+        val sameFreshScreenCandidate = state.pendingFinishCount > 0 &&
+            state.pendingFinishPackage == snapshot.currentApp &&
+            state.pendingFinishFingerprint == finishFingerprint &&
+            executionSession.isVerifiedWorkSurface(snapshot)
+        if (sameFreshScreenCandidate) {
+            val verifiedMessage = "$message Fresh-screen completion verification passed."
+            logs += AgentTaskStepLog(
+                logs.size + 1,
+                snapshot.currentApp,
+                step,
+                AgentExecutionResult(true, verifiedMessage, false),
+            )
+            state.completed = true
+            state.clearPendingFinishVerification()
+            AgentRuntimeController.finishTask(runtimeTaskId, AgentTaskOutcome.Completed(verifiedMessage))
+            return AgentTaskRunResult(true, false, verifiedMessage, logs)
+        }
+
+        state.pendingFinishPackage = snapshot.currentApp
+        state.pendingFinishFingerprint = finishFingerprint
+        state.pendingFinishCount = 1
+        val summary = buildString {
+            append("finish_verification_pending")
+            append(":package=").append(snapshot.currentApp.take(100))
+            append(":fingerprint=").append(Integer.toHexString(finishFingerprint.hashCode()))
+            append(":observationId=").append(runtimeContext.observationId)
+            append(":reason=").append(message.take(80))
+        }.take(MAX_RECENT_ACTION_CHARS)
+        logs += AgentTaskStepLog(
+            logs.size + 1,
+            snapshot.currentApp,
+            step,
+            AgentExecutionResult(true, "Completion candidate captured; waiting for a fresh-screen verification.", true),
+        )
+        appendRecentAction(recentActions, summary)
+        rememberVisualTurn(visualHistory, snapshot, plan, summary)
+        state.reobserveCount += 1
+        return null
     }
 
     private suspend fun executeStep(
@@ -639,13 +783,20 @@ class VisualLoopRunner(
         return fullContext.filter { it.packageName == verifiedPackage }.take(1)
     }
 
-    private fun materializeTapCoordinateFrame(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
+    private fun materializeTapCoordinateFrame(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+    ): CloudAgentStep {
         if (step.type != "tap_xy") return step
         val x = step.x ?: return step
         val y = step.y ?: return step
         val visual = snapshot.visual ?: return step
-        val visualWidth = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 } ?: return step
-        val visualHeight = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 } ?: return step
+        val visualWidth = visual.displayWidth.takeIf { it > 0 }
+            ?: visual.width.takeIf { it > 0 }
+            ?: return step
+        val visualHeight = visual.displayHeight.takeIf { it > 0 }
+            ?: visual.height.takeIf { it > 0 }
+            ?: return step
         return step.copy(
             x = (x * visualWidth).coerceIn(0f, visualWidth.toFloat()),
             y = (y * visualHeight).coerceIn(0f, visualHeight.toFloat()),
@@ -733,7 +884,9 @@ class VisualLoopRunner(
     }
 
     private fun appendInteractionAction(interactionActions: MutableList<String>, value: String) {
-        value.trim().take(MAX_INTERACTION_TEXT_CHARS + 80).takeIf { it.isNotBlank() }?.let(interactionActions::add)
+        value.trim().take(MAX_INTERACTION_TEXT_CHARS + 80)
+            .takeIf { it.isNotBlank() }
+            ?.let(interactionActions::add)
         while (interactionActions.size > MAX_INTERACTION_ACTIONS) interactionActions.removeAt(0)
     }
 
@@ -742,7 +895,8 @@ class VisualLoopRunner(
         interactionActions: List<String>,
     ): List<String> {
         val interactionBudget = interactionActions.takeLast(MAX_INTERACTION_ACTIONS_IN_REQUEST)
-        val runtimeBudget = (VISUAL_CLIENT_ACTION_LIMIT - interactionBudget.size).coerceAtLeast(MIN_RUNTIME_ACTIONS_IN_REQUEST)
+        val runtimeBudget =
+            (VISUAL_CLIENT_ACTION_LIMIT - interactionBudget.size).coerceAtLeast(MIN_RUNTIME_ACTIONS_IN_REQUEST)
         return recentActions.takeLast(runtimeBudget) + interactionBudget
     }
 
@@ -773,6 +927,7 @@ class VisualLoopRunner(
         state: VisualLoopState,
         recentActions: MutableList<String>,
         interactionActions: MutableList<String>,
+        semanticProgress: VisualSemanticProgressTracker,
         reason: String,
         requestStep: CloudAgentStep = CloudAgentStep(type = "need_user_help", reason = message),
     ): Boolean {
@@ -804,20 +959,17 @@ class VisualLoopRunner(
         }
         val canContinue = userInstruction.isNotBlank() || waitWhileUserTakeoverPaused(stopGeneration)
         state.paused = false
-        state.noProgressCount = 0
-        state.consecutiveScreenChangeCount = 0
-        state.sameActionClusterCount = 0
-        state.lastActionCluster = ""
+        state.resetProgressCounters()
         state.clearPendingFinishVerification()
-        if (canContinue) {
-            appendRecentAction(recentActions, "userTakeover=resumed:$reason")
-        }
+        semanticProgress.resetAfterUserTakeover()
+        if (canContinue) appendRecentAction(recentActions, "userTakeover=resumed:$reason")
         return canContinue
     }
 
     private suspend fun delayForStep(step: CloudAgentStep) {
         val delayMs = if (step.type == "wait") {
-            step.durationMs?.coerceIn(MIN_CUSTOM_STEP_DELAY_MS, MAX_WAIT_DELAY_MS) ?: DEFAULT_WAIT_DELAY_MS
+            step.durationMs?.coerceIn(MIN_CUSTOM_STEP_DELAY_MS, MAX_WAIT_DELAY_MS)
+                ?: DEFAULT_WAIT_DELAY_MS
         } else {
             when (step.type) {
                 "tap_xy", "tap_node" -> TAP_DELAY_MS
@@ -837,14 +989,6 @@ class VisualLoopRunner(
             .coerceAtMost(MAX_MODEL_TURN_BUDGET)
     }
 
-    private data class PreparedVisualStep(
-        val ok: Boolean,
-        val message: String = "",
-        val step: CloudAgentStep? = null,
-        val replanRequired: Boolean = false,
-        val alreadyForeground: Boolean = false,
-    )
-
     private fun rememberVisualTurn(
         history: MutableList<VisualAgentHistoryItem>,
         snapshot: AgentScreenSnapshot,
@@ -862,6 +1006,14 @@ class VisualLoopRunner(
         while (history.size > MAX_VISUAL_HISTORY_ITEMS) history.removeAt(0)
     }
 
+    private data class PreparedVisualStep(
+        val ok: Boolean,
+        val message: String = "",
+        val step: CloudAgentStep? = null,
+        val replanRequired: Boolean = false,
+        val alreadyForeground: Boolean = false,
+    )
+
     companion object {
         private const val MAX_RECENT_ACTIONS = 14
         private const val MAX_RECENT_ACTION_CHARS = 1_200
@@ -870,12 +1022,10 @@ class VisualLoopRunner(
         private const val MAX_INTERACTION_ACTIONS_IN_REQUEST = 8
         private const val VISUAL_CLIENT_ACTION_LIMIT = 14
         private const val MIN_RUNTIME_ACTIONS_IN_REQUEST = 6
-        private const val MAX_VISUAL_HISTORY_ITEMS = 2
+        private const val MAX_VISUAL_HISTORY_ITEMS = 4
         private const val MAX_APP_CONTEXT_ITEMS = 160
         private const val MAX_STRUCTURED_REPLAN_REJECTIONS = 3
         private const val REPEATED_ACTION_CLUSTER_LIMIT = 3
-        private const val STRUCTURAL_NO_PROGRESS_LIMIT = 3
-        private const val EXPLORATION_SPRAWL_LIMIT = 4
         private const val USER_TAKEOVER_POLL_MS = 120L
         private const val PACKAGE_CHECK_OVERLAY_SETTLE_MS = 160L
         private const val DEFAULT_STEP_DELAY_MS = 130L
@@ -908,8 +1058,8 @@ data class VisualLoopState(
     var lastAction: String = "",
     var lastActionCluster: String = "",
     var sameActionClusterCount: Int = 0,
-    var consecutiveScreenChangeCount: Int = 0,
     var noProgressCount: Int = 0,
+    var ambiguousProgressCount: Int = 0,
     var pendingFinishPackage: String = "",
     var pendingFinishFingerprint: String = "",
     var pendingFinishCount: Int = 0,
@@ -923,6 +1073,13 @@ private fun VisualLoopState.clearPendingFinishVerification() {
     pendingFinishPackage = ""
     pendingFinishFingerprint = ""
     pendingFinishCount = 0
+}
+
+private fun VisualLoopState.resetProgressCounters() {
+    noProgressCount = 0
+    ambiguousProgressCount = 0
+    sameActionClusterCount = 0
+    lastActionCluster = ""
 }
 
 enum class VisualFailureClass(val wireValue: String) {
@@ -970,7 +1127,8 @@ object VisualActionValidator {
                 VisualFailureClass.StructuralRoute,
             )
         }
-        if (runtimeContext == null &&
+        if (
+            runtimeContext == null &&
             snapshot.packageName == VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
             step.type !in PRE_WORK_SURFACE_ACTIONS
         ) {
@@ -980,7 +1138,10 @@ object VisualActionValidator {
                 VisualFailureClass.StructuralRoute,
             )
         }
-        if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
+        if (
+            step.type == "tap_xy" &&
+            (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)
+        ) {
             return VisualActionValidation(false, "Invalid tap coordinates.")
         }
         if (step.type == "input_text" && step.text.isNullOrBlank()) {
@@ -1013,13 +1174,23 @@ object VisualActionValidator {
 
     fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
         val textKey = snapshot.texts.take(16).joinToString("|") { it.take(40) }
-        val nodeKey = snapshot.clickableNodes.take(16).joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
-        val visualKey = if (snapshot.capturedNodeCount <= VISUAL_FINGERPRINT_NODE_THRESHOLD || snapshot.clickableNodes.isEmpty()) {
+        val nodeKey = snapshot.clickableNodes.take(16)
+            .joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
+        val visualKey = if (
+            snapshot.capturedNodeCount <= VISUAL_FINGERPRINT_NODE_THRESHOLD ||
+            snapshot.clickableNodes.isEmpty()
+        ) {
             sampledVisualFingerprint(snapshot.visual)
         } else {
             ""
         }
-        return listOf(snapshot.currentApp, snapshot.capturedNodeCount.toString(), textKey, nodeKey, visualKey).joinToString("::")
+        return listOf(
+            snapshot.currentApp,
+            snapshot.capturedNodeCount.toString(),
+            textKey,
+            nodeKey,
+            visualKey,
+        ).joinToString("::")
     }
 
     fun completionFingerprint(snapshot: AgentScreenSnapshot): String {
