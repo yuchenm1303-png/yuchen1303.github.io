@@ -1,6 +1,14 @@
 package com.yuchen.ailedger.service
 
 import java.security.MessageDigest
+import kotlin.math.max
+import kotlin.math.min
+
+internal data class VisualActionContextFreshness(
+    val fresh: Boolean,
+    val reason: String,
+    val surfaceSimilarity: Float = 1f,
+)
 
 object VisualObservationProtocol {
     /**
@@ -21,13 +29,48 @@ object VisualObservationProtocol {
     }
 
     /**
-     * Execution freshness is a deterministic surface check, not a semantic screen comparison.
-     * Dynamic content such as time, battery, market prices, cursors, animations and JPEG encoding
-     * may legitimately change between model observation and action execution. Their meaning is
-     * evaluated by the next GUI Plus observation after the action, never by local pixel equality.
-     *
-     * The caller separately enforces verified-target ownership and route/surface state. This check
-     * therefore only rejects an objective foreground-package change.
+     * Performs a lightweight, action-aware execution guard against the fresh accessibility probe.
+     * It deliberately does not compare JPEG bytes, dynamic values or full text dumps, so normal
+     * clocks, prices, cursors and animations do not add screenshots, CPU load or false replans.
+     */
+    internal fun evaluateActionContextFreshness(
+        step: CloudAgentStep,
+        observedSnapshot: AgentScreenSnapshot,
+        currentSnapshot: AgentScreenSnapshot,
+    ): VisualActionContextFreshness {
+        val observedPackage = observedSnapshot.packageName.trim()
+        val currentPackage = currentSnapshot.packageName.trim()
+        if (observedPackage.isBlank() || observedPackage != currentPackage) {
+            return VisualActionContextFreshness(false, "foreground_package_changed", 0f)
+        }
+
+        targetFreshness(step, observedSnapshot, currentSnapshot)?.let { return it }
+
+        val observedTokens = interactionSurfaceTokens(observedSnapshot)
+        val currentTokens = interactionSurfaceTokens(currentSnapshot)
+        if (observedTokens.isEmpty() && currentTokens.isEmpty()) {
+            // Visual-only apps have no objective local semantic surface to compare. Package ownership
+            // and the verified WorkSurface state remain mandatory at the caller.
+            return VisualActionContextFreshness(true, "visual_only_package_verified")
+        }
+        if (observedTokens.size >= MIN_RICH_SURFACE_TOKENS && currentTokens.isEmpty()) {
+            return VisualActionContextFreshness(false, "interaction_surface_unavailable", 0f)
+        }
+        if (observedTokens.isEmpty() || currentTokens.isEmpty()) {
+            return VisualActionContextFreshness(true, "sparse_surface_package_verified")
+        }
+
+        val similarity = overlapCoefficient(observedTokens, currentTokens)
+        val minimumEvidence = min(observedTokens.size, currentTokens.size)
+        if (minimumEvidence >= MIN_RICH_SURFACE_TOKENS && similarity < MIN_SURFACE_OVERLAP) {
+            return VisualActionContextFreshness(false, "interaction_surface_changed", similarity)
+        }
+        return VisualActionContextFreshness(true, "fresh", similarity)
+    }
+
+    /**
+     * Compatibility entry point for callers that only need package/surface freshness. New visual
+     * execution paths should use [evaluateActionContextFreshness] with the actual action.
      */
     fun isActionContextFresh(
         observedSnapshot: AgentScreenSnapshot,
@@ -35,7 +78,14 @@ object VisualObservationProtocol {
     ): Boolean {
         val observedPackage = observedSnapshot.packageName.trim()
         val currentPackage = currentSnapshot.packageName.trim()
-        return observedPackage.isNotBlank() && observedPackage == currentPackage
+        if (observedPackage.isBlank() || observedPackage != currentPackage) return false
+        val observedTokens = interactionSurfaceTokens(observedSnapshot)
+        val currentTokens = interactionSurfaceTokens(currentSnapshot)
+        if (observedTokens.isEmpty() && currentTokens.isEmpty()) return true
+        if (observedTokens.size >= MIN_RICH_SURFACE_TOKENS && currentTokens.isEmpty()) return false
+        if (observedTokens.isEmpty() || currentTokens.isEmpty()) return true
+        return min(observedTokens.size, currentTokens.size) < MIN_RICH_SURFACE_TOKENS ||
+            overlapCoefficient(observedTokens, currentTokens) >= MIN_SURFACE_OVERLAP
     }
 
     /**
@@ -76,6 +126,173 @@ object VisualObservationProtocol {
         ).joinToString("::")
     }
 
+    private fun targetFreshness(
+        step: CloudAgentStep,
+        observedSnapshot: AgentScreenSnapshot,
+        currentSnapshot: AgentScreenSnapshot,
+    ): VisualActionContextFreshness? {
+        if (step.type == "tap_xy") {
+            val x = step.x ?: return null
+            val y = step.y ?: return null
+            val observedHit = hitNode(observedSnapshot, x, y)
+            val currentHit = hitNode(currentSnapshot, x, y)
+            return when {
+                observedHit == null && currentHit == null -> null
+                observedHit == null -> VisualActionContextFreshness(false, "coordinate_target_covered")
+                currentHit == null -> VisualActionContextFreshness(false, "coordinate_target_missing")
+                !samePhysicalTarget(observedHit, currentHit) ->
+                    VisualActionContextFreshness(false, "coordinate_target_changed")
+                else -> null
+            }
+        }
+
+        val targetAwareType = step.type in setOf("tap_node", "input_text", "scroll")
+        if (!targetAwareType) return null
+        if (step.type == "input_text" && step.shouldUseFocusedDirectInput) return null
+
+        val observedTarget = findTargetNode(step, observedSnapshot)
+        val currentTarget = findTargetNode(step, currentSnapshot)
+        return when {
+            observedTarget == null -> null
+            currentTarget == null -> VisualActionContextFreshness(false, "action_target_missing")
+            !samePhysicalTarget(observedTarget, currentTarget) ->
+                VisualActionContextFreshness(false, "action_target_changed")
+            else -> null
+        }
+    }
+
+    private fun findTargetNode(step: CloudAgentStep, snapshot: AgentScreenSnapshot): AgentScreenNode? {
+        val preferred = when (step.type) {
+            "input_text" -> snapshot.inputNodes
+            "scroll" -> snapshot.scrollableNodes
+            "tap_node" -> snapshot.clickableNodes
+            else -> emptyList()
+        }
+        val candidates = (preferred + snapshot.allNodes)
+            .distinctBy { "${it.id}|${it.bounds}|${it.className}|${it.text}" }
+        val targetText = normalizeStableText(step.targetText.orEmpty())
+        if (targetText.isNotBlank()) {
+            candidates.firstOrNull { normalizeStableText(it.text) == targetText }?.let { return it }
+            candidates.firstOrNull {
+                val nodeText = normalizeStableText(it.text)
+                nodeText.isNotBlank() && (nodeText.contains(targetText) || targetText.contains(nodeText))
+            }?.let { return it }
+        }
+        val targetId = step.targetNodeId?.trim().orEmpty()
+        return targetId.takeIf(String::isNotBlank)?.let { id -> candidates.firstOrNull { it.id == id } }
+    }
+
+    private fun hitNode(snapshot: AgentScreenSnapshot, x: Float, y: Float): AgentScreenNode? {
+        return interactionNodes(snapshot)
+            .asSequence()
+            .mapNotNull { node -> parseBounds(node.bounds)?.takeIf { it.contains(x, y) }?.let { node to it } }
+            .minByOrNull { (_, bounds) -> bounds.area }
+            ?.first
+    }
+
+    private fun samePhysicalTarget(first: AgentScreenNode, second: AgentScreenNode): Boolean {
+        if (nodeRole(first) != nodeRole(second)) return false
+        val firstClass = stableClassName(first.className)
+        val secondClass = stableClassName(second.className)
+        if (firstClass.isNotBlank() && secondClass.isNotBlank() && firstClass != secondClass) return false
+        val firstBounds = parseBounds(first.bounds) ?: return first.bounds == second.bounds
+        val secondBounds = parseBounds(second.bounds) ?: return first.bounds == second.bounds
+        return firstBounds.isNear(secondBounds) || firstBounds.iou(secondBounds) >= MIN_TARGET_IOU
+    }
+
+    private fun interactionSurfaceTokens(snapshot: AgentScreenSnapshot): Set<String> {
+        return interactionNodes(snapshot)
+            .asSequence()
+            .mapNotNull { node ->
+                val bounds = parseBounds(node.bounds) ?: return@mapNotNull null
+                listOf(
+                    nodeRole(node),
+                    stableClassName(node.className),
+                    bounds.bucketedKey(),
+                ).joinToString("|")
+            }
+            .take(MAX_EXECUTION_SURFACE_NODES)
+            .toSet()
+    }
+
+    private fun interactionNodes(snapshot: AgentScreenSnapshot): List<AgentScreenNode> {
+        val specialized = snapshot.clickableNodes + snapshot.inputNodes + snapshot.scrollableNodes
+        val source = if (specialized.isNotEmpty()) specialized else snapshot.allNodes
+        return source.distinctBy { "${nodeRole(it)}|${it.className}|${it.bounds}" }
+    }
+
+    private fun nodeRole(node: AgentScreenNode): String = buildString(3) {
+        if (node.clickable) append('c')
+        if (node.editable) append('e')
+        if (node.scrollable) append('s')
+        if (isEmpty()) append('n')
+    }
+
+    private fun stableClassName(className: String): String = className
+        .trim()
+        .substringAfterLast('.')
+        .lowercase()
+        .take(32)
+
+    private fun normalizeStableText(value: String): String = value
+        .trim()
+        .lowercase()
+        .replace(DYNAMIC_NUMBER_PATTERN, "#")
+        .replace(WHITESPACE_PATTERN, " ")
+        .take(64)
+
+    private fun overlapCoefficient(first: Set<String>, second: Set<String>): Float {
+        val denominator = min(first.size, second.size)
+        if (denominator <= 0) return 1f
+        return first.count(second::contains).toFloat() / denominator.toFloat()
+    }
+
+    private fun parseBounds(value: String): SurfaceBounds? {
+        val values = BOUNDS_NUMBER_PATTERN.findAll(value)
+            .mapNotNull { it.value.toIntOrNull() }
+            .take(4)
+            .toList()
+        if (values.size != 4) return null
+        val left = min(values[0], values[2])
+        val top = min(values[1], values[3])
+        val right = max(values[0], values[2])
+        val bottom = max(values[1], values[3])
+        if (right <= left || bottom <= top) return null
+        return SurfaceBounds(left, top, right, bottom)
+    }
+
+    private data class SurfaceBounds(
+        val left: Int,
+        val top: Int,
+        val right: Int,
+        val bottom: Int,
+    ) {
+        val area: Long
+            get() = (right - left).toLong() * (bottom - top).toLong()
+
+        fun contains(x: Float, y: Float): Boolean = x >= left && x <= right && y >= top && y <= bottom
+
+        fun bucketedKey(): String = listOf(left, top, right, bottom)
+            .joinToString(",") { (it / BOUNDS_BUCKET_PX).toString() }
+
+        fun isNear(other: SurfaceBounds): Boolean =
+            maxOf(
+                kotlin.math.abs(left - other.left),
+                kotlin.math.abs(top - other.top),
+                kotlin.math.abs(right - other.right),
+                kotlin.math.abs(bottom - other.bottom),
+            ) <= TARGET_BOUNDS_TOLERANCE_PX
+
+        fun iou(other: SurfaceBounds): Float {
+            val intersectionWidth = (min(right, other.right) - max(left, other.left)).coerceAtLeast(0)
+            val intersectionHeight = (min(bottom, other.bottom) - max(top, other.top)).coerceAtLeast(0)
+            val intersection = intersectionWidth.toLong() * intersectionHeight.toLong()
+            if (intersection <= 0L) return 0f
+            val union = area + other.area - intersection
+            return if (union <= 0L) 0f else intersection.toFloat() / union.toFloat()
+        }
+    }
+
     private fun visualFrameFingerprint(snapshot: AgentScreenSnapshot): String {
         val visual = snapshot.visual ?: return "visual:none"
         if (!visual.hasImage) {
@@ -95,7 +312,16 @@ object VisualObservationProtocol {
             .joinToString("") { byte -> "%02x".format(byte) }
     }
 
+    private val BOUNDS_NUMBER_PATTERN = Regex("-?\\d+")
+    private val DYNAMIC_NUMBER_PATTERN = Regex("\\d+(?:[.,:/-]\\d+)*")
+    private val WHITESPACE_PATTERN = Regex("\\s+")
     private const val MAX_TEXT_ITEMS = 24
     private const val MAX_NODE_ITEMS = 20
+    private const val MAX_EXECUTION_SURFACE_NODES = 64
+    private const val MIN_RICH_SURFACE_TOKENS = 4
+    private const val MIN_SURFACE_OVERLAP = 0.58f
+    private const val MIN_TARGET_IOU = 0.62f
+    private const val TARGET_BOUNDS_TOLERANCE_PX = 16
+    private const val BOUNDS_BUCKET_PX = 16
     private const val VISUAL_DIGEST_CHARS = 16
 }
