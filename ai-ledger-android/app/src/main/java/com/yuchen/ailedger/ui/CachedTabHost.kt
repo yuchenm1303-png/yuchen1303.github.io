@@ -10,6 +10,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -31,6 +32,8 @@ private const val DEFAULT_PREWARM_STEP_DELAY_MS = 720L
 private const val PAGE_ENTER_FADE_MS = 230
 private const val PAGE_EXIT_FADE_MS = 160
 
+private fun AppTab.cacheBit(): Int = 1 shl ordinal
+
 @Composable
 fun CachedAppTabHost(
     currentTab: AppTab,
@@ -42,7 +45,7 @@ fun CachedAppTabHost(
 ) {
     val diagnostics = LocalPerformanceDiagnostics.current
     val effectivePrewarmTabs = if (diagnostics.pagePrewarmOff) emptySet() else prewarmTabs
-    var renderedTabs by remember { mutableStateOf(setOf(currentTab)) }
+    var renderedTabMask by remember { mutableIntStateOf(currentTab.cacheBit()) }
     val activationCounter = remember { intArrayOf(0) }
     val currentActivationTick = remember(currentTab) {
         val next = if (activationCounter[0] == Int.MAX_VALUE) 1 else activationCounter[0] + 1
@@ -51,7 +54,11 @@ fun CachedAppTabHost(
     }
     var heavyEffectsReady by remember { mutableStateOf(false) }
     val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
-        AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
+        if (effectivePrewarmTabs.isEmpty()) {
+            emptyList()
+        } else {
+            AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
+        }
     }
     val parentGlassBackdrop = LocalGlassBackdrop.current
     val parentBlurredBackdrop = LocalBlurredBackdrop.current
@@ -67,7 +74,8 @@ fun CachedAppTabHost(
     }
 
     LaunchedEffect(currentTab) {
-        if (currentTab !in renderedTabs) renderedTabs = renderedTabs + currentTab
+        val tabBit = currentTab.cacheBit()
+        if (renderedTabMask and tabBit == 0) renderedTabMask = renderedTabMask or tabBit
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs, diagnostics.pagePrewarmOff) {
@@ -81,7 +89,8 @@ fun CachedAppTabHost(
         if (prewarmDelayMs > 0L) delay(prewarmDelayMs)
         orderedPrewarmTabs.forEachIndexed { index, tab ->
             StartupMetrics.setWarmupState("轻量预热 ${tab.name} ${index + 1}/${orderedPrewarmTabs.size}")
-            if (tab !in renderedTabs) renderedTabs = renderedTabs + tab
+            val tabBit = tab.cacheBit()
+            if (renderedTabMask and tabBit == 0) renderedTabMask = renderedTabMask or tabBit
             if (prewarmStepDelayMs > 0L) delay(prewarmStepDelayMs)
         }
         StartupMetrics.setWarmupState("页面已轻量预热")
@@ -89,9 +98,9 @@ fun CachedAppTabHost(
 
     Box(modifier) {
         AppTab.entries.forEach { tab ->
-            // 当前目标页同步进入 Composition；renderedTabs 只负责离开后的缓存。
+            // 当前目标页同步进入 Composition；renderedTabMask 只负责离开后的缓存。
             // 这样首次进入设置页不会先空一帧、再由 LaunchedEffect 补挂页面。
-            if (tab == currentTab || tab in renderedTabs) {
+            if (tab == currentTab || renderedTabMask and tab.cacheBit() != 0) {
                 val active = tab == currentTab
                 val alpha by animateFloatAsState(
                     targetValue = if (active) 1f else 0f,
