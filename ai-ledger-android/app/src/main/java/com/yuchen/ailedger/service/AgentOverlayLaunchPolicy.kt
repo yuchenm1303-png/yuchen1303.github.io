@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * Owns only the interactive control overlay lifecycle.
@@ -14,8 +17,8 @@ import android.provider.Settings
 internal object AgentOverlayLaunchPolicy {
     private val lock = Any()
 
-    @Volatile
-    private var manualEnabled: Boolean = false
+    private val mutableManualEnabled = MutableStateFlow(false)
+    val manualEnabled: StateFlow<Boolean> = mutableManualEnabled.asStateFlow()
 
     @Volatile
     private var pendingManualEnableAfterPermission: Boolean = false
@@ -24,13 +27,13 @@ internal object AgentOverlayLaunchPolicy {
     private var lastObservedHelpRequestId: Long = 0L
     private var dismissedHelpRequestId: Long = 0L
 
-    fun isManualEnabled(): Boolean = manualEnabled
+    fun isManualEnabled(): Boolean = mutableManualEnabled.value
 
     fun canDrawOverlays(context: Context): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
     fun isServiceAllowed(progress: AgentOverlayProgress = AgentRuntimeController.progress.value): Boolean {
-        if (manualEnabled) return true
+        if (isManualEnabled()) return true
         val pendingId = progress.pendingUserInput?.id ?: return false
         return synchronized(lock) {
             activeHelpRequestId == pendingId && dismissedHelpRequestId != pendingId
@@ -44,14 +47,14 @@ internal object AgentOverlayLaunchPolicy {
             return false
         }
         pendingManualEnableAfterPermission = false
-        manualEnabled = true
+        mutableManualEnabled.value = true
         startService(appContext)
         return true
     }
 
     fun disableManually(context: Context) {
         val appContext = context.applicationContext
-        manualEnabled = false
+        mutableManualEnabled.value = false
         pendingManualEnableAfterPermission = false
         synchronized(lock) {
             val currentHelpId = AgentRuntimeController.progress.value.pendingUserInput?.id ?: 0L
@@ -76,14 +79,14 @@ internal object AgentOverlayLaunchPolicy {
             if (pendingId > 0L) {
                 if (pendingId != lastObservedHelpRequestId) {
                     lastObservedHelpRequestId = pendingId
-                    if (!manualEnabled && dismissedHelpRequestId != pendingId) {
+                    if (!isManualEnabled() && dismissedHelpRequestId != pendingId) {
                         activeHelpRequestId = pendingId
                     }
                 }
                 // Starting is idempotent. Rechecking the same active request lets the overlay appear
                 // after the user returns from Android's permission page, while a manually dismissed
                 // request remains suppressed until GUI Plus creates a new request id.
-                shouldStart = !manualEnabled &&
+                shouldStart = !isManualEnabled() &&
                     activeHelpRequestId == pendingId &&
                     dismissedHelpRequestId != pendingId
             } else {
@@ -91,7 +94,7 @@ internal object AgentOverlayLaunchPolicy {
                 dismissedHelpRequestId = 0L
                 if (activeHelpRequestId != 0L) {
                     activeHelpRequestId = 0L
-                    shouldStop = !manualEnabled
+                    shouldStop = !isManualEnabled()
                 }
             }
         }
