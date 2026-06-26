@@ -75,10 +75,17 @@ class AgentOverlayService : Service() {
     private val interactionTurns = mutableListOf<OverlayInteractionTurn>()
     private var lastInteractionRequestId: Long = 0L
     private var awaitingAgentReply: Boolean = false
+    private var interactionRevision: Long = 0L
 
     private var density: Float = 1f
     private var expanded: Boolean = true
     private var latestProgress: AgentOverlayProgress = AgentOverlayProgress()
+
+    private var lastRenderedModeTone: OverlayModeTone? = null
+    private var lastRenderedLogs: List<String> = emptyList()
+    private var lastRenderedConfirmation: AgentPendingConfirmation? = null
+    private var lastRenderedInteractionKey: OverlayInteractionRenderKey? = null
+    private var lastRenderedLayoutState: OverlayLayoutState? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -147,6 +154,7 @@ class AgentOverlayService : Service() {
         collapseView = capsuleButton("收起", ButtonTone.Ghost) {
             if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null && !awaitingAgentReply) {
                 expanded = !expanded
+                lastRenderedLayoutState = null
                 refreshExpandedState()
             }
         }
@@ -228,6 +236,7 @@ class AgentOverlayService : Service() {
         layoutParams = params
         runCatching { wm.addView(panel, params) }
             .onSuccess {
+                invalidateRenderCache()
                 updateProgress(AgentRuntimeController.progress.value)
                 if (!hidden) animateEntrance(panel)
             }
@@ -379,7 +388,8 @@ class AgentOverlayService : Service() {
         hideKeyboard()
         awaitingAgentReply = true
         AgentRuntimeController.submitPendingUserInput(submittedText)
-        renderInteractionPanel(null)
+        renderInteractionPanelIfNeeded(null, requestFocus = false)
+        lastRenderedLayoutState = null
         refreshExpandedState()
     }
 
@@ -392,80 +402,131 @@ class AgentOverlayService : Service() {
 
         val pending = progress.pendingConfirmation
         val pendingInput = progress.pendingUserInput
-        if (pendingInput != null && pendingInput.id != lastInteractionRequestId) {
-            lastInteractionRequestId = pendingInput.id
+        val newPendingInput = pendingInput != null && pendingInput.id != lastInteractionRequestId
+        if (newPendingInput) {
+            lastInteractionRequestId = pendingInput!!.id
             awaitingAgentReply = false
             appendInteractionTurn(OverlayInteractionRole.GuiPlus, pendingInput.message)
         }
-        if (!progress.running && pendingInput == null) {
+        if (!progress.running && pendingInput == null && awaitingAgentReply) {
             awaitingAgentReply = false
+            interactionRevision += 1L
         }
 
-        val modeText = when {
-            pendingInput != null -> if (pendingInput.sensitive) "隐私接管" else "待回复"
-            pending != null -> "待确认"
-            awaitingAgentReply && progress.running -> "理解中"
-            progress.userTakeoverPaused -> "接管中"
-            !progress.enabled -> "已关闭"
-            progress.running -> "执行中"
-            else -> progress.status.ifBlank { "待命" }
+        val modeTone = when {
+            pendingInput != null -> OverlayModeTone.PendingInput
+            pending != null -> OverlayModeTone.PendingConfirmation
+            awaitingAgentReply && progress.running -> OverlayModeTone.AwaitingReply
+            progress.userTakeoverPaused -> OverlayModeTone.UserTakeover
+            !progress.enabled -> OverlayModeTone.Disabled
+            progress.running -> OverlayModeTone.Running
+            else -> OverlayModeTone.Idle
         }
-        titleView?.text = progress.title
-        stateView?.text = modeText
-        stateView?.background = when {
-            pendingInput != null -> chipBackground(Color.argb(78, 80, 168, 230), Color.argb(132, 148, 232, 255), 14f)
-            pending != null -> chipBackground(Color.argb(88, 255, 184, 90), Color.argb(132, 255, 224, 135), 14f)
-            awaitingAgentReply -> chipBackground(Color.argb(72, 92, 170, 220), Color.argb(96, 166, 224, 255), 14f)
-            progress.userTakeoverPaused -> chipBackground(Color.argb(70, 255, 210, 104), Color.argb(110, 255, 230, 150), 14f)
-            progress.running -> chipBackground(Color.argb(72, 95, 255, 218), Color.argb(86, 164, 255, 232), 14f)
-            !progress.enabled -> chipBackground(Color.argb(48, 195, 202, 218), Color.argb(54, 214, 224, 242), 14f)
-            else -> chipBackground(Color.argb(42, 214, 228, 255), Color.argb(48, 235, 248, 255), 14f)
+        val modeText = when (modeTone) {
+            OverlayModeTone.PendingInput -> if (pendingInput?.sensitive == true) "隐私接管" else "待回复"
+            OverlayModeTone.PendingConfirmation -> "待确认"
+            OverlayModeTone.AwaitingReply -> "理解中"
+            OverlayModeTone.UserTakeover -> "接管中"
+            OverlayModeTone.Disabled -> "已关闭"
+            OverlayModeTone.Running -> "执行中"
+            OverlayModeTone.Idle -> progress.status.ifBlank { "待命" }
         }
+        titleView.setTextIfChanged(progress.title)
+        stateView.setTextIfChanged(modeText)
+        if (lastRenderedModeTone != modeTone) {
+            stateView?.background = modeBackground(modeTone)
+            lastRenderedModeTone = modeTone
+        }
+
         val actionText = pendingInput?.actionText
             ?: pending?.actionText?.ifBlank { "高风险动作确认" }
             ?: progress.currentAction.ifBlank { "等待任务" }
-        actionView?.text = actionText.cleanOverlayText().limitOverlayText(ACTION_TEXT_LIMIT)
-        resultView?.text = progress.lastResult.takeIf { it.isNotBlank() }
-            ?.let { "结果：${it.cleanOverlayText().limitOverlayText(RESULT_TEXT_LIMIT)}" }
-            ?: "结果：暂无执行结果"
-        latestView?.text = progress.logs.lastOrNull()
-            ?.let { "最近：${it.cleanOverlayText().limitOverlayText(LATEST_TEXT_LIMIT)}" }
-            ?: "最近：暂无运行日志"
-        logsView?.text = buildLogText(progress.logs)
-        stopView?.visibility = if (progress.running || pending != null || pendingInput != null) View.VISIBLE else View.GONE
+        actionView.setTextIfChanged(actionText.cleanOverlayText().limitOverlayText(ACTION_TEXT_LIMIT))
+        resultView.setTextIfChanged(
+            progress.lastResult.takeIf { it.isNotBlank() }
+                ?.let { "结果：${it.cleanOverlayText().limitOverlayText(RESULT_TEXT_LIMIT)}" }
+                ?: "结果：暂无执行结果"
+        )
+        latestView.setTextIfChanged(
+            progress.logs.lastOrNull()
+                ?.let { "最近：${it.cleanOverlayText().limitOverlayText(LATEST_TEXT_LIMIT)}" }
+                ?: "最近：暂无运行日志"
+        )
+        if (progress.logs != lastRenderedLogs) {
+            logsView.setTextIfChanged(buildLogText(progress.logs))
+            lastRenderedLogs = progress.logs.toList()
+        }
+        stopView.setVisibilityIfChanged(
+            if (progress.running || pending != null || pendingInput != null) View.VISIBLE else View.GONE
+        )
 
         if (pending != null) {
             expanded = true
-            confirmTitleView?.text = pending.title
-            confirmMessageView?.text = pending.message.cleanPanelText().limitOverlayText(CONFIRM_MESSAGE_TEXT_LIMIT)
-            confirmPrimaryView?.text = pending.positiveText
-            confirmSecondaryView?.text = pending.negativeText
+            if (pending != lastRenderedConfirmation) {
+                confirmTitleView.setTextIfChanged(pending.title)
+                confirmMessageView.setTextIfChanged(
+                    pending.message.cleanPanelText().limitOverlayText(CONFIRM_MESSAGE_TEXT_LIMIT)
+                )
+                confirmPrimaryView.setTextIfChanged(pending.positiveText)
+                confirmSecondaryView.setTextIfChanged(pending.negativeText)
+                lastRenderedConfirmation = pending
+            }
+        } else {
+            lastRenderedConfirmation = null
         }
         if (pendingInput != null || interactionTurns.isNotEmpty()) {
             expanded = true
-            renderInteractionPanel(pendingInput)
+            renderInteractionPanelIfNeeded(pendingInput, requestFocus = newPendingInput)
         }
         refreshExpandedState()
     }
 
-    private fun renderInteractionPanel(pendingInput: AgentPendingUserInput?) {
-        inputTitleView?.text = when {
-            pendingInput?.sensitive == true -> "需要你完成隐私操作"
-            pendingInput != null -> pendingInput.title.ifBlank { "与 GUI Plus 沟通" }
-            awaitingAgentReply -> "与 GUI Plus 沟通"
-            else -> "GUI Plus 对话记录"
-        }
-        inputConversationView?.text = buildInteractionTranscript()
-        inputAwaitingView?.visibility = if (awaitingAgentReply && pendingInput == null) View.VISIBLE else View.GONE
-        inputPrivateHintView?.visibility = if (pendingInput?.sensitive == true) View.VISIBLE else View.GONE
-        inputEditText?.visibility = if (pendingInput != null && !pendingInput.sensitive) View.VISIBLE else View.GONE
-        inputButtonsRow?.visibility = if (pendingInput != null) View.VISIBLE else View.GONE
-        inputEditText?.hint = pendingInput?.hint?.takeIf { it.isNotBlank() }
+    private fun renderInteractionPanelIfNeeded(
+        pendingInput: AgentPendingUserInput?,
+        requestFocus: Boolean,
+    ) {
+        val key = OverlayInteractionRenderKey(
+            pendingInput = pendingInput,
+            awaitingAgentReply = awaitingAgentReply,
+            revision = interactionRevision,
+        )
+        if (key == lastRenderedInteractionKey) return
+
+        inputTitleView.setTextIfChanged(
+            when {
+                pendingInput?.sensitive == true -> "需要你完成隐私操作"
+                pendingInput != null -> pendingInput.title.ifBlank { "与 GUI Plus 沟通" }
+                awaitingAgentReply -> "与 GUI Plus 沟通"
+                else -> "GUI Plus 对话记录"
+            }
+        )
+        val transcript = buildInteractionTranscript()
+        val transcriptChanged = inputConversationView?.text?.toString() != transcript
+        inputConversationView.setTextIfChanged(transcript)
+        inputAwaitingView.setVisibilityIfChanged(
+            if (awaitingAgentReply && pendingInput == null) View.VISIBLE else View.GONE
+        )
+        inputPrivateHintView.setVisibilityIfChanged(
+            if (pendingInput?.sensitive == true) View.VISIBLE else View.GONE
+        )
+        inputEditText.setVisibilityIfChanged(
+            if (pendingInput != null && !pendingInput.sensitive) View.VISIBLE else View.GONE
+        )
+        inputButtonsRow.setVisibilityIfChanged(if (pendingInput != null) View.VISIBLE else View.GONE)
+        val hint = pendingInput?.hint?.takeIf { it.isNotBlank() }
             ?: "可以分行说明你的选择、条件或补充信息"
-        inputPrimaryView?.text = if (pendingInput?.sensitive == true) "已完成，继续" else "发送给 GUI Plus"
-        inputSecondaryView?.text = pendingInput?.negativeText?.takeIf { it.isNotBlank() } ?: "停止任务"
-        if (pendingInput != null && !pendingInput.sensitive) requestInputFocus()
-        inputConversationScroll?.post { inputConversationScroll?.fullScroll(View.FOCUS_DOWN) }
+        if (inputEditText?.hint?.toString() != hint) inputEditText?.hint = hint
+        inputPrimaryView.setTextIfChanged(
+            if (pendingInput?.sensitive == true) "已完成，继续" else "发送给 GUI Plus"
+        )
+        inputSecondaryView.setTextIfChanged(
+            pendingInput?.negativeText?.takeIf { it.isNotBlank() } ?: "停止任务"
+        )
+        if (requestFocus && pendingInput != null && !pendingInput.sensitive) requestInputFocus()
+        if (transcriptChanged) {
+            inputConversationScroll?.post { inputConversationScroll?.fullScroll(View.FOCUS_DOWN) }
+        }
+        lastRenderedInteractionKey = key
     }
 
     private fun appendInteractionTurn(role: OverlayInteractionRole, text: String) {
@@ -475,6 +536,9 @@ class AgentOverlayService : Service() {
         if (last?.role == role && last.text == clean) return
         interactionTurns += OverlayInteractionTurn(role, clean)
         while (interactionTurns.size > MAX_INTERACTION_TURNS) interactionTurns.removeAt(0)
+        interactionRevision += 1L
+        lastRenderedInteractionKey = null
+        lastRenderedLayoutState = null
     }
 
     private fun buildInteractionTranscript(): String {
@@ -486,10 +550,14 @@ class AgentOverlayService : Service() {
     }
 
     private fun resetInteractionConversation() {
+        val changed = interactionTurns.isNotEmpty() || lastInteractionRequestId != 0L || awaitingAgentReply
         interactionTurns.clear()
         lastInteractionRequestId = 0L
         awaitingAgentReply = false
         inputEditText?.setText("")
+        if (changed) interactionRevision += 1L
+        lastRenderedInteractionKey = null
+        lastRenderedLayoutState = null
     }
 
     private fun buildLogText(logs: List<String>): String {
@@ -508,18 +576,33 @@ class AgentOverlayService : Service() {
         val interactionActive = hasInteraction && (pendingInput != null || awaitingAgentReply || latestProgress.running)
         val forceExpanded = pending != null || pendingInput != null || paused || interactionActive
         val shouldExpand = expanded || forceExpanded
-        contentGroup?.visibility = if (shouldExpand && !hidden) View.VISIBLE else View.GONE
-        confirmPanel?.visibility = if (shouldExpand && pending != null && !hidden) View.VISIBLE else View.GONE
-        inputPanel?.visibility = if (shouldExpand && hasInteraction && !hidden) View.VISIBLE else View.GONE
         val showLogs = shouldExpand && !hasInteraction && latestProgress.logs.isNotEmpty() && !hidden
-        logsCard?.visibility = if (showLogs) View.VISIBLE else View.GONE
-        logsView?.visibility = if (showLogs) View.VISIBLE else View.GONE
-        collapseView?.visibility = if (pending == null && pendingInput == null && !paused && !awaitingAgentReply) View.VISIBLE else View.GONE
-        takeoverView?.visibility = if (latestProgress.running && !paused && pending == null && pendingInput == null && !awaitingAgentReply) View.VISIBLE else View.GONE
-        resumeView?.visibility = if (paused) View.VISIBLE else View.GONE
-        collapseView?.text = if (shouldExpand) "收起" else "展开"
-        updateWindowMode(hidden)
-        updateWindowWidth(if (shouldExpand || forceExpanded) dp(EXPANDED_WIDTH_DP) else dp(COMPACT_WIDTH_DP))
+        val state = OverlayLayoutState(
+            showContent = shouldExpand && !hidden,
+            showConfirmation = shouldExpand && pending != null && !hidden,
+            showInput = shouldExpand && hasInteraction && !hidden,
+            showLogs = showLogs,
+            showCollapse = pending == null && pendingInput == null && !paused && !awaitingAgentReply,
+            showTakeover = latestProgress.running && !paused && pending == null && pendingInput == null && !awaitingAgentReply,
+            showResume = paused,
+            collapseText = if (shouldExpand) "收起" else "展开",
+            hidden = hidden,
+            targetWidth = if (shouldExpand || forceExpanded) dp(EXPANDED_WIDTH_DP) else dp(COMPACT_WIDTH_DP),
+        )
+        if (state == lastRenderedLayoutState) return
+
+        contentGroup.setVisibilityIfChanged(if (state.showContent) View.VISIBLE else View.GONE)
+        confirmPanel.setVisibilityIfChanged(if (state.showConfirmation) View.VISIBLE else View.GONE)
+        inputPanel.setVisibilityIfChanged(if (state.showInput) View.VISIBLE else View.GONE)
+        logsCard.setVisibilityIfChanged(if (state.showLogs) View.VISIBLE else View.GONE)
+        logsView.setVisibilityIfChanged(if (state.showLogs) View.VISIBLE else View.GONE)
+        collapseView.setVisibilityIfChanged(if (state.showCollapse) View.VISIBLE else View.GONE)
+        takeoverView.setVisibilityIfChanged(if (state.showTakeover) View.VISIBLE else View.GONE)
+        resumeView.setVisibilityIfChanged(if (state.showResume) View.VISIBLE else View.GONE)
+        collapseView.setTextIfChanged(state.collapseText)
+        updateWindowMode(state.hidden)
+        updateWindowWidth(state.targetWidth)
+        lastRenderedLayoutState = state
     }
 
     private fun updateWindowWidth(targetWidth: Int) {
@@ -569,6 +652,7 @@ class AgentOverlayService : Service() {
                     .setInterpolator(SOFT_OUT)
                     .start()
             }
+            lastRenderedLayoutState = null
             refreshExpandedState()
         }
     }
@@ -649,6 +733,23 @@ class AgentOverlayService : Service() {
         }
     }
 
+    private fun modeBackground(tone: OverlayModeTone): GradientDrawable = when (tone) {
+        OverlayModeTone.PendingInput ->
+            chipBackground(Color.argb(78, 80, 168, 230), Color.argb(132, 148, 232, 255), 14f)
+        OverlayModeTone.PendingConfirmation ->
+            chipBackground(Color.argb(88, 255, 184, 90), Color.argb(132, 255, 224, 135), 14f)
+        OverlayModeTone.AwaitingReply ->
+            chipBackground(Color.argb(72, 92, 170, 220), Color.argb(96, 166, 224, 255), 14f)
+        OverlayModeTone.UserTakeover ->
+            chipBackground(Color.argb(70, 255, 210, 104), Color.argb(110, 255, 230, 150), 14f)
+        OverlayModeTone.Running ->
+            chipBackground(Color.argb(72, 95, 255, 218), Color.argb(86, 164, 255, 232), 14f)
+        OverlayModeTone.Disabled ->
+            chipBackground(Color.argb(48, 195, 202, 218), Color.argb(54, 214, 224, 242), 14f)
+        OverlayModeTone.Idle ->
+            chipBackground(Color.argb(42, 214, 228, 255), Color.argb(48, 235, 248, 255), 14f)
+    }
+
     private fun buttonBackground(tone: ButtonTone): GradientDrawable {
         val colors = when (tone) {
             ButtonTone.PrimaryWarm -> intArrayOf(Color.argb(178, 186, 118, 46), Color.argb(155, 255, 214, 98))
@@ -721,6 +822,24 @@ class AgentOverlayService : Service() {
         return take((limit - 1).coerceAtLeast(1)).trimEnd() + "…"
     }
 
+    private fun TextView?.setTextIfChanged(value: CharSequence) {
+        val view = this ?: return
+        if (!TextUtils.equals(view.text, value)) view.text = value
+    }
+
+    private fun View?.setVisibilityIfChanged(value: Int) {
+        val view = this ?: return
+        if (view.visibility != value) view.visibility = value
+    }
+
+    private fun invalidateRenderCache() {
+        lastRenderedModeTone = null
+        lastRenderedLogs = emptyList()
+        lastRenderedConfirmation = null
+        lastRenderedInteractionKey = null
+        lastRenderedLayoutState = null
+    }
+
     private fun dp(value: Float): Int = (value * density + 0.5f).toInt()
 
     private inner class DragTouchListener : View.OnTouchListener {
@@ -757,6 +876,7 @@ class AgentOverlayService : Service() {
                     if (!dragging && abs(event.rawX - downRawX) < dp(8f) && abs(event.rawY - downRawY) < dp(8f)) {
                         if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null && !awaitingAgentReply) {
                             expanded = !expanded
+                            lastRenderedLayoutState = null
                             refreshExpandedState()
                         }
                     } else {
@@ -821,6 +941,25 @@ private data class OverlayInteractionTurn(
     val text: String,
 )
 
-private enum class OverlayInteractionRole { GuiPlus, User }
+private data class OverlayInteractionRenderKey(
+    val pendingInput: AgentPendingUserInput?,
+    val awaitingAgentReply: Boolean,
+    val revision: Long,
+)
 
+private data class OverlayLayoutState(
+    val showContent: Boolean,
+    val showConfirmation: Boolean,
+    val showInput: Boolean,
+    val showLogs: Boolean,
+    val showCollapse: Boolean,
+    val showTakeover: Boolean,
+    val showResume: Boolean,
+    val collapseText: String,
+    val hidden: Boolean,
+    val targetWidth: Int,
+)
+
+private enum class OverlayInteractionRole { GuiPlus, User }
+private enum class OverlayModeTone { PendingInput, PendingConfirmation, AwaitingReply, UserTakeover, Running, Disabled, Idle }
 private enum class ButtonTone { Ghost, Danger, PrimaryWarm, GhostWarm }
