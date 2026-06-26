@@ -9,16 +9,15 @@
       color-scheme: dark;
       --phone-w: 430px;
       --screen-h: 920px;
-      --chart-h: 490px;
+      --chart-h: 510px;
       --order-w: 132px;
-      --open-w: .14;
-      --close-w: .05;
       --glass: .66;
       --radius: 30px;
       --rise: #ff8f8f;
       --fall: #80f7b4;
       --aqua: #8df9ea;
       --yellow: #ffd36e;
+      --matched: #f3f5ff;
       --line: rgba(255,255,255,.095);
       --tile: rgba(255,255,255,.045);
     }
@@ -145,7 +144,6 @@
       background: rgba(255,255,255,.065);
       font-size: 10px;
       font-weight: 950;
-      cursor: pointer;
     }
     .pill.active { background: rgba(255,255,255,.20); border-color: rgba(141,249,234,.18); }
     .legend {
@@ -168,12 +166,14 @@
       grid-template-columns: minmax(0,1fr) var(--order-w);
       gap: 8px;
     }
-    .chart-column { min-width: 0; height: 100%; display: grid; grid-template-rows: minmax(0,1fr) 16px 18px; }
+    .chart-column { min-width: 0; height: 100%; display: grid; grid-template-rows: minmax(0,1fr) 16px 28px; }
     .chart-wrap { min-height: 0; position: relative; }
     #chart { width: 100%; height: 100%; display: block; }
     .axis, .caption { display: flex; align-items: center; justify-content: space-between; color: rgba(255,255,255,.34); font-size: 7px; white-space: nowrap; }
-    .caption { font-size: 6.6px; overflow: hidden; }
-    .caption span:last-child { color: rgba(141,249,234,.52); }
+    .caption { align-items: flex-start; flex-wrap: wrap; gap: 3px 8px; font-size: 6.4px; overflow: hidden; }
+    .caption .matched { color: rgba(243,245,255,.66); }
+    .caption .buy-unmatched { color: rgba(255,143,143,.66); }
+    .caption .sell-unmatched { color: rgba(128,247,180,.66); }
     .order-panel {
       min-width: 0;
       height: 100%;
@@ -244,7 +244,7 @@
     .group h2 { margin: 0 0 9px; font-size: 12px; }
     .controls input[type=text] { width: 100%; padding: 10px 11px; color: white; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(255,255,255,.06); outline: none; }
     .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 9px; }
-    .buttons button { padding: 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.075); font-size: 10px; font-weight: 900; cursor: pointer; }
+    .buttons button { padding: 10px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.075); font-size: 10px; font-weight: 900; }
     .buttons .primary { border-color: rgba(141,249,234,.22); background: rgba(141,249,234,.14); }
     .data-status { margin-top: 10px; padding: 10px; border-radius: 13px; background: rgba(255,255,255,.05); color: rgba(255,255,255,.58); font-size: 9px; line-height: 1.55; white-space: pre-wrap; }
     .data-status strong { color: var(--aqua); }
@@ -304,7 +304,11 @@
             <div class="chart-column">
               <div class="chart-wrap"><canvas id="chart"></canvas></div>
               <div class="axis"><span>09:15</span><span>09:25</span><span>11:30/13:00</span><span>14:57</span><span>15:00</span></div>
-              <div class="caption"><span>白线：真实开盘竞价匹配价</span><span>青线：真实尾盘竞价匹配价</span></div>
+              <div class="caption">
+                <span class="matched">白柱：匹配量</span>
+                <span class="buy-unmatched">红柱：买方未匹配</span>
+                <span class="sell-unmatched">绿柱：卖方未匹配</span>
+              </div>
             </div>
             <aside class="order-panel">
               <div class="order-head"><span class="order-title">五档盘口</span><span class="order-state" id="depthState">--</span></div>
@@ -317,14 +321,14 @@
         </section>
 
         <section class="glass actions section"><button>加自选</button><button>预警</button><button>诊股</button><button>买入</button><button>卖出</button></section>
-        <section class="glass info section"><h2>数据说明</h2><p>开盘竞价仅绘制后端返回的 09:15–09:25 真实匹配价；尾盘竞价仅绘制 14:57–15:00 真实匹配价。没有真实点时保持空白，不使用昨收或开盘价伪造轨迹。</p></section>
+        <section class="glass info section"><h2>竞价量说明</h2><p>竞价价格、虚拟匹配量和未匹配量来自真实行情协议。未匹配量用红色表示买方剩余、绿色表示卖方剩余；数据源不可用时保持空白，不根据价格或普通成交量伪造。</p></section>
       </div>
       <nav class="bottom-nav"><div class="nav">AI<br>AI助手</div><div class="nav active">✦<br>功能</div><div class="nav">⚙<br>设置</div></nav>
     </section>
 
     <aside class="controls">
       <h1>股票详情页实时原型</h1>
-      <p>已切换为真实后端数据模式。集合竞价期间每秒刷新，连续竞价期间每 5 秒刷新，休市后降低频率。</p>
+      <p>集合竞价期间每秒刷新。分时图下方已加入匹配量与未匹配量双柱，右侧继续固定显示五档盘口和逐笔成交。</p>
       <div class="group">
         <h2>实时数据</h2>
         <input id="query" type="text" value="600667" placeholder="股票代码或名称" />
@@ -333,10 +337,9 @@
       </div>
       <div class="group">
         <h2>布局</h2>
-        <div class="control-row"><div class="control-head"><span>图表高度</span><span id="chartHeightText">490px</span></div><input id="chartHeight" type="range" min="380" max="620" value="490" /></div>
+        <div class="control-row"><div class="control-head"><span>图表高度</span><span id="chartHeightText">510px</span></div><input id="chartHeight" type="range" min="400" max="650" value="510" /></div>
         <div class="control-row"><div class="control-head"><span>盘口宽度</span><span id="orderWidthText">132px</span></div><input id="orderWidth" type="range" min="108" max="178" value="132" /></div>
-        <div class="control-row"><div class="control-head"><span>开盘竞价占宽</span><span id="openWidthText">14%</span></div><input id="openWidth" type="range" min="8" max="24" value="14" /></div>
-        <div class="control-row"><div class="control-head"><span>尾盘竞价占宽</span><span id="closeWidthText">5%</span></div><input id="closeWidth" type="range" min="3" max="12" value="5" /></div>
+        <div class="control-row"><div class="control-head"><span>竞价量区高度</span><span id="volumeHeightText">24%</span></div><input id="volumeHeight" type="range" min="18" max="34" value="24" /></div>
       </div>
     </aside>
   </main>
@@ -346,19 +349,13 @@
     const $ = selector => document.querySelector(selector);
     const rootStyle = document.documentElement.style;
     const state = {
-      data: emptyData(),
-      running: false,
-      loading: false,
-      timer: null,
-      openWidth: .14,
-      closeWidth: .05,
-      requestCount: 0,
-      lastError: ""
+      data: emptyData(), running: false, loading: false, timer: null,
+      openWidth: .14, closeWidth: .05, volumeFraction: .24, requestCount: 0
     };
 
     function emptyData() {
       return {
-        quote: {name:"--", code:"------", market:"--", price:null, changeAmount:null, changePercent:null, high:null, low:null, open:null, previousClose:null, amount:"--", turnoverRate:"--", volumeRatio:"--", totalMarketValue:"--", source:"等待真实后端行情"},
+        quote: {name:"--",code:"------",market:"--",price:null,changeAmount:null,changePercent:null,high:null,low:null,open:null,previousClose:null,amount:"--",turnoverRate:"--",volumeRatio:"--",totalMarketValue:"--",source:"等待真实后端行情"},
         minutePoints: [], sellLevels: [], buyLevels: [], ticks: [], auction: null, depthStatus: "--"
       };
     }
@@ -369,37 +366,38 @@
       return Number.isFinite(parsed) ? parsed : null;
     };
     const fmt = value => value == null ? "--" : Number(value).toFixed(2);
-    const signed = (value, suffix="") => value == null ? "--" : `${Number(value)>=0?"+":""}${Number(value).toFixed(2)}${suffix}`;
-    const phaseFrom = (item, hm) => {
+    const signed = (value,suffix="") => value == null ? "--" : `${Number(value)>=0?"+":""}${Number(value).toFixed(2)}${suffix}`;
+    const timeParts = raw => {
+      const text = String(raw ?? "");
+      const match = text.match(/(\d{2}:\d{2})(?::(\d{2}))?$/);
+      return match ? {minute:match[1],full:match[2]?`${match[1]}:${match[2]}`:match[1]} : {minute:"",full:""};
+    };
+    const phaseFrom = (item, minute) => {
       const raw = String(item?.sessionPhase || item?.phase || "").toLowerCase();
       if (raw.includes("open")) return "open";
       if (raw.includes("close")) return "close";
-      if (hm >= "09:15" && hm <= "09:25") return "open";
-      if (hm >= "14:57" && hm <= "15:00") return "close";
+      if (minute >= "09:15" && minute <= "09:25") return "open";
+      if (minute >= "14:57" && minute <= "15:00") return "close";
       return "continuous";
     };
-    const pointKey = point => point.timestamp || `${point.date || ""}-${point.time}`;
+    const pointKey = point => point.timestamp || `${point.date || ""}-${point.fullTime}`;
 
     function normalizePoint(item) {
-      const rawTime = item?.time ?? item?.datetime ?? item?.timestamp ?? "";
-      let hm = String(rawTime);
-      if (/^\d{10,13}$/.test(hm)) {
-        const stamp = Number(hm.length === 10 ? `${hm}000` : hm);
-        hm = new Intl.DateTimeFormat("zh-CN", {timeZone:"Asia/Shanghai", hour:"2-digit", minute:"2-digit", hour12:false}).format(new Date(stamp));
-      } else {
-        hm = hm.slice(-5);
-      }
+      const times = timeParts(item?.time ?? item?.datetime ?? item?.timestamp);
       const price = number(item?.price ?? item?.close ?? item?.current);
-      if (price == null || !hm.includes(":")) return null;
+      if (price == null || !times.minute) return null;
+      const matched = number(item?.matchedVolume);
+      const unmatched = number(item?.unmatchedVolume);
       return {
-        date: item?.date || "",
-        time: hm,
-        timestamp: number(item?.timestamp) || 0,
-        price,
-        average: number(item?.average ?? item?.avgPrice ?? item?.averagePrice) ?? price,
-        volume: number(item?.volume ?? item?.amount) ?? 0,
-        phase: phaseFrom(item, hm),
-        priceSource: item?.priceSource || ""
+        date:item?.date || "", time:times.minute, fullTime:times.full,
+        timestamp:number(item?.timestamp) || 0,
+        price, average:number(item?.average ?? item?.avgPrice ?? item?.averagePrice) ?? price,
+        volume:number(item?.volume ?? item?.amount) ?? 0,
+        matchedVolume:matched,
+        unmatchedVolume:unmatched,
+        unmatchedDirection:String(item?.unmatchedDirection || "unavailable"),
+        phase:phaseFrom(item,times.minute),
+        priceSource:item?.priceSource || ""
       };
     }
 
@@ -407,187 +405,140 @@
       const payload = rawRoot?.data ?? rawRoot?.payload ?? rawRoot ?? {};
       const q0 = payload.quote ?? payload.stock ?? {};
       const auction = payload.auction ?? null;
-      const q = {
-        name: q0.name ?? q0.stockName ?? "--",
-        code: q0.code ?? q0.stockCode ?? "------",
-        market: q0.market ?? q0.marketName ?? "--",
-        price: number(q0.price ?? q0.latestPrice ?? q0.current),
-        changeAmount: number(q0.changeAmount ?? q0.change),
-        changePercent: number(q0.changePercent ?? q0.changePct),
-        high: number(q0.high), low: number(q0.low), open: number(q0.open),
-        previousClose: number(q0.previousClose ?? q0.preClose),
-        amount: q0.amount ?? q0.turnoverAmount ?? "--",
-        turnoverRate: q0.turnoverRate ?? "--",
-        volumeRatio: q0.volumeRatio ?? "--",
-        totalMarketValue: q0.totalMarketValue ?? q0.marketValue ?? "--",
-        source: payload.dataSourceLabel ?? rawRoot?.dataSourceLabel ?? "A股真实统一行情"
+      const quote = {
+        name:q0.name ?? q0.stockName ?? "--", code:q0.code ?? q0.stockCode ?? "------",
+        market:q0.market ?? q0.marketName ?? "--", price:number(q0.price ?? q0.latestPrice ?? q0.current),
+        changeAmount:number(q0.changeAmount ?? q0.change), changePercent:number(q0.changePercent ?? q0.changePct),
+        high:number(q0.high), low:number(q0.low), open:number(q0.open), previousClose:number(q0.previousClose ?? q0.preClose),
+        amount:q0.amount ?? q0.turnoverAmount ?? "--", turnoverRate:q0.turnoverRate ?? "--",
+        volumeRatio:q0.volumeRatio ?? "--", totalMarketValue:q0.totalMarketValue ?? q0.marketValue ?? "--",
+        source:payload.dataSourceLabel ?? rawRoot?.dataSourceLabel ?? "A股真实统一行情"
       };
-      const minuteRaw = payload.minutePoints ?? payload.minute ?? payload.minutes ?? payload.trends ?? [];
       const map = new Map();
-      (Array.isArray(minuteRaw) ? minuteRaw : []).map(normalizePoint).filter(Boolean).forEach(point => map.set(pointKey(point), point));
-      const openRaw = auction?.open?.points ?? [];
-      const closeRaw = auction?.close?.points ?? [];
-      [...openRaw, ...closeRaw].map(normalizePoint).filter(Boolean).forEach(point => map.set(pointKey(point), point));
-      const minutePoints = [...map.values()].sort((a,b) => (a.timestamp || a.time.localeCompare(b.time)) - (b.timestamp || 0));
+      const minuteRaw = payload.minutePoints ?? payload.minute ?? payload.minutes ?? payload.trends ?? [];
+      (Array.isArray(minuteRaw)?minuteRaw:[]).map(normalizePoint).filter(Boolean).forEach(point=>map.set(pointKey(point),point));
+      [...(auction?.open?.points ?? []), ...(auction?.close?.points ?? [])].map(normalizePoint).filter(Boolean).forEach(point=>map.set(pointKey(point),point));
+      const minutePoints = [...map.values()].sort((a,b)=>(a.timestamp||0)-(b.timestamp||0) || a.fullTime.localeCompare(b.fullTime));
       const sellRaw = payload.sellLevels ?? payload.sell ?? payload.asks ?? payload.depth?.sellLevels ?? [];
       const buyRaw = payload.buyLevels ?? payload.buy ?? payload.bids ?? payload.depth?.buyLevels ?? [];
       const tickRaw = payload.tradeTicks ?? payload.ticks ?? payload.details ?? [];
-      const level = (item,index,prefix) => ({label:item?.label ?? `${prefix}${index+1}`, price:String(item?.price ?? "--"), volume:String(item?.volume ?? item?.amount ?? "--")});
-      const tick = item => ({time:String(item?.time ?? item?.timestamp ?? "").slice(-5), price:String(item?.price ?? "--"), volume:String(item?.volume ?? item?.amount ?? "--"), buy:Boolean(item?.isBuy ?? String(item?.direction ?? "").includes("买"))});
+      const level = (item,index,prefix)=>({label:item?.label??`${prefix}${index+1}`,price:String(item?.price??"--"),volume:String(item?.volume??item?.amount??"--")});
+      const tick = item=>({time:timeParts(item?.time??item?.timestamp).full,price:String(item?.price??"--"),volume:String(item?.volume??item?.amount??"--"),buy:Boolean(item?.isBuy??String(item?.direction??"").includes("买"))});
       return {
-        quote:q,
-        minutePoints,
+        quote, minutePoints,
         sellLevels:(Array.isArray(sellRaw)?sellRaw:[]).slice(0,5).map((item,index)=>level(item,index,"卖")),
         buyLevels:(Array.isArray(buyRaw)?buyRaw:[]).slice(0,5).map((item,index)=>level(item,index,"买")),
-        ticks:(Array.isArray(tickRaw)?tickRaw:[]).slice(-12).map(tick),
-        auction,
-        depthStatus: payload.depthStatus ?? payload.depthState?.status ?? (sellRaw.length || buyRaw.length ? "ok" : "unavailable")
+        ticks:(Array.isArray(tickRaw)?tickRaw:[]).slice(-12).map(tick), auction,
+        depthStatus:payload.depthStatus ?? payload.depthState?.status ?? (sellRaw.length||buyRaw.length?"ok":"unavailable")
       };
     }
 
     function renderQuote() {
-      const q = state.data.quote;
-      const rising = (q.changePercent ?? 0) >= 0;
-      const tone = rising ? "rise" : "fall";
-      $("#name").textContent = q.name;
-      $("#code").textContent = q.code;
-      $("#market").textContent = q.market;
-      $("#source").textContent = q.source;
-      $("#price").textContent = fmt(q.price);
-      $("#price").className = `price ${tone}`;
-      $("#change").textContent = `${signed(q.changeAmount)}  ${signed(q.changePercent,"%")}`;
-      $("#change").className = `change ${tone}`;
-      $("#amountTop").textContent = q.amount;
-      const metrics = [["高",fmt(q.high),"rise"],["低",fmt(q.low),"fall"],["开",fmt(q.open),""],["昨收",fmt(q.previousClose),""],["成交额",q.amount,""],["换手",q.turnoverRate,""],["量比",q.volumeRatio,tone],["总市值",q.totalMarketValue,""]];
-      $("#metrics").innerHTML = metrics.map(([label,value,cls]) => `<div class="metric"><span>${label}</span><b class="${cls}">${value}</b></div>`).join("");
-      const continuous = state.data.minutePoints.filter(point => point.phase === "continuous");
-      $("#average").textContent = fmt(continuous.at(-1)?.average ?? q.price);
-      $("#latest").textContent = fmt(q.price);
-      $("#latest").className = tone;
-      $("#legendChange").textContent = signed(q.changePercent,"%");
-      $("#legendChange").className = tone;
+      const q=state.data.quote, rising=(q.changePercent??0)>=0, tone=rising?"rise":"fall";
+      $("#name").textContent=q.name; $("#code").textContent=q.code; $("#market").textContent=q.market; $("#source").textContent=q.source;
+      $("#price").textContent=fmt(q.price); $("#price").className=`price ${tone}`;
+      $("#change").textContent=`${signed(q.changeAmount)}  ${signed(q.changePercent,"%")}`; $("#change").className=`change ${tone}`;
+      $("#amountTop").textContent=q.amount;
+      const metrics=[["高",fmt(q.high),"rise"],["低",fmt(q.low),"fall"],["开",fmt(q.open),""],["昨收",fmt(q.previousClose),""],["成交额",q.amount,""],["换手",q.turnoverRate,""],["量比",q.volumeRatio,tone],["总市值",q.totalMarketValue,""]];
+      $("#metrics").innerHTML=metrics.map(([label,value,cls])=>`<div class="metric"><span>${label}</span><b class="${cls}">${value}</b></div>`).join("");
+      const continuous=state.data.minutePoints.filter(point=>point.phase==="continuous");
+      $("#average").textContent=fmt(continuous.at(-1)?.average??q.price); $("#latest").textContent=fmt(q.price); $("#latest").className=tone;
+      $("#legendChange").textContent=signed(q.changePercent,"%"); $("#legendChange").className=tone;
     }
 
     function renderOrderFlow() {
-      const sells = state.data.sellLevels;
-      const buys = state.data.buyLevels;
-      $("#depthState").textContent = state.data.depthStatus === "ok" ? "实时" : "不可用";
-      if (!sells.length && !buys.length) {
-        $("#depth").innerHTML = `<div class="empty">真实五档<br>暂不可用</div>`;
-      } else {
-        const rows = [...sells.map(x=>({...x,ask:true})), {spread:true}, ...buys.map(x=>({...x,ask:false}))];
-        $("#depth").innerHTML = rows.map(row => row.spread ? `<div class="spread"></div>` : `<div class="depth-row"><span class="label">${row.label}</span><span class="depth-price ${row.ask?"rise":"fall"}">${row.price}</span><span class="volume">${row.volume}</span></div>`).join("");
+      const sells=state.data.sellLevels, buys=state.data.buyLevels;
+      $("#depthState").textContent=state.data.depthStatus==="ok"?"实时":"不可用";
+      if(!sells.length&&!buys.length) $("#depth").innerHTML=`<div class="empty">真实五档<br>暂不可用</div>`;
+      else {
+        const rows=[...sells.map(x=>({...x,ask:true})),{spread:true},...buys.map(x=>({...x,ask:false}))];
+        $("#depth").innerHTML=rows.map(row=>row.spread?`<div class="spread"></div>`:`<div class="depth-row"><span class="label">${row.label}</span><span class="depth-price ${row.ask?"rise":"fall"}">${row.price}</span><span class="volume">${row.volume}</span></div>`).join("");
       }
-      const ticks = state.data.ticks.slice(-8);
-      $("#ticks").innerHTML = ticks.length ? ticks.map(item => `<div class="tick-row"><span class="tick-time">${item.time}</span><span class="tick-price ${item.buy?"rise":"fall"}">${item.price}</span><span class="volume">${item.volume}</span></div>`).join("") : `<div class="empty">真实逐笔<br>暂不可用</div>`;
+      const ticks=state.data.ticks.slice(-8);
+      $("#ticks").innerHTML=ticks.length?ticks.map(item=>`<div class="tick-row"><span class="tick-time">${item.time}</span><span class="tick-price ${item.buy?"rise":"fall"}">${item.price}</span><span class="volume">${item.volume}</span></div>`).join(""):`<div class="empty">真实逐笔<br>暂不可用</div>`;
     }
 
     function sessionX(timeText) {
-      const [hour,minutePart] = String(timeText).slice(-5).split(":").map(Number);
-      const minute = hour*60+minutePart;
-      const openStart=555, openEnd=565, morningStart=570, morningEnd=690, afternoonStart=780, closeStart=897, dayEnd=900;
-      const openW=state.openWidth, closeW=state.closeWidth, continuousEnd=1-closeW;
-      const split=openW+(continuousEnd-openW)*.50;
-      if (minute<=openEnd) return Math.max(0,Math.min(openW,(minute-openStart)/(openEnd-openStart)*openW));
-      if (minute<=morningEnd) return openW+(minute-morningStart)/(morningEnd-morningStart)*(split-openW);
-      if (minute<closeStart) return split+(minute-afternoonStart)/(closeStart-afternoonStart)*(continuousEnd-split);
+      const [hour,minutePart]=String(timeText).split(":").map(Number), minute=hour*60+minutePart;
+      const openStart=555,openEnd=565,morningStart=570,morningEnd=690,afternoonStart=780,closeStart=897,dayEnd=900;
+      const openW=state.openWidth,closeW=state.closeWidth,continuousEnd=1-closeW,split=openW+(continuousEnd-openW)*.50;
+      if(minute<=openEnd)return Math.max(0,Math.min(openW,(minute-openStart)/(openEnd-openStart)*openW));
+      if(minute<=morningEnd)return openW+(minute-morningStart)/(morningEnd-morningStart)*(split-openW);
+      if(minute<closeStart)return split+(minute-afternoonStart)/(closeStart-afternoonStart)*(continuousEnd-split);
       return continuousEnd+(minute-closeStart)/(dayEnd-closeStart)*closeW;
     }
 
     function canvasContext() {
-      const canvas=$("#chart"), rect=canvas.getBoundingClientRect(), dpr=Math.min(devicePixelRatio||1,2);
+      const canvas=$("#chart"),rect=canvas.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
       canvas.width=Math.max(1,Math.round(rect.width*dpr)); canvas.height=Math.max(1,Math.round(rect.height*dpr));
-      const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
-      return {ctx,width:rect.width,height:rect.height};
+      const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); return {ctx,width:rect.width,height:rect.height};
     }
 
     function drawChart() {
-      const {ctx,width,height}=canvasContext();
-      ctx.clearRect(0,0,width,height);
-      const points=state.data.minutePoints;
-      const chartH=height*.78, volumeTop=chartH+7, volumeH=Math.max(1,height-volumeTop);
+      const {ctx,width,height}=canvasContext(); ctx.clearRect(0,0,width,height);
+      const points=state.data.minutePoints, volumeH=height*state.volumeFraction, gap=8, chartH=height-volumeH-gap, volumeTop=chartH+gap;
       for(let i=1;i<=4;i++){const y=chartH*i/5;ctx.strokeStyle="rgba(255,255,255,.10)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(width,y);ctx.stroke();}
-      const openX=width*state.openWidth, closeX=width*(1-state.closeWidth), lunchX=width*(state.openWidth+(1-state.closeWidth-state.openWidth)*.50);
-      ctx.fillStyle="rgba(245,247,255,.045)";ctx.fillRect(0,0,openX,chartH);
-      ctx.fillStyle="rgba(141,249,234,.045)";ctx.fillRect(closeX,0,width-closeX,chartH);
+      const openX=width*state.openWidth,closeX=width*(1-state.closeWidth),lunchX=width*(state.openWidth+(1-state.closeWidth-state.openWidth)*.50);
+      ctx.fillStyle="rgba(245,247,255,.045)";ctx.fillRect(0,0,openX,chartH);ctx.fillStyle="rgba(141,249,234,.045)";ctx.fillRect(closeX,0,width-closeX,chartH);
       [openX,lunchX,closeX].forEach(x=>{ctx.strokeStyle="rgba(255,255,255,.13)";ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();});
+      ctx.strokeStyle="rgba(255,255,255,.12)";ctx.beginPath();ctx.moveTo(0,volumeTop-3);ctx.lineTo(width,volumeTop-3);ctx.stroke();
       if(!points.length){ctx.fillStyle="rgba(255,255,255,.42)";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("暂无真实分时数据",width/2,chartH/2);return;}
-      const q=state.data.quote, previous=q.previousClose ?? points[0].price;
-      const values=points.flatMap(point=>[point.price,point.phase==="continuous"?point.average:point.price]);
-      const half=Math.max(...values.map(value=>Math.abs(value-previous)),previous*.003,.01)*1.08;
-      const min=previous-half,max=previous+half,y=value=>chartH-((value-min)/(max-min))*chartH,x=point=>sessionX(point.time)*width;
+      const q=state.data.quote,previous=q.previousClose??points[0].price,values=points.flatMap(point=>[point.price,point.phase==="continuous"?point.average:point.price]);
+      const half=Math.max(...values.map(value=>Math.abs(value-previous)),previous*.003,.01)*1.08,min=previous-half,max=previous+half;
+      const y=value=>chartH-((value-min)/(max-min))*chartH,x=point=>sessionX(point.time)*width;
       ctx.save();ctx.setLineDash([5,5]);ctx.strokeStyle="rgba(255,255,255,.20)";ctx.beginPath();ctx.moveTo(0,y(previous));ctx.lineTo(width,y(previous));ctx.stroke();ctx.restore();
-      const maxVolume=Math.max(...points.map(point=>point.volume||0),1);
-      points.forEach(point=>{const xx=x(point),top=volumeTop+volumeH*(1-(point.volume/maxVolume));ctx.strokeStyle=point.price>=previous?"rgba(255,143,143,.28)":"rgba(128,247,180,.26)";ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(xx,height);ctx.lineTo(xx,top);ctx.stroke();});
-      const open=points.filter(point=>point.phase==="open"), continuous=points.filter(point=>point.phase==="continuous"), close=points.filter(point=>point.phase==="close");
+      const open=points.filter(point=>point.phase==="open"),continuous=points.filter(point=>point.phase==="continuous"),close=points.filter(point=>point.phase==="close"),auction=[...open,...close];
+      const continuousMax=Math.max(...continuous.map(point=>point.volume||0),1);
+      continuous.forEach(point=>{const xx=x(point),top=height-(point.volume/continuousMax)*volumeH*.82;ctx.strokeStyle=point.price>=previous?"rgba(255,143,143,.24)":"rgba(128,247,180,.22)";ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(xx,height);ctx.lineTo(xx,top);ctx.stroke();});
+      const auctionMax=Math.max(...auction.flatMap(point=>[point.matchedVolume||0,point.unmatchedVolume||0]),1);
+      const auctionBarWidth=Math.max(1.2,Math.min(3.2,width/Math.max(auction.length,16)*.34));
+      auction.forEach(point=>{
+        const xx=x(point),matched=point.matchedVolume??point.volume??0,unmatched=point.unmatchedVolume;
+        if(matched>0){const top=height-(matched/auctionMax)*volumeH*.92;ctx.strokeStyle="rgba(243,245,255,.60)";ctx.lineWidth=auctionBarWidth;ctx.beginPath();ctx.moveTo(xx-auctionBarWidth*.7,height);ctx.lineTo(xx-auctionBarWidth*.7,top);ctx.stroke();}
+        if(unmatched!=null&&unmatched>0){const top=height-(unmatched/auctionMax)*volumeH*.92;ctx.strokeStyle=point.unmatchedDirection==="sell"?"rgba(128,247,180,.72)":"rgba(255,143,143,.72)";ctx.lineWidth=auctionBarWidth;ctx.beginPath();ctx.moveTo(xx+auctionBarWidth*.7,height);ctx.lineTo(xx+auctionBarWidth*.7,top);ctx.stroke();}
+      });
       const line=(list,selector,color,lineWidth)=>{if(list.length<2)return;ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();list.forEach((point,index)=>index?ctx.lineTo(x(point),y(selector(point))):ctx.moveTo(x(point),y(selector(point))));ctx.stroke();};
-      const step=(list,color)=>{if(!list.length)return;ctx.strokeStyle=color;ctx.lineWidth=1.9;ctx.lineCap="square";ctx.beginPath();let previousPoint;list.forEach((point,index)=>{if(!index)ctx.moveTo(x(point),y(point.price));else{ctx.lineTo(x(point),y(previousPoint.price));ctx.lineTo(x(point),y(point.price));}previousPoint=point;});ctx.stroke();if(list.length===1){ctx.fillStyle=color;ctx.beginPath();ctx.arc(x(list[0]),y(list[0].price),2.5,0,Math.PI*2);ctx.fill();}};
-      line(continuous,point=>point.average,"rgba(255,211,110,.90)",1.6);
-      line(continuous,point=>point.price,(q.changePercent??0)>=0?"rgba(255,143,143,.98)":"rgba(128,247,180,.98)",2.5);
-      step(open,"rgba(245,247,255,.96)"); step(close,"rgba(141,249,234,.96)");
+      const step=(list,color)=>{if(!list.length)return;ctx.strokeStyle=color;ctx.lineWidth=1.9;ctx.lineCap="square";ctx.beginPath();let previousPoint;list.forEach((point,index)=>{if(!index)ctx.moveTo(x(point),y(point.price));else{ctx.lineTo(x(point),y(previousPoint.price));ctx.lineTo(x(point),y(point.price));}previousPoint=point;});ctx.stroke();};
+      line(continuous,point=>point.average,"rgba(255,211,110,.90)",1.6);line(continuous,point=>point.price,(q.changePercent??0)>=0?"rgba(255,143,143,.98)":"rgba(128,247,180,.98)",2.5);step(open,"rgba(245,247,255,.96)");step(close,"rgba(141,249,234,.96)");
     }
 
     function renderAuctionStatus() {
       const auction=state.data.auction;
       if(!auction){$("#auctionStatus").textContent="竞价数据不可用";return;}
-      const open=auction.open||{}, close=auction.close||{};
-      const openText=open.pointCount?`开盘 ${open.pointCount}点·${open.latestPointTime}`:"开盘待数据";
-      const closeText=close.pointCount?`尾盘 ${close.pointCount}点·${close.latestPointTime}`:"尾盘待数据";
-      const stale=auction.stale?` · 缓存${auction.cacheAgeMs||0}ms`:"";
-      $("#auctionStatus").textContent=`${openText} / ${closeText}${stale}`;
+      const open=auction.open||{},close=auction.close||{};
+      const matched=(open.matchedVolumePointCount||0)+(close.matchedVolumePointCount||0),unmatched=(open.unmatchedVolumePointCount||0)+(close.unmatchedVolumePointCount||0);
+      $("#auctionStatus").textContent=`价 ${open.pointCount||0}/${close.pointCount||0} · 匹配 ${matched} · 未匹配 ${unmatched}`;
     }
-
     function renderAll(){renderQuote();renderOrderFlow();renderAuctionStatus();requestAnimationFrame(drawChart);}
 
-    function chinaClock() {
-      const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",weekday:"short",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).formatToParts(new Date()).filter(x=>x.type!=="literal").map(x=>[x.type,x.value]));
-      return {weekday:parts.weekday,hour:Number(parts.hour),minute:Number(parts.minute),second:Number(parts.second)};
-    }
-    function refreshPlan(){
-      const now=chinaClock(), minute=now.hour*60+now.minute, weekday=!['Sat','Sun'].includes(now.weekday);
-      const auction=weekday&&((minute>=554&&minute<=566)||(minute>=896&&minute<=901));
-      const trading=weekday&&minute>=555&&minute<=905;
-      return auction?{delay:1000,force:true,label:"集合竞价每秒刷新"}:trading?{delay:5000,force:false,label:"交易时段每5秒刷新"}:{delay:30000,force:false,label:"休市状态每30秒检查"};
-    }
+    function chinaClock(){const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",weekday:"short",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).formatToParts(new Date()).filter(x=>x.type!=="literal").map(x=>[x.type,x.value]));return{weekday:parts.weekday,hour:Number(parts.hour),minute:Number(parts.minute)};}
+    function refreshPlan(){const now=chinaClock(),minute=now.hour*60+now.minute,weekday=!['Sat','Sun'].includes(now.weekday),auction=weekday&&((minute>=554&&minute<=566)||(minute>=896&&minute<=901)),trading=weekday&&minute>=555&&minute<=905;return auction?{delay:1000,force:true,label:"集合竞价每秒刷新"}:trading?{delay:5000,force:false,label:"交易时段每5秒刷新"}:{delay:30000,force:false,label:"休市每30秒检查"};}
     function schedule(){clearTimeout(state.timer);if(!state.running)return;const plan=refreshPlan();state.timer=setTimeout(()=>loadLive(true),document.hidden?Math.max(plan.delay,15000):plan.delay);}
-
     async function loadLive(silent=false){
-      if(state.loading){schedule();return;}
-      state.loading=true;
-      const query=$("#query").value.trim()||"600667", plan=refreshPlan();
-      if(!silent)$("#dataStatus").innerHTML="<strong>连接中</strong>：正在读取真实行情与集合竞价…";
-      const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),15000);
+      if(state.loading){schedule();return;} state.loading=true;
+      const query=$("#query").value.trim()||"600667",plan=refreshPlan();
+      if(!silent)$("#dataStatus").innerHTML="<strong>连接中</strong>：正在读取竞价价格、匹配量与未匹配量…";
+      const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),18000);
       try{
-        const url=`${API}?query=${encodeURIComponent(query)}&ndays=1&forceAuction=${plan.force}&_=${Date.now()}`;
-        const response=await fetch(url,{signal:controller.signal,cache:"no-store"});
+        const response=await fetch(`${API}?query=${encodeURIComponent(query)}&ndays=1&forceAuction=${plan.force}&_=${Date.now()}`,{signal:controller.signal,cache:"no-store"});
         if(!response.ok)throw new Error(`HTTP ${response.status}`);
-        const raw=await response.json();
-        state.data=normalizePayload(raw);state.requestCount+=1;state.lastError="";renderAll();
-        const auction=state.data.auction||{};
-        const open=auction.open?.pointCount||0,close=auction.close?.pointCount||0;
-        const timeText=new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date());
-        $("#dataStatus").innerHTML=`<strong>真实后端 · ${plan.label}</strong>\n${state.data.quote.name} ${state.data.quote.code} · ${timeText}\n开盘竞价 ${open} 点 · 尾盘竞价 ${close} 点 · ${auction.refreshMode||"--"}\n缓存 ${auction.cacheAgeMs||0}ms · stale=${Boolean(auction.stale)} · 请求 ${state.requestCount} 次`;
-      }catch(error){
-        state.lastError=error.name==="AbortError"?"请求超时":error.message;
-        $("#dataStatus").innerHTML=`<strong>刷新失败</strong>：${state.lastError}\n保留上一份真实成功数据，不切换到演示快照。`;
-      }finally{clearTimeout(timer);state.loading=false;schedule();}
+        state.data=normalizePayload(await response.json());state.requestCount+=1;renderAll();
+        const auction=state.data.auction||{},open=auction.open||{},close=auction.close||{},timeText=new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date());
+        $("#dataStatus").innerHTML=`<strong>真实后端 · ${plan.label}</strong>\n${state.data.quote.name} ${state.data.quote.code} · ${timeText}\n竞价价格点 ${open.pointCount||0}/${close.pointCount||0}\n匹配量点 ${(open.matchedVolumePointCount||0)+(close.matchedVolumePointCount||0)} · 未匹配量点 ${(open.unmatchedVolumePointCount||0)+(close.unmatchedVolumePointCount||0)}\n数据源 ${auction.source||"--"}\n缓存 ${auction.cacheAgeMs||0}ms · stale=${Boolean(auction.stale)} · 请求 ${state.requestCount} 次`;
+      }catch(error){$("#dataStatus").innerHTML=`<strong>刷新失败</strong>：${error.name==="AbortError"?"请求超时":error.message}\n保留上一份真实成功数据。`;}
+      finally{clearTimeout(timer);state.loading=false;schedule();}
     }
 
     $("#start").addEventListener("click",()=>{state.running=true;loadLive(false);});
     $("#stop").addEventListener("click",()=>{state.running=false;clearTimeout(state.timer);$("#dataStatus").innerHTML+="\n已停止自动刷新。";});
     $("#query").addEventListener("keydown",event=>{if(event.key==="Enter"){state.running=true;loadLive(false);}});
     document.addEventListener("visibilitychange",()=>{if(!document.hidden&&state.running)loadLive(true);else schedule();});
-    window.addEventListener("resize",()=>requestAnimationFrame(drawChart));
-    new ResizeObserver(()=>drawChart()).observe($(".chart-wrap"));
+    window.addEventListener("resize",()=>requestAnimationFrame(drawChart));new ResizeObserver(()=>drawChart()).observe($(".chart-wrap"));
     $("#mobileToggle").addEventListener("click",()=>document.body.classList.toggle("controls-open"));
     $("#chartHeight").addEventListener("input",event=>{rootStyle.setProperty("--chart-h",`${event.target.value}px`);$("#chartHeightText").textContent=`${event.target.value}px`;drawChart();});
     $("#orderWidth").addEventListener("input",event=>{rootStyle.setProperty("--order-w",`${event.target.value}px`);$("#orderWidthText").textContent=`${event.target.value}px`;drawChart();});
-    $("#openWidth").addEventListener("input",event=>{state.openWidth=Number(event.target.value)/100;rootStyle.setProperty("--open-w",state.openWidth);$("#openWidthText").textContent=`${event.target.value}%`;drawChart();});
-    $("#closeWidth").addEventListener("input",event=>{state.closeWidth=Number(event.target.value)/100;rootStyle.setProperty("--close-w",state.closeWidth);$("#closeWidthText").textContent=`${event.target.value}%`;drawChart();});
-
-    renderAll();
-    state.running=true;
-    setTimeout(()=>loadLive(false),250);
+    $("#volumeHeight").addEventListener("input",event=>{state.volumeFraction=Number(event.target.value)/100;$("#volumeHeightText").textContent=`${event.target.value}%`;drawChart();});
+    renderAll();state.running=true;setTimeout(()=>loadLive(false),250);
   </script>
 </body>
 </html>
