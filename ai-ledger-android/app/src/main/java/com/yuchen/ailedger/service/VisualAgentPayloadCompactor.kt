@@ -8,14 +8,14 @@ import org.json.JSONObject
  * execution feedback, task memory and GUI Plus ownership gates.
  */
 internal fun JSONObject.compactVisualAgentPayloadForTransport(): JSONObject {
-    TRANSPORT_ALIAS_KEYS.forEach(::remove)
+    TRANSPORT_ALIAS_KEYS.forEach { key -> remove(key) }
 
     optJSONObject("agentMemory")?.apply {
         // These objects are already present in canonical top-level/deviceContext locations. The
         // Worker normalizer reads those locations before rebuilding one canonical memory object.
-        AGENT_MEMORY_DUPLICATE_KEYS.forEach(::remove)
+        AGENT_MEMORY_DUPLICATE_KEYS.forEach { key -> remove(key) }
         optJSONObject("loopSignals")?.let { signals ->
-            LOOP_SIGNAL_DUPLICATE_KEYS.forEach(signals::remove)
+            LOOP_SIGNAL_DUPLICATE_KEYS.forEach { key -> signals.remove(key) }
         }
     }
     return this
