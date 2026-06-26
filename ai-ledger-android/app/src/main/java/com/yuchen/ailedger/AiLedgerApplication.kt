@@ -8,6 +8,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class AiLedgerApplication : Application() {
@@ -17,16 +19,19 @@ class AiLedgerApplication : Application() {
         super.onCreate()
         appContext = applicationContext
         applicationScope.launch {
-            AgentRuntimeController.progress.collectLatest { progress ->
-                if (
+            AgentRuntimeController.progress
+                .map { progress ->
                     progress.enabled ||
-                    progress.running ||
-                    progress.pendingConfirmation != null ||
-                    progress.pendingUserInput != null
-                ) {
-                    VisualAgentHudOverlayService.ensureStarted(this@AiLedgerApplication)
+                        progress.running ||
+                        progress.pendingConfirmation != null ||
+                        progress.pendingUserInput != null
                 }
-            }
+                .distinctUntilChanged()
+                .collectLatest { shouldEnsureHud ->
+                    if (shouldEnsureHud) {
+                        VisualAgentHudOverlayService.ensureStarted(this@AiLedgerApplication)
+                    }
+                }
         }
     }
 
