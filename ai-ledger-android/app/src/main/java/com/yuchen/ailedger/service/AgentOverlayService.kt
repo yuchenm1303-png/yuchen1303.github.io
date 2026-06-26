@@ -89,7 +89,7 @@ class AgentOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        if (!isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
+        if (!AgentOverlayLaunchPolicy.isServiceAllowed() || !canDrawOverlays(this)) {
             stopSelf()
             return
         }
@@ -105,7 +105,7 @@ class AgentOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
+        if (!AgentOverlayLaunchPolicy.isServiceAllowed() || !canDrawOverlays(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -973,47 +973,45 @@ class AgentOverlayService : Service() {
         private const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
         private val SOFT_OUT = DecelerateInterpolator(1.55f)
 
-        @Volatile
-        private var overlaySwitchEnabled: Boolean = false
+        fun canDrawOverlays(context: Context): Boolean =
+            AgentOverlayLaunchPolicy.canDrawOverlays(context)
 
-        fun canDrawOverlays(context: Context): Boolean {
-            return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
-        }
-
-        fun isOverlaySwitchEnabled(): Boolean = overlaySwitchEnabled
+        fun isOverlaySwitchEnabled(): Boolean =
+            AgentOverlayLaunchPolicy.isManualEnabled()
 
         fun ensureStarted(context: Context): Boolean {
-            if (!overlaySwitchEnabled) return false
-            if (!canDrawOverlays(context)) {
-                overlaySwitchEnabled = false
-                return false
-            }
             val appContext = context.applicationContext
-            appContext.startService(Intent(appContext, AgentOverlayService::class.java))
-            VisualAgentHudOverlayService.ensureStarted(appContext)
-            return true
+            if (!AgentOverlayLaunchPolicy.isServiceAllowed() || !canDrawOverlays(appContext)) return false
+            return runCatching {
+                appContext.startService(Intent(appContext, AgentOverlayService::class.java))
+                true
+            }.getOrDefault(false)
         }
 
         fun stop(context: Context) {
-            overlaySwitchEnabled = false
-            val appContext = context.applicationContext
-            appContext.stopService(Intent(appContext, AgentOverlayService::class.java))
-            VisualAgentHudOverlayService.stop(appContext)
+            AgentOverlayLaunchPolicy.disableManually(context)
         }
 
         fun requestPermissionIfNeeded(context: Context): Boolean {
-            if (canDrawOverlays(context)) {
-                overlaySwitchEnabled = true
-                return true
-            }
-            overlaySwitchEnabled = false
+            val appContext = context.applicationContext
+            if (AgentOverlayLaunchPolicy.enableManually(appContext)) return true
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).apply {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:${appContext.packageName}"),
+                ).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
-                context.startActivity(intent)
+                appContext.startActivity(intent)
             }
             return false
+        }
+
+        fun restoreManualEnableAfterPermission(context: Context): Boolean =
+            AgentOverlayLaunchPolicy.restoreManualEnableAfterPermission(context)
+
+        fun syncForProgress(context: Context, progress: AgentOverlayProgress) {
+            AgentOverlayLaunchPolicy.syncForProgress(context, progress)
         }
     }
 }
