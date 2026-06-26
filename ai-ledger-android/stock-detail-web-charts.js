@@ -41,7 +41,7 @@ function drawTimeShareChart(isFiveDay){
   ctx.strokeStyle='rgba(255,255,255,.13)';ctx.strokeRect(.5,volumeTop-.5,width-1,volumeHeight);
   if(positioned.length<2){ctx.fillStyle='rgba(255,255,255,.42)';ctx.font='12px system-ui';ctx.textAlign='center';ctx.fillText(isFiveDay?'暂无真实五日分时数据':'暂无真实分时数据',width/2,chartHeight/2);setAxis(isFiveDay?Array.from({length:5},(_,i)=>({label:'--',x:i/4})):[{label:'09:15',x:0},{label:'09:30',x:.14},{label:'11:30/13:00',x:.545},{label:'14:57',x:.95},{label:'15:00',x:1}]);renderCaption(['均价线','成交量','等待数据']);return}
   const q=state.quote,previous=number(q.previousClose)??points[0].price;
-  const values=points.flatMap(p=>[p.price,p.average]).filter(Number.isFinite);const rawMin=Math.min(...values),rawMax=Math.max(...values);
+  const values=points.flatMap(p=>p.phase==='continuous'?[p.price,p.average]:[p.price]).filter(Number.isFinite);const rawMin=Math.min(...values),rawMax=Math.max(...values);
   let min,max;
   if(isFiveDay){const pad=Math.max((rawMax-rawMin)*.08,rawMax*.002,.01);min=rawMin-pad;max=rawMax+pad}else{const limitRatio=/ST/i.test(q.name)?.05:.10,observed=Math.max(...values.map(v=>Math.abs(v-previous))),half=Math.max(previous*limitRatio,observed,.01);min=previous-half;max=previous+half}
   const range=Math.max(max-min,.0001),y=value=>chartHeight-(value-min)/range*chartHeight,x=item=>item.x*width;
@@ -49,11 +49,11 @@ function drawTimeShareChart(isFiveDay){
   const maxVolume=Math.max(...points.map(p=>p.volume||0),1);
   positioned.forEach(item=>{const top=height-(item.point.volume/maxVolume)*volumeHeight*.88;ctx.strokeStyle=item.point.price>=previous?COLORS.riseSoft:COLORS.fallSoft;ctx.lineWidth=isFiveDay?1:1.1;ctx.beginPath();ctx.moveTo(x(item),height);ctx.lineTo(x(item),Math.max(volumeTop,top));ctx.stroke()});
   if(!isFiveDay)drawAuctionVolumes(ctx,positioned,width,height,volumeTop,volumeHeight);
-  function line(selector,color,lineWidth){
+  function line(selector,color,lineWidth,include=()=>true){
     let started=false,lastSlot=-1;ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.lineCap='round';ctx.lineJoin='round';ctx.beginPath();
-    positioned.forEach(item=>{const py=y(selector(item.point));if(!started||item.slot!==lastSlot){ctx.moveTo(x(item),py);started=true}else ctx.lineTo(x(item),py);lastSlot=item.slot});ctx.stroke();
+    positioned.forEach(item=>{if(!include(item.point)){started=false;lastSlot=item.slot;return}const py=y(selector(item.point));if(!started||item.slot!==lastSlot){ctx.moveTo(x(item),py);started=true}else ctx.lineTo(x(item),py);lastSlot=item.slot});ctx.stroke();
   }
-  line(p=>p.average,COLORS.yellow,1.6);line(p=>p.price,quoteTone()==='rise'?COLORS.rise:COLORS.fall,2.4);
+  line(p=>p.average,COLORS.yellow,1.6,p=>p.phase==='continuous');line(p=>p.price,quoteTone()==='rise'?COLORS.rise:COLORS.fall,2.4);
   if(!isFiveDay){const limitRatio=/ST/i.test(q.name)?.05:.10;ctx.font='8px system-ui';ctx.textBaseline='middle';ctx.textAlign='left';ctx.fillStyle=COLORS.rise;ctx.fillText(fmt(previous*(1+limitRatio)),width*state.openWidth+5,10);ctx.fillStyle='rgba(255,255,255,.54)';ctx.fillText(fmt(previous),width*state.openWidth+5,y(previous)-5);ctx.fillStyle=COLORS.fall;ctx.fillText(fmt(previous*(1-limitRatio)),width*state.openWidth+5,chartHeight-8);ctx.textAlign='right';ctx.fillStyle=COLORS.rise;ctx.fillText(`+${(limitRatio*100).toFixed(2)}%`,width-4,10);ctx.fillStyle='rgba(255,255,255,.54)';ctx.fillText('0.00%',width-4,y(previous)-5);ctx.fillStyle=COLORS.fall;ctx.fillText(`-${(limitRatio*100).toFixed(2)}%`,width-4,chartHeight-8)}
   if(isFiveDay){const dates=fiveDayDates(points),labels=Array.from({length:5},()=> '--'),first=Math.max(0,5-dates.length);dates.forEach((date,i)=>labels[first+i]=date.slice(5));setAxis(labels.map((label,i)=>({label,x:i/4})));renderCaption(['五日均价','五日成交量',`${dates.length}日真实数据`])}
   else{setAxis([{label:'09:15',x:0},{label:'09:30',x:.14},{label:'11:30/13:00',x:.545},{label:'14:57',x:.95},{label:'15:00',x:1}]);renderCaption(['红/绿未匹配量：上沿向下','白色匹配量：下沿向上','首尾集合竞价'])}
