@@ -5,6 +5,19 @@
     --success:#6ce6b5;
     --cursor-x:50vw;
     --cursor-y:50vh;
+    --info-bubble-width:310px;
+    --info-bubble-scale:1;
+    --edge-inset:0px;
+    --edge-radius:0px;
+    --edge-halo-width:42px;
+    --edge-halo-blur:0px;
+    --edge-halo-opacity:0.58;
+    --edge-cast-depth:120px;
+    --edge-cast-blur:0px;
+    --edge-cast-opacity:0.8;
+    --edge-flow-speed:7.5s;
+    --edge-breath-speed:1.5s;
+    --edge-breath-strength:0.55;
   }
   *{box-sizing:border-box}
   html,body{margin:0;width:100%;height:100%;min-height:0;background:transparent;color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;overflow:hidden}
@@ -38,17 +51,6 @@
     overflow:hidden;
     contain:layout paint style;
     isolation:isolate;
-    --edge-inset:0px;
-    --edge-radius:0px;
-    --edge-halo-width:42px;
-    --edge-halo-blur:0px;
-    --edge-halo-opacity:0.58;
-    --edge-cast-depth:120px;
-    --edge-cast-blur:0px;
-    --edge-cast-opacity:0.8;
-    --edge-flow-speed:7.5s;
-    --edge-breath-speed:1.5s;
-    --edge-breath-strength:0.55;
   }
 
   .edge-aurora-layer{
@@ -230,14 +232,16 @@
     position:absolute;
     left:calc(var(--cursor-x) + 34px);
     top:calc(var(--cursor-y) + 18px);
-    width:min(310px,calc(100vw - 40px));
+    width:min(var(--info-bubble-width),calc(100vw - 40px));
     padding:14px 15px 13px;
     border-radius:16px;
     background:rgba(8,17,27,.88);
     border:1px solid rgba(102,217,255,.20);
     backdrop-filter:blur(18px);
     box-shadow:0 16px 45px rgba(0,0,0,.40),0 0 26px rgba(102,217,255,.07);
-    transition:left .82s cubic-bezier(.2,.8,.2,1),top .82s cubic-bezier(.2,.8,.2,1),opacity .2s ease
+    transform:scale(var(--info-bubble-scale));
+    transform-origin:left top;
+    transition:left .82s cubic-bezier(.2,.8,.2,1),top .82s cubic-bezier(.2,.8,.2,1),opacity .2s ease,transform .18s ease
   }
   .bubble-title{font-size:13px;font-weight:750;margin-bottom:7px}
   .bubble-line{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);line-height:1.7}
@@ -280,6 +284,9 @@
   .app[data-mode="simple"] .debug-only{display:none}
 
   @media (max-width: 640px){
-    .info-bubble{transform:translateX(-78%)}
+    .info-bubble{
+      transform:translateX(-78%) scale(var(--info-bubble-scale));
+      transform-origin:right top;
+    }
     .bottom-timeline{display:none}
   }
