@@ -99,6 +99,11 @@ class VisualSemanticProgressTracker(
     private var consecutiveAmbiguousTransitions: Int = 0
     private var consecutiveRegressions: Int = 0
 
+    // One tracker processes observations sequentially. Retaining only the last immutable snapshot
+    // analysis avoids duplicate fingerprint/evidence traversal without holding visual history.
+    private var cachedSnapshot: AgentScreenSnapshot? = null
+    private var cachedAnalysis: SnapshotAnalysis? = null
+
     fun updateTaskContract(contract: VisualTaskContract?, fallbackGoal: String = originalGoal) {
         if (contract == null) return
         val normalized = contract.copy(
@@ -118,19 +123,20 @@ class VisualSemanticProgressTracker(
         currentMilestoneId = taskContract?.currentMilestoneId?.ifBlank { DEFAULT_MILESTONE_ID }
             ?: DEFAULT_MILESTONE_ID
         clearTransientTransitionState()
-        val page = pageState(snapshot)
-        currentPage = page
-        lastConfirmedPage = page
-        rememberConfirmed(snapshot)
+        val analysis = analyze(snapshot)
+        currentPage = analysis.pageState
+        lastConfirmedPage = analysis.pageState
+        rememberConfirmed(analysis)
     }
 
     fun resetAfterUserTakeover(snapshot: AgentScreenSnapshot? = null) {
         clearTransientTransitionState()
         replanRequested = false
         snapshot?.let {
-            currentPage = pageState(it)
-            lastConfirmedPage = currentPage
-            rememberConfirmed(it)
+            val analysis = analyze(it)
+            currentPage = analysis.pageState
+            lastConfirmedPage = analysis.pageState
+            rememberConfirmed(analysis)
         }
     }
 
@@ -138,23 +144,24 @@ class VisualSemanticProgressTracker(
     fun blockedHypothesisReason(step: CloudAgentStep, snapshot: AgentScreenSnapshot): String? {
         val intent = resolvedIntent(step)
         ensureMilestone(intent.milestoneId)
-        currentPage = pageState(snapshot)
+        val analysis = analyze(snapshot)
+        currentPage = analysis.pageState
         val protocolReason = explorationProtocolViolation(step, intent)
         if (protocolReason != null) {
-            rememberBlocked(step, snapshot, intent, protocolReason)
+            rememberBlocked(step, analysis.pageState, intent, protocolReason)
             replanRequested = true
             return protocolReason
         }
         if (intent.exploratory && remainingExplorationBudget(intent) <= 0) {
             val reason = "The exploration budget for this milestone is exhausted. Request replanning instead of another exploratory action."
-            rememberBlocked(step, snapshot, intent, reason)
+            rememberBlocked(step, analysis.pageState, intent, reason)
             replanRequested = true
             return reason
         }
-        val key = hypothesisKey(step, snapshot, intent)
+        val key = hypothesisKey(step, analysis.pageState, intent)
         if (key in failedHypotheses) {
             val reason = "The same hypothesis already failed on this page and milestone. A nearby coordinate with the same purpose is the same blocked action cluster."
-            rememberBlocked(step, snapshot, intent, reason)
+            rememberBlocked(step, analysis.pageState, intent, reason)
             replanRequested = true
             return reason
         }
@@ -170,17 +177,17 @@ class VisualSemanticProgressTracker(
         val intent = resolvedIntent(step)
         ensureMilestone(intent.milestoneId)
         val actionSignature = VisualActionValidator.actionSignature(step)
-        val hypothesisKey = hypothesisKey(step, before, intent)
-        val beforeFingerprint = VisualActionValidator.snapshotFingerprint(before)
-        val afterFingerprint = VisualActionValidator.snapshotFingerprint(after)
-        val pageChanged = beforeFingerprint != afterFingerprint
+        val beforeAnalysis = analyze(before)
+        val afterAnalysis = analyze(after)
+        val hypothesisKey = hypothesisKey(step, beforeAnalysis.pageState, intent)
+        val pageChanged = beforeAnalysis.snapshotFingerprint != afterAnalysis.snapshotFingerprint
         val packageChanged = before.packageName != after.packageName
         val transientSurfaceChange = packageChanged && isTransientSystemSurface(after.packageName)
         val structuralRegression = !transientSurfaceChange && verifiedTargetPackage.isNotBlank() &&
             VisualSurfacePackagePolicy.isConfidentForeignPackage(after.packageName, verifiedTargetPackage)
 
-        val beforeEvidence = screenEvidence(before)
-        val afterEvidence = screenEvidence(after)
+        val beforeEvidence = beforeAnalysis.evidence
+        val afterEvidence = afterAnalysis.evidence
         val expectedBefore = matchEvidence(intent.expectedEvidence, beforeEvidence)
         val expectedAfter = matchEvidence(intent.expectedEvidence, afterEvidence)
         val newlyMatchedExpected = expectedAfter.filterNot(expectedBefore::contains)
@@ -198,14 +205,23 @@ class VisualSemanticProgressTracker(
         val inputTextVisible = step.type == "input_text" &&
             step.text?.takeIf(String::isNotBlank)?.let(afterEvidence::contains) == true &&
             step.text?.takeIf(String::isNotBlank)?.let(beforeEvidence::contains) != true
-        val inputSurfaceChanged = step.type == "input_text" && inputNodeFingerprint(before) != inputNodeFingerprint(after)
+        val inputSurfaceChanged = step.type == "input_text" &&
+            beforeAnalysis.inputNodeFingerprint != afterAnalysis.inputNodeFingerprint
         val targetTransitionObserved = !intent.legacyMode && step.targetText
             ?.takeIf(String::isNotBlank)
             ?.let { target ->
-                beforeEvidence.contains(target) && pageChanged && (!afterEvidence.contains(target) || newEvidence.isNotEmpty())
+                beforeEvidence.contains(target) && pageChanged &&
+                    (!afterEvidence.contains(target) || newEvidence.isNotEmpty())
             } == true
-        val returnedToConfirmedPage = step.type == "back" && confirmedFingerprints.contains(afterFingerprint)
-        val systemOnlyChange = transientSurfaceChange || isKeyboardOrPermissionOnlyChange(before, after, newEvidence)
+        val returnedToConfirmedPage = step.type == "back" &&
+            confirmedFingerprints.contains(afterAnalysis.snapshotFingerprint)
+        val systemOnlyChange = transientSurfaceChange || isKeyboardOrPermissionOnlyChange(
+            beforePackage = before.packageName,
+            afterPackage = after.packageName,
+            beforeInputFingerprint = beforeAnalysis.inputNodeFingerprint,
+            afterInputFingerprint = afterAnalysis.inputNodeFingerprint,
+            newEvidence = newEvidence,
+        )
 
         val status = when {
             structuralRegression -> VisualSemanticProgressStatus.Regressed
@@ -220,13 +236,22 @@ class VisualSemanticProgressTracker(
         }
 
         if (intent.exploratory) {
-            explorationAttemptsByMilestone[currentMilestoneId] = explorationAttemptsByMilestone.getOrDefault(currentMilestoneId, 0) + 1
+            explorationAttemptsByMilestone[currentMilestoneId] =
+                explorationAttemptsByMilestone.getOrDefault(currentMilestoneId, 0) + 1
         }
         val failureReason = buildReason(
             status, intent, pageChanged, newlyMatchedExpected, failureMatched, newEvidence,
             structuralRegression, systemOnlyChange,
         )
-        updateState(status, hypothesisKey, step, before, after, intent, failureReason)
+        updateState(
+            status = status,
+            hypothesisKey = hypothesisKey,
+            step = step,
+            beforePage = beforeAnalysis.pageState,
+            afterAnalysis = afterAnalysis,
+            intent = intent,
+            failureReason = failureReason,
+        )
 
         if (milestoneEvidence.isNotEmpty() && milestoneEvidenceAfter.size == milestoneEvidence.distinct().size) {
             completedMilestoneIds += currentMilestoneId
@@ -240,8 +265,8 @@ class VisualSemanticProgressTracker(
             consecutiveAmbiguousTransitions < maxConsecutiveAmbiguousTransitions && !requiresReplan
         val shouldPauseForUser = (status == VisualSemanticProgressStatus.Regressed && !intent.reversible) ||
             consecutiveRegressions >= MAX_CONSECUTIVE_REGRESSIONS
-        currentPage = pageState(after)
-        val memory = memorySnapshot(after)
+        currentPage = afterAnalysis.pageState
+        val memory = memorySnapshot(afterAnalysis)
 
         return VisualSemanticProgressResult(
             status = status,
@@ -265,7 +290,11 @@ class VisualSemanticProgressTracker(
     }
 
     fun memorySnapshot(snapshot: AgentScreenSnapshot? = null): VisualTaskMemory {
-        snapshot?.let { currentPage = pageState(it) }
+        return memorySnapshot(snapshot?.let(::analyze))
+    }
+
+    private fun memorySnapshot(analysis: SnapshotAnalysis?): VisualTaskMemory {
+        analysis?.let { currentPage = it.pageState }
         val legacyMode = taskContract == null
         val budget = budgetFor(legacyMode)
         val attempts = explorationAttemptsByMilestone.getOrDefault(currentMilestoneId, 0)
@@ -294,8 +323,8 @@ class VisualSemanticProgressTracker(
         status: VisualSemanticProgressStatus,
         hypothesisKey: String,
         step: CloudAgentStep,
-        before: AgentScreenSnapshot,
-        after: AgentScreenSnapshot,
+        beforePage: VisualPageState,
+        afterAnalysis: SnapshotAnalysis,
         intent: VisualActionIntent,
         failureReason: String,
     ) {
@@ -305,27 +334,27 @@ class VisualSemanticProgressTracker(
                 consecutiveAmbiguousTransitions = 0
                 consecutiveRegressions = 0
                 replanRequested = false
-                rememberConfirmed(after)
-                lastConfirmedPage = pageState(after)
-                confirmedFacts += intent.expectedEvidence.filter(screenEvidence(after)::contains)
-                confirmedFacts += screenEvidence(after).values.map { it.original }.take(3)
+                rememberConfirmed(afterAnalysis)
+                lastConfirmedPage = afterAnalysis.pageState
+                confirmedFacts += intent.expectedEvidence.filter(afterAnalysis.evidence::contains)
+                confirmedFacts += afterAnalysis.evidence.values.map { it.original }.take(3)
             }
             VisualSemanticProgressStatus.Stalled -> {
                 consecutiveAmbiguousTransitions = 0
                 consecutiveRegressions = 0
-                rememberFailure(hypothesisKey, step, before, intent, failureReason)
+                rememberFailure(hypothesisKey, step, beforePage, intent, failureReason)
                 if (intent.exploratory) incrementExplorationFailure(intent)
             }
             VisualSemanticProgressStatus.Regressed -> {
                 consecutiveAmbiguousTransitions = 0
                 consecutiveRegressions += 1
-                rememberFailure(hypothesisKey, step, before, intent, failureReason)
+                rememberFailure(hypothesisKey, step, beforePage, intent, failureReason)
                 if (intent.exploratory) incrementExplorationFailure(intent)
             }
             VisualSemanticProgressStatus.Ambiguous -> {
                 consecutiveAmbiguousTransitions += 1
                 if (intent.exploratory || consecutiveAmbiguousTransitions >= maxConsecutiveAmbiguousTransitions) {
-                    rememberFailure(hypothesisKey, step, before, intent, failureReason)
+                    rememberFailure(hypothesisKey, step, beforePage, intent, failureReason)
                     if (intent.exploratory) incrementExplorationFailure(intent)
                 }
             }
@@ -335,16 +364,16 @@ class VisualSemanticProgressTracker(
     private fun rememberFailure(
         key: String,
         step: CloudAgentStep,
-        snapshot: AgentScreenSnapshot,
+        page: VisualPageState,
         intent: VisualActionIntent,
         reason: String,
     ) {
         val existing = failedHypotheses[key]
-        val hypothesisId = stableHypothesisId(step, snapshot, intent)
+        val hypothesisId = stableHypothesisId(step, page, intent)
         failedHypotheses[key] = VisualFailedHypothesis(
             hypothesisId = hypothesisId,
             milestoneId = currentMilestoneId,
-            pageStateId = pageState(snapshot).id,
+            pageStateId = page.id,
             actionSignature = VisualActionValidator.actionSignature(step),
             actionCluster = semanticActionCluster(step, intent),
             purpose = intent.purpose,
@@ -356,18 +385,17 @@ class VisualSemanticProgressTracker(
 
     private fun rememberBlocked(
         step: CloudAgentStep,
-        snapshot: AgentScreenSnapshot,
+        page: VisualPageState,
         intent: VisualActionIntent,
         reason: String,
     ) {
-        val page = pageState(snapshot)
         val cluster = semanticActionCluster(step, intent)
         val key = listOf(currentMilestoneId, page.id, cluster).joinToString("::")
         blockedActions[key] = VisualBlockedAction(
             milestoneId = currentMilestoneId,
             pageStateId = page.id,
             actionCluster = cluster,
-            hypothesisId = stableHypothesisId(step, snapshot, intent),
+            hypothesisId = stableHypothesisId(step, page, intent),
             reason = reason.take(260),
         )
         trimMap(blockedActions)
@@ -400,9 +428,13 @@ class VisualSemanticProgressTracker(
         val milestone = taskContract?.milestones?.firstOrNull { it.id == milestoneId }
         return raw.copy(
             milestoneId = milestoneId,
-            purpose = raw.purpose.ifBlank { if (raw.legacyMode) step.reason.orEmpty().ifBlank { step.targetText.orEmpty() } else "" },
-            expectedEvidence = (raw.expectedEvidence + milestone?.successEvidence.orEmpty()).distinct().take(MAX_ACTION_EVIDENCE),
-            failureEvidence = (raw.failureEvidence + milestone?.failureEvidence.orEmpty()).distinct().take(MAX_ACTION_EVIDENCE),
+            purpose = raw.purpose.ifBlank {
+                if (raw.legacyMode) step.reason.orEmpty().ifBlank { step.targetText.orEmpty() } else ""
+            },
+            expectedEvidence = (raw.expectedEvidence + milestone?.successEvidence.orEmpty())
+                .distinct().take(MAX_ACTION_EVIDENCE),
+            failureEvidence = (raw.failureEvidence + milestone?.failureEvidence.orEmpty())
+                .distinct().take(MAX_ACTION_EVIDENCE),
             exploratory = raw.exploratory || (raw.legacyMode && step.type in LEGACY_EXPLORATORY_TYPES),
         )
     }
@@ -421,26 +453,34 @@ class VisualSemanticProgressTracker(
         consecutiveRegressions = 0
     }
 
-    private fun rememberConfirmed(snapshot: AgentScreenSnapshot) {
-        val fingerprint = VisualActionValidator.snapshotFingerprint(snapshot)
+    private fun rememberConfirmed(analysis: SnapshotAnalysis) {
+        val fingerprint = analysis.snapshotFingerprint
         if (fingerprint.isBlank()) return
         confirmedFingerprints.remove(fingerprint)
         confirmedFingerprints.addLast(fingerprint)
         while (confirmedFingerprints.size > MAX_CONFIRMED_FINGERPRINTS) confirmedFingerprints.removeFirst()
     }
 
-    private fun hypothesisKey(step: CloudAgentStep, snapshot: AgentScreenSnapshot, intent: VisualActionIntent): String {
-        return listOf(currentMilestoneId, pageState(snapshot).id, semanticActionCluster(step, intent)).joinToString("::")
-    }
+    private fun hypothesisKey(
+        step: CloudAgentStep,
+        page: VisualPageState,
+        intent: VisualActionIntent,
+    ): String = listOf(currentMilestoneId, page.id, semanticActionCluster(step, intent)).joinToString("::")
 
-    private fun stableHypothesisId(step: CloudAgentStep, snapshot: AgentScreenSnapshot, intent: VisualActionIntent): String {
+    private fun stableHypothesisId(
+        step: CloudAgentStep,
+        page: VisualPageState,
+        intent: VisualActionIntent,
+    ): String {
         if (intent.hypothesisId.isNotBlank()) return intent.hypothesisId.take(120)
-        val raw = hypothesisKey(step, snapshot, intent)
+        val raw = hypothesisKey(step, page, intent)
         return "android-${Integer.toHexString(raw.hashCode())}"
     }
 
     private fun semanticActionCluster(step: CloudAgentStep, intent: VisualActionIntent): String {
-        if (intent.hypothesisId.isNotBlank()) return "hypothesis:${normalizeVisualEvidenceText(intent.hypothesisId)}"
+        if (intent.hypothesisId.isNotBlank()) {
+            return "hypothesis:${normalizeVisualEvidenceText(intent.hypothesisId)}"
+        }
         val purpose = normalizeVisualEvidenceText(intent.purpose)
         if (purpose.isNotBlank()) {
             val target = normalizeVisualEvidenceText(step.targetText.orEmpty())
@@ -472,21 +512,15 @@ class VisualSemanticProgressTracker(
 
     private fun failureLimit(intent: VisualActionIntent): Int = if (intent.legacyMode) 1 else 2
 
-    private fun pageState(snapshot: AgentScreenSnapshot): VisualPageState {
-        val fingerprint = VisualActionValidator.completionFingerprint(snapshot)
-        val summary = buildList {
+    private fun analyze(snapshot: AgentScreenSnapshot): SnapshotAnalysis {
+        if (cachedSnapshot === snapshot) cachedAnalysis?.let { return it }
+        val snapshotFingerprint = VisualActionValidator.snapshotFingerprint(snapshot)
+        val completionFingerprint = VisualActionValidator.completionFingerprint(snapshot)
+        val pageSummary = buildList {
             addAll(snapshot.texts.take(8))
             addAll(snapshot.clickableNodes.map { it.text }.filter(String::isNotBlank).take(6))
         }.distinct().joinToString(" | ").take(360)
-        return VisualPageState(
-            id = "page-${Integer.toHexString(fingerprint.hashCode())}",
-            packageName = snapshot.packageName.take(120),
-            summary = summary,
-        )
-    }
-
-    private fun screenEvidence(snapshot: AgentScreenSnapshot): ScreenEvidence {
-        val values = buildList {
+        val evidenceValues = buildList {
             addAll(snapshot.texts)
             addAll(snapshot.clickableNodes.map { it.text })
             addAll(snapshot.inputNodes.map { it.text })
@@ -499,25 +533,36 @@ class VisualSemanticProgressTracker(
             .filter { it.normalized.isNotBlank() }
             .take(MAX_SCREEN_EVIDENCE)
             .toList()
-        return ScreenEvidence(values)
+        return SnapshotAnalysis(
+            snapshotFingerprint = snapshotFingerprint,
+            pageState = VisualPageState(
+                id = "page-${Integer.toHexString(completionFingerprint.hashCode())}",
+                packageName = snapshot.packageName.take(120),
+                summary = pageSummary,
+            ),
+            evidence = ScreenEvidence(evidenceValues),
+            inputNodeFingerprint = snapshot.inputNodes.joinToString("|") {
+                "${it.text.take(48)}#${it.bounds}"
+            },
+        ).also {
+            cachedSnapshot = snapshot
+            cachedAnalysis = it
+        }
     }
-
-    private fun inputNodeFingerprint(snapshot: AgentScreenSnapshot): String =
-        snapshot.inputNodes.joinToString("|") { "${it.text.take(48)}#${it.bounds}" }
 
     private fun matchEvidence(candidates: List<String>, screen: ScreenEvidence): List<String> =
         candidates.filter(screen::contains).distinct().take(MAX_FEEDBACK_EVIDENCE)
 
     private fun isKeyboardOrPermissionOnlyChange(
-        before: AgentScreenSnapshot,
-        after: AgentScreenSnapshot,
+        beforePackage: String,
+        afterPackage: String,
+        beforeInputFingerprint: String,
+        afterInputFingerprint: String,
         newEvidence: List<String>,
     ): Boolean {
-        if (isTransientSystemSurface(after.packageName)) return true
-        val beforeInputs = inputNodeFingerprint(before)
-        val afterInputs = inputNodeFingerprint(after)
+        if (isTransientSystemSurface(afterPackage)) return true
         val normalizedNew = newEvidence.joinToString("|") { normalizeVisualEvidenceText(it) }
-        return before.packageName == after.packageName && beforeInputs != afterInputs &&
+        return beforePackage == afterPackage && beforeInputFingerprint != afterInputFingerprint &&
             (KEYBOARD_PERMISSION_WORDS.any(normalizedNew::contains) || newEvidence.isEmpty())
     }
 
@@ -564,6 +609,13 @@ class VisualSemanticProgressTracker(
         while (map.size > MAX_MEMORY_ITEMS) map.remove(map.keys.first())
     }
 
+    private data class SnapshotAnalysis(
+        val snapshotFingerprint: String,
+        val pageState: VisualPageState,
+        val evidence: ScreenEvidence,
+        val inputNodeFingerprint: String,
+    )
+
     private data class ScreenEvidence(val values: List<EvidenceValue>) {
         val normalizedValues: Set<String> = values.mapTo(linkedSetOf()) { it.normalized }
         fun contains(value: String): Boolean {
@@ -586,8 +638,12 @@ class VisualSemanticProgressTracker(
         private const val MAX_MEMORY_ITEMS = 12
         private const val LEGACY_TAP_CLUSTER_PX = 160f
         private val LEGACY_EXPLORATORY_TYPES = setOf("swipe", "scroll", "wait", "back")
-        private val RECOVERY_WORDS = listOf("恢复", "返回", "回到", "撤销", "纠正", "recover", "restore", "return", "undo", "correct")
-        private val KEYBOARD_PERMISSION_WORDS = listOf("允许", "权限", "键盘", "输入法", "permission", "allow", "keyboard", "ime")
+        private val RECOVERY_WORDS = listOf(
+            "恢复", "返回", "回到", "撤销", "纠正", "recover", "restore", "return", "undo", "correct",
+        )
+        private val KEYBOARD_PERMISSION_WORDS = listOf(
+            "允许", "权限", "键盘", "输入法", "permission", "allow", "keyboard", "ime",
+        )
     }
 }
 
