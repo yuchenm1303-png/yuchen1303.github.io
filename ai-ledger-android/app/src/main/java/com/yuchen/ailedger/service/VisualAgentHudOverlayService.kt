@@ -1,27 +1,39 @@
 package com.yuchen.ailedger.service
 
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
+/**
+ * Full-screen visual-agent HUD rendered by the approved web implementation itself.
+ * Android only supplies live state; CSS, SVG, filters, masks and animations stay in assets.
+ */
 class VisualAgentHudOverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var windowManager: WindowManager? = null
-    private var hudView: VisualAgentHudOverlayView? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
+    private var webView: WebView? = null
+    private var pageReady = false
+    private var pendingPayload: String? = null
+    private var lastClickRevision = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -48,7 +60,7 @@ class VisualAgentHudOverlayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (hudView == null) createOverlay()
+        if (webView == null) createOverlay()
         updateOverlay(
             AgentRuntimeController.progress.value,
             VisualAgentHudRuntime.target.value,
@@ -59,19 +71,70 @@ class VisualAgentHudOverlayService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
-        hudView?.stopAnimation()
-        hudView?.let { runCatching { windowManager?.removeView(it) } }
-        hudView = null
-        layoutParams = null
+        pageReady = false
+        pendingPayload = null
+        webView?.let { view ->
+            runCatching { windowManager?.removeView(view) }
+            view.stopLoading()
+            view.loadUrl("about:blank")
+            view.clearHistory()
+            view.removeAllViews()
+            view.destroy()
+        }
+        webView = null
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    @SuppressLint("SetJavaScriptEnabled")
     private fun createOverlay() {
-        if (hudView != null) return
+        if (webView != null) return
         val wm = windowManager ?: return
-        val view = VisualAgentHudOverlayView(this)
+        val view = WebView(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            background?.alpha = 0
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            isFocusable = false
+            isFocusableInTouchMode = false
+            isClickable = false
+            isLongClickable = false
+            isHapticFeedbackEnabled = false
+            isHorizontalScrollBarEnabled = false
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            settings.apply {
+                javaScriptEnabled = true
+                domStorageEnabled = false
+                databaseEnabled = false
+                cacheMode = WebSettings.LOAD_NO_CACHE
+                loadsImagesAutomatically = true
+                blockNetworkImage = true
+                allowContentAccess = false
+                allowFileAccess = true
+                builtInZoomControls = false
+                displayZoomControls = false
+                setSupportZoom(false)
+                mediaPlaybackRequiresUserGesture = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
+                @Suppress("DEPRECATION")
+                allowFileAccessFromFileURLs = false
+                @Suppress("DEPRECATION")
+                allowUniversalAccessFromFileURLs = false
+            }
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    pageReady = true
+                    pendingPayload?.let { payload ->
+                        pendingPayload = null
+                        dispatchPayload(payload)
+                    }
+                }
+            }
+            visibility = View.INVISIBLE
+            loadUrl(ASSET_URL)
+        }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -85,25 +148,24 @@ class VisualAgentHudOverlayService : Service() {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 0
             y = 0
-            // Keep the untrusted application-overlay window within Android's touch-through
-            // obscuring-opacity limit. All actual interaction stays in the separate small panel.
-            alpha = MAX_TOUCH_THROUGH_ALPHA
+            alpha = 1f
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
         }
-        hudView = view
-        layoutParams = params
         runCatching { wm.addView(view, params) }
+            .onSuccess { webView = view }
             .onFailure {
-                hudView = null
-                layoutParams = null
+                view.destroy()
+                webView = null
                 stopSelf()
             }
     }
@@ -113,43 +175,121 @@ class VisualAgentHudOverlayService : Service() {
         target: VisualAgentHudTarget?,
         hiddenForCapture: Boolean,
     ) {
-        val view = hudView ?: return
+        val view = webView ?: return
         val matchingTarget = target?.takeIf { it.taskId == progress.taskId }
-        val lastLog = progress.logs.lastOrNull().orEmpty()
-
-        // noteAction() appends the exact currentAction immediately after acquiring the clean-
-        // capture lease. That lets this presentation-only window remain visible for the real
-        // action while every screenshot/fresh-observation lease still hides it completely.
-        val executingRealAction = progress.running &&
-            progress.currentAction.isNotBlank() &&
-            lastLog == progress.currentAction
-        val visuallyHidden = hiddenForCapture && !executingRealAction
-
-        val currentLooksLikeTap = progress.currentAction.contains("点击")
-        val baseTarget = matchingTarget ?: VisualAgentHudTarget(
-            taskId = progress.taskId,
-            revision = progress.taskId,
-            x = 0.52f,
-            y = 0.46f,
-            normalized = true,
-            positioned = false,
-            detail = progress.lastResult.take(180),
-        )
-        val displayTarget = if (currentLooksLikeTap) {
-            baseTarget
-        } else {
-            baseTarget.copy(
-                positioned = false,
-                actionType = "",
-                targetText = "",
-                detail = progress.lastResult.take(180),
+        val visible = !hiddenForCapture && (
+            progress.running ||
+                progress.pendingConfirmation != null ||
+                progress.pendingUserInput != null ||
+                progress.userTakeoverPaused
             )
+        view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+        if (visible) view.onResume() else view.onPause()
+
+        val lastLog = progress.logs.lastOrNull().orEmpty()
+        val phase = phaseOf(progress, matchingTarget, lastLog)
+        val resultPulse = visible &&
+            matchingTarget?.positioned == true &&
+            lastLog.startsWith("结果：") &&
+            progress.updatedAt > lastClickRevision
+        if (resultPulse) lastClickRevision = progress.updatedAt
+        val payload = buildPayload(
+            progress = progress,
+            target = matchingTarget,
+            visible = visible,
+            phase = phase,
+            clickRevision = if (resultPulse) progress.updatedAt else 0L,
+        )
+        sendPayload(payload)
+    }
+
+    private fun phaseOf(
+        progress: AgentOverlayProgress,
+        target: VisualAgentHudTarget?,
+        lastLog: String,
+    ): Int {
+        if (progress.pendingConfirmation != null ||
+            progress.pendingUserInput != null ||
+            progress.userTakeoverPaused
+        ) return 1
+        if (!progress.running) return 4
+        if (lastLog.startsWith("结果：") || progress.status == "重新规划") return 4
+        if (target?.positioned == true &&
+            target.actionType in setOf("tap_xy", "tap_node") &&
+            System.currentTimeMillis() - target.plannedAt <= TARGET_MOVE_VISIBLE_MS
+        ) return 2
+        if (lastLog == progress.currentAction && progress.currentAction.isNotBlank()) return 3
+        if (lastLog.startsWith("模型") ||
+            progress.lastResult.contains("分析") ||
+            progress.lastResult.contains("GUI Plus") ||
+            progress.lastResult.contains("VisualDirect")
+        ) return 1
+        return 0
+    }
+
+    private fun buildPayload(
+        progress: AgentOverlayProgress,
+        target: VisualAgentHudTarget?,
+        visible: Boolean,
+        phase: Int,
+        clickRevision: Long,
+    ): String {
+        val metrics = resources.displayMetrics
+        val width = metrics.widthPixels.coerceAtLeast(1)
+        val height = metrics.heightPixels.coerceAtLeast(1)
+        val xNorm = when {
+            target == null -> DEFAULT_CURSOR_X
+            target.normalized -> target.x
+            else -> target.x / width.toFloat()
+        }.coerceIn(0f, 1f)
+        val yNorm = when {
+            target == null -> DEFAULT_CURSOR_Y
+            target.normalized -> target.y
+            else -> target.y / height.toFloat()
+        }.coerceIn(0f, 1f)
+        val thought = target?.detail
+            ?.takeIf(String::isNotBlank)
+            ?: progress.lastResult.takeIf(String::isNotBlank)
+            ?: "正在根据页面证据选择下一步操作。"
+        val source = when (target?.actionType) {
+            "tap_node" -> "视觉识别 + 节点"
+            "tap_xy" -> "视觉识别"
+            else -> "智能体执行"
         }
-        view.submit(progress, displayTarget, visuallyHidden)
+        return JSONObject()
+            .put("visible", visible)
+            .put("xNorm", xNorm.toDouble())
+            .put("yNorm", yNorm.toDouble())
+            .put("phase", phase)
+            .put("bubbleTitle", progress.currentAction.ifBlank { "正在执行视觉任务" })
+            .put("currentAction", progress.currentAction)
+            .put("thought", thought)
+            .put("result", progress.lastResult)
+            .put("confidence", if (target?.positioned == true) "已定位" else "—")
+            .put("actionSource", source)
+            .put("debugLatency", "latency_total: —")
+            .put("autoClickAfterMs", 0L)
+            .put("clickRevision", clickRevision)
+            .toString()
+    }
+
+    private fun sendPayload(payload: String) {
+        if (!pageReady) {
+            pendingPayload = payload
+            return
+        }
+        dispatchPayload(payload)
+    }
+
+    private fun dispatchPayload(payload: String) {
+        webView?.evaluateJavascript("window.VisualHud&&window.VisualHud.update($payload);", null)
     }
 
     companion object {
-        private const val MAX_TOUCH_THROUGH_ALPHA = 0.8f
+        private const val ASSET_URL = "file:///android_asset/visual_agent_hud_runtime.html"
+        private const val TARGET_MOVE_VISIBLE_MS = 1_200L
+        private const val DEFAULT_CURSOR_X = 0.52f
+        private const val DEFAULT_CURSOR_Y = 0.46f
 
         fun canDrawOverlays(context: Context): Boolean =
             Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
