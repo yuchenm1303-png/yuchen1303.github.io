@@ -4,6 +4,7 @@ import sys
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import stock_detail_server as detail_server
 from stock_detail_server import (
     AUCTION_PATH,
     REALTIME_PATH,
@@ -18,7 +20,8 @@ from stock_detail_server import (
     _auction_loader,
     app,
     merge_auction_into_minute_points,
-    parse_auction_trends,
+    parse_eastmoney_auction_trends,
+    parse_tdx_auction_series,
     runtime,
 )
 
@@ -27,11 +30,10 @@ CN_TZ = ZoneInfo("Asia/Shanghai")
 
 
 class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
-    def test_parse_real_open_and_close_auction_points_uses_f53_price(self) -> None:
+    def test_parse_eastmoney_price_and_matched_volume(self) -> None:
         payload = {
             "data": {
                 "trends": [
-                    # f53 与 f58 故意不同，验证不会再把 f58 均价当成竞价匹配价。
                     "2026-06-25 09:15,25.31,25.40,25.40,25.31,100,253100,25.31",
                     "2026-06-25 09:20,25.31,26.80,26.80,25.31,500,1320000,25.92",
                     "2026-06-25 09:25,25.31,26.29,27.84,25.31,1200,3154800,26.01",
@@ -42,7 +44,10 @@ class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
             }
         }
 
-        parsed = parse_auction_trends(payload, expected_trade_date="2026-06-25")
+        parsed = parse_eastmoney_auction_trends(
+            payload,
+            expected_trade_date="2026-06-25",
+        )
 
         self.assertEqual(
             [point["time"] for point in parsed["openPoints"]],
@@ -52,27 +57,58 @@ class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
             [point["time"] for point in parsed["closePoints"]],
             ["14:57", "15:00"],
         )
-        self.assertEqual(parsed["openPoints"][0]["price"], 25.40)
         self.assertEqual(parsed["openPoints"][1]["price"], 26.80)
-        self.assertEqual(parsed["openPoints"][1]["average"], 25.92)
-        self.assertEqual(parsed["openPoints"][1]["priceSource"], "f53_matched_price")
-        self.assertEqual(parsed["closePoints"][0]["price"], 27.01)
-        self.assertEqual(parsed["closePoints"][0]["priceSource"], "f53_matched_price")
-        self.assertTrue(
-            all(
-                point["isAuction"]
-                for point in parsed["openPoints"] + parsed["closePoints"]
-            )
+        self.assertEqual(parsed["openPoints"][1]["matchedVolume"], 500.0)
+        self.assertIsNone(parsed["openPoints"][1]["unmatchedVolume"])
+        self.assertEqual(
+            parsed["openPoints"][1]["matchedVolumeSource"],
+            "eastmoney_trends2_f56",
         )
-        self.assertTrue(
-            all(
-                not point["isDerived"]
-                for point in parsed["openPoints"] + parsed["closePoints"]
+        self.assertEqual(parsed["openPoints"][1]["priceSource"], "f53_matched_price")
+
+    def test_parse_tdx_exact_matched_and_unmatched_volume(self) -> None:
+        series = SimpleNamespace(
+            points=(
+                SimpleNamespace(
+                    time_label="09:15:03",
+                    price=25.40,
+                    matched_volume=1200,
+                    unmatched_signed_raw=800,
+                    unmatched_volume=800,
+                ),
+                SimpleNamespace(
+                    time_label="09:20:08",
+                    price=26.80,
+                    matched_volume=5600,
+                    unmatched_signed_raw=-1300,
+                    unmatched_volume=1300,
+                ),
+                SimpleNamespace(
+                    time_label="14:57:01",
+                    price=27.01,
+                    matched_volume=2227,
+                    unmatched_signed_raw=0,
+                    unmatched_volume=0,
+                ),
             )
         )
 
-    def test_old_trade_date_is_rejected_during_current_session(self) -> None:
-        parsed = parse_auction_trends(
+        parsed = parse_tdx_auction_series(series, "2026-06-25")
+
+        self.assertEqual(len(parsed["openPoints"]), 2)
+        self.assertEqual(len(parsed["closePoints"]), 1)
+        first = parsed["openPoints"][0]
+        second = parsed["openPoints"][1]
+        self.assertEqual(first["matchedVolume"], 1200.0)
+        self.assertEqual(first["unmatchedVolume"], 800.0)
+        self.assertEqual(first["unmatchedDirection"], "buy")
+        self.assertEqual(second["unmatchedDirection"], "sell")
+        self.assertEqual(first["matchedVolumeSource"], "tdx_7709_0x056a_raw")
+        self.assertFalse(first["volumeIsDerived"])
+        self.assertFalse(first["isDerived"])
+
+    def test_old_trade_date_is_rejected(self) -> None:
+        parsed = parse_eastmoney_auction_trends(
             {
                 "data": {
                     "trends": [
@@ -107,7 +143,7 @@ class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(allow_stale)
         self.assertEqual(mode, "market-closed")
 
-    async def test_loader_uses_real_premarket_endpoint_mode(self) -> None:
+    async def test_loader_prefers_tdx_volume_series_and_keeps_eastmoney_fallback(self) -> None:
         captured: dict[str, str] = {}
 
         async def fake_get_json(urls, params):
@@ -125,8 +161,34 @@ class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
                 12,
             )
 
+        def fake_tdx(code: str, trade_date: str):
+            parsed = parse_tdx_auction_series(
+                SimpleNamespace(
+                    points=(
+                        SimpleNamespace(
+                            time_label="09:25:00",
+                            price=26.29,
+                            matched_volume=7000,
+                            unmatched_signed_raw=900,
+                            unmatched_volume=900,
+                        ),
+                        SimpleNamespace(
+                            time_label="15:00:00",
+                            price=26.88,
+                            matched_volume=63600,
+                            unmatched_signed_raw=-120,
+                            unmatched_volume=120,
+                        ),
+                    )
+                ),
+                trade_date,
+            )
+            return parsed, 18
+
         original_get_json = runtime._get_json
+        original_tdx = detail_server._load_tdx_auction_series_sync
         runtime._get_json = fake_get_json
+        detail_server._load_tdx_auction_series_sync = fake_tdx
         try:
             parsed, host, latency, source_timestamp = await _auction_loader(
                 {"code": "600667", "secid": "1.600667"},
@@ -134,19 +196,21 @@ class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
             )
         finally:
             runtime._get_json = original_get_json
+            detail_server._load_tdx_auction_series_sync = original_tdx
 
         self.assertEqual(captured["iscr"], "1")
         self.assertEqual(captured["iscca"], "0")
         self.assertEqual(captured["ndays"], "1")
         self.assertIn("f53", captured["fields2"])
-        self.assertIn("f58", captured["fields2"])
-        self.assertEqual(host, "push2.eastmoney.com")
-        self.assertEqual(latency, 12)
+        self.assertIn("push2.eastmoney.com", host)
+        self.assertIn("tdx-7709", host)
+        self.assertEqual(latency, 18)
         self.assertTrue(source_timestamp)
-        self.assertEqual(len(parsed["openPoints"]), 1)
-        self.assertEqual(len(parsed["closePoints"]), 1)
+        self.assertEqual(parsed["openPoints"][0]["matchedVolume"], 7000.0)
+        self.assertEqual(parsed["openPoints"][0]["unmatchedVolume"], 900.0)
+        self.assertIn("eltdx_7709_call_auction", parsed["source"])
 
-    def test_merge_inserts_open_auction_and_replaces_same_timestamp_close_point(self) -> None:
+    def test_merge_inserts_second_level_auction_points(self) -> None:
         continuous = [
             {
                 "date": "2026-06-25",
@@ -156,56 +220,35 @@ class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
                 "average": 26.36,
                 "volume": 3000.0,
                 "volumeRatio": 0.5,
-            },
-            {
-                "date": "2026-06-25",
-                "time": "15:00",
-                "timestamp": 1750834800000,
-                "price": 26.90,
-                "average": 27.44,
-                "volume": 60000.0,
-                "volumeRatio": 1.0,
-            },
+            }
         ]
         open_points = [
             {
                 "date": "2026-06-25",
-                "time": "09:25",
-                "timestamp": 1750814700000,
+                "time": "09:25:03",
+                "timestamp": 1750814703000,
                 "price": 26.29,
-                "average": 26.01,
-                "volume": 1200.0,
-                "volumeRatio": 0.02,
+                "average": 26.29,
+                "volume": 7000.0,
+                "matchedVolume": 7000.0,
+                "unmatchedVolume": 900.0,
+                "unmatchedDirection": "buy",
+                "volumeRatio": 1.0,
                 "sessionPhase": "openAuction",
                 "isAuction": True,
                 "isDerived": False,
             }
         ]
-        close_points = [
-            {
-                "date": "2026-06-25",
-                "time": "15:00",
-                "timestamp": 1750834800000,
-                "price": 26.88,
-                "average": 27.40,
-                "volume": 63600.0,
-                "volumeRatio": 1.0,
-                "sessionPhase": "closeAuction",
-                "isAuction": True,
-                "isDerived": False,
-            }
-        ]
 
-        merged = merge_auction_into_minute_points(continuous, open_points, close_points)
+        merged = merge_auction_into_minute_points(continuous, open_points, [])
 
-        self.assertEqual([point["time"] for point in merged], ["09:25", "09:30", "15:00"])
-        self.assertEqual(merged[-1]["price"], 26.88)
+        self.assertEqual([point["time"] for point in merged], ["09:25:03", "09:30"])
+        self.assertEqual(merged[0]["unmatchedVolume"], 900.0)
         self.assertEqual(merged[0]["sessionPhase"], "openAuction")
         self.assertEqual(merged[1]["sessionPhase"], "continuous")
-        self.assertEqual(merged[-1]["sessionPhase"], "closeAuction")
 
-    def test_empty_upstream_never_generates_auction_points(self) -> None:
-        parsed = parse_auction_trends({"data": {"trends": []}})
+    def test_empty_upstream_never_generates_points(self) -> None:
+        parsed = parse_eastmoney_auction_trends({"data": {"trends": []}})
 
         self.assertEqual(parsed["openPoints"], [])
         self.assertEqual(parsed["closePoints"], [])
