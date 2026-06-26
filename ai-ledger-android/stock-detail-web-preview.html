@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
 <title>AI Ledger · 股票详情页多周期原型</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@dev-update-1/ai-ledger-android/stock-detail-web-preview.css?v=2026062613">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@dev-update-1/ai-ledger-android/stock-detail-web-preview.css?v=2026062614">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@a5c4383a4412a5f7864c394554def0d56a2792f2/ai-ledger-android/stock-detail-web-kline-layout.css">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle">⚙</button>
@@ -71,15 +72,15 @@
       </section>
 
       <section class="glass actions section"><button>加自选</button><button>预警</button><button>诊股</button><button>买入</button><button>卖出</button></section>
-      <section class="glass info section"><h2>K线指标说明</h2><p>图表卡片已经改为内容自适应高度。主图、成交量、技术指标、日期轴和底部说明都会完整包含在边框内，不再由固定高度卡片裁切。</p></section>
+      <section class="glass info section"><h2>K线指标说明</h2><p>K线主图高度现在只控制价格主图。成交量区和 MACD、KDJ、RSI、BOLL 技术副图拥有独立固定空间，卡片会按三部分总高度完整展开，不再因主图高度变化而截断底部区域。</p></section>
     </div>
     <nav class="bottom-nav"><div class="nav">AI<br>AI助手</div><div class="nav active">✦<br>功能</div><div class="nav">⚙<br>设置</div></nav>
   </section>
 
   <aside class="controls">
     <h1>股票详情页实时原型</h1>
-    <div class="version">网页版本 2026-06-26.13 · 图表完整展开版</div>
-    <p>取消图表卡片固定高度裁切。图表绘图区使用设定高度，日期轴和说明区额外占用独立空间，外层卡片会随完整内容自动展开。</p>
+    <div class="version">网页版本 2026-06-26.14 · K线三区独立高度版</div>
+    <p>根因已经修正：此前“图表绘图区高度”其实控制了主图、成交量和技术副图的总高度。现在它仅控制价格主图，底部两个区域独立追加高度。</p>
     <div class="group">
       <h2>实时数据</h2>
       <input id="query" type="text" value="600667" placeholder="股票代码或名称">
@@ -88,7 +89,7 @@
     </div>
     <div class="group">
       <h2>布局与图表</h2>
-      <div class="control-row"><div class="control-head"><span>图表绘图区高度</span><span id="chartHeightText">510px</span></div><input id="chartHeight" type="range" min="400" max="650" value="510"></div>
+      <div class="control-row"><div class="control-head"><span>K线主图高度</span><span id="chartHeightText">510px</span></div><input id="chartHeight" type="range" min="400" max="650" value="510"></div>
       <div class="control-row"><div class="control-head"><span>盘口宽度</span><span id="orderWidthText">132px</span></div><input id="orderWidth" type="range" min="108" max="178" value="132"></div>
       <div class="control-row"><div class="control-head"><span>成交量区高度</span><span id="volumeHeightText">24%</span></div><input id="volumeHeight" type="range" min="18" max="34" value="24"></div>
       <div class="control-row"><div class="control-head"><span>K线基准根数</span><span id="kBaseCountText">72根</span></div><input id="kBaseCount" type="range" min="36" max="120" value="72"></div>
@@ -101,7 +102,7 @@
   const base='https://raw.githubusercontent.com/yuchenm1303-png/yuchen1303.github.io/dev-update-1/ai-ledger-android/';
   const files=['stock-detail-web-core.js','stock-detail-web-charts.js','stock-detail-web-indicators.js','stock-detail-web-runtime.js'];
   try{
-    const responses=await Promise.all(files.map(file=>fetch(base+file+'?v=2026062613',{cache:'no-store'})));
+    const responses=await Promise.all(files.map(file=>fetch(base+file+'?v=2026062614',{cache:'no-store'})));
     responses.forEach((response,index)=>{if(!response.ok)throw new Error(files[index]+' HTTP '+response.status)});
     const sources=await Promise.all(responses.map(response=>response.text()));
     new Function(sources.join('\n\n;\n\n')+'\n//# sourceURL=stock-detail-web-bundle.js')();
