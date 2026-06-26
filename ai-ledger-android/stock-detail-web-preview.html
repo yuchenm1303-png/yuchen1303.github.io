@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0" />
   <title>AI Ledger · 股票详情页实时原型</title>
   <style>
     :root {
@@ -43,68 +44,17 @@
         linear-gradient(154deg, transparent 58%, rgba(255,164,205,.22) 64%, transparent 73%);
     }
     button, input { font: inherit; color: inherit; }
-    .workspace {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: minmax(360px, var(--phone-w)) 320px;
-      justify-content: center;
-      align-items: start;
-      gap: 22px;
-      padding: 20px 14px 34px;
-    }
-    .phone {
-      position: sticky;
-      top: 12px;
-      width: var(--phone-w);
-      max-width: calc(100vw - 20px);
-      height: var(--screen-h);
-      overflow: hidden;
-      border: 1px solid rgba(255,255,255,.16);
-      border-radius: 38px;
-      background: linear-gradient(180deg, rgba(2,6,25,.98), rgba(5,11,39,.98));
-      box-shadow: 0 34px 90px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.12);
-    }
-    .phone::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      background:
-        radial-gradient(circle at 8% 76%, rgba(0,126,255,.40), transparent 30%),
-        radial-gradient(circle at 83% 89%, rgba(255,119,148,.34), transparent 28%);
-    }
-    .screen {
-      position: relative;
-      z-index: 1;
-      height: 100%;
-      padding: 0 12px 112px;
-      overflow-y: auto;
-      scrollbar-width: none;
-    }
+    .workspace { position: relative; z-index: 1; display: grid; grid-template-columns: minmax(360px,var(--phone-w)) 320px; justify-content: center; align-items: start; gap: 22px; padding: 20px 14px 34px; }
+    .phone { position: sticky; top: 12px; width: var(--phone-w); max-width: calc(100vw - 20px); height: var(--screen-h); overflow: hidden; border: 1px solid rgba(255,255,255,.16); border-radius: 38px; background: linear-gradient(180deg,rgba(2,6,25,.98),rgba(5,11,39,.98)); box-shadow: 0 34px 90px rgba(0,0,0,.52), inset 0 1px 0 rgba(255,255,255,.12); }
+    .phone::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 8% 76%,rgba(0,126,255,.40),transparent 30%), radial-gradient(circle at 83% 89%,rgba(255,119,148,.34),transparent 28%); }
+    .screen { position: relative; z-index: 1; height: 100%; padding: 0 12px 112px; overflow-y: auto; scrollbar-width: none; }
     .screen::-webkit-scrollbar { display: none; }
-    .status-bar {
-      height: 46px;
-      padding: 8px 7px 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-weight: 900;
-      font-size: 10px;
-    }
+    .status-bar { height: 46px; padding: 8px 7px 0; display: flex; align-items: center; justify-content: space-between; font-weight: 900; font-size: 10px; }
     .status-left, .status-right { display: flex; align-items: center; gap: 7px; }
     .carriers { font-size: 8px; line-height: 1.05; }
     .clock { font-size: 20px; letter-spacing: -.04em; }
     .battery { border: 1px solid rgba(255,255,255,.8); border-radius: 4px; padding: 1px 4px; }
-    .glass {
-      position: relative;
-      overflow: hidden;
-      border-radius: var(--radius);
-      border: 1px solid rgba(255,255,255,.15);
-      background: linear-gradient(180deg, rgba(18,24,67,var(--glass)), rgba(7,14,48,calc(var(--glass) * .82)));
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 16px 36px rgba(0,0,0,.22);
-      backdrop-filter: blur(20px) saturate(1.08);
-    }
+    .glass { position: relative; overflow: hidden; border-radius: var(--radius); border: 1px solid rgba(255,255,255,.15); background: linear-gradient(180deg,rgba(18,24,67,var(--glass)),rgba(7,14,48,calc(var(--glass)*.82))); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 16px 36px rgba(0,0,0,.22); backdrop-filter: blur(20px) saturate(1.08); }
     .section { margin-top: 10px; }
     .quote { padding: 14px; }
     .quote-top { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; }
@@ -117,55 +67,21 @@
     .amount-top { margin-top: 5px; color: rgba(255,255,255,.42); font-size: 9px; }
     .divider { height: 1px; margin: 13px 0 11px; background: var(--line); }
     .metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
-    .metric {
-      min-width: 0;
-      height: 57px;
-      padding: 9px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      border: 1px solid rgba(255,255,255,.09);
-      border-radius: 18px;
-      background: var(--tile);
-    }
+    .metric { min-width: 0; height: 57px; padding: 9px; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid rgba(255,255,255,.09); border-radius: 18px; background: var(--tile); }
     .metric span:first-child { color: rgba(255,255,255,.36); font-size: 8px; font-weight: 800; }
     .metric b { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .rise { color: var(--rise) !important; }
-    .fall { color: var(--fall) !important; }
-    .aqua { color: var(--aqua) !important; }
-    .yellow { color: var(--yellow) !important; }
-
+    .rise { color: var(--rise)!important; }
+    .fall { color: var(--fall)!important; }
+    .yellow { color: var(--yellow)!important; }
     .chart-card { padding: 13px; }
     .tabs { display: grid; grid-template-columns: repeat(5,1fr); gap: 7px; }
-    .pill {
-      height: 38px;
-      border: 1px solid rgba(255,255,255,.07);
-      border-radius: 999px;
-      background: rgba(255,255,255,.065);
-      font-size: 10px;
-      font-weight: 950;
-    }
+    .pill { height: 38px; border: 1px solid rgba(255,255,255,.07); border-radius: 999px; background: rgba(255,255,255,.065); font-size: 10px; font-weight: 950; }
     .pill.active { background: rgba(255,255,255,.20); border-color: rgba(141,249,234,.18); }
-    .legend {
-      height: 34px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-      white-space: nowrap;
-      overflow: hidden;
-      font-size: 9px;
-      font-weight: 900;
-    }
+    .legend { height: 34px; display: flex; align-items: center; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; font-size: 9px; font-weight: 900; }
     .legend-title { color: rgba(255,255,255,.58); }
     .legend-spacer { flex: 1; min-width: 2px; }
     .auction-status { color: rgba(141,249,234,.62); overflow: hidden; text-overflow: ellipsis; }
-    .terminal {
-      height: var(--chart-h);
-      display: grid;
-      grid-template-columns: minmax(0,1fr) var(--order-w);
-      gap: 8px;
-    }
+    .terminal { height: var(--chart-h); display: grid; grid-template-columns: minmax(0,1fr) var(--order-w); gap: 8px; }
     .chart-column { min-width: 0; height: 100%; display: grid; grid-template-rows: minmax(0,1fr) 16px 28px; }
     .chart-wrap { min-height: 0; position: relative; }
     #chart { width: 100%; height: 100%; display: block; }
@@ -174,18 +90,7 @@
     .caption .matched { color: rgba(243,245,255,.66); }
     .caption .buy-unmatched { color: rgba(255,143,143,.66); }
     .caption .sell-unmatched { color: rgba(128,247,180,.66); }
-    .order-panel {
-      min-width: 0;
-      height: 100%;
-      padding: 7px;
-      display: grid;
-      grid-template-rows: auto auto minmax(0,1fr) auto minmax(0,.62fr);
-      gap: 6px;
-      overflow: hidden;
-      border: 1px solid rgba(255,255,255,.085);
-      border-radius: 15px;
-      background: rgba(255,255,255,.035);
-    }
+    .order-panel { min-width: 0; height: 100%; padding: 7px; display: grid; grid-template-rows: auto auto minmax(0,1fr) auto minmax(0,.62fr); gap: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,.085); border-radius: 15px; background: rgba(255,255,255,.035); }
     .order-head { display: flex; align-items: center; justify-content: space-between; }
     .order-title { font-size: 10px; font-weight: 950; }
     .order-state { color: var(--aqua); font-size: 7px; font-weight: 900; }
@@ -208,38 +113,13 @@
     .info { padding: 14px; }
     .info h2 { margin: 0; font-size: 14px; }
     .info p { color: rgba(255,255,255,.62); font-size: 10px; line-height: 1.55; }
-    .bottom-nav {
-      position: absolute;
-      z-index: 5;
-      left: 16px;
-      right: 16px;
-      bottom: 12px;
-      height: 72px;
-      display: grid;
-      grid-template-columns: repeat(3,1fr);
-      border: 1px solid rgba(255,255,255,.18);
-      border-radius: 999px;
-      overflow: hidden;
-      background: linear-gradient(90deg, rgba(106,139,255,.30), rgba(218,173,255,.28), rgba(255,122,137,.37));
-      backdrop-filter: blur(18px);
-    }
+    .bottom-nav { position: absolute; z-index: 5; left: 16px; right: 16px; bottom: 12px; height: 72px; display: grid; grid-template-columns: repeat(3,1fr); border: 1px solid rgba(255,255,255,.18); border-radius: 999px; overflow: hidden; background: linear-gradient(90deg,rgba(106,139,255,.30),rgba(218,173,255,.28),rgba(255,122,137,.37)); backdrop-filter: blur(18px); }
     .nav { display: grid; place-items: center; color: rgba(255,255,255,.52); font-size: 9px; font-weight: 900; }
-    .nav.active { color: white; background: radial-gradient(circle, rgba(255,255,255,.18), transparent 66%); }
-
-    .controls {
-      position: sticky;
-      top: 12px;
-      max-height: calc(100vh - 24px);
-      overflow-y: auto;
-      padding: 16px;
-      border: 1px solid rgba(255,255,255,.14);
-      border-radius: 26px;
-      background: linear-gradient(180deg, rgba(13,22,54,.90), rgba(7,12,34,.84));
-      backdrop-filter: blur(22px);
-      box-shadow: 0 24px 70px rgba(0,0,0,.36);
-    }
+    .nav.active { color: white; background: radial-gradient(circle,rgba(255,255,255,.18),transparent 66%); }
+    .controls { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto; padding: 16px; border: 1px solid rgba(255,255,255,.14); border-radius: 26px; background: linear-gradient(180deg,rgba(13,22,54,.90),rgba(7,12,34,.84)); backdrop-filter: blur(22px); box-shadow: 0 24px 70px rgba(0,0,0,.36); }
     .controls h1 { margin: 0; font-size: 20px; }
     .controls p { color: rgba(255,255,255,.54); font-size: 11px; line-height: 1.5; }
+    .version { margin-top: 6px; color: rgba(141,249,234,.72); font-size: 9px; font-weight: 800; }
     .group { padding: 13px 0; border-top: 1px solid rgba(255,255,255,.08); }
     .group h2 { margin: 0 0 9px; font-size: 12px; }
     .controls input[type=text] { width: 100%; padding: 10px 11px; color: white; border: 1px solid rgba(255,255,255,.12); border-radius: 12px; background: rgba(255,255,255,.06); outline: none; }
@@ -270,265 +150,214 @@
           <div class="status-left"><span class="carriers">中国移动<br>中国电信</span><span class="clock">4:33</span><span>◧</span><span>◉</span></div>
           <div class="status-right"><span>⌁ ◉ Ⓝ 4G▮▮▮ 4G▮▮▮</span><span class="battery">42</span></div>
         </header>
-
         <section class="glass quote">
           <div class="quote-top">
-            <div>
-              <h1 class="name" id="name">--</h1>
-              <div class="code"><span id="code">------</span> · <span id="market">--</span></div>
-              <div class="source" id="source">等待真实后端行情</div>
-            </div>
-            <div class="price-box">
-              <div class="price" id="price">--</div>
-              <div class="change" id="change">--</div>
-              <div class="amount-top">成交额 <span id="amountTop">--</span></div>
-            </div>
+            <div><h1 class="name" id="name">--</h1><div class="code"><span id="code">------</span> · <span id="market">--</span></div><div class="source" id="source">等待真实后端行情</div></div>
+            <div class="price-box"><div class="price" id="price">--</div><div class="change" id="change">--</div><div class="amount-top">成交额 <span id="amountTop">--</span></div></div>
           </div>
-          <div class="divider"></div>
-          <div class="metrics" id="metrics"></div>
+          <div class="divider"></div><div class="metrics" id="metrics"></div>
         </section>
-
         <section class="glass chart-card section">
-          <div class="tabs">
-            <button class="pill active">分时</button><button class="pill">日K</button><button class="pill">周K</button><button class="pill">月K</button><button class="pill">五日</button>
-          </div>
-          <div class="legend">
-            <span class="legend-title">分时 · 首尾集合竞价</span>
-            <span class="yellow">均价 <b id="average">--</b></span>
-            <span>最新 <b id="latest">--</b></span>
-            <span class="legend-spacer"></span>
-            <span class="auction-status" id="auctionStatus">等待真实竞价数据</span>
-            <span id="legendChange">--</span>
-          </div>
+          <div class="tabs"><button class="pill active">分时</button><button class="pill">日K</button><button class="pill">周K</button><button class="pill">月K</button><button class="pill">五日</button></div>
+          <div class="legend"><span class="legend-title">分时 · 首尾集合竞价</span><span class="yellow">均价 <b id="average">--</b></span><span>最新 <b id="latest">--</b></span><span class="legend-spacer"></span><span class="auction-status" id="auctionStatus">等待真实竞价数据</span><span id="legendChange">--</span></div>
           <div class="terminal">
             <div class="chart-column">
               <div class="chart-wrap"><canvas id="chart"></canvas></div>
               <div class="axis"><span>09:15</span><span>09:25</span><span>11:30/13:00</span><span>14:57</span><span>15:00</span></div>
-              <div class="caption">
-                <span class="matched">白柱：匹配量</span>
-                <span class="buy-unmatched">红柱：买方未匹配</span>
-                <span class="sell-unmatched">绿柱：卖方未匹配</span>
-              </div>
+              <div class="caption"><span class="matched">白柱：匹配量</span><span class="buy-unmatched">红柱：买方未匹配</span><span class="sell-unmatched">绿柱：卖方未匹配</span></div>
             </div>
             <aside class="order-panel">
               <div class="order-head"><span class="order-title">五档盘口</span><span class="order-state" id="depthState">--</span></div>
-              <div class="columns"><span>盘口</span><span>价格</span><span>手</span></div>
-              <div class="depth-list" id="depth"></div>
-              <div class="tick-header"><div class="order-head"><span class="order-title">逐笔成交</span><span class="order-state">明细</span></div></div>
-              <div class="ticks-list" id="ticks"></div>
+              <div class="columns"><span>盘口</span><span>价格</span><span>手</span></div><div class="depth-list" id="depth"></div>
+              <div class="tick-header"><div class="order-head"><span class="order-title">逐笔成交</span><span class="order-state">明细</span></div></div><div class="ticks-list" id="ticks"></div>
             </aside>
           </div>
         </section>
-
         <section class="glass actions section"><button>加自选</button><button>预警</button><button>诊股</button><button>买入</button><button>卖出</button></section>
         <section class="glass info section"><h2>竞价量说明</h2><p>竞价价格、虚拟匹配量和未匹配量来自真实行情协议。未匹配量用红色表示买方剩余、绿色表示卖方剩余；数据源不可用时保持空白，不根据价格或普通成交量伪造。</p></section>
       </div>
       <nav class="bottom-nav"><div class="nav">AI<br>AI助手</div><div class="nav active">✦<br>功能</div><div class="nav">⚙<br>设置</div></nav>
     </section>
-
     <aside class="controls">
-      <h1>股票详情页实时原型</h1>
-      <p>集合竞价期间每秒刷新。分时图下方已加入匹配量与未匹配量双柱，右侧继续固定显示五档盘口和逐笔成交。</p>
-      <div class="group">
-        <h2>实时数据</h2>
-        <input id="query" type="text" value="600667" placeholder="股票代码或名称" />
-        <div class="buttons"><button class="primary" id="start">开始实时刷新</button><button id="stop">停止刷新</button></div>
-        <div class="data-status" id="dataStatus"><strong>未连接</strong>：页面不会用演示数据替代真实行情。</div>
-      </div>
-      <div class="group">
-        <h2>布局</h2>
-        <div class="control-row"><div class="control-head"><span>图表高度</span><span id="chartHeightText">510px</span></div><input id="chartHeight" type="range" min="400" max="650" value="510" /></div>
-        <div class="control-row"><div class="control-head"><span>盘口宽度</span><span id="orderWidthText">132px</span></div><input id="orderWidth" type="range" min="108" max="178" value="132" /></div>
-        <div class="control-row"><div class="control-head"><span>竞价量区高度</span><span id="volumeHeightText">24%</span></div><input id="volumeHeight" type="range" min="18" max="34" value="24" /></div>
-      </div>
+      <h1>股票详情页实时原型</h1><div class="version">网页版本 2026-06-26.2 · 秒级时间与竞价量柱修正版</div>
+      <p>集合竞价期间每秒刷新。分时图下方显示真实匹配量与未匹配量；异常时间点会直接丢弃，不再生成跨屏横线。</p>
+      <div class="group"><h2>实时数据</h2><input id="query" type="text" value="600667" placeholder="股票代码或名称" /><div class="buttons"><button class="primary" id="start">开始实时刷新</button><button id="stop">停止刷新</button></div><div class="data-status" id="dataStatus"><strong>未连接</strong>：页面不会用演示数据替代真实行情。</div></div>
+      <div class="group"><h2>布局</h2><div class="control-row"><div class="control-head"><span>图表高度</span><span id="chartHeightText">510px</span></div><input id="chartHeight" type="range" min="400" max="650" value="510" /></div><div class="control-row"><div class="control-head"><span>盘口宽度</span><span id="orderWidthText">132px</span></div><input id="orderWidth" type="range" min="108" max="178" value="132" /></div><div class="control-row"><div class="control-head"><span>竞价量区高度</span><span id="volumeHeightText">24%</span></div><input id="volumeHeight" type="range" min="18" max="34" value="24" /></div></div>
     </aside>
   </main>
-
   <script>
     const API = "https://ai-ledger-stock-proxy.onrender.com/api/stock/a-share/realtime";
     const $ = selector => document.querySelector(selector);
     const rootStyle = document.documentElement.style;
-    const state = {
-      data: emptyData(), running: false, loading: false, timer: null,
-      openWidth: .14, closeWidth: .05, volumeFraction: .24, requestCount: 0
-    };
+    const state = { data: emptyData(), running: false, loading: false, timer: null, openWidth: .14, closeWidth: .05, volumeFraction: .24, requestCount: 0 };
 
     function emptyData() {
-      return {
-        quote: {name:"--",code:"------",market:"--",price:null,changeAmount:null,changePercent:null,high:null,low:null,open:null,previousClose:null,amount:"--",turnoverRate:"--",volumeRatio:"--",totalMarketValue:"--",source:"等待真实后端行情"},
-        minutePoints: [], sellLevels: [], buyLevels: [], ticks: [], auction: null, depthStatus: "--"
-      };
+      return { quote:{name:"--",code:"------",market:"--",price:null,changeAmount:null,changePercent:null,high:null,low:null,open:null,previousClose:null,amount:"--",turnoverRate:"--",volumeRatio:"--",totalMarketValue:"--",source:"等待真实后端行情"}, minutePoints:[], sellLevels:[], buyLevels:[], ticks:[], auction:null, depthStatus:"--", droppedPoints:0 };
     }
     const number = value => {
       if (typeof value === "number") return Number.isFinite(value) ? value : null;
       if (value == null) return null;
-      const parsed = Number(String(value).replace(/[,%亿万手]/g, ""));
+      const parsed = Number(String(value).replace(/[,%亿万手]/g,""));
       return Number.isFinite(parsed) ? parsed : null;
     };
     const fmt = value => value == null ? "--" : Number(value).toFixed(2);
     const signed = (value,suffix="") => value == null ? "--" : `${Number(value)>=0?"+":""}${Number(value).toFixed(2)}${suffix}`;
-    const timeParts = raw => {
-      const text = String(raw ?? "");
-      const match = text.match(/(\d{2}:\d{2})(?::(\d{2}))?$/);
-      return match ? {minute:match[1],full:match[2]?`${match[1]}:${match[2]}`:match[1]} : {minute:"",full:""};
-    };
-    const phaseFrom = (item, minute) => {
+
+    function timeParts(raw) {
+      if (raw == null) return null;
+      const text = String(raw).trim();
+      if (/^\d{10,13}$/.test(text)) {
+        const stamp = Number(text.length === 10 ? `${text}000` : text);
+        const parts = Object.fromEntries(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).formatToParts(new Date(stamp)).filter(item=>item.type!=="literal").map(item=>[item.type,item.value]));
+        return timeParts(`${parts.hour}:${parts.minute}:${parts.second}`);
+      }
+      const match = text.match(/(?:^|\s)(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+      if (!match) return null;
+      const hour = Number(match[1]), minute = Number(match[2]), second = Number(match[3] ?? 0);
+      if (!Number.isInteger(hour) || !Number.isInteger(minute) || !Number.isInteger(second) || hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return null;
+      const hh = String(hour).padStart(2,"0"), mm = String(minute).padStart(2,"0"), ss = String(second).padStart(2,"0");
+      return { minute:`${hh}:${mm}`, full:match[3] == null ? `${hh}:${mm}` : `${hh}:${mm}:${ss}`, minuteOfDay:hour*60+minute, secondOfDay:(hour*60+minute)*60+second };
+    }
+    function phaseFrom(item, time) {
       const raw = String(item?.sessionPhase || item?.phase || "").toLowerCase();
       if (raw.includes("open")) return "open";
       if (raw.includes("close")) return "close";
-      if (minute >= "09:15" && minute <= "09:25") return "open";
-      if (minute >= "14:57" && minute <= "15:00") return "close";
+      if (time.minuteOfDay >= 555 && time.minuteOfDay <= 565) return "open";
+      if (time.minuteOfDay >= 897 && time.minuteOfDay <= 900) return "close";
       return "continuous";
-    };
-    const pointKey = point => point.timestamp || `${point.date || ""}-${point.fullTime}`;
+    }
+    const pointKey = point => point.timestamp > 0 ? `t-${point.timestamp}` : `${point.date || ""}-${point.fullTime}`;
 
     function normalizePoint(item) {
-      const times = timeParts(item?.time ?? item?.datetime ?? item?.timestamp);
+      const time = timeParts(item?.time ?? item?.datetime ?? item?.dateTime ?? item?.timestamp);
       const price = number(item?.price ?? item?.close ?? item?.current);
-      if (price == null || !times.minute) return null;
-      const matched = number(item?.matchedVolume);
-      const unmatched = number(item?.unmatchedVolume);
+      if (price == null || !time || time.minuteOfDay < 555 || time.minuteOfDay > 900) return null;
       return {
-        date:item?.date || "", time:times.minute, fullTime:times.full,
-        timestamp:number(item?.timestamp) || 0,
-        price, average:number(item?.average ?? item?.avgPrice ?? item?.averagePrice) ?? price,
-        volume:number(item?.volume ?? item?.amount) ?? 0,
-        matchedVolume:matched,
-        unmatchedVolume:unmatched,
-        unmatchedDirection:String(item?.unmatchedDirection || "unavailable"),
-        phase:phaseFrom(item,times.minute),
-        priceSource:item?.priceSource || ""
+        date:item?.date || "", time:time.minute, fullTime:time.full, minuteOfDay:time.minuteOfDay, secondOfDay:time.secondOfDay,
+        timestamp:number(item?.timestamp) || 0, price, average:number(item?.average ?? item?.avgPrice ?? item?.averagePrice) ?? price,
+        volume:number(item?.volume) ?? 0, matchedVolume:number(item?.matchedVolume), unmatchedVolume:number(item?.unmatchedVolume),
+        unmatchedDirection:String(item?.unmatchedDirection || "unavailable").toLowerCase(), phase:phaseFrom(item,time), priceSource:item?.priceSource || ""
       };
     }
-
+    function sortPoints(a,b) {
+      if (a.timestamp > 0 && b.timestamp > 0) return a.timestamp - b.timestamp;
+      const dateCompare = String(a.date).localeCompare(String(b.date));
+      return dateCompare || a.secondOfDay - b.secondOfDay;
+    }
     function normalizePayload(rawRoot) {
       const payload = rawRoot?.data ?? rawRoot?.payload ?? rawRoot ?? {};
       const q0 = payload.quote ?? payload.stock ?? {};
       const auction = payload.auction ?? null;
       const quote = {
-        name:q0.name ?? q0.stockName ?? "--", code:q0.code ?? q0.stockCode ?? "------",
-        market:q0.market ?? q0.marketName ?? "--", price:number(q0.price ?? q0.latestPrice ?? q0.current),
-        changeAmount:number(q0.changeAmount ?? q0.change), changePercent:number(q0.changePercent ?? q0.changePct),
-        high:number(q0.high), low:number(q0.low), open:number(q0.open), previousClose:number(q0.previousClose ?? q0.preClose),
-        amount:q0.amount ?? q0.turnoverAmount ?? "--", turnoverRate:q0.turnoverRate ?? "--",
-        volumeRatio:q0.volumeRatio ?? "--", totalMarketValue:q0.totalMarketValue ?? q0.marketValue ?? "--",
+        name:q0.name ?? q0.stockName ?? "--", code:q0.code ?? q0.stockCode ?? "------", market:q0.market ?? q0.marketName ?? "--",
+        price:number(q0.price ?? q0.latestPrice ?? q0.current), changeAmount:number(q0.changeAmount ?? q0.change), changePercent:number(q0.changePercent ?? q0.changePct),
+        high:number(q0.high), low:number(q0.low), open:number(q0.open), previousClose:number(q0.previousClose ?? q0.preClose), amount:q0.amount ?? q0.turnoverAmount ?? "--",
+        turnoverRate:q0.turnoverRate ?? "--", volumeRatio:q0.volumeRatio ?? "--", totalMarketValue:q0.totalMarketValue ?? q0.marketValue ?? "--",
         source:payload.dataSourceLabel ?? rawRoot?.dataSourceLabel ?? "A股真实统一行情"
       };
-      const map = new Map();
-      const minuteRaw = payload.minutePoints ?? payload.minute ?? payload.minutes ?? payload.trends ?? [];
-      (Array.isArray(minuteRaw)?minuteRaw:[]).map(normalizePoint).filter(Boolean).forEach(point=>map.set(pointKey(point),point));
-      [...(auction?.open?.points ?? []), ...(auction?.close?.points ?? [])].map(normalizePoint).filter(Boolean).forEach(point=>map.set(pointKey(point),point));
-      const minutePoints = [...map.values()].sort((a,b)=>(a.timestamp||0)-(b.timestamp||0) || a.fullTime.localeCompare(b.fullTime));
+      const rawPoints = [
+        ...(Array.isArray(payload.minutePoints ?? payload.minute ?? payload.minutes ?? payload.trends) ? (payload.minutePoints ?? payload.minute ?? payload.minutes ?? payload.trends) : []),
+        ...(auction?.open?.points ?? []), ...(auction?.close?.points ?? [])
+      ];
+      const map = new Map(); let droppedPoints = 0;
+      rawPoints.forEach(item => { const point = normalizePoint(item); if (point) map.set(pointKey(point),point); else droppedPoints += 1; });
+      const minutePoints = [...map.values()].sort(sortPoints);
       const sellRaw = payload.sellLevels ?? payload.sell ?? payload.asks ?? payload.depth?.sellLevels ?? [];
       const buyRaw = payload.buyLevels ?? payload.buy ?? payload.bids ?? payload.depth?.buyLevels ?? [];
       const tickRaw = payload.tradeTicks ?? payload.ticks ?? payload.details ?? [];
-      const level = (item,index,prefix)=>({label:item?.label??`${prefix}${index+1}`,price:String(item?.price??"--"),volume:String(item?.volume??item?.amount??"--")});
-      const tick = item=>({time:timeParts(item?.time??item?.timestamp).full,price:String(item?.price??"--"),volume:String(item?.volume??item?.amount??"--"),buy:Boolean(item?.isBuy??String(item?.direction??"").includes("买"))});
-      return {
-        quote, minutePoints,
-        sellLevels:(Array.isArray(sellRaw)?sellRaw:[]).slice(0,5).map((item,index)=>level(item,index,"卖")),
-        buyLevels:(Array.isArray(buyRaw)?buyRaw:[]).slice(0,5).map((item,index)=>level(item,index,"买")),
-        ticks:(Array.isArray(tickRaw)?tickRaw:[]).slice(-12).map(tick), auction,
-        depthStatus:payload.depthStatus ?? payload.depthState?.status ?? (sellRaw.length||buyRaw.length?"ok":"unavailable")
-      };
+      const level = (item,index,prefix) => ({label:item?.label ?? `${prefix}${index+1}`,price:String(item?.price ?? "--"),volume:String(item?.volume ?? item?.amount ?? "--")});
+      const ticks = (Array.isArray(tickRaw)?tickRaw:[]).slice(-12).map(item=>{const time=timeParts(item?.time ?? item?.timestamp);return {time:time?.full ?? "--",price:String(item?.price ?? "--"),volume:String(item?.volume ?? item?.amount ?? "--"),buy:Boolean(item?.isBuy ?? String(item?.direction ?? "").includes("买"))};});
+      return { quote, minutePoints, sellLevels:(Array.isArray(sellRaw)?sellRaw:[]).slice(0,5).map((item,index)=>level(item,index,"卖")), buyLevels:(Array.isArray(buyRaw)?buyRaw:[]).slice(0,5).map((item,index)=>level(item,index,"买")), ticks, auction, depthStatus:payload.depthStatus ?? payload.depthState?.status ?? (sellRaw.length||buyRaw.length?"ok":"unavailable"), droppedPoints };
     }
 
     function renderQuote() {
       const q=state.data.quote, rising=(q.changePercent??0)>=0, tone=rising?"rise":"fall";
       $("#name").textContent=q.name; $("#code").textContent=q.code; $("#market").textContent=q.market; $("#source").textContent=q.source;
       $("#price").textContent=fmt(q.price); $("#price").className=`price ${tone}`;
-      $("#change").textContent=`${signed(q.changeAmount)}  ${signed(q.changePercent,"%")}`; $("#change").className=`change ${tone}`;
-      $("#amountTop").textContent=q.amount;
+      $("#change").textContent=`${signed(q.changeAmount)}  ${signed(q.changePercent,"%")}`; $("#change").className=`change ${tone}`; $("#amountTop").textContent=q.amount;
       const metrics=[["高",fmt(q.high),"rise"],["低",fmt(q.low),"fall"],["开",fmt(q.open),""],["昨收",fmt(q.previousClose),""],["成交额",q.amount,""],["换手",q.turnoverRate,""],["量比",q.volumeRatio,tone],["总市值",q.totalMarketValue,""]];
       $("#metrics").innerHTML=metrics.map(([label,value,cls])=>`<div class="metric"><span>${label}</span><b class="${cls}">${value}</b></div>`).join("");
       const continuous=state.data.minutePoints.filter(point=>point.phase==="continuous");
-      $("#average").textContent=fmt(continuous.at(-1)?.average??q.price); $("#latest").textContent=fmt(q.price); $("#latest").className=tone;
-      $("#legendChange").textContent=signed(q.changePercent,"%"); $("#legendChange").className=tone;
+      $("#average").textContent=fmt(continuous.at(-1)?.average??q.price); $("#latest").textContent=fmt(q.price); $("#latest").className=tone; $("#legendChange").textContent=signed(q.changePercent,"%"); $("#legendChange").className=tone;
     }
-
     function renderOrderFlow() {
       const sells=state.data.sellLevels, buys=state.data.buyLevels;
-      $("#depthState").textContent=state.data.depthStatus==="ok"?"实时":"不可用";
-      if(!sells.length&&!buys.length) $("#depth").innerHTML=`<div class="empty">真实五档<br>暂不可用</div>`;
-      else {
-        const rows=[...sells.map(x=>({...x,ask:true})),{spread:true},...buys.map(x=>({...x,ask:false}))];
-        $("#depth").innerHTML=rows.map(row=>row.spread?`<div class="spread"></div>`:`<div class="depth-row"><span class="label">${row.label}</span><span class="depth-price ${row.ask?"rise":"fall"}">${row.price}</span><span class="volume">${row.volume}</span></div>`).join("");
-      }
-      const ticks=state.data.ticks.slice(-8);
-      $("#ticks").innerHTML=ticks.length?ticks.map(item=>`<div class="tick-row"><span class="tick-time">${item.time}</span><span class="tick-price ${item.buy?"rise":"fall"}">${item.price}</span><span class="volume">${item.volume}</span></div>`).join(""):`<div class="empty">真实逐笔<br>暂不可用</div>`;
+      $("#depthState").textContent=["ok","partial","stale"].includes(String(state.data.depthStatus).toLowerCase())?"实时":"不可用";
+      $("#depth").innerHTML=!sells.length&&!buys.length?`<div class="empty">真实五档<br>暂不可用</div>`:[...sells.map(x=>({...x,ask:true})),{spread:true},...buys.map(x=>({...x,ask:false}))].map(row=>row.spread?`<div class="spread"></div>`:`<div class="depth-row"><span class="label">${row.label}</span><span class="depth-price ${row.ask?"rise":"fall"}">${row.price}</span><span class="volume">${row.volume}</span></div>`).join("");
+      const ticks=state.data.ticks.slice(-8); $("#ticks").innerHTML=ticks.length?ticks.map(item=>`<div class="tick-row"><span class="tick-time">${item.time}</span><span class="tick-price ${item.buy?"rise":"fall"}">${item.price}</span><span class="volume">${item.volume}</span></div>`).join(""):`<div class="empty">真实逐笔<br>暂不可用</div>`;
     }
-
-    function sessionX(timeText) {
-      const [hour,minutePart]=String(timeText).split(":").map(Number), minute=hour*60+minutePart;
-      const openStart=555,openEnd=565,morningStart=570,morningEnd=690,afternoonStart=780,closeStart=897,dayEnd=900;
-      const openW=state.openWidth,closeW=state.closeWidth,continuousEnd=1-closeW,split=openW+(continuousEnd-openW)*.50;
-      if(minute<=openEnd)return Math.max(0,Math.min(openW,(minute-openStart)/(openEnd-openStart)*openW));
-      if(minute<=morningEnd)return openW+(minute-morningStart)/(morningEnd-morningStart)*(split-openW);
-      if(minute<closeStart)return split+(minute-afternoonStart)/(closeStart-afternoonStart)*(continuousEnd-split);
-      return continuousEnd+(minute-closeStart)/(dayEnd-closeStart)*closeW;
+    function sessionX(point) {
+      const minute=point.minuteOfDay, second=(point.secondOfDay%60)/60;
+      if (!Number.isFinite(minute) || minute < 555 || minute > 900) return null;
+      const preciseMinute=minute+second, openW=state.openWidth, closeW=state.closeWidth, continuousEnd=1-closeW, split=openW+(continuousEnd-openW)*.50;
+      let value;
+      if (preciseMinute <= 565) value=((preciseMinute-555)/10)*openW;
+      else if (preciseMinute < 570) return null;
+      else if (preciseMinute <= 690) value=openW+((preciseMinute-570)/120)*(split-openW);
+      else if (preciseMinute < 780) return null;
+      else if (preciseMinute < 897) value=split+((preciseMinute-780)/117)*(continuousEnd-split);
+      else value=continuousEnd+((preciseMinute-897)/3)*closeW;
+      return Number.isFinite(value) ? Math.min(1,Math.max(0,value)) : null;
     }
-
     function canvasContext() {
       const canvas=$("#chart"),rect=canvas.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2);
       canvas.width=Math.max(1,Math.round(rect.width*dpr)); canvas.height=Math.max(1,Math.round(rect.height*dpr));
       const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); return {ctx,width:rect.width,height:rect.height};
     }
-
+    function auctionBuckets(points,width) {
+      const buckets=new Map(), bucketSize=2;
+      points.forEach(point=>{
+        const fraction=sessionX(point); if (fraction==null) return;
+        const matched=point.matchedVolume, unmatched=point.unmatchedVolume;
+        if (!(matched>0) && !(unmatched>0)) return;
+        const pixel=Math.round((fraction*width)/bucketSize)*bucketSize;
+        const current=buckets.get(pixel) ?? {x:pixel,matched:0,unmatched:0,direction:"unavailable"};
+        if (matched>current.matched) current.matched=matched;
+        if (unmatched>current.unmatched) { current.unmatched=unmatched; current.direction=point.unmatchedDirection; }
+        buckets.set(pixel,current);
+      });
+      return [...buckets.values()].sort((a,b)=>a.x-b.x);
+    }
     function drawChart() {
       const {ctx,width,height}=canvasContext(); ctx.clearRect(0,0,width,height);
-      const points=state.data.minutePoints, volumeH=height*state.volumeFraction, gap=8, chartH=height-volumeH-gap, volumeTop=chartH+gap;
-      for(let i=1;i<=4;i++){const y=chartH*i/5;ctx.strokeStyle="rgba(255,255,255,.10)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(width,y);ctx.stroke();}
+      const volumeH=height*state.volumeFraction, gap=8, chartH=height-volumeH-gap, volumeTop=chartH+gap;
+      for(let i=1;i<=4;i++){const yy=chartH*i/5;ctx.strokeStyle="rgba(255,255,255,.10)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,yy);ctx.lineTo(width,yy);ctx.stroke();}
       const openX=width*state.openWidth,closeX=width*(1-state.closeWidth),lunchX=width*(state.openWidth+(1-state.closeWidth-state.openWidth)*.50);
       ctx.fillStyle="rgba(245,247,255,.045)";ctx.fillRect(0,0,openX,chartH);ctx.fillStyle="rgba(141,249,234,.045)";ctx.fillRect(closeX,0,width-closeX,chartH);
       [openX,lunchX,closeX].forEach(x=>{ctx.strokeStyle="rgba(255,255,255,.13)";ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();});
       ctx.strokeStyle="rgba(255,255,255,.12)";ctx.beginPath();ctx.moveTo(0,volumeTop-3);ctx.lineTo(width,volumeTop-3);ctx.stroke();
-      if(!points.length){ctx.fillStyle="rgba(255,255,255,.42)";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("暂无真实分时数据",width/2,chartH/2);return;}
-      const q=state.data.quote,previous=q.previousClose??points[0].price,values=points.flatMap(point=>[point.price,point.phase==="continuous"?point.average:point.price]);
+      const positioned=state.data.minutePoints.map(point=>({point,fraction:sessionX(point)})).filter(item=>item.fraction!=null);
+      if(!positioned.length){ctx.fillStyle="rgba(255,255,255,.42)";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("暂无真实分时数据",width/2,chartH/2);return;}
+      const points=positioned.map(item=>item.point), q=state.data.quote, previous=q.previousClose??points[0].price;
+      const values=points.flatMap(point=>[point.price,point.phase==="continuous"?point.average:point.price]).filter(Number.isFinite);
       const half=Math.max(...values.map(value=>Math.abs(value-previous)),previous*.003,.01)*1.08,min=previous-half,max=previous+half;
-      const y=value=>chartH-((value-min)/(max-min))*chartH,x=point=>sessionX(point.time)*width;
+      const y=value=>chartH-((value-min)/(max-min))*chartH, x=point=>sessionX(point)*width;
       ctx.save();ctx.setLineDash([5,5]);ctx.strokeStyle="rgba(255,255,255,.20)";ctx.beginPath();ctx.moveTo(0,y(previous));ctx.lineTo(width,y(previous));ctx.stroke();ctx.restore();
-      const open=points.filter(point=>point.phase==="open"),continuous=points.filter(point=>point.phase==="continuous"),close=points.filter(point=>point.phase==="close"),auction=[...open,...close];
+      const open=points.filter(point=>point.phase==="open"),continuous=points.filter(point=>point.phase==="continuous"),close=points.filter(point=>point.phase==="close");
       const continuousMax=Math.max(...continuous.map(point=>point.volume||0),1);
       continuous.forEach(point=>{const xx=x(point),top=height-(point.volume/continuousMax)*volumeH*.82;ctx.strokeStyle=point.price>=previous?"rgba(255,143,143,.24)":"rgba(128,247,180,.22)";ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(xx,height);ctx.lineTo(xx,top);ctx.stroke();});
-      const auctionMax=Math.max(...auction.flatMap(point=>[point.matchedVolume||0,point.unmatchedVolume||0]),1);
-      const auctionBarWidth=Math.max(1.2,Math.min(3.2,width/Math.max(auction.length,16)*.34));
-      auction.forEach(point=>{
-        const xx=x(point),matched=point.matchedVolume??point.volume??0,unmatched=point.unmatchedVolume;
-        if(matched>0){const top=height-(matched/auctionMax)*volumeH*.92;ctx.strokeStyle="rgba(243,245,255,.60)";ctx.lineWidth=auctionBarWidth;ctx.beginPath();ctx.moveTo(xx-auctionBarWidth*.7,height);ctx.lineTo(xx-auctionBarWidth*.7,top);ctx.stroke();}
-        if(unmatched!=null&&unmatched>0){const top=height-(unmatched/auctionMax)*volumeH*.92;ctx.strokeStyle=point.unmatchedDirection==="sell"?"rgba(128,247,180,.72)":"rgba(255,143,143,.72)";ctx.lineWidth=auctionBarWidth;ctx.beginPath();ctx.moveTo(xx+auctionBarWidth*.7,height);ctx.lineTo(xx+auctionBarWidth*.7,top);ctx.stroke();}
-      });
-      const line=(list,selector,color,lineWidth)=>{if(list.length<2)return;ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();list.forEach((point,index)=>index?ctx.lineTo(x(point),y(selector(point))):ctx.moveTo(x(point),y(selector(point))));ctx.stroke();};
-      const step=(list,color)=>{if(!list.length)return;ctx.strokeStyle=color;ctx.lineWidth=1.9;ctx.lineCap="square";ctx.beginPath();let previousPoint;list.forEach((point,index)=>{if(!index)ctx.moveTo(x(point),y(point.price));else{ctx.lineTo(x(point),y(previousPoint.price));ctx.lineTo(x(point),y(point.price));}previousPoint=point;});ctx.stroke();};
+      const bars=auctionBuckets([...open,...close],width),auctionMax=Math.max(...bars.flatMap(bar=>[bar.matched,bar.unmatched]),0);
+      if(auctionMax>0){bars.forEach(bar=>{if(bar.matched>0){const top=height-(bar.matched/auctionMax)*volumeH*.92;ctx.strokeStyle="rgba(243,245,255,.76)";ctx.lineWidth=1.25;ctx.beginPath();ctx.moveTo(bar.x-.8,height);ctx.lineTo(bar.x-.8,top);ctx.stroke();}if(bar.unmatched>0){const top=height-(bar.unmatched/auctionMax)*volumeH*.92;ctx.strokeStyle=bar.direction==="sell"?"rgba(128,247,180,.82)":"rgba(255,143,143,.82)";ctx.lineWidth=1.25;ctx.beginPath();ctx.moveTo(bar.x+.8,height);ctx.lineTo(bar.x+.8,top);ctx.stroke();}});}
+      const line=(list,selector,color,lineWidth)=>{const valid=list.filter(point=>sessionX(point)!=null);if(valid.length<2)return;ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();valid.forEach((point,index)=>index?ctx.lineTo(x(point),y(selector(point))):ctx.moveTo(x(point),y(selector(point))));ctx.stroke();};
+      const step=(list,color)=>{const valid=list.filter(point=>sessionX(point)!=null);if(!valid.length)return;ctx.strokeStyle=color;ctx.lineWidth=1.9;ctx.lineCap="square";ctx.beginPath();let previousPoint;valid.forEach((point,index)=>{if(!index)ctx.moveTo(x(point),y(point.price));else{ctx.lineTo(x(point),y(previousPoint.price));ctx.lineTo(x(point),y(point.price));}previousPoint=point;});ctx.stroke();};
       line(continuous,point=>point.average,"rgba(255,211,110,.90)",1.6);line(continuous,point=>point.price,(q.changePercent??0)>=0?"rgba(255,143,143,.98)":"rgba(128,247,180,.98)",2.5);step(open,"rgba(245,247,255,.96)");step(close,"rgba(141,249,234,.96)");
     }
-
     function renderAuctionStatus() {
-      const auction=state.data.auction;
-      if(!auction){$("#auctionStatus").textContent="竞价数据不可用";return;}
-      const open=auction.open||{},close=auction.close||{};
-      const matched=(open.matchedVolumePointCount||0)+(close.matchedVolumePointCount||0),unmatched=(open.unmatchedVolumePointCount||0)+(close.unmatchedVolumePointCount||0);
+      const auction=state.data.auction;if(!auction){$("#auctionStatus").textContent="竞价数据不可用";return;}
+      const open=auction.open||{},close=auction.close||{},matched=(open.matchedVolumePointCount||0)+(close.matchedVolumePointCount||0),unmatched=(open.unmatchedVolumePointCount||0)+(close.unmatchedVolumePointCount||0);
       $("#auctionStatus").textContent=`价 ${open.pointCount||0}/${close.pointCount||0} · 匹配 ${matched} · 未匹配 ${unmatched}`;
     }
     function renderAll(){renderQuote();renderOrderFlow();renderAuctionStatus();requestAnimationFrame(drawChart);}
-
     function chinaClock(){const parts=Object.fromEntries(new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Shanghai",weekday:"short",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).formatToParts(new Date()).filter(x=>x.type!=="literal").map(x=>[x.type,x.value]));return{weekday:parts.weekday,hour:Number(parts.hour),minute:Number(parts.minute)};}
     function refreshPlan(){const now=chinaClock(),minute=now.hour*60+now.minute,weekday=!['Sat','Sun'].includes(now.weekday),auction=weekday&&((minute>=554&&minute<=566)||(minute>=896&&minute<=901)),trading=weekday&&minute>=555&&minute<=905;return auction?{delay:1000,force:true,label:"集合竞价每秒刷新"}:trading?{delay:5000,force:false,label:"交易时段每5秒刷新"}:{delay:30000,force:false,label:"休市每30秒检查"};}
     function schedule(){clearTimeout(state.timer);if(!state.running)return;const plan=refreshPlan();state.timer=setTimeout(()=>loadLive(true),document.hidden?Math.max(plan.delay,15000):plan.delay);}
     async function loadLive(silent=false){
-      if(state.loading){schedule();return;} state.loading=true;
-      const query=$("#query").value.trim()||"600667",plan=refreshPlan();
-      if(!silent)$("#dataStatus").innerHTML="<strong>连接中</strong>：正在读取竞价价格、匹配量与未匹配量…";
+      if(state.loading){schedule();return;}state.loading=true;const query=$("#query").value.trim()||"600667",plan=refreshPlan();if(!silent)$("#dataStatus").innerHTML="<strong>连接中</strong>：正在读取竞价价格、匹配量与未匹配量…";
       const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),18000);
-      try{
-        const response=await fetch(`${API}?query=${encodeURIComponent(query)}&ndays=1&forceAuction=${plan.force}&_=${Date.now()}`,{signal:controller.signal,cache:"no-store"});
-        if(!response.ok)throw new Error(`HTTP ${response.status}`);
-        state.data=normalizePayload(await response.json());state.requestCount+=1;renderAll();
-        const auction=state.data.auction||{},open=auction.open||{},close=auction.close||{},timeText=new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date());
-        $("#dataStatus").innerHTML=`<strong>真实后端 · ${plan.label}</strong>\n${state.data.quote.name} ${state.data.quote.code} · ${timeText}\n竞价价格点 ${open.pointCount||0}/${close.pointCount||0}\n匹配量点 ${(open.matchedVolumePointCount||0)+(close.matchedVolumePointCount||0)} · 未匹配量点 ${(open.unmatchedVolumePointCount||0)+(close.unmatchedVolumePointCount||0)}\n数据源 ${auction.source||"--"}\n缓存 ${auction.cacheAgeMs||0}ms · stale=${Boolean(auction.stale)} · 请求 ${state.requestCount} 次`;
-      }catch(error){$("#dataStatus").innerHTML=`<strong>刷新失败</strong>：${error.name==="AbortError"?"请求超时":error.message}\n保留上一份真实成功数据。`;}
+      try{const response=await fetch(`${API}?query=${encodeURIComponent(query)}&ndays=1&forceAuction=${plan.force}&_=${Date.now()}`,{signal:controller.signal,cache:"no-store",headers:{"Cache-Control":"no-cache"}});if(!response.ok)throw new Error(`HTTP ${response.status}`);state.data=normalizePayload(await response.json());state.requestCount+=1;renderAll();const auction=state.data.auction||{},open=auction.open||{},close=auction.close||{},timeText=new Intl.DateTimeFormat("zh-CN",{timeZone:"Asia/Shanghai",hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}).format(new Date());$("#dataStatus").innerHTML=`<strong>真实后端 · ${plan.label}</strong>\n${state.data.quote.name} ${state.data.quote.code} · ${timeText}\n竞价价格点 ${open.pointCount||0}/${close.pointCount||0}\n匹配量点 ${(open.matchedVolumePointCount||0)+(close.matchedVolumePointCount||0)} · 未匹配量点 ${(open.unmatchedVolumePointCount||0)+(close.unmatchedVolumePointCount||0)}\n丢弃异常时间点 ${state.data.droppedPoints}\n数据源 ${auction.source||"--"}\n缓存 ${auction.cacheAgeMs||0}ms · stale=${Boolean(auction.stale)} · 请求 ${state.requestCount} 次`;}
+      catch(error){$("#dataStatus").innerHTML=`<strong>刷新失败</strong>：${error.name==="AbortError"?"请求超时":error.message}\n保留上一份真实成功数据。`;}
       finally{clearTimeout(timer);state.loading=false;schedule();}
     }
-
     $("#start").addEventListener("click",()=>{state.running=true;loadLive(false);});
     $("#stop").addEventListener("click",()=>{state.running=false;clearTimeout(state.timer);$("#dataStatus").innerHTML+="\n已停止自动刷新。";});
     $("#query").addEventListener("keydown",event=>{if(event.key==="Enter"){state.running=true;loadLive(false);}});
