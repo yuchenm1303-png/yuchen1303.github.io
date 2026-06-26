@@ -451,10 +451,10 @@ private fun SettingsDashboardGrid(
             modifier = Modifier.fillMaxWidth()
         ) {
             SettingsTile(
-                "助",
-                "助手",
-                "模型与首页",
-                state.selectedModelLabel,
+                "视",
+                "视觉智能",
+                "边缘光与光标",
+                "运行 HUD",
                 selectedPanel == SettingsPanel.Assistant,
                 Modifier.weight(1f)
             ) { onSelected(SettingsPanel.Assistant) }
@@ -737,10 +737,7 @@ private fun SettingsDetailPanel(
                             onMotionIntensityChange,
                             onRainbowPrismChange
                         )
-                        SettingsPanel.Assistant -> AssistantContent(
-                            state,
-                            onPreviewConversationChange
-                        )
+                        SettingsPanel.Assistant -> VisualAgentHudSettingsContent(state)
                         SettingsPanel.Data -> DataContent(state)
                         SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
                         SettingsPanel.Advanced -> AdvancedContent()
@@ -887,39 +884,6 @@ private fun GlassContent(
         prism.rainbowHalo,
         0f..2f
     ) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
-}
-
-@Composable
-private fun AssistantContent(
-    state: AssistantUiState,
-    onPreviewConversationChange: (Boolean) -> Unit
-) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                "聊天预览",
-                color = Color.White,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            Text(
-                "打开后首页会保留示例对话和建议词。",
-                color = Color.White.copy(alpha = 0.56f),
-                fontSize = 12.sp,
-                lineHeight = 17.sp
-            )
-        }
-        Switch(
-            checked = state.showPreviewConversation,
-            onCheckedChange = onPreviewConversationChange
-        )
-    }
-    SettingInfoRow("默认模型", state.selectedModelLabel)
-    SettingInfoRow("首页消息", "${state.messages.size} 条")
-    SettingInfoRow("联网模式", if (state.onlineEnabled) "已开启" else "已关闭")
 }
 
 @Composable
@@ -1220,7 +1184,7 @@ private fun SettingsPanel.settingsOrder(): Int = when (this) {
 private fun panelTitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Appearance -> "外观"
     SettingsPanel.Glass -> "玻璃"
-    SettingsPanel.Assistant -> "助手"
+    SettingsPanel.Assistant -> "视觉智能"
     SettingsPanel.Data -> "数据"
     SettingsPanel.Service -> "服务"
     SettingsPanel.Advanced -> "高级"
@@ -1230,7 +1194,7 @@ private fun panelTitle(panel: SettingsPanel): String = when (panel) {
 private fun panelSubtitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Appearance -> "背景、主题和自定义图片。"
     SettingsPanel.Glass -> "画质、玻璃质感和聊天大玻璃彩虹。"
-    SettingsPanel.Assistant -> "模型、联网和首页展示。"
+    SettingsPanel.Assistant -> "边缘光效、鼠标光标与运行 HUD 的全部参数。"
     SettingsPanel.Data -> "账单状态、预算、本地数据和常用导航地址。"
     SettingsPanel.Service -> "账号登录、AI Worker 和云端接口。"
     SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"
