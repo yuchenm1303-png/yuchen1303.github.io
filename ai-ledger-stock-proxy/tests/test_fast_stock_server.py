@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -86,6 +87,69 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["quote"]["code"], "600667")
         self.assertEqual(len(payload["minutePoints"]), 1)
         self.assertEqual(payload["kLinePoints"], [])
+
+    def test_incremental_payload_keeps_only_latest_changes(self) -> None:
+        payload = {
+            "quote": {"code": "600667", "price": "12.34"},
+            "minutePoints": [
+                {"date": "2026-06-27", "time": "09:30", "price": 12.10},
+                {"date": "2026-06-27", "time": "09:31", "price": 12.20},
+                {"date": "2026-06-27", "time": "09:32", "price": 12.34},
+            ],
+            "tradeTicks": [
+                {"time": "09:31:58", "price": "12.20"},
+                {"time": "09:32:01", "price": "12.34"},
+            ],
+            "auction": {
+                "status": "ok",
+                "updatedAt": "2026-06-27T01:32:00Z",
+                "sourceTimestamp": "2026-06-27T01:32:00Z",
+                "cacheAgeMs": 0,
+                "refreshMode": "cache-hit",
+                "open": {"points": [{"time": "09:20"}]},
+                "close": {"points": []},
+            },
+        }
+        full_size = len(json.dumps(payload, ensure_ascii=False))
+        result = fast_server._apply_incremental_payload(
+            payload,
+            ndays=1,
+            since_minute_key="2026-06-27 09:31",
+            since_trade_key="09:31:58",
+            compact=True,
+        )
+
+        self.assertTrue(result["isDelta"])
+        self.assertFalse(result["minuteIsSnapshot"])
+        self.assertFalse(result["ticksAreSnapshot"])
+        self.assertNotIn("minutePoints", result)
+        self.assertNotIn("tradeTicks", result)
+        self.assertNotIn("auction", result)
+        self.assertEqual(len(result["minuteDelta"]), 2)
+        self.assertEqual(len(result["newTradeTicks"]), 2)
+        self.assertEqual(result["minuteCursor"], "2026-06-27 09:32")
+        self.assertEqual(result["tradeCursor"], "09:32:01")
+        self.assertLess(result["payloadBytes"], full_size)
+
+    def test_one_day_cursor_resets_on_trade_date_change(self) -> None:
+        payload = {
+            "minutePoints": [
+                {"date": "2026-06-28", "time": "09:15", "price": 12.40},
+                {"date": "2026-06-28", "time": "09:16", "price": 12.42},
+            ],
+            "tradeTicks": [],
+        }
+        result = fast_server._apply_incremental_payload(
+            payload,
+            ndays=1,
+            since_minute_key="2026-06-27 15:00",
+            since_trade_key="",
+            compact=True,
+        )
+        self.assertTrue(result["minuteReset"])
+        self.assertTrue(result["minuteIsSnapshot"])
+        self.assertIn("minutePoints", result)
+        self.assertNotIn("minuteDelta", result)
 
     def test_fast_routes_are_registered_once(self) -> None:
         for path in (
