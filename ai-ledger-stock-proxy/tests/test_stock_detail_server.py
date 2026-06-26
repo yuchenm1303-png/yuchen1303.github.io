@@ -12,13 +12,15 @@ if str(ROOT) not in sys.path:
 from stock_detail_server import (
     AUCTION_PATH,
     REALTIME_PATH,
+    _auction_loader,
     app,
     merge_auction_into_minute_points,
     parse_auction_trends,
+    runtime,
 )
 
 
-class StockDetailServerTest(unittest.TestCase):
+class StockDetailServerTest(unittest.IsolatedAsyncioTestCase):
     def test_parse_real_open_and_close_auction_points(self) -> None:
         payload = {
             "data": {
@@ -43,6 +45,43 @@ class StockDetailServerTest(unittest.TestCase):
         self.assertEqual(parsed["closePoints"][0]["priceSource"], "f53_close")
         self.assertTrue(all(point["isAuction"] for point in parsed["openPoints"] + parsed["closePoints"]))
         self.assertTrue(all(not point["isDerived"] for point in parsed["openPoints"] + parsed["closePoints"]))
+
+    async def test_loader_uses_real_premarket_endpoint_mode(self) -> None:
+        captured: dict[str, str] = {}
+
+        async def fake_get_json(urls, params):
+            captured.update(params)
+            return (
+                {
+                    "data": {
+                        "trends": [
+                            "2026-06-25 09:25,25.31,26.29,27.84,25.31,1200,3154800,26.29",
+                            "2026-06-25 15:00,27.01,26.88,27.01,26.88,63600,170956800,27.44",
+                        ]
+                    }
+                },
+                "push2.eastmoney.com",
+                12,
+            )
+
+        original_get_json = runtime._get_json
+        runtime._get_json = fake_get_json
+        try:
+            parsed, host, latency, source_timestamp = await _auction_loader(
+                {"code": "600667", "secid": "1.600667"}
+            )
+        finally:
+            runtime._get_json = original_get_json
+
+        self.assertEqual(captured["iscr"], "1")
+        self.assertEqual(captured["iscca"], "0")
+        self.assertEqual(captured["ndays"], "1")
+        self.assertIn("f58", captured["fields2"])
+        self.assertEqual(host, "push2.eastmoney.com")
+        self.assertEqual(latency, 12)
+        self.assertTrue(source_timestamp)
+        self.assertEqual(len(parsed["openPoints"]), 1)
+        self.assertEqual(len(parsed["closePoints"]), 1)
 
     def test_merge_inserts_open_auction_and_replaces_same_timestamp_close_point(self) -> None:
         continuous = [
