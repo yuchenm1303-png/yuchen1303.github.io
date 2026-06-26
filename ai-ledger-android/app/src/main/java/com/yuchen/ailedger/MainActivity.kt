@@ -74,15 +74,22 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun ensureAgentOverlaysAfterPermissionReturn() {
+        if (!AgentOverlayService.canDrawOverlays(this)) return
+
+        // Pre-warm only the presentation HUD while the app is in the foreground. Its view stays
+        // INVISIBLE and stops animation when no visual task is running, so this avoids Android's
+        // background-service start race without adding idle rendering work.
+        VisualAgentHudOverlayService.ensureStarted(this)
+
         val progress = AgentRuntimeController.progress.value
-        val shouldEnsureOverlays =
+        val shouldEnsureInteractiveOverlay =
             progress.enabled ||
                 progress.running ||
                 progress.pendingConfirmation != null ||
                 progress.pendingUserInput != null
-        if (!shouldEnsureOverlays || !AgentOverlayService.canDrawOverlays(this)) return
-        runCatching { AgentOverlayService.ensureStarted(this) }
-        VisualAgentHudOverlayService.ensureStarted(this)
+        if (shouldEnsureInteractiveOverlay) {
+            runCatching { AgentOverlayService.ensureStarted(this) }
+        }
     }
 
     private fun prepareWindow(window: Window) {
