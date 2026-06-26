@@ -35,7 +35,9 @@ fun MessageDataCards(message: ChatMessage) {
     var webPreviewSource by remember(message.id) { mutableStateOf<WebPreviewSource?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-        message.structuredData?.let { StructuredDataCardView(it) }
+        message.structuredData?.let { data ->
+            if (data.isChatStickerData()) MessageStickerV1(data) else StructuredDataCardView(data)
+        }
         if (message.webSources.isNotEmpty()) {
             WebSourcesCard(
                 sources = message.webSources,
