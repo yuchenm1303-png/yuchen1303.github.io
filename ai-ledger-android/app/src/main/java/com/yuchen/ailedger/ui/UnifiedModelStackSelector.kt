@@ -314,9 +314,17 @@ internal fun UnifiedParentModelStackSelector(
                         return@LaunchedEffect
                     }
                     hasModelStackEntered = true
+                    val wasFullyFolded = !selected && !renderAsFullCard
                     renderAsFullCard = true
                     foldedBlendAnim.stop()
-                    foldedBlendAnim.snapTo(0f)
+                    if (expanded && !selected) {
+                        if (wasFullyFolded) foldedBlendAnim.snapTo(1f)
+                        launch {
+                            foldedBlendAnim.animateTo(0f, tween(durationMillis = 220, easing = FastOutSlowInEasing))
+                        }
+                    } else if (selected) {
+                        foldedBlendAnim.snapTo(0f)
+                    }
                     capsuleAnim.stop()
                     capsuleAnim.snapTo(0f)
 
@@ -392,7 +400,15 @@ internal fun UnifiedParentModelStackSelector(
                     return@forEachIndexed
                 }
 
-                val foldedBlend = if (!selected && !expanded && renderAsFullCard) foldedBlendAnim.value.coerceIn(0f, 1f) else 0f
+                val foldedBlend = if (!selected) {
+                    when {
+                        expanded && !renderAsFullCard -> 1f
+                        renderAsFullCard -> foldedBlendAnim.value.coerceIn(0f, 1f)
+                        else -> 0f
+                    }
+                } else {
+                    0f
+                }
                 if (foldedBlend > 0.001f) {
                     val foldedAlpha = foldedBlend * (0.68f - stackRank * 0.055f).coerceIn(0.42f, 0.70f)
                     materialItems.add(
