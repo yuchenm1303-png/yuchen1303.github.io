@@ -1,10 +1,10 @@
   :root{
-    --lab-cursor-size:72px;
+    --lab-cursor-size:47.5px;
     --lab-scale-x:1;
-    --lab-scale-y:1;
-    --lab-rotation:0deg;
-    --lab-offset-x:0px;
-    --lab-offset-y:0px;
+    --lab-scale-y:.95;
+    --lab-rotation:-2.5deg;
+    --lab-offset-x:-.5px;
+    --lab-offset-y:-.5px;
     --lab-aura-size:72px;
     --lab-aura-blur:8px;
     --lab-aura-opacity:.54;
@@ -33,17 +33,6 @@
   }
   .hud{z-index:1;opacity:0;visibility:hidden;transition:opacity .18s ease,visibility .18s ease}
   .app.hud-live .hud{opacity:1;visibility:visible}
-  :root{
-    --lab-cursor-size:62px;
-    --lab-scale-x:1;
-    --lab-scale-y:.95;
-    --lab-rotation:-2.5deg;
-    --lab-offset-x:-.5px;
-    --lab-offset-y:-.5px;
-    --lab-aura-size:72px;
-    --lab-aura-blur:8px;
-    --lab-aura-opacity:.54;
-  }
   .cursor-wrap{
     transform:translate(calc(0px - var(--hotspot-x)),calc(0px - var(--hotspot-y)));
   }
