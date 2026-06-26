@@ -45,7 +45,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.yuchen.ailedger.service.AgentOverlayLaunchPolicy
 import com.yuchen.ailedger.service.AgentOverlayProgress
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
@@ -88,17 +88,7 @@ internal fun AgentChatGlassTitleControls(modifier: Modifier = Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val agentEnabled by AgentRuntimeController.enabled.collectAsState()
     val progress by AgentRuntimeController.progress.collectAsState()
-    var overlayVisible by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(overlayVisible, progress.updatedAt) {
-        if (overlayVisible) {
-            if (AgentOverlayService.canDrawOverlays(context)) {
-                AgentOverlayService.ensureStarted(context.applicationContext)
-            } else {
-                overlayVisible = false
-            }
-        }
-    }
+    val overlayVisible by AgentOverlayLaunchPolicy.manualEnabled.collectAsState()
 
     Row(
         modifier = modifier.height(22.dp),
@@ -115,17 +105,14 @@ internal fun AgentChatGlassTitleControls(modifier: Modifier = Modifier) {
             enabled = overlayVisible,
             activeColors = listOf(Color(0xEE8DFFF4), Color(0xCC9B73FF), Color(0xAA4FB6FF)),
             onClick = {
-                val next = !overlayVisible
-                if (next) {
+                if (!overlayVisible) {
                     val allowed = AgentOverlayService.requestPermissionIfNeeded(context.applicationContext)
                     if (allowed) {
-                        overlayVisible = true
                         AgentOverlayService.ensureStarted(context.applicationContext)
                     } else {
                         Toast.makeText(context, "请开启悬浮窗权限，用来显示智能体执行进展", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    overlayVisible = false
                     AgentOverlayService.stop(context.applicationContext)
                 }
             }
@@ -1105,4 +1092,96 @@ private fun AgentHeaderSwitchPill(
             maxLines = 1
         )
     }
+}
+
+private enum class AgentInfinityWebState {
+    Off,
+    Standby,
+    Running,
+    Paused,
+    Error
+}
+
+private enum class AgentInfinityToggleDirection { On, Off }
+
+private data class AgentInfinityMotionFrame(
+    val energy: Float,
+    val trail: Float,
+    val motion: Float,
+    val flash: Float
+)
+
+private data class AgentInfinityWebTheme(
+    val a: Int,
+    val b: Int,
+    val c: Int,
+    val alpha: Float,
+    val speed: Float
+)
+
+private fun AgentInfinityWebState.theme(): AgentInfinityWebTheme = when (this) {
+    AgentInfinityWebState.Off -> AgentInfinityWebTheme(
+        NativeColor.rgb(126, 153, 184),
+        NativeColor.rgb(129, 112, 162),
+        NativeColor.rgb(72, 104, 155),
+        0.25f,
+        0f
+    )
+    AgentInfinityWebState.Standby -> AgentInfinityWebTheme(
+        NativeColor.rgb(67, 255, 234),
+        NativeColor.rgb(104, 135, 255),
+        NativeColor.rgb(235, 97, 255),
+        0.78f,
+        0.42f
+    )
+    AgentInfinityWebState.Running -> AgentInfinityWebTheme(
+        NativeColor.rgb(56, 255, 231),
+        NativeColor.rgb(112, 122, 255),
+        NativeColor.rgb(255, 88, 225),
+        0.96f,
+        1f
+    )
+    AgentInfinityWebState.Paused -> AgentInfinityWebTheme(
+        NativeColor.rgb(255, 225, 112),
+        NativeColor.rgb(255, 158, 72),
+        NativeColor.rgb(239, 84, 153),
+        0.90f,
+        0.18f
+    )
+    AgentInfinityWebState.Error -> AgentInfinityWebTheme(
+        NativeColor.rgb(255, 80, 126),
+        NativeColor.rgb(255, 126, 84),
+        NativeColor.rgb(255, 67, 189),
+        0.92f,
+        0.58f
+    )
+}
+
+private object AgentInfinityWebSpec {
+    const val overall = 0.92f
+    const val aspect = 1.03f
+    const val tilt = -3.2f
+    const val centerBias = 0.02f
+    const val family = 0.58f
+    const val waist = 0.82f
+    const val pinch = 0.66f
+    const val shoulder = 0.72f
+    const val crossAngle = 1.06f
+    const val tipRound = 0.93f
+    const val asym = 0.20f
+    const val lobe = 0.14f
+    const val vertical = 0.14f
+    const val band = 0.94f
+    const val glow = 0.96f
+    const val dispersion = 0.88f
+    const val trail = 0.46f
+    const val speed = 0.98f
+    const val crossingDepth = 0.70f
+    const val spark = 1.00f
+    const val sparkH = 1.02f
+    const val sparkV = 1.04f
+    const val sparkCore = 0.94f
+    const val sparkSoft = 0.90f
+    const val sparkPass = 0.92f
+    const val sparkTwinkle = 0.44f
 }
