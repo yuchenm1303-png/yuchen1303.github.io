@@ -8,8 +8,6 @@ import com.yuchen.ailedger.model.StockOrderLevel
 import com.yuchen.ailedger.model.StockQuote
 import com.yuchen.ailedger.model.StockTone
 import com.yuchen.ailedger.model.StockTradeTick
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
@@ -42,7 +40,13 @@ data class StockRealtimeFrame(
 class StockRealtimeRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
+    private data class RealtimeCursor(
+        val minuteKey: String = "",
+        val tradeKey: String = ""
+    )
+
     private val retryAfterByQuery = ConcurrentHashMap<String, Long>()
+    private val cursorByStream = ConcurrentHashMap<String, RealtimeCursor>()
 
     fun loadRealtimeFrame(
         query: String,
@@ -53,7 +57,7 @@ class StockRealtimeRepository(
         val safeDays = if (minuteDays >= 5) 5 else 1
         val retryKey = normalized.lowercase()
         val now = System.currentTimeMillis()
-        cleanupRetryMap(now)
+        cleanupMaps(now)
         val retryAfter = retryAfterByQuery[retryKey] ?: 0L
 
         val unified = if (now >= retryAfter) {
@@ -82,12 +86,14 @@ class StockRealtimeRepository(
         }
     }
 
-    private fun cleanupRetryMap(now: Long) {
-        if (retryAfterByQuery.size <= MAX_RETRY_KEYS) return
-        val iterator = retryAfterByQuery.entries.iterator()
-        while (iterator.hasNext()) {
-            if (iterator.next().value <= now) iterator.remove()
+    private fun cleanupMaps(now: Long) {
+        if (retryAfterByQuery.size > MAX_RETRY_KEYS) {
+            val iterator = retryAfterByQuery.entries.iterator()
+            while (iterator.hasNext()) {
+                if (iterator.next().value <= now) iterator.remove()
+            }
         }
+        if (cursorByStream.size > MAX_CURSOR_KEYS) cursorByStream.clear()
     }
 
     private fun loadUnifiedRealtime(
@@ -96,12 +102,40 @@ class StockRealtimeRepository(
         current: StockDetailUiState
     ): StockRealtimeFrame {
         val encoded = encode(query)
-        val root = JSONObject(
-            httpGet(
-                "${baseUrl()}/api/stock/a-share/realtime?query=$encoded&ndays=$minuteDays",
-                UNIFIED_TIMEOUT_MS
-            )
-        )
+        val streamKey = cursorKey(query, minuteDays)
+        val savedCursor = cursorByStream[streamKey]
+        val minuteCursor = savedCursor?.minuteKey.orEmpty().ifBlank {
+            if (minuteDays == 1) current.minutePoints.lastOrNull()?.time.orEmpty() else ""
+        }
+        val tradeCursor = savedCursor?.tradeKey.orEmpty().ifBlank {
+            current.tradeTicks.lastOrNull()?.time.orEmpty()
+        }
+        val url = buildString {
+            append(baseUrl())
+            append("/api/stock/a-share/realtime?query=")
+            append(encoded)
+            append("&ndays=")
+            append(minuteDays)
+            append("&compact=true")
+            if (minuteCursor.isNotBlank()) {
+                append("&sinceMinuteKey=")
+                append(encode(minuteCursor))
+            }
+            if (tradeCursor.isNotBlank()) {
+                append("&sinceTradeKey=")
+                append(encode(tradeCursor))
+            }
+        }
+        val root = JSONObject(httpGet(url, UNIFIED_TIMEOUT_MS))
+        val nextMinuteCursor = firstText(root, "minuteCursor")
+            ?: firstText(payloadObject(root), "minuteCursor")
+            ?: minuteCursor
+        val nextTradeCursor = firstText(root, "tradeCursor")
+            ?: firstText(payloadObject(root), "tradeCursor")
+            ?: tradeCursor
+        if (nextMinuteCursor.isNotBlank() || nextTradeCursor.isNotBlank()) {
+            cursorByStream[streamKey] = RealtimeCursor(nextMinuteCursor, nextTradeCursor)
+        }
         return parseFrame(root, payloadObject(root), current, minuteDays, "A股统一实时行情")
     }
 
@@ -168,10 +202,18 @@ class StockRealtimeRepository(
         val quoteJson = quoteObject(payload) ?: quoteObject(root)
         val quote = quoteJson?.let { quoteFromJson(it, current.quote) } ?: current.quote
 
-        val minuteIsSnapshot = hasArray(payload, MINUTE_KEYS) || hasArray(root, MINUTE_KEYS)
+        val minuteReset = firstBoolean(root, "minuteReset")
+            ?: firstBoolean(payload, "minuteReset")
+            ?: false
+        val minuteIsSnapshot = minuteReset ||
+            (firstBoolean(root, "minuteIsSnapshot") == true) ||
+            (firstBoolean(payload, "minuteIsSnapshot") == true) ||
+            hasArray(payload, MINUTE_KEYS) ||
+            hasArray(root, MINUTE_KEYS)
         val minutePoints = parseMinutePoints(payload)
             .ifEmpty { parseMinutePoints(root) }
             .ifEmpty { parseMinuteDelta(payload) }
+            .ifEmpty { parseMinuteDelta(root) }
 
         val warnings = (
             stringList(root.optJSONArray("warnings")) +
@@ -180,10 +222,13 @@ class StockRealtimeRepository(
         val tradeTicksDerived = firstBoolean(root, "tradeTicksIsDerived", "ticksIsDerived")
             ?: firstBoolean(payload, "tradeTicksIsDerived", "ticksIsDerived")
             ?: warnings.any(::isDerivedTickWarning)
-        val rawTicksAreSnapshot = hasArray(payload, TICK_KEYS) || hasArray(root, TICK_KEYS)
+        val rawTicksAreSnapshot = firstBoolean(root, "ticksAreSnapshot")
+            ?: firstBoolean(payload, "ticksAreSnapshot")
+            ?: (hasArray(payload, TICK_KEYS) || hasArray(root, TICK_KEYS))
         val parsedTicks = parseTradeTicks(payload)
             .ifEmpty { parseTradeTicks(root) }
             .ifEmpty { parseTickDelta(payload) }
+            .ifEmpty { parseTickDelta(root) }
         val tradeTicks = if (tradeTicksDerived) emptyList() else parsedTicks
 
         val depthStatus = StockModuleStatus.fromWire(
@@ -214,6 +259,9 @@ class StockRealtimeRepository(
             append(fallbackLabel)
             append(if (minuteDays >= 5) " · 5日" else " · 1日")
             if (!sourceHost.isNullOrBlank()) append(" · $sourceHost")
+            if (firstBoolean(root, "isDelta") == true || firstBoolean(payload, "isDelta") == true) {
+                append(" · 增量")
+            }
         }
 
         return StockRealtimeFrame(
@@ -349,7 +397,11 @@ class StockRealtimeRepository(
         val price: Float,
         val average: Float,
         val explicitRatio: Float?,
-        val volume: Float
+        val volume: Float,
+        val matchedVolume: Float?,
+        val unmatchedVolume: Float?,
+        val unmatchedDirection: String,
+        val phase: String
     )
 
     private fun parseMinutePoints(root: JSONObject): List<StockMinutePoint> {
@@ -360,35 +412,36 @@ class StockRealtimeRepository(
             }
         }
         val maxVolume = raw.maxOfOrNull { it.volume }?.takeIf { it > 0f } ?: 1f
-        return raw.map { point ->
-            StockMinutePoint(
-                time = point.time,
-                price = point.price,
-                average = point.average,
-                volumeRatio = point.explicitRatio?.coerceIn(0.02f, 1f)
-                    ?: (point.volume / maxVolume).coerceIn(0.02f, 1f)
-            )
-        }
+        return raw.map { point -> point.toModel(maxVolume) }
     }
 
     private fun parseMinutePointArray(array: JSONArray): List<StockMinutePoint> {
-        return buildList {
+        val raw = buildList {
             for (index in 0 until array.length()) {
-                array.optJSONObject(index)?.let(::parseMinutePoint)?.let(::add)
+                array.optJSONObject(index)?.let(::parseRawMinutePoint)?.let(::add)
             }
         }
+        val maxVolume = raw.maxOfOrNull { it.volume }?.takeIf { it > 0f } ?: 1f
+        return raw.map { point -> point.toModel(maxVolume) }
     }
 
     private fun parseMinutePoint(item: JSONObject): StockMinutePoint? {
         val raw = parseRawMinutePoint(item) ?: return null
-        return StockMinutePoint(
-            time = raw.time,
-            price = raw.price,
-            average = raw.average,
-            volumeRatio = raw.explicitRatio?.coerceIn(0.02f, 1f)
-                ?: if (raw.volume > 0f) 1f else 0.02f
-        )
+        return raw.toModel(raw.volume.takeIf { it > 0f } ?: 1f)
     }
+
+    private fun RawMinutePoint.toModel(maxVolume: Float): StockMinutePoint = StockMinutePoint(
+        time = time,
+        price = price,
+        average = average,
+        volumeRatio = explicitRatio?.coerceIn(0.02f, 1f)
+            ?: if (volume > 0f) (volume / maxVolume).coerceIn(0.02f, 1f) else 0.02f,
+        volume = volume,
+        matchedVolume = matchedVolume,
+        unmatchedVolume = unmatchedVolume,
+        unmatchedDirection = unmatchedDirection,
+        phase = phase
+    )
 
     private fun parseRawMinutePoint(item: JSONObject): RawMinutePoint? {
         val price = firstDouble(item, "price", "close", "p", "最新价") ?: return null
@@ -407,7 +460,12 @@ class StockRealtimeRepository(
             price = price,
             average = firstDouble(item, "average", "avg", "avgPrice", "均价") ?: price,
             explicitRatio = firstDouble(item, "volumeRatio", "ratio"),
-            volume = firstDouble(item, "volume", "vol") ?: 0f
+            volume = firstDouble(item, "volume", "vol") ?: 0f,
+            matchedVolume = firstDouble(item, "matchedVolume", "matchVolume", "matched"),
+            unmatchedVolume = firstDouble(item, "unmatchedVolume", "unmatchVolume", "unmatched"),
+            unmatchedDirection = firstText(item, "unmatchedDirection", "unmatchDirection")
+                ?: "unavailable",
+            phase = firstText(item, "phase", "auctionPhase") ?: "continuous"
         )
     }
 
@@ -599,30 +657,11 @@ class StockRealtimeRepository(
         return base
     }
 
-    private fun httpGet(url: String, timeoutMs: Int): String {
-        var connection: HttpURLConnection? = null
-        try {
-            connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = timeoutMs
-                readTimeout = timeoutMs
-                useCaches = false
-                setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("Connection", "keep-alive")
-            }
-            val responseCode = connection.responseCode
-            val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (responseCode !in 200..299) {
-                throw IllegalStateException("HTTP $responseCode ${body.take(160)}".trim())
-            }
-            if (body.isBlank()) throw IllegalStateException("实时行情返回为空")
-            return body
-        } finally {
-            connection?.disconnect()
-        }
-    }
+    private fun cursorKey(query: String, minuteDays: Int): String =
+        "${query.trim().lowercase()}:$minuteDays"
+
+    private fun httpGet(url: String, timeoutMs: Int): String =
+        StockHttpClient.get(url, timeoutMs, "实时行情返回为空")
 
     companion object {
         private val MINUTE_KEYS = listOf("minutePoints", "minutes")
@@ -640,5 +679,6 @@ class StockRealtimeRepository(
         private const val UNIFIED_NOT_FOUND_RETRY_MS = 30_000L
         private const val UNIFIED_TRANSIENT_RETRY_MS = 5_000L
         private const val MAX_RETRY_KEYS = 128
+        private const val MAX_CURSOR_KEYS = 128
     }
 }
