@@ -24,13 +24,18 @@ LOGGER = logging.getLogger("ai-ledger-stock-proxy.stock-detail")
 CN_TZ = ZoneInfo("Asia/Shanghai")
 REALTIME_PATH = "/api/stock/a-share/realtime"
 AUCTION_PATH = "/api/stock/a-share/auction"
-AUCTION_SOURCE = "eastmoney_trends2_pre_market"
-AUCTION_SOURCE_URL_TYPE = "qt/stock/trends2/get iscr=1 iscca=0"
+EASTMONEY_AUCTION_SOURCE = "eastmoney_trends2_pre_market"
+EASTMONEY_AUCTION_SOURCE_URL_TYPE = "qt/stock/trends2/get iscr=1 iscca=0"
+TDX_AUCTION_SOURCE = "eltdx_7709_call_auction"
+TDX_AUCTION_SOURCE_URL_TYPE = "tdx 7709 command 0x056a"
 STANDARD_CLOSE_SOURCE_URL_TYPE = "qt/stock/trends2/get standard close-auction minute points"
 OPEN_AUCTION_START = 9 * 60 + 15
 OPEN_AUCTION_END = 9 * 60 + 25
 CLOSE_AUCTION_START = 14 * 60 + 57
 CLOSE_AUCTION_END = 15 * 60
+TDX_TIMEOUT_SECONDS = 2.0
+TDX_ASYNC_BUDGET_SECONDS = 2.2
+AUCTION_TOTAL_BUDGET_SECONDS = 2.6
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -47,6 +52,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 def _secid(code: str) -> str:
     return f"1.{code}" if code.startswith(("6", "9")) else f"0.{code}"
+
+
+def _tdx_code(code: str) -> str:
+    if code.startswith("6"):
+        return f"sh{code}"
+    if code.startswith(("4", "8", "9")):
+        return f"bj{code}"
+    return f"sz{code}"
 
 
 def _code_from_query(query: str) -> str | None:
@@ -79,7 +92,9 @@ def _phase_for_time(value: str) -> str:
 
 
 def _epoch_ms(date_text: str, time_text: str) -> int:
-    value = datetime.strptime(f"{date_text} {time_text}", "%Y-%m-%d %H:%M")
+    pieces = time_text.split(":")
+    pattern = "%Y-%m-%d %H:%M:%S" if len(pieces) >= 3 else "%Y-%m-%d %H:%M"
+    value = datetime.strptime(f"{date_text} {time_text}", pattern)
     return int(value.replace(tzinfo=CN_TZ).timestamp() * 1000)
 
 
@@ -97,18 +112,13 @@ def _auction_cache_policy(
     in_open_auction = time(9, 14, 30) <= current <= time(9, 26, 0)
     in_close_auction = time(14, 56, 30) <= current <= time(15, 1, 0)
     if in_open_auction or in_close_auction:
-        # 集合竞价期间必须等待本轮上游刷新，不能先返回数小时旧缓存。
         return 0.35, 2.0, False, "live-auction"
     if time(9, 0, 0) <= current <= time(15, 5, 0):
-        # 连续竞价期间开盘竞价已固定，尾盘竞价尚未开始，降低无效上游压力。
         return 20.0, 120.0, False, "trading-session"
     return 300.0, 12 * 60 * 60.0, True, "market-closed"
 
 
 def _point_price(parts: list[str]) -> tuple[float, str]:
-    # trends2 fields2 的顺序为：f51 时间、f52 开、f53 价/收、f54 高、
-    # f55 低、f56 量、f57 额、f58 均价。集合竞价匹配价必须读取 f53，
-    # 不能把 f58 均价误当成实时匹配价。
     matched_price = _safe_float(parts[2]) if len(parts) > 2 else 0.0
     open_price = _safe_float(parts[1]) if len(parts) > 1 else 0.0
     average_price = _safe_float(parts[7]) if len(parts) > 7 else 0.0
@@ -123,7 +133,33 @@ def _point_price(parts: list[str]) -> tuple[float, str]:
     return 0.0, "unavailable"
 
 
-def parse_auction_trends(
+def _unmatched_direction(raw_value: int) -> str:
+    if raw_value > 0:
+        return "buy"
+    if raw_value < 0:
+        return "sell"
+    return "balanced"
+
+
+def _recalculate_volume_ratios(points: list[dict[str, Any]]) -> None:
+    max_volume = max(
+        (
+            _safe_float(point.get("matchedVolume"), _safe_float(point.get("volume")))
+            + _safe_float(point.get("unmatchedVolume"))
+            for point in points
+        ),
+        default=0.0,
+    )
+    for point in points:
+        total = _safe_float(point.get("matchedVolume"), _safe_float(point.get("volume"))) + _safe_float(
+            point.get("unmatchedVolume")
+        )
+        point["volumeRatio"] = (
+            min(max(total / max_volume, 0.02), 1.0) if max_volume > 0 else 0.02
+        )
+
+
+def parse_eastmoney_auction_trends(
     payload: dict[str, Any],
     expected_trade_date: str | None = None,
 ) -> dict[str, Any]:
@@ -145,6 +181,7 @@ def parse_auction_trends(
             continue
         timestamp = _epoch_ms(date_text, time_text)
         average = _safe_float(parts[7], price)
+        matched_volume = max(_safe_float(parts[5]), 0.0)
         parsed_by_timestamp[timestamp] = {
             "date": date_text,
             "time": time_text,
@@ -154,13 +191,21 @@ def parse_auction_trends(
             "open": _safe_float(parts[1]),
             "high": _safe_float(parts[3]),
             "low": _safe_float(parts[4]),
-            "volume": max(_safe_float(parts[5]), 0.0),
+            "volume": matched_volume,
             "amount": max(_safe_float(parts[6]), 0.0),
+            "matchedVolume": matched_volume,
+            "unmatchedVolume": None,
+            "unmatchedSignedRaw": None,
+            "unmatchedDirection": "unavailable",
+            "matchedVolumeSource": "eastmoney_trends2_f56",
+            "unmatchedVolumeSource": "unavailable",
+            "volumeIsDerived": False,
             "volumeRatio": 0.0,
             "sessionPhase": phase,
             "isAuction": True,
             "isDerived": False,
             "priceSource": price_source,
+            "auctionSource": EASTMONEY_AUCTION_SOURCE,
         }
 
     parsed = sorted(parsed_by_timestamp.values(), key=lambda point: int(point["timestamp"]))
@@ -174,21 +219,135 @@ def parse_auction_trends(
         else:
             parsed = [point for point in parsed if point["date"] == latest_date]
 
-    max_volume = max((_safe_float(point.get("volume")) for point in parsed), default=0.0)
-    for point in parsed:
-        point["volumeRatio"] = (
-            min(max(_safe_float(point.get("volume")) / max_volume, 0.02), 1.0)
-            if max_volume > 0
-            else 0.02
-        )
-
+    _recalculate_volume_ratios(parsed)
     open_points = [point for point in parsed if point["sessionPhase"] == "openAuction"]
     close_points = [point for point in parsed if point["sessionPhase"] == "closeAuction"]
     return {
         "openPoints": open_points,
         "closePoints": close_points,
         "tradeDate": str(parsed[-1]["date"]) if parsed else expected_trade_date or "",
+        "source": EASTMONEY_AUCTION_SOURCE,
+        "sourceUrlType": EASTMONEY_AUCTION_SOURCE_URL_TYPE,
         "warnings": warnings,
+    }
+
+
+def parse_tdx_auction_series(
+    series: Any,
+    trade_date: str,
+) -> dict[str, Any]:
+    parsed_by_timestamp: dict[int, dict[str, Any]] = {}
+    warnings: list[str] = []
+    for raw in getattr(series, "points", ()) or ():
+        time_label = str(getattr(raw, "time_label", "") or "")
+        phase = _phase_for_time(time_label)
+        if phase == "continuous":
+            continue
+        price = _safe_float(getattr(raw, "price", None))
+        if price <= 0:
+            warnings.append(f"tdx_auction:{phase}:{time_label}: missing_price")
+            continue
+        matched_volume = max(int(getattr(raw, "matched_volume", 0) or 0), 0)
+        unmatched_signed = int(getattr(raw, "unmatched_signed_raw", 0) or 0)
+        unmatched_volume = abs(int(getattr(raw, "unmatched_volume", abs(unmatched_signed)) or 0))
+        timestamp = _epoch_ms(trade_date, time_label)
+        parsed_by_timestamp[timestamp] = {
+            "date": trade_date,
+            "time": time_label,
+            "timestamp": timestamp,
+            "price": price,
+            "average": price,
+            "open": price,
+            "high": price,
+            "low": price,
+            "volume": float(matched_volume),
+            "amount": price * matched_volume * 100.0,
+            "matchedVolume": float(matched_volume),
+            "unmatchedVolume": float(unmatched_volume),
+            "unmatchedSignedRaw": unmatched_signed,
+            "unmatchedDirection": _unmatched_direction(unmatched_signed),
+            "matchedVolumeSource": "tdx_7709_0x056a_raw",
+            "unmatchedVolumeSource": "tdx_7709_0x056a_raw",
+            "volumeIsDerived": False,
+            "volumeRatio": 0.0,
+            "sessionPhase": phase,
+            "isAuction": True,
+            "isDerived": False,
+            "priceSource": "tdx_7709_0x056a_price",
+            "auctionSource": TDX_AUCTION_SOURCE,
+        }
+
+    parsed = sorted(parsed_by_timestamp.values(), key=lambda point: int(point["timestamp"]))
+    _recalculate_volume_ratios(parsed)
+    return {
+        "openPoints": [point for point in parsed if point["sessionPhase"] == "openAuction"],
+        "closePoints": [point for point in parsed if point["sessionPhase"] == "closeAuction"],
+        "tradeDate": trade_date,
+        "source": TDX_AUCTION_SOURCE,
+        "sourceUrlType": TDX_AUCTION_SOURCE_URL_TYPE,
+        "warnings": warnings,
+    }
+
+
+def _load_tdx_auction_series_sync(code: str, trade_date: str) -> tuple[dict[str, Any], int]:
+    from eltdx import TdxClient
+
+    started = monotonic()
+    with TdxClient(
+        timeout=TDX_TIMEOUT_SECONDS,
+        pool_size=1,
+        probe_hosts=False,
+        heartbeat_interval=None,
+    ) as client:
+        series = client.auctions.series(_tdx_code(code))
+    latency = int((monotonic() - started) * 1000)
+    return parse_tdx_auction_series(series, trade_date), latency
+
+
+def _merge_auction_sources(
+    eastmoney: dict[str, Any] | None,
+    tdx: dict[str, Any] | None,
+    warnings: list[str],
+) -> dict[str, Any]:
+    eastmoney = eastmoney or {}
+    tdx = tdx or {}
+    tdx_open = list(tdx.get("openPoints") or [])
+    tdx_close = list(tdx.get("closePoints") or [])
+    east_open = list(eastmoney.get("openPoints") or [])
+    east_close = list(eastmoney.get("closePoints") or [])
+
+    open_points = tdx_open or east_open
+    close_points = tdx_close or east_close
+    all_points = open_points + close_points
+    _recalculate_volume_ratios(all_points)
+
+    used_sources: list[str] = []
+    used_types: list[str] = []
+    if tdx_open or tdx_close:
+        used_sources.append(TDX_AUCTION_SOURCE)
+        used_types.append(TDX_AUCTION_SOURCE_URL_TYPE)
+    if (not tdx_open and east_open) or (not tdx_close and east_close):
+        used_sources.append(EASTMONEY_AUCTION_SOURCE)
+        used_types.append(EASTMONEY_AUCTION_SOURCE_URL_TYPE)
+
+    if not all_points:
+        raise ValueError("all auction sources returned no usable points")
+
+    trade_date = str(
+        tdx.get("tradeDate")
+        or eastmoney.get("tradeDate")
+        or all_points[-1].get("date")
+        or ""
+    )
+    return {
+        "openPoints": open_points,
+        "closePoints": close_points,
+        "tradeDate": trade_date,
+        "source": ",".join(dict.fromkeys(used_sources)) or EASTMONEY_AUCTION_SOURCE,
+        "sourceUrlType": "; ".join(dict.fromkeys(used_types)) or EASTMONEY_AUCTION_SOURCE_URL_TYPE,
+        "warnings": warnings
+        + list(eastmoney.get("warnings") or [])
+        + list(tdx.get("warnings") or []),
     }
 
 
@@ -199,6 +358,15 @@ def _phase_payload(
     source_url_type: str,
 ) -> dict[str, Any]:
     is_open = phase == "open"
+    matched_count = sum(point.get("matchedVolume") is not None for point in points)
+    unmatched_count = sum(point.get("unmatchedVolume") is not None for point in points)
+    volume_status = (
+        "ok"
+        if matched_count > 0 and unmatched_count > 0
+        else "partial"
+        if matched_count > 0
+        else "unavailable"
+    )
     return {
         "status": "ok" if points else "unavailable",
         "phase": phase,
@@ -208,6 +376,11 @@ def _phase_payload(
         "sourceUrlType": source_url_type,
         "isDerived": False,
         "pointCount": len(points),
+        "volumePointCount": max(matched_count, unmatched_count),
+        "matchedVolumePointCount": matched_count,
+        "unmatchedVolumePointCount": unmatched_count,
+        "volumeStatus": volume_status,
+        "volumeUnit": "hand",
         "latestPointTime": str(points[-1].get("time") or "") if points else "",
         "points": points,
     }
@@ -257,10 +430,10 @@ def _build_auction_payload(
     }
 
 
-async def _auction_loader(
+async def _load_eastmoney_auction(
     security: dict[str, str],
-    expected_trade_date: str | None = None,
-) -> tuple[Any, str, int, str]:
+    trade_date: str,
+) -> tuple[dict[str, Any], str, int]:
     payload, host, latency = await runtime._get_json(
         TRENDS_URLS,
         {
@@ -272,8 +445,47 @@ async def _auction_loader(
             "iscca": "0",
         },
     )
-    parsed = parse_auction_trends(payload, expected_trade_date)
-    points = parsed["openPoints"] + parsed["closePoints"]
+    return parse_eastmoney_auction_trends(payload, trade_date), host, latency
+
+
+async def _auction_loader(
+    security: dict[str, str],
+    expected_trade_date: str | None = None,
+) -> tuple[Any, str, int, str]:
+    trade_date = expected_trade_date or runtime._latest_trade_date(security["code"])
+    east_task = asyncio.create_task(_load_eastmoney_auction(security, trade_date))
+    tdx_task = asyncio.create_task(
+        asyncio.to_thread(_load_tdx_auction_series_sync, security["code"], trade_date)
+    )
+
+    east_result: dict[str, Any] | None = None
+    tdx_result: dict[str, Any] | None = None
+    hosts: list[str] = []
+    latencies: list[int] = []
+    warnings: list[str] = []
+
+    try:
+        east_result, east_host, east_latency = await east_task
+        hosts.append(east_host)
+        latencies.append(east_latency)
+    except Exception as exc:
+        warnings.append(f"auction:eastmoney_unavailable {type(exc).__name__}: {exc}")
+
+    try:
+        tdx_result, tdx_latency = await asyncio.wait_for(
+            asyncio.shield(tdx_task), timeout=TDX_ASYNC_BUDGET_SECONDS
+        )
+        hosts.append("tdx-7709")
+        latencies.append(tdx_latency)
+    except asyncio.TimeoutError:
+        tdx_task.cancel()
+        await asyncio.gather(tdx_task, return_exceptions=True)
+        warnings.append(f"auction:tdx_budget_exceeded {TDX_ASYNC_BUDGET_SECONDS:.1f}s")
+    except Exception as exc:
+        warnings.append(f"auction:tdx_unavailable {type(exc).__name__}: {exc}")
+
+    parsed = _merge_auction_sources(east_result, tdx_result, warnings)
+    points = list(parsed.get("openPoints") or []) + list(parsed.get("closePoints") or [])
     source_timestamp = (
         datetime.fromtimestamp(points[-1]["timestamp"] / 1000, tz=CN_TZ)
         .astimezone(timezone.utc)
@@ -281,7 +493,7 @@ async def _auction_loader(
         if points
         else datetime.now(timezone.utc).isoformat()
     )
-    return parsed, host, latency, source_timestamp
+    return parsed, ",".join(dict.fromkeys(hosts)) or "auction-upstream", max(latencies or [0]), source_timestamp
 
 
 async def load_auction(
@@ -294,7 +506,7 @@ async def load_auction(
         force=force
     )
     result = await runtime._cached(
-        f"auction:{trade_date}:{security['code']}",
+        f"auction:v2:{trade_date}:{security['code']}",
         fresh_seconds=fresh_seconds,
         stale_seconds=stale_seconds,
         loader=lambda: _auction_loader(security, trade_date),
@@ -310,11 +522,20 @@ def _real_close_points_from_minute(points: list[dict[str, Any]]) -> list[dict[st
         if _phase_for_time(time_text) != "closeAuction":
             continue
         point = deepcopy(raw)
+        matched_volume = max(_safe_float(point.get("volume")), 0.0)
         point["sessionPhase"] = "closeAuction"
         point["isAuction"] = True
         point["isDerived"] = False
         point["priceSource"] = "standard_trends_f53_price"
+        point["matchedVolume"] = matched_volume
+        point["unmatchedVolume"] = None
+        point["unmatchedSignedRaw"] = None
+        point["unmatchedDirection"] = "unavailable"
+        point["matchedVolumeSource"] = "standard_trends_volume"
+        point["unmatchedVolumeSource"] = "unavailable"
+        point["volumeIsDerived"] = False
         result.append(point)
+    _recalculate_volume_ratios(result)
     return sorted(result, key=lambda point: int(point.get("timestamp") or 0))
 
 
@@ -341,10 +562,11 @@ def merge_auction_into_minute_points(
     max_volume = max((_safe_float(point.get("volume")) for point in values), default=0.0)
     if max_volume > 0:
         for point in values:
-            point["volumeRatio"] = min(
-                max(_safe_float(point.get("volume")) / max_volume, 0.02),
-                1.0,
-            )
+            if not point.get("isAuction"):
+                point["volumeRatio"] = min(
+                    max(_safe_float(point.get("volume")) / max_volume, 0.02),
+                    1.0,
+                )
     return values
 
 
@@ -353,8 +575,8 @@ def _unavailable_auction(reason: str, refresh_mode: str = "unavailable") -> dict
     return _build_auction_payload(
         [],
         [],
-        source=AUCTION_SOURCE,
-        source_url_type=AUCTION_SOURCE_URL_TYPE,
+        source=f"{TDX_AUCTION_SOURCE},{EASTMONEY_AUCTION_SOURCE}",
+        source_url_type=f"{TDX_AUCTION_SOURCE_URL_TYPE}; {EASTMONEY_AUCTION_SOURCE_URL_TYPE}",
         updated_at=now,
         source_timestamp=now,
         trade_date="",
@@ -377,11 +599,11 @@ def _fallback_auction_from_realtime(
     return _build_auction_payload(
         [],
         close_points,
-        source=AUCTION_SOURCE,
+        source=EASTMONEY_AUCTION_SOURCE,
         source_url_type=(
-            f"{AUCTION_SOURCE_URL_TYPE}; {STANDARD_CLOSE_SOURCE_URL_TYPE}"
+            f"{EASTMONEY_AUCTION_SOURCE_URL_TYPE}; {STANDARD_CLOSE_SOURCE_URL_TYPE}"
             if close_points
-            else AUCTION_SOURCE_URL_TYPE
+            else EASTMONEY_AUCTION_SOURCE_URL_TYPE
         ),
         updated_at=now,
         source_timestamp=str(payload.get("sourceTimestamp") or now),
@@ -461,7 +683,7 @@ async def _enriched_realtime(
 
     try:
         auction_result, refresh_mode = await asyncio.wait_for(
-            asyncio.shield(auction_task), timeout=1.35
+            asyncio.shield(auction_task), timeout=AUCTION_TOTAL_BUDGET_SECONDS
         )
     except asyncio.TimeoutError:
         await _cancel_task(auction_task)
@@ -469,7 +691,7 @@ async def _enriched_realtime(
             payload,
             _fallback_auction_from_realtime(
                 payload,
-                "auction: opening-auction upstream budget exceeded 1350ms",
+                f"auction: upstream budget exceeded {AUCTION_TOTAL_BUDGET_SECONDS:.1f}s",
                 "timeout-fallback",
             ),
             started,
@@ -479,7 +701,7 @@ async def _enriched_realtime(
             payload,
             _fallback_auction_from_realtime(
                 payload,
-                f"auction: opening-auction unavailable {type(exc).__name__}: {exc}",
+                f"auction: unavailable {type(exc).__name__}: {exc}",
                 "error-fallback",
             ),
             started,
@@ -489,15 +711,17 @@ async def _enriched_realtime(
     open_points = list(parsed.get("openPoints") or [])
     close_points = list(parsed.get("closePoints") or [])
     standard_close = _real_close_points_from_minute(list(payload.get("minutePoints") or []))
-    source_url_type = AUCTION_SOURCE_URL_TYPE
+    source = str(parsed.get("source") or EASTMONEY_AUCTION_SOURCE)
+    source_url_type = str(parsed.get("sourceUrlType") or EASTMONEY_AUCTION_SOURCE_URL_TYPE)
     if not close_points and standard_close:
         close_points = standard_close
-        source_url_type = f"{AUCTION_SOURCE_URL_TYPE}; {STANDARD_CLOSE_SOURCE_URL_TYPE}"
+        source = f"{source},{EASTMONEY_AUCTION_SOURCE}"
+        source_url_type = f"{source_url_type}; {STANDARD_CLOSE_SOURCE_URL_TYPE}"
 
     auction = _build_auction_payload(
         open_points,
         close_points,
-        source=AUCTION_SOURCE,
+        source=source,
         source_url_type=source_url_type,
         updated_at=auction_result.updated_at,
         source_timestamp=auction_result.source_timestamp,
