@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.VisualAgentHudOverlayService
-import com.yuchen.ailedger.service.VisualAgentHudParameters
 import com.yuchen.ailedger.service.VisualAgentHudTuningStore
 import kotlin.math.roundToInt
 
@@ -69,7 +68,7 @@ private val visualHudParameterSections = listOf(
     VisualHudParameterSection(
         "光标几何与热点",
         listOf(
-            VisualHudParameterSpec("size", "光标尺寸", "SVG 光标显示尺寸。", 32f..96f, " px", 1),
+            VisualHudParameterSpec("size", "光标尺寸", "SVG 光标显示尺寸，默认 47.5 px。", 24f..96f, " px", 1),
             VisualHudParameterSpec("scaleX", "横向缩放", "光标横向比例。", 0.5f..1.5f),
             VisualHudParameterSpec("scaleY", "纵向缩放", "光标纵向比例。", 0.5f..1.5f),
             VisualHudParameterSpec("rotation", "旋转角度", "围绕热点旋转光标。", -30f..30f, "°", 1),
@@ -77,6 +76,13 @@ private val visualHudParameterSections = listOf(
             VisualHudParameterSpec("offsetY", "纵向偏移", "光标图形相对热点的纵向偏移。", -20f..20f, " px", 1),
             VisualHudParameterSpec("hotspotX", "热点 X", "实际点击点在 SVG 坐标中的横坐标。", 0f..64f, " px", 1),
             VisualHudParameterSpec("hotspotY", "热点 Y", "实际点击点在 SVG 坐标中的纵坐标。", 0f..64f, " px", 1),
+        )
+    ),
+    VisualHudParameterSection(
+        "光标旁信息栏",
+        listOf(
+            VisualHudParameterSpec("infoBubbleWidth", "信息栏宽度", "光标旁动作信息栏的基础宽度。", 180f..420f, " px", 1),
+            VisualHudParameterSpec("infoBubbleScale", "信息栏整体大小", "统一缩放信息栏、文字和内部间距。", 0.5f..1.5f, "×"),
         )
     ),
     VisualHudParameterSection(
@@ -191,8 +197,8 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
 
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         VisualHudActionButton(
-            title = "恢复网页版参数",
-            subtitle = "重置光标与边缘光",
+            title = "恢复默认参数",
+            subtitle = "光标默认 47.5 px",
             state = state,
             modifier = Modifier.weight(1f),
             onClick = store::resetParameters,
