@@ -91,9 +91,8 @@ class VisualAgentHudOverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = 0
             y = 0
-            // Android 12+ only passes touches through an untrusted application overlay when the
-            // window's obscuring opacity stays at or below the platform threshold. The HUD remains
-            // fully non-touchable and the drawing layer compensates with its own calibrated alpha.
+            // Keep the untrusted application-overlay window within Android's touch-through
+            // obscuring-opacity limit. All actual interaction stays in the separate small panel.
             alpha = MAX_TOUCH_THROUGH_ALPHA
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
@@ -117,13 +116,36 @@ class VisualAgentHudOverlayService : Service() {
         val view = hudView ?: return
         val matchingTarget = target?.takeIf { it.taskId == progress.taskId }
         val lastLog = progress.logs.lastOrNull().orEmpty()
-        val actionPassThroughWindow = hiddenForCapture &&
-            progress.running &&
-            matchingTarget?.positioned == true &&
-            matchingTarget.actionType in setOf("tap_xy", "tap_node") &&
+
+        // noteAction() appends the exact currentAction immediately after acquiring the clean-
+        // capture lease. That lets this presentation-only window remain visible for the real
+        // action while every screenshot/fresh-observation lease still hides it completely.
+        val executingRealAction = progress.running &&
+            progress.currentAction.isNotBlank() &&
             lastLog == progress.currentAction
-        val visuallyHidden = hiddenForCapture && !actionPassThroughWindow
-        view.submit(progress, matchingTarget, visuallyHidden)
+        val visuallyHidden = hiddenForCapture && !executingRealAction
+
+        val currentLooksLikeTap = progress.currentAction.contains("点击")
+        val baseTarget = matchingTarget ?: VisualAgentHudTarget(
+            taskId = progress.taskId,
+            revision = progress.taskId,
+            x = 0.52f,
+            y = 0.46f,
+            normalized = true,
+            positioned = false,
+            detail = progress.lastResult.take(180),
+        )
+        val displayTarget = if (currentLooksLikeTap) {
+            baseTarget
+        } else {
+            baseTarget.copy(
+                positioned = false,
+                actionType = "",
+                targetText = "",
+                detail = progress.lastResult.take(180),
+            )
+        }
+        view.submit(progress, displayTarget, visuallyHidden)
     }
 
     companion object {
