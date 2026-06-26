@@ -2,6 +2,7 @@ package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -51,12 +53,13 @@ internal fun StockDetailPageV3(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 96.dp),
+            .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         WebMirrorQuoteCard(
             appState = appState,
             ui = ui,
+            onBack = onBack,
             modifier = Modifier.fillMaxWidth().height(138.dp)
         )
         WebMirrorGlassCard(
@@ -77,6 +80,7 @@ internal fun StockDetailPageV3(
 private fun WebMirrorQuoteCard(
     appState: AssistantUiState,
     ui: StockMarketUiState,
+    onBack: () -> Unit,
     modifier: Modifier
 ) {
     WebMirrorGlassCard(appState = appState, radius = 26, modifier = modifier) {
@@ -85,8 +89,9 @@ private fun WebMirrorQuoteCard(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            WebMirrorBackButton(appState = appState, onBack = onBack)
             Column(Modifier.weight(1f)) {
                 Text(
                     text = quote.name.ifBlank { "--" },
@@ -114,7 +119,7 @@ private fun WebMirrorQuoteCard(
                 textAlign = TextAlign.End,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(160.dp).padding(top = 3.dp)
+                modifier = Modifier.width(150.dp).padding(top = 3.dp)
             )
         }
 
@@ -180,6 +185,37 @@ private fun WebMirrorQuoteCard(
                     )
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun WebMirrorBackButton(
+    appState: AssistantUiState,
+    onBack: () -> Unit
+) {
+    GlassPanel(
+        quality = appState.quality,
+        glassIntensity = appState.glassIntensity * 0.88f,
+        motionIntensity = appState.motionIntensity,
+        radius = 20,
+        modifier = Modifier
+            .size(40.dp)
+            .clickable(onClick = onBack),
+        role = GlassRole.Card
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "‹",
+                color = Color.White.copy(alpha = 0.96f),
+                fontSize = 30.sp,
+                lineHeight = 30.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1
+            )
         }
     }
 }
