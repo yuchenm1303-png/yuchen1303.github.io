@@ -11,10 +11,12 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 private const val CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS = 8_000
 private const val CANCELLABLE_VISUAL_READ_TIMEOUT_MS = 25_000
+private const val CANCELLABLE_VISUAL_CALL_TIMEOUT_MS = 35_000L
 private const val CANCELLABLE_VISUAL_STOP_POLL_MS = 50L
 private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v14_task_contract_harness"
 
@@ -73,7 +75,18 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
         }
     }
     try {
-        request.await()
+        withTimeoutOrNull(CANCELLABLE_VISUAL_CALL_TIMEOUT_MS) {
+            request.await()
+        } ?: run {
+            activeConnection.get()?.disconnect()
+            request.cancel(CancellationException("Visual request exceeded its absolute timeout."))
+            throw VisualAgentRequestException(
+                httpStatus = null,
+                code = "network_timeout",
+                retryable = true,
+                backendMessage = "visual_agent_step exceeded ${CANCELLABLE_VISUAL_CALL_TIMEOUT_MS / 1000}s absolute timeout",
+            )
+        }
     } finally {
         stopWatcher.cancel()
         activeConnection.getAndSet(null)?.disconnect()
