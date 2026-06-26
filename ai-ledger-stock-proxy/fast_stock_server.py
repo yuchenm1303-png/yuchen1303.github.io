@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from time import monotonic
@@ -48,6 +49,106 @@ def _security_for_query(query: str) -> dict[str, str] | None:
     }
 
 
+def _minute_key(point: dict[str, Any]) -> str:
+    date = str(point.get("date") or point.get("tradeDate") or "").strip()
+    time_text = str(point.get("time") or point.get("minute") or "").strip()
+    if date and time_text and date not in time_text:
+        return f"{date} {time_text}"
+    return time_text or date
+
+
+def _trade_key(point: dict[str, Any]) -> str:
+    return str(point.get("time") or point.get("timestamp") or "").strip()
+
+
+def _latest_cursor(points: list[dict[str, Any]], key_fn) -> str:
+    for point in reversed(points):
+        key = key_fn(point)
+        if key:
+            return key
+    return ""
+
+
+def _cursor_date(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 10 and text[4:5] == "-" and text[7:8] == "-":
+        return text[:10]
+    return ""
+
+
+def _apply_incremental_payload(
+    payload: dict[str, Any],
+    *,
+    ndays: int,
+    since_minute_key: str,
+    since_trade_key: str,
+    compact: bool,
+) -> dict[str, Any]:
+    minute_points = list(payload.get("minutePoints") or [])
+    trade_ticks = list(payload.get("tradeTicks") or [])
+    minute_cursor = _latest_cursor(minute_points, _minute_key)
+    trade_cursor = _latest_cursor(trade_ticks, _trade_key)
+    payload["minuteCursor"] = minute_cursor
+    payload["tradeCursor"] = trade_cursor
+
+    if not compact or (not since_minute_key and not since_trade_key):
+        payload["isDelta"] = False
+        payload["minuteIsSnapshot"] = True
+        payload["ticksAreSnapshot"] = True
+        payload["payloadBytes"] = len(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        )
+        return payload
+
+    latest_minute_date = _cursor_date(minute_cursor)
+    requested_minute_date = _cursor_date(since_minute_key)
+    minute_reset = bool(
+        ndays == 1
+        and requested_minute_date
+        and latest_minute_date
+        and requested_minute_date != latest_minute_date
+    )
+
+    if since_minute_key and not minute_reset:
+        minute_delta = [
+            point for point in minute_points if _minute_key(point) >= since_minute_key
+        ]
+        payload.pop("minutePoints", None)
+        payload["minuteDelta"] = minute_delta
+        payload["minuteIsSnapshot"] = False
+    else:
+        payload["minuteIsSnapshot"] = True
+
+    if since_trade_key:
+        tick_delta = [
+            point for point in trade_ticks if _trade_key(point) >= since_trade_key
+        ]
+        payload.pop("tradeTicks", None)
+        payload["newTradeTicks"] = tick_delta
+        payload["ticksAreSnapshot"] = False
+    else:
+        payload["ticksAreSnapshot"] = True
+
+    if minute_reset:
+        payload["minuteReset"] = True
+
+    auction = payload.pop("auction", None)
+    if isinstance(auction, dict):
+        payload["auctionMeta"] = {
+            "status": auction.get("status"),
+            "updatedAt": auction.get("updatedAt"),
+            "sourceTimestamp": auction.get("sourceTimestamp"),
+            "cacheAgeMs": auction.get("cacheAgeMs"),
+            "refreshMode": auction.get("refreshMode"),
+        }
+
+    payload["isDelta"] = True
+    payload["payloadBytes"] = len(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    return payload
+
+
 def _auction_payload_from_result(
     payload: dict[str, Any],
     auction_result: detail.CacheResult,
@@ -90,6 +191,9 @@ async def fast_realtime_payload(
     ndays: int,
     *,
     force_auction: bool = False,
+    since_minute_key: str = "",
+    since_trade_key: str = "",
+    compact: bool = True,
 ) -> dict[str, Any]:
     started = monotonic()
     security = _security_for_query(query)
@@ -115,7 +219,14 @@ async def fast_realtime_payload(
             "auction: only available for ndays=1",
             "not-applicable",
         )
-        return detail._finalize_payload(payload, auction, started)
+        finalized = detail._finalize_payload(payload, auction, started)
+        return _apply_incremental_payload(
+            finalized,
+            ndays=ndays,
+            since_minute_key=since_minute_key,
+            since_trade_key=since_trade_key,
+            compact=compact,
+        )
 
     try:
         auction_result, refresh_mode = await asyncio.wait_for(
@@ -129,17 +240,25 @@ async def fast_realtime_payload(
             "auction: refreshing in background; core quote returned immediately",
             "background-refresh",
         )
-        return detail._finalize_payload(payload, auction, started)
+        finalized = detail._finalize_payload(payload, auction, started)
     except Exception as exc:
         auction = detail._fallback_auction_from_realtime(
             payload,
             f"auction: unavailable {type(exc).__name__}: {exc}",
             "error-fallback",
         )
-        return detail._finalize_payload(payload, auction, started)
+        finalized = detail._finalize_payload(payload, auction, started)
+    else:
+        auction = _auction_payload_from_result(payload, auction_result, refresh_mode)
+        finalized = detail._finalize_payload(payload, auction, started, auction_result)
 
-    auction = _auction_payload_from_result(payload, auction_result, refresh_mode)
-    return detail._finalize_payload(payload, auction, started, auction_result)
+    return _apply_incremental_payload(
+        finalized,
+        ndays=ndays,
+        since_minute_key=since_minute_key,
+        since_trade_key=since_trade_key,
+        compact=compact,
+    )
 
 
 def _fast_lite_detail(payload: dict[str, Any], query: str) -> dict[str, Any]:
@@ -202,6 +321,9 @@ def _timed_json_response(payload: dict[str, Any]) -> Response:
     response.headers["X-AI-Ledger-Stock-Path"] = str(
         payload.get("provider") or "fast-stock"
     )
+    response.headers["X-AI-Ledger-Payload-Bytes"] = str(
+        int(payload.get("payloadBytes") or 0)
+    )
     return response
 
 
@@ -219,6 +341,9 @@ async def a_share_realtime_fast(
     query: str = Query(...),
     ndays: int = Query(1, ge=1, le=5),
     force_auction: bool = Query(False, alias="forceAuction"),
+    since_minute_key: str = Query("", alias="sinceMinuteKey", max_length=32),
+    since_trade_key: str = Query("", alias="sinceTradeKey", max_length=24),
+    compact: bool = Query(True),
 ) -> Response:
     if ndays not in {1, 5}:
         raise detail.HTTPException(status_code=400, detail="ndays must be 1 or 5")
@@ -227,6 +352,9 @@ async def a_share_realtime_fast(
             query,
             ndays,
             force_auction=force_auction,
+            since_minute_key=since_minute_key,
+            since_trade_key=since_trade_key,
+            compact=compact,
         )
     )
 
@@ -242,4 +370,7 @@ async def a_share_detail_fast(
     payload = await fast_detail_payload(query, mode, include_market)
     payload["totalLatencyMs"] = int((monotonic() - started) * 1000)
     payload.setdefault("updatedAt", datetime.now(timezone.utc).isoformat())
+    payload["payloadBytes"] = len(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
     return _timed_json_response(payload)
