@@ -26,6 +26,7 @@ REALTIME_PATH = "/api/stock/a-share/realtime"
 AUCTION_PATH = "/api/stock/a-share/auction"
 AUCTION_SOURCE = "eastmoney_trends2_pre_market"
 AUCTION_SOURCE_URL_TYPE = "qt/stock/trends2/get iscr=1 iscca=0"
+STANDARD_CLOSE_SOURCE_URL_TYPE = "qt/stock/trends2/get standard close-auction minute points"
 OPEN_AUCTION_START = 9 * 60 + 15
 OPEN_AUCTION_END = 9 * 60 + 25
 CLOSE_AUCTION_START = 14 * 60 + 57
@@ -87,9 +88,17 @@ def _point_price(parts: list[str], phase: str) -> tuple[float, str]:
     latest_price = _safe_float(parts[7]) if len(parts) > 7 else 0.0
     open_price = _safe_float(parts[1]) if len(parts) > 1 else 0.0
     if phase == "openAuction":
-        candidates = ((latest_price, "f58_latest"), (close_price, "f53_close"), (open_price, "f52_open"))
+        candidates = (
+            (latest_price, "f58_latest"),
+            (close_price, "f53_close"),
+            (open_price, "f52_open"),
+        )
     else:
-        candidates = ((close_price, "f53_close"), (latest_price, "f58_latest"), (open_price, "f52_open"))
+        candidates = (
+            (close_price, "f53_close"),
+            (latest_price, "f58_latest"),
+            (open_price, "f52_open"),
+        )
     for value, source in candidates:
         if value > 0:
             return value, source
@@ -306,6 +315,59 @@ def _unavailable_auction(reason: str) -> dict[str, Any]:
     )
 
 
+def _fallback_auction_from_realtime(payload: dict[str, Any], reason: str) -> dict[str, Any]:
+    close_points = _real_close_points_from_minute(list(payload.get("minutePoints") or []))
+    now = datetime.now(timezone.utc).isoformat()
+    return _build_auction_payload(
+        [],
+        close_points,
+        source=AUCTION_SOURCE,
+        source_url_type=(
+            f"{AUCTION_SOURCE_URL_TYPE}; {STANDARD_CLOSE_SOURCE_URL_TYPE}"
+            if close_points
+            else AUCTION_SOURCE_URL_TYPE
+        ),
+        updated_at=now,
+        source_timestamp=str(payload.get("sourceTimestamp") or now),
+        cache_hit=bool(payload.get("cacheHit")),
+        cache_age_ms=int(payload.get("cacheAgeMs") or 0),
+        stale=False,
+        warnings=[reason],
+    )
+
+
+def _finalize_payload(
+    payload: dict[str, Any],
+    auction: dict[str, Any],
+    started: float,
+    auction_result: CacheResult | None = None,
+) -> dict[str, Any]:
+    open_points = list((auction.get("open") or {}).get("points") or [])
+    close_points = list((auction.get("close") or {}).get("points") or [])
+    payload["minutePoints"] = merge_auction_into_minute_points(
+        list(payload.get("minutePoints") or []),
+        open_points,
+        close_points,
+    )
+    payload["auction"] = auction
+    payload["warnings"] = list(payload.get("warnings") or []) + list(auction.get("warnings") or [])
+    if auction_result is not None:
+        payload["auctionSourceHost"] = auction_result.source_host
+        payload["auctionUpstreamLatencyMs"] = auction_result.upstream_latency_ms
+    payload["totalLatencyMs"] = int((monotonic() - started) * 1000)
+    payload["payloadBytes"] = len(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    return payload
+
+
+async def _cancel_task(task: asyncio.Task[Any] | None) -> None:
+    if task is None or task.done():
+        return
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+
+
 async def _enriched_realtime(query: str, ndays: int) -> dict[str, Any]:
     started = monotonic()
     code = _code_from_query(query)
@@ -316,51 +378,54 @@ async def _enriched_realtime(query: str, ndays: int) -> dict[str, Any]:
     )
     realtime_task = asyncio.create_task(runtime.realtime(query, ndays))
     auction_task = asyncio.create_task(load_auction(security)) if ndays == 1 else None
-    payload = await realtime_task
+    try:
+        payload = await realtime_task
+    except Exception:
+        await _cancel_task(auction_task)
+        raise
     if auction_task is None:
-        payload["auction"] = _unavailable_auction("auction: only available for ndays=1")
-        return payload
+        return _finalize_payload(
+            payload,
+            _unavailable_auction("auction: only available for ndays=1"),
+            started,
+        )
 
     try:
         auction_result = await asyncio.wait_for(asyncio.shield(auction_task), timeout=1.35)
     except asyncio.TimeoutError:
-        auction_task.cancel()
-        auction = _unavailable_auction("auction: upstream budget exceeded 1350ms")
-        payload["warnings"] = list(payload.get("warnings") or []) + list(auction["warnings"])
-        payload["auction"] = auction
-        payload["totalLatencyMs"] = int((monotonic() - started) * 1000)
-        payload["payloadBytes"] = len(
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        await _cancel_task(auction_task)
+        return _finalize_payload(
+            payload,
+            _fallback_auction_from_realtime(
+                payload,
+                "auction: opening-auction upstream budget exceeded 1350ms",
+            ),
+            started,
         )
-        return payload
     except Exception as exc:
-        auction = _unavailable_auction(f"auction: unavailable {type(exc).__name__}: {exc}")
-        payload["warnings"] = list(payload.get("warnings") or []) + list(auction["warnings"])
-        payload["auction"] = auction
-        payload["totalLatencyMs"] = int((monotonic() - started) * 1000)
-        payload["payloadBytes"] = len(
-            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        return _finalize_payload(
+            payload,
+            _fallback_auction_from_realtime(
+                payload,
+                f"auction: opening-auction unavailable {type(exc).__name__}: {exc}",
+            ),
+            started,
         )
-        return payload
 
     parsed = auction_result.value
     open_points = list(parsed.get("openPoints") or [])
     close_points = list(parsed.get("closePoints") or [])
     standard_close = _real_close_points_from_minute(list(payload.get("minutePoints") or []))
-    close_source = AUCTION_SOURCE_URL_TYPE
+    source_url_type = AUCTION_SOURCE_URL_TYPE
     if not close_points and standard_close:
         close_points = standard_close
-        close_source = "qt/stock/trends2/get standard close-auction minute points"
+        source_url_type = f"{AUCTION_SOURCE_URL_TYPE}; {STANDARD_CLOSE_SOURCE_URL_TYPE}"
 
     auction = _build_auction_payload(
         open_points,
         close_points,
         source=AUCTION_SOURCE,
-        source_url_type=(
-            AUCTION_SOURCE_URL_TYPE
-            if close_source == AUCTION_SOURCE_URL_TYPE
-            else f"{AUCTION_SOURCE_URL_TYPE}; {close_source}"
-        ),
+        source_url_type=source_url_type,
         updated_at=auction_result.updated_at,
         source_timestamp=auction_result.source_timestamp,
         cache_hit=auction_result.cache_hit,
@@ -368,20 +433,7 @@ async def _enriched_realtime(query: str, ndays: int) -> dict[str, Any]:
         stale=auction_result.stale,
         warnings=list(parsed.get("warnings") or []),
     )
-    payload["minutePoints"] = merge_auction_into_minute_points(
-        list(payload.get("minutePoints") or []),
-        open_points,
-        close_points,
-    )
-    payload["auction"] = auction
-    payload["warnings"] = list(payload.get("warnings") or []) + list(auction.get("warnings") or [])
-    payload["auctionSourceHost"] = auction_result.source_host
-    payload["auctionUpstreamLatencyMs"] = auction_result.upstream_latency_ms
-    payload["totalLatencyMs"] = int((monotonic() - started) * 1000)
-    payload["payloadBytes"] = len(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    )
-    return payload
+    return _finalize_payload(payload, auction, started, auction_result)
 
 
 def _remove_get_routes(paths: set[str]) -> None:
