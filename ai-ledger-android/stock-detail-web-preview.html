@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
 <title>AI Ledger · 股票详情页多周期原型</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@dev-update-1/ai-ledger-android/stock-detail-web-preview.css?v=2026062611">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@dev-update-1/ai-ledger-android/stock-detail-web-preview.css?v=2026062612">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle">⚙</button>
@@ -71,15 +71,15 @@
       </section>
 
       <section class="glass actions section"><button>加自选</button><button>预警</button><button>诊股</button><button>买入</button><button>卖出</button></section>
-      <section class="glass info section"><h2>K线指标说明</h2><p>主图补齐 MA5、MA10、MA20、MA30；成交量区显示当前量、M5、M10 与换手率；底部可切换 MACD、KDJ、RSI、BOLL。点击K线还能查看振幅、换手率、成交量和成交额。</p></section>
+      <section class="glass info section"><h2>K线指标说明</h2><p>主图补齐 MA5、MA10、MA20、MA30；成交量区显示当前量、M5、M10 与换手率；底部可切换 MACD、KDJ、RSI、BOLL。指标区现在使用独立裁剪和动态刻度，极端数值也不会越界遮挡。</p></section>
     </div>
     <nav class="bottom-nav"><div class="nav">AI<br>AI助手</div><div class="nav active">✦<br>功能</div><div class="nav">⚙<br>设置</div></nav>
   </section>
 
   <aside class="controls">
     <h1>股票详情页实时原型</h1>
-    <div class="version">网页版本 2026-06-26.11 · 完整K线指标版</div>
-    <p>对照标准行情软件补齐均线、成交量均线与技术副图。MACD、KDJ、RSI、BOLL 均由真实K线数据实时计算，不使用演示值。</p>
+    <div class="version">网页版本 2026-06-26.12 · 指标完整可视版</div>
+    <p>重新分配主图、成交量和技术副图高度，修复副图曲线越界、指标标签遮挡以及底部导航覆盖问题。</p>
     <div class="group">
       <h2>实时数据</h2>
       <input id="query" type="text" value="600667" placeholder="股票代码或名称">
@@ -101,7 +101,7 @@
   const base='https://raw.githubusercontent.com/yuchenm1303-png/yuchen1303.github.io/dev-update-1/ai-ledger-android/';
   const files=['stock-detail-web-core.js','stock-detail-web-charts.js','stock-detail-web-indicators.js','stock-detail-web-runtime.js'];
   try{
-    const responses=await Promise.all(files.map(file=>fetch(base+file+'?v=2026062611',{cache:'no-store'})));
+    const responses=await Promise.all(files.map(file=>fetch(base+file+'?v=2026062612',{cache:'no-store'})));
     responses.forEach((response,index)=>{if(!response.ok)throw new Error(files[index]+' HTTP '+response.status)});
     const sources=await Promise.all(responses.map(response=>response.text()));
     new Function(sources.join('\n\n;\n\n')+'\n//# sourceURL=stock-detail-web-bundle.js')();
