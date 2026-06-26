@@ -32,7 +32,12 @@ data class StockMinutePoint(
     val time: String,
     val price: Float,
     val average: Float,
-    val volumeRatio: Float
+    val volumeRatio: Float,
+    val volume: Float = 0f,
+    val matchedVolume: Float? = null,
+    val unmatchedVolume: Float? = null,
+    val unmatchedDirection: String = "unavailable",
+    val phase: String = "continuous"
 )
 
 data class StockKLinePoint(
@@ -43,7 +48,10 @@ data class StockKLinePoint(
     val low: Float,
     val volume: Float,
     val amount: Float,
-    val changePercent: String
+    val changePercent: String,
+    val amplitude: String = "--",
+    val changeAmount: String = "--",
+    val turnoverRate: String = "--"
 )
 
 data class StockOrderLevel(
@@ -277,83 +285,78 @@ private fun sampleAStockFeatureGroups(): List<StockFeatureGroup> = listOf(
             StockFeatureEntry("成交额榜", "资金活跃", "amount_rank"),
             StockFeatureEntry("换手榜", "筹码活跃", "turnover_rank"),
             StockFeatureEntry("量比榜", "放量异动", "volume_ratio_rank"),
-            StockFeatureEntry("涨速榜", "短线拉升", "speed_rank"),
-            StockFeatureEntry("新高新低", "趋势位置", "high_low_rank")
+            StockFeatureEntry("涨速榜", "短线加速", "speed_rank"),
+            StockFeatureEntry("振幅榜", "波动强度", "amplitude_rank"),
+            StockFeatureEntry("新股榜", "上市表现", "ipo_rank")
         )
     ),
     StockFeatureGroup(
-        title = "板块题材",
-        subtitle = "行业、概念、地域和轮动观察",
+        title = "板块与资金",
+        subtitle = "行业、概念和资金流向",
         entries = listOf(
-            StockFeatureEntry("行业板块", "申万/证监会", "industry"),
-            StockFeatureEntry("概念板块", "题材热点", "concept"),
-            StockFeatureEntry("地域板块", "省区联动", "region"),
-            StockFeatureEntry("板块热度", "涨跌家数", "sector_heat"),
-            StockFeatureEntry("板块资金", "主力流向", "sector_flow"),
-            StockFeatureEntry("强势题材", "连板方向", "strong_theme")
+            StockFeatureEntry("行业板块", "行业涨跌", "industry"),
+            StockFeatureEntry("概念板块", "主题热点", "concept"),
+            StockFeatureEntry("地域板块", "区域表现", "region"),
+            StockFeatureEntry("主力资金流", "净流入/流出", "main_flow"),
+            StockFeatureEntry("北向资金", "沪深港通", "northbound"),
+            StockFeatureEntry("融资融券", "两融余额", "margin"),
+            StockFeatureEntry("大单监控", "超大单/大单", "large_order")
         )
     ),
     StockFeatureGroup(
-        title = "交易异动",
-        subtitle = "涨停、龙虎榜、大宗、停复牌等事件",
+        title = "信息与研究",
+        subtitle = "公告、新闻、财务和研究资料",
         entries = listOf(
-            StockFeatureEntry("涨停板", "封单/炸板", "limit_up"),
-            StockFeatureEntry("跌停板", "风险观察", "limit_down"),
-            StockFeatureEntry("连板梯队", "高度/晋级", "limit_chain"),
-            StockFeatureEntry("龙虎榜", "席位资金", "lhb"),
-            StockFeatureEntry("大宗交易", "折溢价", "block_trade"),
-            StockFeatureEntry("异动公告", "异常波动", "abnormal_notice"),
-            StockFeatureEntry("停复牌", "状态变更", "suspend_resume"),
-            StockFeatureEntry("集合竞价", "开盘情绪", "auction")
+            StockFeatureEntry("个股公告", "交易所公告", "announcements"),
+            StockFeatureEntry("个股新闻", "实时资讯", "news"),
+            StockFeatureEntry("研究报告", "券商研报", "research"),
+            StockFeatureEntry("财务摘要", "利润/营收", "financials"),
+            StockFeatureEntry("业绩预告", "预增/预减", "forecast"),
+            StockFeatureEntry("股东数据", "股东户数", "shareholders"),
+            StockFeatureEntry("解禁提醒", "限售解禁", "unlock"),
+            StockFeatureEntry("分红送转", "权益分派", "dividend")
         )
     ),
     StockFeatureGroup(
-        title = "资金情绪",
-        subtitle = "主力、北向、两融和市场温度",
+        title = "交易辅助",
+        subtitle = "诊股、提醒和条件监控",
         entries = listOf(
-            StockFeatureEntry("主力资金", "净流入", "main_flow"),
-            StockFeatureEntry("北向资金", "沪深股通", "north_flow"),
-            StockFeatureEntry("融资融券", "杠杆资金", "margin"),
-            StockFeatureEntry("ETF资金", "宽基/行业", "etf_flow"),
-            StockFeatureEntry("市场情绪", "红盘/炸板率", "sentiment"),
-            StockFeatureEntry("赚钱效应", "涨跌分布", "profit_effect")
-        )
-    ),
-    StockFeatureGroup(
-        title = "资讯研究",
-        subtitle = "公告、新闻、研报、财报和股东数据",
-        entries = listOf(
-            StockFeatureEntry("公告", "交易所公告", "announcements"),
-            StockFeatureEntry("新闻快讯", "舆情事件", "news"),
-            StockFeatureEntry("研报", "机构观点", "research"),
-            StockFeatureEntry("财报", "利润/现金流", "financials"),
-            StockFeatureEntry("业绩预告", "预增预减", "forecast"),
-            StockFeatureEntry("股东户数", "筹码集中", "holders"),
-            StockFeatureEntry("解禁", "限售流通", "unlock"),
-            StockFeatureEntry("分红配股", "权益事件", "dividend")
-        )
-    ),
-    StockFeatureGroup(
-        title = "看盘工具",
-        subtitle = "选股、预警、日历、持仓和 AI 辅助",
-        entries = listOf(
-            StockFeatureEntry("条件选股", "指标筛选", "screener"),
-            StockFeatureEntry("价格预警", "到价提醒", "alert"),
-            StockFeatureEntry("模拟持仓", "盈亏记录", "portfolio"),
-            StockFeatureEntry("交易日历", "节假/事件", "calendar"),
-            StockFeatureEntry("新股申购", "新股/新债", "ipo"),
-            StockFeatureEntry("可转债", "溢价率", "convertible"),
-            StockFeatureEntry("数据导出", "复盘记录", "export"),
-            StockFeatureEntry("AI 问股", "解释数据", "ai_qa")
+            StockFeatureEntry("智能诊股", "技术/基本面", "diagnosis"),
+            StockFeatureEntry("价格预警", "到价提醒", "price_alert"),
+            StockFeatureEntry("条件选股", "多条件筛选", "screener"),
+            StockFeatureEntry("模拟交易", "虚拟买卖", "paper_trade"),
+            StockFeatureEntry("交易日历", "停复牌/事件", "calendar"),
+            StockFeatureEntry("龙虎榜", "席位数据", "dragon_tiger")
         )
     )
 )
 
 private fun sampleAStockMarketBoards(): List<StockMarketBoard> = listOf(
-    StockMarketBoard("热度排行榜", "示例：综合搜索、讨论和成交活跃度", listOf(StockRankItem("华电能源", "600396", "热度 99", "+4.00%", true), StockRankItem("四川长虹", "600839", "热度 96", "+6.31%", true), StockRankItem("中际旭创", "300308", "热度 93", "-1.08%", false))),
-    StockMarketBoard("龙虎榜", "示例：机构、游资和营业部席位异动", listOf(StockRankItem("宗申动力", "001696", "净买 1.86亿", "+10.01%", true), StockRankItem("万丰奥威", "002085", "机构买入", "+7.42%", true), StockRankItem("常山北明", "000158", "游资活跃", "-2.36%", false))),
-    StockMarketBoard("涨停梯队", "示例：连板高度、首板和炸板观察", listOf(StockRankItem("南京商旅", "600250", "4连板", "+10.02%", true), StockRankItem("国机汽车", "600335", "2连板", "+9.98%", true), StockRankItem("合锻智能", "603011", "首板", "+10.00%", true))),
-    StockMarketBoard("板块热度", "示例：行业/概念强弱和涨跌家数", listOf(StockRankItem("电力", "BK0428", "涨 42 家", "+2.86%", true), StockRankItem("算力", "BK1136", "涨 38 家", "+2.12%", true), StockRankItem("医药商业", "BK0465", "跌 29 家", "-1.06%", false))),
-    StockMarketBoard("资金流向", "示例：主力净流入和北向关注方向", listOf(StockRankItem("宁德时代", "300750", "主力 +5.2亿", "+1.26%", true), StockRankItem("贵州茅台", "600519", "北向 +3.4亿", "+0.81%", true), StockRankItem("东方财富", "300059", "主力 -2.1亿", "-0.66%", false))),
-    StockMarketBoard("竞价异动", "示例：高开、低开、抢筹和核按钮", listOf(StockRankItem("比亚迪", "002594", "高开 2.1%", "+1.12%", true), StockRankItem("赛力斯", "601127", "抢筹 1.4亿", "+3.28%", true), StockRankItem("药明康德", "603259", "低开 1.8%", "-1.54%", false)))
+    StockMarketBoard(
+        "人气热榜",
+        "市场关注度最高",
+        listOf(
+            StockRankItem("常山北明", "000158", "12.36", "+9.98%", true),
+            StockRankItem("中科曙光", "603019", "78.20", "+6.12%", true),
+            StockRankItem("贵州茅台", "600519", "1668.00", "+0.81%", true)
+        )
+    ),
+    StockMarketBoard(
+        "涨幅榜",
+        "强势个股",
+        listOf(
+            StockRankItem("示例A", "600001", "10.00", "+10.02%", true),
+            StockRankItem("示例B", "000002", "8.80", "+9.96%", true),
+            StockRankItem("示例C", "300003", "21.50", "+8.43%", true)
+        )
+    ),
+    StockMarketBoard(
+        "成交额榜",
+        "资金最活跃",
+        listOf(
+            StockRankItem("东方财富", "300059", "18.90", "+2.11%", true),
+            StockRankItem("中际旭创", "300308", "168.20", "-1.22%", false),
+            StockRankItem("宁德时代", "300750", "201.36", "-0.34%", false)
+        )
+    )
 )
