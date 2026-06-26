@@ -129,7 +129,7 @@ data class GlassBorderStyle(
     val newOpenGlBodyLensConcentration: Float = 10f,
     val newOpenGlBodyLensExtraDistance: Float = 200f,
     val newOpenGlBodyLensReachDp: Float = 180f,
-    val newOpenGlBodyLensDark: Float = 0.23041475f,
+    val newOpenGlBodyLensDark: Float = 0.751f,
     val newOpenGlBodyLensDebug: Float = 0f,
     val newOpenGlBodyWidth: Float = 1.250599f,
     val newOpenGlBodyCurve: Float = 0.2f,
