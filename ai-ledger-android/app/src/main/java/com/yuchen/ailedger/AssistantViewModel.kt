@@ -30,6 +30,7 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.ModelCardGlassStyle
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.ToolDestination
 import com.yuchen.ailedger.service.AgentExecutionMode
 import com.yuchen.ailedger.service.AgentOrchestrator
@@ -68,6 +69,7 @@ private const val ASSISTANT_IMAGE_TOTAL_MAX_BYTES = 10 * 1024 * 1024
 private const val ASSISTANT_AGENT_MAX_STEPS = 30
 private const val STREAM_FLUSH_INTERVAL_MS = 80L
 private const val VISUAL_ATTACHMENT_STATUS_PREFIX = "视觉附件 · "
+private const val CHAT_STICKER_STRUCTURED_TYPE = "chat_sticker_v1"
 
 class AssistantViewModel(
     application: Application,
@@ -713,6 +715,9 @@ class AssistantViewModel(
                         ?.text
                         ?.trim()
                         .orEmpty()
+                    val stickerData = response.structuredData?.takeIf { it.isChatStickerDataCard() }
+                    val regularStructuredData = response.structuredData?.takeUnless { it.isChatStickerDataCard() }
+                    val visibleResponse = response.copy(structuredData = regularStructuredData)
                     when {
                         cloudAgentAction?.isRunDeviceControl() == true -> {
                             replaceMessage(
@@ -743,21 +748,22 @@ class AssistantViewModel(
                             replaceMessage(
                                 pendingMessage.id,
                                 pendingMessage.copy(
-                                    text = decorateReply(response, onlineEnabled),
+                                    text = decorateReply(visibleResponse, onlineEnabled),
                                     status = MessageStatus.Sent,
-                                    source = response.source,
-                                    model = response.model,
-                                    modelLabel = response.modelLabel ?: selectedModel.label,
-                                    version = response.version,
+                                    source = visibleResponse.source,
+                                    model = visibleResponse.model,
+                                    modelLabel = visibleResponse.modelLabel ?: selectedModel.label,
+                                    version = visibleResponse.version,
                                     errorText = null,
-                                    webSources = response.webSources,
-                                    structuredData = response.structuredData,
-                                    searchUsed = response.searchUsed,
-                                    searchProvider = response.searchProvider
+                                    webSources = visibleResponse.webSources,
+                                    structuredData = regularStructuredData,
+                                    searchUsed = visibleResponse.searchUsed,
+                                    searchProvider = visibleResponse.searchProvider
                                 )
                             )
                         }
                     }
+                    if (stickerData != null) appendStickerMessage(stickerData)
                 }
             } catch (error: CancellationException) {
                 streamClosed = true
@@ -1043,6 +1049,25 @@ class AssistantViewModel(
         uiState = uiState.copy(messages = nextMessages)
     }
 
+    private fun appendStickerMessage(data: StructuredDataCard) {
+        if (!data.isChatStickerDataCard() || data.rawText.isNullOrBlank()) return
+        uiState = uiState.copy(
+            messages = uiState.messages + ChatMessage(
+                id = nextLocalId("sticker"),
+                text = "",
+                role = MessageRole.Assistant,
+                status = MessageStatus.Sent,
+                source = null,
+                modelLabel = null,
+                structuredData = data
+            )
+        )
+    }
+
+    private fun StructuredDataCard.isChatStickerDataCard(): Boolean {
+        return type.equals(CHAT_STICKER_STRUCTURED_TYPE, ignoreCase = true)
+    }
+
     private fun sourceLabel(source: String?): String? = when (source) {
         "local" -> "本地"
         "local_mobile" -> "手机动作"
@@ -1076,20 +1101,22 @@ class AssistantViewModel(
                 sections += "已保存导航偏好：${update.label} · ${update.value}"
             }
         }
-        response.structuredData?.let { data ->
-            val metrics = data.metrics.take(6).joinToString("\n") { metric ->
-                val unit = metric.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
-                val detail = metric.detail?.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()
-                "- ${metric.label}: ${metric.value}$unit$detail"
+        response.structuredData
+            ?.takeUnless { it.isChatStickerDataCard() }
+            ?.let { data ->
+                val metrics = data.metrics.take(6).joinToString("\n") { metric ->
+                    val unit = metric.unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+                    val detail = metric.detail?.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()
+                    "- ${metric.label}: ${metric.value}$unit$detail"
+                }
+                val header = listOfNotNull(data.title, data.subtitle, data.timestamp).joinToString(" · ")
+                sections += buildString {
+                    append("实时数据：")
+                    append(header.ifBlank { data.type })
+                    if (metrics.isNotBlank()) append("\n").append(metrics)
+                    data.rawText?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
+                }
             }
-            val header = listOfNotNull(data.title, data.subtitle, data.timestamp).joinToString(" · ")
-            sections += buildString {
-                append("实时数据：")
-                append(header.ifBlank { data.type })
-                if (metrics.isNotBlank()) append("\n").append(metrics)
-                data.rawText?.takeIf { it.isNotBlank() }?.let { append("\n").append(it) }
-            }
-        }
         if (response.webSources.isNotEmpty()) {
             val provider = response.searchProvider
                 ?.takeIf { it.isNotBlank() }
