@@ -26,7 +26,7 @@ body{overflow-x:hidden}.page{width:min(1280px,calc(100% - 28px));margin:auto;pad
 </header>
 <section class="grid">
 <div class="panel preview">
-<div class="topline"><span>App 实际尺寸与运行态高亮检查</span><span class="state-pill"><i class="state-dot"></i><b id="stateLabel">执行中</b></span></div>
+<div class="topline"><span>App 实际尺寸与运行态高亮检查</span><span class="state-pill"><i class="state-dot"></i><b id="stateLabel">待命</b></span></div>
 <div class="mock"><div class="mock-head"><div class="mock-title">对话</div><div class="grow"></div><button class="switch" id="agentSwitch" type="button"><span class="label">Agent</span><canvas class="compact" id="compactCanvas"></canvas></button></div><div class="lines"><div class="line"></div><div class="line"></div><div class="line"></div></div></div>
 <div class="inspect"><small>Optical inspection · arc-length tail fade</small><canvas class="detail" id="detailCanvas"></canvas></div>
 <div class="badges"><span>连续单体高亮</span><span>弧长匀速</span><span>弧长渐隐</span><span>无拼接光点</span><span>静态层缓存</span><span>程序化光效</span></div>
@@ -35,18 +35,18 @@ body{overflow-x:hidden}.page{width:min(1280px,calc(100% - 28px));margin:auto;pad
 <h2>实时调参</h2>
 <p>不再使用“尾点到头点”的屏幕直线渐变。现在以多层连续子路径沿轨道累积亮度，外观仍是一整条光带，但尾部透明度与真实路径距离严格对应。</p>
 <div class="section">状态</div>
-<div class="state-grid"><button class="state-btn" data-state="off">关闭</button><button class="state-btn" data-state="standby">待命</button><button class="state-btn active" data-state="running">执行中</button><button class="state-btn" data-state="paused">接管暂停</button><button class="state-btn" data-state="error">异常脉冲</button></div>
+<div class="state-grid"><button class="state-btn" data-state="off">关闭</button><button class="state-btn active" data-state="standby">待命</button><button class="state-btn" data-state="running">执行中</button><button class="state-btn" data-state="paused">接管暂停</button><button class="state-btn" data-state="error">异常脉冲</button></div>
 <div class="section">光带形状</div>
-<label class="control"><span class="head"><span>非对称程度</span><span class="val" id="asymValue"></span></span><input id="asym" type="range" min="0" max="80" value="46"></label>
-<label class="control"><span class="head"><span>整体倾角</span><span class="val" id="tiltValue"></span></span><input id="tilt" type="range" min="-24" max="14" value="-12"></label>
-<label class="control"><span class="head"><span>中心收束</span><span class="val" id="pinchValue"></span></span><input id="pinch" type="range" min="20" max="95" value="68"></label>
-<label class="control"><span class="head"><span>光带宽度</span><span class="val" id="bandValue"></span></span><input id="band" type="range" min="55" max="190" value="112"></label>
-<label class="control"><span class="head"><span>交叉深度</span><span class="val" id="crossValue"></span></span><input id="cross" type="range" min="0" max="100" value="28"></label>
+<label class="control"><span class="head"><span>非对称程度</span><span class="val" id="asymValue"></span></span><input id="asym" type="range" min="0" max="80" value="0"></label>
+<label class="control"><span class="head"><span>整体倾角</span><span class="val" id="tiltValue"></span></span><input id="tilt" type="range" min="-24" max="14" value="-10"></label>
+<label class="control"><span class="head"><span>中心收束</span><span class="val" id="pinchValue"></span></span><input id="pinch" type="range" min="20" max="95" value="20"></label>
+<label class="control"><span class="head"><span>光带宽度</span><span class="val" id="bandValue"></span></span><input id="band" type="range" min="55" max="190" value="158"></label>
+<label class="control"><span class="head"><span>交叉深度</span><span class="val" id="crossValue"></span></span><input id="cross" type="range" min="0" max="100" value="100"></label>
 <div class="section">光学与动画</div>
-<label class="control"><span class="head"><span>体积光晕</span><span class="val" id="glowValue"></span></span><input id="glow" type="range" min="30" max="170" value="100"></label>
-<label class="control"><span class="head"><span>色散强度</span><span class="val" id="dispersionValue"></span></span><input id="dispersion" type="range" min="0" max="160" value="72"></label>
-<label class="control"><span class="head"><span>循环速度</span><span class="val" id="speedValue"></span></span><input id="speed" type="range" min="35" max="210" value="112"></label>
-<label class="control"><span class="head"><span>高亮长度</span><span class="val" id="trailValue"></span></span><input id="trail" type="range" min="10" max="56" value="34"></label>
+<label class="control"><span class="head"><span>体积光晕</span><span class="val" id="glowValue"></span></span><input id="glow" type="range" min="30" max="170" value="170"></label>
+<label class="control"><span class="head"><span>色散强度</span><span class="val" id="dispersionValue"></span></span><input id="dispersion" type="range" min="0" max="160" value="85"></label>
+<label class="control"><span class="head"><span>循环速度</span><span class="val" id="speedValue"></span></span><input id="speed" type="range" min="35" max="210" value="169"></label>
+<label class="control"><span class="head"><span>高亮长度</span><span class="val" id="trailValue"></span></span><input id="trail" type="range" min="10" max="56" value="56"></label>
 <div class="section">当前参数</div><div class="config" id="config"></div>
 <div class="actions"><button class="action-btn" id="copy">复制参数</button><button class="action-btn" id="reset">恢复推荐值</button></div>
 <p class="foot">基础光带继续使用离屏缓存；动态尾迹只由少量完整连续路径组成，不使用贴图，也不会重新出现逐点拼接感。</p>
@@ -54,7 +54,7 @@ body{overflow-x:hidden}.page{width:min(1280px,calc(100% - 28px));margin:auto;pad
 </section>
 </main>
 <script>
-const defaults={state:'running',asym:46,tilt:-12,pinch:68,band:112,cross:28,glow:100,dispersion:72,speed:112,trail:34};
+const defaults={state:'standby',asym:0,tilt:-10,pinch:20,band:158,cross:100,glow:170,dispersion:85,speed:169,trail:56};
 const cfg={...defaults};
 const stateLabel={off:'关闭',standby:'待命',running:'执行中',paused:'接管暂停',error:'异常脉冲'};
 const themes={off:{a:[104,117,151],b:[92,102,133],c:[127,139,169],alpha:.34,speed:0},standby:{a:[102,255,240],b:[93,132,255],c:[164,105,255],alpha:.83,speed:.42},running:{a:[105,255,241],b:[87,132,255],c:[186,101,255],alpha:1,speed:1},paused:{a:[255,218,137],b:[161,115,255],c:[111,143,255],alpha:.88,speed:0},error:{a:[255,122,151],b:[209,84,255],c:[113,116,255],alpha:.9,speed:.18}};
