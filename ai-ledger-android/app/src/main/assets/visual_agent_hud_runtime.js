@@ -166,11 +166,15 @@
       actionSource.textContent=data.actionSource||'视觉识别';
       debugLatency.textContent=data.debugLatency||'latency_total: —';
       if(number(data.autoClickAfterMs,0)>0){
-        phaseTimer=setTimeout(()=>setPhase(3),number(data.autoClickAfterMs,0));
+        phaseTimer=setTimeout(()=>{
+          setPhase(3);
+          clickPulse();
+        },number(data.autoClickAfterMs,0));
       }
-      if(number(data.clickRevision,0)>lastClickRevision){
-        lastClickRevision=number(data.clickRevision,0);
-        if(lastClickRevision>0)clickPulse();
+      const clickRevision=number(data.clickRevision,0);
+      if(clickRevision>0&&clickRevision!==lastClickRevision){
+        lastClickRevision=clickRevision;
+        clickPulse();
       }
     },
     hide(){
