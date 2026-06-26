@@ -91,6 +91,10 @@ class VisualAgentHudOverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = 0
             y = 0
+            // Android 12+ only passes touches through an untrusted application overlay when the
+            // window's obscuring opacity stays at or below the platform threshold. The HUD remains
+            // fully non-touchable and the drawing layer compensates with its own calibrated alpha.
+            alpha = MAX_TOUCH_THROUGH_ALPHA
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
@@ -115,7 +119,7 @@ class VisualAgentHudOverlayService : Service() {
         val lastLog = progress.logs.lastOrNull().orEmpty()
         val actionPassThroughWindow = hiddenForCapture &&
             progress.running &&
-            matchingTarget != null &&
+            matchingTarget?.positioned == true &&
             matchingTarget.actionType in setOf("tap_xy", "tap_node") &&
             lastLog == progress.currentAction
         val visuallyHidden = hiddenForCapture && !actionPassThroughWindow
@@ -123,6 +127,8 @@ class VisualAgentHudOverlayService : Service() {
     }
 
     companion object {
+        private const val MAX_TOUCH_THROUGH_ALPHA = 0.8f
+
         fun canDrawOverlays(context: Context): Boolean =
             Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
