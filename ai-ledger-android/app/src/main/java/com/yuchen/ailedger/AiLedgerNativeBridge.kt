@@ -1,10 +1,14 @@
 package com.yuchen.ailedger
 
 import android.app.Activity
+import android.os.Looper
 import android.webkit.JavascriptInterface
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.CloudAgentStep
 import com.yuchen.ailedger.service.toAgentScreenSnapshot
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class AiLedgerNativeBridge(
@@ -44,6 +48,13 @@ class AiLedgerNativeBridge(
         val type = data.optString("type")
         val payload = data.optJSONObject("payload") ?: JSONObject()
 
+        // executeAgentStep 需要等待 Android 手势完成回执。WebView 的 JavaScript bridge
+        // 本身运行在专用后台线程，不能再转到主线程后做同步等待，否则会阻塞回执。
+        if (type == "executeAgentStep") {
+            executeAgentStep(payload.toString())
+            return
+        }
+
         activity.runOnUiThread {
             when (type) {
                 "haptic" -> onHaptic(payload.optString("style", "light"))
@@ -55,7 +66,6 @@ class AiLedgerNativeBridge(
                 "startNavigation" -> startNavigation(payload.optString("target"))
                 "setAlarm" -> setAlarm(payload.toString())
                 "observeAgentScreen" -> observeAgentScreen()
-                "executeAgentStep" -> executeAgentStep(payload.toString())
                 "webReady" -> Unit
             }
         }
@@ -108,7 +118,27 @@ class AiLedgerNativeBridge(
             ?: return agentStepError("invalid_agent_step_json", "Agent step JSON 无效。")
         val step = CloudAgentStep.fromJson(stepJson)
             ?: return agentStepError("invalid_agent_step", "Agent step 缺少可执行动作。")
-        val result = AiAgentAccessibilityService.executeStep(step)
+
+        // 这条同步 JavaScript 接口只能在 WebView bridge 后台线程等待结果。真正的
+        // AccessibilityService 调用仍切回主线程，并以挂起方式等待手势 onCompleted/onCancelled。
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return agentStepError(
+                "agent_step_main_thread_blocked",
+                "视觉动作不能在主线程同步等待，请通过 JavaScript bridge 后台线程调用。",
+            )
+        }
+        val result = runCatching {
+            runBlocking {
+                withContext(Dispatchers.Main.immediate) {
+                    AiAgentAccessibilityService.executeStep(step)
+                }
+            }
+        }.getOrElse { error ->
+            return agentStepError(
+                "agent_step_execution_failed",
+                error.message ?: "视觉动作执行失败。",
+            )
+        }
         return JSONObject()
             .put("ok", result.ok)
             .put("type", step.type)
