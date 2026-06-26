@@ -23,23 +23,35 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
+private data class VisualHudRenderSnapshot(
+    val progress: AgentOverlayProgress,
+    val target: VisualAgentHudTarget?,
+    val hiddenForCapture: Boolean,
+    val tuning: VisualAgentHudTuningState,
+)
+
 /**
  * Full-screen visual-agent HUD rendered by the approved web implementation itself.
  * Android only supplies live state; CSS, SVG, filters, masks and animations stay in assets.
  */
 class VisualAgentHudOverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val tuningStore by lazy(LazyThreadSafetyMode.NONE) {
+        VisualAgentHudTuningStore.get(applicationContext)
+    }
     private var windowManager: WindowManager? = null
     private var webView: WebView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var pageReady = false
     private var pendingPayload: String? = null
     private var lastClickRevision = 0L
+    private var lastPreviewGeneration = 0L
     private var overlayVisible = false
 
     override fun onCreate() {
         super.onCreate()
-        if (!AgentOverlayService.isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
+        val previewRequested = tuningStore.state.value.previewEnabled
+        if ((!AgentOverlayService.isOverlaySwitchEnabled() && !previewRequested) || !canDrawOverlays(this)) {
             stopSelf()
             return
         }
@@ -50,23 +62,29 @@ class VisualAgentHudOverlayService : Service() {
                 AgentRuntimeController.progress,
                 VisualAgentHudRuntime.target,
                 AgentRuntimeController.overlayHiddenForCapture,
-            ) { progress, target, hidden -> Triple(progress, target, hidden) }
-                .collect { (progress, target, hidden) ->
-                    updateOverlay(progress, target, hidden)
-                }
+                tuningStore.state,
+            ) { progress, target, hidden, tuning ->
+                VisualHudRenderSnapshot(progress, target, hidden, tuning)
+            }.collect { snapshot ->
+                updateOverlay(snapshot)
+            }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!AgentOverlayService.isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
+        val previewRequested = tuningStore.state.value.previewEnabled
+        if ((!AgentOverlayService.isOverlaySwitchEnabled() && !previewRequested) || !canDrawOverlays(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
         if (webView == null) createOverlay()
         updateOverlay(
-            AgentRuntimeController.progress.value,
-            VisualAgentHudRuntime.target.value,
-            AgentRuntimeController.overlayHiddenForCapture.value,
+            VisualHudRenderSnapshot(
+                progress = AgentRuntimeController.progress.value,
+                target = VisualAgentHudRuntime.target.value,
+                hiddenForCapture = AgentRuntimeController.overlayHiddenForCapture.value,
+                tuning = tuningStore.state.value,
+            )
         )
         return START_STICKY
     }
@@ -160,9 +178,8 @@ class VisualAgentHudOverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = 0
             y = 0
-            // The full-opacity web rendering is enabled only while the HUD is actually visible.
-            // During screenshots, real actions and idle time the window alpha is zero, so Android
-            // does not treat the full-screen overlay as an obscuring touch surface.
+            // During screenshots, actual device actions and idle time the full-screen window is
+            // transparent. The HUD itself never handles touch input.
             alpha = 0f
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
@@ -182,34 +199,43 @@ class VisualAgentHudOverlayService : Service() {
             }
     }
 
-    private fun updateOverlay(
-        progress: AgentOverlayProgress,
-        target: VisualAgentHudTarget?,
-        hiddenForCapture: Boolean,
-    ) {
-        val matchingTarget = target?.takeIf { it.taskId == progress.taskId }
-        val visible = AgentOverlayService.isOverlaySwitchEnabled() && !hiddenForCapture && (
+    private fun updateOverlay(snapshot: VisualHudRenderSnapshot) {
+        val progress = snapshot.progress
+        val tuning = snapshot.tuning
+        val matchingTarget = snapshot.target?.takeIf { it.taskId == progress.taskId }
+        val realHudActive = AgentOverlayService.isOverlaySwitchEnabled() && (
             progress.running ||
                 progress.pendingConfirmation != null ||
                 progress.pendingUserInput != null ||
                 progress.userTakeoverPaused
             )
+        val sampleMode = tuning.previewEnabled && !realHudActive
+        val visible = !snapshot.hiddenForCapture && (realHudActive || sampleMode)
         setOverlayActive(visible)
 
         val lastLog = progress.logs.lastOrNull().orEmpty()
-        val phase = phaseOf(progress, matchingTarget, lastLog)
-        val resultPulse = visible &&
+        val phase = if (sampleMode) SAMPLE_PHASE else phaseOf(progress, matchingTarget, lastLog)
+        val resultPulse = visible && !sampleMode &&
             matchingTarget?.positioned == true &&
             lastLog.startsWith("结果：") &&
             progress.updatedAt > lastClickRevision
         if (resultPulse) lastClickRevision = progress.updatedAt
+
+        val sampleGenerationChanged = sampleMode &&
+            tuning.previewGeneration > 0L &&
+            tuning.previewGeneration != lastPreviewGeneration
+        if (sampleGenerationChanged) lastPreviewGeneration = tuning.previewGeneration
+
         sendPayload(
             buildPayload(
                 progress = progress,
                 target = matchingTarget,
+                tuning = tuning,
                 visible = visible,
                 phase = phase,
+                sampleMode = sampleMode,
                 clickRevision = if (resultPulse) progress.updatedAt else 0L,
+                autoClickAfterMs = if (sampleGenerationChanged) SAMPLE_CLICK_DELAY_MS else 0L,
             )
         )
     }
@@ -255,46 +281,75 @@ class VisualAgentHudOverlayService : Service() {
     private fun buildPayload(
         progress: AgentOverlayProgress,
         target: VisualAgentHudTarget?,
+        tuning: VisualAgentHudTuningState,
         visible: Boolean,
         phase: Int,
+        sampleMode: Boolean,
         clickRevision: Long,
+        autoClickAfterMs: Long,
     ): String {
         val metrics = resources.displayMetrics
         val width = metrics.widthPixels.coerceAtLeast(1)
         val height = metrics.heightPixels.coerceAtLeast(1)
-        val xNorm = when {
-            target == null -> DEFAULT_CURSOR_X
-            target.normalized -> target.x
-            else -> target.x / width.toFloat()
+        val xNorm = if (sampleMode) {
+            SAMPLE_CURSOR_X
+        } else {
+            when {
+                target == null -> DEFAULT_CURSOR_X
+                target.normalized -> target.x
+                else -> target.x / width.toFloat()
+            }
         }.coerceIn(0f, 1f)
-        val yNorm = when {
-            target == null -> DEFAULT_CURSOR_Y
-            target.normalized -> target.y
-            else -> target.y / height.toFloat()
+        val yNorm = if (sampleMode) {
+            SAMPLE_CURSOR_Y
+        } else {
+            when {
+                target == null -> DEFAULT_CURSOR_Y
+                target.normalized -> target.y
+                else -> target.y / height.toFloat()
+            }
         }.coerceIn(0f, 1f)
-        val thought = target?.detail
-            ?.takeIf(String::isNotBlank)
-            ?: progress.lastResult.takeIf(String::isNotBlank)
-            ?: "正在根据页面证据选择下一步操作。"
-        val source = when (target?.actionType) {
-            "tap_node" -> "视觉识别 + 节点"
-            "tap_xy" -> "视觉识别"
-            else -> "智能体执行"
+
+        val bubbleTitle = if (sampleMode) {
+            "准备点击“视觉智能样本”"
+        } else {
+            progress.currentAction.ifBlank { "正在执行视觉任务" }
         }
+        val thought = if (sampleMode) {
+            "样本已开启。拖动设置页参数时，边缘光、SVG 光标、热点和点击反馈会实时更新。"
+        } else {
+            target?.detail
+                ?.takeIf(String::isNotBlank)
+                ?: progress.lastResult.takeIf(String::isNotBlank)
+                ?: "正在根据页面证据选择下一步操作。"
+        }
+        val source = if (sampleMode) {
+            "样本预览"
+        } else {
+            when (target?.actionType) {
+                "tap_node" -> "视觉识别 + 节点"
+                "tap_xy" -> "视觉识别"
+                else -> "智能体执行"
+            }
+        }
+
         return JSONObject()
             .put("visible", visible)
             .put("xNorm", xNorm.toDouble())
             .put("yNorm", yNorm.toDouble())
             .put("phase", phase)
-            .put("bubbleTitle", progress.currentAction.ifBlank { "正在执行视觉任务" })
-            .put("currentAction", progress.currentAction)
+            .put("title", if (sampleMode) "正在调试视觉智能" else "")
+            .put("meta", if (sampleMode) "样本预览" else "")
+            .put("bubbleTitle", bubbleTitle)
+            .put("currentAction", if (sampleMode) bubbleTitle else progress.currentAction)
             .put("thought", thought)
-            .put("result", progress.lastResult)
-            .put("confidence", if (target?.positioned == true) "已定位" else "—")
+            .put("result", if (sampleMode) "所有参数已接入网页版 HUD" else progress.lastResult)
+            .put("confidence", if (sampleMode) "94%" else if (target?.positioned == true) "已定位" else "—")
             .put("actionSource", source)
-            .put("debugLatency", "latency_total: —")
-            .put("autoClickAfterMs", 0L)
+            .put("debugLatency", if (sampleMode) "mode: live_parameter_preview" else "latency_total: —")
+            .put("autoClickAfterMs", autoClickAfterMs)
             .put("clickRevision", clickRevision)
+            .put("parameters", tuning.parameters.toJson())
             .toString()
     }
 
@@ -313,15 +368,22 @@ class VisualAgentHudOverlayService : Service() {
     companion object {
         private const val ASSET_URL = "file:///android_asset/visual_agent_hud_runtime.html"
         private const val TARGET_MOVE_VISIBLE_MS = 1_200L
+        private const val SAMPLE_CLICK_DELAY_MS = 820L
+        private const val SAMPLE_PHASE = 2
         private const val DEFAULT_CURSOR_X = 0.52f
         private const val DEFAULT_CURSOR_Y = 0.46f
+        private const val SAMPLE_CURSOR_X = 0.72f
+        private const val SAMPLE_CURSOR_Y = 0.27f
 
         fun canDrawOverlays(context: Context): Boolean =
             Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
         fun ensureStarted(context: Context): Boolean {
-            if (!AgentOverlayService.isOverlaySwitchEnabled() || !canDrawOverlays(context)) return false
             val appContext = context.applicationContext
+            val previewRequested = VisualAgentHudTuningStore.get(appContext).state.value.previewEnabled
+            if ((!AgentOverlayService.isOverlaySwitchEnabled() && !previewRequested) || !canDrawOverlays(appContext)) {
+                return false
+            }
             return runCatching {
                 appContext.startService(Intent(appContext, VisualAgentHudOverlayService::class.java))
                 true
