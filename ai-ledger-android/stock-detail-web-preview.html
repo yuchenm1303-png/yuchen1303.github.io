@@ -87,9 +87,9 @@
     #chart { width: 100%; height: 100%; display: block; }
     .axis, .caption { display: flex; align-items: center; justify-content: space-between; color: rgba(255,255,255,.34); font-size: 7px; white-space: nowrap; }
     .caption { align-items: flex-start; flex-wrap: wrap; gap: 3px 8px; font-size: 6.4px; overflow: hidden; }
-    .caption .matched { color: rgba(243,245,255,.66); }
-    .caption .buy-unmatched { color: rgba(255,143,143,.66); }
-    .caption .sell-unmatched { color: rgba(128,247,180,.66); }
+    .caption .matched { color: rgba(243,245,255,.72); }
+    .caption .buy-unmatched { color: rgba(255,143,143,.72); }
+    .caption .sell-unmatched { color: rgba(128,247,180,.72); }
     .order-panel { min-width: 0; height: 100%; padding: 7px; display: grid; grid-template-rows: auto auto minmax(0,1fr) auto minmax(0,.62fr); gap: 6px; overflow: hidden; border: 1px solid rgba(255,255,255,.085); border-radius: 15px; background: rgba(255,255,255,.035); }
     .order-head { display: flex; align-items: center; justify-content: space-between; }
     .order-title { font-size: 10px; font-weight: 950; }
@@ -164,7 +164,7 @@
             <div class="chart-column">
               <div class="chart-wrap"><canvas id="chart"></canvas></div>
               <div class="axis"><span>09:15</span><span>09:25</span><span>11:30/13:00</span><span>14:57</span><span>15:00</span></div>
-              <div class="caption"><span class="matched">白柱：匹配量</span><span class="buy-unmatched">红柱：买方未匹配</span><span class="sell-unmatched">绿柱：卖方未匹配</span></div>
+              <div class="caption"><span class="buy-unmatched">上层红色：买方未匹配</span><span class="sell-unmatched">上层绿色：卖方未匹配</span><span class="matched">下层白柱：匹配量</span></div>
             </div>
             <aside class="order-panel">
               <div class="order-head"><span class="order-title">五档盘口</span><span class="order-state" id="depthState">--</span></div>
@@ -174,13 +174,13 @@
           </div>
         </section>
         <section class="glass actions section"><button>加自选</button><button>预警</button><button>诊股</button><button>买入</button><button>卖出</button></section>
-        <section class="glass info section"><h2>竞价量说明</h2><p>竞价价格、虚拟匹配量和未匹配量来自真实行情协议。未匹配量用红色表示买方剩余、绿色表示卖方剩余；数据源不可用时保持空白，不根据价格或普通成交量伪造。</p></section>
+        <section class="glass info section"><h2>竞价量说明</h2><p>量图区采用标准行情软件的上下分层：上层单独显示红/绿未匹配量面积，下层显示白色匹配量柱及连续竞价成交量。两部分使用独立基线和独立缩放，互不覆盖。</p></section>
       </div>
       <nav class="bottom-nav"><div class="nav">AI<br>AI助手</div><div class="nav active">✦<br>功能</div><div class="nav">⚙<br>设置</div></nav>
     </section>
     <aside class="controls">
-      <h1>股票详情页实时原型</h1><div class="version">网页版本 2026-06-26.2 · 秒级时间与竞价量柱修正版</div>
-      <p>集合竞价期间每秒刷新。分时图下方显示真实匹配量与未匹配量；异常时间点会直接丢弃，不再生成跨屏横线。</p>
+      <h1>股票详情页实时原型</h1><div class="version">网页版本 2026-06-26.3 · 竞价量上下分层版</div>
+      <p>未匹配量位于量图区上层，以红/绿面积显示；匹配量位于下层，以白柱显示，不再与未匹配量叠放。</p>
       <div class="group"><h2>实时数据</h2><input id="query" type="text" value="600667" placeholder="股票代码或名称" /><div class="buttons"><button class="primary" id="start">开始实时刷新</button><button id="stop">停止刷新</button></div><div class="data-status" id="dataStatus"><strong>未连接</strong>：页面不会用演示数据替代真实行情。</div></div>
       <div class="group"><h2>布局</h2><div class="control-row"><div class="control-head"><span>图表高度</span><span id="chartHeightText">510px</span></div><input id="chartHeight" type="range" min="400" max="650" value="510" /></div><div class="control-row"><div class="control-head"><span>盘口宽度</span><span id="orderWidthText">132px</span></div><input id="orderWidth" type="range" min="108" max="178" value="132" /></div><div class="control-row"><div class="control-head"><span>竞价量区高度</span><span id="volumeHeightText">24%</span></div><input id="volumeHeight" type="range" min="18" max="34" value="24" /></div></div>
     </aside>
@@ -305,27 +305,32 @@
       const ctx=canvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0); return {ctx,width:rect.width,height:rect.height};
     }
     function auctionBuckets(points,width) {
-      const buckets=new Map(), bucketSize=2;
+      const buckets=new Map(), bucketSize=1;
       points.forEach(point=>{
         const fraction=sessionX(point); if (fraction==null) return;
         const matched=point.matchedVolume, unmatched=point.unmatchedVolume;
         if (!(matched>0) && !(unmatched>0)) return;
         const pixel=Math.round((fraction*width)/bucketSize)*bucketSize;
-        const current=buckets.get(pixel) ?? {x:pixel,matched:0,unmatched:0,direction:"unavailable"};
+        const key=`${point.phase}:${pixel}`;
+        const current=buckets.get(key) ?? {x:pixel,phase:point.phase,matched:0,unmatched:0,direction:"unavailable"};
         if (matched>current.matched) current.matched=matched;
         if (unmatched>current.unmatched) { current.unmatched=unmatched; current.direction=point.unmatchedDirection; }
-        buckets.set(pixel,current);
+        buckets.set(key,current);
       });
       return [...buckets.values()].sort((a,b)=>a.x-b.x);
     }
     function drawChart() {
       const {ctx,width,height}=canvasContext(); ctx.clearRect(0,0,width,height);
       const volumeH=height*state.volumeFraction, gap=8, chartH=height-volumeH-gap, volumeTop=chartH+gap;
+      const unmatchedH=volumeH*.54, unmatchedBottom=volumeTop+unmatchedH;
+      const layerGap=5, matchedTop=unmatchedBottom+layerGap, matchedH=Math.max(1,height-matchedTop);
       for(let i=1;i<=4;i++){const yy=chartH*i/5;ctx.strokeStyle="rgba(255,255,255,.10)";ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,yy);ctx.lineTo(width,yy);ctx.stroke();}
       const openX=width*state.openWidth,closeX=width*(1-state.closeWidth),lunchX=width*(state.openWidth+(1-state.closeWidth-state.openWidth)*.50);
       ctx.fillStyle="rgba(245,247,255,.045)";ctx.fillRect(0,0,openX,chartH);ctx.fillStyle="rgba(141,249,234,.045)";ctx.fillRect(closeX,0,width-closeX,chartH);
       [openX,lunchX,closeX].forEach(x=>{ctx.strokeStyle="rgba(255,255,255,.13)";ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,height);ctx.stroke();});
       ctx.strokeStyle="rgba(255,255,255,.12)";ctx.beginPath();ctx.moveTo(0,volumeTop-3);ctx.lineTo(width,volumeTop-3);ctx.stroke();
+      ctx.strokeStyle="rgba(255,255,255,.085)";ctx.beginPath();ctx.moveTo(0,matchedTop-2.5);ctx.lineTo(width,matchedTop-2.5);ctx.stroke();
+      ctx.font="6.5px system-ui";ctx.textAlign="left";ctx.fillStyle="rgba(255,255,255,.30)";ctx.fillText("未匹配量",3,volumeTop+8);ctx.fillText("匹配量 / 成交量",3,matchedTop+8);
       const positioned=state.data.minutePoints.map(point=>({point,fraction:sessionX(point)})).filter(item=>item.fraction!=null);
       if(!positioned.length){ctx.fillStyle="rgba(255,255,255,.42)";ctx.font="12px system-ui";ctx.textAlign="center";ctx.fillText("暂无真实分时数据",width/2,chartH/2);return;}
       const points=positioned.map(item=>item.point), q=state.data.quote, previous=q.previousClose??points[0].price;
@@ -335,9 +340,11 @@
       ctx.save();ctx.setLineDash([5,5]);ctx.strokeStyle="rgba(255,255,255,.20)";ctx.beginPath();ctx.moveTo(0,y(previous));ctx.lineTo(width,y(previous));ctx.stroke();ctx.restore();
       const open=points.filter(point=>point.phase==="open"),continuous=points.filter(point=>point.phase==="continuous"),close=points.filter(point=>point.phase==="close");
       const continuousMax=Math.max(...continuous.map(point=>point.volume||0),1);
-      continuous.forEach(point=>{const xx=x(point),top=height-(point.volume/continuousMax)*volumeH*.82;ctx.strokeStyle=point.price>=previous?"rgba(255,143,143,.24)":"rgba(128,247,180,.22)";ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(xx,height);ctx.lineTo(xx,top);ctx.stroke();});
-      const bars=auctionBuckets([...open,...close],width),auctionMax=Math.max(...bars.flatMap(bar=>[bar.matched,bar.unmatched]),0);
-      if(auctionMax>0){bars.forEach(bar=>{if(bar.matched>0){const top=height-(bar.matched/auctionMax)*volumeH*.92;ctx.strokeStyle="rgba(243,245,255,.76)";ctx.lineWidth=1.25;ctx.beginPath();ctx.moveTo(bar.x-.8,height);ctx.lineTo(bar.x-.8,top);ctx.stroke();}if(bar.unmatched>0){const top=height-(bar.unmatched/auctionMax)*volumeH*.92;ctx.strokeStyle=bar.direction==="sell"?"rgba(128,247,180,.82)":"rgba(255,143,143,.82)";ctx.lineWidth=1.25;ctx.beginPath();ctx.moveTo(bar.x+.8,height);ctx.lineTo(bar.x+.8,top);ctx.stroke();}});}
+      continuous.forEach(point=>{const xx=x(point),top=height-(point.volume/continuousMax)*matchedH*.90;ctx.strokeStyle=point.price>=previous?"rgba(255,143,143,.24)":"rgba(128,247,180,.22)";ctx.lineWidth=1.1;ctx.beginPath();ctx.moveTo(xx,height);ctx.lineTo(xx,Math.max(matchedTop,top));ctx.stroke();});
+      const bars=auctionBuckets([...open,...close],width);
+      const unmatchedMax=Math.max(...bars.map(bar=>bar.unmatched),0), matchedMax=Math.max(...bars.map(bar=>bar.matched),0);
+      if(unmatchedMax>0){bars.forEach(bar=>{if(bar.unmatched<=0)return;const top=unmatchedBottom-(bar.unmatched/unmatchedMax)*unmatchedH*.92;ctx.strokeStyle=bar.direction==="sell"?"rgba(52,190,88,.88)":"rgba(255,62,55,.90)";ctx.lineWidth=1.7;ctx.beginPath();ctx.moveTo(bar.x,unmatchedBottom);ctx.lineTo(bar.x,Math.max(volumeTop,top));ctx.stroke();});}
+      if(matchedMax>0){bars.forEach(bar=>{if(bar.matched<=0)return;const top=height-(bar.matched/matchedMax)*matchedH*.92;ctx.strokeStyle="rgba(243,245,255,.82)";ctx.lineWidth=1.15;ctx.beginPath();ctx.moveTo(bar.x,height);ctx.lineTo(bar.x,Math.max(matchedTop,top));ctx.stroke();});}
       const line=(list,selector,color,lineWidth)=>{const valid=list.filter(point=>sessionX(point)!=null);if(valid.length<2)return;ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.lineCap="round";ctx.lineJoin="round";ctx.beginPath();valid.forEach((point,index)=>index?ctx.lineTo(x(point),y(selector(point))):ctx.moveTo(x(point),y(selector(point))));ctx.stroke();};
       const step=(list,color)=>{const valid=list.filter(point=>sessionX(point)!=null);if(!valid.length)return;ctx.strokeStyle=color;ctx.lineWidth=1.9;ctx.lineCap="square";ctx.beginPath();let previousPoint;valid.forEach((point,index)=>{if(!index)ctx.moveTo(x(point),y(point.price));else{ctx.lineTo(x(point),y(previousPoint.price));ctx.lineTo(x(point),y(point.price));}previousPoint=point;});ctx.stroke();};
       line(continuous,point=>point.average,"rgba(255,211,110,.90)",1.6);line(continuous,point=>point.price,(q.changePercent??0)>=0?"rgba(255,143,143,.98)":"rgba(128,247,180,.98)",2.5);step(open,"rgba(245,247,255,.96)");step(close,"rgba(141,249,234,.96)");
