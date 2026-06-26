@@ -400,7 +400,12 @@ private fun MirrorTimeShareChart(stock: StockDetailUiState, isFiveDay: Boolean, 
         }
         val points = positioned.map { it.point }
         val previousClose = stock.quote.previousClose.takeIf { it > 0f } ?: points.first().price
-        val values = points.flatMap { listOf(it.price, it.average) }
+        val values = buildList {
+            points.forEach { point ->
+                add(point.price)
+                if (mirrorPhase(point) == "continuous") add(point.average)
+            }
+        }
         val rawMin = values.minOrNull() ?: return@Canvas
         val rawMax = values.maxOrNull() ?: return@Canvas
         val minValue: Float
@@ -437,7 +442,14 @@ private fun MirrorTimeShareChart(stock: StockDetailUiState, isFiveDay: Boolean, 
             )
         }
         if (!isFiveDay) mirrorDrawAuctionVolumes(this, positioned, width, height, volumeTop, volumeHeight)
-        mirrorDrawMinutePath(positioned, ::xFor, { yFor(it.average) }, MirrorYellow.copy(alpha = 0.90f), 1.6.dp.toPx())
+        mirrorDrawMinutePath(
+            points = positioned,
+            xFor = ::xFor,
+            yFor = { yFor(it.average) },
+            color = MirrorYellow.copy(alpha = 0.90f),
+            strokeWidth = 1.6.dp.toPx(),
+            include = { mirrorPhase(it) == "continuous" }
+        )
         mirrorDrawMinutePath(positioned, ::xFor, { yFor(it.price) }, if (stock.quote.isRising) MirrorRise else MirrorFall, 2.4.dp.toPx())
         if (!isFiveDay) {
             val limitRatio = if (stock.quote.name.contains("ST", true)) 0.05f else 0.10f
@@ -568,12 +580,18 @@ private fun DrawScope.mirrorDrawMinutePath(
     xFor: (MirrorPositionedMinute) -> Float,
     yFor: (StockMinutePoint) -> Float,
     color: Color,
-    strokeWidth: Float
+    strokeWidth: Float,
+    include: (StockMinutePoint) -> Boolean = { true }
 ) {
     val path = Path()
     var started = false
     var lastSlot = -1
     points.forEach { item ->
+        if (!include(item.point)) {
+            started = false
+            lastSlot = item.daySlot
+            return@forEach
+        }
         val x = xFor(item)
         val y = yFor(item.point)
         if (!started || item.daySlot != lastSlot) {
