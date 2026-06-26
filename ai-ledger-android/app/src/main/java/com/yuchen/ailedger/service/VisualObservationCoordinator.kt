@@ -33,7 +33,8 @@ object RuntimeVisualCaptureOverlayController : VisualCaptureOverlayController {
 }
 
 data class VisualObservationTiming(
-    val fullVisualSettleMs: Long = 260L,
+    // 完整截图的无障碍采集层已经按隐藏租约的剩余时间等待；协调层不再重复固定等待。
+    val fullVisualSettleMs: Long = 0L,
     val nonVisualSettleMs: Long = 160L,
     val packageProbeSettleMs: Long = 160L,
     val openAppInitialSettleMs: Long = 260L,
