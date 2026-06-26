@@ -51,7 +51,7 @@ function renderAll(){renderTabs();renderQuote();renderOrderFlow();renderLegend()
 function drawKlineChart(){
   const{ctx,width,height}=canvasContext();ctx.clearRect(0,0,width,height);
   const candles=currentKlines(),windowData=klineWindow(candles),visible=windowData.visible,gap=8;
-  let indicatorHeight=clamp(height*.26,108,136),volumeHeight=clamp(height*.20,76,104),mainHeight=height-volumeHeight-indicatorHeight-gap*2;
+  let indicatorHeight=clamp(height*.26,108,136),volumeHeight=clamp(height*state.volumeFraction*.82,76,116),mainHeight=height-volumeHeight-indicatorHeight-gap*2;
   if(mainHeight<180){
     const shortage=180-mainHeight;
     indicatorHeight=Math.max(92,indicatorHeight-shortage*.58);
