@@ -18,6 +18,9 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
+import com.yuchen.ailedger.service.AgentOverlayService
+import com.yuchen.ailedger.service.AgentRuntimeController
+import com.yuchen.ailedger.service.VisualAgentHudOverlayService
 import com.yuchen.ailedger.ui.AccessibilitySilentComposeRoot
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
 import com.yuchen.ailedger.ui.StartupMetrics
@@ -62,11 +65,24 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         reinforceAccessibilityPerformanceShield(window.decorView)
+        ensureAgentOverlaysAfterPermissionReturn()
     }
 
     override fun onDestroy() {
         window.decorView.removeCallbacks(accessibilityShieldRunnable)
         super.onDestroy()
+    }
+
+    private fun ensureAgentOverlaysAfterPermissionReturn() {
+        val progress = AgentRuntimeController.progress.value
+        val shouldEnsureOverlays =
+            progress.enabled ||
+                progress.running ||
+                progress.pendingConfirmation != null ||
+                progress.pendingUserInput != null
+        if (!shouldEnsureOverlays || !AgentOverlayService.canDrawOverlays(this)) return
+        runCatching { AgentOverlayService.ensureStarted(this) }
+        VisualAgentHudOverlayService.ensureStarted(this)
     }
 
     private fun prepareWindow(window: Window) {
