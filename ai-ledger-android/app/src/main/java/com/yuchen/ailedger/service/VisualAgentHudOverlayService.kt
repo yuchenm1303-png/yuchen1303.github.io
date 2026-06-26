@@ -31,9 +31,11 @@ class VisualAgentHudOverlayService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var windowManager: WindowManager? = null
     private var webView: WebView? = null
+    private var layoutParams: WindowManager.LayoutParams? = null
     private var pageReady = false
     private var pendingPayload: String? = null
     private var lastClickRevision = 0L
+    private var overlayVisible = false
 
     override fun onCreate() {
         super.onCreate()
@@ -73,6 +75,7 @@ class VisualAgentHudOverlayService : Service() {
         scope.cancel()
         pageReady = false
         pendingPayload = null
+        overlayVisible = false
         webView?.let { view ->
             runCatching { windowManager?.removeView(view) }
             view.stopLoading()
@@ -82,6 +85,7 @@ class VisualAgentHudOverlayService : Service() {
             view.destroy()
         }
         webView = null
+        layoutParams = null
         super.onDestroy()
     }
 
@@ -116,10 +120,11 @@ class VisualAgentHudOverlayService : Service() {
                 builtInZoomControls = false
                 displayZoomControls = false
                 setSupportZoom(false)
+                textZoom = 100
                 mediaPlaybackRequiresUserGesture = true
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
                 @Suppress("DEPRECATION")
-                allowFileAccessFromFileURLs = false
+                allowFileAccessFromFileURLs = true
                 @Suppress("DEPRECATION")
                 allowUniversalAccessFromFileURLs = false
             }
@@ -155,17 +160,24 @@ class VisualAgentHudOverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = 0
             y = 0
-            alpha = 1f
+            // The full-opacity web rendering is enabled only while the HUD is actually visible.
+            // During screenshots, real actions and idle time the window alpha is zero, so Android
+            // does not treat the full-screen overlay as an obscuring touch surface.
+            alpha = 0f
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
         }
         runCatching { wm.addView(view, params) }
-            .onSuccess { webView = view }
+            .onSuccess {
+                webView = view
+                layoutParams = params
+            }
             .onFailure {
                 view.destroy()
                 webView = null
+                layoutParams = null
                 stopSelf()
             }
     }
@@ -175,7 +187,6 @@ class VisualAgentHudOverlayService : Service() {
         target: VisualAgentHudTarget?,
         hiddenForCapture: Boolean,
     ) {
-        val view = webView ?: return
         val matchingTarget = target?.takeIf { it.taskId == progress.taskId }
         val visible = !hiddenForCapture && (
             progress.running ||
@@ -183,8 +194,7 @@ class VisualAgentHudOverlayService : Service() {
                 progress.pendingUserInput != null ||
                 progress.userTakeoverPaused
             )
-        view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
-        if (visible) view.onResume() else view.onPause()
+        setOverlayActive(visible)
 
         val lastLog = progress.logs.lastOrNull().orEmpty()
         val phase = phaseOf(progress, matchingTarget, lastLog)
@@ -193,14 +203,29 @@ class VisualAgentHudOverlayService : Service() {
             lastLog.startsWith("结果：") &&
             progress.updatedAt > lastClickRevision
         if (resultPulse) lastClickRevision = progress.updatedAt
-        val payload = buildPayload(
-            progress = progress,
-            target = matchingTarget,
-            visible = visible,
-            phase = phase,
-            clickRevision = if (resultPulse) progress.updatedAt else 0L,
+        sendPayload(
+            buildPayload(
+                progress = progress,
+                target = matchingTarget,
+                visible = visible,
+                phase = phase,
+                clickRevision = if (resultPulse) progress.updatedAt else 0L,
+            )
         )
-        sendPayload(payload)
+    }
+
+    private fun setOverlayActive(visible: Boolean) {
+        val view = webView ?: return
+        if (overlayVisible == visible) return
+        overlayVisible = visible
+        view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
+        if (visible) view.onResume() else view.onPause()
+        val params = layoutParams ?: return
+        val nextAlpha = if (visible) 1f else 0f
+        if (params.alpha != nextAlpha) {
+            params.alpha = nextAlpha
+            runCatching { windowManager?.updateViewLayout(view, params) }
+        }
     }
 
     private fun phaseOf(
