@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
 <title>AI Ledger · 股票详情页多周期原型</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@dev-update-1/ai-ledger-android/stock-detail-web-preview.css?v=2026062615">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@aeb00afa939185240e138a79ab485c5a21ad5b85/ai-ledger-android/stock-detail-web-preview.css">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle">⚙</button>
@@ -75,8 +75,8 @@
 
   <aside class="controls">
     <h1>股票详情页实时原型</h1>
-    <div class="version">网页版本 2026-06-26.15 · 全屏自适应图表版</div>
-    <p>图表卡片现在直接占满行情卡片下方到手机底部导航上方的全部剩余空间。屏幕高度、行情头部高度或页签内容变化时，主图、成交量和技术副图会在同一可用区域内自动重新分配。</p>
+    <div class="version">网页版本 2026-06-26.16 · 指标等比分区版</div>
+    <p>现在不是让边框缩窄，而是在边框内部按可用高度重新分配区域：K线主图、成交量和技术指标共同铺满剩余空间，主图不会再无限挤占底部指标。</p>
     <div class="group">
       <h2>实时数据</h2>
       <input id="query" type="text" value="600667" placeholder="股票代码或名称">
@@ -85,9 +85,9 @@
     </div>
     <div class="group">
       <h2>布局与图表</h2>
-      <div class="control-row"><div class="control-head"><span>图表高度</span><span id="chartHeightText">自动适配</span></div><input id="chartHeight" type="range" min="400" max="650" value="510" disabled></div>
+      <div class="control-row"><div class="control-head"><span>图表总高度</span><span id="chartHeightText">自动适配</span></div><input id="chartHeight" type="range" min="400" max="650" value="510" disabled></div>
       <div class="control-row"><div class="control-head"><span>盘口宽度</span><span id="orderWidthText">132px</span></div><input id="orderWidth" type="range" min="108" max="178" value="132"></div>
-      <div class="control-row"><div class="control-head"><span>成交量区高度</span><span id="volumeHeightText">24%</span></div><input id="volumeHeight" type="range" min="18" max="34" value="24"></div>
+      <div class="control-row"><div class="control-head"><span>成交量占比</span><span id="volumeHeightText">24%</span></div><input id="volumeHeight" type="range" min="18" max="34" value="24"></div>
       <div class="control-row"><div class="control-head"><span>K线基准根数</span><span id="kBaseCountText">72根</span></div><input id="kBaseCount" type="range" min="36" max="120" value="72"></div>
     </div>
   </aside>
@@ -95,10 +95,10 @@
 <script>
 (async function bootstrapStockPrototype(){
   const status=document.getElementById('dataStatus');
-  const base='https://raw.githubusercontent.com/yuchenm1303-png/yuchen1303.github.io/dev-update-1/ai-ledger-android/';
+  const base='https://raw.githubusercontent.com/yuchenm1303-png/yuchen1303.github.io/aeb00afa939185240e138a79ab485c5a21ad5b85/ai-ledger-android/';
   const files=['stock-detail-web-core.js','stock-detail-web-charts.js','stock-detail-web-indicators.js','stock-detail-web-runtime.js'];
   try{
-    const responses=await Promise.all(files.map(file=>fetch(base+file+'?v=2026062615',{cache:'no-store'})));
+    const responses=await Promise.all(files.map(file=>fetch(base+file,{cache:'no-store'})));
     responses.forEach((response,index)=>{if(!response.ok)throw new Error(files[index]+' HTTP '+response.status)});
     const sources=await Promise.all(responses.map(response=>response.text()));
     new Function(sources.join('\n\n;\n\n')+'\n//# sourceURL=stock-detail-web-bundle.js')();
