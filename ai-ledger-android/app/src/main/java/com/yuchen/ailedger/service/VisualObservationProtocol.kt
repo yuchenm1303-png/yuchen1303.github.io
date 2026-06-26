@@ -315,7 +315,7 @@ object VisualObservationProtocol {
             append("visual:")
             append(visual.width).append('x').append(visual.height)
             append(':').append(visual.displayWidth).append('x').append(visual.displayHeight)
-            append(':').append(sha256(visual.base64Jpeg).take(VISUAL_DIGEST_CHARS))
+            append(':').append(VisualFrameDigestCache.digest(visual.base64Jpeg).take(VISUAL_DIGEST_CHARS))
         }
     }
 
