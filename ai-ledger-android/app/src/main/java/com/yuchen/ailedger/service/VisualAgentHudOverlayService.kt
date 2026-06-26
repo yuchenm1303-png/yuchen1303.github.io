@@ -50,8 +50,7 @@ class VisualAgentHudOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val previewRequested = tuningStore.state.value.previewEnabled
-        if ((!AgentOverlayService.isOverlaySwitchEnabled() && !previewRequested) || !canDrawOverlays(this)) {
+        if (!canDrawOverlays(this)) {
             stopSelf()
             return
         }
@@ -72,8 +71,7 @@ class VisualAgentHudOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val previewRequested = tuningStore.state.value.previewEnabled
-        if ((!AgentOverlayService.isOverlaySwitchEnabled() && !previewRequested) || !canDrawOverlays(this)) {
+        if (!canDrawOverlays(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -203,12 +201,7 @@ class VisualAgentHudOverlayService : Service() {
         val progress = snapshot.progress
         val tuning = snapshot.tuning
         val matchingTarget = snapshot.target?.takeIf { it.taskId == progress.taskId }
-        val realHudActive = AgentOverlayService.isOverlaySwitchEnabled() && (
-            progress.running ||
-                progress.pendingConfirmation != null ||
-                progress.pendingUserInput != null ||
-                progress.userTakeoverPaused
-            )
+        val realHudActive = shouldPresentRuntime(progress)
         val sampleMode = tuning.previewEnabled && !realHudActive
         val visible = !snapshot.hiddenForCapture && (realHudActive || sampleMode)
         setOverlayActive(visible)
@@ -378,16 +371,23 @@ class VisualAgentHudOverlayService : Service() {
         fun canDrawOverlays(context: Context): Boolean =
             Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
+        fun shouldPresentRuntime(progress: AgentOverlayProgress): Boolean =
+            progress.running ||
+                progress.pendingConfirmation != null ||
+                progress.pendingUserInput != null ||
+                progress.userTakeoverPaused
+
         fun ensureStarted(context: Context): Boolean {
             val appContext = context.applicationContext
-            val previewRequested = VisualAgentHudTuningStore.get(appContext).state.value.previewEnabled
-            if ((!AgentOverlayService.isOverlaySwitchEnabled() && !previewRequested) || !canDrawOverlays(appContext)) {
-                return false
-            }
+            if (!canDrawOverlays(appContext)) return false
             return runCatching {
                 appContext.startService(Intent(appContext, VisualAgentHudOverlayService::class.java))
                 true
             }.getOrDefault(false)
+        }
+
+        fun syncForProgress(context: Context, progress: AgentOverlayProgress) {
+            if (shouldPresentRuntime(progress)) ensureStarted(context)
         }
 
         fun stop(context: Context) {
