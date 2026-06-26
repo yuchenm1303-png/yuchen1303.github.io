@@ -4,8 +4,8 @@ import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicLong
 
 internal sealed interface NativeAgentStepPollResult {
-    data object Missing : NativeAgentStepPollResult
-    data object Pending : NativeAgentStepPollResult
+    object Missing : NativeAgentStepPollResult
+    object Pending : NativeAgentStepPollResult
     data class Ready(val payload: String) : NativeAgentStepPollResult
 }
 
