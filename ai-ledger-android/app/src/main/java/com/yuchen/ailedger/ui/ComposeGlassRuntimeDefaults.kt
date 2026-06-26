@@ -16,7 +16,7 @@ object ComposeGlassRuntimeDefaults {
 
     const val frost = 0.15f
     const val tint = 0.00f
-    const val quiet = 1.40f
+    const val quiet = 0.00f
     const val bodyAbsorption = 0.46f
     const val lowerBodyMass = 0.34f
     const val innerTransition = 0.24f
