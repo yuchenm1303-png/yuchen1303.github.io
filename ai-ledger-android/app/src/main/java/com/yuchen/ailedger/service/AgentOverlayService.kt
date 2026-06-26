@@ -257,12 +257,14 @@ class AgentOverlayService : Service() {
             background = chipBackground(Color.argb(42, 214, 228, 255), Color.argb(48, 235, 248, 255), 14f)
         }
         val openView = iconChip("↗") { openMainApp() }
+        val closeView = iconChip("×") { stop(this@AgentOverlayService) }
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(titleView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             addView(stateView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(26f)).apply { marginStart = dp(7f) })
             addView(openView, LinearLayout.LayoutParams(dp(32f), dp(28f)).apply { marginStart = dp(6f) })
+            addView(closeView, LinearLayout.LayoutParams(dp(32f), dp(28f)).apply { marginStart = dp(5f) })
         }
     }
 
@@ -338,7 +340,10 @@ class AgentOverlayService : Service() {
             background = chipBackground(Color.argb(38, 255, 255, 255), Color.argb(66, 215, 235, 255), 16f)
         }
         inputSecondaryView = capsuleButton("停止任务", ButtonTone.GhostWarm) {
-            AgentRuntimeController.cancelPendingUserInput()
+            when {
+                latestProgress.pendingUserInput != null -> AgentRuntimeController.cancelPendingUserInput()
+                latestProgress.userTakeoverPaused -> AgentRuntimeController.resumeFromUserTakeover()
+            }
         }
         inputPrimaryView = capsuleButton("发送给 GUI Plus", ButtonTone.PrimaryWarm) {
             submitPendingInteraction()
@@ -368,19 +373,39 @@ class AgentOverlayService : Service() {
     }
 
     private fun submitPendingInteraction() {
-        val pending = latestProgress.pendingUserInput ?: return
-        val submittedText = if (pending.sensitive) {
+        val pending = latestProgress.pendingUserInput
+        val takeoverDialogue = pending == null && latestProgress.userTakeoverPaused
+        if (pending == null && !takeoverDialogue) return
+
+        val submittedText = if (pending?.sensitive == true) {
             PRIVATE_COMPLETION_TOKEN
         } else {
             inputEditText?.text?.toString()?.trim().orEmpty()
         }
         if (submittedText.isBlank()) return
 
-        val visibleReply = if (pending.sensitive) {
+        val visibleReply = if (pending?.sensitive == true) {
             "已在目标应用中完成敏感输入"
         } else {
             submittedText.take(USER_REPLY_MAX_CHARS)
         }
+
+        if (takeoverDialogue) {
+            if (!AgentTakeoverDialogueBridge.submit(submittedText)) return
+            appendInteractionTurn(OverlayInteractionRole.User, visibleReply)
+            appendInteractionTurn(
+                OverlayInteractionRole.GuiPlus,
+                "补充已加入下一轮规划上下文。当前仍保持接管暂停，完成手动操作后点击“恢复执行”。",
+            )
+            inputEditText?.setText("")
+            hideKeyboard()
+            awaitingAgentReply = false
+            renderInteractionPanelIfNeeded(null, requestFocus = false)
+            lastRenderedLayoutState = null
+            refreshExpandedState()
+            return
+        }
+
         appendInteractionTurn(OverlayInteractionRole.User, visibleReply)
         inputEditText?.setText("")
         hideKeyboard()
@@ -396,7 +421,23 @@ class AgentOverlayService : Service() {
         if (progress.running && !previous.running && progress.pendingUserInput == null) {
             resetInteractionConversation()
         }
+        val enteredTakeover = progress.userTakeoverPaused && !previous.userTakeoverPaused
+        val leftTakeover = !progress.userTakeoverPaused && previous.userTakeoverPaused
         latestProgress = progress
+
+        if (enteredTakeover) {
+            expanded = true
+            awaitingAgentReply = false
+            appendInteractionTurn(
+                OverlayInteractionRole.GuiPlus,
+                "已暂停自动操作并进入接管模式。你可以在这里随时补充刚才完成的操作、页面变化或下一步要求。",
+            )
+        } else if (leftTakeover) {
+            appendInteractionTurn(
+                OverlayInteractionRole.GuiPlus,
+                "已恢复自动执行，接管期间发送的补充会优先进入下一轮 GUI Plus 规划。",
+            )
+        }
 
         val pending = progress.pendingConfirmation
         val pendingInput = progress.pendingUserInput
@@ -472,9 +513,12 @@ class AgentOverlayService : Service() {
         } else {
             lastRenderedConfirmation = null
         }
-        if (pendingInput != null || interactionTurns.isNotEmpty()) {
+        if (pendingInput != null || progress.userTakeoverPaused || interactionTurns.isNotEmpty()) {
             expanded = true
-            renderInteractionPanelIfNeeded(pendingInput, requestFocus = newPendingInput)
+            renderInteractionPanelIfNeeded(
+                pendingInput,
+                requestFocus = newPendingInput || enteredTakeover,
+            )
         }
         refreshExpandedState()
     }
@@ -483,20 +527,23 @@ class AgentOverlayService : Service() {
         pendingInput: AgentPendingUserInput?,
         requestFocus: Boolean,
     ) {
+        val takeoverDialogue = pendingInput == null && latestProgress.userTakeoverPaused
         val key = OverlayInteractionRenderKey(
             pendingInput = pendingInput,
             awaitingAgentReply = awaitingAgentReply,
+            takeoverPaused = takeoverDialogue,
             revision = interactionRevision,
         )
         if (key == lastRenderedInteractionKey) return
         // Input focusability is part of WindowManager state. Invalidate the layout cache whenever
-        // a pending input changes, even if all panel visibility booleans remain identical.
+        // a pending input or takeover dialogue changes, even if panel visibility is unchanged.
         lastRenderedLayoutState = null
 
         inputTitleView.setTextIfChanged(
             when {
                 pendingInput?.sensitive == true -> "需要你完成隐私操作"
                 pendingInput != null -> pendingInput.title.ifBlank { "与 GUI Plus 沟通" }
+                takeoverDialogue -> "接管中 · 与 GUI Plus 沟通"
                 awaitingAgentReply -> "与 GUI Plus 沟通"
                 else -> "GUI Plus 对话记录"
             }
@@ -505,25 +552,39 @@ class AgentOverlayService : Service() {
         val transcriptChanged = inputConversationView?.text?.toString() != transcript
         inputConversationView.setTextIfChanged(transcript)
         inputAwaitingView.setVisibilityIfChanged(
-            if (awaitingAgentReply && pendingInput == null) View.VISIBLE else View.GONE
+            if (awaitingAgentReply && pendingInput == null && !takeoverDialogue) View.VISIBLE else View.GONE
         )
         inputPrivateHintView.setVisibilityIfChanged(
             if (pendingInput?.sensitive == true) View.VISIBLE else View.GONE
         )
         inputEditText.setVisibilityIfChanged(
-            if (pendingInput != null && !pendingInput.sensitive) View.VISIBLE else View.GONE
+            if ((pendingInput != null && !pendingInput.sensitive) || takeoverDialogue) View.VISIBLE else View.GONE
         )
-        inputButtonsRow.setVisibilityIfChanged(if (pendingInput != null) View.VISIBLE else View.GONE)
-        val hint = pendingInput?.hint?.takeIf { it.isNotBlank() }
-            ?: "可以分行说明你的选择、条件或补充信息"
+        inputButtonsRow.setVisibilityIfChanged(
+            if (pendingInput != null || takeoverDialogue) View.VISIBLE else View.GONE
+        )
+        val hint = when {
+            takeoverDialogue -> "告诉 GUI Plus 你刚才做了什么，或下一步希望怎样处理"
+            else -> pendingInput?.hint?.takeIf { it.isNotBlank() }
+                ?: "可以分行说明你的选择、条件或补充信息"
+        }
         if (inputEditText?.hint?.toString() != hint) inputEditText?.hint = hint
         inputPrimaryView.setTextIfChanged(
-            if (pendingInput?.sensitive == true) "已完成，继续" else "发送给 GUI Plus"
+            when {
+                takeoverDialogue -> "发送给 GUI Plus"
+                pendingInput?.sensitive == true -> "已完成，继续"
+                else -> "发送给 GUI Plus"
+            }
         )
         inputSecondaryView.setTextIfChanged(
-            pendingInput?.negativeText?.takeIf { it.isNotBlank() } ?: "停止任务"
+            when {
+                takeoverDialogue -> "恢复执行"
+                else -> pendingInput?.negativeText?.takeIf { it.isNotBlank() } ?: "停止任务"
+            }
         )
-        if (requestFocus && pendingInput != null && !pendingInput.sensitive) requestInputFocus()
+        if (requestFocus && ((pendingInput != null && !pendingInput.sensitive) || takeoverDialogue)) {
+            requestInputFocus()
+        }
         if (transcriptChanged) {
             inputConversationScroll?.post { inputConversationScroll?.fullScroll(View.FOCUS_DOWN) }
         }
@@ -577,11 +638,11 @@ class AgentOverlayService : Service() {
         val interactionActive = hasInteraction && (pendingInput != null || awaitingAgentReply || latestProgress.running)
         val forceExpanded = pending != null || pendingInput != null || paused || interactionActive
         val shouldExpand = expanded || forceExpanded
-        val showLogs = shouldExpand && !hasInteraction && latestProgress.logs.isNotEmpty() && !hidden
+        val showLogs = shouldExpand && !hasInteraction && !paused && latestProgress.logs.isNotEmpty() && !hidden
         val state = OverlayLayoutState(
             showContent = shouldExpand && !hidden,
             showConfirmation = shouldExpand && pending != null && !hidden,
-            showInput = shouldExpand && hasInteraction && !hidden,
+            showInput = shouldExpand && (hasInteraction || paused) && !hidden,
             showLogs = showLogs,
             showCollapse = pending == null && pendingInput == null && !paused && !awaitingAgentReply,
             showTakeover = latestProgress.running && !paused && pending == null && pendingInput == null && !awaitingAgentReply,
@@ -626,7 +687,9 @@ class AgentOverlayService : Service() {
         val params = layoutParams ?: return
         val view = rootView ?: return
         val pendingInput = latestProgress.pendingUserInput
-        val wantsInputFocus = pendingInput != null && !pendingInput.sensitive && !touchThrough
+        val wantsInputFocus = !touchThrough && (
+            (pendingInput != null && !pendingInput.sensitive) || latestProgress.userTakeoverPaused
+        )
         val newFlags = overlayWindowFlags(touchThrough, wantsInputFocus)
         if (params.flags == newFlags) return
         params.flags = newFlags
@@ -963,6 +1026,7 @@ private data class OverlayInteractionTurn(
 private data class OverlayInteractionRenderKey(
     val pendingInput: AgentPendingUserInput?,
     val awaitingAgentReply: Boolean,
+    val takeoverPaused: Boolean,
     val revision: Long,
 )
 
