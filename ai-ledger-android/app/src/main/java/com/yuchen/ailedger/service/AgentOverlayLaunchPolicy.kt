@@ -78,9 +78,14 @@ internal object AgentOverlayLaunchPolicy {
                     lastObservedHelpRequestId = pendingId
                     if (!manualEnabled && dismissedHelpRequestId != pendingId) {
                         activeHelpRequestId = pendingId
-                        shouldStart = true
                     }
                 }
+                // Starting is idempotent. Rechecking the same active request lets the overlay appear
+                // after the user returns from Android's permission page, while a manually dismissed
+                // request remains suppressed until GUI Plus creates a new request id.
+                shouldStart = !manualEnabled &&
+                    activeHelpRequestId == pendingId &&
+                    dismissedHelpRequestId != pendingId
             } else {
                 lastObservedHelpRequestId = 0L
                 dismissedHelpRequestId = 0L
