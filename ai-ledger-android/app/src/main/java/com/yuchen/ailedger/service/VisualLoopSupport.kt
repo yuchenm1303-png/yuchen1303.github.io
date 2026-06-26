@@ -18,20 +18,53 @@ internal object VisualLoopSupport {
     const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
 
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
+        if (step.type == "tap_node") {
+            val declaredTarget = step.targetText?.trim().orEmpty()
+            if (declaredTarget.isNotBlank()) {
+                val terms = declaredTargetTerms(declaredTarget)
+                val selectedBounds = (snapshot.clickableNodes + snapshot.allNodes.filter(AgentScreenNode::clickable))
+                    .distinctBy { "${it.text}|${it.bounds}|${it.className}" }
+                    .mapNotNull { node ->
+                        val bounds = parseBounds(node.bounds) ?: return@mapNotNull null
+                        val score = targetMatchScore(node.text, terms)
+                        score.takeIf { it > 0 }?.let { scoreValue -> bounds to scoreValue }
+                    }
+                    .maxByOrNull { it.second }
+                    ?.first
+                if (selectedBounds != null) {
+                    VisualAgentHudRuntime.notePlannedTarget(
+                        step = step,
+                        x = selectedBounds.centerX,
+                        y = selectedBounds.centerY,
+                    )
+                }
+            }
+            return step
+        }
         if (step.type != "tap_xy") return step
         val x = step.x ?: return step
         val y = step.y ?: return step
-        val visual = snapshot.visual ?: return step
-        val width = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 } ?: return step
-        val height = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 } ?: return step
-        val pixelX = (x * width).coerceIn(0f, width.toFloat())
-        val pixelY = (y * height).coerceIn(0f, height.toFloat())
-        return groundDeclaredTapTarget(
-            step = step.copy(x = pixelX, y = pixelY),
-            snapshot = snapshot,
-            displayWidth = width,
-            displayHeight = height,
-        )
+        val visual = snapshot.visual
+        val materialized = if (visual == null) {
+            step
+        } else {
+            val width = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 }
+            val height = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 }
+            if (width == null || height == null) {
+                step
+            } else {
+                val pixelX = (x * width).coerceIn(0f, width.toFloat())
+                val pixelY = (y * height).coerceIn(0f, height.toFloat())
+                groundDeclaredTapTarget(
+                    step = step.copy(x = pixelX, y = pixelY),
+                    snapshot = snapshot,
+                    displayWidth = width,
+                    displayHeight = height,
+                )
+            }
+        }
+        VisualAgentHudRuntime.notePlannedStep(materialized)
+        return materialized
     }
 
     private fun groundDeclaredTapTarget(
@@ -144,6 +177,9 @@ internal object VisualLoopSupport {
         val right: Float,
         val bottom: Float,
     ) {
+        val centerX: Float get() = (left + right) / 2f
+        val centerY: Float get() = (top + bottom) / 2f
+
         fun contains(x: Float, y: Float): Boolean = x in left..right && y in top..bottom
 
         fun distanceTo(x: Float, y: Float): Float {
