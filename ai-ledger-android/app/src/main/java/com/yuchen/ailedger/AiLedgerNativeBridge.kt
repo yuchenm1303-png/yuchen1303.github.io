@@ -25,6 +25,9 @@ class AiLedgerNativeBridge(
 
     @JavascriptInterface
     fun getCapabilities(): String {
+        val bridgeAgentActions = (CloudAgentStep.accessibilityStepTypes + "open_app")
+            .sorted()
+            .joinToString(",")
         return JSONObject()
             .put("nativeGlass", true)
             .put("haptic", true)
@@ -38,7 +41,7 @@ class AiLedgerNativeBridge(
             .put("agentExecuteStep", true)
             .put("agentExecuteStepAsync", true)
             .put("agentStepResultPolling", true)
-            .put("agentActions", CloudAgentStep.supportedTypes.sorted().joinToString(","))
+            .put("agentActions", bridgeAgentActions)
             .put("glassModes", "basic,blur,liquid,safe")
             .toString()
     }
