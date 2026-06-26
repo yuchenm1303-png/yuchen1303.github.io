@@ -108,6 +108,9 @@
     innerGlow.setAttribute('opacity',number(parameters.innerGlowOpacity,.09));
     innerBlurNode.setAttribute('stdDeviation',number(parameters.innerGlowBlur,2.5));
 
+    setCss('--info-bubble-width',parameters.infoBubbleWidth,'px');
+    setCss('--info-bubble-scale',parameters.infoBubbleScale);
+
     setCss('--edge-inset',parameters.edgeInset,'px');
     setCss('--edge-radius',parameters.edgeRadius,'px');
     setCss('--edge-halo-width',parameters.edgeHaloWidth,'px');
