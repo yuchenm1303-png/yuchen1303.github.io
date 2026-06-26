@@ -1,0 +1,1124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>AI Ledger · 股票详情页网页原型</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --phone-w: 430px;
+      --screen-h: 920px;
+      --chart-h: 470px;
+      --order-w: 132px;
+      --open-auction-w: .14;
+      --close-auction-w: .05;
+      --glass-alpha: .66;
+      --glass-radius: 30px;
+      --ui-scale: 1;
+      --rise: #ff8f8f;
+      --fall: #80f7b4;
+      --aqua: #8df9ea;
+      --yellow: #ffd36e;
+      --text: rgba(255,255,255,.96);
+      --muted: rgba(255,255,255,.52);
+      --soft: rgba(255,255,255,.34);
+      --line: rgba(255,255,255,.095);
+      --tile: rgba(255,255,255,.045);
+      --phone-pad: 12px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: #040719; }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 16% 24%, rgba(0,112,255,.34), transparent 32%),
+        radial-gradient(circle at 80% 78%, rgba(255,105,135,.28), transparent 28%),
+        linear-gradient(150deg, #030617 0%, #07102e 48%, #171230 100%);
+    }
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+    }
+    body::before {
+      opacity: .82;
+      background:
+        linear-gradient(112deg, transparent 9%, rgba(55,159,255,.22) 13%, transparent 25%),
+        linear-gradient(147deg, transparent 44%, rgba(250,205,235,.18) 49%, transparent 56%),
+        linear-gradient(172deg, transparent 65%, rgba(255,145,172,.18) 70%, transparent 78%);
+    }
+    body::after {
+      background-image:
+        radial-gradient(circle, rgba(255,255,255,.88) 0 1px, transparent 1.4px),
+        radial-gradient(circle, rgba(141,249,234,.65) 0 1px, transparent 1.5px);
+      background-size: 183px 197px, 271px 239px;
+      background-position: 18px 31px, 121px 107px;
+      opacity: .28;
+    }
+
+    button, input, textarea { font: inherit; }
+    button { color: inherit; }
+
+    .workspace {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(360px, var(--phone-w)) 330px;
+      justify-content: center;
+      align-items: start;
+      gap: 22px;
+      width: min(100%, 1120px);
+      margin: 0 auto;
+      padding: 22px 16px 36px;
+    }
+
+    .phone-shell {
+      width: var(--phone-w);
+      max-width: calc(100vw - 24px);
+      height: var(--screen-h);
+      position: sticky;
+      top: 14px;
+      overflow: hidden;
+      border-radius: 38px;
+      border: 1px solid rgba(255,255,255,.16);
+      background: linear-gradient(180deg, rgba(2,6,25,.98), rgba(5,11,39,.98));
+      box-shadow:
+        0 34px 90px rgba(0,0,0,.52),
+        inset 0 1px 0 rgba(255,255,255,.12);
+    }
+    .phone-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 12% 72%, rgba(0,122,255,.42), transparent 32%),
+        radial-gradient(circle at 82% 88%, rgba(255,110,135,.34), transparent 30%),
+        linear-gradient(180deg, rgba(0,5,24,.02), rgba(0,5,24,.16));
+      pointer-events: none;
+      z-index: 0;
+    }
+    .phone-shell::after {
+      content: "";
+      position: absolute;
+      inset: auto -10% -3% -10%;
+      height: 28%;
+      background:
+        linear-gradient(168deg, transparent 9%, rgba(76,170,255,.34) 12%, transparent 22%),
+        linear-gradient(14deg, transparent 42%, rgba(255,188,222,.24) 48%, transparent 58%),
+        linear-gradient(170deg, transparent 63%, rgba(255,115,140,.36) 69%, transparent 78%);
+      filter: blur(1px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .screen {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: none;
+      padding: 0 var(--phone-pad) 116px;
+      transform-origin: top center;
+      font-size: calc(16px * var(--ui-scale));
+    }
+    .screen::-webkit-scrollbar { display: none; }
+
+    .status-bar {
+      height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 8px 0;
+      font-weight: 900;
+      font-size: 11px;
+      color: rgba(255,255,255,.94);
+    }
+    .status-left, .status-right { display: flex; align-items: center; gap: 7px; }
+    .status-carriers { line-height: 1.05; font-size: 8px; }
+    .time { font-size: 20px; letter-spacing: -.04em; }
+    .status-icons { letter-spacing: .12em; font-size: 12px; white-space: nowrap; }
+    .battery {
+      border: 1.4px solid rgba(255,255,255,.82);
+      border-radius: 4px;
+      padding: 1px 4px;
+      font-size: 9px;
+      position: relative;
+    }
+
+    .glass-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--glass-radius);
+      border: 1px solid rgba(255,255,255,.15);
+      background:
+        linear-gradient(180deg, rgba(18,24,67,var(--glass-alpha)), rgba(7,14,48,calc(var(--glass-alpha) * .82)));
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.10),
+        inset 0 -28px 60px rgba(20,75,180,.06),
+        0 16px 36px rgba(0,0,0,.22);
+      backdrop-filter: blur(20px) saturate(1.08);
+    }
+    .glass-card::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(circle at 86% 35%, rgba(140,171,255,.10), transparent 22%),
+        linear-gradient(130deg, transparent 66%, rgba(255,255,255,.045), transparent 77%);
+    }
+    .section { margin-top: 10px; }
+
+    .quote-card { padding: 14px; }
+    .quote-main {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0,1fr) auto;
+      gap: 10px;
+      align-items: start;
+    }
+    .stock-name {
+      margin: 0;
+      font-size: 31px;
+      line-height: 1.05;
+      letter-spacing: -.055em;
+      font-weight: 950;
+    }
+    .stock-code {
+      margin-top: 8px;
+      color: rgba(255,255,255,.46);
+      font-size: 11px;
+      font-weight: 850;
+    }
+    .source-line {
+      margin-top: 8px;
+      color: rgba(141,249,234,.58);
+      font-size: 9px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 260px;
+    }
+    .price-block { text-align: right; min-width: 135px; }
+    .price {
+      color: var(--rise);
+      font-size: 40px;
+      line-height: .98;
+      font-weight: 950;
+      letter-spacing: -.045em;
+    }
+    .change {
+      color: var(--rise);
+      margin-top: 7px;
+      font-weight: 950;
+      font-size: 14px;
+    }
+    .amount-line { color: rgba(255,255,255,.42); font-size: 9px; margin-top: 5px; }
+    .divider { height: 1px; background: var(--line); margin: 13px 0 11px; }
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 9px;
+      position: relative;
+      z-index: 1;
+    }
+    .metric {
+      min-width: 0;
+      height: 58px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: var(--tile);
+      padding: 9px 9px 8px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .metric-label { color: rgba(255,255,255,.36); font-size: 8px; font-weight: 800; }
+    .metric-value {
+      font-size: 12px;
+      font-weight: 950;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .rise { color: var(--rise) !important; }
+    .fall { color: var(--fall) !important; }
+    .aqua { color: var(--aqua) !important; }
+    .yellow { color: var(--yellow) !important; }
+
+    .chart-card { padding: 13px; }
+    .chart-tabs {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 7px;
+      position: relative;
+      z-index: 2;
+    }
+    .pill {
+      border: 1px solid rgba(255,255,255,.07);
+      background: rgba(255,255,255,.065);
+      border-radius: 999px;
+      height: 38px;
+      font-size: 10px;
+      font-weight: 950;
+      cursor: pointer;
+    }
+    .pill.active {
+      background: rgba(255,255,255,.20);
+      border-color: rgba(141,249,234,.18);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.12);
+    }
+    .chart-legend {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 34px;
+      position: relative;
+      z-index: 2;
+      font-size: 9px;
+      font-weight: 900;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .chart-legend .title { color: rgba(255,255,255,.58); }
+    .chart-legend .spacer { flex: 1; min-width: 2px; }
+    .legend-status { color: rgba(141,249,234,.58); overflow: hidden; text-overflow: ellipsis; }
+
+    .terminal {
+      height: var(--chart-h);
+      display: grid;
+      grid-template-columns: minmax(0,1fr) var(--order-w);
+      gap: 8px;
+      position: relative;
+      z-index: 2;
+    }
+    .chart-column {
+      min-width: 0;
+      height: 100%;
+      display: grid;
+      grid-template-rows: minmax(0,1fr) 16px 18px;
+    }
+    .chart-wrap { min-height: 0; position: relative; }
+    #timeChart { width: 100%; height: 100%; display: block; }
+    .axis {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: rgba(255,255,255,.34);
+      font-size: 7px;
+      line-height: 1;
+      user-select: none;
+    }
+    .auction-caption {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      color: rgba(255,255,255,.34);
+      font-size: 6.6px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .auction-caption span:last-child { margin-left: auto; color: rgba(141,249,234,.50); }
+
+    .order-panel {
+      min-width: 0;
+      height: 100%;
+      border: 1px solid rgba(255,255,255,.085);
+      border-radius: 15px;
+      background: rgba(255,255,255,.035);
+      padding: 7px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0,1fr) auto minmax(0,.62fr);
+      gap: 6px;
+      overflow: hidden;
+    }
+    .order-head, .ticks-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-width: 0;
+    }
+    .order-title { font-size: 10px; font-weight: 950; }
+    .order-status { font-size: 7px; color: var(--aqua); font-weight: 900; }
+    .order-columns {
+      display: grid;
+      grid-template-columns: 24px 1fr 36px;
+      color: rgba(255,255,255,.30);
+      font-size: 6.5px;
+      text-align: right;
+    }
+    .order-columns span:first-child { text-align: left; }
+    .depth-list, .ticks-list { min-height: 0; display: flex; flex-direction: column; }
+    .depth-list { justify-content: space-between; }
+    .ticks-list { justify-content: space-evenly; }
+    .depth-row, .tick-row {
+      display: grid;
+      grid-template-columns: 24px 1fr 36px;
+      align-items: center;
+      min-width: 0;
+      gap: 1px;
+      line-height: 1.15;
+    }
+    .depth-row { font-size: 8px; }
+    .tick-row { grid-template-columns: 30px 1fr 32px; font-size: 7px; }
+    .depth-label, .tick-time { color: rgba(255,255,255,.37); }
+    .depth-price, .tick-price { text-align: right; font-size: 9px; font-weight: 950; }
+    .depth-volume, .tick-volume { text-align: right; color: rgba(255,255,255,.62); overflow: hidden; text-overflow: ellipsis; }
+    .spread-line { height: 2px; background: rgba(141,249,234,.58); border-radius: 99px; margin: 2px 0; }
+    .ticks-divider { height: 1px; background: var(--line); }
+    .ticks-head .order-title { font-size: 9px; }
+
+    .action-card { padding: 12px; }
+    .action-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 7px; }
+    .action-row button {
+      height: 42px;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 999px;
+      background: rgba(255,255,255,.075);
+      font-size: 9px;
+      font-weight: 950;
+    }
+    .info-card { padding: 14px; }
+    .section-title { font-size: 14px; font-weight: 950; }
+    .section-subtitle { color: rgba(255,255,255,.42); font-size: 8px; margin-top: 3px; }
+    .summary { color: rgba(255,255,255,.66); font-size: 10px; line-height: 1.55; margin-top: 9px; }
+    .mini-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; margin-top: 9px; }
+    .mini {
+      min-width: 0;
+      height: 48px;
+      border-radius: 15px;
+      background: var(--tile);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .mini label { color: rgba(255,255,255,.35); font-size: 7px; }
+    .mini b { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .bottom-nav {
+      position: absolute;
+      z-index: 5;
+      left: 16px;
+      right: 16px;
+      bottom: 12px;
+      height: 72px;
+      display: grid;
+      grid-template-columns: repeat(3,1fr);
+      align-items: stretch;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 999px;
+      overflow: hidden;
+      background: linear-gradient(90deg, rgba(106,139,255,.30), rgba(218,173,255,.28), rgba(255,122,137,.37));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 18px 42px rgba(0,0,0,.28);
+      backdrop-filter: blur(18px) saturate(1.12);
+    }
+    .nav-item {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: rgba(255,255,255,.48);
+      font-size: 9px;
+      font-weight: 900;
+      border-right: 1px solid rgba(255,255,255,.08);
+    }
+    .nav-item:last-child { border-right: 0; }
+    .nav-item .icon { font-size: 17px; line-height: 1; margin-bottom: 6px; }
+    .nav-item.active {
+      color: rgba(255,255,255,.96);
+      background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.18), transparent 64%);
+    }
+
+    .control-panel {
+      position: sticky;
+      top: 14px;
+      max-height: calc(100vh - 28px);
+      overflow-y: auto;
+      border-radius: 26px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: linear-gradient(180deg, rgba(13,22,54,.88), rgba(7,12,34,.82));
+      backdrop-filter: blur(22px);
+      box-shadow: 0 24px 70px rgba(0,0,0,.36), inset 0 1px 0 rgba(255,255,255,.11);
+      padding: 16px;
+      scrollbar-width: thin;
+    }
+    .control-panel h1 { margin: 0; font-size: 20px; letter-spacing: -.035em; }
+    .control-panel .desc { margin: 7px 0 15px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .control-group { border-top: 1px solid rgba(255,255,255,.08); padding: 13px 0; }
+    .control-group h2 { margin: 0 0 10px; font-size: 12px; }
+    .control { margin: 9px 0; }
+    .control-head { display: flex; justify-content: space-between; gap: 8px; font-size: 10px; color: rgba(255,255,255,.66); }
+    .control-output { color: var(--aqua); font-weight: 900; }
+    input[type=range] { width: 100%; accent-color: #8df9ea; }
+    .control-panel input[type=text] {
+      width: 100%;
+      border: 1px solid rgba(255,255,255,.12);
+      color: white;
+      background: rgba(255,255,255,.06);
+      border-radius: 12px;
+      padding: 10px 11px;
+      outline: none;
+      font-size: 11px;
+    }
+    .control-buttons { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; margin-top: 10px; }
+    .control-buttons button {
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.075);
+      border-radius: 999px;
+      padding: 10px;
+      font-size: 10px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .control-buttons button.primary { background: rgba(141,249,234,.14); border-color: rgba(141,249,234,.22); }
+    .data-status {
+      margin-top: 9px;
+      border-radius: 13px;
+      background: rgba(255,255,255,.05);
+      padding: 9px;
+      font-size: 9px;
+      line-height: 1.45;
+      color: rgba(255,255,255,.52);
+    }
+    .data-status strong { color: var(--aqua); }
+    .copy-output {
+      width: 100%; min-height: 96px; resize: vertical;
+      color: rgba(255,255,255,.74);
+      background: rgba(0,0,0,.20);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: 12px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 9px;
+      outline: none;
+    }
+
+    .mobile-controls-toggle { display: none; }
+
+    @media (max-width: 850px) {
+      body { background: #030719; }
+      .workspace { display: block; padding: 0; width: 100%; }
+      .phone-shell {
+        position: relative;
+        top: 0;
+        width: 100vw;
+        max-width: none;
+        height: 100dvh;
+        border: 0;
+        border-radius: 0;
+      }
+      .control-panel {
+        position: fixed;
+        z-index: 20;
+        left: 10px;
+        right: 10px;
+        top: 54px;
+        max-height: calc(100dvh - 70px);
+        transform: translateY(-120%);
+        transition: transform .25s ease;
+      }
+      body.controls-open .control-panel { transform: translateY(0); }
+      .mobile-controls-toggle {
+        display: grid;
+        place-items: center;
+        position: fixed;
+        right: 12px;
+        top: 10px;
+        z-index: 30;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid rgba(255,255,255,.16);
+        background: rgba(12,22,54,.70);
+        backdrop-filter: blur(12px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-controls-toggle" id="mobileControls">⚙</button>
+  <main class="workspace">
+    <section class="phone-shell" aria-label="股票详情页移动端预览">
+      <div class="screen" id="screen">
+        <header class="status-bar">
+          <div class="status-left">
+            <span class="status-carriers">中国移动<br>中国电信</span>
+            <span class="time">4:33</span>
+            <span>◧</span><span>◉</span>
+          </div>
+          <div class="status-right">
+            <span class="status-icons">⌁ ◉ Ⓝ ◌ 4G▮▮▮ 4G▮▮▮</span>
+            <span class="battery">42</span>
+          </div>
+        </header>
+
+        <section class="glass-card quote-card">
+          <div class="quote-main">
+            <div>
+              <h1 class="stock-name" id="stockName">太极实业</h1>
+              <div class="stock-code"><span id="stockCode">600667</span> · <span id="market">沪a</span></div>
+              <div class="source-line" id="sourceLine">A股统一实时行情 · 1日 · push2delay.eastmoney.com · 盘口实时</div>
+            </div>
+            <div class="price-block">
+              <div class="price" id="price">26.88</div>
+              <div class="change"><span id="changeAmount">+1.57</span>&nbsp;&nbsp;<span id="changePercent">+6.20%</span></div>
+              <div class="amount-line">成交额 <span id="amountTop">144.89亿</span></div>
+            </div>
+          </div>
+          <div class="divider"></div>
+          <div class="metric-grid" id="metrics"></div>
+        </section>
+
+        <section class="glass-card chart-card section">
+          <div class="chart-tabs" id="chartTabs">
+            <button class="pill active" data-tab="分时">分时</button>
+            <button class="pill" data-tab="日K">日K</button>
+            <button class="pill" data-tab="周K">周K</button>
+            <button class="pill" data-tab="月K">月K</button>
+            <button class="pill" data-tab="五日">五日</button>
+          </div>
+          <div class="chart-legend">
+            <span class="title" id="legendTitle">分时 · 首尾集合竞价</span>
+            <span class="yellow">均价 <b id="avgPrice">27.44</b></span>
+            <span class="rise">最新 <b id="latestPrice">26.88</b></span>
+            <span class="spacer"></span>
+            <span class="legend-status" id="auctionStatus">真实竞价轨迹</span>
+            <span class="rise" id="legendChange">+6.20%</span>
+          </div>
+          <div class="terminal">
+            <div class="chart-column">
+              <div class="chart-wrap"><canvas id="timeChart"></canvas></div>
+              <div class="axis" id="axisLabels">
+                <span>09:15</span><span>09:25</span><span>11:30/13:00</span><span>14:57</span><span>15:00</span>
+              </div>
+              <div class="auction-caption">
+                <span>白线：开盘竞价匹配价</span>
+                <span>青线：尾盘竞价</span>
+              </div>
+            </div>
+            <aside class="order-panel">
+              <div class="order-head">
+                <span class="order-title">五档盘口</span>
+                <span class="order-status">实时</span>
+              </div>
+              <div class="order-columns"><span>盘口</span><span>价格</span><span>手</span></div>
+              <div class="depth-list" id="depthList"></div>
+              <div>
+                <div class="ticks-divider"></div>
+                <div class="ticks-head" style="margin-top:6px">
+                  <span class="order-title">逐笔成交</span>
+                  <span class="order-status">明细</span>
+                </div>
+              </div>
+              <div class="ticks-list" id="ticksList"></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="glass-card action-card section">
+          <div class="action-row">
+            <button>加自选</button><button>预警</button><button>诊股</button><button>买入</button><button>卖出</button>
+          </div>
+        </section>
+
+        <section class="glass-card info-card section">
+          <div class="section-title">AI 看盘摘要</div>
+          <div class="section-subtitle">结合真实分时、首尾集合竞价、五档盘口、逐笔与资金数据</div>
+          <div class="summary">股价维持强势区间，但尾盘从日内高位回落。观察开盘竞价成交强度、尾盘竞价方向以及买一至买五承接变化，避免只依据单一涨跌幅判断。</div>
+          <div class="divider"></div>
+          <div class="section-title">资金流向</div>
+          <div class="mini-grid">
+            <div class="mini"><label>主力</label><b class="rise">1.82亿</b></div>
+            <div class="mini"><label>超大单</label><b class="rise">1.20亿</b></div>
+            <div class="mini"><label>大单</label><b class="rise">6200万</b></div>
+            <div class="mini"><label>中单</label><b class="fall">-3100万</b></div>
+            <div class="mini"><label>小单</label><b class="fall">-1.51亿</b></div>
+            <div class="mini"><label>数据状态</label><b class="aqua">真实快照</b></div>
+          </div>
+        </section>
+      </div>
+
+      <nav class="bottom-nav">
+        <div class="nav-item"><span class="icon">AI</span><span>AI助手</span></div>
+        <div class="nav-item active"><span class="icon">✦</span><span>功能</span></div>
+        <div class="nav-item"><span class="icon">⚙</span><span>设置</span></div>
+      </nav>
+    </section>
+
+    <aside class="control-panel">
+      <h1>股票详情页网页原型</h1>
+      <p class="desc">当前 App 详情页的网页镜像。先在这里调分时图、首尾集合竞价、右侧五档与下方逐笔，再把确认后的参数回写 Compose。</p>
+
+      <div class="control-group">
+        <h2>真实数据</h2>
+        <div class="control"><input id="stockQuery" type="text" value="600667" placeholder="股票代码或名称" /></div>
+        <div class="control-buttons">
+          <button class="primary" id="loadLive">加载后端数据</button>
+          <button id="loadSample">恢复内置快照</button>
+        </div>
+        <div class="data-status" id="dataStatus"><strong>内置快照</strong>：用于稳定复现当前 App 版式；点击加载后端数据可尝试读取真实实时接口。</div>
+      </div>
+
+      <div class="control-group">
+        <h2>布局参数</h2>
+        <div class="control">
+          <div class="control-head"><span>手机预览宽度</span><span class="control-output" data-output="phoneWidth">430px</span></div>
+          <input type="range" min="390" max="520" value="430" step="1" data-var="--phone-w" data-unit="px" data-key="phoneWidth" />
+        </div>
+        <div class="control">
+          <div class="control-head"><span>分时终端高度</span><span class="control-output" data-output="chartHeight">470px</span></div>
+          <input type="range" min="360" max="620" value="470" step="2" data-var="--chart-h" data-unit="px" data-key="chartHeight" />
+        </div>
+        <div class="control">
+          <div class="control-head"><span>右侧盘口宽度</span><span class="control-output" data-output="orderWidth">132px</span></div>
+          <input type="range" min="108" max="178" value="132" step="1" data-var="--order-w" data-unit="px" data-key="orderWidth" />
+        </div>
+        <div class="control">
+          <div class="control-head"><span>开盘竞价占宽</span><span class="control-output" data-output="openWidth">14%</span></div>
+          <input type="range" min="8" max="24" value="14" step="1" data-special="openAuction" data-key="openWidth" />
+        </div>
+        <div class="control">
+          <div class="control-head"><span>尾盘竞价占宽</span><span class="control-output" data-output="closeWidth">5%</span></div>
+          <input type="range" min="3" max="12" value="5" step="1" data-special="closeAuction" data-key="closeWidth" />
+        </div>
+      </div>
+
+      <div class="control-group">
+        <h2>玻璃与密度</h2>
+        <div class="control">
+          <div class="control-head"><span>玻璃透明度</span><span class="control-output" data-output="glassAlpha">0.66</span></div>
+          <input type="range" min="40" max="90" value="66" step="1" data-special="glassAlpha" data-key="glassAlpha" />
+        </div>
+        <div class="control">
+          <div class="control-head"><span>卡片圆角</span><span class="control-output" data-output="radius">30px</span></div>
+          <input type="range" min="18" max="40" value="30" step="1" data-var="--glass-radius" data-unit="px" data-key="radius" />
+        </div>
+        <div class="control">
+          <div class="control-head"><span>整体字号比例</span><span class="control-output" data-output="uiScale">1.00</span></div>
+          <input type="range" min="85" max="118" value="100" step="1" data-special="uiScale" data-key="uiScale" />
+        </div>
+        <div class="control-buttons">
+          <button id="resetControls">恢复默认参数</button>
+          <button class="primary" id="copyParams">复制参数</button>
+        </div>
+        <textarea class="copy-output" id="paramOutput" spellcheck="false" readonly></textarea>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const DEFAULT_DATA = {
+      quote: {
+        name: "太极实业", code: "600667", market: "沪a", price: 26.88,
+        changeAmount: 1.57, changePercent: 6.20, high: 27.84, low: 26.20,
+        open: 26.29, previousClose: 25.31, amount: "144.89亿",
+        turnoverRate: "25.24%", volumeRatio: "2.00", totalMarketValue: "562.21亿",
+        source: "A股统一实时行情 · 1日 · push2delay.eastmoney.com · 盘口实时"
+      },
+      minutePoints: [
+        {time:"09:15", price:25.31, average:25.31, volume:1800, phase:"open"},
+        {time:"09:16", price:25.40, average:25.36, volume:2100, phase:"open"},
+        {time:"09:17", price:25.64, average:25.44, volume:2600, phase:"open"},
+        {time:"09:18", price:26.02, average:25.58, volume:3400, phase:"open"},
+        {time:"09:19", price:26.56, average:25.78, volume:4600, phase:"open"},
+        {time:"09:20", price:27.10, average:26.05, volume:7200, phase:"open"},
+        {time:"09:21", price:27.84, average:26.38, volume:9800, phase:"open"},
+        {time:"09:22", price:27.72, average:26.63, volume:8600, phase:"open"},
+        {time:"09:23", price:27.55, average:26.81, volume:7600, phase:"open"},
+        {time:"09:24", price:27.08, average:26.90, volume:9200, phase:"open"},
+        {time:"09:25", price:26.29, average:26.29, volume:14400, phase:"open"},
+        {time:"09:30", price:26.48, average:26.36, volume:29800, phase:"continuous"},
+        {time:"09:34", price:27.62, average:26.83, volume:21800, phase:"continuous"},
+        {time:"09:38", price:27.70, average:27.03, volume:18800, phase:"continuous"},
+        {time:"09:42", price:27.38, average:27.18, volume:9400, phase:"continuous"},
+        {time:"09:47", price:27.72, average:27.29, volume:7600, phase:"continuous"},
+        {time:"09:52", price:27.61, average:27.36, volume:6400, phase:"continuous"},
+        {time:"09:58", price:27.42, average:27.40, volume:5600, phase:"continuous"},
+        {time:"10:04", price:27.55, average:27.43, volume:6200, phase:"continuous"},
+        {time:"10:10", price:27.12, average:27.44, volume:4800, phase:"continuous"},
+        {time:"10:16", price:26.83, average:27.45, volume:11600, phase:"continuous"},
+        {time:"10:22", price:27.33, average:27.45, volume:7200, phase:"continuous"},
+        {time:"10:28", price:27.21, average:27.45, volume:4300, phase:"continuous"},
+        {time:"10:34", price:27.02, average:27.44, volume:4100, phase:"continuous"},
+        {time:"10:40", price:26.88, average:27.44, volume:3900, phase:"continuous"},
+        {time:"10:46", price:27.18, average:27.44, volume:3500, phase:"continuous"},
+        {time:"10:52", price:27.52, average:27.45, volume:8800, phase:"continuous"},
+        {time:"10:58", price:27.16, average:27.45, volume:4500, phase:"continuous"},
+        {time:"11:04", price:26.96, average:27.44, volume:3600, phase:"continuous"},
+        {time:"11:10", price:26.82, average:27.44, volume:3400, phase:"continuous"},
+        {time:"11:16", price:26.76, average:27.43, volume:3200, phase:"continuous"},
+        {time:"11:22", price:26.92, average:27.43, volume:2900, phase:"continuous"},
+        {time:"11:30", price:26.84, average:27.43, volume:3800, phase:"continuous"},
+        {time:"13:00", price:27.08, average:27.43, volume:6200, phase:"continuous"},
+        {time:"13:08", price:27.56, average:27.44, volume:9800, phase:"continuous"},
+        {time:"13:16", price:27.84, average:27.45, volume:13200, phase:"continuous"},
+        {time:"13:24", price:27.42, average:27.45, volume:5400, phase:"continuous"},
+        {time:"13:32", price:27.11, average:27.45, volume:4700, phase:"continuous"},
+        {time:"13:40", price:27.27, average:27.45, volume:4200, phase:"continuous"},
+        {time:"13:48", price:27.05, average:27.44, volume:3900, phase:"continuous"},
+        {time:"13:56", price:26.94, average:27.44, volume:3500, phase:"continuous"},
+        {time:"14:04", price:27.02, average:27.44, volume:3300, phase:"continuous"},
+        {time:"14:12", price:26.91, average:27.44, volume:3100, phase:"continuous"},
+        {time:"14:20", price:27.03, average:27.44, volume:3700, phase:"continuous"},
+        {time:"14:28", price:26.88, average:27.44, volume:3400, phase:"continuous"},
+        {time:"14:36", price:26.96, average:27.44, volume:3600, phase:"continuous"},
+        {time:"14:44", price:26.86, average:27.44, volume:4600, phase:"continuous"},
+        {time:"14:52", price:26.72, average:27.44, volume:8200, phase:"continuous"},
+        {time:"14:56", price:26.74, average:27.44, volume:11800, phase:"continuous"},
+        {time:"14:57", price:27.01, average:27.44, volume:2227, phase:"close"},
+        {time:"14:58", price:26.97, average:27.44, volume:3040, phase:"close"},
+        {time:"14:59", price:26.91, average:27.44, volume:4270, phase:"close"},
+        {time:"15:00", price:26.88, average:27.44, volume:63600, phase:"close"}
+      ],
+      sellLevels: [
+        {label:"卖5", price:"26.92", volume:"2712"},
+        {label:"卖4", price:"26.91", volume:"898"},
+        {label:"卖3", price:"26.90", volume:"4568"},
+        {label:"卖2", price:"26.89", volume:"416"},
+        {label:"卖1", price:"26.88", volume:"1.43万"}
+      ],
+      buyLevels: [
+        {label:"买1", price:"26.87", volume:"142"},
+        {label:"买2", price:"26.86", volume:"189"},
+        {label:"买3", price:"26.85", volume:"440"},
+        {label:"买4", price:"26.84", volume:"45"},
+        {label:"买5", price:"26.83", volume:"133"}
+      ],
+      ticks: [
+        {time:"14:52", price:"26.89", volume:"818", buy:false},
+        {time:"14:53", price:"26.88", volume:"1026", buy:false},
+        {time:"14:54", price:"26.90", volume:"924", buy:true},
+        {time:"14:55", price:"26.92", volume:"1570", buy:true},
+        {time:"14:56", price:"27.00", volume:"2236", buy:true},
+        {time:"14:56", price:"27.00", volume:"2735", buy:false},
+        {time:"14:57", price:"27.01", volume:"2227", buy:false},
+        {time:"15:00", price:"26.88", volume:"6.36万", buy:false}
+      ]
+    };
+
+    let data = structuredClone(DEFAULT_DATA);
+    const state = { openWidth: .14, closeWidth: .05 };
+    const root = document.documentElement;
+
+    const $ = (selector) => document.querySelector(selector);
+    const $$ = (selector) => [...document.querySelectorAll(selector)];
+    const fmt = (value, digits = 2) => Number(value).toFixed(digits);
+    const signed = (value, suffix = "") => `${Number(value) >= 0 ? "+" : ""}${fmt(value)}${suffix}`;
+    const parseNum = value => {
+      if (typeof value === "number") return value;
+      if (value == null) return NaN;
+      return Number(String(value).replace(/[,%亿万手]/g, ""));
+    };
+
+    function sessionX(time) {
+      const [h,m] = String(time).slice(-5).split(":").map(Number);
+      const minute = h * 60 + m;
+      const openStart = 9*60+15, openEnd = 9*60+25, morningStart = 9*60+30;
+      const morningEnd = 11*60+30, afternoonStart = 13*60, closeStart = 14*60+57, dayEnd = 15*60;
+      const openW = state.openWidth;
+      const closeW = state.closeWidth;
+      const continuousEnd = 1 - closeW;
+      const morningSplit = openW + (continuousEnd - openW) * .50;
+      if (minute <= openEnd) return Math.max(0, Math.min(openW, (minute-openStart)/(openEnd-openStart)*openW));
+      if (minute <= morningEnd) return openW + (minute-morningStart)/(morningEnd-morningStart)*(morningSplit-openW);
+      if (minute < closeStart) return morningSplit + (minute-afternoonStart)/(closeStart-afternoonStart)*(continuousEnd-morningSplit);
+      return continuousEnd + (minute-closeStart)/(dayEnd-closeStart)*closeW;
+    }
+
+    function renderQuote() {
+      const q = data.quote;
+      const rising = q.changePercent >= 0;
+      const toneClass = rising ? "rise" : "fall";
+      $("#stockName").textContent = q.name;
+      $("#stockCode").textContent = q.code;
+      $("#market").textContent = q.market;
+      $("#sourceLine").textContent = q.source || "A股统一实时行情";
+      $("#price").textContent = fmt(q.price);
+      $("#price").className = `price ${toneClass}`;
+      $("#changeAmount").textContent = signed(q.changeAmount);
+      $("#changePercent").textContent = signed(q.changePercent, "%");
+      $("#changeAmount").parentElement.className = `change ${toneClass}`;
+      $("#amountTop").textContent = q.amount;
+      $("#avgPrice").textContent = fmt(data.minutePoints.at(-1)?.average ?? q.price);
+      $("#latestPrice").textContent = fmt(q.price);
+      $("#latestPrice").parentElement.className = toneClass;
+      $("#legendChange").textContent = signed(q.changePercent, "%");
+      $("#legendChange").className = toneClass;
+      const metrics = [
+        ["高", fmt(q.high), "rise"], ["低", fmt(q.low), "fall"], ["开", fmt(q.open), ""], ["昨收", fmt(q.previousClose), ""],
+        ["成交额", q.amount, ""], ["换手", q.turnoverRate, ""], ["量比", q.volumeRatio, rising ? "rise" : "fall"], ["总市值", q.totalMarketValue, ""]
+      ];
+      $("#metrics").innerHTML = metrics.map(([label,value,cls]) => `
+        <div class="metric"><span class="metric-label">${label}</span><span class="metric-value ${cls}">${value}</span></div>
+      `).join("");
+    }
+
+    function renderDepth() {
+      const sells = data.sellLevels.slice(0,5);
+      const buys = data.buyLevels.slice(0,5);
+      const rows = [
+        ...sells.map(x => ({...x, ask:true})),
+        {spread:true},
+        ...buys.map(x => ({...x, ask:false}))
+      ];
+      $("#depthList").innerHTML = rows.map(row => row.spread
+        ? `<div class="spread-line"></div>`
+        : `<div class="depth-row"><span class="depth-label">${row.label}</span><span class="depth-price ${row.ask ? "rise" : "fall"}">${row.price}</span><span class="depth-volume">${row.volume}</span></div>`
+      ).join("");
+      $("#ticksList").innerHTML = data.ticks.slice(-8).map(tick => `
+        <div class="tick-row"><span class="tick-time">${tick.time}</span><span class="tick-price ${tick.buy ? "rise" : "fall"}">${tick.price}</span><span class="tick-volume">${tick.volume}</span></div>
+      `).join("");
+    }
+
+    function setupCanvas(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const width = Math.max(1, Math.round(rect.width * dpr));
+      const height = Math.max(1, Math.round(rect.height * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width; canvas.height = height;
+      }
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      return {ctx, width: rect.width, height: rect.height};
+    }
+
+    function drawChart() {
+      const canvas = $("#timeChart");
+      const {ctx, width, height} = setupCanvas(canvas);
+      ctx.clearRect(0,0,width,height);
+      const points = data.minutePoints;
+      if (!points.length) return;
+      const chartH = height * .78;
+      const volumeTop = chartH + 7;
+      const volumeH = Math.max(1, height - volumeTop);
+      const q = data.quote;
+      const prev = q.previousClose;
+      const values = points.flatMap(p => [p.price, p.phase === "continuous" ? p.average : p.price]);
+      const maxDelta = Math.max(...values.map(v => Math.abs(v-prev)), prev*.003, .01)*1.08;
+      const minV = prev-maxDelta, maxV = prev+maxDelta;
+      const y = value => chartH - ((value-minV)/(maxV-minV))*chartH;
+      const x = point => sessionX(point.time)*width;
+
+      ctx.lineWidth = 1;
+      for (let i=1;i<=4;i++) {
+        const yy = chartH*i/5;
+        ctx.strokeStyle = "rgba(255,255,255,.10)";
+        ctx.beginPath(); ctx.moveTo(0,yy); ctx.lineTo(width,yy); ctx.stroke();
+      }
+      const openX = width*state.openWidth;
+      const closeX = width*(1-state.closeWidth);
+      const lunchX = width*(state.openWidth + (1-state.closeWidth-state.openWidth)*.50);
+      ctx.fillStyle = "rgba(245,247,255,.045)"; ctx.fillRect(0,0,openX,chartH);
+      ctx.fillStyle = "rgba(141,249,234,.045)"; ctx.fillRect(closeX,0,width-closeX,chartH);
+      [openX,lunchX,closeX].forEach(xx => {
+        ctx.strokeStyle = "rgba(255,255,255,.13)"; ctx.beginPath(); ctx.moveTo(xx,0); ctx.lineTo(xx,height); ctx.stroke();
+      });
+
+      const prevY = y(prev);
+      ctx.save(); ctx.setLineDash([5,5]); ctx.strokeStyle="rgba(255,255,255,.20)";
+      ctx.beginPath(); ctx.moveTo(0,prevY); ctx.lineTo(width,prevY); ctx.stroke(); ctx.restore();
+
+      const maxVolume = Math.max(...points.map(p => p.volume || 0),1);
+      points.forEach(p => {
+        const xx = x(p); const top = volumeTop + volumeH*(1-(p.volume/maxVolume));
+        ctx.strokeStyle = p.price >= prev ? "rgba(255,143,143,.28)" : "rgba(128,247,180,.26)";
+        ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(xx,height); ctx.lineTo(xx,top); ctx.stroke();
+      });
+
+      const open = points.filter(p => p.phase === "open");
+      const continuous = points.filter(p => p.phase === "continuous");
+      const close = points.filter(p => p.phase === "close");
+
+      function linePath(list, selector, color, lineWidth=2.3) {
+        if (list.length < 2) return;
+        ctx.strokeStyle = color; ctx.lineWidth=lineWidth; ctx.lineCap="round"; ctx.lineJoin="round";
+        ctx.beginPath();
+        list.forEach((p,i) => { const xx=x(p), yy=y(selector(p)); i ? ctx.lineTo(xx,yy) : ctx.moveTo(xx,yy); });
+        ctx.stroke();
+      }
+      function stepPath(list, color, lineWidth=1.9) {
+        if (!list.length) return;
+        ctx.strokeStyle=color; ctx.lineWidth=lineWidth; ctx.lineCap="square"; ctx.lineJoin="miter";
+        ctx.beginPath();
+        let prevPoint;
+        list.forEach((p,i) => {
+          const xx=x(p), yy=y(p.price);
+          if (!i) ctx.moveTo(xx,yy); else { ctx.lineTo(xx,y(prevPoint.price)); ctx.lineTo(xx,yy); }
+          prevPoint=p;
+        });
+        ctx.stroke();
+      }
+      linePath(continuous,p=>p.average,"rgba(255,211,110,.90)",1.6);
+      linePath(continuous,p=>p.price,q.changePercent>=0?"rgba(255,143,143,.98)":"rgba(128,247,180,.98)",2.5);
+      stepPath(open,"rgba(245,247,255,.96)",1.9);
+      stepPath(close,"rgba(141,249,234,.96)",2.0);
+
+      const hasOpen = open.length > 0, hasClose = close.length > 0;
+      $("#auctionStatus").textContent = hasOpen && hasClose ? "真实竞价轨迹" : "开收盘定价回退";
+    }
+
+    function normalizeRealtimePayload(root) {
+      const payload = root?.data ?? root?.payload ?? root ?? {};
+      const quoteRaw = payload.quote ?? root.quote ?? payload.stock ?? {};
+      const minuteRaw = payload.minutePoints ?? payload.minute ?? payload.minutes ?? payload.trends ?? [];
+      const sellRaw = payload.sellLevels ?? payload.sell ?? payload.asks ?? payload.depth?.sellLevels ?? [];
+      const buyRaw = payload.buyLevels ?? payload.buy ?? payload.bids ?? payload.depth?.buyLevels ?? [];
+      const tickRaw = payload.tradeTicks ?? payload.ticks ?? payload.details ?? [];
+      const q = {
+        name: quoteRaw.name ?? quoteRaw.stockName ?? data.quote.name,
+        code: quoteRaw.code ?? quoteRaw.stockCode ?? data.quote.code,
+        market: quoteRaw.market ?? quoteRaw.marketName ?? data.quote.market,
+        price: parseNum(quoteRaw.price ?? quoteRaw.latestPrice ?? quoteRaw.current),
+        changeAmount: parseNum(quoteRaw.changeAmount ?? quoteRaw.change),
+        changePercent: parseNum(quoteRaw.changePercent ?? quoteRaw.changePct),
+        high: parseNum(quoteRaw.high), low: parseNum(quoteRaw.low), open: parseNum(quoteRaw.open),
+        previousClose: parseNum(quoteRaw.previousClose ?? quoteRaw.preClose),
+        amount: quoteRaw.amount ?? quoteRaw.turnoverAmount ?? data.quote.amount,
+        turnoverRate: quoteRaw.turnoverRate ?? data.quote.turnoverRate,
+        volumeRatio: quoteRaw.volumeRatio ?? data.quote.volumeRatio,
+        totalMarketValue: quoteRaw.totalMarketValue ?? quoteRaw.marketValue ?? data.quote.totalMarketValue,
+        source: payload.dataSourceLabel ?? root.dataSourceLabel ?? data.quote.source
+      };
+      Object.keys(q).forEach(k => { if ((typeof q[k] === "number") && !Number.isFinite(q[k])) q[k] = data.quote[k]; });
+      const minutePoints = Array.isArray(minuteRaw) ? minuteRaw.map(item => {
+        const time = item.time ?? item.datetime ?? item.timestamp ?? "";
+        const price = parseNum(item.price ?? item.close ?? item.current);
+        const average = parseNum(item.average ?? item.avgPrice ?? item.averagePrice ?? price);
+        const volume = parseNum(item.volume ?? item.volumeRatio ?? item.amount ?? 0);
+        const hm = String(time).slice(-5);
+        const phase = hm <= "09:25" ? "open" : hm >= "14:57" ? "close" : "continuous";
+        return {time: hm, price, average, volume: Number.isFinite(volume) ? volume : 0, phase};
+      }).filter(p => Number.isFinite(p.price) && p.time.includes(":")) : [];
+      const normalizeLevel = (item,index,prefix) => ({
+        label: item.label ?? `${prefix}${index+1}`,
+        price: String(item.price ?? "--"), volume: String(item.volume ?? item.amount ?? "--")
+      });
+      const normalizeTick = item => ({
+        time: String(item.time ?? item.timestamp ?? "").slice(-5), price: String(item.price ?? "--"),
+        volume: String(item.volume ?? item.amount ?? "--"),
+        buy: Boolean(item.isBuy ?? String(item.direction ?? "").includes("买"))
+      });
+      return {
+        quote: q,
+        minutePoints: minutePoints.length ? minutePoints : data.minutePoints,
+        sellLevels: (Array.isArray(sellRaw)?sellRaw:[]).slice(0,5).map((x,i)=>normalizeLevel(x,i,"卖")),
+        buyLevels: (Array.isArray(buyRaw)?buyRaw:[]).slice(0,5).map((x,i)=>normalizeLevel(x,i,"买")),
+        ticks: (Array.isArray(tickRaw)?tickRaw:[]).slice(-12).map(normalizeTick)
+      };
+    }
+
+    async function loadLiveData() {
+      const query = $("#stockQuery").value.trim() || "600667";
+      const status = $("#dataStatus");
+      status.innerHTML = `<strong>加载中</strong>：正在请求真实统一实时行情…`;
+      const controller = new AbortController();
+      const timer = setTimeout(()=>controller.abort(), 15000);
+      try {
+        const url = `https://ai-ledger-stock-proxy.onrender.com/api/stock/a-share/realtime?query=${encodeURIComponent(query)}&ndays=1`;
+        const response = await fetch(url, {signal: controller.signal, cache:"no-store"});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const rootJson = await response.json();
+        data = normalizeRealtimePayload(rootJson);
+        renderAll();
+        status.innerHTML = `<strong>真实后端</strong>：已加载 ${data.quote.name} ${data.quote.code}，页面仅绘制接口返回的真实分钟、盘口和逐笔数据。`;
+      } catch (error) {
+        status.innerHTML = `<strong>加载失败</strong>：${error.name === "AbortError" ? "请求超时" : error.message}。仍保留内置稳定快照，网页布局可继续调试。`;
+      } finally { clearTimeout(timer); }
+    }
+
+    function renderAll() { renderQuote(); renderDepth(); requestAnimationFrame(drawChart); }
+
+    function updateParamOutput() {
+      const output = {
+        phoneWidthDp: parseFloat(getComputedStyle(root).getPropertyValue("--phone-w")),
+        timeTerminalHeightDp: parseFloat(getComputedStyle(root).getPropertyValue("--chart-h")),
+        rightOrderPanelWidthDp: parseFloat(getComputedStyle(root).getPropertyValue("--order-w")),
+        openAuctionWidthRatio: state.openWidth,
+        closeAuctionWidthRatio: state.closeWidth,
+        glassAlpha: parseFloat(getComputedStyle(root).getPropertyValue("--glass-alpha")),
+        cardRadiusDp: parseFloat(getComputedStyle(root).getPropertyValue("--glass-radius")),
+        uiScale: parseFloat(getComputedStyle(root).getPropertyValue("--ui-scale")),
+        orderFlowLayout: "right-column: five-level-depth above trade-ticks"
+      };
+      $("#paramOutput").value = JSON.stringify(output,null,2);
+      localStorage.setItem("stock-detail-preview-v1", JSON.stringify(output));
+    }
+
+    function applySaved() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("stock-detail-preview-v1") || "null");
+        if (!saved) return;
+        const map = {
+          phoneWidth: ["phoneWidthDp", "--phone-w", "px"], chartHeight:["timeTerminalHeightDp","--chart-h","px"],
+          orderWidth:["rightOrderPanelWidthDp","--order-w","px"], radius:["cardRadiusDp","--glass-radius","px"]
+        };
+        Object.entries(map).forEach(([key,[field,cssVar,unit]]) => {
+          if (saved[field] == null) return;
+          root.style.setProperty(cssVar, saved[field]+unit);
+          const input = $(`[data-key="${key}"]`); if (input) input.value=saved[field];
+          const out = $(`[data-output="${key}"]`); if (out) out.textContent=saved[field]+unit;
+        });
+        if (saved.openAuctionWidthRatio != null) { state.openWidth=saved.openAuctionWidthRatio; const v=Math.round(state.openWidth*100); $("[data-special=openAuction]").value=v; $("[data-output=openWidth]").textContent=v+"%"; }
+        if (saved.closeAuctionWidthRatio != null) { state.closeWidth=saved.closeAuctionWidthRatio; const v=Math.round(state.closeWidth*100); $("[data-special=closeAuction]").value=v; $("[data-output=closeWidth]").textContent=v+"%"; }
+        if (saved.glassAlpha != null) { root.style.setProperty("--glass-alpha",saved.glassAlpha); const v=Math.round(saved.glassAlpha*100); $("[data-special=glassAlpha]").value=v; $("[data-output=glassAlpha]").textContent=saved.glassAlpha.toFixed(2); }
+        if (saved.uiScale != null) { root.style.setProperty("--ui-scale",saved.uiScale); const v=Math.round(saved.uiScale*100); $("[data-special=uiScale]").value=v; $("[data-output=uiScale]").textContent=saved.uiScale.toFixed(2); }
+      } catch (_) {}
+    }
+
+    $$('input[type="range"]').forEach(input => input.addEventListener("input", () => {
+      const value = Number(input.value);
+      if (input.dataset.var) {
+        root.style.setProperty(input.dataset.var, value + (input.dataset.unit || ""));
+        $(`[data-output="${input.dataset.key}"]`).textContent = value + (input.dataset.unit || "");
+      } else if (input.dataset.special === "openAuction") {
+        state.openWidth = value/100; $(`[data-output="${input.dataset.key}"]`).textContent=value+"%"; drawChart();
+      } else if (input.dataset.special === "closeAuction") {
+        state.closeWidth = value/100; $(`[data-output="${input.dataset.key}"]`).textContent=value+"%"; drawChart();
+      } else if (input.dataset.special === "glassAlpha") {
+        root.style.setProperty("--glass-alpha", value/100); $(`[data-output="${input.dataset.key}"]`).textContent=(value/100).toFixed(2);
+      } else if (input.dataset.special === "uiScale") {
+        root.style.setProperty("--ui-scale", value/100); $(`[data-output="${input.dataset.key}"]`).textContent=(value/100).toFixed(2);
+      }
+      updateParamOutput(); requestAnimationFrame(drawChart);
+    }));
+
+    $("#loadLive").addEventListener("click", loadLiveData);
+    $("#loadSample").addEventListener("click", () => {
+      data = structuredClone(DEFAULT_DATA); renderAll();
+      $("#dataStatus").innerHTML = `<strong>内置快照</strong>：已恢复太极实业稳定参考数据。`;
+    });
+    $("#resetControls").addEventListener("click", () => {
+      localStorage.removeItem("stock-detail-preview-v1"); location.reload();
+    });
+    $("#copyParams").addEventListener("click", async () => {
+      updateParamOutput();
+      await navigator.clipboard?.writeText($("#paramOutput").value);
+      $("#copyParams").textContent="已复制";
+      setTimeout(()=>$("#copyParams").textContent="复制参数",1000);
+    });
+    $("#mobileControls").addEventListener("click", () => document.body.classList.toggle("controls-open"));
+    $("#chartTabs").addEventListener("click", event => {
+      const button = event.target.closest("button"); if (!button) return;
+      $$("#chartTabs .pill").forEach(x=>x.classList.toggle("active",x===button));
+      const tab = button.dataset.tab;
+      $("#legendTitle").textContent = tab === "分时" ? "分时 · 首尾集合竞价" : tab === "五日" ? "五日分时" : `${tab}历史行情（网页阶段先保留分时结构）`;
+    });
+    new ResizeObserver(()=>drawChart()).observe($(".chart-wrap"));
+    window.addEventListener("resize",()=>requestAnimationFrame(drawChart));
+
+    applySaved(); renderAll(); updateParamOutput();
+  </script>
+</body>
+</html>
