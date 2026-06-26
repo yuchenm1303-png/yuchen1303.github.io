@@ -44,7 +44,7 @@ internal class CleanVisualCaptureState(
     }
 }
 
-internal class CleanVisualCaptureLease(
+class CleanVisualCaptureLease internal constructor(
     private val release: () -> Unit,
 ) : AutoCloseable {
     private val closed = AtomicBoolean(false)
