@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>视觉智能体运行 HUD</title>
+<link rel="stylesheet" href="visual_agent_hud_base.css">
+<link rel="stylesheet" href="visual_agent_hud_cursor.css">
+</head>
+<body>
+<div class="app" id="app" data-mode="detail">
+  <section class="hud">
+    <div class="edge-aurora" id="ambientBand" aria-hidden="true">
+      <!-- Blur-only edge effect: cast + halo; no crisp source/runner/specular layers. -->
+      <div class="edge-aurora-layer edge-aurora-cast"></div>
+      <div class="edge-aurora-layer edge-aurora-halo"></div>
+      <div class="edge-aurora-vignette"></div>
+    </div>
+
+    <div class="hud-top">
+      <span class="pulse"></span>
+      <strong id="topTitle">正在分析页面</strong>
+      <span id="topMeta">Step 3 / 5</span>
+    </div>
+
+    <div class="cursor-wrap" id="cursor">
+      <div class="cursor-aura"></div>
+
+      <svg class="cursor-icon" id="cursorSvg" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <path id="mouseCursorShape" d="M 7.8 7.8 C 8.91 5.71, 13.83 7.17, 20.4 10.4 C 26.97 13.63, 49.02 25.34, 51.1 29.1 C 53.18 32.86, 37.42 31.38, 34.1 35.2 C 30.78 39.02, 30.93 52.78, 29.2 54.3 C 27.47 55.82, 25.14 49.77, 22.7 45.2 C 20.26 40.63, 15.36 29.87, 13.1 24.2 C 10.84 18.53, 6.69 9.89, 7.8 7.8 Z"/>
+
+          <linearGradient id="mouseCursorBase" x1="9" y1="9" x2="42" y2="55" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#2EF1FF"/>
+            <stop offset=".23" stop-color="#69E9FF"/>
+            <stop offset=".54" stop-color="#EDF7FF"/>
+            <stop offset=".78" stop-color="#E6D9FF"/>
+            <stop offset="1" stop-color="#FF9FCE"/>
+          </linearGradient>
+
+          <radialGradient id="mouseCursorCyan" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(33.7 16) rotate(33) scale(23 18)">
+            <stop offset="0" stop-color="#08EAFF" stop-opacity=".95"/>
+            <stop offset=".42" stop-color="#2EDCFF" stop-opacity=".54"/>
+            <stop offset="1" stop-color="#2EDCFF" stop-opacity="0"/>
+          </radialGradient>
+
+          <radialGradient id="mouseCursorWhite" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(29 28) rotate(32) scale(18 14)">
+            <stop offset="0" stop-color="#FFFFFF" stop-opacity=".96"/>
+            <stop offset=".36" stop-color="#FFFFFF" stop-opacity=".80"/>
+            <stop offset=".72" stop-color="#EEF7FF" stop-opacity=".18"/>
+            <stop offset="1" stop-color="#EEF7FF" stop-opacity="0"/>
+          </radialGradient>
+
+          <radialGradient id="mouseCursorPink" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(30 50) rotate(-70) scale(18 18)">
+            <stop offset="0" stop-color="#FF92CD" stop-opacity=".76"/>
+            <stop offset=".46" stop-color="#B08CFF" stop-opacity=".26"/>
+            <stop offset="1" stop-color="#B08CFF" stop-opacity="0"/>
+          </radialGradient>
+
+          <linearGradient id="mouseCursorRim" x1="9" y1="8" x2="42" y2="56" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#CCFEFF" stop-opacity=".97"/>
+            <stop offset=".30" stop-color="#78F0FF" stop-opacity=".94"/>
+            <stop offset=".66" stop-color="#C0BEFF" stop-opacity=".86"/>
+            <stop offset="1" stop-color="#FFC5E2" stop-opacity=".95"/>
+          </linearGradient>
+
+          <clipPath id="mouseCursorClip"><use href="#mouseCursorShape"/></clipPath>
+
+          <filter id="mouseCursorGlow" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur id="cursorGlowBlurNode" in="SourceGraphic" stdDeviation="1.45" result="blur"/>
+            <feColorMatrix id="cursorGlowMatrix" in="blur" type="matrix" values="0 0 0 0 0.20
+                      0 0 0 0 0.82
+                      0 0 0 0 1
+                      0 0 0 .18 0" result="cyanGlow"/>
+            <feMerge><feMergeNode in="cyanGlow"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+
+          <filter id="mouseSoftBlur" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur id="innerBlurNode" stdDeviation="2.5"/>
+          </filter>
+        </defs>
+
+        <g filter="url(#mouseCursorGlow)">
+          <use id="baseLayer" href="#mouseCursorShape" fill="url(#mouseCursorBase)"/>
+          <use id="cyanLayer" href="#mouseCursorShape" fill="url(#mouseCursorCyan)"/>
+          <use id="whiteLayer" href="#mouseCursorShape" fill="url(#mouseCursorWhite)"/>
+          <use id="pinkLayer" href="#mouseCursorShape" fill="url(#mouseCursorPink)"/>
+          <use id="outerRim" href="#mouseCursorShape" fill="none" stroke="url(#mouseCursorRim)" stroke-width="1.02" stroke-linejoin="round"/>
+          <use id="innerRim" href="#mouseCursorShape" fill="none" stroke="rgba(255,255,255,.22)" stroke-width=".42" stroke-linejoin="round"/>
+          <g clip-path="url(#mouseCursorClip)">
+            <ellipse id="innerGlow" cx="28.2" cy="28.1" rx="11.8" ry="8.2" fill="#FFFFFF" opacity=".09" filter="url(#mouseSoftBlur)"/>
+            <path id="topHighlight" d="M12 12.8 C20.9 14.7 33.4 20.3 45.8 27.7" fill="none" stroke="rgba(255,255,255,.44)" stroke-width=".90" stroke-linecap="round"/>
+          </g>
+        </g>
+      </svg>
+
+      <div class="cursor-hotspot"></div>
+      <div class="click-wave"></div>
+    </div>
+
+    <div class="info-bubble" id="bubble">
+      <div class="bubble-title" id="bubbleTitle">准备点击“股票市场”</div>
+      <div class="bubble-line"><span>目标置信度</span><b id="confidence">94%</b></div>
+      <div class="bubble-line"><span>执行坐标</span><b id="coords">742, 318</b></div>
+      <div class="bubble-line"><span>动作来源</span><b id="actionSource">视觉识别 + 节点</b></div>
+      <div class="bubble-thought" id="thought">检测到目标卡片边界清晰，当前无遮挡，准备执行单击并等待页面响应。</div>
+    </div>
+
+    <div class="bottom-timeline" id="timeline">
+      <div class="phase done"><i></i>观察</div>
+      <div class="phase done"><i></i>分析</div>
+      <div class="phase active"><i></i>移动</div>
+      <div class="phase"><i></i>点击</div>
+      <div class="phase"><i></i>验证</div>
+    </div>
+
+    <div class="debug-panel">
+      <div>session_id: va-demo-0626</div>
+      <div id="debugStep">step_id: 03 / MOVE_POINTER</div>
+      <div id="debugPoint">screen_point: (742, 318)</div>
+      <div>screen_size: 1440 x 900</div>
+      <div>coordinate_space: final_display_px</div>
+      <div>capture_hud_excluded: true</div>
+      <div>overlay_touchable: false</div>
+      <div>source: visual + accessibility_node</div>
+      <div id="debugLatency">latency_total: 592ms</div>
+    </div>
+  </section>
+</div>
+<script src="visual_agent_hud_runtime.js"></script>
+</body>
+</html>
