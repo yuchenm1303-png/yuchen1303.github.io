@@ -39,7 +39,7 @@ class VisualAgentHudOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        if (!canDrawOverlays(this)) {
+        if (!AgentOverlayService.isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
             stopSelf()
             return
         }
@@ -58,7 +58,7 @@ class VisualAgentHudOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!canDrawOverlays(this)) {
+        if (!AgentOverlayService.isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -188,7 +188,7 @@ class VisualAgentHudOverlayService : Service() {
         hiddenForCapture: Boolean,
     ) {
         val matchingTarget = target?.takeIf { it.taskId == progress.taskId }
-        val visible = !hiddenForCapture && (
+        val visible = AgentOverlayService.isOverlaySwitchEnabled() && !hiddenForCapture && (
             progress.running ||
                 progress.pendingConfirmation != null ||
                 progress.pendingUserInput != null ||
@@ -320,11 +320,17 @@ class VisualAgentHudOverlayService : Service() {
             Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
 
         fun ensureStarted(context: Context): Boolean {
-            if (!canDrawOverlays(context)) return false
+            if (!AgentOverlayService.isOverlaySwitchEnabled() || !canDrawOverlays(context)) return false
+            val appContext = context.applicationContext
             return runCatching {
-                context.startService(Intent(context, VisualAgentHudOverlayService::class.java))
+                appContext.startService(Intent(appContext, VisualAgentHudOverlayService::class.java))
                 true
             }.getOrDefault(false)
+        }
+
+        fun stop(context: Context) {
+            val appContext = context.applicationContext
+            appContext.stopService(Intent(appContext, VisualAgentHudOverlayService::class.java))
         }
     }
 }
