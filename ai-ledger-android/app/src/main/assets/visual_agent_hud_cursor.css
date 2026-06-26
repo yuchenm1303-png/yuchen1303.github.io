@@ -1,1 +1,48 @@
-/* visual HUD cursor styles */
+  :root{
+    --lab-cursor-size:72px;
+    --lab-scale-x:1;
+    --lab-scale-y:1;
+    --lab-rotation:0deg;
+    --lab-offset-x:0px;
+    --lab-offset-y:0px;
+    --lab-aura-size:72px;
+    --lab-aura-blur:8px;
+    --lab-aura-opacity:.54;
+  }
+  .cursor-icon{
+    width:var(--lab-cursor-size) !important;
+    height:var(--lab-cursor-size) !important;
+    transform-origin:var(--hotspot-x, 10px) var(--hotspot-y, 10px) !important;
+    animation:cursorFloatLab 2.15s ease-in-out infinite !important;
+  }
+  @keyframes cursorFloatLab{
+    0%,100%{
+      transform:translate(var(--lab-offset-x),var(--lab-offset-y)) rotate(var(--lab-rotation)) scale(var(--lab-scale-x),var(--lab-scale-y));
+    }
+    50%{
+      transform:translate(var(--lab-offset-x),calc(var(--lab-offset-y) - 1px)) rotate(var(--lab-rotation)) scale(calc(var(--lab-scale-x) * 1.009),calc(var(--lab-scale-y) * 1.009));
+    }
+  }
+  .cursor-aura{
+    width:var(--lab-aura-size) !important;
+    height:var(--lab-aura-size) !important;
+    filter:blur(var(--lab-aura-blur)) !important;
+    opacity:var(--lab-aura-opacity) !important;
+  }
+  .hud{z-index:1;opacity:0;visibility:hidden;transition:opacity .18s ease,visibility .18s ease}
+  .app.hud-live .hud{opacity:1;visibility:visible}
+  :root{
+    --lab-cursor-size:62px;
+    --lab-scale-x:1;
+    --lab-scale-y:.95;
+    --lab-rotation:-2.5deg;
+    --lab-offset-x:-.5px;
+    --lab-offset-y:-.5px;
+    --lab-aura-size:72px;
+    --lab-aura-blur:8px;
+    --lab-aura-opacity:.54;
+    --hotspot-x:10px;
+    --hotspot-y:10.5px;
+  }
+  .cursor-wrap{transform:translate(-10px,-10.5px)}
+  .cursor-hotspot,.click-wave{left:10px;top:10.5px}
