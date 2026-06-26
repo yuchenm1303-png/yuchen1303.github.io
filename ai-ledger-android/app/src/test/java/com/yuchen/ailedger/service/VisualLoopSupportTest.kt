@@ -116,6 +116,8 @@ class VisualLoopSupportTest {
             className = "android.widget.Button",
             bounds = bounds,
             clickable = true,
+            editable = false,
+            scrollable = false,
         )
     }
 }
