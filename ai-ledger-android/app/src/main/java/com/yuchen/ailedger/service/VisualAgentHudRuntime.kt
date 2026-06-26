@@ -7,9 +7,10 @@ import kotlinx.coroutines.flow.asStateFlow
 data class VisualAgentHudTarget(
     val taskId: Long = 0L,
     val revision: Long = 0L,
-    val x: Float = 0f,
-    val y: Float = 0f,
-    val normalized: Boolean = false,
+    val x: Float = 0.52f,
+    val y: Float = 0.46f,
+    val normalized: Boolean = true,
+    val positioned: Boolean = false,
     val actionType: String = "",
     val targetText: String = "",
     val detail: String = "",
@@ -27,13 +28,31 @@ object VisualAgentHudRuntime {
     private var revision: Long = 0L
 
     fun notePlannedStep(step: CloudAgentStep) {
-        val x = step.x ?: return
-        val y = step.y ?: return
-        notePlannedTarget(
-            step = step,
-            x = x,
-            y = y,
-            normalized = x in 0f..1.05f && y in 0f..1.05f,
+        val x = step.x
+        val y = step.y
+        if (x != null && y != null) {
+            notePlannedTarget(
+                step = step,
+                x = x,
+                y = y,
+                normalized = x in 0f..1.05f && y in 0f..1.05f,
+            )
+            return
+        }
+        val taskId = AgentRuntimeController.currentTaskId()
+        val previous = mutableTarget.value?.takeIf { it.taskId == taskId }
+        revision += 1L
+        mutableTarget.value = VisualAgentHudTarget(
+            taskId = taskId,
+            revision = revision,
+            x = previous?.x ?: 0.52f,
+            y = previous?.y ?: 0.46f,
+            normalized = previous?.normalized ?: true,
+            positioned = false,
+            actionType = step.type,
+            targetText = step.targetText.orEmpty().trim().take(72),
+            detail = step.reason.orEmpty().trim().take(180),
+            plannedAt = System.currentTimeMillis(),
         )
     }
 
@@ -43,7 +62,6 @@ object VisualAgentHudRuntime {
         y: Float,
         normalized: Boolean = false,
     ) {
-        if (step.type !in setOf("tap_xy", "tap_node")) return
         revision += 1L
         mutableTarget.value = VisualAgentHudTarget(
             taskId = AgentRuntimeController.currentTaskId(),
@@ -51,6 +69,7 @@ object VisualAgentHudRuntime {
             x = x,
             y = y,
             normalized = normalized,
+            positioned = true,
             actionType = step.type,
             targetText = step.targetText.orEmpty().trim().take(72),
             detail = step.reason.orEmpty().trim().take(180),
