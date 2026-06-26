@@ -71,13 +71,13 @@
 
   <aside class="controls">
     <h1>股票详情页实时原型</h1>
-    <div class="version">网页版本 2026-06-26.9 · 多周期图表调试版</div>
+    <div class="version">网页版本 2026-06-26.10 · 脚本加载修复版</div>
     <p>已把 App 中的日K、周K、月K与五日分时移植到网页。K 线支持滚轮缩放、拖拽平移、点击/悬停查看 OHLC，双击复位。</p>
     <div class="group">
       <h2>实时数据</h2>
       <input id="query" type="text" value="600667" placeholder="股票代码或名称">
       <div class="buttons"><button class="primary" id="start">开始实时刷新</button><button id="stop">停止刷新</button></div>
-      <div class="data-status" id="dataStatus"><strong>未连接</strong>：页面不会用演示数据替代真实行情。</div>
+      <div class="data-status" id="dataStatus"><strong>脚本加载中</strong>：正在初始化行情与图表功能。</div>
     </div>
     <div class="group">
       <h2>布局与图表</h2>
@@ -88,8 +88,24 @@
     </div>
   </aside>
 </main>
-<script src="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@750fff59f98cb524fc48039827bcd15d22215212/ai-ledger-android/stock-detail-web-core.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@750fff59f98cb524fc48039827bcd15d22215212/ai-ledger-android/stock-detail-web-charts.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@750fff59f98cb524fc48039827bcd15d22215212/ai-ledger-android/stock-detail-web-runtime.js"></script>
+<script>
+(async function bootstrapStockPrototype(){
+  const status = document.getElementById('dataStatus');
+  const base = 'https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@750fff59f98cb524fc48039827bcd15d22215212/ai-ledger-android/';
+  const files = ['stock-detail-web-core.js','stock-detail-web-charts.js','stock-detail-web-runtime.js'];
+  try {
+    const responses = await Promise.all(files.map(file => fetch(base + file + '?v=2026062610', {cache:'no-store'})));
+    responses.forEach((response,index) => {
+      if (!response.ok) throw new Error(files[index] + ' HTTP ' + response.status);
+    });
+    const sources = await Promise.all(responses.map(response => response.text()));
+    const bundle = sources.join('\n\n;\n\n');
+    new Function(bundle + '\n//# sourceURL=stock-detail-web-bundle.js')();
+  } catch (error) {
+    status.innerHTML = '<strong>脚本初始化失败</strong>：' + (error && error.message ? error.message : String(error)) + '<br>请刷新页面后重试。';
+    console.error('股票网页原型初始化失败', error);
+  }
+})();
+</script>
 </body>
 </html>
