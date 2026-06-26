@@ -109,7 +109,9 @@ private fun postCancellableVisualAgentStep(
         val status = connection.responseCode
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        val data = body.takeIf(String::isNotBlank)?.let { runCatching(::JSONObject).getOrNull() }
+        val data = body.takeIf(String::isNotBlank)?.let { raw ->
+            runCatching { JSONObject(raw) }.getOrNull()
+        }
         val workerVersion = connection.getHeaderField("X-AI-Ledger-Worker-Version").orEmpty().take(48)
         val routeProtocol = connection.getHeaderField("X-AI-Ledger-Route-Protocol").orEmpty().take(48)
         AgentRuntimeController.noteDiagnostic(buildString {
