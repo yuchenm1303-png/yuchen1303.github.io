@@ -491,6 +491,9 @@ class AgentOverlayService : Service() {
             revision = interactionRevision,
         )
         if (key == lastRenderedInteractionKey) return
+        // Input focusability is part of WindowManager state. Invalidate the layout cache whenever
+        // a pending input changes, even if all panel visibility booleans remain identical.
+        lastRenderedLayoutState = null
 
         inputTitleView.setTextIfChanged(
             when {
