@@ -251,38 +251,39 @@ private fun AgentInfinityWebCapsule(
     ) {
         Canvas(Modifier.matchParentSize()) {
             val radius = size.height / 2f
+            val capsuleColors = if (enabled) {
+                listOf(
+                    Color(0xEE8DFFF4),
+                    Color(0xCC9B73FF),
+                    Color(0xAA4FB6FF)
+                )
+            } else {
+                listOf(
+                    Color.White.copy(alpha = 0.075f),
+                    Color.White.copy(alpha = 0.030f)
+                )
+            }
             drawRoundRect(
-                color = Color(0xFF0A1132).copy(alpha = if (enabled) 0.80f else 0.76f),
+                brush = Brush.horizontalGradient(capsuleColors),
                 cornerRadius = CornerRadius(radius)
             )
             drawRoundRect(
                 brush = Brush.linearGradient(
                     colorStops = arrayOf(
-                        0f to Color.White.copy(alpha = 0.09f),
-                        0.44f to Color(0xFF52FFEA).copy(alpha = 0.03f * active),
-                        0.82f to Color(0xFF8558FF).copy(alpha = 0.09f * active),
+                        0f to Color.White.copy(alpha = 0.10f),
+                        0.42f to Color.White.copy(alpha = 0.025f),
+                        0.72f to Color(0xFF8DFFF4).copy(alpha = 0.05f * active),
                         1f to Color.Transparent
                     ),
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width, 0f)
+                    start = Offset(0f, 0f),
+                    end = Offset(size.width, size.height)
                 ),
                 cornerRadius = CornerRadius(radius)
             )
             drawRoundRect(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0f to Color.White.copy(alpha = 0.16f),
-                        0.28f to Color.Transparent
-                    ),
-                    center = Offset(size.width * 0.75f, size.height * 0.06f),
-                    radius = size.width * 0.28f
-                ),
-                cornerRadius = CornerRadius(radius)
-            )
-            drawRoundRect(
-                color = Color.White.copy(alpha = if (enabled) 0.20f else 0.10f),
+                color = Color.White.copy(alpha = 0.075f + 0.055f * active),
                 cornerRadius = CornerRadius(radius),
-                style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round)
+                style = Stroke(width = 0.7.dp.toPx(), cap = StrokeCap.Round)
             )
         }
 
@@ -295,7 +296,7 @@ private fun AgentInfinityWebCapsule(
         ) {
             Text(
                 text = "Agent",
-                color = Color.White.copy(alpha = 0.62f + active * 0.34f),
+                color = Color.White.copy(alpha = 0.58f + active * 0.38f),
                 fontSize = 9.2.sp,
                 lineHeight = 10.sp,
                 fontWeight = FontWeight.Black,
