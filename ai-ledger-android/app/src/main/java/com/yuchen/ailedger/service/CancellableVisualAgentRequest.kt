@@ -53,7 +53,7 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
         deviceProfile = deviceProfile,
         runtimeContext = runtimeContext,
         taskMemory = taskMemory,
-    )
+    ).compactVisualAgentPayloadForTransport()
     val activeConnection = AtomicReference<HttpURLConnection?>(null)
     val request = async(Dispatchers.IO) {
         postCancellableVisualAgentStep(
