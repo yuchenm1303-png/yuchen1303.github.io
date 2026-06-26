@@ -89,7 +89,7 @@ class AgentOverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        if (!canDrawOverlays(this)) {
+        if (!isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
             stopSelf()
             return
         }
@@ -105,7 +105,7 @@ class AgentOverlayService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!canDrawOverlays(this)) {
+        if (!isOverlaySwitchEnabled() || !canDrawOverlays(this)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -257,14 +257,12 @@ class AgentOverlayService : Service() {
             background = chipBackground(Color.argb(42, 214, 228, 255), Color.argb(48, 235, 248, 255), 14f)
         }
         val openView = iconChip("↗") { openMainApp() }
-        val closeView = iconChip("×") { stopSelf() }
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(titleView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             addView(stateView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(26f)).apply { marginStart = dp(7f) })
             addView(openView, LinearLayout.LayoutParams(dp(32f), dp(28f)).apply { marginStart = dp(6f) })
-            addView(closeView, LinearLayout.LayoutParams(dp(32f), dp(28f)).apply { marginStart = dp(5f) })
         }
     }
 
@@ -912,22 +910,40 @@ class AgentOverlayService : Service() {
         private const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
         private val SOFT_OUT = DecelerateInterpolator(1.55f)
 
+        @Volatile
+        private var overlaySwitchEnabled: Boolean = false
+
         fun canDrawOverlays(context: Context): Boolean {
             return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
         }
 
+        fun isOverlaySwitchEnabled(): Boolean = overlaySwitchEnabled
+
         fun ensureStarted(context: Context): Boolean {
-            if (!canDrawOverlays(context)) return false
-            context.startService(Intent(context, AgentOverlayService::class.java))
+            if (!overlaySwitchEnabled) return false
+            if (!canDrawOverlays(context)) {
+                overlaySwitchEnabled = false
+                return false
+            }
+            val appContext = context.applicationContext
+            appContext.startService(Intent(appContext, AgentOverlayService::class.java))
+            VisualAgentHudOverlayService.ensureStarted(appContext)
             return true
         }
 
         fun stop(context: Context) {
-            context.stopService(Intent(context, AgentOverlayService::class.java))
+            overlaySwitchEnabled = false
+            val appContext = context.applicationContext
+            appContext.stopService(Intent(appContext, AgentOverlayService::class.java))
+            VisualAgentHudOverlayService.stop(appContext)
         }
 
         fun requestPermissionIfNeeded(context: Context): Boolean {
-            if (canDrawOverlays(context)) return true
+            if (canDrawOverlays(context)) {
+                overlaySwitchEnabled = true
+                return true
+            }
+            overlaySwitchEnabled = false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
