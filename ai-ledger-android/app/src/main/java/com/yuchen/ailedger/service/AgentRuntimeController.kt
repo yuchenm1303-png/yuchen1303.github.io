@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,8 +70,14 @@ object AgentRuntimeController {
 
     private val overlayCaptureLock = Any()
     private val overlayCaptureRestoreHandler = Handler(Looper.getMainLooper())
-    private var overlayCaptureDepth: Int = 0
-    private var overlayCaptureGeneration: Long = 0L
+    private val overlayCaptureState = CleanVisualCaptureState(SystemClock::elapsedRealtime)
+    private val overlayCaptureWatchdog = Runnable {
+        synchronized(overlayCaptureLock) {
+            if (overlayCaptureState.reset() && mutableOverlayHiddenForCapture.value) {
+                mutableOverlayHiddenForCapture.value = false
+            }
+        }
+    }
 
     private val taskStateLock = Any()
     private val taskIdSequence = AtomicLong(0L)
@@ -122,29 +129,33 @@ object AgentRuntimeController {
     }
 
     fun beginCleanVisualCapture() {
-        val generation: Long
         synchronized(overlayCaptureLock) {
-            overlayCaptureDepth += 1
-            overlayCaptureGeneration += 1L
-            generation = overlayCaptureGeneration
+            overlayCaptureState.acquire()
             if (!mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = true
+            overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
+            overlayCaptureRestoreHandler.postDelayed(overlayCaptureWatchdog, OVERLAY_CAPTURE_WATCHDOG_MS)
         }
-        overlayCaptureRestoreHandler.postDelayed({
-            synchronized(overlayCaptureLock) {
-                if (overlayCaptureDepth > 0 && overlayCaptureGeneration == generation) {
-                    overlayCaptureDepth = 0
-                    overlayCaptureGeneration += 1L
-                    if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
-                }
-            }
-        }, OVERLAY_CAPTURE_WATCHDOG_MS)
+    }
+
+    fun acquireCleanVisualCaptureLease(): CleanVisualCaptureLease {
+        beginCleanVisualCapture()
+        return CleanVisualCaptureLease(::endCleanVisualCapture)
+    }
+
+    fun cleanVisualCaptureSettleRemaining(requiredMs: Long): Long {
+        return synchronized(overlayCaptureLock) {
+            overlayCaptureState.settleRemaining(requiredMs)
+        }
+    }
+
+    fun isCleanVisualCaptureActive(): Boolean {
+        return synchronized(overlayCaptureLock) { overlayCaptureState.active }
     }
 
     fun endCleanVisualCapture() {
         synchronized(overlayCaptureLock) {
-            overlayCaptureDepth = (overlayCaptureDepth - 1).coerceAtLeast(0)
-            if (overlayCaptureDepth == 0) {
-                overlayCaptureGeneration += 1L
+            if (overlayCaptureState.release()) {
+                overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
                 if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
             }
         }
@@ -152,16 +163,16 @@ object AgentRuntimeController {
 
     fun resetCleanVisualCapture() {
         synchronized(overlayCaptureLock) {
-            overlayCaptureDepth = 0
-            overlayCaptureGeneration += 1L
+            overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
+            overlayCaptureState.reset()
             if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
         }
     }
 
     fun ensureOverlayCaptureVisibleIfIdle() {
         synchronized(overlayCaptureLock) {
-            if (overlayCaptureDepth == 0 && mutableOverlayHiddenForCapture.value) {
-                overlayCaptureGeneration += 1L
+            if (!overlayCaptureState.active && mutableOverlayHiddenForCapture.value) {
+                overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
                 mutableOverlayHiddenForCapture.value = false
             }
         }
