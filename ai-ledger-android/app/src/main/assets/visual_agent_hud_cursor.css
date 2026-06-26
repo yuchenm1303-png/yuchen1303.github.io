@@ -8,11 +8,13 @@
     --lab-aura-size:72px;
     --lab-aura-blur:8px;
     --lab-aura-opacity:.54;
+    --hotspot-x:10px;
+    --hotspot-y:10.5px;
   }
   .cursor-icon{
     width:var(--lab-cursor-size) !important;
     height:var(--lab-cursor-size) !important;
-    transform-origin:var(--hotspot-x, 10px) var(--hotspot-y, 10px) !important;
+    transform-origin:var(--hotspot-x) var(--hotspot-y) !important;
     animation:cursorFloatLab 2.15s ease-in-out infinite !important;
   }
   @keyframes cursorFloatLab{
@@ -41,8 +43,11 @@
     --lab-aura-size:72px;
     --lab-aura-blur:8px;
     --lab-aura-opacity:.54;
-    --hotspot-x:10px;
-    --hotspot-y:10.5px;
   }
-  .cursor-wrap{transform:translate(-10px,-10.5px)}
-  .cursor-hotspot,.click-wave{left:10px;top:10.5px}
+  .cursor-wrap{
+    transform:translate(calc(0px - var(--hotspot-x)),calc(0px - var(--hotspot-y)));
+  }
+  .cursor-hotspot,.click-wave{
+    left:var(--hotspot-x);
+    top:var(--hotspot-y);
+  }
