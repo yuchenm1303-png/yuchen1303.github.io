@@ -271,7 +271,8 @@ internal object VisualLoopSupport {
     }
 
     fun requestActions(recent: List<String>, interactions: List<String>): List<String> {
-        val interactionBudget = interactions.takeLast(MAX_INTERACTION_IN_REQUEST)
+        val mergedInteractions = interactions + AgentTakeoverDialogueBridge.interactionActions()
+        val interactionBudget = mergedInteractions.takeLast(MAX_INTERACTION_IN_REQUEST)
         val runtimeBudget = (CLIENT_ACTION_LIMIT - interactionBudget.size).coerceAtLeast(MIN_RUNTIME_ACTIONS)
         return recent.takeLast(runtimeBudget) + interactionBudget
     }
