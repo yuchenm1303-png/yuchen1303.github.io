@@ -23,7 +23,7 @@ data class VisualAgentHudParameters(
     val p6x: Float = 13.1f,
     val p6y: Float = 24.2f,
     val tension: Float = 0.91f,
-    val size: Float = 62f,
+    val size: Float = 47.5f,
     val scaleX: Float = 1f,
     val scaleY: Float = 0.95f,
     val rotation: Float = -2.5f,
@@ -60,6 +60,8 @@ data class VisualAgentHudParameters(
     val innerGlowRy: Float = 8.2f,
     val innerGlowOpacity: Float = 0.09f,
     val innerGlowBlur: Float = 2.5f,
+    val infoBubbleWidth: Float = 310f,
+    val infoBubbleScale: Float = 1f,
     val edgeInset: Float = 0f,
     val edgeRadius: Float = 0f,
     val edgeHaloWidth: Float = 42f,
@@ -99,6 +101,7 @@ data class VisualAgentHudParameters(
         "innerGlowX" -> copy(innerGlowX = value); "innerGlowY" -> copy(innerGlowY = value)
         "innerGlowRx" -> copy(innerGlowRx = value); "innerGlowRy" -> copy(innerGlowRy = value)
         "innerGlowOpacity" -> copy(innerGlowOpacity = value); "innerGlowBlur" -> copy(innerGlowBlur = value)
+        "infoBubbleWidth" -> copy(infoBubbleWidth = value); "infoBubbleScale" -> copy(infoBubbleScale = value)
         "edgeInset" -> copy(edgeInset = value); "edgeRadius" -> copy(edgeRadius = value)
         "edgeHaloWidth" -> copy(edgeHaloWidth = value); "edgeHaloBlur" -> copy(edgeHaloBlur = value)
         "edgeHaloOpacity" -> copy(edgeHaloOpacity = value); "edgeCastDepth" -> copy(edgeCastDepth = value)
@@ -125,6 +128,7 @@ data class VisualAgentHudParameters(
         "pinkSizeX" -> pinkSizeX; "pinkSizeY" -> pinkSizeY; "innerGlowX" -> innerGlowX
         "innerGlowY" -> innerGlowY; "innerGlowRx" -> innerGlowRx; "innerGlowRy" -> innerGlowRy
         "innerGlowOpacity" -> innerGlowOpacity; "innerGlowBlur" -> innerGlowBlur
+        "infoBubbleWidth" -> infoBubbleWidth; "infoBubbleScale" -> infoBubbleScale
         "edgeInset" -> edgeInset; "edgeRadius" -> edgeRadius; "edgeHaloWidth" -> edgeHaloWidth
         "edgeHaloBlur" -> edgeHaloBlur; "edgeHaloOpacity" -> edgeHaloOpacity; "edgeCastDepth" -> edgeCastDepth
         "edgeCastBlur" -> edgeCastBlur; "edgeCastOpacity" -> edgeCastOpacity
@@ -134,28 +138,40 @@ data class VisualAgentHudParameters(
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
+        put(SCHEMA_VERSION_KEY, CURRENT_SCHEMA_VERSION)
         ALL_KEYS.forEach { put(it, valueOf(it).toDouble()) }
     }
 
     companion object {
+        private const val SCHEMA_VERSION_KEY = "_schemaVersion"
+        private const val CURRENT_SCHEMA_VERSION = 2
+
         val ALL_KEYS = listOf(
             "p0x","p0y","p1x","p1y","p2x","p2y","p3x","p3y","p4x","p4y","p5x","p5y","p6x","p6y",
             "tension","size","scaleX","scaleY","rotation","offsetX","offsetY","hotspotX","hotspotY",
             "cyanOpacity","whiteOpacity","pinkOpacity","outerRimWidth","innerRimWidth","rimOpacity","glowBlur","glowOpacity",
             "auraSize","auraBlur","auraOpacity","cyanX","cyanY","cyanSizeX","cyanSizeY","whiteX","whiteY","whiteSizeX",
             "whiteSizeY","pinkX","pinkY","pinkSizeX","pinkSizeY","innerGlowX","innerGlowY","innerGlowRx","innerGlowRy",
-            "innerGlowOpacity","innerGlowBlur","edgeInset","edgeRadius","edgeHaloWidth","edgeHaloBlur","edgeHaloOpacity",
-            "edgeCastDepth","edgeCastBlur","edgeCastOpacity","edgeFlowDuration","edgeBreathDuration","edgeBreathStrength"
+            "innerGlowOpacity","innerGlowBlur","infoBubbleWidth","infoBubbleScale","edgeInset","edgeRadius","edgeHaloWidth",
+            "edgeHaloBlur","edgeHaloOpacity","edgeCastDepth","edgeCastBlur","edgeCastOpacity","edgeFlowDuration",
+            "edgeBreathDuration","edgeBreathStrength"
         )
 
         fun fromJson(raw: String?): VisualAgentHudParameters {
             if (raw.isNullOrBlank()) return VisualAgentHudParameters()
             return runCatching {
                 val json = JSONObject(raw)
+                val schemaVersion = json.optInt(SCHEMA_VERSION_KEY, 1)
                 var result = VisualAgentHudParameters()
                 ALL_KEYS.forEach { key ->
-                    if (json.has(key)) result = result.withValue(key, json.optDouble(key, result.valueOf(key).toDouble()).toFloat())
+                    if (json.has(key)) {
+                        result = result.withValue(
+                            key,
+                            json.optDouble(key, result.valueOf(key).toDouble()).toFloat()
+                        )
+                    }
                 }
+                if (schemaVersion < 2) result = result.copy(size = 47.5f)
                 result
             }.getOrDefault(VisualAgentHudParameters())
         }
