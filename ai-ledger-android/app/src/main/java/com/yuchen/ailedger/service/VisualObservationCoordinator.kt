@@ -33,8 +33,9 @@ object RuntimeVisualCaptureOverlayController : VisualCaptureOverlayController {
 }
 
 data class VisualObservationTiming(
-    // 完整截图的无障碍采集层已经按隐藏租约的剩余时间等待；协调层不再重复固定等待。
-    val fullVisualSettleMs: Long = 0L,
+    // 无障碍截图层仍保留 150ms 的悬浮窗隐藏等待；这里只保留页面自身稳定所需的 110ms。
+    // 两层合计 260ms，维持原来的页面稳定基准，同时移除额外重复的 150ms。
+    val fullVisualSettleMs: Long = 110L,
     val nonVisualSettleMs: Long = 160L,
     val packageProbeSettleMs: Long = 160L,
     val openAppInitialSettleMs: Long = 260L,
