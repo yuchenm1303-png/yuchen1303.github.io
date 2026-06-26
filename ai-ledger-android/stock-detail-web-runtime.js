@@ -38,6 +38,25 @@ function formatMoney(value){
   return`${Math.round(n)}`;
 }
 function clamp(value,min,max){return Math.max(min,Math.min(max,value))}
+function computeKlinePanelLayout(height){
+  const gap=clamp(height*.012,4,8);
+  const usable=Math.max(1,height-gap*2);
+  const volumeRatio=clamp(state.volumeFraction,.16,.34);
+  const indicatorRatio=.24;
+  const mainRatio=Math.max(.40,1-volumeRatio-indicatorRatio);
+  const ratioTotal=mainRatio+volumeRatio+indicatorRatio;
+  const mainHeight=usable*mainRatio/ratioTotal;
+  const volumeHeight=usable*volumeRatio/ratioTotal;
+  const indicatorHeight=Math.max(1,usable-mainHeight-volumeHeight);
+  return{
+    gap,
+    mainHeight,
+    volumeHeight,
+    indicatorHeight,
+    volumeTop:mainHeight+gap,
+    indicatorTop:mainHeight+gap+volumeHeight+gap
+  };
+}
 function renderTechnicalChrome(){
   const isKline=!isMinuteTab(state.selectedTab),card=$('#chartCard'),toolbar=$('#klineTools');
   card?.classList.toggle('kline-active',isKline);
@@ -50,21 +69,14 @@ function renderAll(){renderTabs();renderQuote();renderOrderFlow();renderLegend()
 
 function drawKlineChart(){
   const{ctx,width,height}=canvasContext();ctx.clearRect(0,0,width,height);
-  const candles=currentKlines(),windowData=klineWindow(candles),visible=windowData.visible,gap=8;
-  let indicatorHeight=clamp(height*.26,108,136),volumeHeight=clamp(height*state.volumeFraction*.82,76,116),mainHeight=height-volumeHeight-indicatorHeight-gap*2;
-  if(mainHeight<180){
-    const shortage=180-mainHeight;
-    indicatorHeight=Math.max(92,indicatorHeight-shortage*.58);
-    volumeHeight=Math.max(68,volumeHeight-shortage*.42);
-    mainHeight=height-volumeHeight-indicatorHeight-gap*2;
-  }
-  const volumeTop=mainHeight+gap,indicatorTop=volumeTop+volumeHeight+gap;
+  const candles=currentKlines(),windowData=klineWindow(candles),visible=windowData.visible;
+  const layout=computeKlinePanelLayout(height),{gap,mainHeight,volumeHeight,indicatorHeight,volumeTop,indicatorTop}=layout;
   rootStyle.setProperty('--indicator-switch-top',`${Math.round(indicatorTop+3)}px`);
 
   drawPanelGrid(ctx,width,0,mainHeight,4,5);
   drawPanelGrid(ctx,width,volumeTop,volumeHeight,2,5);
   drawPanelGrid(ctx,width,indicatorTop,indicatorHeight,2,5);
-  ctx.strokeStyle='rgba(255,255,255,.16)';ctx.beginPath();ctx.moveTo(0,volumeTop-4);ctx.lineTo(width,volumeTop-4);ctx.moveTo(0,indicatorTop-4);ctx.lineTo(width,indicatorTop-4);ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,.16)';ctx.beginPath();ctx.moveTo(0,volumeTop-gap/2);ctx.lineTo(width,volumeTop-gap/2);ctx.moveTo(0,indicatorTop-gap/2);ctx.lineTo(width,indicatorTop-gap/2);ctx.stroke();
 
   if(visible.length<2){
     ctx.fillStyle='rgba(255,255,255,.42)';ctx.font='12px system-ui';ctx.textAlign='center';ctx.fillText(`等待真实${state.selectedTab}数据`,width/2,mainHeight/2);
@@ -99,7 +111,7 @@ function drawKlineChart(){
   }
   ctx.restore();
 
-  const volumes=numericSeries(candles,'volume'),vma5=simpleMovingAverage(volumes,5),vma10=simpleMovingAverage(volumes,10),maxVolume=Math.max(...visible.map(c=>c.volume),1),volumeY=value=>volumeTop+volumeHeight-(value/maxVolume)*volumeHeight*.80;
+  const volumes=numericSeries(candles,'volume'),vma5=simpleMovingAverage(volumes,5),vma10=simpleMovingAverage(volumes,10),maxVolume=Math.max(...visible.map(c=>c.volume),1),volumeY=value=>volumeTop+volumeHeight-(value/maxVolume)*volumeHeight*.76;
   ctx.save();clipRect(ctx,0,volumeTop,width,volumeHeight);
   visible.forEach((c,index)=>{
     const cx=x(index),rising=c.close>=c.open;
@@ -125,7 +137,7 @@ function drawKlineChart(){
     ctx.strokeStyle='rgba(141,249,234,.58)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(cx,0);ctx.lineTo(cx,height-2);ctx.stroke();
     ctx.strokeStyle='rgba(141,249,234,.38)';ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(width,cy);ctx.stroke();
     $('#chartOverlay').textContent=`${c.date}  开${fmt(c.open)} 高${fmt(c.high)} 低${fmt(c.low)} 收${fmt(c.close)} 涨跌${displayWire(c.changePercent,'%')} 振幅${displayWire(c.amplitude,'%')} 换手${displayWire(c.turnoverRate,'%')} 量${formatVolume(c.volume)} 额${formatMoney(c.amount)}`;
-  }else{$('#chartOverlay').textContent=`${visible.length}根 · 滚轮缩放 · 拖拽平移 · 点击查看完整OHLC与量价数据`}
+  }else{$('#chartOverlay').textContent=`${visible.length}根 · 主图${Math.round(mainHeight)}px · 成交量${Math.round(volumeHeight)}px · 指标${Math.round(indicatorHeight)}px`}
 
   ctx.font='8px system-ui';ctx.textAlign='right';ctx.textBaseline='middle';ctx.fillStyle='rgba(255,255,255,.48)';ctx.fillText(fmt(top),width-4,9);ctx.fillText(fmt((top+bottom)/2),width-4,mainHeight/2);ctx.fillText(fmt(bottom),width-4,mainHeight-8);
   const mid=visible[Math.floor(visible.length/2)];setAxis([{label:dateLabel(visible[0].date),x:0},{label:dateLabel(mid.date),x:.5},{label:dateLabel(visible.at(-1).date),x:1}]);
@@ -265,7 +277,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.run
 window.addEventListener('resize',()=>requestAnimationFrame(drawSelectedChart));
 new ResizeObserver(()=>drawSelectedChart()).observe($('#chartWrap'));
 $('#mobileToggle').addEventListener('click',()=>document.body.classList.toggle('controls-open'));
-$('#chartHeight').addEventListener('input',event=>{rootStyle.setProperty('--chart-h',`${event.target.value}px`);$('#chartHeightText').textContent=`${event.target.value}px`;drawSelectedChart()});
+$('#chartHeight').addEventListener('input',event=>{if(event.target.disabled)return;rootStyle.setProperty('--chart-h',`${event.target.value}px`);$('#chartHeightText').textContent=`${event.target.value}px`;drawSelectedChart()});
 $('#orderWidth').addEventListener('input',event=>{rootStyle.setProperty('--order-w',`${event.target.value}px`);$('#orderWidthText').textContent=`${event.target.value}px`;drawSelectedChart()});
 $('#volumeHeight').addEventListener('input',event=>{state.volumeFraction=Number(event.target.value)/100;$('#volumeHeightText').textContent=`${event.target.value}%`;drawSelectedChart()});
 $('#kBaseCount').addEventListener('input',event=>{state.kBaseCount=Number(event.target.value);$('#kBaseCountText').textContent=`${event.target.value}根`;state.kPan=0;drawSelectedChart()});
