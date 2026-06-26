@@ -180,7 +180,7 @@ private fun RestoredComposeGlassLab(state: AssistantUiState) {
     }
 
     RestoredComposeGlassControlGroup("主体材质", "安静暗场、主体吸收、下部重量和内侧过渡", state, true) {
-        RestoredLabSlider("安静程度", "减少主体区域的杂光并控制暗场", style.quiet, 0.25f..2.40f) { ComposeGlassLabState.update(style.copy(quiet = it)) }
+        RestoredLabSlider("安静程度", "减少主体区域的杂光并控制暗场", style.quiet, 0f..2.40f) { ComposeGlassLabState.update(style.copy(quiet = it)) }
         RestoredLabSlider("主体吸收", "玻璃主体吸收背景亮度的程度", style.bodyAbsorption, 0f..2.40f) { ComposeGlassLabState.update(style.copy(bodyAbsorption = it)) }
         RestoredLabSlider("下部重量", "玻璃下半部的厚重和沉积感", style.lowerBodyMass, 0f..2.40f) { ComposeGlassLabState.update(style.copy(lowerBodyMass = it)) }
         RestoredLabSlider("内侧过渡", "主体与边缘之间的柔和过渡", style.innerTransition, 0f..2.80f) { ComposeGlassLabState.update(style.copy(innerTransition = it)) }
