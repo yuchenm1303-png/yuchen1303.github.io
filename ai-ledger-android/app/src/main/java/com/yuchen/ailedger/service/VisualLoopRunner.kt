@@ -154,24 +154,23 @@ class VisualLoopRunner(
         val requestApps = appContextForTurn(session, turn.runtime)
         session.state.modelTurns += 1
         val plan = try {
-            withContext(Dispatchers.IO) {
-                aiWorkerClient.requestVisualAgentStep(
-                    goal = session.state.goal,
-                    snapshot = turn.snapshot,
-                    recentActions = VisualLoopSupport.requestActions(
-                        session.recentActions,
-                        session.interactionActions,
-                    ),
-                    visualHistory = session.visualHistory.takeLast(historyLimit),
-                    appContext = requestApps,
-                    deviceId = clientDeviceId,
-                    agentSessionId = session.agentSessionId,
-                    executionMode = session.executionMode,
-                    deviceProfile = session.deviceProfile,
-                    runtimeContext = turn.runtime,
-                    taskMemory = memory,
-                )
-            }
+            aiWorkerClient.requestVisualAgentStepCancellable(
+                goal = session.state.goal,
+                snapshot = turn.snapshot,
+                recentActions = VisualLoopSupport.requestActions(
+                    session.recentActions,
+                    session.interactionActions,
+                ),
+                visualHistory = session.visualHistory.takeLast(historyLimit),
+                appContext = requestApps,
+                deviceId = clientDeviceId,
+                agentSessionId = session.agentSessionId,
+                executionMode = session.executionMode,
+                deviceProfile = session.deviceProfile,
+                runtimeContext = turn.runtime,
+                taskMemory = memory,
+                isStopped = session::stopped,
+            )
         } catch (error: IOException) {
             if (session.stopped()) return VisualPlanRequest.Retry
             return when (val decision = session.routeRetry.onFailure(error)) {
@@ -304,129 +303,143 @@ class VisualLoopRunner(
             return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
         }
 
-        if (VisualLoopSupport.requiresFreshObservation(executable)) {
-            val fresh = observationCoordinator.captureTrustedObservation(
-                forceVisual = false,
-                expectedPackage = session.execution.selectedTargetPackage,
-                settleMs = 160L,
-            ).toAgentScreenSnapshot()
-            session.execution.synchronizeWith(fresh)
-            val verified = session.execution.isVerifiedWorkSurface(fresh)
-            val freshness = VisualObservationProtocol.evaluateActionContextFreshness(
-                step = executable,
-                observedSnapshot = turn.snapshot,
-                currentSnapshot = fresh,
-            )
-            if (!verified || !freshness.fresh) {
-                val failureClass = if (verified) "visual_local" else "structural_route"
-                val reason = if (verified) freshness.reason else "target_surface_lost"
-                val feedback = buildString {
-                    append("visual_action_stale:type=").append(executable.type)
-                    append("|failureClass=").append(failureClass)
-                    append("|reason=").append(reason)
-                    append("|surfaceSimilarity=").append(freshness.surfaceSimilarity)
-                    append("|replanRequired=true")
-                }
-                session.logs += AgentTaskStepLog(
-                    session.logs.size + 1,
-                    fresh.currentApp,
-                    executable.copy(reason = "A fresh visual decision is required."),
-                    null,
+        var executionLease: CleanVisualCaptureLease? = null
+        fun releaseExecutionLease() {
+            executionLease?.close()
+            executionLease = null
+        }
+        try {
+            if (VisualLoopSupport.requiresFreshObservation(executable)) {
+                executionLease = AgentRuntimeController.acquireCleanVisualCaptureLease()
+                val fresh = observationCoordinator.captureTrustedObservation(
+                    forceVisual = false,
+                    expectedPackage = session.execution.selectedTargetPackage,
+                    settleMs = 160L,
+                ).toAgentScreenSnapshot()
+                session.execution.synchronizeWith(fresh)
+                val verified = session.execution.isVerifiedWorkSurface(fresh)
+                val freshness = VisualObservationProtocol.evaluateActionContextFreshness(
+                    step = executable,
+                    observedSnapshot = turn.snapshot,
+                    currentSnapshot = fresh,
                 )
-                VisualLoopSupport.appendRecent(session.recentActions, feedback)
-                VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
-                if (!verified) session.execution.markStructuralReplan()
-                session.state.reobservations += 1
+                if (!verified || !freshness.fresh) {
+                    val failureClass = if (verified) "visual_local" else "structural_route"
+                    val reason = if (verified) freshness.reason else "target_surface_lost"
+                    val feedback = buildString {
+                        append("visual_action_stale:type=").append(executable.type)
+                        append("|failureClass=").append(failureClass)
+                        append("|reason=").append(reason)
+                        append("|surfaceSimilarity=").append(freshness.surfaceSimilarity)
+                        append("|replanRequired=true")
+                    }
+                    session.logs += AgentTaskStepLog(
+                        session.logs.size + 1,
+                        fresh.currentApp,
+                        executable.copy(reason = "A fresh visual decision is required."),
+                        null,
+                    )
+                    VisualLoopSupport.appendRecent(session.recentActions, feedback)
+                    VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
+                    if (!verified) session.execution.markStructuralReplan()
+                    session.state.reobservations += 1
+                    return VisualLoopDecision.Continue
+                }
+            }
+
+            if (session.stopped()) return VisualLoopDecision.Stop
+            val result = executeStep(session, executable, turn.snapshot.currentApp, confirmed)
+            session.state.executedActions += 1
+            session.state.lastAction = VisualActionValidator.actionSignature(executable)
+            session.state.rejectedPlans = 0
+            val summary = VisualLoopSupport.resultSummary(executable, session.state.lastAction, result)
+            VisualLoopSupport.appendRecent(session.recentActions, summary)
+            VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, summary)
+
+            if (executable.type == "open_app") {
+                releaseExecutionLease()
+                handleOpenAppResult(session, executable, turn.snapshot, result, summary)
                 return VisualLoopDecision.Continue
             }
-        }
-
-        if (session.stopped()) return VisualLoopDecision.Stop
-        val result = executeStep(session, executable, turn.snapshot.currentApp, confirmed)
-        session.state.executedActions += 1
-        session.state.lastAction = VisualActionValidator.actionSignature(executable)
-        session.state.rejectedPlans = 0
-        val summary = VisualLoopSupport.resultSummary(executable, session.state.lastAction, result)
-        VisualLoopSupport.appendRecent(session.recentActions, summary)
-        VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, summary)
-
-        if (executable.type == "open_app") {
-            handleOpenAppResult(session, executable, turn.snapshot, result, summary)
-            return VisualLoopDecision.Continue
-        }
-        if (executable.type in CloudAgentStep.deviceToolTypes) {
-            val message = result.message.ifBlank { "Internal device tool finished." }
-            if (result.ok) {
-                AgentRuntimeController.finishTask(session.runtimeTaskId, AgentTaskOutcome.Completed(message))
-            } else {
-                AgentRuntimeController.failTask(session.runtimeTaskId, message)
+            if (executable.type in CloudAgentStep.deviceToolTypes) {
+                releaseExecutionLease()
+                val message = result.message.ifBlank { "Internal device tool finished." }
+                if (result.ok) {
+                    AgentRuntimeController.finishTask(session.runtimeTaskId, AgentTaskOutcome.Completed(message))
+                } else {
+                    AgentRuntimeController.failTask(session.runtimeTaskId, message)
+                }
+                return VisualLoopDecision.Return(AgentTaskRunResult(result.ok, false, message, session.logs))
             }
-            return VisualLoopDecision.Return(AgentTaskRunResult(result.ok, false, message, session.logs))
-        }
-        if (!result.ok || !result.shouldContinue) {
-            session.state.executionFailures += 1
-            val feedback = buildString {
-                append("visual_local_retry:action=").append(session.state.lastAction)
-                append(":count=").append(session.state.executionFailures)
-                append("|semanticStatus=execution_failed|requiresStrategyChange=true")
-                append("|replanRequired=").append(session.state.executionFailures >= 2)
-                append("|reason=").append(result.message.take(260))
+            if (!result.ok || !result.shouldContinue) {
+                session.state.executionFailures += 1
+                val feedback = buildString {
+                    append("visual_local_retry:action=").append(session.state.lastAction)
+                    append(":count=").append(session.state.executionFailures)
+                    append("|semanticStatus=execution_failed|requiresStrategyChange=true")
+                    append("|replanRequired=").append(session.state.executionFailures >= 2)
+                    append("|reason=").append(result.message.take(260))
+                }
+                VisualLoopSupport.appendRecent(session.recentActions, feedback)
+                VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
+                session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
+                    forceVisual = true,
+                    expectedPackage = session.execution.selectedTargetPackage,
+                )
+                releaseExecutionLease()
+                return VisualLoopDecision.Continue
             }
+            session.state.executionFailures = 0
+
+            delayForStep(executable)
+            val afterObservation = observationCoordinator.captureTrustedObservation(
+                forceVisual = true,
+                expectedPackage = session.execution.selectedTargetPackage,
+            )
+            releaseExecutionLease()
+            val after = afterObservation.toAgentScreenSnapshot()
+            session.execution.synchronizeWith(after)
+            val progress = session.semantic.evaluate(
+                step = executable,
+                before = turn.snapshot,
+                after = after,
+                verifiedTargetPackage = turn.runtime.verifiedTargetPackage,
+            )
+            val feedback = progress.toFeedbackLine(executable)
             VisualLoopSupport.appendRecent(session.recentActions, feedback)
+            VisualLoopMemorySupport.replaceMemoryLine(session.recentActions, progress.taskMemory)
             VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-            session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
-                forceVisual = true,
-                expectedPackage = session.execution.selectedTargetPackage,
-            )
+            session.prefetchedObservation = afterObservation
+            if (progress.status == VisualSemanticProgressStatus.Ambiguous && progress.reobserveRecommended) {
+                delay(120L)
+                session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
+                    forceVisual = true,
+                    expectedPackage = session.execution.selectedTargetPackage,
+                )
+            }
+            if (progress.structuralRegression) {
+                session.execution.markStructuralReplan()
+                session.prefetchedObservation = null
+            }
+            if (progress.requiresReplan) {
+                VisualLoopSupport.appendRecent(
+                    session.recentActions,
+                    "visual_replan_requested:milestone=${progress.milestoneId.take(80)}|semanticStatus=${progress.status.wireValue}|reason=${progress.reason.take(220)}",
+                )
+            }
+            if (progress.shouldPauseForUser) {
+                val continued = pauseForUserAndContinue(
+                    session,
+                    "The last action regressed on a non-reversible or repeatedly failing path.",
+                    "semantic_regression",
+                    executable,
+                )
+                return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
+            }
             return VisualLoopDecision.Continue
+        } finally {
+            releaseExecutionLease()
         }
-        session.state.executionFailures = 0
-
-        delayForStep(executable)
-        val afterObservation = observationCoordinator.captureTrustedObservation(
-            forceVisual = true,
-            expectedPackage = session.execution.selectedTargetPackage,
-        )
-        val after = afterObservation.toAgentScreenSnapshot()
-        session.execution.synchronizeWith(after)
-        val progress = session.semantic.evaluate(
-            step = executable,
-            before = turn.snapshot,
-            after = after,
-            verifiedTargetPackage = turn.runtime.verifiedTargetPackage,
-        )
-        val feedback = progress.toFeedbackLine(executable)
-        VisualLoopSupport.appendRecent(session.recentActions, feedback)
-        VisualLoopMemorySupport.replaceMemoryLine(session.recentActions, progress.taskMemory)
-        VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-        session.prefetchedObservation = afterObservation
-        if (progress.status == VisualSemanticProgressStatus.Ambiguous && progress.reobserveRecommended) {
-            delay(120L)
-            session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
-                forceVisual = true,
-                expectedPackage = session.execution.selectedTargetPackage,
-            )
-        }
-        if (progress.structuralRegression) {
-            session.execution.markStructuralReplan()
-            session.prefetchedObservation = null
-        }
-        if (progress.requiresReplan) {
-            VisualLoopSupport.appendRecent(
-                session.recentActions,
-                "visual_replan_requested:milestone=${progress.milestoneId.take(80)}|semanticStatus=${progress.status.wireValue}|reason=${progress.reason.take(220)}",
-            )
-        }
-        if (progress.shouldPauseForUser) {
-            val continued = pauseForUserAndContinue(
-                session,
-                "The last action regressed on a non-reversible or repeatedly failing path.",
-                "semantic_regression",
-                executable,
-            )
-            return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
-        }
-        return VisualLoopDecision.Continue
     }
 
     private fun fatal(session: VisualTaskSession, message: String): VisualLoopDecision {
@@ -589,14 +602,21 @@ class VisualLoopRunner(
         confirmedHighRisk: Boolean,
     ): AgentExecutionResult {
         AgentRuntimeController.noteAction(step)
-        val result = if (step.type in CloudAgentStep.deviceToolTypes) {
-            withContext(Dispatchers.IO) { deviceToolExecutor.execute(step, confirmedHighRisk) }
-        } else {
-            withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
+        return try {
+            val result = if (step.type in CloudAgentStep.deviceToolTypes) {
+                withContext(Dispatchers.IO) { deviceToolExecutor.execute(step, confirmedHighRisk) }
+            } else {
+                withContext(Dispatchers.Main) { AiAgentAccessibilityService.executeStep(step) }
+            }
+            AgentRuntimeController.noteResult(step, result)
+            session.logs += AgentTaskStepLog(session.logs.size + 1, currentApp, step, result)
+            result
+        } catch (error: Throwable) {
+            if (step.type !in CloudAgentStep.deviceToolTypes) {
+                AgentRuntimeController.endCleanVisualCapture()
+            }
+            throw error
         }
-        AgentRuntimeController.noteResult(step, result)
-        session.logs += AgentTaskStepLog(session.logs.size + 1, currentApp, step, result)
-        return result
     }
 
     private suspend fun handleOpenAppResult(
