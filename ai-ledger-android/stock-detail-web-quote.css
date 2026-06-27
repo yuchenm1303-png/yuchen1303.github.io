@@ -1,0 +1,250 @@
+:root {
+  --quote-card-height: 194px;
+  --quote-price-width: 136px;
+}
+
+.quote {
+  flex: 0 0 var(--quote-card-height);
+  height: var(--quote-card-height);
+  min-height: var(--quote-card-height);
+  padding: 14px 16px 15px;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.quote-head {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 112px;
+  align-items: center;
+  gap: 11px;
+}
+
+.back-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 29px;
+}
+
+.identity {
+  min-width: 0;
+  align-self: center;
+}
+
+.name {
+  max-width: 100%;
+  margin: 0;
+  font-size: 27px;
+  line-height: 29px;
+  letter-spacing: -.045em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code {
+  margin-top: 1px;
+  font-size: 10px;
+  line-height: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quote-actions {
+  width: 112px;
+  min-width: 112px;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.watchlist-button {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 9px;
+}
+
+.quote-actions .source,
+.source {
+  width: 100%;
+  max-width: 112px;
+  height: 11px;
+  padding: 0;
+  color: rgba(141, 249, 234, .58);
+  font-size: 7px;
+  line-height: 11px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.quote-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  padding-top: 10px;
+  display: grid;
+  grid-template-columns: var(--quote-price-width) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  border-top: 1px solid rgba(255, 255, 255, .085);
+}
+
+.price-box {
+  width: auto;
+  min-width: 0;
+  padding: 7px 13px 5px 2px;
+  border-right: 1px solid rgba(255, 255, 255, .085);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+}
+
+.price {
+  font-size: 42px;
+  line-height: 43px;
+  letter-spacing: -.05em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.change {
+  margin-top: 1px;
+  font-size: 13px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.price-note {
+  margin-top: 4px;
+  font-size: 8px;
+  line-height: 11px;
+  white-space: nowrap;
+}
+
+.metrics {
+  min-width: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: unset;
+  gap: 5px 7px;
+  align-content: stretch;
+}
+
+.metric {
+  min-width: 0;
+  padding: 4px 6px 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 1px;
+  border: 1px solid rgba(255, 255, 255, .045);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .025);
+  overflow: hidden;
+}
+
+.metric span:first-child {
+  width: 100%;
+  color: rgba(255, 255, 255, .36);
+  font-size: 7px;
+  line-height: 9px;
+  font-weight: 850;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metric b {
+  width: 100%;
+  min-width: 0;
+  color: rgba(255, 255, 255, .90);
+  font-size: 9.5px;
+  line-height: 12px;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 390px) {
+  :root {
+    --quote-card-height: 190px;
+    --quote-price-width: 116px;
+  }
+
+  .quote {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .quote-head {
+    grid-template-columns: 40px minmax(0, 1fr) 94px;
+    gap: 8px;
+  }
+
+  .back-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .name {
+    font-size: 23px;
+    line-height: 25px;
+  }
+
+  .quote-actions {
+    width: 94px;
+    min-width: 94px;
+  }
+
+  .quote-actions .source,
+  .source {
+    max-width: 94px;
+    font-size: 6.5px;
+  }
+
+  .quote-main {
+    gap: 9px;
+  }
+
+  .price-box {
+    padding-right: 9px;
+  }
+
+  .price {
+    font-size: 35px;
+    line-height: 37px;
+  }
+
+  .change {
+    font-size: 11px;
+  }
+
+  .metrics {
+    gap: 4px;
+  }
+
+  .metric {
+    padding-left: 4px;
+    padding-right: 4px;
+  }
+
+  .metric b {
+    font-size: 8.5px;
+  }
+}
