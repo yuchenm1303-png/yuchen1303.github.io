@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
@@ -16,7 +17,7 @@ internal fun InlineStickerExpressionSettingsControls() {
     val context = LocalContext.current
     val preferences = InlineStickerDisplaySettings.expressionPreferences(context)
 
-    Column(verticalArrangement = Arrangement.spacedBy(androidx.compose.ui.unit.dp(11f))) {
+    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
         Text(
             text = "模型表情表达",
             color = Color.White.copy(alpha = 0.82f),
