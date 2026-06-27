@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
+<title>AI Ledger · 指数详情</title>
+<link rel="stylesheet" href="./stock-index-web-preview.css?v=20260627-1">
+</head>
+<body>
+<button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
+<main class="workspace">
+  <section class="phone" aria-label="指数详情手机预览">
+    <div class="screen">
+      <header class="status-bar">
+        <div class="status-left">
+          <span class="carriers">中国移动<br>中国电信</span>
+          <span class="clock" id="clock">--:--</span>
+          <span class="status-chip">◩</span><span class="status-chip">▣</span><span class="status-icon">⌁</span><span class="status-icon">◉</span>
+        </div>
+        <div class="status-right"><span>Ⓝ ⏰ ⌁ 4G▮▮▮ 4G▮▮▮</span><span class="battery">70</span></div>
+      </header>
+
+      <div class="index-scroll" id="indexScroll">
+        <div class="index-top-row">
+          <button class="glass-button back-button" id="backButton" aria-label="返回市场首页">‹</button>
+          <span class="page-label">指数详情 · A股</span>
+          <button class="glass-button refresh-button" id="refreshButton" aria-label="刷新指数详情">⟳</button>
+        </div>
+
+        <section class="glass index-hero">
+          <div class="index-identity">
+            <div class="index-title-copy">
+              <div class="index-kicker">A-SHARE INDEX</div>
+              <h1 id="indexName">--</h1>
+              <div class="index-code"><span id="indexCode">------</span> · 指数</div>
+            </div>
+            <div class="index-source" id="indexSource">等待真实指数数据</div>
+          </div>
+
+          <div class="index-price-row">
+            <div>
+              <div class="index-price" id="indexPrice">--</div>
+              <div class="index-change" id="indexChange">--</div>
+              <div class="index-updated" id="indexUpdated">等待更新</div>
+            </div>
+            <div class="index-metrics" id="indexMetrics"></div>
+          </div>
+        </section>
+
+        <section class="glass index-chart-card">
+          <div class="index-tabs" id="indexTabs">
+            <button class="index-tab active" data-tab="minute">分时</button>
+            <button class="index-tab" data-tab="fiveDay">五日</button>
+            <button class="index-tab" data-tab="daily">日K</button>
+          </div>
+          <div class="index-legend">
+            <strong id="chartTitle">分时走势</strong>
+            <span class="average" id="chartAverage">均价 --</span>
+            <span id="chartLatest">最新 --</span>
+            <span class="spacer"></span>
+            <span id="chartRange">--</span>
+          </div>
+          <div class="index-chart-wrap" id="chartWrap">
+            <canvas id="indexChart"></canvas>
+            <div class="index-chart-empty" id="chartEmpty">等待真实图表数据</div>
+          </div>
+          <div class="index-axis" id="indexAxis"></div>
+          <div class="index-caption" id="indexCaption">分时与成交量使用同一真实指数数据源。</div>
+        </section>
+
+        <section class="glass market-context">
+          <div class="section-title-block">
+            <h2>全市场环境</h2>
+            <p>指数走势之外，同步参考全市场涨跌宽度与情绪</p>
+          </div>
+          <div class="context-grid" id="contextGrid"></div>
+          <div class="context-wide">
+            <div><strong>全市场成交额</strong><span>沪深京实时汇总</span></div>
+            <b id="marketAmount">--</b>
+          </div>
+          <div class="index-data-status" id="contextStatus">等待市场宽度数据</div>
+        </section>
+
+        <section class="glass related-panel">
+          <div class="section-title-block">
+            <h2>其他主要指数</h2>
+            <p>所有指数共用同一详情页，点击即可切换</p>
+          </div>
+          <div class="related-grid" id="relatedGrid"></div>
+        </section>
+      </div>
+    </div>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-item"><span>AI</span><small>AI助手</small></button>
+      <button class="nav-item active"><span class="nav-star">✦</span><small>功能</small></button>
+      <button class="nav-item"><span>⚙</span><small>设置</small></button>
+    </nav>
+  </section>
+
+  <aside class="controls" id="controls">
+    <h1>指数详情页网页调试</h1>
+    <div class="version">网页版本 2026-06-27.1 · 共用指数详情页</div>
+    <p>当前页面只保留指数真正需要的内容：点位、涨跌、分时、五日、日K、成交量、全市场宽度和其他主要指数。盘口、逐笔、财务等个股专属模块不会出现在指数页。</p>
+
+    <div class="control-group">
+      <h2>指数切换</h2>
+      <div class="control-buttons">
+        <button class="primary" data-index="000001">上证指数</button>
+        <button data-index="399001">深证成指</button>
+        <button data-index="399006">创业板指</button>
+        <button data-index="000300">沪深300</button>
+      </div>
+      <label class="switch-row"><span>20 秒自动刷新</span><input id="autoRefresh" type="checkbox" checked></label>
+      <div class="data-status" id="dataStatus"><strong>初始化中</strong>：正在连接指数详情接口。</div>
+    </div>
+
+    <div class="control-group">
+      <h2>页面参数</h2>
+      <label class="range-row"><span>玻璃透明度 <b id="glassText">66%</b></span><input id="glassRange" type="range" min="40" max="88" value="66"></label>
+      <label class="range-row"><span>手机宽度 <b id="phoneWidthText">430px</b></span><input id="phoneWidth" type="range" min="360" max="500" value="430"></label>
+      <label class="range-row"><span>卡片圆角 <b id="radiusText">30px</b></span><input id="radiusRange" type="range" min="18" max="42" value="30"></label>
+    </div>
+  </aside>
+</main>
+<script src="./stock-index-web-preview.js?v=20260627-1"></script>
+</body>
+</html>
