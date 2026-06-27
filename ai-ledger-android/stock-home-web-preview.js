@@ -4,14 +4,14 @@ const API_BASE = 'https://ai-ledger-stock-proxy.onrender.com';
 const MARKET_HOME_API = `${API_BASE}/api/stock/a-share/market/home`;
 const ACTIONS = ['自选','热榜','板块','资金','异动','新闻','研报','预警'];
 const BOARD_DEFINITIONS = [
-  ['gainers','涨幅榜','真实涨幅排序'],
-  ['losers','跌幅榜','真实跌幅排序'],
-  ['amountRanking','成交额榜','真实成交额排序'],
-  ['turnoverRanking','换手率榜','真实换手率排序'],
-  ['volumeRatioRanking','量比榜','真实量比排序'],
-  ['speedRanking','涨速榜','真实涨速排序'],
-  ['mainInflowRanking','主力净流入榜','真实主力净流入排序'],
-  ['mainOutflowRanking','主力净流出榜','真实主力净流出排序']
+  ['gainers','涨幅榜','真实涨幅排序','gainers'],
+  ['losers','跌幅榜','真实跌幅排序','losers'],
+  ['amountRanking','成交额榜','真实成交额排序','amount'],
+  ['turnoverRanking','换手率榜','真实换手率排序','turnover'],
+  ['volumeRatioRanking','量比榜','真实量比排序','volume_ratio'],
+  ['speedRanking','涨速榜','真实涨速排序','speed'],
+  ['mainInflowRanking','主力净流入榜','真实主力净流入排序','main_inflow'],
+  ['mainOutflowRanking','主力净流出榜','真实主力净流出排序','main_outflow']
 ];
 const STATUS_TEXT = {ok:'实时',partial:'部分数据',empty:'暂无数据',stale:'缓存数据',unavailable:'数据源暂不可用'};
 const $ = selector => document.querySelector(selector);
@@ -60,9 +60,9 @@ function parseMarketHome(root){
   const limitUpModule=moduleObject(payload,'limitUpSummary');
   const breadth=itemsObject(breadthModule),sentiment=itemsObject(sentimentModule);
   const boards=[];
-  for(const [key,title,subtitle] of BOARD_DEFINITIONS){
+  for(const [key,title,subtitle,rankingType] of BOARD_DEFINITIONS){
     const module=moduleObject(payload,key),meta=parseMeta(module),items=itemsArray(module).map(parseRankItem).filter(Boolean);
-    if(items.length&&hasRealData(meta))boards.push({key,title,subtitle,meta,items});
+    if(items.length&&hasRealData(meta))boards.push({key,title,subtitle,rankingType,meta,items});
   }
   return {
     indices:itemsArray(indicesModule).map(parseIndex).filter(Boolean),indicesMeta:parseMeta(indicesModule),
@@ -111,9 +111,10 @@ function renderQuickGrid(){
   document.querySelectorAll('.quick-button').forEach(button=>button.addEventListener('click',()=>{state.selectedAction=button.dataset.action;renderQuickGrid();renderToolContent()}));
 }
 function rankRow(item,index){return `<button class="rank-row" data-code="${escapeHtml(item.code)}"><span class="rank-number">${index+1}</span><span class="rank-name"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.code)}</span></span><span class="rank-value">${escapeHtml(item.value)}</span><span class="rank-change ${toneClass(item.isRising)}">${escapeHtml(item.changePercent)}</span></button>`}
+function rankingHeading(board){return `<button type="button" class="ranking-section-link" data-ranking-type="${escapeHtml(board.rankingType)}" aria-label="查看${escapeHtml(board.title)}完整榜单"><strong>${escapeHtml(board.title)}</strong><span>查看全部 ›</span></button>`}
 function renderBoards(boards,title,meta){
   if(!boards.length)return sectionHeading(title,'不同榜单使用各自真实排序字段')+statusMarkup(meta);
-  return sectionHeading(title,'不同榜单使用各自真实排序字段')+boards.map((board,boardIndex)=>`<div class="content-section-title">${escapeHtml(board.title)}</div>${board.items.slice(0,boards.length===1?8:3).map(rankRow).join('')}${boardIndex<boards.length-1?'<div class="inner-divider"></div>':''}`).join('');
+  return sectionHeading(title,'点击榜单标题查看完整个股排行')+boards.map((board,boardIndex)=>`${rankingHeading(board)}${board.items.slice(0,boards.length===1?8:3).map(rankRow).join('')}${boardIndex<boards.length-1?'<div class="inner-divider"></div>':''}`).join('');
 }
 function renderSectors(){
   const sectors=state.snapshot.sectors;
@@ -139,6 +140,7 @@ function renderToolContent(){
     case '预警':root.innerHTML='<div class="empty-line">价格预警属于本地功能，当前尚未配置预警条件</div>';break;
   }
   root.querySelectorAll('.rank-row[data-code]').forEach(row=>row.addEventListener('click',()=>openDetail(row.dataset.code)));
+  root.querySelectorAll('[data-ranking-type]').forEach(button=>button.addEventListener('click',()=>openRankingDetail(button.dataset.rankingType)));
 }
 function renderStatus(){
   const snapshot=state.snapshot;
@@ -174,6 +176,7 @@ async function loadMarketHome(silent=false){
 function scheduleRefresh(){clearTimeout(state.timer);if(!state.autoRefresh)return;state.timer=setTimeout(()=>loadMarketHome(true),20000)}
 function openDetail(code){const query=text(code,$('#query').value.trim()||'600396');location.href=`./stock-detail-web-preview.html?query=${encodeURIComponent(query)}`}
 function openIndexDetail(code){const query=text(code,'000001');location.href=`./stock-index-web-preview.html?query=${encodeURIComponent(query)}`}
+function openRankingDetail(type){const query=text(type,'gainers');location.href=`./stock-ranking-web-preview.html?type=${encodeURIComponent(query)}`}
 function installClock(){const update=()=>{$('#clock').textContent=new Intl.DateTimeFormat('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())};update();setInterval(update,30000)}
 
 $('#searchForm').addEventListener('submit',event=>{event.preventDefault();openDetail($('#query').value.trim())});
