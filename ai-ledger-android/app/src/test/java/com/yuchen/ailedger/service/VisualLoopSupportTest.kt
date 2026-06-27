@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,6 +27,10 @@ class VisualLoopSupportTest {
         assertTrue(grounded.y!! in 2200f..2520f)
         assertTrue(grounded.y!! < 2520f)
         assertTrue(grounded.reason.orEmpty().contains("校准到可点击区域"))
+        assertTrue(grounded.toolArgs!!.optBoolean("__androidGroundingApplied"))
+        assertEquals(0.915, grounded.toolArgs!!.optDouble("__androidModelX"), 0.0001)
+        assertEquals(0.998, grounded.toolArgs!!.optDouble("__androidModelY"), 0.0001)
+        assertEquals("hybrid", grounded.toolArgs!!.optString("__androidVisualSurfaceMode"))
     }
 
     @Test
@@ -45,6 +50,7 @@ class VisualLoopSupportTest {
         assertEquals(540f, grounded.x!!, 0.01f)
         assertEquals(2322f, grounded.y!!, 0.01f)
         assertEquals(step.reason, grounded.reason)
+        assertFalse(grounded.toolArgs!!.optBoolean("__androidGroundingApplied"))
     }
 
     @Test
@@ -61,6 +67,8 @@ class VisualLoopSupportTest {
 
         assertEquals(988.2f, grounded.x!!, 0.01f)
         assertEquals(2574.84f, grounded.y!!, 0.02f)
+        assertEquals("visual_only", grounded.toolArgs!!.optString("__androidVisualSurfaceMode"))
+        assertFalse(grounded.toolArgs!!.optBoolean("__androidGroundingApplied"))
     }
 
     @Test
@@ -82,6 +90,37 @@ class VisualLoopSupportTest {
 
         assertEquals(540f, grounded.x!!, 0.01f)
         assertEquals(2322f, grounded.y!!, 0.01f)
+        assertFalse(grounded.toolArgs!!.optBoolean("__androidGroundingApplied"))
+    }
+
+    @Test
+    fun resultSummaryCarriesModelMaterializedAndExecutedCoordinates() {
+        val snapshot = snapshot(nodes = listOf(node("立即支付", "40,2200,1040,2520")))
+        val materialized = VisualLoopSupport.materializeTap(
+            CloudAgentStep(
+                type = "tap_xy",
+                targetText = "立即支付",
+                x = 0.915f,
+                y = 0.998f,
+            ),
+            snapshot,
+        )
+
+        val summary = VisualLoopSupport.resultSummary(
+            step = materialized,
+            signature = "tap@988,2494",
+            result = AgentExecutionResult(
+                ok = true,
+                message = "视觉坐标 988,2494 · 实际落点 986,2492（边界保护）",
+            ),
+        )
+
+        assertTrue(summary.contains("surface=hybrid"))
+        assertTrue(summary.contains("modelNorm=0.915,0.998"))
+        assertTrue(summary.contains("modelPx=988.200,2574.840"))
+        assertTrue(summary.contains("executedPx=986.000,2492.000"))
+        assertTrue(summary.contains("groundingApplied=true"))
+        assertTrue(summary.contains("boundaryAdjusted=true"))
     }
 
     private fun snapshot(nodes: List<AgentScreenNode>): AgentScreenSnapshot {
