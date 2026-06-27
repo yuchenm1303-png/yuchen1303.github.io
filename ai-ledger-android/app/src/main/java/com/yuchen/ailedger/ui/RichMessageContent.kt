@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -18,7 +17,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
@@ -28,7 +26,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.yuchen.ailedger.R
 
 private const val INLINE_STICKER_MAX_PER_MESSAGE = 2
 private const val INLINE_STICKER_TAG_START = 0xE0001
@@ -46,7 +43,6 @@ private data class CitationInlineToken(
 private data class StickerInlineToken(
     val id: String,
     val assetKey: String,
-    @DrawableRes val drawableRes: Int,
     val alt: String
 )
 
@@ -63,30 +59,29 @@ private data class InlineStickerMarker(
 )
 
 private data class InlineStickerAsset(
-    @DrawableRes val drawableRes: Int,
     val alt: String
 )
 
 private val inlineStickerCatalog: Map<String, InlineStickerAsset> = mapOf(
-    "joy_burst" to InlineStickerAsset(R.drawable.chat_sticker_joy_burst, "开心庆祝"),
-    "affection_hug" to InlineStickerAsset(R.drawable.chat_sticker_affection_hug, "贴贴拥抱"),
-    "health_check" to InlineStickerAsset(R.drawable.chat_sticker_health_check, "关心健康"),
-    "thinking_soft" to InlineStickerAsset(R.drawable.chat_sticker_thinking_soft, "认真思考"),
-    "cheer_power" to InlineStickerAsset(R.drawable.chat_sticker_cheer_power, "加油打气"),
-    "pout_no" to InlineStickerAsset(R.drawable.chat_sticker_pout_no, "委屈拒绝"),
-    "comfort_friend" to InlineStickerAsset(R.drawable.chat_sticker_comfort_friend, "安慰陪伴"),
-    "red_packet_congrats" to InlineStickerAsset(R.drawable.chat_sticker_red_packet_congrats, "恭喜祝贺"),
-    "gift_for_you" to InlineStickerAsset(R.drawable.chat_sticker_gift_for_you, "送上礼物"),
-    "sparkle_excited" to InlineStickerAsset(R.drawable.chat_sticker_sparkle_excited, "兴奋闪亮"),
-    "soft_smile" to InlineStickerAsset(R.drawable.chat_sticker_soft_smile, "温柔微笑"),
-    "got_it_point" to InlineStickerAsset(R.drawable.chat_sticker_got_it_point, "明白了"),
-    "heart_thanks" to InlineStickerAsset(R.drawable.chat_sticker_heart_thanks, "比心感谢"),
-    "confident_ready" to InlineStickerAsset(R.drawable.chat_sticker_confident_ready, "自信准备"),
-    "playful_wink" to InlineStickerAsset(R.drawable.chat_sticker_playful_wink, "俏皮眨眼"),
-    "confused_study" to InlineStickerAsset(R.drawable.chat_sticker_confused_study, "学习困惑"),
-    "confirm_yes" to InlineStickerAsset(R.drawable.chat_sticker_confirm_yes, "确认赞同"),
-    "idea_drawing" to InlineStickerAsset(R.drawable.chat_sticker_idea_drawing, "灵感记录"),
-    "reject_no" to InlineStickerAsset(R.drawable.chat_sticker_reject_no, "不同意")
+    "joy_burst" to InlineStickerAsset("开心庆祝"),
+    "affection_hug" to InlineStickerAsset("贴贴拥抱"),
+    "health_check" to InlineStickerAsset("关心健康"),
+    "thinking_soft" to InlineStickerAsset("认真思考"),
+    "cheer_power" to InlineStickerAsset("加油打气"),
+    "pout_no" to InlineStickerAsset("委屈拒绝"),
+    "comfort_friend" to InlineStickerAsset("安慰陪伴"),
+    "red_packet_congrats" to InlineStickerAsset("恭喜祝贺"),
+    "gift_for_you" to InlineStickerAsset("送上礼物"),
+    "sparkle_excited" to InlineStickerAsset("兴奋闪亮"),
+    "soft_smile" to InlineStickerAsset("温柔微笑"),
+    "got_it_point" to InlineStickerAsset("明白了"),
+    "heart_thanks" to InlineStickerAsset("比心感谢"),
+    "confident_ready" to InlineStickerAsset("自信准备"),
+    "playful_wink" to InlineStickerAsset("俏皮眨眼"),
+    "confused_study" to InlineStickerAsset("学习困惑"),
+    "confirm_yes" to InlineStickerAsset("确认赞同"),
+    "idea_drawing" to InlineStickerAsset("灵感记录"),
+    "reject_no" to InlineStickerAsset("不同意")
 )
 
 @Composable
@@ -141,16 +136,21 @@ fun CitationInlineRichText(
                             placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                         )
                     ) {
-                        Image(
-                            painter = painterResource(token.drawableRes),
-                            contentDescription = token.alt,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    translationY = stickerShiftPx
-                                }
-                        )
+                        val image = remember(token.assetKey) {
+                            InlineStickerAssets.imageBitmap(token.assetKey)
+                        }
+                        if (image != null) {
+                            Image(
+                                bitmap = image,
+                                contentDescription = token.alt,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        translationY = stickerShiftPx
+                                    }
+                            )
+                        }
                     }
                 )
             }
@@ -205,7 +205,6 @@ private fun buildCitationInlineRender(text: String): CitationInlineRender {
                 stickerTokens += StickerInlineToken(
                     id = id,
                     assetKey = marker.assetKey,
-                    drawableRes = asset.drawableRes,
                     alt = asset.alt
                 )
                 appendInlineContent(id, asset.alt)
