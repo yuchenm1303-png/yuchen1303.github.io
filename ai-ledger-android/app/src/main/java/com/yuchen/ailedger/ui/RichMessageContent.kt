@@ -108,8 +108,9 @@ fun CitationInlineRichText(
     }
 
     val density = LocalDensity.current
+    val stickerSizeTextUnit = remember(density) { with(density) { 60.dp.toSp() } }
     val stickerShiftPx = remember(density) { with(density) { (-9).dp.toPx() } }
-    val inlineContent = remember(render.citationTokens, render.stickerTokens, stickerShiftPx) {
+    val inlineContent = remember(render.citationTokens, render.stickerTokens, stickerSizeTextUnit, stickerShiftPx) {
         buildMap {
             render.citationTokens.forEach { token ->
                 val chipWidth = if (token.number.length >= 2) 25.sp else 19.sp
@@ -131,8 +132,8 @@ fun CitationInlineRichText(
                     token.id,
                     InlineTextContent(
                         Placeholder(
-                            width = 60.sp,
-                            height = 60.sp,
+                            width = stickerSizeTextUnit,
+                            height = stickerSizeTextUnit,
                             placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                         )
                     ) {
