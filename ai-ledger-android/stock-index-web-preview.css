@@ -1,4 +1,4 @@
-@import url("./stock-home-web-preview.css?v=20260627-3");
+@import url("./stock-home-web-preview.css?v=20260627-4");
 
 :root{
   --index-rise:#ff8f8f;
@@ -23,7 +23,7 @@
 .index-top-row .refresh-button{width:46px}
 
 .index-hero{
-  min-height:188px;
+  min-height:226px;
   padding:16px;
   border-radius:30px;
   display:flex;
@@ -37,17 +37,19 @@
 .index-title-copy h1{margin:2px 0 0;color:white;font-size:28px;line-height:32px;letter-spacing:-.045em;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .index-code{margin-top:2px;color:rgba(255,255,255,.40);font-size:10px;font-weight:850}
 .index-source{width:132px;color:rgba(255,255,255,.38);font-size:8px;line-height:12px;text-align:right;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-.index-price-row{display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;align-items:end;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)}
-.index-price{font-size:39px;line-height:40px;font-weight:950;letter-spacing:-.055em}
-.index-change{font-size:13px;line-height:18px;font-weight:950}
-.index-updated{color:rgba(255,255,255,.35);font-size:8px}
-.index-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
-.index-metric{height:48px;padding:7px 8px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.index-price-row{display:flex;flex-direction:column;gap:11px;padding-top:11px;border-top:1px solid rgba(255,255,255,.08)}
+.index-quote-line{display:flex;align-items:flex-end;justify-content:center;gap:16px;min-height:50px}
+.index-price{font-size:43px;line-height:44px;font-weight:950;letter-spacing:-.055em;text-align:center}
+.index-quote-meta{display:flex;flex-direction:column;align-items:flex-start;padding-bottom:3px}
+.index-change{font-size:13px;line-height:18px;font-weight:950;white-space:nowrap}
+.index-updated{color:rgba(255,255,255,.35);font-size:8px;white-space:nowrap}
+.index-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;width:100%}
+.index-metric{height:47px;padding:7px 9px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);display:flex;flex-direction:column;justify-content:space-between;min-width:0}
 .index-metric span{color:rgba(255,255,255,.40);font-size:8px;font-weight:800}
 .index-metric strong{font-size:11px;line-height:14px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 .index-chart-card{
-  height:394px;
+  height:404px;
   margin-top:10px;
   padding:13px;
   border-radius:30px;
@@ -65,7 +67,7 @@
 .index-legend .spacer{flex:1}
 .index-chart-wrap{position:relative;flex:1;min-height:0;border-radius:18px;overflow:hidden;background:rgba(1,5,23,.36);border:1px solid rgba(255,255,255,.07)}
 #indexChart{display:block;width:100%;height:100%;touch-action:none}
-.index-chart-empty{position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.40);font-size:11px;pointer-events:none}
+.index-chart-empty{position:absolute;inset:0;display:grid;place-items:center;padding:20px;color:rgba(255,255,255,.40);font-size:11px;line-height:18px;text-align:center;pointer-events:none}
 .index-axis{height:16px;display:flex;align-items:center;justify-content:space-between;color:rgba(255,255,255,.34);font-size:8px;padding:0 4px}
 .index-caption{height:14px;color:rgba(255,255,255,.38);font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
@@ -99,13 +101,16 @@
 .related-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .related-index{height:58px;padding:8px 10px;border-radius:17px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;gap:2px 8px;text-align:left;cursor:pointer}
 .related-index strong{color:rgba(255,255,255,.86);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.related-index small{color:rgba(255,255,255,.34);font-size:8px}.related-index b{grid-column:2;grid-row:1/3;font-size:11px;white-space:nowrap}
+.related-index:active{transform:scale(.98);background:rgba(255,255,255,.08)}
 
 .index-data-status{margin-top:8px;color:rgba(255,255,255,.42);font-size:9px;line-height:14px}
 .index-loading{animation:spin 1s linear infinite}
 
 @media(max-width:390px){
-  .index-price-row{grid-template-columns:118px minmax(0,1fr)}
-  .index-price{font-size:34px}
+  .index-hero{min-height:222px;padding-left:13px;padding-right:13px}
+  .index-quote-line{gap:11px}
+  .index-price{font-size:37px;line-height:39px}
+  .index-change{font-size:12px}
   .index-metrics{gap:5px}.index-metric{padding-left:6px;padding-right:6px}
   .context-grid{gap:5px}.context-card{padding-left:6px;padding-right:6px}.context-card strong{font-size:12px}
 }
