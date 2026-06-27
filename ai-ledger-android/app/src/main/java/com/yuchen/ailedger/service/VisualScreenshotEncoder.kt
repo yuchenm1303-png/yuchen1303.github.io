@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.graphics.Bitmap
 import java.io.ByteArrayOutputStream
+import kotlin.math.sqrt
 
 internal data class EncodedVisualScreenshot(
     val bytes: ByteArray,
@@ -16,8 +17,9 @@ internal data class EncodedVisualScreenshot(
 /**
  * High-resolution UI screenshot encoder for GUI Plus.
  *
- * It keeps enough pixels for small icons and text, then adapts JPEG quality and
- * dimensions only when the encoded frame exceeds the transport budget.
+ * Resolution and JPEG-quality boundaries remain unchanged. When the quality floor is still above
+ * the transport budget, the next scale is estimated from the measured byte ratio instead of
+ * repeatedly shrinking the bitmap by ten percent and re-encoding every intermediate size.
  */
 internal object VisualScreenshotEncoder {
     private const val TARGET_LONG_SIDE = 1_800
@@ -27,8 +29,7 @@ internal object VisualScreenshotEncoder {
     private const val JPEG_QUALITY_STEP = 6
     private const val MAX_ENCODED_BYTES = 1_250_000
     private const val ENCODE_BUFFER_INITIAL_BYTES = 512 * 1024
-    private const val SCALE_NUMERATOR = 9
-    private const val SCALE_DENOMINATOR = 10
+    private const val ESTIMATE_SAFETY_FACTOR = 0.96
 
     fun encode(source: Bitmap): EncodedVisualScreenshot {
         val startedAtNanos = System.nanoTime()
@@ -46,9 +47,12 @@ internal object VisualScreenshotEncoder {
             if (quality > MIN_JPEG_QUALITY) {
                 quality = (quality - JPEG_QUALITY_STEP).coerceAtLeast(MIN_JPEG_QUALITY)
             } else if (targetLongSide > MIN_LONG_SIDE) {
+                val nextLongSide = estimatedLongSide(
+                    currentLongSide = targetLongSide,
+                    encodedBytes = bytes.size,
+                )
                 if (target !== source) target.recycle()
-                targetLongSide = (targetLongSide * SCALE_NUMERATOR / SCALE_DENOMINATOR)
-                    .coerceAtLeast(MIN_LONG_SIDE)
+                targetLongSide = nextLongSide
                 target = scaledBitmap(source, targetLongSide)
                 scalePasses += 1
                 quality = INITIAL_JPEG_QUALITY
@@ -73,7 +77,11 @@ internal object VisualScreenshotEncoder {
         )
     }
 
-    internal fun targetSize(width: Int, height: Int, longSideLimit: Int = TARGET_LONG_SIDE): Pair<Int, Int> {
+    internal fun targetSize(
+        width: Int,
+        height: Int,
+        longSideLimit: Int = TARGET_LONG_SIDE,
+    ): Pair<Int, Int> {
         val safeWidth = width.coerceAtLeast(1)
         val safeHeight = height.coerceAtLeast(1)
         val longSide = maxOf(safeWidth, safeHeight)
@@ -81,6 +89,20 @@ internal object VisualScreenshotEncoder {
         val scale = longSideLimit.toFloat() / longSide.toFloat()
         return (safeWidth * scale).toInt().coerceAtLeast(1) to
             (safeHeight * scale).toInt().coerceAtLeast(1)
+    }
+
+    internal fun estimatedLongSide(
+        currentLongSide: Int,
+        encodedBytes: Int,
+        maxEncodedBytes: Int = MAX_ENCODED_BYTES,
+        minLongSide: Int = MIN_LONG_SIDE,
+    ): Int {
+        val current = currentLongSide.coerceAtLeast(1)
+        val minimum = minLongSide.coerceIn(1, current)
+        if (encodedBytes <= maxEncodedBytes || maxEncodedBytes <= 0) return current
+        val byteRatio = maxEncodedBytes.toDouble() / encodedBytes.toDouble().coerceAtLeast(1.0)
+        val estimated = (current * sqrt(byteRatio) * ESTIMATE_SAFETY_FACTOR).toInt()
+        return estimated.coerceAtMost(current - 1).coerceAtLeast(minimum)
     }
 
     private fun scaledBitmap(source: Bitmap, longSideLimit: Int): Bitmap {
