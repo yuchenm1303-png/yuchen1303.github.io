@@ -292,9 +292,10 @@ private class SupabaseMemoryClient(
     private val publishableKey: String = SupabaseAuthClient.DEFAULT_SUPABASE_PUBLISHABLE_KEY
 ) {
     fun list(session: SupabaseUserSession): List<AssistantMemoryItem> {
+        val userFilter = session.userId.urlEncode()
         val response = request(
             session = session,
-            path = "/rest/v1/$MEMORY_TABLE?select=id,content,category,enabled,created_at,updated_at&order=updated_at.desc&limit=$MEMORY_MAX_ITEMS",
+            path = "/rest/v1/$MEMORY_TABLE?select=id,content,category,enabled,created_at,updated_at&user_id=eq.$userFilter&order=updated_at.desc&limit=$MEMORY_MAX_ITEMS",
             method = "GET"
         )
         val array = JSONArray(response)
@@ -318,7 +319,7 @@ private class SupabaseMemoryClient(
     fun updateContent(session: SupabaseUserSession, id: String, content: String): AssistantMemoryItem {
         return requestRepresentation(
             session,
-            "/rest/v1/$MEMORY_TABLE?id=eq.${id.urlEncode()}",
+            itemPath(session, id),
             "PATCH",
             JSONObject().put("content", content)
         )
@@ -327,14 +328,14 @@ private class SupabaseMemoryClient(
     fun updateEnabled(session: SupabaseUserSession, id: String, enabled: Boolean): AssistantMemoryItem {
         return requestRepresentation(
             session,
-            "/rest/v1/$MEMORY_TABLE?id=eq.${id.urlEncode()}",
+            itemPath(session, id),
             "PATCH",
             JSONObject().put("enabled", enabled)
         )
     }
 
     fun delete(session: SupabaseUserSession, id: String) {
-        request(session, "/rest/v1/$MEMORY_TABLE?id=eq.${id.urlEncode()}", "DELETE")
+        request(session, itemPath(session, id), "DELETE")
     }
 
     fun deleteAll(session: SupabaseUserSession) {
@@ -343,6 +344,10 @@ private class SupabaseMemoryClient(
             "/rest/v1/$MEMORY_TABLE?user_id=eq.${session.userId.urlEncode()}",
             "DELETE"
         )
+    }
+
+    private fun itemPath(session: SupabaseUserSession, id: String): String {
+        return "/rest/v1/$MEMORY_TABLE?id=eq.${id.urlEncode()}&user_id=eq.${session.userId.urlEncode()}"
     }
 
     private fun requestRepresentation(
