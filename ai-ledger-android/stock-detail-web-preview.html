@@ -95,6 +95,8 @@
 <script>
 (async function bootstrapStockPrototype(){
   const status=document.getElementById('dataStatus');
+  const routeQuery=new URLSearchParams(location.search).get('query');
+  if(routeQuery)document.getElementById('query').value=routeQuery;
   const base='https://raw.githubusercontent.com/yuchenm1303-png/yuchen1303.github.io/aeb00afa939185240e138a79ab485c5a21ad5b85/ai-ledger-android/';
   const files=['stock-detail-web-core.js','stock-detail-web-charts.js','stock-detail-web-indicators.js','stock-detail-web-runtime.js'];
   try{
