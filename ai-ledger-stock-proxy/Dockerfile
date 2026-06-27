@@ -20,7 +20,9 @@ COPY hot_rank_server.py ./
 COPY discussion_server.py ./
 COPY discussion_post_server.py ./
 COPY production_server.py ./
-RUN python -m py_compile main.py realtime_runtime.py market_home_server.py stock_detail_server.py fast_stock_server.py index_detail_server.py market_kline_server.py sector_detail_server.py hot_rank_server.py discussion_server.py discussion_post_server.py production_server.py
+COPY test_market_home_server.py ./
+RUN python -m py_compile main.py realtime_runtime.py market_home_server.py stock_detail_server.py fast_stock_server.py index_detail_server.py market_kline_server.py sector_detail_server.py hot_rank_server.py discussion_server.py discussion_post_server.py production_server.py test_market_home_server.py \
+    && python -m unittest test_market_home_server.py
 
 EXPOSE 8000
 
