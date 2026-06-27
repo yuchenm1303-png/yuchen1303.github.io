@@ -13,8 +13,10 @@ COPY realtime_runtime.py ./
 COPY market_home_server.py ./
 COPY stock_detail_server.py ./
 COPY fast_stock_server.py ./
-RUN python -m py_compile main.py realtime_runtime.py market_home_server.py stock_detail_server.py fast_stock_server.py
+COPY index_detail_server.py ./
+COPY production_server.py ./
+RUN python -m py_compile main.py realtime_runtime.py market_home_server.py stock_detail_server.py fast_stock_server.py index_detail_server.py production_server.py
 
 EXPOSE 8000
 
-CMD ["uvicorn", "fast_stock_server:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--http", "httptools", "--no-access-log"]
+CMD ["uvicorn", "production_server:app", "--host", "0.0.0.0", "--port", "8000", "--loop", "uvloop", "--http", "httptools", "--no-access-log"]
