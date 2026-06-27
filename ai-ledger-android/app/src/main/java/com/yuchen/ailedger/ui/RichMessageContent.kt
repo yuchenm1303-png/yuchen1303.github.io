@@ -136,9 +136,7 @@ fun CitationInlineRichText(
                             placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                         )
                     ) {
-                        val image = remember(token.assetKey) {
-                            InlineStickerAssets.imageBitmap(token.assetKey)
-                        }
+                        val image = InlineStickerAssets.rememberImageBitmap(token.assetKey)
                         if (image != null) {
                             Image(
                                 bitmap = image,
