@@ -48,7 +48,7 @@ class VisualLoopRunner(
         VisualLoopSupport.appendRecent(session.recentActions, session.deviceProfile.toPromptLine())
         VisualLoopSupport.appendRecent(
             session.recentActions,
-            "cloud_routing:v5|mainBrain=deepseek|visualOwner=gui_plus|taskContractHarness=true|semanticProgressVerification=true|failedHypothesisBlocking=true",
+            "cloud_routing:v6|mainBrain=deepseek|visualOwner=gui_plus|localSemanticDecision=false|completionPermitRequired=true|completionAck=true",
         )
         VisualLoopSupport.appendRecent(
             session.recentActions,
@@ -197,7 +197,7 @@ class VisualLoopRunner(
                             append("|observationId=").append(recoveredRuntime.observationId)
                         },
                     )
-                    if (!recoveredRuntime.guiPlusEligible) delay(decision.backoffMs)
+                    delay(decision.backoffMs)
                     VisualPlanRequest.Retry
                 }
                 is VisualRouteRetryDecision.Stop -> {
@@ -229,7 +229,7 @@ class VisualLoopRunner(
         val validation = VisualActionValidator.validate(step, turn.snapshot, turn.runtime)
         if (!validation.ok) return rejectPlan(session, turn, plan, validation)
         if (step.type == "finish") return handleFinish(session, turn, plan)
-        session.state.clearFinishCandidate()
+        session.clearCompletionCandidate()
         if (step.type == "need_user_help") {
             session.logs += AgentTaskStepLog(session.logs.size + 1, turn.snapshot.currentApp, step, null)
             val continued = pauseForUserAndContinue(
@@ -508,7 +508,7 @@ class VisualLoopRunner(
         return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
     }
 
-    private fun handleFinish(
+    private suspend fun handleFinish(
         session: VisualTaskSession,
         turn: VisualTurn,
         plan: CloudAgentPlan,
@@ -516,43 +516,96 @@ class VisualLoopRunner(
         val step = plan.step
         val state = session.state
         val message = step.reason ?: "Visual task completed."
-        val fingerprint = VisualActionValidator.completionFingerprint(turn.snapshot)
-        val verified = state.pendingFinishCount > 0 &&
-            state.pendingFinishPackage == turn.snapshot.currentApp &&
-            state.pendingFinishFingerprint == fingerprint &&
-            session.execution.isVerifiedWorkSurface(turn.snapshot)
-        if (verified) {
-            val finalMessage = "$message Fresh-screen completion verification passed."
+        val expectedCandidate = session.pendingCompletionCandidate
+        if (expectedCandidate == null) {
+            val candidate = VisualCompletionPermitPolicy.candidate(
+                step = step,
+                expectedSessionId = session.agentSessionId,
+                expectedObservationId = turn.runtime.observationId,
+            )
+            if (!candidate.valid || candidate.value == null) {
+                val feedback = "finish_candidate_rejected:reason=${candidate.reason}|observationId=${turn.runtime.observationId}"
+                session.logs += AgentTaskStepLog(
+                    session.logs.size + 1,
+                    turn.snapshot.currentApp,
+                    step.copy(reason = feedback),
+                    null,
+                )
+                VisualLoopSupport.appendRecent(session.recentActions, feedback)
+                VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
+                session.clearCompletionCandidate()
+                state.reobservations += 1
+                return VisualLoopDecision.Continue
+            }
+            session.pendingCompletionCandidate = candidate.value
+            session.pendingCompletionPackage = turn.snapshot.currentApp
+            state.pendingFinishPackage = turn.snapshot.currentApp
+            state.pendingFinishFingerprint = VisualActionValidator.completionFingerprint(turn.snapshot)
+            state.pendingFinishCount = 1
+            val feedback = buildString {
+                append("finish_verification_pending:package=").append(turn.snapshot.currentApp.take(100))
+                append(":candidateId=").append(candidate.value.id.take(120))
+                append(":observationId=").append(candidate.value.observationId.take(120))
+                append(":reason=").append(message.take(80))
+            }
             session.logs += AgentTaskStepLog(
                 session.logs.size + 1,
                 turn.snapshot.currentApp,
                 step,
-                AgentExecutionResult(true, finalMessage, false),
+                AgentExecutionResult(true, "Completion candidate captured; waiting for independent fresh verification.", true),
             )
-            state.completed = true
-            state.clearFinishCandidate()
-            AgentRuntimeController.finishTask(session.runtimeTaskId, AgentTaskOutcome.Completed(finalMessage))
-            return VisualLoopDecision.Return(AgentTaskRunResult(true, false, finalMessage, session.logs))
+            VisualLoopSupport.appendRecent(session.recentActions, feedback)
+            VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
+            state.reobservations += 1
+            return VisualLoopDecision.Continue
         }
-        state.pendingFinishPackage = turn.snapshot.currentApp
-        state.pendingFinishFingerprint = fingerprint
-        state.pendingFinishCount = 1
-        val feedback = buildString {
-            append("finish_verification_pending:package=").append(turn.snapshot.currentApp.take(100))
-            append(":fingerprint=").append(Integer.toHexString(fingerprint.hashCode()))
-            append(":observationId=").append(turn.runtime.observationId)
-            append(":reason=").append(message.take(80))
+
+        val permit = VisualCompletionPermitPolicy.permit(
+            step = step,
+            expectedSessionId = session.agentSessionId,
+            expectedObservationId = turn.runtime.observationId,
+            expectedCandidate = expectedCandidate,
+        )
+        val workSurfaceValid = session.pendingCompletionPackage == turn.snapshot.currentApp &&
+            session.execution.isVerifiedWorkSurface(turn.snapshot)
+        if (!permit.valid || permit.value == null || !workSurfaceValid) {
+            val reason = if (!workSurfaceValid) "completion_work_surface_changed" else permit.reason
+            val feedback = "finish_permit_rejected:reason=$reason|observationId=${turn.runtime.observationId}|replanRequired=false"
+            session.logs += AgentTaskStepLog(
+                session.logs.size + 1,
+                turn.snapshot.currentApp,
+                step.copy(reason = feedback),
+                null,
+            )
+            VisualLoopSupport.appendRecent(session.recentActions, feedback)
+            VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
+            session.clearCompletionCandidate()
+            state.reobservations += 1
+            return VisualLoopDecision.Continue
         }
+
+        val completionPermit = permit.value
+        val ack = withContext(Dispatchers.IO) {
+            aiWorkerClient.acknowledgeVisualCompletion(
+                goal = state.goal,
+                deviceId = clientDeviceId,
+                permit = completionPermit,
+            )
+        }
+        AgentRuntimeController.noteDiagnostic(
+            if (ack.acknowledged) "GUI Plus 完成许可已确认" else "完成许可有效；后端清理确认将在会话过期时完成",
+        )
+        val finalMessage = "$message Independent GUI completion permit verified."
         session.logs += AgentTaskStepLog(
             session.logs.size + 1,
             turn.snapshot.currentApp,
             step,
-            AgentExecutionResult(true, "Completion candidate captured; waiting for fresh verification.", true),
+            AgentExecutionResult(true, finalMessage, false),
         )
-        VisualLoopSupport.appendRecent(session.recentActions, feedback)
-        VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
-        state.reobservations += 1
-        return VisualLoopDecision.Continue
+        state.completed = true
+        session.clearCompletionCandidate()
+        AgentRuntimeController.finishTask(session.runtimeTaskId, AgentTaskOutcome.Completed(finalMessage))
+        return VisualLoopDecision.Return(AgentTaskRunResult(true, false, finalMessage, session.logs))
     }
 
     private fun prepareStep(
@@ -720,7 +773,7 @@ class VisualLoopRunner(
         }
         val canContinue = reply.isNotBlank() || waitWhileUserTakeoverPaused(session)
         session.state.paused = false
-        session.state.clearFinishCandidate()
+        session.clearCompletionCandidate()
         session.semantic.resetAfterUserTakeover()
         if (canContinue) {
             VisualLoopSupport.appendRecent(session.recentActions, "userTakeover=resumed:$reason")
@@ -774,10 +827,18 @@ internal data class VisualTaskSession(
     var fullAppCatalogUploaded: Boolean = false,
     var runtimeTaskId: Long = 0L,
     var stopGeneration: Long = 0L,
+    var pendingCompletionCandidate: VisualCompletionCandidate? = null,
+    var pendingCompletionPackage: String = "",
 ) {
     fun stopped(): Boolean =
         AgentRuntimeController.currentManualStopGeneration() != stopGeneration
 
     fun canRun(): Boolean =
         !stopped() && state.executedActions < maxSteps && state.modelTurns < modelTurnBudget
+
+    fun clearCompletionCandidate() {
+        pendingCompletionCandidate = null
+        pendingCompletionPackage = ""
+        state.clearFinishCandidate()
+    }
 }
