@@ -37,7 +37,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import kotlin.math.max
 import kotlin.math.min
 
 private data class CapsuleRenderSnapshot(
@@ -56,8 +55,9 @@ private data class CapsuleConversationTurn(
 /**
  * Interactive accessibility-overlay companion for [VisualAgentHudHost].
  *
- * The full-screen WebView stays completely touch-through. This host owns a second, tightly-sized
- * TYPE_ACCESSIBILITY_OVERLAY window, so only the visible capsule/dialogue surface receives touch.
+ * The full-screen visual WebView remains completely touch-through. This host owns a second,
+ * tightly-sized TYPE_ACCESSIBILITY_OVERLAY window, so only the visible capsule/dialogue surface
+ * receives touch and GUI Plus communication no longer needs SYSTEM_ALERT_WINDOW permission.
  */
 internal class VisualAgentCapsuleHost(
     private val service: AccessibilityService,
@@ -66,7 +66,7 @@ internal class VisualAgentCapsuleHost(
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     private val density = service.resources.displayMetrics.density.coerceAtLeast(1f)
 
-    private var rootView: CapsuleGlowLayout? = null
+    private var rootView: CapsuleGlassLayout? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var layoutAnimator: ValueAnimator? = null
 
@@ -84,7 +84,6 @@ internal class VisualAgentCapsuleHost(
     private var inputView: EditText? = null
     private var primaryButton: TextView? = null
     private var secondaryButton: TextView? = null
-    private var stopButton: TextView? = null
 
     private var started = false
     private var hiddenForCapture = false
@@ -97,7 +96,6 @@ internal class VisualAgentCapsuleHost(
     private var lastAutoExpandKey: String? = null
     private var lastModelDialogue = ""
     private var wasPaused = false
-    private var pauseGeneration = 0L
     private var awaitingAgentReply = false
     private var latestProgress = AgentOverlayProgress()
     private var latestPresentation = VisualAgentCapsuleStateResolver.resolve(latestProgress, null)
@@ -139,8 +137,14 @@ internal class VisualAgentCapsuleHost(
             expanded = false
             lastAppliedExpanded = false
         }
+
         syncConversation(snapshot.progress)
-        syncAutoExpansion(snapshot.progress, presentation)
+        presentation.autoExpandKey?.let { key ->
+            if (key != lastAutoExpandKey) {
+                lastAutoExpandKey = key
+                expanded = true
+            }
+        }
 
         if (!createWindow()) return
         updateHeader(presentation)
@@ -153,14 +157,13 @@ internal class VisualAgentCapsuleHost(
         if (rootView != null) return true
         val wm = windowManager ?: return false
         val screenWidth = service.resources.displayMetrics.widthPixels
-        val collapsedWidth = min(dp(COLLAPSED_WIDTH_DP), screenWidth - dp(24f))
+        val collapsedWidth = min(dp(COLLAPSED_WIDTH_DP), screenWidth - dp(20f))
         val collapsedHeight = dp(COLLAPSED_HEIGHT_DP)
 
-        val root = CapsuleGlowLayout(service).apply {
+        val root = CapsuleGlassLayout(service).apply {
             elevation = dp(18f).toFloat()
-            isClickable = true
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
-            contentDescription = "视觉智能体控制胶囊"
+            contentDescription = "视觉智能体灵动胶囊"
         }
         val content = LinearLayout(service).apply {
             orientation = LinearLayout.VERTICAL
@@ -168,13 +171,14 @@ internal class VisualAgentCapsuleHost(
             clipToPadding = false
         }
         val header = createHeader()
-        bodyView = createBody()
+        val body = createBody()
+        bodyView = body
         content.addView(
             header,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, collapsedHeight),
         )
         content.addView(
-            bodyView,
+            body,
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f),
         )
         root.addView(
@@ -210,12 +214,14 @@ internal class VisualAgentCapsuleHost(
                 layoutParams = params
                 root.setExpansionProgress(0f)
                 root.setHintEnabled(!hiddenForCapture)
-                bodyView?.visibility = View.INVISIBLE
+                body.visibility = View.INVISIBLE
                 animateWindowEntrance(root)
             }
-            .onFailure {
+            .onFailure { error ->
                 root.stopAnimations()
-                AgentRuntimeController.noteDiagnostic("灵动胶囊创建失败：${it.message ?: it.javaClass.simpleName}")
+                AgentRuntimeController.noteDiagnostic(
+                    "灵动胶囊创建失败：${error.message ?: error.javaClass.simpleName}"
+                )
             }
             .isSuccess
     }
@@ -226,40 +232,41 @@ internal class VisualAgentCapsuleHost(
             isFocusable = true
             contentDescription = "展开或收起 GUI Plus 对话"
             setOnClickListener { setExpanded(!expanded, animate = true) }
-            setOnTouchListener(PressFeedbackTouchListener())
+            setOnTouchListener(HeaderPressFeedback())
         }
         val row = LinearLayout(service).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14f), dp(4f), dp(8f), dp(5f))
+            setPadding(dp(13f), dp(4f), dp(7f), dp(5f))
         }
         statusOrb = CapsuleStatusOrbView(service).also { orb ->
             row.addView(orb, LinearLayout.LayoutParams(dp(12f), dp(12f)).apply {
-                marginEnd = dp(9f)
+                marginEnd = dp(8f)
             })
         }
-        titleView = text("正在观察页面", 12.4f, Color.WHITE, bold = true).apply {
+        titleView = text("正在观察页面", 12.1f, Color.WHITE, bold = true).apply {
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }.also { title ->
             row.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
-        metaView = text("Step 1 / 5", 10.2f, Color.argb(185, 203, 219, 234)).also { meta ->
+        metaView = text("Step 1 / 5", 9.8f, Color.argb(182, 203, 219, 234)).also { meta ->
             row.addView(meta, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginStart = dp(8f)
+                marginStart = dp(7f)
             })
         }
         chevronView = CapsuleChevronView(service).also { chevron ->
-            row.addView(chevron, LinearLayout.LayoutParams(dp(22f), dp(28f)).apply {
-                marginStart = dp(4f)
+            row.addView(chevron, LinearLayout.LayoutParams(dp(20f), dp(28f)).apply {
+                marginStart = dp(2f)
             })
         }
-        row.addView(View(service).apply {
-            setBackgroundColor(Color.argb(38, 232, 246, 255))
-        }, LinearLayout.LayoutParams(dp(1f).coerceAtLeast(1), dp(24f)).apply {
-            marginStart = dp(2f)
-            marginEnd = dp(6f)
-        })
+        row.addView(
+            View(service).apply { setBackgroundColor(Color.argb(36, 232, 246, 255)) },
+            LinearLayout.LayoutParams(dp(1f).coerceAtLeast(1), dp(23f)).apply {
+                marginStart = dp(1f)
+                marginEnd = dp(5f)
+            },
+        )
         pauseResumeView = CapsulePauseResumeView(service).apply {
             contentDescription = "暂停智能体"
             setOnClickListener {
@@ -277,28 +284,31 @@ internal class VisualAgentCapsuleHost(
             row,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
-        header.addView(View(service).apply {
-            background = roundedBackground(
-                fill = Color.argb(176, 172, 226, 255),
-                stroke = Color.TRANSPARENT,
-                radiusDp = 2f,
-            )
-        }, FrameLayout.LayoutParams(dp(15f), dp(2f), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
-            bottomMargin = dp(3f)
-        })
+        header.addView(
+            View(service).apply {
+                background = roundedBackground(
+                    fill = Color.argb(174, 172, 226, 255),
+                    stroke = Color.TRANSPARENT,
+                    radiusDp = 2f,
+                )
+            },
+            FrameLayout.LayoutParams(dp(15f), dp(2f), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dp(3f)
+            },
+        )
         return header
     }
 
     private fun createBody(): LinearLayout {
         val body = LinearLayout(service).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13f), dp(4f), dp(13f), dp(13f))
+            setPadding(dp(13f), dp(4f), dp(13f), dp(11f))
             alpha = 0f
             translationY = -dp(8f).toFloat()
         }
         val actionCard = LinearLayout(service).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(11f), dp(9f), dp(11f), dp(9f))
+            setPadding(dp(11f), dp(8f), dp(11f), dp(8f))
             background = roundedBackground(
                 fill = Color.argb(34, 239, 248, 255),
                 stroke = Color.argb(45, 188, 230, 255),
@@ -306,26 +316,29 @@ internal class VisualAgentCapsuleHost(
             )
         }
         actionCard.addView(sectionLabel("当前状态"))
-        actionView = text("等待任务", 12.2f, Color.WHITE, bold = true).applyReadable(2).also {
+        actionView = text("等待任务", 12f, Color.WHITE, bold = true).applyReadable(2).also {
             actionCard.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(5f)
+                topMargin = dp(4f)
             })
         }
-        resultView = text("GUI Plus 正在准备下一步操作", 10.2f, Color.argb(218, 221, 237, 249)).applyReadable(3).also {
+        resultView = text("GUI Plus 正在准备下一步操作", 10f, Color.argb(218, 221, 237, 249)).applyReadable(3).also {
             actionCard.addView(it, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(5f)
+                topMargin = dp(4f)
             })
         }
         body.addView(actionCard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        body.addView(sectionLabel("与 GUI Plus 沟通"), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(10f)
-            bottomMargin = dp(5f)
-        })
-        conversationView = text("等待 GUI Plus 发来消息…", 10.5f, Color.argb(232, 235, 245, 255)).apply {
-            setLineSpacing(dp(1.3f).toFloat(), 1.04f)
+        body.addView(
+            sectionLabel("与 GUI Plus 沟通"),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8f)
+                bottomMargin = dp(4f)
+            },
+        )
+        conversationView = text("等待 GUI Plus 发来消息…", 10.4f, Color.argb(232, 235, 245, 255)).apply {
+            setLineSpacing(dp(1.2f).toFloat(), 1.04f)
             setTextIsSelectable(true)
-            setPadding(dp(9f), dp(8f), dp(9f), dp(8f))
+            setPadding(dp(9f), dp(7f), dp(9f), dp(7f))
         }
         conversationScroll = ScrollView(service).apply {
             isFillViewport = true
@@ -341,23 +354,29 @@ internal class VisualAgentCapsuleHost(
                 FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
             )
         }
-        body.addView(conversationScroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(CONVERSATION_HEIGHT_DP)))
+        body.addView(
+            conversationScroll,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(CONVERSATION_HEIGHT_DP)),
+        )
 
-        promptView = text("", 10.4f, Color.argb(244, 255, 232, 190), bold = true).applyReadable(6).apply {
+        promptView = text("", 10.2f, Color.argb(244, 255, 232, 190), bold = true).applyReadable(6).apply {
             visibility = View.GONE
-            setPadding(dp(9f), dp(8f), dp(9f), dp(8f))
+            setPadding(dp(9f), dp(7f), dp(9f), dp(7f))
             background = roundedBackground(
                 fill = Color.argb(48, 255, 190, 92),
                 stroke = Color.argb(74, 255, 224, 148),
                 radiusDp = 14f,
             )
         }
-        body.addView(promptView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(8f)
-        })
+        body.addView(
+            promptView,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(7f)
+            },
+        )
 
         inputView = EditText(service).apply {
-            textSize = 12.6f
+            textSize = 12.4f
             setTextColor(Color.WHITE)
             setHintTextColor(Color.argb(150, 221, 238, 250))
             hint = "补充刚才的操作或下一步要求"
@@ -381,9 +400,12 @@ internal class VisualAgentCapsuleHost(
                 false
             }
         }
-        body.addView(inputView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(INPUT_HEIGHT_DP)).apply {
-            topMargin = dp(8f)
-        })
+        body.addView(
+            inputView,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(INPUT_HEIGHT_DP)).apply {
+                topMargin = dp(7f)
+            },
+        )
 
         val actionRow = LinearLayout(service).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -397,23 +419,28 @@ internal class VisualAgentCapsuleHost(
         primaryButton = actionButton("暂停并沟通", primary = true) { handlePrimaryAction() }.also {
             actionRow.addView(it, LinearLayout.LayoutParams(0, dp(38f), 1f))
         }
-        body.addView(actionRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(9f)
-        })
-        stopButton = text("停止本次任务", 9.8f, Color.argb(202, 255, 184, 213), bold = true).apply {
-            gravity = Gravity.CENTER
-            setPadding(dp(8f), dp(7f), dp(8f), dp(6f))
-            isClickable = true
-            setOnClickListener { AgentRuntimeController.stopTaskByUser() }
-        }
-        body.addView(stopButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(2f)
-        })
+        body.addView(
+            actionRow,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(8f)
+            },
+        )
+        body.addView(
+            text("停止本次任务", 9.7f, Color.argb(202, 255, 184, 213), bold = true).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(8f), dp(6f), dp(8f), dp(5f))
+                isClickable = true
+                setOnClickListener { AgentRuntimeController.stopTaskByUser() }
+            },
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(1f)
+            },
+        )
         return body
     }
 
     private fun updateHeader(presentation: VisualAgentCapsulePresentation) {
-        titleView.setTextIfChanged(presentation.title)
+        animateTextSwap(titleView, presentation.title)
         metaView.setTextIfChanged(presentation.meta)
         val accent = accentColorFor(presentation)
         rootView?.setAccentColor(accent)
@@ -438,6 +465,7 @@ internal class VisualAgentCapsuleHost(
                 ?: progress.logs.lastOrNull()?.cleanCapsuleText()
                 ?: "GUI Plus 正在根据页面证据规划下一步。"
         )
+
         val transcript = buildConversationTranscript(progress)
         val transcriptChanged = conversationView?.text?.toString() != transcript
         conversationView.setTextIfChanged(transcript)
@@ -457,6 +485,7 @@ internal class VisualAgentCapsuleHost(
             progress.userTakeoverPaused -> "告诉 GUI Plus 你刚才做了什么，或下一步希望怎样处理"
             else -> pendingInput?.hint?.takeIf(String::isNotBlank) ?: "补充选择、条件或要求"
         }
+        if (!presentation.showConversationInput && inputFocused) hideKeyboardAndReleaseFocus()
 
         primaryButton.setTextIfChanged(
             when {
@@ -487,19 +516,20 @@ internal class VisualAgentCapsuleHost(
             awaitingAgentReply = false
             appendTurn(CapsuleSpeaker.GuiPlus, modelDialogue)
         }
-        val pendingInput = progress.pendingUserInput
-        if (pendingInput != null && pendingInput.id != lastPendingInputId) {
-            lastPendingInputId = pendingInput.id
-            awaitingAgentReply = false
-            appendTurn(CapsuleSpeaker.GuiPlus, pendingInput.message)
+        progress.pendingUserInput?.let { pending ->
+            if (pending.id != lastPendingInputId) {
+                lastPendingInputId = pending.id
+                awaitingAgentReply = false
+                appendTurn(CapsuleSpeaker.GuiPlus, pending.message)
+            }
         }
-        val pendingConfirmation = progress.pendingConfirmation
-        if (pendingConfirmation != null && pendingConfirmation.id != lastPendingConfirmationId) {
-            lastPendingConfirmationId = pendingConfirmation.id
-            appendTurn(CapsuleSpeaker.GuiPlus, pendingConfirmation.message)
+        progress.pendingConfirmation?.let { pending ->
+            if (pending.id != lastPendingConfirmationId) {
+                lastPendingConfirmationId = pending.id
+                appendTurn(CapsuleSpeaker.GuiPlus, pending.message)
+            }
         }
         if (progress.userTakeoverPaused && !wasPaused) {
-            pauseGeneration += 1L
             appendTurn(
                 CapsuleSpeaker.GuiPlus,
                 "自动操作已暂停。你可以手动处理当前页面，并把页面变化或下一步要求发给我。",
@@ -509,21 +539,6 @@ internal class VisualAgentCapsuleHost(
         }
         if (!progress.running && progress.pendingUserInput == null) awaitingAgentReply = false
         wasPaused = progress.userTakeoverPaused
-    }
-
-    private fun syncAutoExpansion(
-        progress: AgentOverlayProgress,
-        presentation: VisualAgentCapsulePresentation,
-    ) {
-        val key = when {
-            presentation.autoExpandKey != null -> presentation.autoExpandKey
-            progress.userTakeoverPaused && !wasPaused -> "pause:${progress.taskId}:$pauseGeneration"
-            else -> null
-        }
-        if (key != null && key != lastAutoExpandKey) {
-            lastAutoExpandKey = key
-            expanded = true
-        }
     }
 
     private fun handlePrimaryAction() {
@@ -553,19 +568,19 @@ internal class VisualAgentCapsuleHost(
     }
 
     private fun submitPendingInput() {
-        val text = inputView?.text?.toString()?.trim().orEmpty()
-        if (text.isBlank()) return
-        appendTurn(CapsuleSpeaker.User, text)
+        val value = inputView?.text?.toString()?.trim().orEmpty()
+        if (value.isBlank()) return
+        appendTurn(CapsuleSpeaker.User, value)
         inputView?.setText("")
         awaitingAgentReply = true
         hideKeyboardAndReleaseFocus()
-        AgentRuntimeController.submitPendingUserInput(text)
+        AgentRuntimeController.submitPendingUserInput(value)
     }
 
     private fun submitTakeoverGuidance() {
-        val text = inputView?.text?.toString()?.trim().orEmpty()
-        if (text.isBlank() || !AgentTakeoverDialogueBridge.submit(text)) return
-        appendTurn(CapsuleSpeaker.User, text)
+        val value = inputView?.text?.toString()?.trim().orEmpty()
+        if (value.isBlank() || !AgentTakeoverDialogueBridge.submit(value)) return
+        appendTurn(CapsuleSpeaker.User, value)
         appendTurn(
             CapsuleSpeaker.GuiPlus,
             "补充已加入下一轮规划上下文。完成手动操作后，点击右上角播放按钮或“恢复执行”。",
@@ -576,11 +591,11 @@ internal class VisualAgentCapsuleHost(
     }
 
     private fun appendTurn(speaker: CapsuleSpeaker, raw: String) {
-        val text = raw.cleanCapsulePanelText().take(MAX_TURN_TEXT_CHARS)
-        if (text.isBlank()) return
+        val value = raw.cleanCapsulePanelText().take(MAX_TURN_TEXT_CHARS)
+        if (value.isBlank()) return
         val last = conversationTurns.lastOrNull()
-        if (last?.speaker == speaker && last.text == text) return
-        conversationTurns += CapsuleConversationTurn(speaker, text)
+        if (last?.speaker == speaker && last.text == value) return
+        conversationTurns += CapsuleConversationTurn(speaker, value)
         while (conversationTurns.size > MAX_CONVERSATION_TURNS) conversationTurns.removeAt(0)
     }
 
@@ -601,13 +616,10 @@ internal class VisualAgentCapsuleHost(
     }
 
     private fun latestModelDialogue(logs: List<String>): String {
-        if (logs.isEmpty()) return ""
         val tail = logs.takeLast(14)
-        val start = tail.indexOfLast { it.startsWith("模型：") }
-        if (start < 0) return ""
-        val group = tail.drop(start).takeWhile { it.startsWith("模型：") || it.startsWith("模型续：") }
-        if (group.isEmpty() || tail.last() !in group) return ""
-        return group.joinToString("") {
+        if (tail.lastOrNull()?.let { it.startsWith("模型：") || it.startsWith("模型续：") } != true) return ""
+        val reversed = tail.asReversed().takeWhile { it.startsWith("模型：") || it.startsWith("模型续：") }
+        return reversed.asReversed().joinToString("") {
             it.removePrefix("模型：").removePrefix("模型续：").trim()
         }.cleanCapsulePanelText()
     }
@@ -619,7 +631,6 @@ internal class VisualAgentCapsuleHost(
         lastAutoExpandKey = null
         lastModelDialogue = ""
         wasPaused = false
-        pauseGeneration = 0L
         awaitingAgentReply = false
         conversationTurns.clear()
         inputView?.setText("")
@@ -637,10 +648,11 @@ internal class VisualAgentCapsuleHost(
         val root = rootView ?: return
         val screenWidth = service.resources.displayMetrics.widthPixels
         val screenHeight = service.resources.displayMetrics.heightPixels
-        val collapsedWidth = min(dp(COLLAPSED_WIDTH_DP), screenWidth - dp(24f))
-        val expandedWidth = min(dp(EXPANDED_WIDTH_DP), screenWidth - dp(24f))
+        val collapsedWidth = min(dp(COLLAPSED_WIDTH_DP), screenWidth - dp(20f))
+        val expandedWidth = min(dp(EXPANDED_WIDTH_DP), screenWidth - dp(20f))
         val collapsedHeight = dp(COLLAPSED_HEIGHT_DP)
-        val expandedHeight = min(dp(expandedHeightDp(latestPresentation)), (screenHeight * 0.52f).toInt())
+        val maxHeight = (screenHeight - topWindowInsetPx() - dp(18f)).coerceAtLeast(collapsedHeight)
+        val expandedHeight = min(dp(expandedHeightDp(latestPresentation)), maxHeight)
         val targetWidth = if (expanded) expandedWidth else collapsedWidth
         val targetHeight = if (expanded) expandedHeight else collapsedHeight
 
@@ -652,10 +664,11 @@ internal class VisualAgentCapsuleHost(
             params.width = targetWidth
             params.height = targetHeight
             runCatching { windowManager?.updateViewLayout(root, params) }
-            root.setExpansionProgress(if (expanded) 1f else 0f)
-            chevronView?.setExpansionProgress(if (expanded) 1f else 0f)
-            bodyView?.alpha = if (expanded) 1f else 0f
-            bodyView?.translationY = if (expanded) 0f else -dp(8f).toFloat()
+            val progress = if (expanded) 1f else 0f
+            root.setExpansionProgress(progress)
+            chevronView?.setExpansionProgress(progress)
+            bodyView?.alpha = progress
+            bodyView?.translationY = -dp(8f).toFloat() * (1f - progress)
             if (!expanded) bodyView?.visibility = View.INVISIBLE
             lastAppliedExpanded = expanded
             root.setHintEnabled(!expanded && !hiddenForCapture)
@@ -665,24 +678,23 @@ internal class VisualAgentCapsuleHost(
         layoutAnimator?.cancel()
         val startWidth = params.width
         val startHeight = params.height
-        val startProgress = root.expansionProgress
-        val endProgress = if (expanded) 1f else 0f
-        val duration = if (expanded) EXPAND_DURATION_MS else COLLAPSE_DURATION_MS
+        val startExpansion = root.expansionProgress
+        val endExpansion = if (expanded) 1f else 0f
         layoutAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            this.duration = duration
+            duration = if (expanded) EXPAND_DURATION_MS else COLLAPSE_DURATION_MS
             interpolator = if (expanded) EXPAND_INTERPOLATOR else COLLAPSE_INTERPOLATOR
             addUpdateListener { animator ->
                 val fraction = animator.animatedValue as Float
                 params.width = lerp(startWidth, targetWidth, fraction)
                 params.height = lerp(startHeight, targetHeight, fraction)
                 runCatching { windowManager?.updateViewLayout(root, params) }
-                val expansion = lerp(startProgress, endProgress, fraction)
+                val expansion = lerp(startExpansion, endExpansion, fraction)
                 root.setExpansionProgress(expansion)
                 chevronView?.setExpansionProgress(expansion)
                 val bodyProgress = if (expanded) {
-                    ((fraction - 0.16f) / 0.62f).coerceIn(0f, 1f)
+                    ((fraction - 0.14f) / 0.64f).coerceIn(0f, 1f)
                 } else {
-                    (1f - fraction / 0.46f).coerceIn(0f, 1f)
+                    (1f - fraction / 0.44f).coerceIn(0f, 1f)
                 }
                 bodyView?.alpha = bodyProgress
                 bodyView?.translationY = -dp(8f).toFloat() * (1f - bodyProgress)
@@ -699,17 +711,20 @@ internal class VisualAgentCapsuleHost(
     }
 
     private fun expandedHeightDp(presentation: VisualAgentCapsulePresentation): Float = when (presentation.mode) {
-        VisualAgentCapsuleMode.PendingInput -> if (presentation.showSensitiveCompletion) 334f else 438f
-        VisualAgentCapsuleMode.PendingConfirmation -> 326f
-        VisualAgentCapsuleMode.UserTakeover -> 438f
-        VisualAgentCapsuleMode.Running -> 292f
-        VisualAgentCapsuleMode.Idle -> 250f
+        VisualAgentCapsuleMode.PendingInput -> if (presentation.showSensitiveCompletion) 430f else 448f
+        VisualAgentCapsuleMode.PendingConfirmation -> 420f
+        VisualAgentCapsuleMode.UserTakeover -> 448f
+        VisualAgentCapsuleMode.Running -> 342f
+        VisualAgentCapsuleMode.Idle -> 310f
     }
 
     private fun setHiddenForCapture(hidden: Boolean) {
-        if (hiddenForCapture == hidden && rootView?.visibility == if (hidden) View.INVISIBLE else View.VISIBLE) return
+        val root = rootView ?: run {
+            hiddenForCapture = hidden
+            return
+        }
+        if (hiddenForCapture == hidden && root.visibility == if (hidden) View.INVISIBLE else View.VISIBLE) return
         hiddenForCapture = hidden
-        val root = rootView ?: return
         root.animate().cancel()
         layoutAnimator?.cancel()
         updateWindowFlags(hidden = hidden, wantsInputFocus = inputFocused && !hidden)
@@ -733,16 +748,16 @@ internal class VisualAgentCapsuleHost(
             val edit = inputView ?: return@post
             edit.requestFocus()
             edit.setSelection(edit.text?.length ?: 0)
-            val imm = service.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
+            val manager = service.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            manager?.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
     private fun hideKeyboardAndReleaseFocus() {
         val edit = inputView
         if (edit != null) {
-            val imm = service.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            imm?.hideSoftInputFromWindow(edit.windowToken, 0)
+            val manager = service.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            manager?.hideSoftInputFromWindow(edit.windowToken, 0)
             edit.clearFocus()
         }
         inputFocused = false
@@ -770,13 +785,26 @@ internal class VisualAgentCapsuleHost(
     private fun destroyWindow() {
         layoutAnimator?.cancel()
         layoutAnimator = null
+        hideKeyboardAndReleaseFocus()
         rootView?.stopAnimations()
         rootView?.animate()?.cancel()
         rootView?.let { runCatching { windowManager?.removeView(it) } }
         rootView = null
         layoutParams = null
+        titleView = null
+        metaView = null
+        statusOrb = null
+        chevronView = null
+        pauseResumeView = null
         bodyView = null
+        actionView = null
+        resultView = null
+        conversationView = null
+        conversationScroll = null
+        promptView = null
         inputView = null
+        primaryButton = null
+        secondaryButton = null
         inputFocused = false
         expanded = false
         lastAppliedExpanded = false
@@ -797,6 +825,27 @@ internal class VisualAgentCapsuleHost(
             .start()
     }
 
+    private fun animateTextSwap(view: TextView?, value: String) {
+        val target = view ?: return
+        if (target.text?.toString() == value) return
+        target.animate().cancel()
+        target.animate()
+            .alpha(0f)
+            .translationY(-dp(3f).toFloat())
+            .setDuration(70L)
+            .withEndAction {
+                target.text = value
+                target.translationY = dp(4f).toFloat()
+                target.animate()
+                    .alpha(1f)
+                    .translationY(0f)
+                    .setDuration(125L)
+                    .setInterpolator(SOFT_OUT)
+                    .start()
+            }
+            .start()
+    }
+
     private fun accentColorFor(presentation: VisualAgentCapsulePresentation): Int = when (presentation.mode) {
         VisualAgentCapsuleMode.PendingInput -> Color.rgb(116, 218, 255)
         VisualAgentCapsuleMode.PendingConfirmation -> Color.rgb(255, 201, 108)
@@ -814,7 +863,7 @@ internal class VisualAgentCapsuleHost(
     private fun topWindowInsetPx(): Int {
         val resourceId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
         val statusBar = if (resourceId > 0) service.resources.getDimensionPixelSize(resourceId) else dp(24f)
-        return statusBar + dp(7f)
+        return statusBar + dp(6f)
     }
 
     private fun text(value: String, sp: Float, color: Int, bold: Boolean = false): TextView =
@@ -827,7 +876,7 @@ internal class VisualAgentCapsuleHost(
         }
 
     private fun sectionLabel(value: String): TextView =
-        text(value, 8.4f, Color.argb(196, 155, 226, 246), bold = true).apply {
+        text(value, 8.3f, Color.argb(196, 155, 226, 246), bold = true).apply {
             letterSpacing = 0.14f
             maxLines = 1
         }
@@ -840,7 +889,7 @@ internal class VisualAgentCapsuleHost(
     }
 
     private fun actionButton(label: String, primary: Boolean, onClick: () -> Unit): TextView =
-        text(label, 10.6f, Color.WHITE, bold = true).apply {
+        text(label, 10.5f, Color.WHITE, bold = true).apply {
             gravity = Gravity.CENTER
             setPadding(dp(8f), 0, dp(8f), dp(1f))
             background = if (primary) {
@@ -859,7 +908,7 @@ internal class VisualAgentCapsuleHost(
                 )
             }
             setOnClickListener { onClick() }
-            setOnTouchListener(ButtonPressTouchListener())
+            setOnTouchListener(ButtonPressFeedback())
         }
 
     private fun roundedBackground(fill: Int, stroke: Int, radiusDp: Float): GradientDrawable =
@@ -897,10 +946,11 @@ internal class VisualAgentCapsuleHost(
     private fun lerp(start: Float, end: Float, fraction: Float): Float =
         start + (end - start) * fraction
 
-    private inner class PressFeedbackTouchListener : View.OnTouchListener {
+    private inner class HeaderPressFeedback : View.OnTouchListener {
         override fun onTouch(view: View, event: MotionEvent): Boolean {
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> rootView?.animate()?.scaleX(0.985f)?.scaleY(0.985f)?.setDuration(80L)?.start()
+                MotionEvent.ACTION_DOWN -> rootView?.animate()
+                    ?.scaleX(0.985f)?.scaleY(0.985f)?.setDuration(80L)?.start()
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> rootView?.animate()
                     ?.scaleX(1f)?.scaleY(1f)?.setDuration(150L)?.setInterpolator(SOFT_OUT)?.start()
             }
@@ -908,7 +958,7 @@ internal class VisualAgentCapsuleHost(
         }
     }
 
-    private inner class ButtonPressTouchListener : View.OnTouchListener {
+    private inner class ButtonPressFeedback : View.OnTouchListener {
         override fun onTouch(view: View, event: MotionEvent): Boolean {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> view.animate().scaleX(0.97f).scaleY(0.97f).setDuration(70L).start()
@@ -920,11 +970,11 @@ internal class VisualAgentCapsuleHost(
     }
 
     companion object {
-        private const val COLLAPSED_WIDTH_DP = 238f
-        private const val EXPANDED_WIDTH_DP = 362f
+        private const val COLLAPSED_WIDTH_DP = 232f
+        private const val EXPANDED_WIDTH_DP = 352f
         private const val COLLAPSED_HEIGHT_DP = 48f
-        private const val CONVERSATION_HEIGHT_DP = 132f
-        private const val INPUT_HEIGHT_DP = 72f
+        private const val CONVERSATION_HEIGHT_DP = 116f
+        private const val INPUT_HEIGHT_DP = 68f
         private const val USER_REPLY_MAX_CHARS = 2_000
         private const val MAX_CONVERSATION_TURNS = 18
         private const val MAX_TURN_TEXT_CHARS = 2_400
@@ -937,7 +987,7 @@ internal class VisualAgentCapsuleHost(
     }
 }
 
-private class CapsuleGlowLayout(context: Context) : FrameLayout(context) {
+private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
     private val density = resources.displayMetrics.density.coerceAtLeast(1f)
     private val rect = RectF()
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -945,21 +995,18 @@ private class CapsuleGlowLayout(context: Context) : FrameLayout(context) {
         style = Paint.Style.STROKE
         strokeWidth = dp(1f)
     }
-    private val innerHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = dp(0.7f)
-    }
+    private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private var accentColor: Int = Color.rgb(92, 221, 255)
+    private var accentColor = Color.rgb(92, 221, 255)
     private var hintAnimator: ValueAnimator? = null
-    private var hintRunnablePosted = false
+    private var hintPosted = false
     private var hintEnabled = false
     private var hintProgress = -1f
     var expansionProgress: Float = 0f
         private set
 
     private val hintRunnable = Runnable {
-        hintRunnablePosted = false
+        hintPosted = false
         if (!hintEnabled || expansionProgress > 0.02f || !isShown) return@Runnable
         hintAnimator?.cancel()
         hintAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
@@ -1003,9 +1050,11 @@ private class CapsuleGlowLayout(context: Context) : FrameLayout(context) {
     fun setHintEnabled(enabled: Boolean) {
         if (hintEnabled == enabled) return
         hintEnabled = enabled
-        if (enabled) scheduleHint(initial = true) else {
+        if (enabled) {
+            scheduleHint(initial = true)
+        } else {
             removeCallbacks(hintRunnable)
-            hintRunnablePosted = false
+            hintPosted = false
             hintAnimator?.cancel()
             hintAnimator = null
             hintProgress = -1f
@@ -1018,64 +1067,71 @@ private class CapsuleGlowLayout(context: Context) : FrameLayout(context) {
     }
 
     private fun scheduleHint(initial: Boolean = false) {
-        if (!hintEnabled || hintRunnablePosted) return
-        hintRunnablePosted = true
-        postDelayed(hintRunnable, if (initial) 1_250L else 5_800L)
+        if (!hintEnabled || hintPosted) return
+        hintPosted = true
+        postDelayed(hintRunnable, if (initial) 1_200L else 5_800L)
     }
 
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
         val inset = dp(0.75f)
         rect.set(inset, inset, width - inset, height - inset)
-        val collapsedRadius = height / 2f
+        val collapsedRadius = min(width, height) / 2f
         val expandedRadius = dp(24f)
         val radius = collapsedRadius + (expandedRadius - collapsedRadius) * expansionProgress
+
         fillPaint.shader = LinearGradient(
             0f,
             0f,
             width.toFloat(),
             height.toFloat(),
             intArrayOf(
-                Color.argb(238, 11, 20, 37),
-                Color.argb(231, 25, 38, 64),
-                Color.argb(239, 10, 17, 34),
+                Color.argb(240, 10, 19, 36),
+                Color.argb(232, 25, 39, 65),
+                Color.argb(241, 9, 16, 33),
             ),
             floatArrayOf(0f, 0.52f, 1f),
             Shader.TileMode.CLAMP,
         )
         canvas.drawRoundRect(rect, radius, radius, fillPaint)
 
-        borderPaint.color = withAlpha(accentColor, 92)
+        borderPaint.color = withAlpha(accentColor, 94)
         canvas.drawRoundRect(rect, radius, radius, borderPaint)
-        val topRect = RectF(dp(6f), dp(2f), width - dp(6f), dp(13f))
-        innerHighlightPaint.shader = LinearGradient(
+
+        highlightPaint.shader = LinearGradient(
             0f,
             0f,
             width.toFloat(),
             0f,
-            intArrayOf(Color.TRANSPARENT, Color.argb(100, 245, 252, 255), Color.TRANSPARENT),
+            intArrayOf(Color.TRANSPARENT, Color.argb(94, 246, 252, 255), Color.TRANSPARENT),
             floatArrayOf(0f, 0.46f, 1f),
             Shader.TileMode.CLAMP,
         )
-        canvas.drawRoundRect(topRect, radius, radius, innerHighlightPaint)
+        canvas.drawRoundRect(
+            RectF(dp(7f), dp(2f), width - dp(7f), dp(4.2f)),
+            dp(2f),
+            dp(2f),
+            highlightPaint,
+        )
 
         if (hintProgress >= 0f) {
             val center = (-0.25f + hintProgress * 1.5f) * width
-            val half = width * 0.20f
+            val half = width * 0.2f
             sheenPaint.shader = LinearGradient(
                 center - half,
                 0f,
                 center + half,
                 height.toFloat(),
-                intArrayOf(Color.TRANSPARENT, withAlpha(accentColor, 36), Color.TRANSPARENT),
+                intArrayOf(Color.TRANSPARENT, withAlpha(accentColor, 38), Color.TRANSPARENT),
                 floatArrayOf(0f, 0.5f, 1f),
                 Shader.TileMode.CLAMP,
             )
+            val clipPath = Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) }
             canvas.save()
-            canvas.clipPath(Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) })
+            canvas.clipPath(clipPath)
             canvas.drawRect(rect, sheenPaint)
             canvas.restore()
         }
+        super.onDraw(canvas)
     }
 
     private fun withAlpha(color: Int, alpha: Int): Int =
@@ -1097,7 +1153,11 @@ private class CapsuleStatusOrbView(context: Context) : View(context) {
             pulse = it.animatedValue as Float
             invalidate()
         }
-        start()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (!animator.isStarted) animator.start()
     }
 
     fun setAccentColor(color: Int) {
@@ -1106,10 +1166,14 @@ private class CapsuleStatusOrbView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
         val cx = width / 2f
         val cy = height / 2f
-        paint.color = Color.argb((42 + 40 * pulse).toInt(), Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+        paint.color = Color.argb(
+            (42 + 40 * pulse).toInt(),
+            Color.red(accentColor),
+            Color.green(accentColor),
+            Color.blue(accentColor),
+        )
         canvas.drawCircle(cx, cy, min(width, height) * (0.42f + 0.08f * pulse), paint)
         paint.color = accentColor
         canvas.drawCircle(cx, cy, min(width, height) * 0.27f, paint)
@@ -1136,7 +1200,6 @@ private class CapsuleChevronView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
         val cx = width / 2f
         val cy = height / 2f
         val dx = 4f * density
@@ -1155,8 +1218,7 @@ private class CapsulePauseResumeView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var accentColor = Color.rgb(92, 221, 255)
     private var morph = 0f
-    private var interactionEnabled = true
-    private var animator: ValueAnimator? = null
+    private var morphAnimator: ValueAnimator? = null
 
     init {
         isClickable = true
@@ -1165,7 +1227,8 @@ private class CapsulePauseResumeView(context: Context) : View(context) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> view.animate().scaleX(0.91f).scaleY(0.91f).setDuration(75L).start()
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> view.animate()
-                    .scaleX(1f).scaleY(1f).setDuration(150L).setInterpolator(DecelerateInterpolator(1.6f)).start()
+                    .scaleX(1f).scaleY(1f).setDuration(150L)
+                    .setInterpolator(DecelerateInterpolator(1.6f)).start()
             }
             false
         }
@@ -1177,17 +1240,15 @@ private class CapsulePauseResumeView(context: Context) : View(context) {
     }
 
     fun setInteractionEnabled(enabled: Boolean) {
-        interactionEnabled = enabled
         isEnabled = enabled
         alpha = if (enabled) 1f else 0.42f
-        invalidate()
     }
 
     fun setPaused(paused: Boolean) {
         val target = if (paused) 1f else 0f
         if (morph == target) return
-        animator?.cancel()
-        animator = ValueAnimator.ofFloat(morph, target).apply {
+        morphAnimator?.cancel()
+        morphAnimator = ValueAnimator.ofFloat(morph, target).apply {
             duration = 190L
             interpolator = DecelerateInterpolator(1.5f)
             addUpdateListener {
@@ -1199,32 +1260,64 @@ private class CapsulePauseResumeView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
         val cx = width / 2f
         val cy = height / 2f
         val radius = min(width, height) * 0.43f
         paint.style = Paint.Style.FILL
-        paint.color = Color.argb(34, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+        paint.color = Color.argb(
+            34,
+            Color.red(accentColor),
+            Color.green(accentColor),
+            Color.blue(accentColor),
+        )
         canvas.drawCircle(cx, cy, radius, paint)
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 1f * density
-        paint.color = Color.argb(92, Color.red(accentColor), Color.green(accentColor), Color.blue(accentColor))
+        paint.strokeWidth = density
+        paint.color = Color.argb(
+            92,
+            Color.red(accentColor),
+            Color.green(accentColor),
+            Color.blue(accentColor),
+        )
         canvas.drawCircle(cx, cy, radius, paint)
 
         paint.style = Paint.Style.FILL
         paint.color = Color.argb((235 * (1f - morph)).toInt(), 244, 250, 255)
         val barWidth = 2.2f * density
         val barHeight = 9f * density
-        canvas.drawRoundRect(cx - 4f * density, cy - barHeight / 2f, cx - 4f * density + barWidth, cy + barHeight / 2f, barWidth, barWidth, paint)
-        canvas.drawRoundRect(cx + 1.8f * density, cy - barHeight / 2f, cx + 1.8f * density + barWidth, cy + barHeight / 2f, barWidth, barWidth, paint)
+        canvas.drawRoundRect(
+            cx - 4f * density,
+            cy - barHeight / 2f,
+            cx - 4f * density + barWidth,
+            cy + barHeight / 2f,
+            barWidth,
+            barWidth,
+            paint,
+        )
+        canvas.drawRoundRect(
+            cx + 1.8f * density,
+            cy - barHeight / 2f,
+            cx + 1.8f * density + barWidth,
+            cy + barHeight / 2f,
+            barWidth,
+            barWidth,
+            paint,
+        )
 
         paint.color = Color.argb((235 * morph).toInt(), 244, 250, 255)
-        val playPath = Path().apply {
-            moveTo(cx - 3.2f * density, cy - 5f * density)
-            lineTo(cx + 5.2f * density, cy)
-            lineTo(cx - 3.2f * density, cy + 5f * density)
-            close()
-        }
-        canvas.drawPath(playPath, paint)
+        canvas.drawPath(
+            Path().apply {
+                moveTo(cx - 3.2f * density, cy - 5f * density)
+                lineTo(cx + 5.2f * density, cy)
+                lineTo(cx - 3.2f * density, cy + 5f * density)
+                close()
+            },
+            paint,
+        )
+    }
+
+    override fun onDetachedFromWindow() {
+        morphAnimator?.cancel()
+        super.onDetachedFromWindow()
     }
 }
