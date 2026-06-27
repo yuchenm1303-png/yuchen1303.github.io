@@ -183,9 +183,9 @@ class StockWatchlistRepository private constructor(context: Context) {
         try {
             if (canMigrateGuest) {
                 client.upsertAll(session, guestItems)
-                setLocalMigrationOwner(session.userId)
             }
             val cloudItems = client.list(session)
+            if (canMigrateGuest) setLocalMigrationOwner(session.userId)
             saveAccountCache(session.userId, cloudItems)
             _state.value = StockWatchlistState(
                 accountUserId = session.userId,
@@ -193,7 +193,7 @@ class StockWatchlistRepository private constructor(context: Context) {
                 cloudReady = true,
                 items = cloudItems,
                 message = when {
-                    canMigrateGuest && guestItems.isNotEmpty() -> "本机自选已合并到当前账号。"
+                    canMigrateGuest -> "本机自选已合并到当前账号。"
                     cloudItems.isEmpty() -> "当前账号还没有自选股。"
                     else -> "已同步 ${cloudItems.size} 只账号自选。"
                 }
@@ -474,11 +474,11 @@ private class SupabaseStockWatchlistClient(
     private fun translateWatchlistError(raw: String, status: Int): String {
         val json = runCatching { JSONObject(raw) }.getOrNull()
         val code = json?.optString("code").orEmpty()
-        val message = json?.optString("message")
-            ?.ifBlank { json.optString("hint") }
-            ?.ifBlank { json.optString("details") }
-            .orEmpty()
-            .ifBlank { raw.trim() }
+        val message = json?.let { value ->
+            value.optString("message")
+                .ifBlank { value.optString("hint") }
+                .ifBlank { value.optString("details") }
+        }.orEmpty().ifBlank { raw.trim() }
         return when {
             code == "42P01" || code == "PGRST205" ||
                 message.contains(WATCHLIST_TABLE, ignoreCase = true) &&
