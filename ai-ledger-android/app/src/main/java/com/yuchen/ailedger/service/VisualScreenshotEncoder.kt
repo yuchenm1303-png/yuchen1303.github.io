@@ -8,6 +8,9 @@ internal data class EncodedVisualScreenshot(
     val width: Int,
     val height: Int,
     val quality: Int,
+    val encodeMs: Long = 0L,
+    val compressionPasses: Int = 1,
+    val scalePasses: Int = 0,
 )
 
 /**
@@ -28,12 +31,15 @@ internal object VisualScreenshotEncoder {
     private const val SCALE_DENOMINATOR = 10
 
     fun encode(source: Bitmap): EncodedVisualScreenshot {
+        val startedAtNanos = System.nanoTime()
         val originalWidth = source.width.coerceAtLeast(1)
         val originalHeight = source.height.coerceAtLeast(1)
         val originalLongSide = maxOf(originalWidth, originalHeight)
         var targetLongSide = minOf(originalLongSide, TARGET_LONG_SIDE)
         var quality = INITIAL_JPEG_QUALITY
         var target = scaledBitmap(source, targetLongSide)
+        var scalePasses = if (target !== source) 1 else 0
+        var compressionPasses = 1
         var bytes = compress(target, quality)
 
         while (bytes.size > MAX_ENCODED_BYTES) {
@@ -44,10 +50,12 @@ internal object VisualScreenshotEncoder {
                 targetLongSide = (targetLongSide * SCALE_NUMERATOR / SCALE_DENOMINATOR)
                     .coerceAtLeast(MIN_LONG_SIDE)
                 target = scaledBitmap(source, targetLongSide)
+                scalePasses += 1
                 quality = INITIAL_JPEG_QUALITY
             } else {
                 break
             }
+            compressionPasses += 1
             bytes = compress(target, quality)
         }
 
@@ -59,6 +67,9 @@ internal object VisualScreenshotEncoder {
             width = width,
             height = height,
             quality = quality,
+            encodeMs = ((System.nanoTime() - startedAtNanos) / 1_000_000L).coerceAtLeast(0L),
+            compressionPasses = compressionPasses,
+            scalePasses = scalePasses,
         )
     }
 
