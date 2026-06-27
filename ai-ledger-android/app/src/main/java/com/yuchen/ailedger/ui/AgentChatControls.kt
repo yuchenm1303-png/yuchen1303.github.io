@@ -238,16 +238,20 @@ private fun AgentInfinityWebCapsule(
     ) {
         Canvas(Modifier.matchParentSize()) {
             val radius = size.height / 2f
+            drawRoundRect(
+                color = if (enabled) Color(0x40121A3A) else Color(0x2C121A3A),
+                cornerRadius = CornerRadius(radius)
+            )
             val capsuleColors = if (enabled) {
                 listOf(
-                    Color(0xEE8DFFF4),
-                    Color(0xCC9B73FF),
-                    Color(0xAA4FB6FF)
+                    Color(0x388DFFF4),
+                    Color(0x309B73FF),
+                    Color(0x284FB6FF)
                 )
             } else {
                 listOf(
-                    Color.White.copy(alpha = 0.075f),
-                    Color.White.copy(alpha = 0.030f)
+                    Color.White.copy(alpha = 0.055f),
+                    Color.White.copy(alpha = 0.020f)
                 )
             }
             drawRoundRect(
@@ -257,9 +261,9 @@ private fun AgentInfinityWebCapsule(
             drawRoundRect(
                 brush = Brush.linearGradient(
                     colorStops = arrayOf(
-                        0f to Color.White.copy(alpha = 0.10f),
-                        0.42f to Color.White.copy(alpha = 0.025f),
-                        0.72f to Color(0xFF8DFFF4).copy(alpha = 0.05f * active),
+                        0f to Color.White.copy(alpha = 0.065f),
+                        0.42f to Color.White.copy(alpha = 0.012f),
+                        0.72f to Color(0xFF8DFFF4).copy(alpha = 0.035f * active),
                         1f to Color.Transparent
                     ),
                     start = Offset(0f, 0f),
@@ -268,7 +272,7 @@ private fun AgentInfinityWebCapsule(
                 cornerRadius = CornerRadius(radius)
             )
             drawRoundRect(
-                color = Color.White.copy(alpha = 0.075f + 0.055f * active),
+                color = Color.White.copy(alpha = 0.09f + 0.04f * active),
                 cornerRadius = CornerRadius(radius),
                 style = Stroke(width = 0.7.dp.toPx(), cap = StrokeCap.Round)
             )
