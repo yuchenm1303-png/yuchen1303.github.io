@@ -10,6 +10,9 @@
   const actionSource=document.getElementById('actionSource');
   const topTitle=document.getElementById('topTitle');
   const topMeta=document.getElementById('topMeta');
+  const timeline=document.getElementById('timeline');
+  const hudTop=document.querySelector('.hud-top');
+  const debugPanel=document.querySelector('.debug-panel');
   const debugStep=document.getElementById('debugStep');
   const debugPoint=document.getElementById('debugPoint');
   const debugLatency=document.getElementById('debugLatency');
@@ -27,6 +30,7 @@
   const innerGlow=document.getElementById('innerGlow');
   const innerBlurNode=document.getElementById('innerBlurNode');
   const root=document.documentElement;
+  const captureSafeElements=[hudTop,cursor,bubble,timeline,debugPanel].filter(Boolean);
   const reduceMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const phaseNames=[
     ['正在观察页面','Step 1 / 5','OBSERVE'],
@@ -333,6 +337,19 @@
     cursor.classList.add('clicking');
   }
 
+  function setCaptureSafe(active){
+    const enabled=!!active;
+    app.classList.toggle('capture-safe',enabled);
+    captureSafeElements.forEach(element=>{
+      element.style.opacity=enabled?'0':'';
+      element.style.visibility=enabled?'hidden':'';
+    });
+    if(enabled){
+      clearTimeout(phaseTimer);
+      cursor.classList.remove('clicking');
+    }
+  }
+
   if(window.ResizeObserver){
     new ResizeObserver(scheduleBubblePosition).observe(bubble);
   }
@@ -363,8 +380,10 @@
         clickPulse();
       }
     },
+    setCaptureSafe,
     hide(){
       clearTimeout(phaseTimer);
+      setCaptureSafe(false);
       app.classList.remove('hud-live');
     }
   };
