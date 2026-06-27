@@ -20,7 +20,6 @@ import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
-import com.yuchen.ailedger.service.VisualAgentHudOverlayService
 import com.yuchen.ailedger.ui.AccessibilitySilentComposeRoot
 import com.yuchen.ailedger.ui.AiAssistantNativeApp
 import com.yuchen.ailedger.ui.StartupMetrics
@@ -65,7 +64,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         reinforceAccessibilityPerformanceShield(window.decorView)
-        ensureAgentOverlaysAfterPermissionReturn()
+        ensureAgentOverlayAfterPermissionReturn()
     }
 
     override fun onDestroy() {
@@ -73,14 +72,11 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun ensureAgentOverlaysAfterPermissionReturn() {
+    private fun ensureAgentOverlayAfterPermissionReturn() {
         if (!AgentOverlayService.canDrawOverlays(this)) return
 
-        // The full-screen visual HUD is an independent presentation runtime. It may stay prepared
-        // and invisible while idle, regardless of the interactive floating-window switch.
-        VisualAgentHudOverlayService.ensureStarted(this)
-
-        // Restore a manual switch request after returning from Android's overlay permission page.
+        // Only the interactive control overlay uses SYSTEM_ALERT_WINDOW. The presentation-only
+        // visual HUD is hosted by AiAgentAccessibilityService and never enters this permission flow.
         AgentOverlayService.restoreManualEnableAfterPermission(this)
 
         val progress = AgentRuntimeController.progress.value
