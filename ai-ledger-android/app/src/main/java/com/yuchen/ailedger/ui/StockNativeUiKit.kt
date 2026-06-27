@@ -24,7 +24,6 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -80,17 +79,20 @@ internal fun compactCount(value: Int): String = when {
     else -> value.toString()
 }
 
+/**
+ * 股票大玻璃只负责布局和材质绘制，外层禁止 clip。
+ * 玻璃自身已经按 radius 绘制圆角；再对父级 clip 会切掉边缘辉光、折射和阴影。
+ */
 @Composable
 internal fun StockNativeGlassPanel(
     modifier: Modifier = Modifier,
     radius: Dp = 30.dp,
-    contentPadding: Dp = 11.dp,
+    contentPadding: Dp = 13.dp,
     content: @Composable () -> Unit
 ) {
     val state = LocalStockNativeGlassState.current
     val radiusValue = radius.value.roundToInt().coerceAtLeast(1)
-    val shape = RoundedCornerShape(radius)
-    Box(modifier = modifier.clip(shape)) {
+    Box(modifier = modifier) {
         if (state != null) {
             GlassPanel(
                 quality = state.quality,
@@ -115,6 +117,9 @@ internal fun StockNativeGlassPanel(
     }
 }
 
+/**
+ * 雾面小卡同样不裁剪材质层，避免卡片边缘出现左右断层。
+ */
 @Composable
 internal fun StockNativeFrostCard(
     modifier: Modifier = Modifier,
@@ -123,8 +128,7 @@ internal fun StockNativeFrostCard(
     contentPadding: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
-    val shape = RoundedCornerShape(radius)
-    Box(modifier = modifier.clip(shape)) {
+    Box(modifier = modifier) {
         FrostInfoGlassPanel(
             radius = radius.value,
             backdropAlpha = 1f,
@@ -146,21 +150,21 @@ internal fun StockNativePageHeader(
     loading: Boolean = false
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(42.dp),
+        modifier = Modifier.fillMaxWidth().height(46.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         StockNativePill(
             text = "‹",
             active = false,
-            modifier = Modifier.size(42.dp),
-            fontSize = 26,
+            modifier = Modifier.size(44.dp),
+            fontSize = 27,
             onClick = onBack
         )
         Text(
             label,
-            color = Color.White.copy(alpha = 0.48f),
-            fontSize = 11.sp,
+            color = Color.White.copy(alpha = 0.54f),
+            fontSize = 12.sp,
             fontWeight = FontWeight.Black,
             modifier = Modifier.weight(1f),
             textAlign = TextAlign.Center,
@@ -171,12 +175,12 @@ internal fun StockNativePageHeader(
             StockNativePill(
                 text = if (loading) "…" else "⟳",
                 active = false,
-                modifier = Modifier.size(42.dp),
-                fontSize = 18,
+                modifier = Modifier.size(44.dp),
+                fontSize = 19,
                 onClick = onRefresh
             )
         } else {
-            Spacer(Modifier.width(42.dp))
+            Spacer(Modifier.width(44.dp))
         }
     }
 }
@@ -186,7 +190,7 @@ internal fun StockNativePill(
     text: String,
     active: Boolean,
     modifier: Modifier = Modifier,
-    fontSize: Int = 11,
+    fontSize: Int = 12,
     onClick: () -> Unit
 ) {
     val state = LocalStockNativeGlassState.current
@@ -194,7 +198,7 @@ internal fun StockNativePill(
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text,
-                color = Color.White.copy(alpha = if (active) 0.98f else 0.76f),
+                color = Color.White.copy(alpha = if (active) 0.98f else 0.80f),
                 fontSize = fontSize.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 1,
@@ -231,21 +235,21 @@ internal fun StockSectionTitle(
     trailing: String? = null
 ) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(
                 title,
-                color = Color.White.copy(alpha = 0.94f),
-                fontSize = 15.sp,
-                lineHeight = 20.sp,
+                color = Color.White.copy(alpha = 0.96f),
+                fontSize = 17.sp,
+                lineHeight = 22.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 subtitle,
-                color = Color.White.copy(alpha = 0.38f),
-                fontSize = 8.sp,
-                lineHeight = 12.sp,
+                color = Color.White.copy(alpha = 0.44f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -253,10 +257,10 @@ internal fun StockSectionTitle(
         trailing?.let {
             Text(
                 it,
-                color = Color.White.copy(alpha = 0.34f),
-                fontSize = 8.sp,
+                color = Color.White.copy(alpha = 0.40f),
+                fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 3.dp)
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
     }
@@ -276,19 +280,19 @@ internal fun StockMetricTile(
     prominent: Boolean = false
 ) {
     StockNativeFrostCard(
-        modifier = modifier.height(if (prominent) 62.dp else 54.dp),
-        radius = 16.dp,
-        frostAlpha = if (prominent) 0.088f else 0.070f
+        modifier = modifier.height(if (prominent) 70.dp else 60.dp),
+        radius = 18.dp,
+        frostAlpha = if (prominent) 0.092f else 0.074f
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 9.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(label, color = StockMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(label, color = StockMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             Text(
                 value.ifBlank { "--" },
                 color = tone,
-                fontSize = if (prominent) 14.sp else 12.sp,
+                fontSize = if (prominent) 17.sp else 15.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -311,9 +315,9 @@ internal fun StockLoadingOrError(
                 !error.isNullOrBlank() -> error
                 else -> emptyText
             },
-            color = if (error.isNullOrBlank()) Color.White.copy(alpha = 0.42f) else StockYellow.copy(alpha = 0.82f),
-            fontSize = 10.sp,
-            lineHeight = 16.sp,
+            color = if (error.isNullOrBlank()) Color.White.copy(alpha = 0.46f) else StockYellow.copy(alpha = 0.84f),
+            fontSize = 11.sp,
+            lineHeight = 17.sp,
             textAlign = TextAlign.Center
         )
     }
@@ -339,7 +343,7 @@ internal fun StockTextAvatar(author: String, modifier: Modifier = Modifier) {
             .border(1.dp, base.copy(alpha = 0.42f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Text(first, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black)
+        Text(first, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
     }
 }
 
