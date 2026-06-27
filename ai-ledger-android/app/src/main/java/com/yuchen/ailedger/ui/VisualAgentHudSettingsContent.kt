@@ -24,9 +24,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.AgentAccessibilityGuideActivity
 import com.yuchen.ailedger.model.AssistantUiState
-import com.yuchen.ailedger.service.AgentOverlayService
-import com.yuchen.ailedger.service.VisualAgentHudOverlayService
+import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.VisualAgentHudTuningStore
 import kotlin.math.roundToInt
 
@@ -164,6 +164,15 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
     val tuning by store.state.collectAsState()
     val parameters = tuning.parameters
 
+    fun updatePreview(enabled: Boolean) {
+        if (enabled && !AiAgentAccessibilityService.isConnected()) {
+            store.setPreviewEnabled(false)
+            AgentAccessibilityGuideActivity.open(context)
+            return
+        }
+        store.setPreviewEnabled(enabled)
+    }
+
     DisposableEffect(store) {
         onDispose { store.setPreviewEnabled(false) }
     }
@@ -177,7 +186,7 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
                 fontWeight = FontWeight.ExtraBold
             )
             Text(
-                "在整机顶层打开真实边缘光、光标、信息卡和阶段栏，调节会实时生效。",
+                "由无障碍服务在整机顶层显示真实 HUD，无需额外开启悬浮窗权限。",
                 color = Color.White.copy(alpha = 0.56f),
                 fontSize = 12.sp,
                 lineHeight = 17.sp
@@ -185,13 +194,7 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
         }
         Switch(
             checked = tuning.previewEnabled,
-            onCheckedChange = { enabled ->
-                if (enabled && !VisualAgentHudOverlayService.canDrawOverlays(context)) {
-                    AgentOverlayService.requestPermissionIfNeeded(context)
-                }
-                store.setPreviewEnabled(enabled)
-                if (enabled) VisualAgentHudOverlayService.ensureStarted(context.applicationContext)
-            }
+            onCheckedChange = ::updatePreview,
         )
     }
 
@@ -208,14 +211,7 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
             subtitle = if (tuning.previewEnabled) "停止顶层预览" else "实时查看调整结果",
             state = state,
             modifier = Modifier.weight(1f),
-            onClick = {
-                val enabled = !tuning.previewEnabled
-                if (enabled && !VisualAgentHudOverlayService.canDrawOverlays(context)) {
-                    AgentOverlayService.requestPermissionIfNeeded(context)
-                }
-                store.setPreviewEnabled(enabled)
-                if (enabled) VisualAgentHudOverlayService.ensureStarted(context.applicationContext)
-            },
+            onClick = { updatePreview(!tuning.previewEnabled) },
         )
     }
 
