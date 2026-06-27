@@ -14,8 +14,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.yuchen.ailedger.AiLedgerApplication
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.zip.ZipInputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +31,8 @@ private const val INLINE_STICKER_TAG_BASE = 0xE0000
 private const val INLINE_STICKER_PAYLOAD_PREFIX = "ai_sticker:"
 private const val INLINE_STICKER_COMPACT_PREFIX = "s"
 private const val INLINE_STICKER_VISIBLE_PREFIX = "[[AI_LEDGER_INLINE_STICKER:"
-private const val INLINE_STICKER_ASSET_SOURCE = "inline_sticker_source.js"
+private const val INLINE_STICKER_PACK_ASSET = "inline_stickers_v1.zip"
+private const val INLINE_STICKER_FALLBACK_ASSET_SOURCE = "inline_sticker_source.js"
 private const val INLINE_STICKER_MAX_ENTRY_BYTES = 512 * 1024
 
 internal data class InlineStickerProtocolMarker(
@@ -291,12 +294,56 @@ internal object InlineStickerAssets {
 
     private fun loadBundledStickerPack(): Map<String, ByteArray> {
         val context = AiLedgerApplication.contextOrNull() ?: return emptyMap()
+        val assets = context.assets
+
+        val packaged = runCatching {
+            assets.open(INLINE_STICKER_PACK_ASSET).use { input ->
+                val loaded = LinkedHashMap<String, ByteArray>(supportedKeys.size)
+                ZipInputStream(input.buffered()).use { zip ->
+                    while (true) {
+                        val entry = zip.nextEntry ?: break
+                        if (entry.isDirectory) {
+                            zip.closeEntry()
+                            continue
+                        }
+
+                        val fileName = entry.name.substringAfterLast('/')
+                        if (!fileName.endsWith(".webp", ignoreCase = true)) {
+                            throw IllegalStateException("内置表情资源格式异常：${entry.name}")
+                        }
+                        val assetKey = normalizeKey(
+                            fileName.substring(0, fileName.length - ".webp".length)
+                        ) ?: throw IllegalStateException("内置表情资源名称异常：${entry.name}")
+                        if (loaded.containsKey(assetKey)) {
+                            throw IllegalStateException("内置表情资源重复：$assetKey")
+                        }
+
+                        val bytes = readZipEntry(zip, assetKey)
+                        if (!isWebP(bytes)) {
+                            throw IllegalStateException("内置表情资源格式异常：$assetKey")
+                        }
+                        loaded[assetKey] = bytes
+                        zip.closeEntry()
+                    }
+                }
+
+                validateCompletePack(loaded)
+                loaded
+            }
+        }.getOrNull()
+        if (!packaged.isNullOrEmpty()) return packaged
+
+        return loadLegacyBundledStickerPack()
+    }
+
+    private fun loadLegacyBundledStickerPack(): Map<String, ByteArray> {
+        val context = AiLedgerApplication.contextOrNull() ?: return emptyMap()
         return runCatching {
             val loaded = LinkedHashMap<String, ByteArray>(supportedKeys.size)
             val entryRegex = Regex("""^\s*([a-z0-9_]+):\s*"([A-Za-z0-9+/=]+)",?\s*$""")
             var insideStickerObject = false
 
-            context.assets.open(INLINE_STICKER_ASSET_SOURCE)
+            context.assets.open(INLINE_STICKER_FALLBACK_ASSET_SOURCE)
                 .bufferedReader(Charsets.UTF_8)
                 .useLines { lines ->
                     for (line in lines) {
@@ -314,28 +361,59 @@ internal object InlineStickerAssets {
                         if (bytes.isEmpty() || bytes.size > INLINE_STICKER_MAX_ENTRY_BYTES) {
                             throw IllegalStateException("内置表情资源大小异常：$assetKey")
                         }
-                        val isWebP = bytes.size >= 12 &&
-                            bytes[0] == 'R'.code.toByte() &&
-                            bytes[1] == 'I'.code.toByte() &&
-                            bytes[2] == 'F'.code.toByte() &&
-                            bytes[3] == 'F'.code.toByte() &&
-                            bytes[8] == 'W'.code.toByte() &&
-                            bytes[9] == 'E'.code.toByte() &&
-                            bytes[10] == 'B'.code.toByte() &&
-                            bytes[11] == 'P'.code.toByte()
-                        if (!isWebP) {
+                        if (!isWebP(bytes)) {
                             throw IllegalStateException("内置表情资源格式异常：$assetKey")
                         }
                         loaded[assetKey] = bytes
                     }
                 }
 
-            if (!insideStickerObject || loaded.keys != supportedKeys) {
-                throw IllegalStateException(
-                    "内置表情资源不完整：缺少=${supportedKeys - loaded.keys}，多余=${loaded.keys - supportedKeys}"
-                )
+            if (!insideStickerObject) {
+                throw IllegalStateException("旧版内置表情资源未找到")
             }
+            validateCompletePack(loaded)
             loaded
         }.getOrDefault(emptyMap())
+    }
+
+    private fun readZipEntry(zip: ZipInputStream, assetKey: String): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val count = zip.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            total += count
+            if (total > INLINE_STICKER_MAX_ENTRY_BYTES) {
+                throw IllegalStateException("内置表情资源大小异常：$assetKey")
+            }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray().also {
+            if (it.isEmpty()) {
+                throw IllegalStateException("内置表情资源为空：$assetKey")
+            }
+        }
+    }
+
+    private fun validateCompletePack(loaded: Map<String, ByteArray>) {
+        if (loaded.keys != supportedKeys) {
+            throw IllegalStateException(
+                "内置表情资源不完整：缺少=${supportedKeys - loaded.keys}，多余=${loaded.keys - supportedKeys}"
+            )
+        }
+    }
+
+    private fun isWebP(bytes: ByteArray): Boolean {
+        return bytes.size >= 12 &&
+            bytes[0] == 'R'.code.toByte() &&
+            bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() &&
+            bytes[3] == 'F'.code.toByte() &&
+            bytes[8] == 'W'.code.toByte() &&
+            bytes[9] == 'E'.code.toByte() &&
+            bytes[10] == 'B'.code.toByte() &&
+            bytes[11] == 'P'.code.toByte()
     }
 }
