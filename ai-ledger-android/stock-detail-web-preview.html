@@ -6,6 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
 <title>AI Ledger · 新版个股详情页</title>
 <link rel="stylesheet" href="./stock-detail-web-v2.css?v=20260627-2">
+<link rel="stylesheet" href="./stock-detail-web-community.css?v=20260627-1">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
@@ -29,7 +30,10 @@
             <h1 class="name" id="name">--</h1>
             <div class="code"><span id="code">------</span> · <span id="market">--</span></div>
           </div>
-          <div class="source" id="source">等待真实后端行情</div>
+          <div class="quote-actions">
+            <button class="watchlist-button" id="watchlistButton" type="button" aria-pressed="false"><span>☆</span><b>等待行情</b></button>
+            <div class="source" id="source">等待真实后端行情</div>
+          </div>
         </div>
 
         <div class="quote-main">
@@ -41,6 +45,11 @@
           <div class="metrics" id="metrics"></div>
         </div>
       </section>
+
+      <div class="detail-mode-switch" id="detailModeSwitch" aria-label="个股详情内容切换">
+        <button type="button" class="detail-mode-button active" data-detail-mode="market">行情</button>
+        <button type="button" class="detail-mode-button" data-detail-mode="discussion">讨论</button>
+      </div>
 
       <section class="glass chart-card section" id="chartCard" aria-label="行情图表与盘口">
         <div class="tabs">
@@ -87,6 +96,33 @@
           </aside>
         </div>
       </section>
+
+      <section class="glass discussion-card section" id="discussionCard" aria-label="个股讨论与评论" hidden>
+        <header class="discussion-head">
+          <div class="discussion-head-copy">
+            <h2 id="discussionTitle">当前股票讨论</h2>
+            <p id="discussionSubtitle">东方财富股吧最新讨论 · 点击帖子查看评论</p>
+          </div>
+          <button type="button" class="discussion-source-button" id="discussionSourceButton">查看股吧 ↗</button>
+        </header>
+
+        <div class="discussion-list-view" id="discussionListView">
+          <div class="discussion-toolbar"><strong>最新讨论</strong><span>只读展示</span><span class="spacer"></span><span id="discussionCount">等待讨论数据</span></div>
+          <div class="discussion-list" id="discussionList"></div>
+          <button type="button" class="discussion-more" id="discussionMore" disabled>加载更多讨论</button>
+        </div>
+
+        <div class="discussion-post-view" id="discussionPostView" hidden>
+          <div class="discussion-post-top">
+            <button type="button" class="discussion-post-back" id="discussionPostBack" aria-label="返回讨论列表">‹</button>
+            <strong>帖子详情</strong>
+            <span id="discussionPostStatus">等待帖子正文</span>
+          </div>
+          <div class="discussion-post-scroll" id="discussionPostScroll"></div>
+        </div>
+
+        <div class="discussion-status" id="discussionStatus">讨论页首次打开时才加载，不增加个股行情首屏开销。</div>
+      </section>
     </div>
 
     <nav class="bottom-nav" aria-label="主导航">
@@ -98,8 +134,8 @@
 
   <aside class="controls">
     <h1>新版个股详情页网页调试</h1>
-    <div class="version">网页版本 2026-06-27.2 · 对齐当前 StockDetailPageV3</div>
-    <p>顶部改为 40dp 返回按钮、紧凑股票身份与数据源；行情卡固定 138dp，图表玻璃卡自适应铺满剩余高度。分时、集合竞价、成交量、五档盘口、逐笔成交和多周期 K 线全部加载当前分支资源。</p>
+    <div class="version">网页版本 2026-06-27.3 · 自选与股吧讨论版</div>
+    <p>保留原有实时行情、集合竞价、盘口、逐笔和多周期K线；新增本地持久化“加自选”按钮，以及按需加载的东方财富股吧帖子、正文与公开评论。</p>
 
     <div class="group">
       <h2>实时数据</h2>
@@ -108,7 +144,7 @@
         <button class="primary" id="start">开始实时刷新</button>
         <button id="stop">停止刷新</button>
       </div>
-      <div class="data-status" id="dataStatus"><strong>脚本加载中</strong>：正在初始化当前分支行情、K线和技术指标。</div>
+      <div class="data-status" id="dataStatus"><strong>脚本加载中</strong>：正在初始化当前分支行情、K线、技术指标和讨论模块。</div>
     </div>
 
     <div class="group">
@@ -126,5 +162,6 @@
 <script src="./stock-detail-web-charts.js?v=20260627-2"></script>
 <script src="./stock-detail-web-indicators.js?v=20260627-2"></script>
 <script src="./stock-detail-web-runtime.js?v=20260627-2"></script>
+<script src="./stock-detail-web-community.js?v=20260627-1"></script>
 </body>
 </html>
