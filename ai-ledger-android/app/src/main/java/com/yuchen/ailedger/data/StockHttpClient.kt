@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.data
 
+import java.io.InterruptedIOException
+import java.net.SocketTimeoutException
 import java.util.LinkedHashMap
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
@@ -17,6 +19,10 @@ import okhttp3.Request
  * 高频行情统一复用 HTTP/2、TCP/TLS 连接和 gzip 解压；相同 URL 的并发请求通过
  * singleflight 合并，极短时间内的重复读取直接命中微缓存，避免页面切换和轮询边界
  * 同时发出重复网络请求。
+ *
+ * Render 免费实例可能在闲置后冷启动。这里不再使用固定 4 秒 readTimeout 截断所有
+ * 股票请求，而是只由每个接口传入的 call timeout 决定预算。实时轮询仍保持短预算，
+ * 首页、K 线和详情首屏则可以等待冷启动完成。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -32,9 +38,9 @@ internal object StockHttpClient {
     private val client = OkHttpClient.Builder()
         .dispatcher(dispatcher)
         .connectionPool(ConnectionPool(8, 5, TimeUnit.MINUTES))
-        .connectTimeout(1_500, TimeUnit.MILLISECONDS)
-        .readTimeout(4_000, TimeUnit.MILLISECONDS)
-        .writeTimeout(2_000, TimeUnit.MILLISECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -88,10 +94,22 @@ internal object StockHttpClient {
             owned.complete(body)
             return body
         } catch (error: Throwable) {
-            owned.completeExceptionally(error)
-            throw error
+            val normalized = normalizeTimeout(error, timeoutMs)
+            owned.completeExceptionally(normalized)
+            throw normalized
         } finally {
             inFlight.remove(url, owned)
+        }
+    }
+
+    private fun normalizeTimeout(error: Throwable, timeoutMs: Int): Throwable {
+        return if (error is SocketTimeoutException || error is InterruptedIOException) {
+            IllegalStateException(
+                "行情服务响应超时（${timeoutMs / 1000.0}秒），可能正在冷启动，请稍后重试",
+                error
+            )
+        } else {
+            error
         }
     }
 
