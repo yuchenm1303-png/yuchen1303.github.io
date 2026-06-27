@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import android.os.SystemClock
 import kotlin.math.max
 import kotlin.math.min
 
@@ -19,6 +20,7 @@ internal object VisualLoopSupport {
 
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         if (step.type == "tap_node") {
+            var pointerTargetPublished = false
             val declaredTarget = step.targetText?.trim().orEmpty()
             if (declaredTarget.isNotBlank()) {
                 val terms = declaredTargetTerms(declaredTarget)
@@ -37,8 +39,10 @@ internal object VisualLoopSupport {
                         x = selectedBounds.centerX,
                         y = selectedBounds.centerY,
                     )
+                    pointerTargetPublished = true
                 }
             }
+            if (pointerTargetPublished) awaitHudPointerLead()
             return step
         }
         if (step.type != "tap_xy") return step
@@ -64,7 +68,15 @@ internal object VisualLoopSupport {
             }
         }
         VisualAgentHudRuntime.notePlannedStep(materialized)
+        awaitHudPointerLead()
         return materialized
+    }
+
+    private fun awaitHudPointerLead() {
+        // VisualLoop is hosted on Dispatchers.IO. This short presentation barrier gives the
+        // hardware-accelerated WebView one complete pointer transition before the clean capture
+        // window hides the HUD and the accessibility gesture is dispatched.
+        SystemClock.sleep(HUD_POINTER_LEAD_MS)
     }
 
     private fun groundDeclaredTapTarget(
@@ -286,6 +298,7 @@ internal object VisualLoopSupport {
     private val QUOTED_TARGET_PATTERN = Regex("[“\"'‘]([^”\"'’]{2,48})[”\"'’]")
     private val TARGET_PUNCTUATION_PATTERN = Regex("[\\p{P}\\p{S}]")
     private val TARGET_WHITESPACE_PATTERN = Regex("\\s+")
+    private const val HUD_POINTER_LEAD_MS = 240L
     private const val MIN_TARGET_TERM_CHARS = 2
     private const val MAX_TARGET_TEXT_CHARS = 160
     private const val EXACT_TARGET_SCORE = 1_000
