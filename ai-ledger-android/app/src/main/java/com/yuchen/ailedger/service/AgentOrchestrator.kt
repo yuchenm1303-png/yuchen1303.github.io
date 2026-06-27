@@ -2,6 +2,8 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import com.yuchen.ailedger.model.ChatModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Selects only the runtime family. All agent semantics stay in the cloud models:
@@ -26,11 +28,13 @@ class AgentOrchestrator(
                 maxSteps = maxSteps,
                 executionMode = executionMode,
             )
-            AgentOrchestratorRoute.VisualLoop -> VisualLoopRunner(aiWorkerClient, applicationContext).run(
-                goal = goal,
-                maxSteps = maxSteps,
-                executionMode = executionMode,
-            )
+            AgentOrchestratorRoute.VisualLoop -> withContext(Dispatchers.IO) {
+                VisualLoopRunner(aiWorkerClient, applicationContext).run(
+                    goal = goal,
+                    maxSteps = maxSteps,
+                    executionMode = executionMode,
+                )
+            }
         }
     }
 
