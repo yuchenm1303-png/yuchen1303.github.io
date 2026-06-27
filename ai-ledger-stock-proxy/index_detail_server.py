@@ -13,7 +13,7 @@ import httpx
 from fastapi import HTTPException, Query
 
 import market_home_server as market_home
-from realtime_runtime import QUOTE_URLS, TRENDS_URLS
+from realtime_runtime import CN_TZ, QUOTE_URLS, TRENDS_URLS
 
 
 app = market_home.app
@@ -110,7 +110,7 @@ def _parse_index_minutes(raw: dict[str, Any], ndays: int) -> list[dict[str, Any]
                     datetime.strptime(
                         f"{date_text} {time_text[:5]}",
                         "%Y-%m-%d %H:%M",
-                    ).replace(tzinfo=market_home.legacy.realtime_runtime.CN_TZ).timestamp()
+                    ).replace(tzinfo=CN_TZ).timestamp()
                     * 1000
                 ),
                 "open": legacy._safe_float(parts[1], price),
