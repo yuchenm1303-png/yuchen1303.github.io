@@ -35,12 +35,53 @@ class IndexDetailServerTest(unittest.TestCase):
         self.assertEqual(points[1]["volumeRatio"], 1.0)
         self.assertGreater(points[0]["timestamp"], 0)
 
+    def test_parse_tencent_five_day_keeps_multiple_dates(self) -> None:
+        security = {"name": "上证指数", "code": "000001", "secid": "1.000001"}
+        payload = {
+            "data": {
+                "sh000001": {
+                    "data": [
+                        {
+                            "date": "20260623",
+                            "data": [
+                                "0930 4000.00 100 40000000",
+                                "0931 4001.00 160 64016000",
+                            ],
+                        },
+                        {
+                            "date": "20260624",
+                            "data": [
+                                "0930 4010.00 120 48120000",
+                                "0931 4012.00 180 72192000",
+                            ],
+                        },
+                    ]
+                }
+            }
+        }
+        points = index_server._parse_tencent_five_day(payload, security)
+        self.assertEqual(index_server._trading_dates(points), ["2026-06-23", "2026-06-24"])
+        self.assertEqual(points[0]["volume"], 100)
+        self.assertEqual(points[1]["volume"], 60)
+        self.assertGreater(points[-1]["timestamp"], points[0]["timestamp"])
+
     def test_build_index_detail_combines_shared_modules(self) -> None:
         original_quote = index_server._load_index_quote
         original_minutes = index_server._load_index_minutes
+        original_five_day = index_server._load_index_five_day
         original_kline = index_server._load_index_kline
         original_context = index_server._load_market_context
 
+        minute_point = {
+            "date": "2026-06-27",
+            "time": "09:30",
+            "timestamp": 1,
+            "price": 4027.26,
+            "average": 4030.00,
+            "volume": 100,
+            "amount": 400000,
+            "volumeRatio": 1.0,
+        }
         index_server._load_index_quote = lambda security, warnings: {
             "name": security["name"],
             "code": security["code"],
@@ -55,18 +96,18 @@ class IndexDetailServerTest(unittest.TestCase):
             "amount": "922.23亿",
             "volume": "1.20亿手",
         }
-        index_server._load_index_minutes = lambda security, ndays, warnings: [
-            {
-                "date": "2026-06-27",
-                "time": "09:30",
-                "timestamp": 1,
-                "price": 4027.26,
-                "average": 4030.00,
-                "volume": 100,
-                "amount": 400000,
-                "volumeRatio": 1.0,
-            }
-        ]
+        index_server._load_index_minutes = lambda security, ndays, warnings: [minute_point]
+        index_server._load_index_five_day = lambda security, warnings: {
+            "points": [
+                {**minute_point, "date": f"2026-06-{day:02d}", "timestamp": day}
+                for day in range(23, 28)
+            ],
+            "source": "test_five_day",
+            "sourceUrlType": "test",
+            "tradingDayCount": 5,
+            "tradingDates": [f"2026-06-{day:02d}" for day in range(23, 28)],
+            "status": "ok",
+        }
         index_server._load_index_kline = lambda security, warnings: [
             {
                 "date": "2026-06-26",
@@ -96,13 +137,16 @@ class IndexDetailServerTest(unittest.TestCase):
         finally:
             index_server._load_index_quote = original_quote
             index_server._load_index_minutes = original_minutes
+            index_server._load_index_five_day = original_five_day
             index_server._load_index_kline = original_kline
             index_server._load_market_context = original_context
 
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["quote"]["code"], "000001")
         self.assertEqual(len(payload["minutePoints"]), 1)
-        self.assertEqual(len(payload["fiveDayPoints"]), 1)
+        self.assertEqual(len(payload["fiveDayPoints"]), 5)
+        self.assertEqual(payload["fiveDayMeta"]["tradingDayCount"], 5)
+        self.assertEqual(payload["fiveDayMeta"]["source"], "test_five_day")
         self.assertEqual(len(payload["kLinePoints"]), 1)
         self.assertEqual(payload["marketBreadth"]["downCount"], 81)
         self.assertEqual(payload["relatedIndices"][0]["code"], "399001")
