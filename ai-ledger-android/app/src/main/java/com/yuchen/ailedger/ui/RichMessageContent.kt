@@ -32,6 +32,7 @@ private const val INLINE_STICKER_TAG_START = 0xE0001
 private const val INLINE_STICKER_TAG_CANCEL = 0xE007F
 private const val INLINE_STICKER_TAG_BASE = 0xE0000
 private const val INLINE_STICKER_PAYLOAD_PREFIX = "ai_sticker:"
+private const val INLINE_STICKER_COMPACT_PREFIX = "s"
 private val visibleInlineStickerRegex =
     Regex("""\[\[AI_LEDGER_INLINE_STICKER:([a-z0-9_]{2,48})]]""", RegexOption.IGNORE_CASE)
 
@@ -82,6 +83,28 @@ private val inlineStickerCatalog: Map<String, InlineStickerAsset> = mapOf(
     "confirm_yes" to InlineStickerAsset("确认赞同"),
     "idea_drawing" to InlineStickerAsset("灵感记录"),
     "reject_no" to InlineStickerAsset("不同意")
+)
+
+private val inlineStickerKeyByCode: Map<String, String> = mapOf(
+    "0" to "joy_burst",
+    "1" to "affection_hug",
+    "2" to "health_check",
+    "3" to "thinking_soft",
+    "4" to "cheer_power",
+    "5" to "pout_no",
+    "6" to "comfort_friend",
+    "7" to "red_packet_congrats",
+    "8" to "gift_for_you",
+    "9" to "sparkle_excited",
+    "a" to "soft_smile",
+    "b" to "got_it_point",
+    "c" to "heart_thanks",
+    "d" to "confident_ready",
+    "e" to "playful_wink",
+    "f" to "confused_study",
+    "g" to "confirm_yes",
+    "h" to "idea_drawing",
+    "i" to "reject_no"
 )
 
 @Composable
@@ -261,12 +284,16 @@ private fun findInlineStickerMarkers(text: String): List<InlineStickerMarker> {
         }
 
         if (completed) {
-            val decoded = payload.toString()
-            val key = decoded
-                .takeIf { it.startsWith(INLINE_STICKER_PAYLOAD_PREFIX) }
-                ?.removePrefix(INLINE_STICKER_PAYLOAD_PREFIX)
-                ?.lowercase()
-                ?.takeIf { it in inlineStickerCatalog }
+            val decoded = payload.toString().lowercase()
+            val key = when {
+                decoded.startsWith(INLINE_STICKER_PAYLOAD_PREFIX) -> {
+                    decoded.removePrefix(INLINE_STICKER_PAYLOAD_PREFIX).takeIf { it in inlineStickerCatalog }
+                }
+                decoded.startsWith(INLINE_STICKER_COMPACT_PREFIX) -> {
+                    inlineStickerKeyByCode[decoded.removePrefix(INLINE_STICKER_COMPACT_PREFIX)]
+                }
+                else -> null
+            }
             if (key != null) {
                 markers += InlineStickerMarker(markerStart, index, key)
             }
