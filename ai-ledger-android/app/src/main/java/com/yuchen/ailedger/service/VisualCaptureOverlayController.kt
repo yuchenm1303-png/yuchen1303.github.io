@@ -22,5 +22,5 @@ object RuntimeVisualCaptureOverlayController : VisualCaptureOverlayController {
         )
     }
 
-    private const val VISUAL_CAPTURE_BURST_GRACE_MS = 180L
+    private const val VISUAL_CAPTURE_BURST_GRACE_MS = 80L
 }
