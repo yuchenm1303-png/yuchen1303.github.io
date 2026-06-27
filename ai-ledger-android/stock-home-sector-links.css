@@ -1,0 +1,15 @@
+.sector-row{
+  appearance:none;
+  -webkit-appearance:none;
+  width:100%;
+  color:inherit;
+  border:0;
+  padding:0;
+  background:transparent;
+  text-align:left;
+  cursor:pointer;
+  transition:background .15s ease,transform .15s ease;
+}
+.sector-row:hover{background:rgba(255,255,255,.035)}
+.sector-row:active{transform:scale(.992);background:rgba(255,255,255,.06)}
+.sector-row:focus-visible{outline:2px solid rgba(141,249,234,.58);outline-offset:2px;border-radius:12px}
