@@ -72,6 +72,7 @@ internal class VisualAgentHudHost(
     fun destroy() {
         if (!started && webView == null) return
         started = false
+        tuningStore.setPreviewEnabled(false)
         scope.cancel()
         destroyOverlay()
     }
