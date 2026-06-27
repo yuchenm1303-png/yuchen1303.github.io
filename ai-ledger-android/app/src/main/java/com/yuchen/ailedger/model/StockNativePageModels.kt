@@ -179,6 +179,7 @@ data class StockNativeIndexDetail(
     val quote: StockNativeQuote = StockNativeQuote(),
     val minutePoints: List<StockMinutePoint> = emptyList(),
     val fiveDayPoints: List<StockMinutePoint> = emptyList(),
+    val kLinePoints: List<StockKLinePoint> = emptyList(),
     val marketBreadth: StockMarketBreadth = StockMarketBreadth(),
     val sentiment: StockMarketSentiment = StockMarketSentiment(),
     val relatedIndices: List<StockNativeIndexLink> = emptyList(),
