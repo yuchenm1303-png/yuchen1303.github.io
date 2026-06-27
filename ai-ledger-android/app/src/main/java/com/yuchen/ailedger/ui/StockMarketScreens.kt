@@ -1,8 +1,11 @@
 package com.yuchen.ailedger.ui
 
+import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,22 +16,31 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -40,30 +52,37 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.StockMarketUiState
 import com.yuchen.ailedger.StockMarketViewModel
+import com.yuchen.ailedger.StockNativePageUiState
+import com.yuchen.ailedger.StockNativePageViewModel
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockIndexSnapshot
-import com.yuchen.ailedger.model.StockInformationItem
 import com.yuchen.ailedger.model.StockMarketBoard
-import com.yuchen.ailedger.model.StockModuleMeta
-import com.yuchen.ailedger.model.StockModuleStatus
+import com.yuchen.ailedger.model.StockNativeHotType
+import com.yuchen.ailedger.model.StockNativeRankingType
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockSectorSnapshot
-import com.yuchen.ailedger.model.displayText
+import org.json.JSONArray
+import org.json.JSONObject
 
-private val HomeQuickActions = listOf("自选", "热榜", "板块", "资金", "异动", "新闻", "研报", "预警")
-private val RiseRed = Color(0xFFFF8F8F)
-private val FallGreen = Color(0xFF80F7B4)
-private val Aqua = Color(0xFF8DF9EA)
-private val WarningYellow = Color(0xFFFFD36E)
-private val SectionLine = Color.White.copy(alpha = 0.085f)
-private val MarketTileFill = Color.White.copy(alpha = 0.045f)
-private val MarketTileBorder = Color.White.copy(alpha = 0.095f)
-private val MarketTileShape = RoundedCornerShape(18.dp)
-private val MarketPillShape = RoundedCornerShape(999.dp)
+private val NativeHomeActions = listOf("自选", "热榜", "板块", "资金", "异动", "热点", "研报", "预警")
+private const val NativeWatchPreferences = "stock_native_watchlist"
+private const val NativeWatchKey = "items"
 
-private val MarketOverviewPanelHeight = 536.dp
-private val MarketContentPanelHeight = 720.dp
-private val MarketStatusPanelHeight = 390.dp
+private sealed interface StockNativeRoute {
+    data object Home : StockNativeRoute
+    data class Ranking(val type: StockNativeRankingType) : StockNativeRoute
+    data class Hot(val type: StockNativeHotType) : StockNativeRoute
+    data class Sector(val code: String) : StockNativeRoute
+    data class Index(val code: String) : StockNativeRoute
+    data class Detail(val code: String, val startInCommunity: Boolean = false) : StockNativeRoute
+    data class Post(val code: String, val postId: String) : StockNativeRoute
+}
+
+private data class NativeWatchEntry(
+    val code: String,
+    val name: String,
+    val market: String
+)
 
 @Composable
 fun AStockMarketScreenV2(
@@ -71,412 +90,446 @@ fun AStockMarketScreenV2(
     onBack: () -> Unit,
     onOpenAssistant: () -> Unit
 ) {
-    val viewModel: StockMarketViewModel = viewModel()
-    val ui by viewModel.uiState.collectAsState()
+    val marketViewModel: StockMarketViewModel = viewModel()
+    val nativeViewModel: StockNativePageViewModel = viewModel()
+    val marketUi by marketViewModel.uiState.collectAsState()
+    val nativeUi by nativeViewModel.uiState.collectAsState()
+    val context = LocalContext.current
+    var route by remember { mutableStateOf<StockNativeRoute>(StockNativeRoute.Home) }
+    val routeStack = remember { mutableStateListOf<StockNativeRoute>() }
+    var watchlist by remember { mutableStateOf(loadNativeWatchlist(context)) }
 
-    if (ui.showDetail) {
-        StockDetailPageV3(
+    fun navigate(next: StockNativeRoute) {
+        if (next == route) return
+        routeStack.add(route)
+        route = next
+    }
+
+    fun openStock(code: String, startInCommunity: Boolean = false) {
+        marketViewModel.openCode(code)
+        navigate(StockNativeRoute.Detail(code, startInCommunity))
+    }
+
+    fun navigateBack() {
+        when (route) {
+            is StockNativeRoute.Detail -> marketViewModel.backToHome()
+            else -> Unit
+        }
+        route = if (routeStack.isNotEmpty()) routeStack.removeAt(routeStack.lastIndex) else StockNativeRoute.Home
+    }
+
+    fun toggleWatch() {
+        val quote = marketUi.stock.quote
+        if (quote.code.length != 6) return
+        watchlist = if (watchlist.any { it.code == quote.code }) {
+            watchlist.filterNot { it.code == quote.code }
+        } else {
+            listOf(NativeWatchEntry(quote.code, quote.name.ifBlank { quote.code }, quote.market)) + watchlist
+        }
+        saveNativeWatchlist(context, watchlist)
+    }
+
+    BackHandler {
+        if (route == StockNativeRoute.Home) onBack() else navigateBack()
+    }
+
+    when (val current = route) {
+        StockNativeRoute.Home -> StockNativeHomeScreen(
             appState = state,
-            ui = ui,
-            onBack = viewModel::backToHome,
-            onRefresh = viewModel::refreshCurrent,
-            onSelectTab = viewModel::selectTab,
-            onAction = viewModel::handleAction,
+            marketUi = marketUi,
+            nativeUi = nativeUi,
+            watchlist = watchlist,
+            onBack = onBack,
+            onRefresh = marketViewModel::refreshHome,
+            onQueryChange = marketViewModel::updateQuery,
+            onSearch = {
+                val query = marketUi.query.trim()
+                if (query.isNotBlank()) openStock(query)
+            },
+            onOpenStock = ::openStock,
+            onRemoveWatch = { code ->
+                watchlist = watchlist.filterNot { it.code == code }
+                saveNativeWatchlist(context, watchlist)
+            },
+            onSelectAction = { action ->
+                marketViewModel.selectHomeAction(action)
+                if (action == "热点") nativeViewModel.loadHot(StockNativeHotType.Popularity)
+            },
+            onOpenRanking = { type ->
+                nativeViewModel.loadRanking(type)
+                navigate(StockNativeRoute.Ranking(type))
+            },
+            onOpenHot = { type ->
+                nativeViewModel.loadHot(type)
+                navigate(StockNativeRoute.Hot(type))
+            },
+            onLoadConcept = nativeViewModel::loadConceptSectors,
+            onOpenSector = { code ->
+                nativeViewModel.loadSector(code)
+                navigate(StockNativeRoute.Sector(code))
+            },
+            onOpenIndex = { code ->
+                nativeViewModel.loadIndex(code)
+                navigate(StockNativeRoute.Index(code))
+            },
             onOpenAssistant = onOpenAssistant
         )
-    } else {
-        StockHomePage(
+
+        is StockNativeRoute.Ranking -> StockNativeRankingScreen(
+            ui = nativeUi,
+            type = current.type,
+            onBack = ::navigateBack,
+            onRefresh = { nativeViewModel.loadRanking(current.type, true) },
+            onSelectType = { type -> nativeViewModel.loadRanking(type) },
+            onOpenStock = ::openStock
+        )
+
+        is StockNativeRoute.Hot -> StockNativeHotScreen(
+            ui = nativeUi,
+            type = current.type,
+            onBack = ::navigateBack,
+            onRefresh = { nativeViewModel.loadHot(current.type, true) },
+            onSelectType = { type -> nativeViewModel.loadHot(type) },
+            onOpenStock = ::openStock
+        )
+
+        is StockNativeRoute.Sector -> StockNativeSectorScreen(
+            ui = nativeUi,
+            code = current.code,
+            onBack = ::navigateBack,
+            onRefresh = { nativeViewModel.loadSector(current.code, true) },
+            onSelectTab = nativeViewModel::selectSectorTab,
+            onLoadMore = nativeViewModel::loadMoreSectorConstituents,
+            onOpenSector = { code ->
+                nativeViewModel.loadSector(code, true)
+                route = StockNativeRoute.Sector(code)
+            },
+            onOpenStock = ::openStock
+        )
+
+        is StockNativeRoute.Index -> StockNativeIndexScreen(
+            ui = nativeUi,
+            code = current.code,
+            onBack = ::navigateBack,
+            onRefresh = { nativeViewModel.loadIndex(current.code, true) },
+            onOpenIndex = { code ->
+                nativeViewModel.loadIndex(code, true)
+                route = StockNativeRoute.Index(code)
+            }
+        )
+
+        is StockNativeRoute.Detail -> StockNativeDetailScreen(
             appState = state,
-            ui = ui,
-            onBack = onBack,
-            onRefresh = viewModel::refreshHome,
-            onQueryChange = viewModel::updateQuery,
-            onSearch = viewModel::searchAndOpen,
-            onOpenCode = viewModel::openCode,
-            onSelectHomeAction = viewModel::selectHomeAction,
-            onOpenAssistant = onOpenAssistant
+            marketUi = marketUi,
+            nativeUi = nativeUi,
+            startInCommunity = current.startInCommunity,
+            isWatched = watchlist.any { it.code == marketUi.stock.quote.code },
+            onBack = ::navigateBack,
+            onRefresh = marketViewModel::refreshCurrent,
+            onToggleWatch = ::toggleWatch,
+            onSelectTab = marketViewModel::selectTab,
+            onLoadCommunity = { reset -> nativeViewModel.loadDiscussions(marketUi.stock.quote.code, reset) },
+            onLoadMoreCommunity = { nativeViewModel.loadDiscussions(marketUi.stock.quote.code, false) },
+            onOpenPost = { postId ->
+                val code = marketUi.stock.quote.code
+                nativeViewModel.loadPost(code, postId)
+                navigate(StockNativeRoute.Post(code, postId))
+            }
+        )
+
+        is StockNativeRoute.Post -> StockNativePostScreen(
+            ui = nativeUi,
+            code = current.code,
+            postId = current.postId,
+            onBack = ::navigateBack,
+            onRefresh = { nativeViewModel.loadPost(current.code, current.postId, true) },
+            onLoadComments = nativeViewModel::loadComments
         )
     }
 }
 
 @Composable
-private fun StockHomePage(
+private fun StockNativeHomeScreen(
     appState: AssistantUiState,
-    ui: StockMarketUiState,
+    marketUi: StockMarketUiState,
+    nativeUi: StockNativePageUiState,
+    watchlist: List<NativeWatchEntry>,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
-    onOpenCode: (String) -> Unit,
-    onSelectHomeAction: (String) -> Unit,
+    onOpenStock: (String, Boolean) -> Unit,
+    onRemoveWatch: (String) -> Unit,
+    onSelectAction: (String) -> Unit,
+    onOpenRanking: (StockNativeRankingType) -> Unit,
+    onOpenHot: (StockNativeHotType) -> Unit,
+    onLoadConcept: (Boolean) -> Unit,
+    onOpenSector: (String) -> Unit,
+    onOpenIndex: (String) -> Unit,
     onOpenAssistant: () -> Unit
 ) {
+    var sectorType by remember { mutableStateOf("industry") }
+    val selectedAction = marketUi.selectedHomeAction
+    LaunchedEffect(selectedAction) {
+        if (selectedAction == "热点") onOpenHotPreview(nativeUi, onOpenHot = {}, load = { onLoadConcept(false) })
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 14.dp, bottom = 118.dp),
+        contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 12.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item { HomeHeader(appState, ui, onBack, onRefresh) }
         item {
-            StockParentGlassPanel(appState, Modifier.height(MarketOverviewPanelHeight)) {
-                TopSearchBar(appState, ui, onQueryChange, onSearch)
-                SectionDivider()
-                MarketIndexSection(ui)
-                SectionDivider()
-                MarketBreadthSection(ui)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StockNativePageHeader(
+                    label = "市场总览 · A股",
+                    onBack = onBack,
+                    onRefresh = onRefresh,
+                    loading = marketUi.marketLoading
+                )
+                Text("A-SHARE MARKET", color = StockAqua.copy(alpha = 0.72f), fontSize = 9.sp, fontWeight = FontWeight.Black)
+                Text("市场概览", color = Color.White, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black)
+                Text(
+                    when {
+                        marketUi.marketLoading -> "正在同步指数、宽度、榜单与板块"
+                        !marketUi.requestMessage.isNullOrBlank() -> marketUi.requestMessage
+                        else -> "真实市场数据 · 20 秒刷新"
+                    },
+                    color = if (marketUi.requestMessage.isNullOrBlank()) Color.White.copy(alpha = 0.48f) else StockYellow,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
+
         item {
-            StockParentGlassPanel(appState, Modifier.height(MarketContentPanelHeight)) {
-                Section("市场数据", "真实榜单、板块与资金排序")
-                HomeToolGrid(appState, ui.selectedHomeAction, onSelectHomeAction)
-                SectionDivider()
-                HomeToolContent(ui, onOpenCode)
+            StockNativeGlassPanel(Modifier.fillMaxWidth(), radius = 30.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    NativeStockSearchBar(marketUi.query, marketUi.loading, onQueryChange, onSearch)
+                    StockDivider()
+                    StockSectionTitle("主要指数", "点击进入共用指数详情页 · 左右滑动查看更多")
+                    NativeIndexRow(marketUi, onOpenIndex)
+                    StockDivider()
+                    StockSectionTitle("市场宽度", "涨跌结构、赚钱效应与市场热度")
+                    NativeBreadthSection(marketUi)
+                }
             }
         }
+
         item {
-            StockParentGlassPanel(appState, Modifier.height(MarketStatusPanelHeight)) {
-                HomeDataStatusSection(ui, onOpenAssistant)
+            StockNativeGlassPanel(Modifier.fillMaxWidth(), radius = 30.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StockSectionTitle("市场数据", "实时榜单、行业板块、概念板块、资金与个股热点")
+                    NativeHomeActionGrid(selectedAction, onSelectAction)
+                    StockDivider()
+                    when (selectedAction) {
+                        "自选" -> NativeWatchlistContent(watchlist, onOpenStock, onRemoveWatch)
+                        "热榜" -> NativeRankingOverview(
+                            types = listOf(
+                                StockNativeRankingType.Gainers,
+                                StockNativeRankingType.Losers,
+                                StockNativeRankingType.Amount,
+                                StockNativeRankingType.Turnover,
+                                StockNativeRankingType.VolumeRatio,
+                                StockNativeRankingType.Speed
+                            ),
+                            boards = marketUi.marketHome.boards,
+                            title = "实时行情榜单",
+                            subtitle = "每个榜单都有独立详情入口，首页仅展示第一名预览",
+                            onOpenRanking = onOpenRanking,
+                            onOpenStock = { onOpenStock(it, false) }
+                        )
+                        "资金" -> NativeRankingOverview(
+                            types = listOf(StockNativeRankingType.MainInflow, StockNativeRankingType.MainOutflow),
+                            boards = marketUi.marketHome.boards,
+                            title = "主力资金榜单",
+                            subtitle = "净流入与净流出分别进入完整榜单",
+                            onOpenRanking = onOpenRanking,
+                            onOpenStock = { onOpenStock(it, false) }
+                        )
+                        "板块" -> NativeSectorOverview(
+                            sectorType = sectorType,
+                            industry = marketUi.marketHome.sectors,
+                            concept = nativeUi.conceptSectors,
+                            conceptLoading = nativeUi.conceptLoading,
+                            conceptError = nativeUi.conceptError,
+                            onSelectType = { type ->
+                                sectorType = type
+                                if (type == "concept") onLoadConcept(false)
+                            },
+                            onOpenSector = onOpenSector
+                        )
+                        "热点" -> NativeHotPreview(nativeUi, onOpenHot, onOpenStock)
+                        "异动" -> StockLoadingOrError(false, null, "没有稳定真实数据源时不会生成模板数据")
+                        "研报" -> StockLoadingOrError(false, null, "机构研报暂未接入稳定真实数据源")
+                        "预警" -> StockLoadingOrError(false, null, "价格预警属于本地功能，当前尚未配置预警条件")
+                    }
+                }
+            }
+        }
+
+        item {
+            StockNativeGlassPanel(Modifier.fillMaxWidth(), radius = 30.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    StockSectionTitle("数据覆盖状态", "真实可用与暂不可用模块分开显示")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        NativeStatusMetric("指数", marketUi.marketHome.indices.isNotEmpty(), Modifier.weight(1f))
+                        NativeStatusMetric("宽度", marketUi.marketHome.marketBreadth.meta.hasRealData, Modifier.weight(1f))
+                        NativeStatusMetric("情绪", marketUi.marketHome.sentiment.meta.hasRealData, Modifier.weight(1f))
+                        NativeStatusMetric("热点", nativeUi.hotSnapshot.items.isNotEmpty(), Modifier.weight(1f))
+                    }
+                    StockDivider()
+                    Text(
+                        "普通新闻、研报、公告等没有稳定真实源时继续显示不可用；股票软件内部的人气榜与飙升榜独立展示。",
+                        color = Color.White.copy(alpha = 0.52f),
+                        fontSize = 9.sp,
+                        lineHeight = 14.sp
+                    )
+                    StockDivider()
+                    Column(
+                        Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("AI 看盘", color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                        Text(
+                            marketUi.stock.aiSummary,
+                            color = Color.White.copy(alpha = 0.58f),
+                            fontSize = 10.sp,
+                            lineHeight = 15.sp,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun HomeHeader(
-    appState: AssistantUiState,
-    ui: StockMarketUiState,
-    onBack: () -> Unit,
-    onRefresh: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            StockButton(appState, "‹ 首页", Modifier.width(92.dp).height(42.dp), onBack)
-            Spacer(Modifier.weight(1f))
-            Text(
-                "市场总览 · A股",
-                color = Color.White.copy(alpha = 0.46f),
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1
-            )
-            StockIconButton(appState, if (ui.loading || ui.marketLoading) "…" else "⟳", onRefresh)
-        }
-        Text(
-            "A-SHARE MARKET",
-            color = Aqua.copy(alpha = 0.72f),
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
-            fontWeight = FontWeight.Black
-        )
-        Text(
-            "市场概览",
-            color = Color.White,
-            fontSize = 32.sp,
-            lineHeight = 38.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1
-        )
-        Text(
-            statusText(ui),
-            color = statusColor(ui),
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun StockParentGlassPanel(
-    appState: AssistantUiState,
-    modifier: Modifier,
-    content: @Composable () -> Unit
-) {
-    GlassPanel(
-        quality = appState.quality,
-        glassIntensity = appState.glassIntensity * 0.92f,
-        motionIntensity = appState.motionIntensity,
-        radius = 30,
-        modifier = modifier.fillMaxWidth(),
-        role = GlassRole.Card
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            content()
-        }
-    }
-}
-
-@Composable
-private fun TopSearchBar(
-    appState: AssistantUiState,
-    ui: StockMarketUiState,
+private fun NativeStockSearchBar(
+    query: String,
+    loading: Boolean,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit
 ) {
-    val intensity = appState.glassIntensity.coerceIn(0.45f, 1.20f)
-    Row(
-        modifier = Modifier.fillMaxWidth().height(46.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    Row(Modifier.fillMaxWidth().height(45.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(
-            modifier = Modifier
+            Modifier
                 .weight(1f)
-                .height(44.dp)
-                .background(Color.White.copy(alpha = 0.055f * intensity), MarketTileShape)
-                .border(1.dp, MarketTileBorder.copy(alpha = 0.10f * intensity), MarketTileShape)
-                .padding(horizontal = 13.dp),
+                .fillMaxSize()
+                .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(17.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(17.dp))
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("⌕", color = Aqua.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text("⌕", color = StockAqua, fontSize = 17.sp, fontWeight = FontWeight.Black)
             BasicTextField(
-                value = ui.query,
+                value = query,
                 onValueChange = onQueryChange,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = Color.White.copy(alpha = 0.96f),
-                    fontSize = 15.sp,
-                    lineHeight = 19.sp,
-                    fontWeight = FontWeight.Black
-                ),
-                cursorBrush = SolidColor(Aqua.copy(alpha = 0.92f)),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Text,
-                    imeAction = ImeAction.Search
-                ),
-                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
                 modifier = Modifier.weight(1f),
+                singleLine = true,
+                textStyle = TextStyle(color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black),
+                cursorBrush = SolidColor(StockAqua),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { onSearch() }),
                 decorationBox = { inner ->
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
-                        if (ui.query.isBlank()) {
-                            Text(
-                                "股票代码或名称",
-                                color = Color.White.copy(alpha = 0.34f),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isBlank()) Text("股票代码或名称", color = Color.White.copy(alpha = 0.32f), fontSize = 11.sp)
                         inner()
                     }
                 }
             )
         }
-        Box(
-            modifier = Modifier
-                .width(78.dp)
-                .height(44.dp)
-                .background(Aqua.copy(alpha = 0.15f * intensity), MarketPillShape)
-                .border(1.dp, Aqua.copy(alpha = 0.24f * intensity), MarketPillShape)
-                .clickable(onClick = onSearch),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                if (ui.loading) "连接中" else "搜索",
-                color = Color.White.copy(alpha = 0.96f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1
-            )
-        }
+        StockNativePill(
+            text = if (loading) "连接中" else "搜索",
+            active = true,
+            modifier = Modifier.width(76.dp).fillMaxSize(),
+            onClick = onSearch
+        )
     }
 }
 
 @Composable
-private fun MarketIndexSection(ui: StockMarketUiState) {
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Section("主要指数", "核心指数实时快照 · 左右滑动查看更多")
-        val indices = ui.marketHome.indices
-        if (indices.isEmpty()) {
-            ModuleStatusLine(
-                if (ui.marketLoading) {
-                    StockModuleMeta(status = StockModuleStatus.Partial, source = "正在加载真实指数")
-                } else {
-                    ui.marketHome.indicesMeta
+private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit) {
+    if (ui.marketHome.indices.isEmpty()) {
+        StockLoadingOrError(ui.marketLoading, ui.requestMessage, "指数数据暂不可用", Modifier.height(86.dp))
+        return
+    }
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().height(88.dp),
+        contentPadding = PaddingValues(end = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(ui.marketHome.indices, key = { it.name }) { item ->
+            val tone = if (item.isRising) StockRise else StockFall
+            Column(
+                Modifier
+                    .width(124.dp)
+                    .height(86.dp)
+                    .background(Color.White.copy(alpha = 0.045f), RoundedCornerShape(18.dp))
+                    .border(1.dp, tone.copy(alpha = 0.15f), RoundedCornerShape(18.dp))
+                    .clickable { indexCode(item)?.let(onOpenIndex) }
+                    .padding(horizontal = 11.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(Modifier.fillMaxWidth()) {
+                    Text(item.name, color = Color.White.copy(alpha = 0.58f), fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                    Text(if (item.isRising) "↑" else "↓", color = tone, fontSize = 9.sp, fontWeight = FontWeight.Black)
                 }
-            )
-            return@Column
-        }
-        LazyRow(
-            modifier = Modifier.fillMaxWidth().height(90.dp),
-            contentPadding = PaddingValues(end = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            items(indices, key = { "${it.name}-${it.value}" }) { item ->
-                IndexCard(item)
+                Text(item.value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.changePercent, color = tone, fontSize = 10.sp, fontWeight = FontWeight.Black)
             }
         }
     }
 }
 
 @Composable
-private fun IndexCard(item: StockIndexSnapshot) {
-    val tone = quoteColor(item.isRising)
-    Column(
-        modifier = Modifier
-            .width(126.dp)
-            .height(86.dp)
-            .background(MarketTileFill, MarketTileShape)
-            .border(1.dp, tone.copy(alpha = 0.16f), MarketTileShape)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                item.name,
-                color = Color.White.copy(alpha = 0.58f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                if (item.isRising) "↑" else "↓",
-                color = tone.copy(alpha = 0.86f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Black
-            )
-        }
-        Text(
-            item.value,
-            color = Color.White.copy(alpha = 0.96f),
-            fontSize = 17.sp,
-            lineHeight = 21.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            item.changePercent,
-            color = tone,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
-private fun MarketBreadthSection(ui: StockMarketUiState) {
+private fun NativeBreadthSection(ui: StockMarketUiState) {
     val breadth = ui.marketHome.marketBreadth
     val sentiment = ui.marketHome.sentiment
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Section("市场宽度", "涨跌结构、赚钱效应与市场热度")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            MarketBreadthMetricCard("上涨", breadth.upCount?.toString() ?: "--", RiseRed, Modifier.weight(1f), true)
-            MarketBreadthMetricCard("下跌", breadth.downCount?.toString() ?: "--", FallGreen, Modifier.weight(1f), true)
-            MarketBreadthMetricCard("涨停", breadth.limitUpCount?.toString() ?: "--", RiseRed, Modifier.weight(1f), true)
-            MarketBreadthMetricCard("跌停", breadth.limitDownCount?.toString() ?: "--", FallGreen, Modifier.weight(1f), true)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            MarketBreadthMetricCard("红盘率", percentText(breadth.redRate), Color.White, Modifier.weight(1f))
-            MarketBreadthMetricCard("赚钱效应", percentText(breadth.moneyMakingEffect), Aqua, Modifier.weight(1f))
-            MarketBreadthMetricCard(
-                "情绪温度",
-                temperatureText(sentiment.temperature),
-                sentimentColor(sentiment.temperature),
-                Modifier.weight(1f)
-            )
-        }
-        MarketTurnoverBar(breadth.marketAmount)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        StockMetricTile("上涨", stockCount(breadth.upCount), StockRise, Modifier.weight(1f), true)
+        StockMetricTile("下跌", stockCount(breadth.downCount), StockFall, Modifier.weight(1f), true)
+        StockMetricTile("涨停", stockCount(breadth.limitUpCount), StockRise, Modifier.weight(1f), true)
+        StockMetricTile("跌停", stockCount(breadth.limitDownCount), StockFall, Modifier.weight(1f), true)
     }
-}
-
-@Composable
-private fun MarketBreadthMetricCard(
-    label: String,
-    value: String,
-    color: Color,
-    modifier: Modifier = Modifier,
-    prominent: Boolean = false
-) {
-    Column(
-        modifier = modifier
-            .height(if (prominent) 64.dp else 58.dp)
-            .background(MarketTileFill, MarketTileShape)
-            .border(1.dp, color.copy(alpha = if (prominent) 0.16f else 0.10f), MarketTileShape)
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            label,
-            color = Color.White.copy(alpha = 0.44f),
-            fontSize = 9.sp,
-            lineHeight = 11.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-        Text(
-            value.ifBlank { "--" },
-            color = color.copy(alpha = 0.96f),
-            fontSize = if (prominent) 15.sp else 13.sp,
-            lineHeight = if (prominent) 19.sp else 17.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        StockMetricTile("红盘率", stockPercent(breadth.redRate), Color.White, Modifier.weight(1f))
+        StockMetricTile("赚钱效应", stockPercent(breadth.moneyMakingEffect), StockAqua, Modifier.weight(1f))
+        StockMetricTile("情绪温度", sentiment.temperature?.let { String.format("%.0f", it) } ?: "--", StockAqua, Modifier.weight(1f))
     }
-}
-
-@Composable
-private fun MarketTurnoverBar(value: String) {
     Row(
-        modifier = Modifier
+        Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .background(Color.White.copy(alpha = 0.052f), MarketTileShape)
-            .border(1.dp, MarketTileBorder, MarketTileShape)
-            .padding(horizontal = 13.dp),
+            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(16.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                "全市场成交额",
-                color = Color.White.copy(alpha = 0.66f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Black
-            )
-            Text(
-                "沪深京实时汇总",
-                color = Color.White.copy(alpha = 0.32f),
-                fontSize = 8.sp
-            )
+        Column {
+            Text("全市场成交额", color = Color.White.copy(alpha = 0.68f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+            Text("沪深京实时汇总", color = Color.White.copy(alpha = 0.30f), fontSize = 7.sp)
         }
         Spacer(Modifier.weight(1f))
-        Text(
-            value.ifBlank { "--" },
-            color = Color.White.copy(alpha = 0.96f),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Text(breadth.marketAmount, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
     }
 }
 
 @Composable
-private fun HomeToolGrid(
-    appState: AssistantUiState,
-    selected: String,
-    onSelect: (String) -> Unit
-) {
+private fun NativeHomeActionGrid(selected: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        HomeQuickActions.chunked(4).forEach { row ->
+        NativeHomeActions.chunked(4).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { action ->
-                    StockButton(
-                        appState,
-                        action,
-                        Modifier.weight(1f).height(42.dp),
-                        { onSelect(action) },
-                        active = selected == action
+                    StockNativePill(
+                        text = action,
+                        active = action == selected,
+                        modifier = Modifier.weight(1f).height(42.dp),
+                        onClick = { onSelect(action) }
                     )
                 }
             }
@@ -485,407 +538,253 @@ private fun HomeToolGrid(
 }
 
 @Composable
-private fun HomeToolContent(ui: StockMarketUiState, onOpenCode: (String) -> Unit) {
-    when (ui.selectedHomeAction) {
-        "自选" -> WatchListContent(ui, onOpenCode)
-        "热榜" -> BoardGroupContent(
-            ui.marketHome.boards.filterNot { it.title.contains("主力") }.take(3),
-            "真实行情榜单",
-            ui.marketHome.popularityMeta,
-            onOpenCode
-        )
-        "板块" -> SectorContent(ui.marketHome.sectors)
-        "资金" -> BoardGroupContent(
-            ui.marketHome.boards.filter { it.title.contains("主力") },
-            "主力资金排序",
-            StockModuleMeta(
-                status = if (ui.marketHome.boards.any { it.title.contains("主力") }) {
-                    StockModuleStatus.Ok
-                } else {
-                    StockModuleStatus.Unavailable
-                },
-                source = "公开真实资金数据"
-            ),
-            onOpenCode
-        )
-        "异动" -> ModuleUnavailableContent("交易异动", ui.marketHome.limitUpMeta)
-        "新闻" -> InformationContent("市场新闻", ui.marketHome.marketNews, ui.marketHome.marketNewsMeta)
-        "研报" -> ModuleUnavailableContent("机构研报", ui.slowData.researchMeta)
-        "预警" -> DataEmptyLine("价格预警属于本地功能，当前尚未配置预警条件", false)
+private fun NativeRankingOverview(
+    types: List<StockNativeRankingType>,
+    boards: List<StockMarketBoard>,
+    title: String,
+    subtitle: String,
+    onOpenRanking: (StockNativeRankingType) -> Unit,
+    onOpenStock: (String) -> Unit
+) {
+    StockSectionTitle(title, subtitle, "${types.size} 个入口")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        types.forEach { type ->
+            val board = boards.firstOrNull { boardMatches(type, it.title) }
+            NativeRankingEntry(type, board?.items?.firstOrNull(), onOpenRanking, onOpenStock)
+        }
     }
 }
 
 @Composable
-private fun WatchListContent(ui: StockMarketUiState, onOpenCode: (String) -> Unit) {
-    Section("我的自选", "当前仅保存本次页面状态，不注入固定股票")
-    if (!ui.isWatched || ui.stock.quote.code.isBlank()) {
-        DataEmptyLine("尚未添加自选股", false)
-        return
+private fun NativeRankingEntry(
+    type: StockNativeRankingType,
+    top: StockRankItem?,
+    onOpenRanking: (StockNativeRankingType) -> Unit,
+    onOpenStock: (String) -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.035f), RoundedCornerShape(17.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(17.dp))
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(48.dp).clickable { onOpenRanking(type) }.padding(horizontal = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(type.title, color = Color.White.copy(alpha = 0.93f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                Text(type.subtitle, color = Color.White.copy(alpha = 0.34f), fontSize = 7.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text("进入榜单 ›", color = StockAqua.copy(alpha = 0.82f), fontSize = 8.sp, fontWeight = FontWeight.Black)
+        }
+        if (top != null) {
+            Row(
+                Modifier.fillMaxWidth().height(48.dp).clickable { onOpenStock(top.code) }.padding(horizontal = 11.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("1", color = StockAqua, fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(25.dp), textAlign = TextAlign.Center)
+                Column(Modifier.weight(1f)) {
+                    Text(top.name, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text("${top.code} · ${top.value}", color = Color.White.copy(alpha = 0.32f), fontSize = 7.sp)
+                }
+                Text(top.changePercent, color = if (top.isRising) StockRise else StockFall, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            }
+        }
     }
-    val quote = ui.stock.quote
+}
+
+@Composable
+private fun NativeSectorOverview(
+    sectorType: String,
+    industry: List<StockSectorSnapshot>,
+    concept: List<StockSectorSnapshot>,
+    conceptLoading: Boolean,
+    conceptError: String?,
+    onSelectType: (String) -> Unit,
+    onOpenSector: (String) -> Unit
+) {
+    val sectors = if (sectorType == "concept") concept else industry
+    StockSectionTitle("板块排行", "行业与概念分开呈现，点击任意板块进入详情", "${sectors.size.takeIf { it > 0 } ?: "--"} 个板块")
+    Row(
+        Modifier.fillMaxWidth().height(42.dp).background(Color.White.copy(alpha = 0.035f), RoundedCornerShape(17.dp)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        StockNativePill("行业板块", sectorType == "industry", Modifier.weight(1f).fillMaxSize()) { onSelectType("industry") }
+        StockNativePill("概念板块", sectorType == "concept", Modifier.weight(1f).fillMaxSize()) { onSelectType("concept") }
+    }
+    if (sectors.isEmpty()) {
+        StockLoadingOrError(conceptLoading && sectorType == "concept", if (sectorType == "concept") conceptError else null, "板块数据暂不可用")
+    } else {
+        sectors.take(10).forEach { sector ->
+            Row(
+                Modifier.fillMaxWidth().height(51.dp).clickable { onOpenSector(sector.sectorCode) }.padding(horizontal = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(sector.sectorName, color = Color.White.copy(alpha = 0.92f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(
+                        "${if (sectorType == "concept") "概念" else "行业"} · 涨 ${sector.upCount ?: "--"} · 跌 ${sector.downCount ?: "--"}${sector.leaderName.takeIf { it.isNotBlank() }?.let { " · 领涨 $it" } ?: ""}",
+                        color = Color.White.copy(alpha = 0.32f),
+                        fontSize = 7.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(sector.mainInflow.ifBlank { sector.amount.ifBlank { "--" } }, color = stockFlowTone(sector.mainInflow), fontSize = 9.sp, modifier = Modifier.width(72.dp), textAlign = TextAlign.End, maxLines = 1)
+                Text(sector.changePercent, color = stockTone(sector.changePercent), fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(64.dp), textAlign = TextAlign.End)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeHotPreview(
+    ui: StockNativePageUiState,
+    onOpenHot: (StockNativeHotType) -> Unit,
+    onOpenStock: (String, Boolean) -> Unit
+) {
+    StockSectionTitle("实时热点", "东方财富个股人气榜 · 约10分钟更新", "${ui.hotSnapshot.items.size.takeIf { it > 0 } ?: "--"} 只")
     Row(
         Modifier
             .fillMaxWidth()
             .height(50.dp)
-            .clickable(enabled = quote.code.length == 6) { onOpenCode(quote.code) },
+            .background(Brush.horizontalGradient(listOf(StockAqua.copy(alpha = 0.10f), Color(0xFF7C8FFF).copy(alpha = 0.10f))), RoundedCornerShape(17.dp))
+            .border(1.dp, StockAqua.copy(alpha = 0.13f), RoundedCornerShape(17.dp))
+            .clickable { onOpenHot(StockNativeHotType.Popularity) }
+            .padding(horizontal = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text(quote.name, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black)
-            Text(quote.code, color = Color.White.copy(alpha = 0.42f), fontSize = 9.sp)
+            Text("个股人气榜与飙升榜", color = Color.White.copy(alpha = 0.94f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            Text("股票软件内部热度，不是普通新闻热搜", color = Color.White.copy(alpha = 0.34f), fontSize = 7.sp)
         }
-        Text(quote.price, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Black)
-        Text(
-            quote.changePercent,
-            color = quoteColor(quote.isRising),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier.width(72.dp),
-            textAlign = TextAlign.End
-        )
+        Text("进入热点榜 ›", color = StockAqua, fontSize = 8.sp, fontWeight = FontWeight.Black)
     }
-}
-
-@Composable
-private fun BoardGroupContent(
-    boards: List<StockMarketBoard>,
-    title: String,
-    fallbackMeta: StockModuleMeta,
-    onOpenCode: (String) -> Unit
-) {
-    Section(title, "不同榜单使用各自真实排序字段")
-    if (boards.isEmpty()) {
-        ModuleStatusLine(fallbackMeta)
-        return
-    }
-    boards.forEachIndexed { boardIndex, board ->
-        Text(
-            board.title,
-            color = if (boardIndex == 0) Aqua else Color.White.copy(alpha = 0.72f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1
-        )
-        board.items.take(if (boards.size == 1) 8 else 3).forEachIndexed { index, item ->
-            RankRow(index + 1, item, onOpenCode)
-        }
-        if (boardIndex != boards.lastIndex) SectionDivider()
-    }
-}
-
-@Composable
-private fun SectorContent(sectors: List<StockSectorSnapshot>) {
-    Section("行业板块", "真实行业涨幅、涨跌家数、资金与领涨股")
-    if (sectors.isEmpty()) {
-        DataEmptyLine("板块数据暂不可用", false)
-        return
-    }
-    sectors.take(8).forEach { sector ->
-        Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    sector.sectorName,
-                    color = Color.White.copy(alpha = 0.92f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 1
-                )
-                Text(
-                    buildString {
-                        append("涨 ${sector.upCount ?: "--"} · 跌 ${sector.downCount ?: "--"}")
-                        if (sector.leaderName.isNotBlank()) append(" · 领涨 ${sector.leaderName}")
-                    },
-                    color = Color.White.copy(alpha = 0.42f),
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+    if (ui.hotSnapshot.items.isEmpty()) {
+        StockLoadingOrError(ui.hotLoading, ui.hotError, "热点榜按需加载")
+    } else {
+        ui.hotSnapshot.items.take(6).forEach { item ->
+            Row(
+                Modifier.fillMaxWidth().height(52.dp).clickable { onOpenStock(item.code, false) }.padding(horizontal = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(item.rank.toString(), color = StockAqua, fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(26.dp), textAlign = TextAlign.Center)
+                Column(Modifier.weight(1f)) {
+                    Text(item.name, color = Color.White.copy(alpha = 0.92f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(listOf(item.code, item.industry).filter { it.isNotBlank() }.joinToString(" · "), color = Color.White.copy(alpha = 0.32f), fontSize = 7.sp)
+                }
+                Text(item.price, color = Color.White.copy(alpha = 0.78f), fontSize = 9.sp, modifier = Modifier.width(60.dp), textAlign = TextAlign.End)
+                Column(Modifier.width(65.dp), horizontalAlignment = Alignment.End) {
+                    Text("#${item.currentRank}", color = StockAqua.copy(alpha = 0.82f), fontSize = 8.sp, fontWeight = FontWeight.Black)
+                    Text(item.changePercent, color = stockTone(item.changePercent), fontSize = 8.sp, fontWeight = FontWeight.Black)
+                }
             }
-            Text(
-                sector.mainInflow.ifBlank { sector.amount.ifBlank { "--" } },
-                color = flowColor(sector.mainInflow),
-                fontSize = 10.sp,
-                modifier = Modifier.width(76.dp),
-                textAlign = TextAlign.End,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                sector.changePercent,
-                color = quoteColor(!sector.changePercent.startsWith("-")),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier.width(64.dp),
-                textAlign = TextAlign.End
-            )
         }
     }
 }
 
 @Composable
-private fun InformationContent(
-    title: String,
-    items: List<StockInformationItem>,
-    meta: StockModuleMeta
+private fun NativeWatchlistContent(
+    watchlist: List<NativeWatchEntry>,
+    onOpenStock: (String, Boolean) -> Unit,
+    onRemoveWatch: (String) -> Unit
 ) {
-    Section(title, "只展示后端确认的真实内容")
-    if (items.isEmpty()) {
-        ModuleStatusLine(meta)
+    StockSectionTitle("我的自选", "从个股详情页加入，保存在当前设备", "${watchlist.size} 只")
+    if (watchlist.isEmpty()) {
+        StockLoadingOrError(false, null, "还没有自选股\n进入任意个股详情，点击“加自选”即可加入")
         return
     }
-    items.take(8).forEach { item ->
-        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-            Text(
-                item.title,
-                color = Color.White.copy(alpha = 0.88f),
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                listOf(item.source, item.publishTime).filter { it.isNotBlank() }.joinToString(" · "),
-                color = Color.White.copy(alpha = 0.38f),
-                fontSize = 9.sp,
-                maxLines = 1
-            )
+    watchlist.forEach { item ->
+        Row(Modifier.fillMaxWidth().height(54.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).fillMaxSize().clickable { onOpenStock(item.code, false) }.padding(horizontal = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                Box(Modifier.size(28.dp).background(StockYellow.copy(alpha = 0.10f), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                    Text("★", color = StockYellow, fontSize = 13.sp)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(item.name, color = Color.White.copy(alpha = 0.92f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text("${item.code} · ${item.market.ifBlank { "A股" }}", color = Color.White.copy(alpha = 0.34f), fontSize = 8.sp)
+                }
+                Text("›", color = StockAqua.copy(alpha = 0.58f), fontSize = 16.sp)
+            }
+            Box(
+                Modifier.size(30.dp).background(Color.White.copy(alpha = 0.045f), StockPillShape).clickable { onRemoveWatch(item.code) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("×", color = Color.White.copy(alpha = 0.40f), fontSize = 13.sp)
+            }
         }
     }
 }
 
 @Composable
-private fun ModuleUnavailableContent(title: String, meta: StockModuleMeta) {
-    Section(title, "没有稳定真实数据源时不会生成模板数据")
-    ModuleStatusLine(meta)
-}
-
-@Composable
-private fun HomeDataStatusSection(ui: StockMarketUiState, onOpenAssistant: () -> Unit) {
-    Section("数据覆盖状态", "真实可用与暂不可用模块分开显示")
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        StatusMetric("指数", ui.marketHome.indicesMeta.status, Modifier.weight(1f))
-        StatusMetric("宽度", ui.marketHome.marketBreadth.meta.status, Modifier.weight(1f))
-        StatusMetric("情绪", ui.marketHome.sentiment.meta.status, Modifier.weight(1f))
-        StatusMetric("新闻", ui.marketHome.marketNewsMeta.status, Modifier.weight(1f))
-    }
-    SectionDivider()
-    Text(
-        "公告、新闻、研报、财务、人气、龙虎榜等没有稳定真实源时显示不可用，不再展示本地模板。",
-        color = Color.White.copy(alpha = 0.62f),
-        fontSize = 11.sp,
-        lineHeight = 16.sp
-    )
-    SectionDivider()
-    Column(
-        Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text("AI 看盘", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-        Text(
-            ui.stock.aiSummary,
-            color = Color.White.copy(alpha = 0.62f),
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
-            maxLines = 4,
-            overflow = TextOverflow.Ellipsis
-        )
+private fun NativeStatusMetric(label: String, available: Boolean, modifier: Modifier) {
+    Column(modifier.height(48.dp), verticalArrangement = Arrangement.Center) {
+        Text(label, color = Color.White.copy(alpha = 0.34f), fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        Text(if (available) "实时" else "不可用", color = if (available) StockAqua else Color.White.copy(alpha = 0.42f), fontSize = 9.sp, fontWeight = FontWeight.Black)
     }
 }
 
-@Composable
-private fun RankRow(rank: Int, item: StockRankItem, onOpenCode: (String) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(42.dp)
-            .clickable(enabled = item.code.length == 6) { onOpenCode(item.code) },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            rank.toString(),
-            color = Aqua.copy(alpha = 0.88f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier.width(22.dp),
-            textAlign = TextAlign.Center
-        )
-        Column(Modifier.weight(1f)) {
-            Text(
-                item.name,
-                color = Color.White.copy(alpha = 0.92f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(item.code, color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp)
-        }
-        Text(
-            item.value,
-            color = Color.White.copy(alpha = 0.82f),
-            fontSize = 11.sp,
-            modifier = Modifier.width(72.dp),
-            textAlign = TextAlign.End,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            item.changePercent,
-            color = quoteColor(item.isRising),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier.width(62.dp),
-            textAlign = TextAlign.End
-        )
-    }
+private fun boardMatches(type: StockNativeRankingType, title: String): Boolean = when (type) {
+    StockNativeRankingType.Gainers -> title.contains("涨幅")
+    StockNativeRankingType.Losers -> title.contains("跌幅")
+    StockNativeRankingType.Amount -> title.contains("成交额")
+    StockNativeRankingType.Turnover -> title.contains("换手")
+    StockNativeRankingType.VolumeRatio -> title.contains("量比")
+    StockNativeRankingType.Speed -> title.contains("涨速")
+    StockNativeRankingType.MainInflow -> title.contains("净流入")
+    StockNativeRankingType.MainOutflow -> title.contains("净流出")
 }
 
-@Composable
-private fun ModuleStatusLine(meta: StockModuleMeta) {
-    Row(Modifier.fillMaxWidth().height(46.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            meta.status.displayText(),
-            color = statusTone(meta.status),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            meta.source.ifBlank { "未接稳定真实数据源" },
-            color = Color.White.copy(alpha = 0.38f),
-            fontSize = 9.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
+private fun indexCode(item: StockIndexSnapshot): String? = when {
+    item.name.contains("上证") -> "000001"
+    item.name.contains("深证") || item.name.contains("深成") -> "399001"
+    item.name.contains("创业") -> "399006"
+    item.name.contains("沪深300") -> "000300"
+    item.name.contains("科创50") -> "000688"
+    item.name.contains("A500") -> "000510"
+    item.name.contains("上证50") -> "000016"
+    item.name.contains("中证500") -> "000905"
+    item.name.contains("中证1000") -> "000852"
+    item.name.contains("北证50") -> "899050"
+    else -> null
 }
 
-@Composable
-private fun StatusMetric(label: String, status: StockModuleStatus, modifier: Modifier) {
-    Column(modifier.height(50.dp), verticalArrangement = Arrangement.Center) {
-        Text(label, color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        Text(
-            status.displayText(),
-            color = statusTone(status),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
-private fun DataEmptyLine(text: String, loading: Boolean) {
-    Box(Modifier.fillMaxWidth().height(54.dp), contentAlignment = Alignment.CenterStart) {
-        Text(
-            if (loading) "正在加载…" else text,
-            color = if (loading) Aqua.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.46f),
-            fontSize = 11.sp,
-            lineHeight = 15.sp
-        )
-    }
-}
-
-@Composable
-private fun Section(title: String, subtitle: String? = null) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(
-            title,
-            color = Color.White.copy(alpha = 0.92f),
-            fontSize = 15.sp,
-            lineHeight = 20.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        subtitle?.takeIf { it.isNotBlank() }?.let {
-            Text(
-                it,
-                color = Color.White.copy(alpha = 0.46f),
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+private fun loadNativeWatchlist(context: Context): List<NativeWatchEntry> = runCatching {
+    val raw = context.getSharedPreferences(NativeWatchPreferences, Context.MODE_PRIVATE).getString(NativeWatchKey, "[]") ?: "[]"
+    val array = JSONArray(raw)
+    buildList {
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val code = item.optString("code").trim()
+            if (code.length != 6) continue
+            add(NativeWatchEntry(code, item.optString("name").ifBlank { code }, item.optString("market")))
         }
     }
+}.getOrDefault(emptyList())
+
+private fun saveNativeWatchlist(context: Context, items: List<NativeWatchEntry>) {
+    val array = JSONArray()
+    items.take(300).forEach { item ->
+        array.put(JSONObject().put("code", item.code).put("name", item.name).put("market", item.market))
+    }
+    context.getSharedPreferences(NativeWatchPreferences, Context.MODE_PRIVATE)
+        .edit()
+        .putString(NativeWatchKey, array.toString())
+        .apply()
 }
 
-@Composable
-private fun SectionDivider() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(SectionLine))
-}
-
-@Composable
-private fun StockButton(
-    appState: AssistantUiState,
-    text: String,
-    modifier: Modifier,
-    onClick: () -> Unit,
-    active: Boolean = false
+private fun onOpenHotPreview(
+    ui: StockNativePageUiState,
+    onOpenHot: (StockNativeHotType) -> Unit,
+    load: () -> Unit
 ) {
-    val shape = RoundedCornerShape(999.dp)
-    val intensity = appState.glassIntensity.coerceIn(0.45f, 1.20f)
-    val fillAlpha = (if (active) 0.20f else 0.075f) * intensity
-    Box(
-        modifier = modifier
-            .background(Color.White.copy(alpha = fillAlpha), shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 2.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = Color.White.copy(alpha = if (active) 0.98f else 0.76f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
+    if (ui.hotSnapshot.items.isEmpty() && !ui.hotLoading) {
+        @Suppress("UNUSED_VARIABLE") val ignored = onOpenHot
+        load()
     }
 }
-
-@Composable
-private fun StockIconButton(appState: AssistantUiState, text: String, onClick: () -> Unit) {
-    StockButton(appState, text, Modifier.width(46.dp).height(42.dp), onClick)
-}
-
-private fun quoteColor(isRising: Boolean): Color = if (isRising) RiseRed else FallGreen
-
-private fun flowColor(text: String): Color = when {
-    text.isBlank() || text == "--" -> Color.White.copy(alpha = 0.62f)
-    text.contains("-") -> FallGreen
-    else -> RiseRed
-}
-
-private fun statusTone(status: StockModuleStatus): Color = when (status) {
-    StockModuleStatus.Ok -> Aqua
-    StockModuleStatus.Partial -> WarningYellow
-    StockModuleStatus.Stale -> WarningYellow
-    StockModuleStatus.Empty -> Color.White.copy(alpha = 0.50f)
-    StockModuleStatus.Unavailable -> Color.White.copy(alpha = 0.42f)
-}
-
-private fun sentimentColor(value: Double?): Color = when {
-    value == null -> Color.White.copy(alpha = 0.50f)
-    value >= 60.0 -> RiseRed
-    value < 35.0 -> FallGreen
-    else -> WarningYellow
-}
-
-private fun statusText(ui: StockMarketUiState): String = when {
-    ui.loading -> "正在连接个股行情"
-    ui.marketLoading -> "正在同步指数、宽度、榜单与板块"
-    ui.requestMessage != null -> ui.requestMessage
-    else -> "真实市场数据 · 20 秒刷新"
-}
-
-private fun statusColor(ui: StockMarketUiState): Color =
-    if (ui.requestMessage != null) WarningYellow else Color.White.copy(alpha = 0.58f)
-
-private fun percentText(value: Double?): String = value?.let { String.format("%.2f%%", it) } ?: "--"
-
-private fun temperatureText(value: Double?): String = value?.let { String.format("%.0f", it) } ?: "--"
