@@ -29,10 +29,9 @@ private data class VisualHudRenderSnapshot(
 )
 
 /**
- * The single visual-HUD host. It belongs to the connected AccessibilityService and therefore uses
- * TYPE_ACCESSIBILITY_OVERLAY instead of SYSTEM_ALERT_WINDOW. The web assets remain the only HUD
- * implementation; Android only owns lifecycle, state delivery, input pass-through and capture-safe
- * presentation.
+ * Owns the presentation-only full-screen visual HUD and its tightly-sized interactive capsule.
+ * Both windows are TYPE_ACCESSIBILITY_OVERLAY, so GUI Plus communication no longer depends on the
+ * ordinary SYSTEM_ALERT_WINDOW permission.
  */
 internal class VisualAgentHudHost(
     private val service: AccessibilityService,
@@ -40,6 +39,7 @@ internal class VisualAgentHudHost(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val tuningStore = VisualAgentHudTuningStore.get(service.applicationContext)
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+    private val capsuleHost = VisualAgentCapsuleHost(service)
 
     private var webView: WebView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
@@ -55,6 +55,7 @@ internal class VisualAgentHudHost(
     fun start() {
         if (started) return
         started = true
+        capsuleHost.start()
         scope.launch {
             combine(
                 AgentRuntimeController.progress,
@@ -68,9 +69,13 @@ internal class VisualAgentHudHost(
     }
 
     fun destroy() {
-        if (!started && webView == null) return
+        if (!started && webView == null) {
+            capsuleHost.destroy()
+            return
+        }
         started = false
         tuningStore.setPreviewEnabled(false)
+        capsuleHost.destroy()
         scope.cancel()
         destroyOverlay()
     }
@@ -85,9 +90,8 @@ internal class VisualAgentHudHost(
             background?.alpha = 0
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-            // The HUD is presentation-only. Disable every View-level input path in addition to the
-            // WindowManager contract so vendor WebView implementations cannot promote it into an
-            // interactive surface during attach or hardware-layer recreation.
+            // The full-screen layer is presentation-only. Keep every input path disabled; the
+            // interactive capsule owns its own tightly-bounded accessibility-overlay window.
             isEnabled = false
             isFocusable = false
             isFocusableInTouchMode = false
