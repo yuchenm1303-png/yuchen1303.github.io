@@ -1,0 +1,21 @@
+.index-card{
+  appearance:none;
+  -webkit-appearance:none;
+  color:inherit;
+  text-align:left;
+  cursor:pointer;
+  touch-action:pan-x;
+  transition:transform .15s ease,background .15s ease,border-color .15s ease,box-shadow .15s ease;
+}
+.index-card:hover{
+  background:rgba(255,255,255,.075);
+  box-shadow:inset 0 0 0 1px rgba(141,249,234,.08);
+}
+.index-card:active{
+  transform:scale(.97);
+  background:rgba(255,255,255,.10);
+}
+.index-card:focus-visible{
+  outline:2px solid rgba(141,249,234,.62);
+  outline-offset:2px;
+}
