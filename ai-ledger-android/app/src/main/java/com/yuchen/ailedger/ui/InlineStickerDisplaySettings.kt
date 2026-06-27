@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
@@ -15,12 +16,18 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
+internal data class InlineStickerExpressionPreferences(
+    val frequency: Int,
+    val intensity: Int,
+    val maxPerReply: Int,
+    val repeatCount: Int,
+)
+
 /**
- * Lightweight display preference for inline chat stickers.
+ * Lightweight display and model-expression preferences for inline chat stickers.
  *
- * The current value is snapshot state so the real chat renderer and the settings preview update
- * immediately while the user drags. Persistence is conflated and delayed until dragging settles,
- * which avoids issuing a SharedPreferences write for every slider frame.
+ * Values are snapshot state so the settings preview updates immediately. Persistence is conflated
+ * and delayed until dragging settles, which avoids issuing a SharedPreferences write per frame.
  */
 internal object InlineStickerDisplaySettings {
     const val DefaultSizeDp = 42f
@@ -28,50 +35,183 @@ internal object InlineStickerDisplaySettings {
     const val MaxSizeDp = 88f
     val SizeRange: ClosedFloatingPointRange<Float> = MinSizeDp..MaxSizeDp
 
+    const val DefaultFrequency = 50
+    const val DefaultIntensity = 50
+    const val DefaultMaxPerReply = 0
+    const val DefaultRepeatCount = 1
+    val FrequencyRange: ClosedFloatingPointRange<Float> = 0f..100f
+    val IntensityRange: ClosedFloatingPointRange<Float> = 0f..100f
+    val MaxPerReplyRange: ClosedFloatingPointRange<Float> = 0f..19f
+    val RepeatCountRange: ClosedFloatingPointRange<Float> = 1f..4f
+
     private const val PreferencesName = "inline_sticker_display_settings"
     private const val SizeKey = "inline_sticker_size_dp"
+    private const val FrequencyKey = "inline_sticker_frequency"
+    private const val IntensityKey = "inline_sticker_intensity"
+    private const val MaxPerReplyKey = "inline_sticker_max_per_reply"
+    private const val RepeatCountKey = "inline_sticker_repeat_count"
     private const val PersistSettleMs = 140L
     private const val ValueEpsilon = 0.001f
 
+    private data class PersistedValues(
+        val sizeDp: Float,
+        val frequency: Int,
+        val intensity: Int,
+        val maxPerReply: Int,
+        val repeatCount: Int,
+    )
+
     private val initialized = AtomicBoolean(false)
     private val writerStarted = AtomicBoolean(false)
-    private val pendingWrites = Channel<Float>(Channel.CONFLATED)
+    private val pendingWrites = Channel<PersistedValues>(Channel.CONFLATED)
     private val writerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Volatile
     private var applicationContext: Context? = null
 
+    @Volatile
+    private var sizeDpValue = DefaultSizeDp
+
+    @Volatile
+    private var frequencyValue = DefaultFrequency
+
+    @Volatile
+    private var intensityValue = DefaultIntensity
+
+    @Volatile
+    private var maxPerReplyValue = DefaultMaxPerReply
+
+    @Volatile
+    private var repeatCountValue = DefaultRepeatCount
+
     private var sizeDpState by mutableFloatStateOf(DefaultSizeDp)
+    private var frequencyState by mutableIntStateOf(DefaultFrequency)
+    private var intensityState by mutableIntStateOf(DefaultIntensity)
+    private var maxPerReplyState by mutableIntStateOf(DefaultMaxPerReply)
+    private var repeatCountState by mutableIntStateOf(DefaultRepeatCount)
 
     @Composable
     fun sizeDp(context: Context): Float {
-        val appContext = context.applicationContext
-        LaunchedEffect(appContext) {
-            initialize(appContext)
-        }
+        ensureInitialized(context)
         return sizeDpState
+    }
+
+    @Composable
+    fun expressionPreferences(context: Context): InlineStickerExpressionPreferences {
+        ensureInitialized(context)
+        return InlineStickerExpressionPreferences(
+            frequency = frequencyState,
+            intensity = intensityState,
+            maxPerReply = maxPerReplyState,
+            repeatCount = repeatCountState,
+        )
+    }
+
+    fun currentExpressionPreferences(context: Context?): InlineStickerExpressionPreferences {
+        context?.applicationContext?.let(::initialize)
+        return InlineStickerExpressionPreferences(
+            frequency = frequencyValue,
+            intensity = intensityValue,
+            maxPerReply = maxPerReplyValue,
+            repeatCount = repeatCountValue,
+        )
     }
 
     fun updateSizeDp(context: Context, value: Float) {
         initialize(context.applicationContext)
         val normalized = value.coerceIn(MinSizeDp, MaxSizeDp)
-        if (abs(sizeDpState - normalized) <= ValueEpsilon) return
+        if (abs(sizeDpValue - normalized) <= ValueEpsilon) return
+        sizeDpValue = normalized
         sizeDpState = normalized
-        ensureWriterStarted()
-        pendingWrites.trySend(normalized)
+        enqueuePersistence()
+    }
+
+    fun updateFrequency(context: Context, value: Float) {
+        initialize(context.applicationContext)
+        val normalized = value.toInt().coerceIn(0, 100)
+        if (frequencyValue == normalized) return
+        frequencyValue = normalized
+        frequencyState = normalized
+        enqueuePersistence()
+    }
+
+    fun updateIntensity(context: Context, value: Float) {
+        initialize(context.applicationContext)
+        val normalized = value.toInt().coerceIn(0, 100)
+        if (intensityValue == normalized) return
+        intensityValue = normalized
+        intensityState = normalized
+        enqueuePersistence()
+    }
+
+    fun updateMaxPerReply(context: Context, value: Float) {
+        initialize(context.applicationContext)
+        val normalized = value.toInt().coerceIn(0, 19)
+        if (maxPerReplyValue == normalized) return
+        maxPerReplyValue = normalized
+        maxPerReplyState = normalized
+        enqueuePersistence()
+    }
+
+    fun updateRepeatCount(context: Context, value: Float) {
+        initialize(context.applicationContext)
+        val normalized = value.toInt().coerceIn(1, 4)
+        if (repeatCountValue == normalized) return
+        repeatCountValue = normalized
+        repeatCountState = normalized
+        enqueuePersistence()
+    }
+
+    @Composable
+    private fun ensureInitialized(context: Context) {
+        val appContext = context.applicationContext
+        LaunchedEffect(appContext) {
+            initialize(appContext)
+        }
     }
 
     private fun initialize(context: Context) {
         if (initialized.get()) return
         synchronized(this) {
             if (initialized.get()) return
-            applicationContext = context.applicationContext
-            sizeDpState = context
-                .getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+            val appContext = context.applicationContext
+            val preferences = appContext.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+            applicationContext = appContext
+            sizeDpValue = preferences
                 .getFloat(SizeKey, DefaultSizeDp)
                 .coerceIn(MinSizeDp, MaxSizeDp)
+            frequencyValue = preferences
+                .getInt(FrequencyKey, DefaultFrequency)
+                .coerceIn(0, 100)
+            intensityValue = preferences
+                .getInt(IntensityKey, DefaultIntensity)
+                .coerceIn(0, 100)
+            maxPerReplyValue = preferences
+                .getInt(MaxPerReplyKey, DefaultMaxPerReply)
+                .coerceIn(0, 19)
+            repeatCountValue = preferences
+                .getInt(RepeatCountKey, DefaultRepeatCount)
+                .coerceIn(1, 4)
+            sizeDpState = sizeDpValue
+            frequencyState = frequencyValue
+            intensityState = intensityValue
+            maxPerReplyState = maxPerReplyValue
+            repeatCountState = repeatCountValue
             initialized.set(true)
         }
+    }
+
+    private fun enqueuePersistence() {
+        ensureWriterStarted()
+        pendingWrites.trySend(
+            PersistedValues(
+                sizeDp = sizeDpValue,
+                frequency = frequencyValue,
+                intensity = intensityValue,
+                maxPerReply = maxPerReplyValue,
+                repeatCount = repeatCountValue,
+            )
+        )
     }
 
     private fun ensureWriterStarted() {
@@ -88,7 +228,11 @@ internal object InlineStickerDisplaySettings {
                 applicationContext
                     ?.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
                     ?.edit()
-                    ?.putFloat(SizeKey, latestValue.coerceIn(MinSizeDp, MaxSizeDp))
+                    ?.putFloat(SizeKey, latestValue.sizeDp.coerceIn(MinSizeDp, MaxSizeDp))
+                    ?.putInt(FrequencyKey, latestValue.frequency.coerceIn(0, 100))
+                    ?.putInt(IntensityKey, latestValue.intensity.coerceIn(0, 100))
+                    ?.putInt(MaxPerReplyKey, latestValue.maxPerReply.coerceIn(0, 19))
+                    ?.putInt(RepeatCountKey, latestValue.repeatCount.coerceIn(1, 4))
                     ?.apply()
             }
         }
