@@ -38,25 +38,27 @@ function renderDiscussionSortChrome() {
   });
 }
 
+function openStandaloneDiscussion(postId) {
+  const code = discussionCode();
+  if (!code || !postId) return;
+  location.href = `./stock-discussion-web-preview.html?query=${encodeURIComponent(code)}&postId=${encodeURIComponent(postId)}`;
+}
+
 renderDiscussionHeader = function renderCommunityHeader() {
   const title = document.getElementById('discussionTitle');
   const subtitle = document.getElementById('discussionSubtitle');
-  if (title) title.textContent = communityState.activePost ? '帖子详情' : '社区';
-  if (subtitle) subtitle.textContent = communityState.activePost
-    ? `${discussionName()} · 正文与网友评论`
-    : `${discussionName()}（${discussionCode() || '------'}）· 东方财富股吧只读社区`;
+  if (title) title.textContent = '社区';
+  if (subtitle) subtitle.textContent = `${discussionName()}（${discussionCode() || '------'}）· 东方财富股吧只读社区`;
 };
 
 renderDiscussionList = function renderCommunityFeed() {
   const view = document.getElementById('discussionListView');
-  const postView = document.getElementById('discussionPostView');
   const list = document.getElementById('discussionList');
   const more = document.getElementById('discussionMore');
   const count = document.getElementById('discussionCount');
-  if (!view || !postView || !list || !more || !count) return;
+  if (!view || !list || !more || !count) return;
 
   view.hidden = false;
-  postView.hidden = true;
   renderDiscussionSortChrome();
   count.textContent = communityState.posts.length ? `${communityState.posts.length} 条` : '等待数据';
 
@@ -77,8 +79,8 @@ renderDiscussionList = function renderCommunityFeed() {
         ? `<span class="feed-kind-chip">${communityEscape(kind)}</span>`
         : '';
       const commentPreview = commentCount > 0
-        ? `<strong>${communityEscape(author)}的讨论：</strong>已有 ${communityEscape(formatDiscussionCount(commentCount))} 条网友评论，点击查看完整内容`
-        : '这条帖子暂未显示公开评论，点击查看正文';
+        ? `<strong>${communityEscape(author)}的讨论：</strong>已有 ${communityEscape(formatDiscussionCount(commentCount))} 条网友评论，点击进入帖子详情后按需加载`
+        : '点击进入独立帖子详情页查看正文';
       return `<article class="discussion-feed-card" data-post-id="${communityEscape(post.postId)}" tabindex="0" role="button" aria-label="查看${communityEscape(post.title)}"><div class="feed-author-row"><span class="feed-avatar" style="--avatar-hue:${feedAuthorHue(author)}">${communityEscape(feedAuthorInitial(author))}</span><span class="feed-author-copy"><strong>${communityEscape(author)}</strong><span>${communityEscape(post.updatedAt || '时间未知')}</span></span><span class="feed-more">•••</span></div><div class="feed-content">${kindChip}<span class="feed-stock-tag">${communityEscape(stockTag)}</span>${communityEscape(feedPostText(post))}</div><div class="feed-actions"><span class="feed-action"><span class="feed-action-icon">↗</span>分享</span><span class="feed-action"><span class="feed-action-icon">◯</span>${communityEscape(formatDiscussionCount(commentCount))}</span><span class="feed-action"><span class="feed-action-icon">♡</span>阅读 ${communityEscape(formatDiscussionCount(readCount))}</span></div><div class="feed-comment-preview">${commentPreview}</div></article>`;
     }).join('');
   }
@@ -89,7 +91,7 @@ renderDiscussionList = function renderCommunityFeed() {
     : communityState.hasMore ? '加载更多社区帖子' : '已加载当前社区内容';
 
   list.querySelectorAll('[data-post-id]').forEach(card => {
-    const open = () => openDiscussionPost(card.dataset.postId);
+    const open = () => openStandaloneDiscussion(card.dataset.postId);
     card.addEventListener('click', open);
     card.addEventListener('keydown', event => {
       if (event.key === 'Enter' || event.key === ' ') {
