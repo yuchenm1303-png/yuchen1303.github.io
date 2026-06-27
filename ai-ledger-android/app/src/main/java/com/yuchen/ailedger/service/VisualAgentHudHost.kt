@@ -8,6 +8,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.view.Gravity
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
@@ -41,6 +42,11 @@ internal class VisualAgentHudHost(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val tuningStore = VisualAgentHudTuningStore.get(service.applicationContext)
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+    private val emptyTouchableInsetsListener =
+        ViewTreeObserver.OnComputeInternalInsetsListener { insets ->
+            insets.setTouchableInsets(ViewTreeObserver.InternalInsetsInfo.TOUCHABLE_INSETS_REGION)
+            insets.touchableRegion.setEmpty()
+        }
 
     private var webView: WebView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
@@ -128,16 +134,16 @@ internal class VisualAgentHudHost(
             visibility = View.INVISIBLE
             loadUrl(ASSET_URL)
         }
+        // FLAG_NOT_TOUCHABLE is the primary contract. The explicit empty touchable region is a
+        // second, window-manager-level guarantee for vendor systems that still derive a full-screen
+        // input region from MATCH_PARENT WebView bounds.
+        view.viewTreeObserver.addOnComputeInternalInsetsListener(emptyTouchableInsetsListener)
+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            HUD_WINDOW_FLAGS,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -151,12 +157,14 @@ internal class VisualAgentHudHost(
         }
         return runCatching { wm.addView(view, params) }
             .onSuccess {
+                enforcePassthroughFlags(params)
                 overlayCreationFailed = false
                 webView = view
                 layoutParams = params
             }
             .onFailure { error ->
                 overlayCreationFailed = true
+                removeEmptyTouchableRegion(view)
                 view.stopLoading()
                 view.destroy()
                 val message = "系统未能创建视觉 HUD 无障碍浮层，请重新开启无障碍服务后重试。"
@@ -177,6 +185,7 @@ internal class VisualAgentHudHost(
         overlayCreationFailed = false
         webView?.let { view ->
             view.animate().cancel()
+            removeEmptyTouchableRegion(view)
             runCatching { windowManager?.removeView(view) }
             view.stopLoading()
             view.loadUrl("about:blank")
@@ -186,6 +195,20 @@ internal class VisualAgentHudHost(
         }
         webView = null
         layoutParams = null
+    }
+
+    private fun removeEmptyTouchableRegion(view: View) {
+        val observer = view.viewTreeObserver
+        if (observer.isAlive) {
+            observer.removeOnComputeInternalInsetsListener(emptyTouchableInsetsListener)
+        }
+    }
+
+    private fun enforcePassthroughFlags(params: WindowManager.LayoutParams): Boolean {
+        val correctedFlags = params.flags or REQUIRED_PASSTHROUGH_FLAGS
+        if (correctedFlags == params.flags) return false
+        params.flags = correctedFlags
+        return true
     }
 
     private fun updateOverlay(snapshot: VisualHudRenderSnapshot) {
@@ -301,7 +324,9 @@ internal class VisualAgentHudHost(
     private fun updateWindowAlpha(alpha: Float) {
         val view = webView ?: return
         val params = layoutParams ?: return
-        if (params.alpha == alpha) return
+        val flagsChanged = enforcePassthroughFlags(params)
+        val alphaChanged = params.alpha != alpha
+        if (!flagsChanged && !alphaChanged) return
         params.alpha = alpha
         runCatching { windowManager?.updateViewLayout(view, params) }
     }
@@ -425,6 +450,15 @@ internal class VisualAgentHudHost(
         private const val HUD_RESTORE_FADE_MS = 128L
         private val HUD_CAPTURE_HIDE_INTERPOLATOR = AccelerateInterpolator(1.25f)
         private val HUD_RESTORE_INTERPOLATOR = DecelerateInterpolator(1.55f)
+        private val REQUIRED_PASSTHROUGH_FLAGS =
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+        private val HUD_WINDOW_FLAGS =
+            REQUIRED_PASSTHROUGH_FLAGS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         private const val SAMPLE_PHASE = 2
         private const val DEFAULT_CURSOR_X = 0.52f
         private const val DEFAULT_CURSOR_Y = 0.46f
