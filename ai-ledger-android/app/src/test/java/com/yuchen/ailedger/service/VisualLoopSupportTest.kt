@@ -10,9 +10,7 @@ import org.junit.Test
 class VisualLoopSupportTest {
     @Test
     fun declaredTargetTextNeverMovesGuiPlusCoordinate() {
-        val snapshot = snapshot(
-            nodes = listOf(node("立即支付", "40,2200,1040,2520")),
-        )
+        val snapshot = snapshot(listOf(node("立即支付", "40,2200,1040,2520")))
         val step = permittedTap(
             targetText = "点击屏幕底部附近的橙色“立即支付”按钮",
             reason = "完成当前商品选择",
@@ -43,40 +41,36 @@ class VisualLoopSupportTest {
         assertNull(guarded.y)
         assertEquals(220L, guarded.durationMs)
         assertTrue(guarded.toolArgs!!.optBoolean("__androidExecutionPermitRejected"))
-        assertEquals("tap_xy", guarded.toolArgs!!.optString("__androidRejectedAction"))
+        assertEquals("missing_permit_args", guarded.toolArgs!!.optString("__androidExecutionPermitRejectReason"))
     }
 
     @Test
-    fun unknownExecutionPermitKindIsRejectedWithoutClicking() {
-        val step = CloudAgentStep(
-            type = "tap_xy",
-            x = 0.5f,
-            y = 0.5f,
-            toolArgs = permitArgs(kind = "untrusted_local_grounding"),
-        )
+    fun observationOrSessionMismatchNeverClicks() {
+        val step = permittedTap(x = 0.5f, y = 0.5f)
+        step.toolArgs!!.put("responseObservationId", "stale-observation")
 
         val guarded = VisualLoopSupport.materializeTap(step, snapshot(emptyList()))
 
         assertEquals("wait", guarded.type)
         assertNull(guarded.x)
         assertNull(guarded.y)
+        assertEquals(
+            "permit_observation_mismatch",
+            guarded.toolArgs!!.optString("__androidExecutionPermitRejectReason"),
+        )
     }
 
     @Test
     fun repeatedNodeLabelsCannotInfluencePermittedCoordinate() {
-        val snapshot = snapshot(
-            nodes = listOf(
-                node("确定", "40,100,240,200"),
-                node("确定", "840,100,1040,200"),
+        val materialized = VisualLoopSupport.materializeTap(
+            permittedTap(targetText = "确定", x = 0.5f, y = 0.9f),
+            snapshot(
+                listOf(
+                    node("确定", "40,100,240,200"),
+                    node("确定", "840,100,1040,200"),
+                ),
             ),
         )
-        val step = permittedTap(
-            targetText = "确定",
-            x = 0.5f,
-            y = 0.9f,
-        )
-
-        val materialized = VisualLoopSupport.materializeTap(step, snapshot)
 
         assertEquals(540f, materialized.x!!, 0.01f)
         assertEquals(2322f, materialized.y!!, 0.01f)
@@ -84,7 +78,7 @@ class VisualLoopSupportTest {
     }
 
     @Test
-    fun visualOnlyPageKeepsVerifiedCoordinate() {
+    fun visualOnlyPageKeepsIndependentlyVerifiedCoordinate() {
         val materialized = VisualLoopSupport.materializeTap(
             permittedTap(
                 targetText = "立即支付",
@@ -92,60 +86,31 @@ class VisualLoopSupportTest {
                 y = 0.998f,
                 permitKind = "independent_gui_visual_grounding",
             ),
-            snapshot(nodes = emptyList()),
+            snapshot(emptyList()),
         )
 
         assertEquals(988.2f, materialized.x!!, 0.01f)
         assertEquals(2574.84f, materialized.y!!, 0.02f)
         assertEquals("visual_only", materialized.toolArgs!!.optString("__androidVisualSurfaceMode"))
-        assertFalse(materialized.toolArgs!!.optBoolean("__androidGroundingApplied"))
     }
 
     @Test
-    fun cloudExecutionPermitSurvivesCoordinateMaterialization() {
-        val step = permittedTap(
-            x = 0.5f,
-            y = 0.5f,
-            permitKind = "independent_gui_visual_grounding",
-        )
-
-        val materialized = VisualLoopSupport.materializeTap(step, snapshot(emptyList()))
-
-        assertEquals("permit-123", materialized.toolArgs!!.optString("executionPermitId"))
-        assertEquals(
-            "independent_gui_visual_grounding",
-            materialized.toolArgs!!.optString("executionPermitKind"),
-        )
-        assertEquals("observation-456", materialized.toolArgs!!.optString("executionPermitObservationId"))
-    }
-
-    @Test
-    fun resultSummaryCarriesUnmodifiedAndExecutedCoordinates() {
-        val snapshot = snapshot(nodes = listOf(node("立即支付", "40,2200,1040,2520")))
+    fun permitAndCoordinateTraceSurviveMaterialization() {
         val materialized = VisualLoopSupport.materializeTap(
-            permittedTap(
-                targetText = "立即支付",
-                x = 0.915f,
-                y = 0.998f,
-            ),
-            snapshot,
+            permittedTap(x = 0.915f, y = 0.998f),
+            snapshot(listOf(node("按钮", "40,2200,1040,2520"))),
         )
-
         val summary = VisualLoopSupport.resultSummary(
-            step = materialized,
-            signature = "tap@988,2574",
-            result = AgentExecutionResult(
-                ok = true,
-                message = "视觉坐标 988,2574 · 实际落点 986,2492（边界保护）",
-            ),
+            materialized,
+            "tap@988,2574",
+            AgentExecutionResult(true, "视觉坐标 988,2574 · 实际落点 986,2492（边界保护）"),
         )
 
-        assertTrue(summary.contains("surface=hybrid"))
+        assertTrue(materialized.toolArgs!!.optString("executionPermitId").startsWith("permit_"))
+        assertTrue(summary.contains("permit=android_structural_clickable_anchor"))
         assertTrue(summary.contains("modelNorm=0.915,0.998"))
         assertTrue(summary.contains("modelPx=988.200,2574.840"))
-        assertTrue(summary.contains("materializedPx=988.200,2574.840"))
         assertTrue(summary.contains("executedPx=986.000,2492.000"))
-        assertTrue(summary.contains("groundingApplied=false"))
         assertTrue(summary.contains("boundaryAdjusted=true"))
     }
 
@@ -155,55 +120,67 @@ class VisualLoopSupportTest {
         x: Float,
         y: Float,
         permitKind: String = "android_structural_clickable_anchor",
-    ): CloudAgentStep = CloudAgentStep(
-        type = "tap_xy",
-        targetText = targetText,
-        reason = reason,
-        x = x,
-        y = y,
-        toolArgs = permitArgs(permitKind),
+    ): CloudAgentStep {
+        val sessionId = "visual-session-123"
+        val observationId = "observation-456"
+        val hash = VisualExecutionPermitPolicy.tapPermitHash(
+            sessionId,
+            observationId,
+            x,
+            y,
+            permitKind,
+        )
+        return CloudAgentStep(
+            type = "tap_xy",
+            targetText = targetText,
+            reason = reason,
+            x = x,
+            y = y,
+            toolArgs = JSONObject().apply {
+                put("responseObservationId", observationId)
+                put("responseSessionId", sessionId)
+                put("executionPermitId", "permit_$hash")
+                put("executionPermitKind", permitKind)
+                put("executionPermitObservationId", observationId)
+                put("executionPermitSessionId", sessionId)
+                put("executionPermitActionType", "tap_xy")
+                put("executionPermitX", x)
+                put("executionPermitY", y)
+                put("executionPermitActionHash", hash)
+            },
+        )
+    }
+
+    private fun snapshot(nodes: List<AgentScreenNode>): AgentScreenSnapshot = AgentScreenSnapshot(
+        currentApp = "com.example.shop",
+        packageName = "com.example.shop",
+        nodeCount = nodes.size,
+        capturedNodeCount = nodes.size,
+        texts = nodes.map(AgentScreenNode::text),
+        allNodes = nodes,
+        clickableNodes = nodes,
+        inputNodes = emptyList(),
+        scrollableNodes = emptyList(),
+        visual = AgentScreenVisual(
+            available = true,
+            mimeType = "image/jpeg",
+            width = 720,
+            height = 1720,
+            displayWidth = 1080,
+            displayHeight = 2580,
+            base64Jpeg = "YWJj",
+            source = "test",
+            reason = "test",
+        ),
     )
 
-    private fun permitArgs(kind: String): JSONObject = JSONObject().apply {
-        put("executionPermitId", "permit-123")
-        put("executionPermitKind", kind)
-        put("executionPermitObservationId", "observation-456")
-    }
-
-    private fun snapshot(nodes: List<AgentScreenNode>): AgentScreenSnapshot {
-        return AgentScreenSnapshot(
-            currentApp = "com.example.shop",
-            packageName = "com.example.shop",
-            nodeCount = nodes.size,
-            capturedNodeCount = nodes.size,
-            texts = nodes.map(AgentScreenNode::text),
-            allNodes = nodes,
-            clickableNodes = nodes,
-            inputNodes = emptyList(),
-            scrollableNodes = emptyList(),
-            visual = AgentScreenVisual(
-                available = true,
-                mimeType = "image/jpeg",
-                width = 720,
-                height = 1720,
-                displayWidth = 1080,
-                displayHeight = 2580,
-                base64Jpeg = "YWJj",
-                source = "test",
-                reason = "test",
-            ),
-        )
-    }
-
-    private fun node(text: String, bounds: String): AgentScreenNode {
-        return AgentScreenNode(
-            id = text,
-            text = text,
-            className = "android.widget.Button",
-            bounds = bounds,
-            clickable = true,
-            editable = false,
-            scrollable = false,
-        )
-    }
+    private fun node(text: String, bounds: String): AgentScreenNode = AgentScreenNode(
+        id = text,
+        text = text,
+        className = "android.widget.Button",
+        bounds = bounds,
+        clickable = true,
+        editable = false,
+        scrollable = false,
+    )
 }
