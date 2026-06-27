@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,32 +40,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.StockMarketUiState
 import com.yuchen.ailedger.StockNativePageUiState
+import com.yuchen.ailedger.data.StockWatchlistItem
 import com.yuchen.ailedger.model.StockIndexSnapshot
 import com.yuchen.ailedger.model.StockMarketBoard
 import com.yuchen.ailedger.model.StockNativeHotType
 import com.yuchen.ailedger.model.StockNativeRankingType
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockSectorSnapshot
-import org.json.JSONArray
-import org.json.JSONObject
 
 private val NativeHomeActions = listOf("自选", "热榜", "板块", "资金", "异动", "热点", "研报", "预警")
-private const val NativeWatchPreferences = "stock_native_watchlist"
-private const val NativeWatchKey = "items"
-
-internal data class NativeWatchEntry(
-    val code: String,
-    val name: String,
-    val market: String
-)
 
 @Composable
 internal fun StockNativeHomeScreen(
     marketUi: StockMarketUiState,
     nativeUi: StockNativePageUiState,
-    watchlist: List<NativeWatchEntry>,
+    watchlist: List<StockWatchlistItem>,
+    watchlistStatus: String,
+    watchlistMessage: String,
+    watchlistBusy: Boolean,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
+    onRefreshWatchlist: () -> Unit,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
     onOpenStock: (String, Boolean) -> Unit,
@@ -92,8 +86,11 @@ internal fun StockNativeHomeScreen(
                 StockNativePageHeader(
                     label = "市场总览 · A股",
                     onBack = onBack,
-                    onRefresh = onRefresh,
-                    loading = marketUi.marketLoading
+                    onRefresh = {
+                        onRefresh()
+                        onRefreshWatchlist()
+                    },
+                    loading = marketUi.marketLoading || watchlistBusy
                 )
                 Text("A-SHARE MARKET", color = StockAqua.copy(alpha = 0.72f), fontSize = 9.sp, fontWeight = FontWeight.Black)
                 Text("市场概览", color = Color.White, fontSize = 30.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black)
@@ -132,7 +129,15 @@ internal fun StockNativeHomeScreen(
                     NativeHomeActionGrid(selectedAction, onSelectAction)
                     StockDivider()
                     when (selectedAction) {
-                        "自选" -> NativeWatchlistContent(watchlist, onOpenStock, onRemoveWatch)
+                        "自选" -> NativeWatchlistContent(
+                            watchlist = watchlist,
+                            status = watchlistStatus,
+                            message = watchlistMessage,
+                            busy = watchlistBusy,
+                            onRefresh = onRefreshWatchlist,
+                            onOpenStock = onOpenStock,
+                            onRemoveWatch = onRemoveWatch
+                        )
                         "热榜" -> NativeRankingOverview(
                             types = listOf(
                                 StockNativeRankingType.Gainers,
@@ -504,13 +509,45 @@ private fun NativeHotPreview(
 
 @Composable
 private fun NativeWatchlistContent(
-    watchlist: List<NativeWatchEntry>,
+    watchlist: List<StockWatchlistItem>,
+    status: String,
+    message: String,
+    busy: Boolean,
+    onRefresh: () -> Unit,
     onOpenStock: (String, Boolean) -> Unit,
     onRemoveWatch: (String) -> Unit
 ) {
-    StockSectionTitle("我的自选", "从个股详情页加入，保存在当前设备", "${watchlist.size} 只")
+    StockSectionTitle("我的自选", status, "${watchlist.size} 只")
+    StockNativeFrostCard(
+        modifier = Modifier.fillMaxWidth().height(46.dp),
+        radius = 16.dp,
+        frostAlpha = 0.060f,
+        contentPadding = 9.dp
+    ) {
+        Row(
+            Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                message,
+                color = Color.White.copy(alpha = 0.42f),
+                fontSize = 8.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            StockNativePill(
+                text = if (busy) "同步中" else "刷新",
+                active = false,
+                modifier = Modifier.width(62.dp).height(30.dp),
+                fontSize = 8,
+                onClick = onRefresh
+            )
+        }
+    }
     if (watchlist.isEmpty()) {
-        StockLoadingOrError(false, null, "还没有自选股\n进入任意个股详情，点击“加自选”即可加入")
+        StockLoadingOrError(busy, null, "还没有自选股\n进入任意个股详情，点击“加自选”即可加入")
         return
     }
     Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -584,28 +621,4 @@ private fun indexCode(item: StockIndexSnapshot): String? = when {
     item.name.contains("创业") -> "399006"
     item.name.contains("上证") -> "000001"
     else -> null
-}
-
-internal fun loadNativeWatchlist(context: Context): List<NativeWatchEntry> = runCatching {
-    val raw = context.getSharedPreferences(NativeWatchPreferences, Context.MODE_PRIVATE).getString(NativeWatchKey, "[]") ?: "[]"
-    val array = JSONArray(raw)
-    buildList {
-        for (index in 0 until array.length()) {
-            val item = array.optJSONObject(index) ?: continue
-            val code = item.optString("code").trim()
-            if (code.length != 6) continue
-            add(NativeWatchEntry(code, item.optString("name").ifBlank { code }, item.optString("market")))
-        }
-    }
-}.getOrDefault(emptyList())
-
-internal fun saveNativeWatchlist(context: Context, items: List<NativeWatchEntry>) {
-    val array = JSONArray()
-    items.take(300).forEach { item ->
-        array.put(JSONObject().put("code", item.code).put("name", item.name).put("market", item.market))
-    }
-    context.getSharedPreferences(NativeWatchPreferences, Context.MODE_PRIVATE)
-        .edit()
-        .putString(NativeWatchKey, array.toString())
-        .apply()
 }
