@@ -34,7 +34,6 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import ru.noties.jlatexmath.JLatexMathDrawable
 
-private const val INLINE_STICKER_MAX_PER_MESSAGE = 2
 private const val INLINE_STICKER_BASELINE_DROP_DP = 9f
 
 private val optimizedRichMessageTokenRegex = Regex(
@@ -74,10 +73,6 @@ private data class OptimizedRichTextRenderKey(
     val stickerSizePx: Int,
     val stickerBaselineDropPx: Int,
     val densityBits: Int
-)
-
-private class OptimizedInlineObjectBudget(
-    var stickersRemaining: Int = INLINE_STICKER_MAX_PER_MESSAGE
 )
 
 private sealed interface OptimizedInlineObject {
@@ -348,7 +343,6 @@ private fun buildOptimizedRichMessageSpannable(
     val normalized = sanitizeOptimizedRichTextSource(raw)
     val (tokenized, formulaTokens) = extractOptimizedFormulaTokens(normalized)
     val builder = SpannableStringBuilder()
-    val inlineBudget = OptimizedInlineObjectBudget()
     val lines = tokenized.lines()
 
     lines.forEach { rawLine ->
@@ -379,7 +373,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density, inlineBudget
+                    stickerSizePx, stickerBaselineDropPx, density
                 )
             }
             optimizedHeadingRegex.matches(trimmed) -> {
@@ -395,7 +389,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, headingText, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density, inlineBudget
+                    stickerSizePx, stickerBaselineDropPx, density
                 )
                 builder.setSpan(
                     RelativeSizeSpan(size),
@@ -416,7 +410,7 @@ private fun buildOptimizedRichMessageSpannable(
                 builder.append("• ")
                 appendOptimizedInline(
                     builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density, inlineBudget
+                    stickerSizePx, stickerBaselineDropPx, density
                 )
             }
             optimizedTableDividerRegex.matches(trimmed) -> Unit
@@ -429,7 +423,7 @@ private fun buildOptimizedRichMessageSpannable(
                     appendOptimizedCompactSeparator(builder)
                     appendOptimizedInline(
                         builder, cells.joinToString("  ·  "), context, formulaTokens, textColor, textSizePx,
-                        stickerSizePx, stickerBaselineDropPx, density, inlineBudget
+                        stickerSizePx, stickerBaselineDropPx, density
                     )
                 }
             }
@@ -437,7 +431,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, line.trim(), context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density, inlineBudget
+                    stickerSizePx, stickerBaselineDropPx, density
                 )
             }
         }
@@ -503,8 +497,7 @@ private fun appendOptimizedInline(
     textSizePx: Float,
     stickerSizePx: Int,
     stickerBaselineDropPx: Int,
-    density: Float,
-    inlineBudget: OptimizedInlineObjectBudget
+    density: Float
 ) {
     val codeTokens = linkedMapOf<String, String>()
     val boldTokens = linkedMapOf<String, String>()
@@ -530,8 +523,7 @@ private fun appendOptimizedInline(
             textSizePx = textSizePx,
             stickerSizePx = stickerSizePx,
             stickerBaselineDropPx = stickerBaselineDropPx,
-            density = density,
-            inlineBudget = inlineBudget
+            density = density
         )
     }
 
@@ -555,8 +547,7 @@ private fun appendOptimizedInline(
                         textSizePx = textSizePx,
                         stickerSizePx = stickerSizePx,
                         stickerBaselineDropPx = stickerBaselineDropPx,
-                        density = density,
-                        inlineBudget = inlineBudget
+                        density = density
                     )
                 }
                 token.startsWith("@@BOLD_") -> {
@@ -567,8 +558,7 @@ private fun appendOptimizedInline(
                         textSizePx = textSizePx,
                         stickerSizePx = stickerSizePx,
                         stickerBaselineDropPx = stickerBaselineDropPx,
-                        density = density,
-                        inlineBudget = inlineBudget
+                        density = density
                     )
                 }
             }
@@ -584,8 +574,7 @@ private fun appendOptimizedTextWithInlineObjects(
     textSizePx: Float,
     stickerSizePx: Int,
     stickerBaselineDropPx: Int,
-    density: Float,
-    inlineBudget: OptimizedInlineObjectBudget
+    density: Float
 ) {
     if (source.isEmpty()) return
 
@@ -625,7 +614,7 @@ private fun appendOptimizedTextWithInlineObjects(
         when (item) {
             is OptimizedInlineObject.Sticker -> {
                 val assetKey = item.assetKey
-                if (assetKey != null && inlineBudget.stickersRemaining > 0) {
+                if (assetKey != null) {
                     val start = builder.length
                     builder.append('\uFFFC')
                     builder.setSpan(
@@ -640,7 +629,6 @@ private fun appendOptimizedTextWithInlineObjects(
                         builder.length,
                         Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                     )
-                    inlineBudget.stickersRemaining -= 1
                 }
             }
             is OptimizedInlineObject.Citation -> {
@@ -670,13 +658,12 @@ private fun appendOptimizedStyledInline(
     textSizePx: Float,
     stickerSizePx: Int,
     stickerBaselineDropPx: Int,
-    density: Float,
-    inlineBudget: OptimizedInlineObjectBudget
+    density: Float
 ) {
     if (text.isEmpty()) return
     val start = builder.length
     appendOptimizedTextWithInlineObjects(
-        builder, text, textSizePx, stickerSizePx, stickerBaselineDropPx, density, inlineBudget
+        builder, text, textSizePx, stickerSizePx, stickerBaselineDropPx, density
     )
     if (builder.length > start) {
         builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
