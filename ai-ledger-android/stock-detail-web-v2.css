@@ -125,17 +125,6 @@
   padding: 13px;
 }
 
-.detail-page-tag {
-  position: absolute;
-  z-index: 2;
-  right: 17px;
-  top: 51px;
-  color: rgba(141,249,234,.44);
-  font-size: 7px;
-  font-weight: 900;
-  pointer-events: none;
-}
-
 .controls .version {
   line-height: 1.45;
 }
