@@ -515,7 +515,7 @@ private fun SettingsDashboardGrid(
         ) {
             SettingsTile(
                 "聊",
-                "聊天页设置",
+                "聊天设置",
                 "消息与表情",
                 "${stickerSizeDp.roundToInt()} dp",
                 selectedPanel == SettingsPanel.Chat,
@@ -988,6 +988,7 @@ private fun ChatPageSettingsContent() {
         onValueChange = { InlineStickerDisplaySettings.updateSizeDp(context, it) },
         valueText = "${stickerSizeDp.roundToInt()} dp"
     )
+    InlineStickerExpressionSettingsControls()
     Column(
         Modifier
             .fillMaxWidth()
@@ -1576,7 +1577,7 @@ private fun panelTitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Data -> "数据"
     SettingsPanel.Service -> "服务"
     SettingsPanel.Advanced -> "高级"
-    SettingsPanel.Chat -> "聊天页设置"
+    SettingsPanel.Chat -> "聊天设置"
     SettingsPanel.Memory -> "记忆"
     SettingsPanel.Debug -> "玻璃实验室"
 }
@@ -1588,7 +1589,7 @@ private fun panelSubtitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Data -> "账单状态、预算、本地数据和常用导航地址。"
     SettingsPanel.Service -> "账号登录、AI Worker 和云端接口。"
     SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"
-    SettingsPanel.Chat -> "聊天消息与内联表情显示参数。"
+    SettingsPanel.Chat -> "聊天消息、内联表情显示与云端表达偏好。"
     SettingsPanel.Memory -> "登录后查看、整理并控制 AI 的长期记忆。"
     SettingsPanel.Debug -> "高级玻璃参数与实验入口。"
 }
