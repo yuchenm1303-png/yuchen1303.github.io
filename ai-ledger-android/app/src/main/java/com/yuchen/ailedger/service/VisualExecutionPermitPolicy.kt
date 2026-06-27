@@ -19,7 +19,7 @@ internal data class VisualExecutionPermitValidation(
 internal object VisualExecutionPermitPolicy {
     private const val TAP_ACTION_TYPE = "tap_xy"
     private const val TAP_HASH_CHARS = 24
-    private const val COORDINATE_EPSILON = 0.00001f
+    private const val COORDINATE_EPSILON = 0.0000015
 
     private val acceptedTapPermitKinds = setOf(
         "android_structural_clickable_anchor",
@@ -30,11 +30,11 @@ internal object VisualExecutionPermitPolicy {
         if (step.type != TAP_ACTION_TYPE) {
             return VisualExecutionPermitValidation(false, "wrong_action_type")
         }
-        val x = step.x?.takeIf(Float::isFinite)
+        val actionX = step.x?.takeIf(Float::isFinite)?.toDouble()
             ?: return VisualExecutionPermitValidation(false, "missing_action_x")
-        val y = step.y?.takeIf(Float::isFinite)
+        val actionY = step.y?.takeIf(Float::isFinite)?.toDouble()
             ?: return VisualExecutionPermitValidation(false, "missing_action_y")
-        if (x !in 0f..1f || y !in 0f..1f) {
+        if (actionX !in 0.0..1.0 || actionY !in 0.0..1.0) {
             return VisualExecutionPermitValidation(false, "coordinate_not_normalized")
         }
 
@@ -47,8 +47,8 @@ internal object VisualExecutionPermitPolicy {
         val permitHash = args.cleanString("executionPermitActionHash")
         val responseObservationId = args.cleanString("responseObservationId")
         val responseSessionId = args.cleanString("responseSessionId")
-        val permitX = args.finiteFloat("executionPermitX")
-        val permitY = args.finiteFloat("executionPermitY")
+        val permitX = args.finiteDouble("executionPermitX")
+        val permitY = args.finiteDouble("executionPermitY")
 
         if (permitKind !in acceptedTapPermitKinds) {
             return VisualExecutionPermitValidation(false, "unsupported_permit_kind")
@@ -68,15 +68,21 @@ internal object VisualExecutionPermitPolicy {
         ) {
             return VisualExecutionPermitValidation(false, "permit_session_mismatch")
         }
-        if (permitX == null || permitY == null || abs(permitX - x) > COORDINATE_EPSILON || abs(permitY - y) > COORDINATE_EPSILON) {
+        if (
+            permitX == null || permitY == null ||
+            abs(permitX - actionX) > COORDINATE_EPSILON ||
+            abs(permitY - actionY) > COORDINATE_EPSILON
+        ) {
             return VisualExecutionPermitValidation(false, "permit_coordinate_mismatch")
         }
 
+        // Hash the backend's already quantized six-decimal values. The Float action coordinates are
+        // checked above but never re-quantized for hashing, avoiding Double→Float boundary drift.
         val expectedHash = tapPermitHash(
             sessionId = permitSessionId,
             observationId = permitObservationId,
-            x = x,
-            y = y,
+            x = permitX,
+            y = permitY,
             kind = permitKind,
         )
         if (permitHash != expectedHash || permitId != "permit_$expectedHash") {
@@ -88,8 +94,8 @@ internal object VisualExecutionPermitPolicy {
     internal fun tapPermitHash(
         sessionId: String,
         observationId: String,
-        x: Float,
-        y: Float,
+        x: Double,
+        y: Double,
         kind: String,
     ): String {
         val canonical = listOf(
@@ -106,13 +112,21 @@ internal object VisualExecutionPermitPolicy {
             .take(TAP_HASH_CHARS)
     }
 
+    internal fun tapPermitHash(
+        sessionId: String,
+        observationId: String,
+        x: Float,
+        y: Float,
+        kind: String,
+    ): String = tapPermitHash(sessionId, observationId, x.toDouble(), y.toDouble(), kind)
+
     private fun JSONObject.cleanString(name: String): String =
         optString(name).trim().take(180)
 
-    private fun JSONObject.finiteFloat(name: String): Float? {
+    private fun JSONObject.finiteDouble(name: String): Double? {
         if (!has(name) || isNull(name)) return null
-        return runCatching { getDouble(name).toFloat() }.getOrNull()
-            ?.takeIf(Float::isFinite)
-            ?: optString(name).trim().toFloatOrNull()?.takeIf(Float::isFinite)
+        return runCatching { getDouble(name) }.getOrNull()
+            ?.takeIf(Double::isFinite)
+            ?: optString(name).trim().toDoubleOrNull()?.takeIf(Double::isFinite)
     }
 }
