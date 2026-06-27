@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -108,13 +109,9 @@ internal object InlineStickerDisplaySettings {
     }
 
     fun currentExpressionPreferences(context: Context?): InlineStickerExpressionPreferences {
-        context?.applicationContext?.let(::initialize)
-        return InlineStickerExpressionPreferences(
-            frequency = frequencyValue,
-            intensity = intensityValue,
-            maxPerReply = maxPerReplyValue,
-            repeatCount = repeatCountValue,
-        )
+        if (initialized.get()) return currentValues()
+        val appContext = context?.applicationContext ?: return currentValues()
+        return readExpressionPreferences(appContext)
     }
 
     fun updateSizeDp(context: Context, value: Float) {
@@ -128,7 +125,7 @@ internal object InlineStickerDisplaySettings {
 
     fun updateFrequency(context: Context, value: Float) {
         initialize(context.applicationContext)
-        val normalized = value.toInt().coerceIn(0, 100)
+        val normalized = value.roundToInt().coerceIn(0, 100)
         if (frequencyValue == normalized) return
         frequencyValue = normalized
         frequencyState = normalized
@@ -137,7 +134,7 @@ internal object InlineStickerDisplaySettings {
 
     fun updateIntensity(context: Context, value: Float) {
         initialize(context.applicationContext)
-        val normalized = value.toInt().coerceIn(0, 100)
+        val normalized = value.roundToInt().coerceIn(0, 100)
         if (intensityValue == normalized) return
         intensityValue = normalized
         intensityState = normalized
@@ -146,7 +143,7 @@ internal object InlineStickerDisplaySettings {
 
     fun updateMaxPerReply(context: Context, value: Float) {
         initialize(context.applicationContext)
-        val normalized = value.toInt().coerceIn(0, 19)
+        val normalized = value.roundToInt().coerceIn(0, 19)
         if (maxPerReplyValue == normalized) return
         maxPerReplyValue = normalized
         maxPerReplyState = normalized
@@ -155,7 +152,7 @@ internal object InlineStickerDisplaySettings {
 
     fun updateRepeatCount(context: Context, value: Float) {
         initialize(context.applicationContext)
-        val normalized = value.toInt().coerceIn(1, 4)
+        val normalized = value.roundToInt().coerceIn(1, 4)
         if (repeatCountValue == normalized) return
         repeatCountValue = normalized
         repeatCountState = normalized
@@ -180,18 +177,11 @@ internal object InlineStickerDisplaySettings {
             sizeDpValue = preferences
                 .getFloat(SizeKey, DefaultSizeDp)
                 .coerceIn(MinSizeDp, MaxSizeDp)
-            frequencyValue = preferences
-                .getInt(FrequencyKey, DefaultFrequency)
-                .coerceIn(0, 100)
-            intensityValue = preferences
-                .getInt(IntensityKey, DefaultIntensity)
-                .coerceIn(0, 100)
-            maxPerReplyValue = preferences
-                .getInt(MaxPerReplyKey, DefaultMaxPerReply)
-                .coerceIn(0, 19)
-            repeatCountValue = preferences
-                .getInt(RepeatCountKey, DefaultRepeatCount)
-                .coerceIn(1, 4)
+            val expression = readExpressionPreferences(appContext)
+            frequencyValue = expression.frequency
+            intensityValue = expression.intensity
+            maxPerReplyValue = expression.maxPerReply
+            repeatCountValue = expression.repeatCount
             sizeDpState = sizeDpValue
             frequencyState = frequencyValue
             intensityState = intensityValue
@@ -199,6 +189,33 @@ internal object InlineStickerDisplaySettings {
             repeatCountState = repeatCountValue
             initialized.set(true)
         }
+    }
+
+    private fun readExpressionPreferences(context: Context): InlineStickerExpressionPreferences {
+        val preferences = context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+        return InlineStickerExpressionPreferences(
+            frequency = preferences
+                .getInt(FrequencyKey, DefaultFrequency)
+                .coerceIn(0, 100),
+            intensity = preferences
+                .getInt(IntensityKey, DefaultIntensity)
+                .coerceIn(0, 100),
+            maxPerReply = preferences
+                .getInt(MaxPerReplyKey, DefaultMaxPerReply)
+                .coerceIn(0, 19),
+            repeatCount = preferences
+                .getInt(RepeatCountKey, DefaultRepeatCount)
+                .coerceIn(1, 4),
+        )
+    }
+
+    private fun currentValues(): InlineStickerExpressionPreferences {
+        return InlineStickerExpressionPreferences(
+            frequency = frequencyValue,
+            intensity = intensityValue,
+            maxPerReply = maxPerReplyValue,
+            repeatCount = repeatCountValue,
+        )
     }
 
     private fun enqueuePersistence() {
