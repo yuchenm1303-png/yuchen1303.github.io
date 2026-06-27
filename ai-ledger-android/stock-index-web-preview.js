@@ -64,11 +64,12 @@ function metric(label,value,tone='neutral-text'){
 }
 function renderMetrics(){
   const quote=state.payload?.quote||{};
+  const previousClose=number(quote.previousClose);
   $('#indexMetrics').innerHTML=[
     metric('今开',quote.open),
     metric('最高',quote.high,'rise-text'),
     metric('最低',quote.low,'fall-text'),
-    metric('昨收',number(quote.previousClose)?.toFixed(2)||'--'),
+    metric('昨收',previousClose==null?'--':previousClose.toFixed(2)),
     metric('成交额',quote.amount),
     metric('成交量',quote.volume)
   ].join('');
@@ -95,7 +96,7 @@ function renderRelated(){
   const items=safePoints(state.payload?.relatedIndices).slice(0,8);
   const root=$('#relatedGrid');
   if(!items.length){root.innerHTML='<div class="empty-line">其他指数数据暂不可用</div>';return}
-  root.innerHTML=items.map(item=>`<button class="related-index" data-code="${escapeHtml(item.code)}"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.code)}</small><b class="${toneClass(item.changePercent)}">${escapeHtml(item.changePercent)}</b></button>`).join('');
+  root.innerHTML=items.map(item=>`<button type="button" class="related-index" data-code="${escapeHtml(item.code)}"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.code)}</small><b class="${toneClass(item.changePercent)}">${escapeHtml(item.changePercent)}</b></button>`).join('');
   root.querySelectorAll('[data-code]').forEach(button=>button.addEventListener('click',()=>switchIndex(button.dataset.code,true)));
 }
 
@@ -118,18 +119,25 @@ function resizeCanvas(){
   return {ctx,width,height};
 }
 
-function drawGrid(ctx,left,top,right,bottom){
+function showChartEmpty(message){
+  const empty=$('#chartEmpty');
+  empty.textContent=message;
+  empty.style.display='grid';
+  resizeCanvas();
+  $('#indexAxis').innerHTML='';
+}
+
+function drawGrid(ctx,left,top,right,bottom,columns=4){
   ctx.save();ctx.strokeStyle='rgba(255,255,255,.075)';ctx.lineWidth=1;
   for(let i=0;i<=4;i++){const y=top+(bottom-top)*i/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke()}
-  for(let i=0;i<=4;i++){const x=left+(right-left)*i/4;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,bottom);ctx.stroke()}
+  for(let i=0;i<=columns;i++){const x=left+(right-left)*i/columns;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,bottom);ctx.stroke()}
   ctx.restore();
 }
 
-function drawMinute(points,fiveDay=false){
+function drawMinute(points){
   const data=safePoints(points).filter(point=>number(point.price)>0);
-  const empty=$('#chartEmpty');
-  if(!data.length){empty.style.display='grid';resizeCanvas();return}
-  empty.style.display='none';
+  if(!data.length){showChartEmpty('当日真实分时数据暂不可用');return}
+  $('#chartEmpty').style.display='none';
   const {ctx,width,height}=resizeCanvas();
   const left=42,right=width-10,top=12,priceBottom=Math.max(top+60,height-72),volumeTop=priceBottom+12,volumeBottom=height-12;
   const previous=number(state.payload?.quote?.previousClose);
@@ -159,25 +167,99 @@ function drawMinute(points,fiveDay=false){
   ctx.save();ctx.strokeStyle='#70d8ff';ctx.lineWidth=1.8;ctx.beginPath();
   data.forEach((point,index)=>{const px=x(index),py=y(number(point.price));if(index===0)ctx.moveTo(px,py);else ctx.lineTo(px,py)});ctx.stroke();ctx.restore();
 
-  if(!fiveDay&&averages.length){ctx.save();ctx.strokeStyle='#ffd86b';ctx.lineWidth=1.2;ctx.beginPath();data.forEach((point,index)=>{const value=number(point.average);if(value==null)return;const px=x(index),py=y(value);if(index===0)ctx.moveTo(px,py);else ctx.lineTo(px,py)});ctx.stroke();ctx.restore()}
+  if(averages.length){ctx.save();ctx.strokeStyle='#ffd86b';ctx.lineWidth=1.2;ctx.beginPath();data.forEach((point,index)=>{const value=number(point.average);if(value==null)return;const px=x(index),py=y(value);if(index===0)ctx.moveTo(px,py);else ctx.lineTo(px,py)});ctx.stroke();ctx.restore()}
 
   ctx.save();ctx.fillStyle='rgba(255,255,255,.42)';ctx.font='8px system-ui';ctx.textAlign='right';ctx.fillText(max.toFixed(2),left-5,top+4);ctx.fillText(((max+min)/2).toFixed(2),left-5,(top+priceBottom)/2+3);ctx.fillText(min.toFixed(2),left-5,priceBottom);ctx.restore();
 
   const latest=data[data.length-1],latestPrice=number(latest.price),average=number(latest.average);
   $('#chartLatest').textContent=`最新 ${latestPrice?.toFixed(2)??'--'}`;
-  $('#chartAverage').textContent=fiveDay?'多日分时':`均价 ${average?.toFixed(2)??'--'}`;
+  $('#chartAverage').textContent=`均价 ${average?.toFixed(2)??'--'}`;
   $('#chartRange').textContent=`${min.toFixed(2)} - ${max.toFixed(2)}`;
-  $('#chartTitle').textContent=fiveDay?'五日走势':'分时走势';
-  const dates=[...new Set(data.map(point=>text(point.date,'')))].filter(Boolean);
-  $('#indexAxis').innerHTML=fiveDay&&dates.length?dates.slice(-5).map(date=>`<span>${escapeHtml(date.slice(5))}</span>`).join(''):'<span>09:30</span><span>11:30 / 13:00</span><span>15:00</span>';
-  $('#indexCaption').textContent=fiveDay?'近五个交易日指数走势与分钟成交量。':'当日指数分时、均价线与分钟成交量。';
+  $('#chartTitle').textContent='分时走势';
+  $('#indexAxis').innerHTML='<span>09:30</span><span>11:30 / 13:00</span><span>15:00</span>';
+  $('#indexCaption').textContent='当日指数分时、均价线与分钟成交量。';
+}
+
+function groupFiveDayPoints(points){
+  const groups=new Map();
+  safePoints(points).filter(point=>number(point.price)>0&&text(point.date,'')).forEach(point=>{
+    const date=text(point.date,'');
+    if(!groups.has(date))groups.set(date,[]);
+    groups.get(date).push(point);
+  });
+  return [...groups.entries()]
+    .sort(([left],[right])=>left.localeCompare(right))
+    .slice(-5)
+    .map(([date,items])=>({date,items:items.sort((a,b)=>(number(a.timestamp)||0)-(number(b.timestamp)||0))}));
+}
+
+function drawFiveDay(points){
+  const days=groupFiveDayPoints(points);
+  const meta=state.payload?.fiveDayMeta||{};
+  if(days.length<2){
+    showChartEmpty('真实五日分钟数据尚未返回\n不会再用单日分时冒充五日走势');
+    $('#chartTitle').textContent='五日走势';
+    $('#chartAverage').textContent='真实多日数据';
+    $('#chartLatest').textContent='最新 --';
+    $('#chartRange').textContent='--';
+    $('#indexCaption').textContent=`五日数据源 ${text(meta.source,'暂不可用')}。`;
+    return;
+  }
+  $('#chartEmpty').style.display='none';
+  const {ctx,width,height}=resizeCanvas();
+  const left=42,right=width-10,top=12,priceBottom=Math.max(top+60,height-72),volumeTop=priceBottom+12,volumeBottom=height-12;
+  const all=days.flatMap(day=>day.items);
+  const prices=all.map(point=>number(point.price)).filter(Number.isFinite);
+  let min=Math.min(...prices),max=Math.max(...prices);
+  const padding=Math.max((max-min)*.10,max*.0025,1);
+  min-=padding;max+=padding;
+  const y=value=>top+(max-value)/(max-min)*(priceBottom-top);
+  const dayWidth=(right-left)/days.length;
+  const x=(dayIndex,pointIndex,count)=>{
+    const innerLeft=left+dayWidth*dayIndex+2;
+    const innerRight=left+dayWidth*(dayIndex+1)-2;
+    return count<=1?(innerLeft+innerRight)/2:innerLeft+(innerRight-innerLeft)*pointIndex/(count-1);
+  };
+  drawGrid(ctx,left,top,right,priceBottom,days.length);
+
+  const maxVolume=Math.max(...all.map(point=>number(point.volume)||0),1);
+  const maxDayPoints=Math.max(...days.map(day=>day.items.length),1);
+  const barWidth=Math.max(.7,Math.min(2.2,dayWidth/maxDayPoints*.72));
+  let previousDayClose=null;
+  days.forEach((day,dayIndex)=>{
+    day.items.forEach((point,pointIndex)=>{
+      const px=x(dayIndex,pointIndex,day.items.length);
+      const volume=number(point.volume)||0;
+      const barHeight=(volume/maxVolume)*(volumeBottom-volumeTop);
+      const current=number(point.price)||0;
+      const prior=pointIndex?number(day.items[pointIndex-1].price):previousDayClose;
+      ctx.fillStyle=current>=(prior??current)?'rgba(255,112,127,.72)':'rgba(82,233,163,.70)';
+      ctx.fillRect(px-barWidth/2,volumeBottom-barHeight,barWidth,Math.max(1,barHeight));
+    });
+    ctx.save();ctx.strokeStyle='#70d8ff';ctx.lineWidth=1.55;ctx.beginPath();
+    day.items.forEach((point,pointIndex)=>{
+      const px=x(dayIndex,pointIndex,day.items.length),py=y(number(point.price));
+      if(pointIndex===0)ctx.moveTo(px,py);else ctx.lineTo(px,py);
+    });
+    ctx.stroke();ctx.restore();
+    previousDayClose=number(day.items[day.items.length-1]?.price);
+  });
+
+  ctx.save();ctx.fillStyle='rgba(255,255,255,.42)';ctx.font='8px system-ui';ctx.textAlign='right';ctx.fillText(max.toFixed(2),left-5,top+4);ctx.fillText(((max+min)/2).toFixed(2),left-5,(top+priceBottom)/2+3);ctx.fillText(min.toFixed(2),left-5,priceBottom);ctx.restore();
+
+  const latest=all[all.length-1],latestPrice=number(latest.price);
+  $('#chartLatest').textContent=`最新 ${latestPrice?.toFixed(2)??'--'}`;
+  $('#chartAverage').textContent=`${days.length}个交易日`;
+  $('#chartRange').textContent=`${min.toFixed(2)} - ${max.toFixed(2)}`;
+  $('#chartTitle').textContent='五日走势';
+  $('#indexAxis').innerHTML=days.map(day=>`<span>${escapeHtml(day.date.slice(5))}</span>`).join('');
+  $('#indexCaption').textContent=`真实五日分钟走势 · ${text(meta.source,'多日行情源')} · 每个交易日独立绘制。`;
 }
 
 function drawDaily(points){
   const data=safePoints(points).filter(row=>number(row.open)>0&&number(row.close)>0).slice(-60);
-  const empty=$('#chartEmpty');
-  if(!data.length){empty.style.display='grid';resizeCanvas();return}
-  empty.style.display='none';
+  if(!data.length){showChartEmpty('指数日K数据暂不可用');return}
+  $('#chartEmpty').style.display='none';
   const {ctx,width,height}=resizeCanvas();
   const left=42,right=width-10,top=12,priceBottom=Math.max(top+60,height-72),volumeTop=priceBottom+12,volumeBottom=height-12;
   const highs=data.map(row=>number(row.high)||0),lows=data.map(row=>number(row.low)||0);
@@ -204,19 +286,20 @@ function drawDaily(points){
 
 function renderChart(){
   renderTabs();
-  if(state.tab==='fiveDay')drawMinute(state.payload?.fiveDayPoints,true);
+  if(state.tab==='fiveDay')drawFiveDay(state.payload?.fiveDayPoints);
   else if(state.tab==='daily')drawDaily(state.payload?.kLinePoints);
-  else drawMinute(state.payload?.minutePoints,false);
+  else drawMinute(state.payload?.minutePoints);
 }
 
 function renderAll(){renderHeader();renderMetrics();renderContext();renderRelated();renderChart();updateDebugStatus()}
 
 function updateDebugStatus(){
   const root=$('#dataStatus');
-  if(state.loading){root.innerHTML='<strong>正在连接</strong>：并行加载指数报价、分时、五日、日K和市场宽度。';return}
+  if(state.loading){root.innerHTML='<strong>正在连接</strong>：并行加载指数报价、分时、真实五日、日K和市场宽度。';return}
   if(state.error){root.innerHTML=`<strong>刷新失败</strong>：${escapeHtml(state.error)}<br>保留上一份真实成功数据。`;return}
   const payload=state.payload;
-  root.innerHTML=payload?`<strong>指数接口已连接</strong><br>${escapeHtml(payload.name)} ${escapeHtml(payload.code)}<br>分时 ${safePoints(payload.minutePoints).length} · 五日 ${safePoints(payload.fiveDayPoints).length} · 日K ${safePoints(payload.kLinePoints).length}<br>后端 ${escapeHtml(payload.totalLatencyMs??'--')}ms · 请求 ${state.requestCount} 次`:'<strong>等待数据</strong>：尚未收到指数详情。';
+  const fiveDayCount=number(payload?.fiveDayMeta?.tradingDayCount)||0;
+  root.innerHTML=payload?`<strong>指数接口已连接</strong><br>${escapeHtml(payload.name)} ${escapeHtml(payload.code)}<br>分时 ${safePoints(payload.minutePoints).length} · 五日 ${fiveDayCount}个交易日/${safePoints(payload.fiveDayPoints).length}点 · 日K ${safePoints(payload.kLinePoints).length}<br>后端 ${escapeHtml(payload.totalLatencyMs??'--')}ms · 请求 ${state.requestCount} 次`:'<strong>等待数据</strong>：尚未收到指数详情。';
 }
 
 async function loadIndex(silent=false){
