@@ -386,6 +386,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                 .statusBarsPadding()
                                 .navigationBarsPadding()
                                 .imePadding()
+                                .padding(horizontal = 12.dp)
                         ) {
                             CachedAppTabHost(currentTab = state.currentTab, modifier = Modifier.fillMaxSize()) { tab ->
                                 when (tab) {
