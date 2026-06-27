@@ -4,13 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>视觉智能体运行 HUD</title>
-<script>
-  document.documentElement.dataset.hudRegion = new URLSearchParams(location.search).get('region') || 'full';
-</script>
 <link rel="stylesheet" href="visual_agent_hud_base.css">
 <link rel="stylesheet" href="visual_agent_hud_cursor.css">
 <link rel="stylesheet" href="visual_agent_hud_layout.css">
-<link rel="stylesheet" href="visual_agent_hud_regions.css">
 </head>
 <body>
 <div class="app" id="app" data-mode="detail">
@@ -135,6 +131,5 @@
   </section>
 </div>
 <script src="visual_agent_hud_runtime.js"></script>
-<script src="visual_agent_hud_regions.js"></script>
 </body>
 </html>
