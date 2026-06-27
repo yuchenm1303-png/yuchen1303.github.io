@@ -95,10 +95,6 @@
             android:exported="false" />
 
         <service
-            android:name=".service.VisualAgentHudOverlayService"
-            android:exported="false" />
-
-        <service
             android:name=".service.AiAgentAccessibilityService"
             android:exported="true"
             android:foregroundServiceType="specialUse"
