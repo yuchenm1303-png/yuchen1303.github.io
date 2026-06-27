@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import heapq
 import logging
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -9,6 +11,7 @@ from time import monotonic
 from typing import Any, Callable
 
 import httpx
+from fastapi import Response
 
 import main as legacy
 
@@ -16,25 +19,35 @@ app = legacy.app
 
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.market-home")
 MARKET_HOME_PATH = "/api/stock/a-share/market/home"
-MARKET_HOME_CACHE_VERSION = "v5-coordinated-cold-start"
+MARKET_HOME_DIAGNOSTICS_PATH = "/api/stock/a-share/market/home/diagnostics"
+MARKET_HOME_CACHE_VERSION = "v6-nonblocking-singleflight"
 FULL_REFRESH_WORKERS = 3
 MARKET_UNIVERSE_FRESH_SECONDS = 18.0
 MARKET_UNIVERSE_STALE_SECONDS = 6 * 60 * 60.0
-MARKET_HOME_COLD_WAIT_SECONDS = 10.0
+REFRESH_BACKOFF_BASE_SECONDS = 2.0
+REFRESH_BACKOFF_MAX_SECONDS = 60.0
 EASTMONEY_ULIST_URLS = [
     "https://push2.eastmoney.com/api/qt/ulist.np/get",
     "https://push2delay.eastmoney.com/api/qt/ulist.np/get",
     "https://push2his.eastmoney.com/api/qt/ulist.np/get",
 ]
 
-_market_home_lock = Lock()
-_market_home_refresh_lock = Lock()
 _client_lock = Lock()
 _universe_lock = Lock()
+_refresh_state_lock = Lock()
 _shared_client: httpx.Client | None = None
 _home_refresh_running = False
 _home_refresh_complete = Event()
 _home_refresh_complete.set()
+_refresh_failures = 0
+_refresh_retry_after = 0.0
+_refresh_generation = 0
+_last_refresh_started_at = 0.0
+_last_refresh_finished_at = 0.0
+_last_refresh_duration_ms = 0
+_last_refresh_status = "idle"
+_last_refresh_error = ""
+_last_refresh_updated_at = ""
 _universe_cache: tuple[float, list[dict[str, Any]], list[str]] | None = None
 
 _INDEX_SECURITIES = [
@@ -83,12 +96,12 @@ _RANKING_SPECS = {
 }
 
 
-def _remove_legacy_market_home_route() -> None:
+def _remove_get_routes(paths: set[str]) -> None:
     app.router.routes[:] = [
         route
         for route in app.router.routes
         if not (
-            getattr(route, "path", None) == MARKET_HOME_PATH
+            getattr(route, "path", None) in paths
             and "GET" in (getattr(route, "methods", None) or set())
         )
     ]
@@ -108,18 +121,21 @@ def _get_shared_client() -> httpx.Client:
     with _client_lock:
         if _shared_client is None:
             _shared_client = httpx.Client(
-                timeout=httpx.Timeout(2.8, connect=0.8),
+                timeout=httpx.Timeout(2.4, connect=0.7, pool=0.7),
                 limits=httpx.Limits(
                     max_connections=12,
                     max_keepalive_connections=8,
-                    keepalive_expiry=30.0,
+                    keepalive_expiry=45.0,
                 ),
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 Chrome/125 Safari/537.36",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 Chrome/125 Safari/537.36"
+                    ),
                     "Referer": "https://quote.eastmoney.com/",
                     "Accept": "application/json, text/plain, */*",
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "Connection": "keep-alive",
                 },
             )
         return _shared_client
@@ -143,9 +159,8 @@ def _mark_cached_module(
     cached["cacheAgeMs"] = max(age_seconds, 0) * 1000
     if stale and str(cached.get("status", "")).lower() in {"ok", "partial"}:
         cached["status"] = "stale"
-    cache_label = "stale" if stale else "hit"
     cached["warnings"] = list(cached.get("warnings") or []) + [
-        f"module_cache: {cache_label} age={age_seconds}s"
+        f"module_cache: {'stale' if stale else 'hit'} age={age_seconds}s"
     ]
     return cached
 
@@ -161,7 +176,6 @@ def _cached_module(
     if fresh is not None:
         payload, age = fresh
         return _mark_cached_module(payload, age, stale=False)
-
     try:
         payload = builder()
     except Exception:
@@ -170,7 +184,6 @@ def _cached_module(
             payload, age = stale
             return _mark_cached_module(payload, age, stale=True)
         raise
-
     if not legacy._payload_has_real_items(payload):
         stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
         if stale is not None:
@@ -181,7 +194,6 @@ def _cached_module(
             ]
             return cached
         return payload
-
     legacy._cache_put(key, payload)
     return payload
 
@@ -199,7 +211,7 @@ def _cached_or_unavailable(
     if cached is not None:
         payload, age = cached
         return _mark_cached_module(payload, age, stale=True)
-    return _module_unavailable(name, "waiting_for_real_refresh")
+    return _module_unavailable(name, "waiting_for_background_refresh")
 
 
 def _cache_module(kind: str, query: str, mode: str, payload: dict[str, Any]) -> None:
@@ -246,10 +258,7 @@ def _load_indices_parallel() -> dict[str, Any]:
                 "updatedAt": datetime.now(timezone.utc).isoformat(),
             }
         )
-    order = {
-        item["code"]: position
-        for position, item in enumerate(_INDEX_SECURITIES)
-    }
+    order = {item["code"]: position for position, item in enumerate(_INDEX_SECURITIES)}
     items.sort(key=lambda item: order.get(str(item.get("code", "")), len(order)))
     status = (
         "ok"
@@ -258,9 +267,7 @@ def _load_indices_parallel() -> dict[str, Any]:
         if items
         else "unavailable"
     )
-    warnings.append(
-        f"indices_batch_build_ms={int((monotonic() - started_at) * 1000)}"
-    )
+    warnings.append(f"indices_batch_build_ms={int((monotonic() - started_at) * 1000)}")
     return legacy._module_payload(
         status=status,
         source="eastmoney_quote",
@@ -274,39 +281,52 @@ def _load_market_universe_cached() -> tuple[list[dict[str, Any]], list[str], int
     global _universe_cache
     now = monotonic()
     with _universe_lock:
-        if _universe_cache is not None:
-            stored_at, rows, cached_warnings = _universe_cache
-            age = now - stored_at
-            if age <= MARKET_UNIVERSE_FRESH_SECONDS:
-                return rows, list(cached_warnings) + [f"market_universe_cache: hit age={age:.2f}s"], int(age * 1000), False
-
-        stale = _universe_cache
-        warnings: list[str] = []
-        try:
-            rows = legacy._clist_items(
-                _get_shared_client(),
-                legacy.A_STOCK_FS,
-                "f12",
-                5000,
-                warnings,
-                "market_universe",
-                po="1",
-                strict=True,
+        cached = _universe_cache
+    if cached is not None:
+        stored_at, rows, cached_warnings = cached
+        age = now - stored_at
+        if age <= MARKET_UNIVERSE_FRESH_SECONDS:
+            return (
+                rows,
+                list(cached_warnings) + [f"market_universe_cache: hit age={age:.2f}s"],
+                int(age * 1000),
+                False,
             )
-            if not rows:
-                raise ValueError("market universe returned no real rows")
-            _universe_cache = (monotonic(), rows, list(warnings))
-            return rows, warnings, 0, False
-        except Exception as exc:
-            if stale is not None:
-                stored_at, rows, cached_warnings = stale
-                age = now - stored_at
-                if age <= MARKET_UNIVERSE_STALE_SECONDS:
-                    stale_warnings = list(cached_warnings) + [
-                        f"market_universe_cache: stale age={age:.2f}s because {type(exc).__name__}: {exc}"
-                    ]
-                    return rows, stale_warnings, int(age * 1000), True
-            raise
+
+    warnings: list[str] = []
+    try:
+        rows = legacy._clist_items(
+            _get_shared_client(),
+            legacy.A_STOCK_FS,
+            "f12",
+            5000,
+            warnings,
+            "market_universe",
+            po="1",
+            strict=True,
+        )
+        if not rows:
+            raise ValueError("market universe returned no real rows")
+        stored = (monotonic(), rows, list(warnings))
+        with _universe_lock:
+            _universe_cache = stored
+        return rows, warnings, 0, False
+    except Exception as exc:
+        if cached is not None:
+            stored_at, rows, cached_warnings = cached
+            age = now - stored_at
+            if age <= MARKET_UNIVERSE_STALE_SECONDS:
+                return (
+                    rows,
+                    list(cached_warnings)
+                    + [
+                        "market_universe_cache: stale "
+                        f"age={age:.2f}s because {type(exc).__name__}: {exc}"
+                    ],
+                    int(age * 1000),
+                    True,
+                )
+        raise
 
 
 def _market_breadth_from_rows(
@@ -317,22 +337,35 @@ def _market_breadth_from_rows(
 ) -> dict[str, Any]:
     if not rows:
         return _module_unavailable("marketBreadth", "empty real market universe")
-    changes = [legacy._safe_float(item.get("f3")) for item in rows]
-    up = sum(1 for value in changes if value > 0)
-    down = sum(1 for value in changes if value < 0)
-    flat = sum(1 for value in changes if value == 0)
-    amount = sum(legacy._safe_float(item.get("f6")) for item in rows)
+    changes: list[float] = []
+    up = down = flat = limit_up = limit_down = 0
+    amount = 0.0
+    for item in rows:
+        change = legacy._safe_float(item.get("f3"))
+        changes.append(change)
+        amount += legacy._safe_float(item.get("f6"))
+        if change > 0:
+            up += 1
+        elif change < 0:
+            down += 1
+        else:
+            flat += 1
+        if change >= 9.8:
+            limit_up += 1
+        if change <= -9.8:
+            limit_down += 1
+    changes.sort()
     items = {
         "upCount": up,
         "downCount": down,
         "flatCount": flat,
-        "limitUpCount": sum(1 for value in changes if value >= 9.8),
-        "limitDownCount": sum(1 for value in changes if value <= -9.8),
+        "limitUpCount": limit_up,
+        "limitDownCount": limit_down,
         "brokenBoardCount": None,
         "brokenBoardRate": None,
         "maxConsecutiveBoards": None,
         "redRate": round(up / len(rows) * 100, 2),
-        "medianChangePercent": sorted(changes)[len(changes) // 2],
+        "medianChangePercent": changes[len(changes) // 2],
         "marketAmount": legacy._format_cn_money(amount),
         "shszAmount": legacy._format_cn_money(amount),
         "bjAmount": None,
@@ -363,21 +396,19 @@ def _ranking_from_rows(
         if str(item.get("f12") or "").strip()
         and str(item.get("f14") or "").strip()
     ]
-    ordered = sorted(
-        valid_rows,
-        key=lambda item: legacy._safe_float(item.get(field)),
-        reverse=descending,
+    key = lambda item: legacy._safe_float(item.get(field))
+    ordered = (
+        heapq.nlargest(limit, valid_rows, key=key)
+        if descending
+        else heapq.nsmallest(limit, valid_rows, key=key)
     )
-    items = [
-        legacy._ranking_item(item, index + 1)
-        for index, item in enumerate(ordered[:limit])
-    ]
+    items = [legacy._ranking_item(item, index + 1) for index, item in enumerate(ordered)]
     return legacy._module_payload(
         status="stale" if stale and items else "ok" if items else "empty",
         source="eastmoney_clist",
-        source_url_type=f"single shared real A-share universe sorted by {field}",
+        source_url_type=f"single shared real A-share universe top-k by {field}",
         items=items,
-        warnings=[f"ranking_{query}: derived_from_single_shared_universe"],
+        warnings=[f"ranking_{query}: top_k_from_single_shared_universe"],
         cache_age_ms=cache_age_ms,
     )
 
@@ -458,19 +489,6 @@ def _sentiment_from_breadth(breadth: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _load_market_module(
-    name: str,
-    builder: Callable[[], dict[str, Any]],
-) -> dict[str, Any]:
-    try:
-        payload = builder()
-        if not isinstance(payload, dict):
-            raise ValueError("module payload is not an object")
-        return payload
-    except Exception as exc:
-        return _module_unavailable(name, f"{type(exc).__name__}: {exc}")
-
-
 def _assemble_market_home(
     modules: dict[str, dict[str, Any]],
     started_at: float,
@@ -479,19 +497,16 @@ def _assemble_market_home(
 ) -> dict[str, Any]:
     result_warnings = list(warnings or [])
     breadth = modules.get("marketBreadth") or _module_unavailable(
-        "marketBreadth",
-        "module missing",
+        "marketBreadth", "module missing"
     )
     modules["sentiment"] = _sentiment_from_breadth(breadth)
     modules["popularityRanking"] = legacy._load_ranking("popularity", 50)
     modules["limitUpSummary"] = legacy._unavailable_module("limit_up_summary")
     modules["marketNews"] = legacy._unavailable_module("market_news")
-
     critical_real = sum(
         1
         for name in _CRITICAL_MODULES
-        if str((modules.get(name) or {}).get("status", "")).lower()
-        in _REAL_STATUSES
+        if str((modules.get(name) or {}).get("status", "")).lower() in _REAL_STATUSES
     )
     status = (
         "ok"
@@ -503,7 +518,7 @@ def _assemble_market_home(
     for name, module in modules.items():
         for warning in module.get("warnings") or []:
             result_warnings.append(f"{name}: {warning}")
-
+    elapsed_ms = int((monotonic() - started_at) * 1000)
     return {
         "status": status,
         "source": "eastmoney_public_json",
@@ -511,46 +526,32 @@ def _assemble_market_home(
         "updatedAt": datetime.now(timezone.utc).isoformat(),
         "cacheAgeMs": 0,
         "isDerived": False,
-        "warnings": result_warnings
-        + [
-            f"market_home_{build_kind}_build_ms="
-            f"{int((monotonic() - started_at) * 1000)}"
-        ],
+        "refreshState": _refresh_state_name(),
+        "buildLatencyMs": elapsed_ms,
+        "warnings": result_warnings + [f"market_home_{build_kind}_build_ms={elapsed_ms}"],
         **modules,
     }
 
 
-def _build_market_home_fast(build_kind: str = "fast") -> dict[str, Any]:
+def _build_market_home_fast(build_kind: str = "background") -> dict[str, Any]:
     started_at = monotonic()
     modules: dict[str, dict[str, Any]] = {}
-    warnings: list[str] = [
-        f"market_home: shared_universe_workers={FULL_REFRESH_WORKERS}"
-    ]
+    warnings = [f"market_home: shared_universe_workers={FULL_REFRESH_WORKERS}"]
     universe_result: tuple[list[dict[str, Any]], list[str], int, bool] | None = None
-
     builders: dict[str, Callable[[], Any]] = {
         "indices": lambda: _cached_module(
-            "market",
-            "indices",
-            "full-parallel",
-            _load_indices_parallel,
+            "market", "indices", "full-parallel", _load_indices_parallel
         ),
         "marketUniverse": _load_market_universe_cached,
         "sectorHotRanking": lambda: _cached_module(
-            "sectors",
-            "industry",
-            "20",
-            _load_sector_hot_shared,
+            "sectors", "industry", "20", _load_sector_hot_shared
         ),
     }
     with ThreadPoolExecutor(
         max_workers=FULL_REFRESH_WORKERS,
         thread_name_prefix="market-home-shared",
     ) as executor:
-        futures = {
-            executor.submit(builder): name
-            for name, builder in builders.items()
-        }
+        futures = {executor.submit(builder): name for name, builder in builders.items()}
         for future in as_completed(futures):
             name = futures[future]
             try:
@@ -561,65 +562,42 @@ def _build_market_home_fast(build_kind: str = "fast") -> dict[str, Any]:
                     modules[name] = value
             except Exception as exc:
                 if name == "marketUniverse":
-                    warnings.append(
-                        f"marketUniverse: {type(exc).__name__}: {exc}"
-                    )
+                    warnings.append(f"marketUniverse: {type(exc).__name__}: {exc}")
                 else:
                     modules[name] = _module_unavailable(
-                        name,
-                        f"{type(exc).__name__}: {exc}",
+                        name, f"{type(exc).__name__}: {exc}"
                     )
-
     if universe_result is not None:
         rows, universe_warnings, cache_age_ms, stale = universe_result
         breadth = _market_breadth_from_rows(
-            rows,
-            universe_warnings,
-            cache_age_ms,
-            stale,
+            rows, universe_warnings, cache_age_ms, stale
         )
         modules["marketBreadth"] = breadth
         _cache_module("market", "breadth", "v1", breadth)
         for module_name, (query, _, _) in _RANKING_SPECS.items():
             payload = _ranking_from_rows(
-                module_name,
-                rows,
-                cache_age_ms,
-                stale,
+                module_name, rows, cache_age_ms, stale
             )
             modules[module_name] = payload
             _cache_module("ranking", query, "20", payload)
     else:
         modules["marketBreadth"] = _cached_or_unavailable(
-            "market",
-            "breadth",
-            "v1",
-            "marketBreadth",
+            "market", "breadth", "v1", "marketBreadth"
         )
         for module_name, (query, _, _) in _RANKING_SPECS.items():
             modules[module_name] = _cached_or_unavailable(
-                "ranking",
-                query,
-                "20",
-                module_name,
+                "ranking", query, "20", module_name
             )
-
     modules.setdefault(
         "indices",
         _cached_or_unavailable(
-            "market",
-            "indices",
-            "full-parallel",
-            "indices",
+            "market", "indices", "full-parallel", "indices"
         ),
     )
     modules.setdefault(
         "sectorHotRanking",
         _cached_or_unavailable(
-            "sectors",
-            "industry",
-            "20",
-            "sectorHotRanking",
+            "sectors", "industry", "20", "sectorHotRanking"
         ),
     )
     return _assemble_market_home(modules, started_at, build_kind, warnings)
@@ -631,25 +609,80 @@ def _home_cache_key() -> str:
 
 def _home_needs_background_refresh(payload: dict[str, Any]) -> bool:
     return any(
-        str((payload.get(name) or {}).get("status", "")).lower()
-        not in _REAL_STATUSES
+        str((payload.get(name) or {}).get("status", "")).lower() not in _REAL_STATUSES
         for name in _REFRESHABLE_MODULES
     )
 
 
-def _cached_home_after_wait(key: str) -> dict[str, Any] | None:
-    fresh = legacy._cache_get(key, legacy.FAST_CACHE_SECONDS)
-    if fresh is not None:
-        payload, age = fresh
-        return _with_home_cache_label(payload, age, "cold-wait-hit")
-    stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
-    if stale is not None:
-        payload, age = stale
-        return _with_home_cache_label(payload, age, "cold-wait-stale")
-    return None
+def _with_home_cache_label(
+    payload: dict[str, Any],
+    age_seconds: int,
+    label: str,
+) -> dict[str, Any]:
+    cached = deepcopy(payload)
+    cached["cacheAgeMs"] = max(age_seconds, 0) * 1000
+    if label == "stale" and str(cached.get("status", "")).lower() in {
+        "ok",
+        "partial",
+    }:
+        cached["status"] = "stale"
+    cached["refreshState"] = _refresh_state_name()
+    cached["warnings"] = list(cached.get("warnings") or []) + [
+        f"market_home_cache: {label} age={age_seconds}s"
+    ]
+    return cached
 
 
-def _warming_market_home() -> dict[str, Any]:
+def _refresh_state_name() -> str:
+    with _refresh_state_lock:
+        if _home_refresh_running:
+            return "running"
+        if monotonic() < _refresh_retry_after:
+            return "cooldown"
+        return _last_refresh_status or "idle"
+
+
+def market_home_diagnostics() -> dict[str, Any]:
+    now = monotonic()
+    fresh = legacy._cache_get(_home_cache_key(), legacy.FAST_CACHE_SECONDS)
+    stale = legacy._cache_get(_home_cache_key(), legacy.STALE_CACHE_SECONDS)
+    with _refresh_state_lock:
+        retry_after_ms = max(int((_refresh_retry_after - now) * 1000), 0)
+        state = {
+            "state": (
+                "running"
+                if _home_refresh_running
+                else "cooldown"
+                if retry_after_ms > 0
+                else _last_refresh_status or "idle"
+            ),
+            "running": _home_refresh_running,
+            "generation": _refresh_generation,
+            "consecutiveFailures": _refresh_failures,
+            "retryAfterMs": retry_after_ms,
+            "lastDurationMs": _last_refresh_duration_ms,
+            "lastStatus": _last_refresh_status,
+            "lastError": _last_refresh_error,
+            "lastUpdatedAt": _last_refresh_updated_at,
+            "lastStartedMonotonic": _last_refresh_started_at,
+            "lastFinishedMonotonic": _last_refresh_finished_at,
+        }
+    state.update(
+        {
+            "cacheVersion": MARKET_HOME_CACHE_VERSION,
+            "freshCache": fresh is not None,
+            "freshCacheAgeMs": (fresh[1] * 1000 if fresh is not None else None),
+            "staleCache": stale is not None,
+            "staleCacheAgeMs": (stale[1] * 1000 if stale is not None else None),
+            "serviceCommit": os.getenv("RENDER_GIT_COMMIT")
+            or os.getenv("GIT_COMMIT")
+            or "unknown",
+        }
+    )
+    return state
+
+
+def _warming_market_home(reason: str) -> dict[str, Any]:
     started_at = monotonic()
     modules: dict[str, dict[str, Any]] = {
         "indices": _cached_or_unavailable(
@@ -666,67 +699,104 @@ def _warming_market_home() -> dict[str, Any]:
         modules[module_name] = _cached_or_unavailable(
             "ranking", query, "20", module_name
         )
-    return _assemble_market_home(
+    payload = _assemble_market_home(
         modules,
         started_at,
         "warming",
         [
-            "market_home: startup refresh is still running; "
-            "returned currently available real caches without starting duplicate crawl"
+            f"market_home: {reason}; returned immediately without synchronous crawl"
         ],
     )
+    payload["status"] = "warming" if payload.get("status") == "unavailable" else payload["status"]
+    payload["refreshState"] = _refresh_state_name()
+    return payload
 
 
-def _refresh_market_home_background() -> None:
+def _finish_refresh(
+    *,
+    generation: int,
+    started_at: float,
+    status: str,
+    error: str,
+) -> None:
     global _home_refresh_running
+    global _refresh_failures
+    global _refresh_retry_after
+    global _last_refresh_finished_at
+    global _last_refresh_duration_ms
+    global _last_refresh_status
+    global _last_refresh_error
+    global _last_refresh_updated_at
+    finished_at = monotonic()
+    with _refresh_state_lock:
+        if generation != _refresh_generation:
+            return
+        _home_refresh_running = False
+        _last_refresh_finished_at = finished_at
+        _last_refresh_duration_ms = int((finished_at - started_at) * 1000)
+        _last_refresh_status = status
+        _last_refresh_error = error
+        _last_refresh_updated_at = datetime.now(timezone.utc).isoformat()
+        if status in _REAL_STATUSES:
+            _refresh_failures = 0
+            _refresh_retry_after = 0.0
+        else:
+            _refresh_failures += 1
+            delay = min(
+                REFRESH_BACKOFF_BASE_SECONDS * (2 ** min(_refresh_failures - 1, 5)),
+                REFRESH_BACKOFF_MAX_SECONDS,
+            )
+            _refresh_retry_after = finished_at + delay
+        _home_refresh_complete.set()
+
+
+def _refresh_market_home_background(generation: int, started_at: float) -> None:
+    status = "unavailable"
+    error = ""
     try:
         payload = _build_market_home_fast("background")
-        if str(payload.get("status", "")).lower() in _REAL_STATUSES:
+        status = str(payload.get("status", "unavailable")).lower()
+        if status in _REAL_STATUSES:
             legacy._cache_put(_home_cache_key(), payload)
         else:
-            LOGGER.warning(
-                "market-home background refresh produced no real critical module; "
-                "keeping previous home cache"
-            )
-    except Exception:
+            error = "background refresh produced no real critical module"
+            LOGGER.warning(error)
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
         LOGGER.exception("market-home background refresh failed")
     finally:
-        with _market_home_refresh_lock:
-            _home_refresh_running = False
-            _home_refresh_complete.set()
+        _finish_refresh(
+            generation=generation,
+            started_at=started_at,
+            status=status,
+            error=error,
+        )
 
 
-def _start_market_home_background_refresh() -> bool:
+def _start_market_home_background_refresh(force: bool = False) -> bool:
     global _home_refresh_running
-    with _market_home_refresh_lock:
+    global _refresh_generation
+    global _last_refresh_started_at
+    global _last_refresh_status
+    now = monotonic()
+    with _refresh_state_lock:
         if _home_refresh_running:
             return False
+        if not force and now < _refresh_retry_after:
+            return False
         _home_refresh_running = True
+        _refresh_generation += 1
+        generation = _refresh_generation
+        _last_refresh_started_at = now
+        _last_refresh_status = "running"
         _home_refresh_complete.clear()
     Thread(
         target=_refresh_market_home_background,
+        args=(generation, now),
         name="market-home-refresh",
         daemon=True,
     ).start()
     return True
-
-
-def _with_home_cache_label(
-    payload: dict[str, Any],
-    age_seconds: int,
-    label: str,
-) -> dict[str, Any]:
-    cached = deepcopy(payload)
-    cached["cacheAgeMs"] = max(age_seconds, 0) * 1000
-    if label in {"stale", "cold-wait-stale"} and str(cached.get("status", "")).lower() in {
-        "ok",
-        "partial",
-    }:
-        cached["status"] = "stale"
-    cached["warnings"] = list(cached.get("warnings") or []) + [
-        f"market_home_cache: {label} age={age_seconds}s"
-    ]
-    return cached
 
 
 def _load_market_home_cached() -> dict[str, Any]:
@@ -736,61 +806,54 @@ def _load_market_home_cached() -> dict[str, Any]:
         payload, age = fresh
         cached = _with_home_cache_label(payload, age, "hit")
         if _home_needs_background_refresh(payload):
-            if _start_market_home_background_refresh():
-                cached["warnings"].append(
-                    "market_home_cache: background_completion_started"
-                )
+            started = _start_market_home_background_refresh()
+            cached["warnings"].append(
+                "market_home_cache: background_completion_started"
+                if started
+                else "market_home_cache: background_completion_deferred"
+            )
         return cached
-
     stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
     if stale is not None:
         payload, age = stale
         started = _start_market_home_background_refresh()
         cached = _with_home_cache_label(payload, age, "stale")
-        if started:
-            cached["warnings"].append(
-                "market_home_cache: background_refresh_started"
-            )
+        cached["warnings"].append(
+            "market_home_cache: background_refresh_started"
+            if started
+            else "market_home_cache: background_refresh_running_or_cooling"
+        )
         return cached
-
-    with _market_home_refresh_lock:
-        refresh_running = _home_refresh_running
-    if refresh_running:
-        completed = _home_refresh_complete.wait(MARKET_HOME_COLD_WAIT_SECONDS)
-        cached = _cached_home_after_wait(key)
-        if cached is not None:
-            cached["warnings"].append(
-                "market_home_cache: reused startup refresh result"
-            )
-            return cached
-        if not completed:
-            return _warming_market_home()
-
-    payload = _build_market_home_fast("cold")
-    if str(payload.get("status", "")).lower() in _REAL_STATUSES:
-        legacy._cache_put(key, payload)
-    if _home_needs_background_refresh(payload):
-        started = _start_market_home_background_refresh()
-        payload = deepcopy(payload)
-        payload["warnings"] = list(payload.get("warnings") or []) + [
-            (
-                "market_home_cache: background_completion_started"
-                if started
-                else "market_home_cache: background_completion_already_running"
-            )
-        ]
-    return payload
+    started = _start_market_home_background_refresh()
+    return _warming_market_home(
+        "cold cache refresh started"
+        if started
+        else "cold cache refresh already running or in cooldown"
+    )
 
 
 @app.on_event("startup")
 def _prewarm_market_home_on_startup() -> None:
-    _start_market_home_background_refresh()
+    _start_market_home_background_refresh(force=True)
 
 
-_remove_legacy_market_home_route()
+_remove_get_routes({MARKET_HOME_PATH, MARKET_HOME_DIAGNOSTICS_PATH})
 
 
 @app.get(MARKET_HOME_PATH)
-def a_share_market_home_parallel() -> dict[str, Any]:
-    with _market_home_lock:
-        return _load_market_home_cached()
+def a_share_market_home_parallel(response: Response) -> dict[str, Any]:
+    started_at = monotonic()
+    payload = _load_market_home_cached()
+    diagnostics = market_home_diagnostics()
+    response.headers["X-Market-Home-State"] = str(diagnostics["state"])
+    response.headers["X-Market-Home-Cache-Version"] = MARKET_HOME_CACHE_VERSION
+    response.headers["X-Stock-Commit"] = str(diagnostics["serviceCommit"])
+    response.headers["Server-Timing"] = (
+        f"market-home;dur={int((monotonic() - started_at) * 1000)}"
+    )
+    return payload
+
+
+@app.get(MARKET_HOME_DIAGNOSTICS_PATH)
+def a_share_market_home_diagnostics() -> dict[str, Any]:
+    return market_home_diagnostics()
