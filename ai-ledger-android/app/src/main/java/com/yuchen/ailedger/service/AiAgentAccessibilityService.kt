@@ -50,10 +50,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private val deviceShellBridge by lazy(LazyThreadSafetyMode.NONE) {
         DeviceShellBridge(applicationContext)
     }
+    private var visualHudHost: VisualAgentHudHost? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
+        visualHudHost?.destroy()
+        visualHudHost = VisualAgentHudHost(this).also { it.start() }
         configureIdleServiceInfo(force = true)
         ScreenObservationStore.markConnectedWaitingForWindow()
     }
@@ -80,6 +83,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        visualHudHost?.destroy()
+        visualHudHost = null
         if (activeService === this) activeService = null
         screenshotExecutor.shutdownNow()
         stopTaskForegroundNotification()
