@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 private const val MAX_LOGS = 24
 private const val OVERLAY_CAPTURE_WATCHDOG_MS = 2_500L
+private const val OVERLAY_CAPTURE_RESTORE_GRACE_MS = 96L
 private const val MODEL_OUTPUT_LOG_CHARS = 240
 private const val MAX_MODEL_OUTPUT_LOG_LINES = 14
 
@@ -71,8 +72,16 @@ object AgentRuntimeController {
     private val overlayCaptureLock = Any()
     private val overlayCaptureRestoreHandler = Handler(Looper.getMainLooper())
     private val overlayCaptureState = CleanVisualCaptureState(SystemClock::elapsedRealtime)
+    private val overlayCaptureRestore = Runnable {
+        synchronized(overlayCaptureLock) {
+            if (!overlayCaptureState.active && mutableOverlayHiddenForCapture.value) {
+                mutableOverlayHiddenForCapture.value = false
+            }
+        }
+    }
     private val overlayCaptureWatchdog = Runnable {
         synchronized(overlayCaptureLock) {
+            overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureRestore)
             if (overlayCaptureState.reset() && mutableOverlayHiddenForCapture.value) {
                 mutableOverlayHiddenForCapture.value = false
             }
@@ -130,6 +139,7 @@ object AgentRuntimeController {
 
     fun beginCleanVisualCapture() {
         synchronized(overlayCaptureLock) {
+            overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureRestore)
             overlayCaptureState.acquire()
             if (!mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = true
             overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
@@ -156,7 +166,12 @@ object AgentRuntimeController {
         synchronized(overlayCaptureLock) {
             if (overlayCaptureState.release()) {
                 overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
-                if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
+                overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureRestore)
+                // 把相邻截图、点击和验证合并到同一段不可见窗口，避免 HUD 在几十毫秒内反复闪现。
+                overlayCaptureRestoreHandler.postDelayed(
+                    overlayCaptureRestore,
+                    OVERLAY_CAPTURE_RESTORE_GRACE_MS,
+                )
             }
         }
     }
@@ -164,6 +179,7 @@ object AgentRuntimeController {
     fun resetCleanVisualCapture() {
         synchronized(overlayCaptureLock) {
             overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
+            overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureRestore)
             overlayCaptureState.reset()
             if (mutableOverlayHiddenForCapture.value) mutableOverlayHiddenForCapture.value = false
         }
@@ -173,6 +189,7 @@ object AgentRuntimeController {
         synchronized(overlayCaptureLock) {
             if (!overlayCaptureState.active && mutableOverlayHiddenForCapture.value) {
                 overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureWatchdog)
+                overlayCaptureRestoreHandler.removeCallbacks(overlayCaptureRestore)
                 mutableOverlayHiddenForCapture.value = false
             }
         }
