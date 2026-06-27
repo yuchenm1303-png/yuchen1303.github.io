@@ -9,10 +9,10 @@
     --info-bubble-scale:1;
     --edge-inset:0px;
     --edge-radius:0px;
-    --edge-halo-width:42px;
+    --edge-halo-width:0px;
     --edge-halo-blur:0px;
     --edge-halo-opacity:0.58;
-    --edge-cast-depth:120px;
+    --edge-cast-depth:29.2px;
     --edge-cast-blur:0px;
     --edge-cast-opacity:0.8;
     --edge-flow-speed:7.5s;
