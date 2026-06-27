@@ -23,7 +23,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  * which avoids issuing a SharedPreferences write for every slider frame.
  */
 internal object InlineStickerDisplaySettings {
-    const val DefaultSizeDp = 60f
+    const val DefaultSizeDp = 42f
     const val MinSizeDp = 40f
     const val MaxSizeDp = 88f
     val SizeRange: ClosedFloatingPointRange<Float> = MinSizeDp..MaxSizeDp
