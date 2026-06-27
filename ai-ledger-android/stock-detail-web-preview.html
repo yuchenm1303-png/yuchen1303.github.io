@@ -132,8 +132,8 @@
 
   <aside class="controls">
     <h1>新版个股详情页网页调试</h1>
-    <div class="version">网页版本 2026-06-27.5 · 独立帖子详情版</div>
-    <p>个股社区页只保留标准信息流；点击帖子后进入独立帖子详情页面。详情页先加载正文，网友评论仅在用户点击后单独请求。</p>
+    <div class="version">网页版本 2026-06-27.6 · 社区渲染修复版</div>
+    <p>社区数据请求、信息流渲染和独立帖子跳转已收敛到单一脚本，不再依赖已删除的页内帖子详情容器，也不再使用脚本覆盖链。</p>
 
     <div class="group">
       <h2>实时数据</h2>
@@ -160,7 +160,6 @@
 <script src="./stock-detail-web-charts.js?v=20260627-2"></script>
 <script src="./stock-detail-web-indicators.js?v=20260627-2"></script>
 <script src="./stock-detail-web-runtime.js?v=20260627-2"></script>
-<script src="./stock-detail-web-community.js?v=20260627-1"></script>
-<script src="./stock-detail-web-community-feed.js?v=20260627-2"></script>
+<script src="./stock-detail-web-community.js?v=20260627-2"></script>
 </body>
 </html>
