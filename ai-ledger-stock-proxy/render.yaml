@@ -3,5 +3,7 @@ services:
     name: ai-ledger-stock-proxy
     runtime: docker
     plan: free
+    branch: dev-update-1
+    autoDeployTrigger: commit
     rootDir: ai-ledger-stock-proxy
     healthCheckPath: /health
