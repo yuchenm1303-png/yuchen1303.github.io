@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
 <title>AI Ledger · 指数详情</title>
-<link rel="stylesheet" href="./stock-index-web-preview.css?v=20260627-1">
+<link rel="stylesheet" href="./stock-index-web-preview.css?v=20260627-2">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
@@ -39,10 +39,12 @@
           </div>
 
           <div class="index-price-row">
-            <div>
+            <div class="index-quote-line">
               <div class="index-price" id="indexPrice">--</div>
-              <div class="index-change" id="indexChange">--</div>
-              <div class="index-updated" id="indexUpdated">等待更新</div>
+              <div class="index-quote-meta">
+                <div class="index-change" id="indexChange">--</div>
+                <div class="index-updated" id="indexUpdated">等待更新</div>
+              </div>
             </div>
             <div class="index-metrics" id="indexMetrics"></div>
           </div>
@@ -101,8 +103,8 @@
 
   <aside class="controls" id="controls">
     <h1>指数详情页网页调试</h1>
-    <div class="version">网页版本 2026-06-27.1 · 共用指数详情页</div>
-    <p>当前页面只保留指数真正需要的内容：点位、涨跌、分时、五日、日K、成交量、全市场宽度和其他主要指数。盘口、逐笔、财务等个股专属模块不会出现在指数页。</p>
+    <div class="version">网页版本 2026-06-27.2 · 真实五日分时版</div>
+    <p>五日页现在要求至少包含多个真实交易日，并优先读取五个交易日分钟数据；顶部点位改为居中组合布局，六个行情指标统一铺在下方。</p>
 
     <div class="control-group">
       <h2>指数切换</h2>
@@ -124,6 +126,6 @@
     </div>
   </aside>
 </main>
-<script src="./stock-index-web-preview.js?v=20260627-1"></script>
+<script src="./stock-index-web-preview.js?v=20260627-2"></script>
 </body>
 </html>
