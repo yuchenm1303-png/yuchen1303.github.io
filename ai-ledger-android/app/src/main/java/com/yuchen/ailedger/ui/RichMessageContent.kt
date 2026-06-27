@@ -14,7 +14,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -28,6 +27,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private const val INLINE_STICKER_MAX_PER_MESSAGE = 2
+private const val INLINE_STICKER_SIZE_DP = 60
+private const val INLINE_STICKER_BASELINE_SHIFT_DP = -9
+private const val INLINE_STICKER_LINE_HEIGHT_MULTIPLIER = 1.2f
 private const val INLINE_STICKER_TAG_START = 0xE0001
 private const val INLINE_STICKER_TAG_CANCEL = 0xE007F
 private const val INLINE_STICKER_TAG_BASE = 0xE0000
@@ -131,9 +133,19 @@ fun CitationInlineRichText(
     }
 
     val density = LocalDensity.current
-    val stickerSizeTextUnit = remember(density) { with(density) { 60.dp.toSp() } }
-    val stickerShiftPx = remember(density) { with(density) { (-9).dp.toPx() } }
-    val inlineContent = remember(render.citationTokens, render.stickerTokens, stickerSizeTextUnit, stickerShiftPx) {
+    val stickerSizeTextUnit = remember(density) {
+        with(density) { INLINE_STICKER_SIZE_DP.dp.toSp() }
+    }
+    val stickerSlotHeightTextUnit = remember(density) {
+        val reservedHeightDp = INLINE_STICKER_SIZE_DP + -INLINE_STICKER_BASELINE_SHIFT_DP
+        with(density) { reservedHeightDp.dp.toSp() }
+    }
+    val inlineContent = remember(
+        render.citationTokens,
+        render.stickerTokens,
+        stickerSizeTextUnit,
+        stickerSlotHeightTextUnit
+    ) {
         buildMap {
             render.citationTokens.forEach { token ->
                 val chipWidth = if (token.number.length >= 2) 25.sp else 19.sp
@@ -156,8 +168,8 @@ fun CitationInlineRichText(
                     InlineTextContent(
                         Placeholder(
                             width = stickerSizeTextUnit,
-                            height = stickerSizeTextUnit,
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                            height = stickerSlotHeightTextUnit,
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextTop
                         )
                     ) {
                         val image = InlineStickerAssets.rememberImageBitmap(token.assetKey)
@@ -166,11 +178,8 @@ fun CitationInlineRichText(
                                 bitmap = image,
                                 contentDescription = token.alt,
                                 contentScale = ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer {
-                                        translationY = stickerShiftPx
-                                    }
+                                alignment = Alignment.TopCenter,
+                                modifier = Modifier.fillMaxSize()
                             )
                         }
                     }
@@ -184,7 +193,11 @@ fun CitationInlineRichText(
         inlineContent = inlineContent,
         color = color,
         fontSize = fontSize,
-        lineHeight = if (render.stickerTokens.isNotEmpty()) fontSize * 1.2f else lineHeight,
+        lineHeight = if (render.stickerTokens.isNotEmpty()) {
+            fontSize * INLINE_STICKER_LINE_HEIGHT_MULTIPLIER
+        } else {
+            lineHeight
+        },
         fontWeight = fontWeight,
         modifier = modifier
     )
