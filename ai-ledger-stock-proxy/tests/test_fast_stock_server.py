@@ -17,11 +17,12 @@ import fast_stock_server as fast_server
 
 class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
     async def test_realtime_does_not_wait_for_slow_auction_refresh(self) -> None:
-        async def fake_realtime(query: str, ndays: int):
+        async def fake_core(query: str, ndays: int, mark_hot: bool = True):
             return {
                 "provider": "test",
                 "quote": {"code": query, "price": "10.00"},
                 "minutePoints": [],
+                "tradeTicks": [],
                 "warnings": [],
                 "updatedAt": "2026-06-27T00:00:00+00:00",
                 "sourceTimestamp": "2026-06-27T00:00:00+00:00",
@@ -35,9 +36,9 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.25)
             raise RuntimeError("slow auction")
 
-        original_realtime = fast_server.runtime.realtime
+        original_core = fast_server._fast_core_realtime
         original_auction = fast_server.detail.load_auction
-        fast_server.runtime.realtime = fake_realtime
+        fast_server._fast_core_realtime = fake_core
         fast_server.detail.load_auction = fake_auction
         try:
             started = monotonic()
@@ -45,7 +46,7 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
             elapsed = monotonic() - started
             await asyncio.sleep(0.27)
         finally:
-            fast_server.runtime.realtime = original_realtime
+            fast_server._fast_core_realtime = original_core
             fast_server.detail.load_auction = original_auction
 
         self.assertLess(elapsed, 0.15)
@@ -54,10 +55,10 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
             any("refreshing in background" in item for item in payload["warnings"])
         )
 
-    async def test_lite_detail_reuses_async_realtime_runtime(self) -> None:
+    async def test_lite_detail_reuses_fast_core_once(self) -> None:
         calls = 0
 
-        async def fake_realtime(query: str, ndays: int):
+        async def fake_core(query: str, ndays: int, mark_hot: bool = True):
             nonlocal calls
             calls += 1
             return {
@@ -75,12 +76,12 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
                 "warnings": [],
             }
 
-        original_realtime = fast_server.runtime.realtime
-        fast_server.runtime.realtime = fake_realtime
+        original_core = fast_server._fast_core_realtime
+        fast_server._fast_core_realtime = fake_core
         try:
             payload = await fast_server.fast_detail_payload("600667", "lite")
         finally:
-            fast_server.runtime.realtime = original_realtime
+            fast_server._fast_core_realtime = original_core
 
         self.assertEqual(calls, 1)
         self.assertEqual(payload["provider"], "async_realtime_fast_path")
@@ -128,8 +129,34 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["minuteDelta"]), 2)
         self.assertEqual(len(result["newTradeTicks"]), 2)
         self.assertEqual(result["minuteCursor"], "2026-06-27 09:32")
-        self.assertEqual(result["tradeCursor"], "09:32:01")
+        self.assertEqual(result["tradeCursor"], "09:32:01|12.34||")
         self.assertLess(result["payloadBytes"], full_size)
+
+    def test_minute_contract_exposes_phase_and_auction_volume_fields(self) -> None:
+        payload = {
+            "minutePoints": [
+                {
+                    "date": "2026-06-27",
+                    "time": "09:20",
+                    "price": 12.10,
+                    "volume": 88,
+                    "sessionPhase": "openAuction",
+                }
+            ],
+            "tradeTicks": [],
+        }
+        result = fast_server._apply_incremental_payload(
+            payload,
+            ndays=1,
+            since_minute_key="",
+            since_trade_key="",
+            compact=False,
+        )
+        point = result["minutePoints"][0]
+        self.assertEqual(point["phase"], "openAuction")
+        self.assertEqual(point["matchedVolume"], 88)
+        self.assertIsNone(point["unmatchedVolume"])
+        self.assertEqual(point["unmatchedDirection"], "unavailable")
 
     def test_one_day_cursor_resets_on_trade_date_change(self) -> None:
         payload = {
