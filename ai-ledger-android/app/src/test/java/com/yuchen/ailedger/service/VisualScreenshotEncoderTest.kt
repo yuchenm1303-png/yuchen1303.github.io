@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualScreenshotEncoderTest {
@@ -18,5 +19,36 @@ class VisualScreenshotEncoderTest {
     @Test
     fun landscapeAspectRatioIsPreserved() {
         assertEquals(1800 to 1012, VisualScreenshotEncoder.targetSize(2560, 1440))
+    }
+
+    @Test
+    fun largeEncodedFrameCanJumpDirectlyToMinimumAllowedSide() {
+        val estimated = VisualScreenshotEncoder.estimatedLongSide(
+            currentLongSide = 1800,
+            encodedBytes = 3_000_000,
+        )
+
+        assertEquals(1280, estimated)
+    }
+
+    @Test
+    fun nearBudgetEstimateStillReducesTheLongSide() {
+        val estimated = VisualScreenshotEncoder.estimatedLongSide(
+            currentLongSide = 1800,
+            encodedBytes = 1_300_000,
+        )
+
+        assertTrue(estimated in 1280 until 1800)
+    }
+
+    @Test
+    fun frameWithinBudgetKeepsCurrentResolution() {
+        assertEquals(
+            1800,
+            VisualScreenshotEncoder.estimatedLongSide(
+                currentLongSide = 1800,
+                encodedBytes = 1_200_000,
+            ),
+        )
     }
 }
