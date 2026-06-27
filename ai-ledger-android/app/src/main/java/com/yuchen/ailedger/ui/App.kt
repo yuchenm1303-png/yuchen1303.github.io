@@ -420,7 +420,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                             AgentChatHeaderOverlay(
                                                 modifier = Modifier
                                                     .align(Alignment.TopStart)
-                                                    .padding(start = 80.dp, top = 222.dp)
+                                                    .padding(start = 68.dp, top = 222.dp)
                                                     .zIndex(1600f)
                                             )
                                         }
@@ -468,7 +468,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     onStateChange = { diagnostics = it },
                                     modifier = Modifier
                                         .align(Alignment.TopStart)
-                                        .padding(top = 76.dp, start = 16.dp)
+                                        .padding(top = 76.dp, start = 4.dp)
                                         .zIndex(2000f)
                                 )
                             }
@@ -661,8 +661,9 @@ private fun rememberMotionState(state: AssistantUiState, effectiveMotionIntensit
         state.selectedModelLabel,
         state.onlineEnabled,
         state.isSending,
-        state.ledgerRecords,
         state.selectedTool,
+        state.ledgerRecords,
+        state.ledgerBudgetText,
     ) {
         state.copy(motionIntensity = effectiveMotionIntensity)
     }
