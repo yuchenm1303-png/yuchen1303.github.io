@@ -37,6 +37,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
@@ -427,6 +429,22 @@ private fun SettingsDashboardGrid(
 ) {
     val context = LocalContext.current
     val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
+    val accountRepository = remember(context.applicationContext) {
+        SupabaseAuthRepository.get(context.applicationContext)
+    }
+    val accountState by accountRepository.state.collectAsState()
+    val serviceValue = when {
+        accountState.loading -> "检查登录状态"
+        accountState.isLoggedIn -> "已登录 · 云端"
+        aiEndpoint.isBlank() -> "登录与本地"
+        else -> "登录与云端"
+    }
+    val memoryValue = when {
+        accountState.loading -> "检查登录状态"
+        accountState.isLoggedIn -> "账号已登录"
+        else -> "登录后使用"
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -478,7 +496,7 @@ private fun SettingsDashboardGrid(
                 "云",
                 "服务",
                 "账号 / Worker",
-                if (aiEndpoint.isBlank()) "登录与本地" else "登录与云端",
+                serviceValue,
                 selectedPanel == SettingsPanel.Service,
                 Modifier.weight(1f)
             ) { onSelected(SettingsPanel.Service) }
@@ -507,7 +525,7 @@ private fun SettingsDashboardGrid(
                 "忆",
                 "记忆",
                 "长期上下文",
-                "尚未接入",
+                memoryValue,
                 selectedPanel == SettingsPanel.Memory,
                 Modifier.weight(1f)
             ) { onSelected(SettingsPanel.Memory) }
@@ -1005,13 +1023,90 @@ private fun ChatPageSettingsContent() {
 
 @Composable
 private fun MemorySettingsContent() {
+    val context = LocalContext.current.applicationContext
+    val accountRepository = remember(context) { SupabaseAuthRepository.get(context) }
+    val accountState by accountRepository.state.collectAsState()
+
+    if (!accountState.isLoggedIn) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            MiniSettingMetric("长期记忆", "需要登录", Modifier.weight(1f))
+            MiniSettingMetric("已保存", "0 条", Modifier.weight(1f))
+            MiniSettingMetric("访问状态", "已锁定", Modifier.weight(1f))
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White.copy(alpha = 0.065f))
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.075f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "锁",
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+            Text(
+                if (accountState.loading) "正在检查登录状态" else "登录后使用长期记忆",
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                if (accountState.loading) {
+                    "正在恢复本机保存的 Supabase 会话。"
+                } else {
+                    "长期记忆会与账号绑定并按用户隔离。请先在上方“服务”卡片完成登录或注册。"
+                },
+                color = Color.White.copy(alpha = 0.46f),
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        SectionTitleInline("为什么需要登录")
+        MemoryCapabilityRow(
+            title = "账号隔离",
+            description = "每个 Supabase 用户只读取自己的长期记忆，避免不同账号互相混用。",
+            status = "强制"
+        )
+        MemoryCapabilityRow(
+            title = "跨设备同步",
+            description = "登录后才能在设备之间恢复同一份偏好和长期上下文。",
+            status = "登录后"
+        )
+        MemoryCapabilityRow(
+            title = "退出即锁定",
+            description = "退出登录后停止读取记忆，并清空当前进程中的记忆快照。",
+            status = "默认保护"
+        )
+        return
+    }
+
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         MiniSettingMetric("长期记忆", "未接入", Modifier.weight(1f))
         MiniSettingMetric("已保存", "0 条", Modifier.weight(1f))
-        MiniSettingMetric("模型共享", "准备中", Modifier.weight(1f))
+        MiniSettingMetric("账号状态", "已登录", Modifier.weight(1f))
     }
 
     Column(
@@ -1039,11 +1134,13 @@ private fun MemorySettingsContent() {
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    "接入后，Qwen、DeepSeek 与识图模型会共享同一份用户偏好和长期上下文。",
-                    color = Color.White.copy(alpha = 0.48f),
+                    accountState.email.orEmpty(),
+                    color = Color.White.copy(alpha = 0.58f),
                     fontSize = 11.sp,
                     lineHeight = 16.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             Switch(
@@ -1054,7 +1151,7 @@ private fun MemorySettingsContent() {
         }
         SettingsHairline(alpha = 0.08f)
         Text(
-            "当前只有同一聊天内的上下文连续，长期存储、编辑与跨会话同步尚未接入。",
+            "登录门槛已经满足；长期存储、编辑和跨会话同步将在下一步接入。",
             color = Color.White.copy(alpha = 0.42f),
             fontSize = 10.5.sp,
             lineHeight = 15.sp,
@@ -1088,7 +1185,7 @@ private fun MemorySettingsContent() {
     ) {
         MemoryUnavailableAction(
             title = "添加记忆",
-            subtitle = "接入后可用",
+            subtitle = "功能接入后可用",
             modifier = Modifier.weight(1f)
         )
         MemoryUnavailableAction(
@@ -1492,7 +1589,7 @@ private fun panelSubtitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Service -> "账号登录、AI Worker 和云端接口。"
     SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"
     SettingsPanel.Chat -> "聊天消息与内联表情显示参数。"
-    SettingsPanel.Memory -> "查看、整理并控制 AI 的长期记忆。"
+    SettingsPanel.Memory -> "登录后查看、整理并控制 AI 的长期记忆。"
     SettingsPanel.Debug -> "高级玻璃参数与实验入口。"
 }
 
