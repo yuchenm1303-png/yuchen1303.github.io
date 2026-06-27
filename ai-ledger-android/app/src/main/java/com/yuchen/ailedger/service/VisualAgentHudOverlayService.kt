@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -46,7 +47,8 @@ class VisualAgentHudOverlayService : Service() {
     private var pendingPayload: String? = null
     private var lastClickRevision = 0L
     private var lastPreviewGeneration = 0L
-    private var overlayVisible = false
+    private var overlayContentActive = false
+    private var captureSuppressed = false
 
     override fun onCreate() {
         super.onCreate()
@@ -91,8 +93,10 @@ class VisualAgentHudOverlayService : Service() {
         scope.cancel()
         pageReady = false
         pendingPayload = null
-        overlayVisible = false
+        overlayContentActive = false
+        captureSuppressed = false
         webView?.let { view ->
+            view.animate().cancel()
             runCatching { windowManager?.removeView(view) }
             view.stopLoading()
             view.loadUrl("about:blank")
@@ -153,6 +157,7 @@ class VisualAgentHudOverlayService : Service() {
                     }
                 }
             }
+            alpha = 0f
             visibility = View.INVISIBLE
             loadUrl(ASSET_URL)
         }
@@ -176,8 +181,8 @@ class VisualAgentHudOverlayService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = 0
             y = 0
-            // During screenshots, actual device actions and idle time the full-screen window is
-            // transparent. The HUD itself never handles touch input.
+            // During screenshots and idle time the full-screen window is compositor-transparent.
+            // The HUD itself never handles touch input.
             alpha = 0f
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode =
@@ -203,12 +208,13 @@ class VisualAgentHudOverlayService : Service() {
         val matchingTarget = snapshot.target?.takeIf { it.taskId == progress.taskId }
         val realHudActive = shouldPresentRuntime(progress)
         val sampleMode = tuning.previewEnabled && !realHudActive
-        val visible = !snapshot.hiddenForCapture && (realHudActive || sampleMode)
-        setOverlayActive(visible)
+        val contentActive = realHudActive || sampleMode
+        val visibleToUser = contentActive && !snapshot.hiddenForCapture
+        setOverlayPresentation(contentActive, snapshot.hiddenForCapture)
 
         val lastLog = progress.logs.lastOrNull().orEmpty()
         val phase = if (sampleMode) SAMPLE_PHASE else phaseOf(progress, matchingTarget, lastLog)
-        val resultPulse = visible && !sampleMode &&
+        val resultPulse = visibleToUser && !sampleMode &&
             matchingTarget?.positioned == true &&
             lastLog.startsWith("结果：") &&
             progress.updatedAt > lastClickRevision
@@ -224,7 +230,9 @@ class VisualAgentHudOverlayService : Service() {
                 progress = progress,
                 target = matchingTarget,
                 tuning = tuning,
-                visible = visible,
+                // Keep the web scene alive while only the Android compositor hides it for capture.
+                // This preserves edge-light phase, cursor position and typewriter state across screenshots.
+                visible = contentActive,
                 phase = phase,
                 sampleMode = sampleMode,
                 clickRevision = if (resultPulse) progress.updatedAt else 0L,
@@ -233,18 +241,63 @@ class VisualAgentHudOverlayService : Service() {
         )
     }
 
-    private fun setOverlayActive(visible: Boolean) {
+    private fun setOverlayPresentation(active: Boolean, hiddenForCapture: Boolean) {
         val view = webView ?: return
-        if (overlayVisible == visible) return
-        overlayVisible = visible
-        view.visibility = if (visible) View.VISIBLE else View.INVISIBLE
-        if (visible) view.onResume() else view.onPause()
-        val params = layoutParams ?: return
-        val nextAlpha = if (visible) 1f else 0f
-        if (params.alpha != nextAlpha) {
-            params.alpha = nextAlpha
-            runCatching { windowManager?.updateViewLayout(view, params) }
+        val wasActive = overlayContentActive
+        val wasSuppressed = captureSuppressed
+        overlayContentActive = active
+        captureSuppressed = active && hiddenForCapture
+        view.animate().cancel()
+
+        when {
+            !active -> {
+                updateWindowAlpha(0f)
+                view.alpha = 0f
+                if (view.visibility != View.INVISIBLE) {
+                    view.visibility = View.INVISIBLE
+                    view.onPause()
+                }
+            }
+
+            hiddenForCapture -> {
+                if (view.visibility != View.VISIBLE) {
+                    view.visibility = View.VISIBLE
+                    view.onResume()
+                }
+                // Keep WebView timers and CSS/SVG animations running, but remove the complete
+                // surface from the compositor output used by accessibility screenshots.
+                view.alpha = 0f
+                updateWindowAlpha(0f)
+            }
+
+            else -> {
+                val shouldFadeIn = !wasActive || wasSuppressed ||
+                    view.visibility != View.VISIBLE || view.alpha < 0.999f
+                if (view.visibility != View.VISIBLE) {
+                    view.visibility = View.VISIBLE
+                    view.onResume()
+                }
+                updateWindowAlpha(1f)
+                if (shouldFadeIn) {
+                    view.alpha = 0f
+                    view.animate()
+                        .alpha(1f)
+                        .setDuration(HUD_RESTORE_FADE_MS)
+                        .setInterpolator(HUD_RESTORE_INTERPOLATOR)
+                        .start()
+                } else {
+                    view.alpha = 1f
+                }
+            }
         }
+    }
+
+    private fun updateWindowAlpha(alpha: Float) {
+        val view = webView ?: return
+        val params = layoutParams ?: return
+        if (params.alpha == alpha) return
+        params.alpha = alpha
+        runCatching { windowManager?.updateViewLayout(view, params) }
     }
 
     private fun phaseOf(
@@ -362,6 +415,8 @@ class VisualAgentHudOverlayService : Service() {
         private const val ASSET_URL = "file:///android_asset/visual_agent_hud_runtime.html"
         private const val TARGET_MOVE_VISIBLE_MS = 1_200L
         private const val SAMPLE_CLICK_DELAY_MS = 820L
+        private const val HUD_RESTORE_FADE_MS = 82L
+        private val HUD_RESTORE_INTERPOLATOR = DecelerateInterpolator(1.6f)
         private const val SAMPLE_PHASE = 2
         private const val DEFAULT_CURSOR_X = 0.52f
         private const val DEFAULT_CURSOR_Y = 0.46f
