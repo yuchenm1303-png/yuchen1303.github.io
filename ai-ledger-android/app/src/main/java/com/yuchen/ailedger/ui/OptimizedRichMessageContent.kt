@@ -35,7 +35,6 @@ import kotlin.math.roundToInt
 import ru.noties.jlatexmath.JLatexMathDrawable
 
 private const val INLINE_STICKER_MAX_PER_MESSAGE = 2
-private const val INLINE_STICKER_SIZE_DP = 60f
 private const val INLINE_STICKER_BASELINE_DROP_DP = 9f
 
 private val optimizedRichMessageTokenRegex = Regex(
@@ -146,8 +145,9 @@ fun OptimizedRichMessageContent(
             textSizePx * 1.28f
         }
     }
-    val stickerSizePx = remember(density) {
-        with(density) { INLINE_STICKER_SIZE_DP.dp.toPx() }.roundToInt().coerceAtLeast(1)
+    val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
+    val stickerSizePx = remember(density, stickerSizeDp) {
+        with(density) { stickerSizeDp.dp.toPx() }.roundToInt().coerceAtLeast(1)
     }
     val stickerBaselineDropPx = remember(density) {
         with(density) { INLINE_STICKER_BASELINE_DROP_DP.dp.toPx() }.roundToInt().coerceAtLeast(0)
