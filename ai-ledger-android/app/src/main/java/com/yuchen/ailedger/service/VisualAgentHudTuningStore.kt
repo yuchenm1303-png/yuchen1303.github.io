@@ -23,7 +23,7 @@ data class VisualAgentHudParameters(
     val p6x: Float = 13.1f,
     val p6y: Float = 24.2f,
     val tension: Float = 0.91f,
-    val size: Float = 47.5f,
+    val size: Float = 36.1f,
     val scaleX: Float = 1f,
     val scaleY: Float = 0.95f,
     val rotation: Float = -2.5f,
@@ -60,8 +60,8 @@ data class VisualAgentHudParameters(
     val innerGlowRy: Float = 8.2f,
     val innerGlowOpacity: Float = 0.09f,
     val innerGlowBlur: Float = 2.5f,
-    val infoBubbleWidth: Float = 310f,
-    val infoBubbleScale: Float = 1f,
+    val infoBubbleWidth: Float = 420f,
+    val infoBubbleScale: Float = 0.65f,
     val edgeInset: Float = 0f,
     val edgeRadius: Float = 0f,
     val edgeHaloWidth: Float = 0f,
@@ -144,7 +144,7 @@ data class VisualAgentHudParameters(
 
     companion object {
         private const val SCHEMA_VERSION_KEY = "_schemaVersion"
-        private const val CURRENT_SCHEMA_VERSION = 3
+        private const val CURRENT_SCHEMA_VERSION = 4
 
         val ALL_KEYS = listOf(
             "p0x","p0y","p1x","p1y","p2x","p2y","p3x","p3y","p4x","p4y","p5x","p5y","p6x","p6y",
@@ -176,6 +176,13 @@ data class VisualAgentHudParameters(
                     result = result.copy(
                         edgeHaloWidth = 0f,
                         edgeCastDepth = 29.2f,
+                    )
+                }
+                if (schemaVersion < 4) {
+                    result = result.copy(
+                        size = 36.1f,
+                        infoBubbleWidth = 420f,
+                        infoBubbleScale = 0.65f,
                     )
                 }
                 result
