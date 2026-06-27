@@ -13,7 +13,7 @@ import httpx
 from fastapi import HTTPException, Query
 
 import market_home_server as market_home
-from realtime_runtime import CN_TZ, QUOTE_URLS, TRENDS_URLS
+from realtime_runtime import CN_TZ, QUOTE_URLS, TENCENT_FIVE_DAY_URL, TRENDS_URLS
 
 
 app = market_home.app
@@ -21,7 +21,7 @@ legacy = market_home.legacy
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.index-detail")
 
 INDEX_DETAIL_PATH = "/api/stock/a-share/index/detail"
-INDEX_DETAIL_CACHE_VERSION = "v1-index-shared-page"
+INDEX_DETAIL_CACHE_VERSION = "v2-true-five-day"
 INDEX_DETAIL_FRESH_SECONDS = 1.0
 INDEX_DETAIL_STALE_SECONDS = 6 * 60 * 60.0
 INDEX_DETAIL_WORKERS = 5
@@ -128,10 +128,11 @@ def _parse_index_minutes(raw: dict[str, Any], ndays: int) -> list[dict[str, Any]
     max_volume = max(volumes or [1.0])
     for row in rows:
         row["volumeRatio"] = min(max(row["volume"] / max_volume, 0.02), 1.0)
+    rows.sort(key=lambda row: int(row["timestamp"]))
     return rows
 
 
-def _load_index_minutes(
+def _load_eastmoney_index_minutes(
     security: dict[str, str],
     ndays: int,
     warnings: list[str],
@@ -150,6 +151,159 @@ def _load_index_minutes(
         warnings,
     )
     return _parse_index_minutes(raw, ndays)
+
+
+def _load_index_minutes(
+    security: dict[str, str],
+    ndays: int,
+    warnings: list[str],
+) -> list[dict[str, Any]]:
+    return _load_eastmoney_index_minutes(security, ndays, warnings)
+
+
+def _tencent_symbol(security: dict[str, str]) -> str:
+    prefix = "sh" if security["secid"].startswith("1.") else "sz"
+    return f"{prefix}{security['code']}"
+
+
+def _parse_tencent_five_day(
+    payload: dict[str, Any],
+    security: dict[str, str],
+) -> list[dict[str, Any]]:
+    symbol = _tencent_symbol(security)
+    days = ((((payload.get("data") or {}).get(symbol) or {}).get("data")) or [])
+    rows: list[dict[str, Any]] = []
+    volumes: list[float] = []
+    for day in days:
+        raw_date = str(day.get("date") or "")
+        if len(raw_date) != 8:
+            continue
+        date_text = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+        previous_cumulative_volume = 0.0
+        previous_cumulative_amount = 0.0
+        for item in day.get("data") or []:
+            parts = str(item).split()
+            if len(parts) < 4 or len(parts[0]) != 4:
+                continue
+            time_text = f"{parts[0][:2]}:{parts[0][2:]}"
+            price = legacy._safe_float(parts[1])
+            if price <= 0:
+                continue
+            cumulative_volume = max(legacy._safe_float(parts[2]), 0.0)
+            cumulative_amount = max(legacy._safe_float(parts[3]), 0.0)
+            volume = max(cumulative_volume - previous_cumulative_volume, 0.0)
+            amount = max(cumulative_amount - previous_cumulative_amount, 0.0)
+            previous_cumulative_volume = cumulative_volume
+            previous_cumulative_amount = cumulative_amount
+            average = (
+                cumulative_amount / cumulative_volume / 100.0
+                if cumulative_volume > 0
+                else price
+            )
+            volumes.append(volume)
+            rows.append(
+                {
+                    "date": date_text,
+                    "time": time_text,
+                    "timestamp": int(
+                        datetime.strptime(
+                            f"{date_text} {time_text}",
+                            "%Y-%m-%d %H:%M",
+                        ).replace(tzinfo=CN_TZ).timestamp()
+                        * 1000
+                    ),
+                    "open": price,
+                    "price": price,
+                    "high": price,
+                    "low": price,
+                    "volume": volume,
+                    "amount": amount,
+                    "average": average,
+                    "volumeRatio": 0.0,
+                }
+            )
+    if not rows:
+        raise ValueError("Tencent index five-day data is empty")
+    max_volume = max(volumes or [1.0])
+    for row in rows:
+        row["volumeRatio"] = min(max(row["volume"] / max_volume, 0.02), 1.0)
+    rows.sort(key=lambda row: int(row["timestamp"]))
+    return rows
+
+
+def _load_tencent_index_five_day(
+    security: dict[str, str],
+) -> list[dict[str, Any]]:
+    client = market_home._get_shared_client()
+    response = client.get(
+        TENCENT_FIVE_DAY_URL,
+        params={"code": _tencent_symbol(security)},
+        headers={"Referer": "https://gu.qq.com/"},
+        timeout=httpx.Timeout(4.0, connect=1.2),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise ValueError("Tencent index five-day response is not an object")
+    return _parse_tencent_five_day(payload, security)
+
+
+def _trading_dates(points: list[dict[str, Any]]) -> list[str]:
+    return sorted({str(point.get("date") or "") for point in points if point.get("date")})
+
+
+def _load_index_five_day(
+    security: dict[str, str],
+    warnings: list[str],
+) -> dict[str, Any]:
+    eastmoney_points: list[dict[str, Any]] = []
+    try:
+        eastmoney_points = _load_eastmoney_index_minutes(security, 5, warnings)
+    except Exception as exc:
+        warnings.append(f"index_five_day_eastmoney_failed: {type(exc).__name__}: {exc}")
+    eastmoney_dates = _trading_dates(eastmoney_points)
+    if len(eastmoney_dates) >= 5:
+        return {
+            "points": eastmoney_points,
+            "source": "eastmoney_trends2",
+            "sourceUrlType": "qt/stock/trends2/get ndays=5",
+            "tradingDayCount": len(eastmoney_dates),
+            "tradingDates": eastmoney_dates[-5:],
+            "status": "ok",
+        }
+    if eastmoney_points:
+        warnings.append(
+            f"index_five_day_eastmoney_incomplete: trading_days={len(eastmoney_dates)}"
+        )
+
+    try:
+        tencent_points = _load_tencent_index_five_day(security)
+        tencent_dates = _trading_dates(tencent_points)
+        if len(tencent_dates) >= 2:
+            return {
+                "points": tencent_points,
+                "source": "tencent_five_day",
+                "sourceUrlType": "appstock/app/day/query",
+                "tradingDayCount": len(tencent_dates),
+                "tradingDates": tencent_dates[-5:],
+                "status": "ok" if len(tencent_dates) >= 5 else "partial",
+            }
+        warnings.append(
+            f"index_five_day_tencent_incomplete: trading_days={len(tencent_dates)}"
+        )
+    except Exception as exc:
+        warnings.append(f"index_five_day_tencent_failed: {type(exc).__name__}: {exc}")
+
+    if len(eastmoney_dates) >= 2:
+        return {
+            "points": eastmoney_points,
+            "source": "eastmoney_trends2",
+            "sourceUrlType": "qt/stock/trends2/get ndays=5 incomplete",
+            "tradingDayCount": len(eastmoney_dates),
+            "tradingDates": eastmoney_dates,
+            "status": "partial",
+        }
+    raise ValueError("true index five-day minute data unavailable")
 
 
 def _load_index_kline(
@@ -224,7 +378,7 @@ def _build_index_detail(security: dict[str, str]) -> dict[str, Any]:
     tasks: dict[str, Callable[[], Any]] = {
         "quote": lambda: _load_index_quote(security, warnings),
         "minutePoints": lambda: _load_index_minutes(security, 1, warnings),
-        "fiveDayPoints": lambda: _load_index_minutes(security, 5, warnings),
+        "fiveDayBundle": lambda: _load_index_five_day(security, warnings),
         "kLinePoints": lambda: _load_index_kline(security, warnings),
         "context": lambda: _load_market_context(security["code"]),
     }
@@ -244,11 +398,12 @@ def _build_index_detail(security: dict[str, str]) -> dict[str, Any]:
     if not quote:
         raise ValueError("index quote unavailable")
     context = results.get("context") or {}
+    five_day_bundle = results.get("fiveDayBundle") or {}
     minute_points = list(results.get("minutePoints") or [])
-    five_day_points = list(results.get("fiveDayPoints") or [])
+    five_day_points = list(five_day_bundle.get("points") or [])
     kline_points = list(results.get("kLinePoints") or [])
     complete_modules = sum(bool(value) for value in (minute_points, five_day_points, kline_points))
-    status = "ok" if complete_modules == 3 else "partial"
+    status = "ok" if complete_modules == 3 and five_day_bundle.get("status") == "ok" else "partial"
     now_iso = datetime.now(timezone.utc).isoformat()
     return {
         "provider": "eastmoney_index_detail",
@@ -259,6 +414,13 @@ def _build_index_detail(security: dict[str, str]) -> dict[str, Any]:
         "quote": quote,
         "minutePoints": minute_points,
         "fiveDayPoints": five_day_points,
+        "fiveDayMeta": {
+            "status": five_day_bundle.get("status", "unavailable"),
+            "source": five_day_bundle.get("source", ""),
+            "sourceUrlType": five_day_bundle.get("sourceUrlType", ""),
+            "tradingDayCount": int(five_day_bundle.get("tradingDayCount") or 0),
+            "tradingDates": list(five_day_bundle.get("tradingDates") or []),
+        },
         "kLinePoints": kline_points,
         "marketBreadth": context.get("marketBreadth") or {},
         "marketBreadthMeta": context.get("marketBreadthMeta") or {},
