@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,9 +21,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -36,11 +39,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockKLinePoint
 import com.yuchen.ailedger.model.StockMinutePoint
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 internal val StockRise = Color(0xFFFF8F8F)
 internal val StockFall = Color(0xFF80F7B4)
@@ -53,6 +58,8 @@ internal val StockLine = Color.White.copy(alpha = 0.075f)
 internal val StockMuted = Color.White.copy(alpha = 0.40f)
 internal val StockSoft = Color.White.copy(alpha = 0.055f)
 internal val StockPillShape = RoundedCornerShape(999.dp)
+
+internal val LocalStockNativeGlassState = compositionLocalOf<AssistantUiState?> { null }
 
 internal fun stockTone(value: String): Color =
     if (value.trim().startsWith("-")) StockFall else StockRise
@@ -78,26 +85,57 @@ internal fun compactCount(value: Int): String = when {
 internal fun StockNativeGlassPanel(
     modifier: Modifier = Modifier,
     radius: Dp = 30.dp,
-    contentPadding: Dp = 14.dp,
+    contentPadding: Dp = 11.dp,
+    content: @Composable () -> Unit
+) {
+    val state = LocalStockNativeGlassState.current
+    val radiusValue = radius.value.roundToInt().coerceAtLeast(1)
+    val shape = RoundedCornerShape(radius)
+    Box(modifier = modifier.clip(shape)) {
+        if (state != null) {
+            GlassPanel(
+                quality = state.quality,
+                glassIntensity = state.glassIntensity,
+                motionIntensity = state.motionIntensity,
+                radius = radiusValue,
+                modifier = Modifier.matchParentSize(),
+                role = GlassRole.Card
+            ) {}
+        } else {
+            FrostInfoGlassPanel(
+                radius = radius.value,
+                backdropAlpha = 1f,
+                frostAlpha = 0.082f,
+                dimAlpha = 0f,
+                modifier = Modifier.matchParentSize()
+            ) {}
+        }
+        Box(Modifier.fillMaxWidth().padding(contentPadding)) {
+            content()
+        }
+    }
+}
+
+@Composable
+internal fun StockNativeFrostCard(
+    modifier: Modifier = Modifier,
+    radius: Dp = 16.dp,
+    frostAlpha: Float = 0.075f,
+    contentPadding: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
     val shape = RoundedCornerShape(radius)
-    Box(
-        modifier = modifier
-            .background(
-                Brush.verticalGradient(
-                    listOf(
-                        Color(0xE6101738),
-                        Color(0xF20A1027),
-                        Color(0xF6070B1D)
-                    )
-                ),
-                shape
-            )
-            .border(1.dp, Color(0xFF7D8EC0).copy(alpha = 0.22f), shape)
-            .padding(contentPadding)
-    ) {
-        content()
+    Box(modifier = modifier.clip(shape)) {
+        FrostInfoGlassPanel(
+            radius = radius.value,
+            backdropAlpha = 1f,
+            frostAlpha = frostAlpha,
+            dimAlpha = 0f,
+            modifier = Modifier.matchParentSize()
+        ) {}
+        Box(Modifier.fillMaxWidth().padding(contentPadding)) {
+            content()
+        }
     }
 }
 
@@ -152,32 +190,37 @@ internal fun StockNativePill(
     fontSize: Int = 11,
     onClick: () -> Unit
 ) {
-    val background = if (active) {
-        Brush.horizontalGradient(
-            listOf(Color(0xFF8092D8).copy(alpha = 0.34f), StockAqua.copy(alpha = 0.13f))
+    val state = LocalStockNativeGlassState.current
+    val content: @Composable () -> Unit = {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text,
+                color = Color.White.copy(alpha = if (active) 0.98f else 0.76f),
+                fontSize = fontSize.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+    if (state != null) {
+        PressableGlass(
+            state.quality,
+            state.glassIntensity * if (active) 1.04f else 0.96f,
+            state.motionIntensity,
+            999,
+            modifier,
+            if (active) GlassRole.Floating else GlassRole.Chip,
+            onClick = onClick,
+            content = content
         )
     } else {
-        Brush.horizontalGradient(listOf(Color.White.copy(alpha = 0.075f), Color.White.copy(alpha = 0.05f)))
-    }
-    Box(
-        modifier = modifier
-            .background(background, StockPillShape)
-            .border(
-                1.dp,
-                if (active) StockAqua.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.065f),
-                StockPillShape
-            )
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text,
-            color = Color.White.copy(alpha = if (active) 0.98f else 0.76f),
-            fontSize = fontSize.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
+        StockNativeFrostCard(
+            modifier = modifier.clickable(onClick = onClick),
+            radius = 999.dp,
+            frostAlpha = if (active) 0.105f else 0.068f,
+            content = content
         )
     }
 }
@@ -233,23 +276,25 @@ internal fun StockMetricTile(
     modifier: Modifier = Modifier,
     prominent: Boolean = false
 ) {
-    Column(
-        modifier = modifier
-            .height(if (prominent) 62.dp else 54.dp)
-            .background(StockSoft, RoundedCornerShape(16.dp))
-            .border(1.dp, tone.copy(alpha = if (prominent) 0.14f else 0.08f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 9.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+    StockNativeFrostCard(
+        modifier = modifier.height(if (prominent) 62.dp else 54.dp),
+        radius = 16.dp,
+        frostAlpha = if (prominent) 0.088f else 0.070f
     ) {
-        Text(label, color = StockMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        Text(
-            value.ifBlank { "--" },
-            color = tone,
-            fontSize = if (prominent) 14.sp else 12.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 9.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, color = StockMuted, fontSize = 8.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(
+                value.ifBlank { "--" },
+                color = tone,
+                fontSize = if (prominent) 14.sp else 12.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
