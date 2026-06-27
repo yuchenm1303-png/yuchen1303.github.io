@@ -507,7 +507,7 @@ private fun SettingsDashboardGrid(
                 "忆",
                 "记忆",
                 "长期上下文",
-                "待开放",
+                "尚未接入",
                 selectedPanel == SettingsPanel.Memory,
                 Modifier.weight(1f)
             ) { onSelected(SettingsPanel.Memory) }
@@ -768,7 +768,7 @@ private fun SettingsDetailPanel(
                         SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
                         SettingsPanel.Advanced -> AdvancedContent()
                         SettingsPanel.Chat -> ChatPageSettingsContent()
-                        SettingsPanel.Memory -> Unit
+                        SettingsPanel.Memory -> MemorySettingsContent()
                         SettingsPanel.Debug -> GlassDebugFloatingPanel(
                             state,
                             onBackdropChange,
@@ -999,6 +999,220 @@ private fun ChatPageSettingsContent() {
             fontSize = 10.5.sp,
             lineHeight = 14.sp,
             fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun MemorySettingsContent() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        MiniSettingMetric("长期记忆", "未接入", Modifier.weight(1f))
+        MiniSettingMetric("已保存", "0 条", Modifier.weight(1f))
+        MiniSettingMetric("模型共享", "准备中", Modifier.weight(1f))
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.065f))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    "长期记忆",
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Black
+                )
+                Text(
+                    "接入后，Qwen、DeepSeek 与识图模型会共享同一份用户偏好和长期上下文。",
+                    color = Color.White.copy(alpha = 0.48f),
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Switch(
+                checked = false,
+                onCheckedChange = null,
+                enabled = false
+            )
+        }
+        SettingsHairline(alpha = 0.08f)
+        Text(
+            "当前只有同一聊天内的上下文连续，长期存储、编辑与跨会话同步尚未接入。",
+            color = Color.White.copy(alpha = 0.42f),
+            fontSize = 10.5.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+
+    SectionTitleInline("记忆方式")
+    MemoryCapabilityRow(
+        title = "自动整理",
+        description = "从对话中提取长期有效的称呼、偏好和项目背景。",
+        status = "待接入"
+    )
+    MemoryCapabilityRow(
+        title = "跨模型共享",
+        description = "切换 Qwen、DeepSeek 或识图时继续使用同一份记忆。",
+        status = "待接入"
+    )
+    MemoryCapabilityRow(
+        title = "敏感信息保护",
+        description = "默认不主动记录密码、验证码、支付信息和一次性隐私内容。",
+        status = "默认保护"
+    )
+
+    SectionTitleInline("已保存的记忆")
+    MemoryEmptyState()
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        MemoryUnavailableAction(
+            title = "添加记忆",
+            subtitle = "接入后可用",
+            modifier = Modifier.weight(1f)
+        )
+        MemoryUnavailableAction(
+            title = "全部清除",
+            subtitle = "当前没有数据",
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun MemoryCapabilityRow(
+    title: String,
+    description: String,
+    status: String
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.055f))
+            .padding(horizontal = 13.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Column(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                title,
+                color = Color.White.copy(alpha = 0.78f),
+                fontSize = 13.5.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Text(
+                description,
+                color = Color.White.copy(alpha = 0.42f),
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Text(
+            status,
+            color = Color.White.copy(alpha = 0.46f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun MemoryEmptyState() {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.045f))
+            .padding(horizontal = 18.dp, vertical = 22.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            Modifier
+                .size(46.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Color.White.copy(alpha = 0.065f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "忆",
+                color = Color.White.copy(alpha = 0.62f),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Black
+            )
+        }
+        Text(
+            "还没有长期记忆",
+            color = Color.White.copy(alpha = 0.80f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black
+        )
+        Text(
+            "接入存储后，已保存的偏好、背景和项目上下文会显示在这里，并可单独编辑或删除。",
+            color = Color.White.copy(alpha = 0.40f),
+            fontSize = 10.5.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+private fun MemoryUnavailableAction(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .height(58.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.045f))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            title,
+            color = Color.White.copy(alpha = 0.46f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
+        )
+        Text(
+            subtitle,
+            color = Color.White.copy(alpha = 0.30f),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -1278,7 +1492,7 @@ private fun panelSubtitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Service -> "账号登录、AI Worker 和云端接口。"
     SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"
     SettingsPanel.Chat -> "聊天消息与内联表情显示参数。"
-    SettingsPanel.Memory -> ""
+    SettingsPanel.Memory -> "查看、整理并控制 AI 的长期记忆。"
     SettingsPanel.Debug -> "高级玻璃参数与实验入口。"
 }
 
