@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
+<title>AI Ledger · 实时榜单详情</title>
+<link rel="stylesheet" href="./stock-ranking-web-preview.css?v=20260627-1">
+</head>
+<body>
+<button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
+<main class="workspace">
+  <section class="phone" aria-label="实时榜单详情手机预览">
+    <div class="screen">
+      <header class="status-bar">
+        <div class="status-left">
+          <span class="carriers">中国移动<br>中国电信</span>
+          <span class="clock" id="clock">--:--</span>
+          <span class="status-chip">◩</span><span class="status-chip">▣</span><span class="status-icon">⌁</span><span class="status-icon">◉</span>
+        </div>
+        <div class="status-right"><span>Ⓝ ⏰ ⌁ 4G▮▮▮ 4G▮▮▮</span><span class="battery">70</span></div>
+      </header>
+
+      <div class="ranking-scroll" id="rankingScroll">
+        <div class="ranking-top-row">
+          <button class="glass-button back-button" id="backButton" aria-label="返回市场首页">‹</button>
+          <span class="page-label">榜单详情 · A股</span>
+          <button class="glass-button refresh-button" id="refreshButton" aria-label="刷新榜单">⟳</button>
+        </div>
+
+        <section class="glass ranking-hero">
+          <div class="ranking-kicker">REAL-TIME RANKING</div>
+          <div class="ranking-heading-row">
+            <div class="ranking-heading-copy">
+              <h1 id="rankingTitle">涨幅榜</h1>
+              <p id="rankingSubtitle">按实时涨跌幅由高到低排序</p>
+            </div>
+            <div class="ranking-count"><strong id="rankingCount">--</strong><span>只股票</span></div>
+          </div>
+          <div class="ranking-status" id="rankingStatus">正在连接真实榜单数据</div>
+        </section>
+
+        <section class="ranking-switcher" id="rankingSwitcher" aria-label="榜单切换"></section>
+
+        <section class="glass ranking-panel">
+          <div class="ranking-column-head">
+            <span>排名</span><span>股票</span><span id="metricHeader">成交额</span><span>涨跌</span>
+          </div>
+          <div class="ranking-list" id="rankingList"></div>
+          <div class="ranking-empty" id="rankingEmpty">等待真实榜单数据</div>
+        </section>
+
+        <div class="ranking-data-status" id="dataStatus"><strong>初始化中</strong>：正在连接榜单接口。</div>
+      </div>
+    </div>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-item"><span>AI</span><small>AI助手</small></button>
+      <button class="nav-item active"><span class="nav-star">✦</span><small>功能</small></button>
+      <button class="nav-item"><span>⚙</span><small>设置</small></button>
+    </nav>
+  </section>
+
+  <aside class="controls" id="controls">
+    <h1>实时榜单详情网页调试</h1>
+    <div class="version">网页版本 2026-06-27.1 · 八类榜单共用页</div>
+    <p>榜单页不加载分时、K线或盘口，仅请求当前榜单的真实股票排序；点击任意股票进入现有个股详情页。</p>
+    <div class="control-group">
+      <h2>榜单切换</h2>
+      <select id="rankingSelect"></select>
+      <div class="control-buttons">
+        <button class="primary" id="openRankingButton">打开榜单</button>
+        <button id="manualRefresh">刷新数据</button>
+      </div>
+      <label class="switch-row"><span>20 秒自动刷新</span><input id="autoRefresh" type="checkbox" checked></label>
+    </div>
+    <div class="control-group">
+      <h2>页面参数</h2>
+      <label class="range-row"><span>手机宽度 <b id="phoneWidthText">430px</b></span><input id="phoneWidth" type="range" min="360" max="500" value="430"></label>
+      <label class="range-row"><span>行高 <b id="rowHeightText">58px</b></span><input id="rowHeight" type="range" min="48" max="72" value="58"></label>
+    </div>
+  </aside>
+</main>
+<script src="./stock-ranking-web-preview.js?v=20260627-1"></script>
+</body>
+</html>
