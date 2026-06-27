@@ -11,16 +11,15 @@ internal object VisualLoopSupport {
     const val MAX_INTERACTION_IN_REQUEST = 8
     const val CLIENT_ACTION_LIMIT = 14
     const val MIN_RUNTIME_ACTIONS = 6
-    const val NORMAL_HISTORY_ITEMS = 2
+    const val NORMAL_HISTORY_ITEMS = 4
     const val RECOVERY_HISTORY_ITEMS = 4
     const val MAX_APP_CONTEXT_ITEMS = 160
     const val MAX_REJECTIONS = 3
     const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
 
     /**
-     * Converts GUI Plus normalized coordinates to physical screen pixels without interpreting the
-     * declared target. Visual grounding and target existence are owned by the cloud GUI verifier;
-     * Android only verifies the execution permit, preserves coordinates and records objective traces.
+     * Converts a cloud-verified normalized coordinate to physical screen pixels.
+     * Android never interprets target text or changes the GUI model's chosen point.
      */
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         val surfaceAwareStep = step.withExecutionTraceField(
@@ -28,11 +27,14 @@ internal object VisualLoopSupport {
             surfaceEvidenceMode(snapshot),
         )
         if (surfaceAwareStep.type != "tap_xy") return surfaceAwareStep
-        if (!surfaceAwareStep.hasVerifiedTapExecutionPermit()) {
+
+        val permit = VisualExecutionPermitPolicy.validateTap(surfaceAwareStep)
+        if (!permit.valid) {
             return surfaceAwareStep
                 .withExecutionTraceFields(
                     linkedMapOf(
                         TRACE_PERMIT_REJECTED to true,
+                        TRACE_PERMIT_REJECT_REASON to permit.reason,
                         TRACE_REJECTED_ACTION to "tap_xy",
                     ),
                 )
@@ -42,7 +44,7 @@ internal object VisualLoopSupport {
                     y = null,
                     durationMs = MISSING_PERMIT_REOBSERVE_MS,
                     targetText = "重新观察",
-                    reason = "Verified GUI execution permit is missing or invalid; the coordinate was not executed.",
+                    reason = "Verified GUI execution permit is invalid (${permit.reason}); the coordinate was not executed.",
                 )
         }
 
@@ -59,7 +61,6 @@ internal object VisualLoopSupport {
                 materializedY = modelY,
                 displayWidth = null,
                 displayHeight = null,
-                groundingApplied = false,
                 coordinateProtocol = "unresolved",
             )
         } else {
@@ -75,7 +76,6 @@ internal object VisualLoopSupport {
                     materializedY = modelY,
                     displayWidth = null,
                     displayHeight = null,
-                    groundingApplied = false,
                     coordinateProtocol = "unresolved",
                 )
             } else {
@@ -90,7 +90,6 @@ internal object VisualLoopSupport {
                     materializedY = pixelY,
                     displayWidth = width,
                     displayHeight = height,
-                    groundingApplied = false,
                     coordinateProtocol = VisualAgentProtocol.coordinateProtocol,
                 )
             }
@@ -98,16 +97,6 @@ internal object VisualLoopSupport {
         VisualAgentHudRuntime.notePlannedStep(materialized)
         awaitHudPointerLead()
         return materialized
-    }
-
-    private fun CloudAgentStep.hasVerifiedTapExecutionPermit(): Boolean {
-        val args = toolArgs ?: return false
-        val permitId = args.optString("executionPermitId").trim()
-        val permitKind = args.optString("executionPermitKind").trim()
-        val permitObservationId = args.optString("executionPermitObservationId").trim()
-        return permitId.isNotBlank() &&
-            permitObservationId.isNotBlank() &&
-            permitKind in ACCEPTED_TAP_EXECUTION_PERMIT_KINDS
     }
 
     private fun CloudAgentStep.withTapExecutionTrace(
@@ -119,10 +108,9 @@ internal object VisualLoopSupport {
         materializedY: Float,
         displayWidth: Int?,
         displayHeight: Int?,
-        groundingApplied: Boolean,
         coordinateProtocol: String,
-    ): CloudAgentStep {
-        val fields = linkedMapOf<String, Any?>(
+    ): CloudAgentStep = withExecutionTraceFields(
+        linkedMapOf(
             TRACE_COORDINATE_PROTOCOL to coordinateProtocol,
             TRACE_MODEL_X to modelX,
             TRACE_MODEL_Y to modelY,
@@ -132,10 +120,9 @@ internal object VisualLoopSupport {
             TRACE_MATERIALIZED_Y to materializedY,
             TRACE_DISPLAY_WIDTH to displayWidth,
             TRACE_DISPLAY_HEIGHT to displayHeight,
-            TRACE_GROUNDING_APPLIED to groundingApplied,
-        )
-        return withExecutionTraceFields(fields)
-    }
+            TRACE_GROUNDING_APPLIED to false,
+        ),
+    )
 
     private fun CloudAgentStep.withExecutionTraceField(key: String, value: Any?): CloudAgentStep =
         withExecutionTraceFields(linkedMapOf(key to value))
@@ -149,9 +136,7 @@ internal object VisualLoopSupport {
                 args.put(key, source.opt(key))
             }
         }
-        fields.forEach { (key, value) ->
-            if (value != null) args.put(key, value)
-        }
+        fields.forEach { (key, value) -> if (value != null) args.put(key, value) }
         return copy(toolArgs = args)
     }
 
@@ -170,8 +155,6 @@ internal object VisualLoopSupport {
     }
 
     private fun awaitHudPointerLead() {
-        // Preserve the established HUD presentation timing; this is visual presentation only and
-        // does not participate in grounding, routing or semantic decisions.
         SystemClock.sleep(HUD_POINTER_LEAD_MS)
     }
 
@@ -222,8 +205,6 @@ internal object VisualLoopSupport {
             add(signature)
             add(status)
             target?.let { add("target=${it.take(56)}") }
-            step.purpose?.takeIf(String::isNotBlank)?.let { add("purpose=${it.take(72)}") }
-            step.hypothesisId?.takeIf(String::isNotBlank)?.let { add("hypothesis=${it.take(72)}") }
             executionTrace?.let { add("executionTrace=${it.take(360)}") }
             add("result=${result.message.take(80)}")
         }.joinToString(":").take(MAX_RECENT_ACTION_CHARS)
@@ -245,20 +226,21 @@ internal object VisualLoopSupport {
         val modelPixelY = args?.optNullableTraceFloat(TRACE_MODEL_PIXEL_Y)
         val materializedX = args?.optNullableTraceFloat(TRACE_MATERIALIZED_X) ?: step.x
         val materializedY = args?.optNullableTraceFloat(TRACE_MATERIALIZED_Y) ?: step.y
-        val groundingApplied = args?.optBoolean(TRACE_GROUNDING_APPLIED, false) ?: false
         val boundaryAdjusted = result.message.contains("边界保护")
         val protocol = args?.optString(TRACE_COORDINATE_PROTOCOL).orEmpty().ifBlank { "unknown" }
+        val permitKind = args?.optString("executionPermitKind").orEmpty()
 
         return buildList {
             surfaceMode?.let { add("surface=$it") }
             add("protocol=$protocol")
+            permitKind.takeIf(String::isNotBlank)?.let { add("permit=$it") }
             if (modelX != null && modelY != null) add("modelNorm=${formatTraceCoordinate(modelX)},${formatTraceCoordinate(modelY)}")
             if (modelPixelX != null && modelPixelY != null) add("modelPx=${formatTraceCoordinate(modelPixelX)},${formatTraceCoordinate(modelPixelY)}")
             if (materializedX != null && materializedY != null) {
                 add("materializedPx=${formatTraceCoordinate(materializedX)},${formatTraceCoordinate(materializedY)}")
             }
             actualPoint?.let { add("executedPx=${formatTraceCoordinate(it.first)},${formatTraceCoordinate(it.second)}") }
-            add("groundingApplied=$groundingApplied")
+            add("groundingApplied=false")
             add("boundaryAdjusted=$boundaryAdjusted")
         }.joinToString(",")
     }
@@ -269,7 +251,8 @@ internal object VisualLoopSupport {
             ?: optString(key).trim().toFloatOrNull()
     }
 
-    private fun formatTraceCoordinate(value: Float): String = "%.3f".format(java.util.Locale.US, value)
+    private fun formatTraceCoordinate(value: Float): String =
+        "%.3f".format(java.util.Locale.US, value)
 
     fun appendRecent(actions: MutableList<String>, value: String) {
         value.trim().take(MAX_RECENT_ACTION_CHARS).takeIf(String::isNotBlank)?.let(actions::add)
@@ -293,10 +276,6 @@ internal object VisualLoopSupport {
         return (maxSteps * 3).coerceAtLeast(maxSteps + 8).coerceAtMost(120)
     }
 
-    private val ACCEPTED_TAP_EXECUTION_PERMIT_KINDS = setOf(
-        "android_structural_clickable_anchor",
-        "independent_gui_visual_grounding",
-    )
     private val EXECUTED_POINT_PATTERN = Regex("实际落点\\s+(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
     private const val MISSING_PERMIT_REOBSERVE_MS = 220L
     private const val HUD_POINTER_LEAD_MS = 240L
@@ -312,5 +291,6 @@ internal object VisualLoopSupport {
     private const val TRACE_DISPLAY_HEIGHT = "__androidDisplayHeight"
     private const val TRACE_GROUNDING_APPLIED = "__androidGroundingApplied"
     private const val TRACE_PERMIT_REJECTED = "__androidExecutionPermitRejected"
+    private const val TRACE_PERMIT_REJECT_REASON = "__androidExecutionPermitRejectReason"
     private const val TRACE_REJECTED_ACTION = "__androidRejectedAction"
 }
