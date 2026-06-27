@@ -9,165 +9,75 @@ import org.junit.Test
 
 class VisualSemanticProgressTrackerTest {
     @Test
-    fun expectedEvidenceMarksRealProgress() {
+    fun localExpectedEvidenceDoesNotBecomeAndroidSemanticDecision() {
         val tracker = VisualSemanticProgressTracker(originalGoal = "进入联系人")
-        val step = semanticStep(
-            type = "tap_xy",
-            purpose = "进入联系人页",
-            milestone = "contacts",
-            expected = listOf("新的朋友"),
-            hypothesis = "contacts-tab",
-        )
         val result = tracker.evaluate(
-            step,
+            semanticStep(
+                type = "tap_xy",
+                purpose = "进入联系人页",
+                milestone = "contacts",
+                expected = listOf("新的朋友"),
+                hypothesis = "contacts-tab",
+            ),
             snapshot("com.tencent.mobileqq", listOf("消息", "联系人")),
             snapshot("com.tencent.mobileqq", listOf("联系人", "新的朋友", "群聊")),
             "com.tencent.mobileqq",
         )
 
         assertEquals(VisualSemanticProgressStatus.Advanced, result.status)
-        assertEquals(listOf("新的朋友"), result.expectedEvidenceMatched)
+        assertTrue(result.expectedEvidenceMatched.isEmpty())
+        assertTrue(result.failureEvidenceMatched.isEmpty())
+        assertTrue(result.newEvidence.isEmpty())
         assertFalse(result.requiresReplan)
+        assertTrue(result.reason.contains("GUI Plus exclusively decides"))
     }
 
     @Test
-    fun pageChangeAloneIsAmbiguousAndOnlyRequestsReobservation() {
+    fun unchangedScreenDoesNotCreateBlockedHypothesis() {
         val tracker = VisualSemanticProgressTracker()
+        val screen = snapshot("com.example.app", listOf("列表", "入口"))
         val step = semanticStep(
-            type = "tap_xy",
-            purpose = "进入目标详情",
-            milestone = "details",
-            expected = listOf("详情页标题"),
-            hypothesis = "detail-row",
-        )
-        val result = tracker.evaluate(
-            step,
-            snapshot("com.example.app", listOf("列表", "入口")),
-            snapshot("com.example.app", listOf("推荐", "热门")),
-            "com.example.app",
-        )
-
-        assertEquals(VisualSemanticProgressStatus.Ambiguous, result.status)
-        assertTrue(result.reobserveRecommended)
-        assertFalse(result.requiresReplan)
-    }
-
-    @Test
-    fun unchangedScreenBlocksSamePurposeEvenWhenCoordinateMovesSlightly() {
-        val tracker = VisualSemanticProgressTracker()
-        val before = snapshot("com.example.app", listOf("列表", "入口"))
-        val first = semanticStep(
             type = "tap_xy",
             purpose = "打开入口",
             milestone = "open-entry",
             expected = listOf("详情"),
             hypothesis = "entry-row",
-            x = 0.50f,
-            y = 0.50f,
         )
-        val result = tracker.evaluate(first, before, before, "com.example.app")
-        assertEquals(VisualSemanticProgressStatus.Stalled, result.status)
 
-        val nearby = first.copy(x = 0.53f, y = 0.51f)
-        assertNotNull(tracker.blockedHypothesisReason(nearby, before))
+        val result = tracker.evaluate(step, screen, screen, "com.example.app")
+
+        assertEquals(VisualSemanticProgressStatus.Stalled, result.status)
+        assertNull(tracker.blockedHypothesisReason(step.copy(x = 0.53f), screen))
+        assertFalse(result.requiresReplan)
+        assertFalse(result.reobserveRecommended)
+        assertFalse(result.shouldPauseForUser)
     }
 
     @Test
-    fun explicitExplorationWithoutPurposeIsRejectedBeforeExecution() {
+    fun exploratoryActionIsNeverRejectedByLocalSemanticRules() {
         val tracker = VisualSemanticProgressTracker()
         val step = CloudAgentStep(
             type = "swipe",
             direction = "up",
             exploratory = true,
-            expectedEvidence = listOf("下一页"),
+            expectedEvidence = emptyList(),
             legacyIntent = false,
         )
 
-        val reason = tracker.blockedHypothesisReason(step, snapshot("com.example.app", listOf("列表")))
-        assertNotNull(reason)
-        assertTrue(reason!!.contains("purpose"))
+        assertNull(tracker.blockedHypothesisReason(step, snapshot("com.example.app", listOf("列表"))))
     }
 
     @Test
-    fun exploratorySwipeRequiresExpectedEvidence() {
+    fun foreignPackageRemainsARequiredStructuralReplan() {
         val tracker = VisualSemanticProgressTracker()
-        val step = semanticStep(
-            type = "swipe",
-            purpose = "寻找更多结果",
-            milestone = "results",
-            expected = emptyList(),
-            hypothesis = "more-results",
-            exploratory = true,
-        )
-
-        assertNotNull(tracker.blockedHypothesisReason(step, snapshot("com.example.app", listOf("列表"))))
-    }
-
-    @Test
-    fun twoExplorationFailuresForceReplanInsteadOfMoreRandomActions() {
-        val tracker = VisualSemanticProgressTracker()
-        val before = snapshot("com.example.app", listOf("列表"))
-        val first = semanticStep(
-            type = "swipe",
-            purpose = "寻找订单入口",
-            milestone = "orders",
-            expected = listOf("订单"),
-            hypothesis = "orders-lower",
-            exploratory = true,
-        )
-        val firstResult = tracker.evaluate(
-            first,
-            before,
-            snapshot("com.example.app", listOf("推荐")),
-            "com.example.app",
-        )
-        assertFalse(firstResult.requiresReplan)
-
-        val second = first.copy(hypothesisId = "orders-upper", direction = "down")
-        val secondResult = tracker.evaluate(
-            second,
-            snapshot("com.example.app", listOf("推荐")),
-            snapshot("com.example.app", listOf("活动")),
-            "com.example.app",
-        )
-        assertTrue(secondResult.requiresReplan)
-        assertEquals(0, secondResult.explorationBudgetRemaining)
-        assertFalse(secondResult.shouldPauseForUser)
-    }
-
-    @Test
-    fun permissionControllerTransitionIsAmbiguousNotTaskProgress() {
-        val tracker = VisualSemanticProgressTracker()
-        val step = semanticStep(
-            type = "tap_xy",
-            purpose = "打开相册",
-            milestone = "gallery",
-            expected = listOf("相册"),
-            hypothesis = "gallery-button",
-        )
         val result = tracker.evaluate(
-            step,
-            snapshot("com.example.app", listOf("选择图片")),
-            snapshot("com.android.permissioncontroller", listOf("允许访问照片")),
-            "com.example.app",
-        )
-
-        assertEquals(VisualSemanticProgressStatus.Ambiguous, result.status)
-        assertFalse(result.structuralRegression)
-    }
-
-    @Test
-    fun foreignAppIsRegressionAndRequestsReplan() {
-        val tracker = VisualSemanticProgressTracker()
-        val step = semanticStep(
-            type = "tap_xy",
-            purpose = "打开目标详情",
-            milestone = "details",
-            expected = listOf("详情"),
-            hypothesis = "detail",
-        )
-        val result = tracker.evaluate(
-            step,
+            semanticStep(
+                type = "tap_xy",
+                purpose = "打开目标详情",
+                milestone = "details",
+                expected = listOf("详情"),
+                hypothesis = "detail",
+            ),
             snapshot("com.example.app", listOf("入口")),
             snapshot("com.unrelated.app", listOf("无关页面")),
             "com.example.app",
@@ -176,10 +86,11 @@ class VisualSemanticProgressTrackerTest {
         assertEquals(VisualSemanticProgressStatus.Regressed, result.status)
         assertTrue(result.structuralRegression)
         assertTrue(result.requiresReplan)
+        assertTrue(result.toFeedbackLine(CloudAgentStep(type = "tap_xy")).contains("failureClass=structural_route"))
     }
 
     @Test
-    fun taskMemoryContainsMilestoneFailuresBlockedActionsAndConfirmedPage() {
+    fun taskContractIsStoredWithoutLocalEvidenceInterpretation() {
         val tracker = VisualSemanticProgressTracker(originalGoal = "查看订单")
         tracker.updateTaskContract(
             VisualTaskContract(
@@ -190,40 +101,46 @@ class VisualSemanticProgressTrackerTest {
                 ),
             ),
         )
-        val page = snapshot("com.example.app", listOf("我的"))
+        val page = snapshot("com.example.app", listOf("我的", "全部订单"))
         tracker.onVerifiedSurface(page)
-        val step = semanticStep(
-            type = "tap_xy",
-            purpose = "打开订单",
-            milestone = "orders",
-            expected = listOf("全部订单"),
-            hypothesis = "orders-entry",
+        tracker.evaluate(
+            semanticStep(
+                type = "tap_xy",
+                purpose = "打开订单",
+                milestone = "orders",
+                expected = listOf("全部订单"),
+                hypothesis = "orders-entry",
+            ),
+            page,
+            page,
+            "com.example.app",
         )
-        tracker.evaluate(step, page, page, "com.example.app")
-        assertNotNull(tracker.blockedHypothesisReason(step.copy(x = 0.52f), page))
 
         val memory = tracker.memorySnapshot(page)
         assertEquals("orders", memory.currentMilestoneId)
-        assertTrue(memory.failedHypotheses.isNotEmpty())
-        assertTrue(memory.blockedActions.isNotEmpty())
+        assertTrue(memory.confirmedFacts.isEmpty())
+        assertTrue(memory.failedHypotheses.isEmpty())
+        assertTrue(memory.blockedActions.isEmpty())
         assertNotNull(memory.lastConfirmedPage)
+        assertEquals("", memory.lastConfirmedPage?.summary)
         assertEquals("查看订单", memory.originalGoal)
+        assertFalse(memory.replanRequested)
     }
 
     @Test
-    fun legacyBackendStillRunsWithConservativeBudget() {
+    fun objectiveFeedbackExplicitlyNamesGuiPlusAsSemanticOwner() {
         val tracker = VisualSemanticProgressTracker()
-        val legacySwipe = CloudAgentStep(type = "swipe", direction = "up", reason = "继续查找")
         val before = snapshot("com.example.app", listOf("列表"))
-        assertNull(tracker.blockedHypothesisReason(legacySwipe, before))
-        val result = tracker.evaluate(
-            legacySwipe,
-            before,
-            snapshot("com.example.app", listOf("推荐")),
-            "com.example.app",
-        )
-        assertTrue(result.requiresReplan)
-        assertEquals(0, result.explorationBudgetRemaining)
+        val after = snapshot("com.example.app", listOf("详情"))
+        val step = CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f)
+
+        val feedback = tracker.evaluate(step, before, after, "com.example.app").toFeedbackLine(step)
+
+        assertTrue(feedback.startsWith("visual_execution_observed:"))
+        assertTrue(feedback.contains("semanticDecisionOwner=gui_plus"))
+        assertTrue(feedback.contains("localSemanticDecision=false"))
+        assertFalse(feedback.contains("expectedMatched="))
+        assertFalse(feedback.contains("newEvidence="))
     }
 
     private fun semanticStep(
@@ -232,7 +149,6 @@ class VisualSemanticProgressTrackerTest {
         milestone: String,
         expected: List<String>,
         hypothesis: String,
-        exploratory: Boolean = false,
         x: Float = 0.5f,
         y: Float = 0.5f,
     ): CloudAgentStep = CloudAgentStep(
@@ -240,7 +156,7 @@ class VisualSemanticProgressTrackerTest {
         purpose = purpose,
         milestoneId = milestone,
         expectedEvidence = expected,
-        exploratory = exploratory,
+        exploratory = false,
         reversible = true,
         hypothesisId = hypothesis,
         legacyIntent = false,
