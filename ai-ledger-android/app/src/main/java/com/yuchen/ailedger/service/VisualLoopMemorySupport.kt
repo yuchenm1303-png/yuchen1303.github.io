@@ -1,11 +1,13 @@
 package com.yuchen.ailedger.service
 
 internal object VisualLoopMemorySupport {
-    private const val RUNTIME_PREFIX = "visual_runtime_context:v1|"
-    private const val MEMORY_PREFIX = "visual_task_memory:v1|"
+    private const val RUNTIME_PREFIX = "visual_runtime_context:v2|"
+    private const val LEGACY_RUNTIME_PREFIX = "visual_runtime_context:v1|"
+    private const val LEDGER_PREFIX = "visual_execution_ledger:v2|"
+    private const val LEGACY_MEMORY_PREFIX = "visual_task_memory:v1|"
 
     fun replaceRuntimeLine(actions: MutableList<String>, runtime: VisualAgentRuntimeContext) {
-        actions.removeAll { it.startsWith(RUNTIME_PREFIX) }
+        actions.removeAll { it.startsWith(RUNTIME_PREFIX) || it.startsWith(LEGACY_RUNTIME_PREFIX) }
         VisualLoopSupport.appendRecent(
             actions,
             buildString {
@@ -22,23 +24,23 @@ internal object VisualLoopMemorySupport {
         )
     }
 
+    /**
+     * Exposes only objective Android execution state. GUI Plus remains the sole owner of page
+     * meaning, milestones, route quality, hypotheses and completion semantics.
+     */
     fun replaceMemoryLine(actions: MutableList<String>, memory: VisualTaskMemory) {
-        actions.removeAll { it.startsWith(MEMORY_PREFIX) }
+        actions.removeAll { it.startsWith(LEDGER_PREFIX) || it.startsWith(LEGACY_MEMORY_PREFIX) }
         VisualLoopSupport.appendRecent(
             actions,
             buildString {
-                append(MEMORY_PREFIX)
-                append("milestone=").append(memory.currentMilestoneId.take(80))
-                append("|completed=").append(memory.completedMilestoneIds.joinToString(",").take(160))
-                append("|failedHypotheses=")
-                append(memory.failedHypotheses.takeLast(4).joinToString(",") { it.hypothesisId }.take(220))
-                append("|blockedActions=")
-                append(memory.blockedActions.takeLast(4).joinToString(",") { it.actionCluster }.take(220))
-                append("|explorationBudgetRemaining=").append(memory.remainingExplorationBudget)
-                append("|lastConfirmedPage=").append(memory.lastConfirmedPage?.id.orEmpty())
-                append("|progressStatus=").append(memory.progressStatus)
+                append(LEDGER_PREFIX)
+                append("progressStatus=").append(memory.progressStatus.take(80))
+                append("|currentSurfaceId=").append(memory.currentPage?.id.orEmpty().take(100))
+                append("|lastConfirmedSurfaceId=").append(memory.lastConfirmedPage?.id.orEmpty().take(100))
                 append("|replanRequested=").append(memory.replanRequested)
-                append("|legacyMode=").append(memory.legacyMode)
+                append("|recoveryMode=").append(memory.recoveryMode)
+                append("|semanticDecisionOwner=gui_plus")
+                append("|localSemanticDecision=false")
             },
         )
     }
