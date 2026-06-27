@@ -12,6 +12,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -49,6 +50,7 @@ class VisualAgentHudOverlayService : Service() {
     private var lastPreviewGeneration = 0L
     private var overlayContentActive = false
     private var captureSuppressed = false
+    private var presentationRevision = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -91,6 +93,7 @@ class VisualAgentHudOverlayService : Service() {
 
     override fun onDestroy() {
         scope.cancel()
+        presentationRevision += 1L
         pageReady = false
         pendingPayload = null
         overlayContentActive = false
@@ -243,10 +246,15 @@ class VisualAgentHudOverlayService : Service() {
 
     private fun setOverlayPresentation(active: Boolean, hiddenForCapture: Boolean) {
         val view = webView ?: return
-        val wasActive = overlayContentActive
-        val wasSuppressed = captureSuppressed
+        val nextSuppressed = active && hiddenForCapture
+        val activeChanged = overlayContentActive != active
+        val suppressionChanged = captureSuppressed != nextSuppressed
+        if (!activeChanged && !suppressionChanged) return
+
         overlayContentActive = active
-        captureSuppressed = active && hiddenForCapture
+        captureSuppressed = nextSuppressed
+        presentationRevision += 1L
+        val revision = presentationRevision
         view.animate().cancel()
 
         when {
@@ -259,31 +267,58 @@ class VisualAgentHudOverlayService : Service() {
                 }
             }
 
-            hiddenForCapture -> {
+            nextSuppressed -> {
                 if (view.visibility != View.VISIBLE) {
                     view.visibility = View.VISIBLE
                     view.onResume()
                 }
-                // Keep WebView timers and CSS/SVG animations running, but remove the complete
-                // surface from the compositor output used by accessibility screenshots.
-                view.alpha = 0f
-                updateWindowAlpha(0f)
+                // Fade the full HUD first. The accessibility screenshot starts after its 150 ms
+                // settle window, so this 84 ms transition is complete before pixels are captured.
+                updateWindowAlpha(1f)
+                if (view.alpha <= 0.001f) {
+                    view.alpha = 0f
+                    updateWindowAlpha(0f)
+                } else {
+                    view.animate()
+                        .alpha(0f)
+                        .setDuration(HUD_CAPTURE_FADE_OUT_MS)
+                        .setInterpolator(HUD_CAPTURE_HIDE_INTERPOLATOR)
+                        .withEndAction {
+                            if (
+                                presentationRevision == revision &&
+                                overlayContentActive &&
+                                captureSuppressed
+                            ) {
+                                view.alpha = 0f
+                                updateWindowAlpha(0f)
+                            }
+                        }
+                        .start()
+                }
             }
 
             else -> {
-                val shouldFadeIn = !wasActive || wasSuppressed ||
-                    view.visibility != View.VISIBLE || view.alpha < 0.999f
                 if (view.visibility != View.VISIBLE) {
                     view.visibility = View.VISIBLE
                     view.onResume()
                 }
                 updateWindowAlpha(1f)
-                if (shouldFadeIn) {
-                    view.alpha = 0f
+                if (view.alpha < 0.999f) {
+                    // Continue from the current alpha when a capture ends during fade-out instead
+                    // of snapping back to zero, which makes rapid screenshot cycles feel continuous.
                     view.animate()
                         .alpha(1f)
                         .setDuration(HUD_RESTORE_FADE_MS)
                         .setInterpolator(HUD_RESTORE_INTERPOLATOR)
+                        .withEndAction {
+                            if (
+                                presentationRevision == revision &&
+                                overlayContentActive &&
+                                !captureSuppressed
+                            ) {
+                                view.alpha = 1f
+                            }
+                        }
                         .start()
                 } else {
                     view.alpha = 1f
@@ -415,8 +450,10 @@ class VisualAgentHudOverlayService : Service() {
         private const val ASSET_URL = "file:///android_asset/visual_agent_hud_runtime.html"
         private const val TARGET_MOVE_VISIBLE_MS = 1_200L
         private const val SAMPLE_CLICK_DELAY_MS = 820L
-        private const val HUD_RESTORE_FADE_MS = 82L
-        private val HUD_RESTORE_INTERPOLATOR = DecelerateInterpolator(1.6f)
+        private const val HUD_CAPTURE_FADE_OUT_MS = 84L
+        private const val HUD_RESTORE_FADE_MS = 128L
+        private val HUD_CAPTURE_HIDE_INTERPOLATOR = AccelerateInterpolator(1.25f)
+        private val HUD_RESTORE_INTERPOLATOR = DecelerateInterpolator(1.55f)
         private const val SAMPLE_PHASE = 2
         private const val DEFAULT_CURSOR_X = 0.52f
         private const val DEFAULT_CURSOR_Y = 0.46f
