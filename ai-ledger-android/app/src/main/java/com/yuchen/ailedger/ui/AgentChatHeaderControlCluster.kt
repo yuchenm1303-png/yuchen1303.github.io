@@ -1,21 +1,13 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 
+/**
+ * 记忆快捷入口仍处于网页视觉实验阶段。
+ * 当前只恢复既有标题控件入口，避免重复绘制 Agent 与浮窗控件。
+ */
 @Composable
 internal fun AgentChatHeaderControlCluster(modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier.height(22.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        AgentChatGlassTitleControls()
-        AgentMemoryQuickPanelButton()
-    }
+    AgentChatHeaderOverlay(modifier)
 }
