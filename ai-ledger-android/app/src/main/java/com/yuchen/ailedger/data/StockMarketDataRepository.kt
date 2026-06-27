@@ -315,7 +315,8 @@ class StockMarketDataRepository(
                         summary = firstText(item, "summary", "description").orEmpty(),
                         publishTime = firstText(item, "publishTime", "time", "updatedAt").orEmpty(),
                         source = firstText(item, "source", "institution").orEmpty(),
-                        url = firstText(item, "url", "attachmentUrl").orEmpty()
+                        url = firstText(item, "url", "attachmentUrl").orEmpty(),
+                        tag = firstText(item, "tag", "type").orEmpty()
                     )
                 )
             }
@@ -324,33 +325,23 @@ class StockMarketDataRepository(
 
     private fun metaFromModule(module: JSONObject?): StockModuleMeta {
         if (module == null) return StockModuleMeta()
+        val status = StockModuleStatus.fromWire(firstText(module, "status"))
         return StockModuleMeta(
-            status = StockModuleStatus.fromWire(firstText(module, "status")),
+            status = status,
             source = firstText(module, "source").orEmpty(),
             sourceUrlType = firstText(module, "sourceUrlType").orEmpty(),
-            updatedAt = firstText(module, "updatedAt").orEmpty(),
             cacheAgeMs = firstLong(module, "cacheAgeMs") ?: 0L,
-            isDerived = firstBoolean(module, "isDerived") ?: false,
+            updatedAt = firstText(module, "updatedAt").orEmpty(),
             warnings = stringList(module.optJSONArray("warnings"))
         )
     }
 
     private fun payloadObject(root: JSONObject): JSONObject {
-        val data = root.optJSONObject("data")
-        if (data != null && hasMarketPayload(data)) return data
-        val payload = root.optJSONObject("payload")
-        if (payload != null && hasMarketPayload(payload)) return payload
-        val result = root.optJSONObject("result")
-        if (result != null && hasMarketPayload(result)) return result
-        return root
-    }
-
-    private fun hasMarketPayload(value: JSONObject): Boolean {
-        return value.has("indices") ||
-            value.has("marketBreadth") ||
-            value.has("profile") ||
-            value.has("items") ||
-            value.has("status")
+        return root.optJSONObject("data")
+            ?: root.optJSONObject("payload")
+            ?: root.optJSONObject("snapshot")
+            ?: root.optJSONObject("result")
+            ?: root
     }
 
     private fun moduleItemsArray(module: JSONObject?): JSONArray? {
@@ -481,8 +472,8 @@ class StockMarketDataRepository(
     )
 
     companion object {
-        private const val MARKET_TIMEOUT_MS = 18_000
-        private const val SLOW_TIMEOUT_MS = 12_000
+        private const val MARKET_TIMEOUT_MS = 38_000
+        private const val SLOW_TIMEOUT_MS = 28_000
         private const val MARKET_MICRO_CACHE_MS = 900L
         private const val SLOW_MICRO_CACHE_MS = 2_000L
     }
