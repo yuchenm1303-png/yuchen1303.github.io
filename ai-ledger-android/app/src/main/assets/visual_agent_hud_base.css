@@ -5,8 +5,11 @@
     --success:#6ce6b5;
     --cursor-x:50vw;
     --cursor-y:50vh;
-    --info-bubble-width:310px;
-    --info-bubble-scale:1;
+    --cursor-move-speed:210ms;
+    --info-bubble-width:420px;
+    --info-bubble-scale:.65;
+    --bubble-x:calc(50vw + 34px);
+    --bubble-y:calc(50vh + 18px);
     --edge-inset:0px;
     --edge-radius:0px;
     --edge-halo-width:0px;
@@ -158,7 +161,7 @@
     left:var(--cursor-x);top:var(--cursor-y);
     transform:translate(-9px,-8px);
     width:82px;height:82px;
-    transition:left .82s cubic-bezier(.2,.8,.2,1),top .82s cubic-bezier(.2,.8,.2,1);
+    transition:left var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1),top var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1);
     will-change:left,top;
     pointer-events:none;
   }
@@ -230,9 +233,10 @@
 
   .info-bubble{
     position:absolute;
-    left:calc(var(--cursor-x) + 34px);
-    top:calc(var(--cursor-y) + 18px);
-    width:min(var(--info-bubble-width),calc(100vw - 40px));
+    left:var(--bubble-x);
+    top:var(--bubble-y);
+    width:min(var(--info-bubble-width),calc(100vw - 24px));
+    min-height:112px;
     padding:14px 15px 13px;
     border-radius:16px;
     background:rgba(8,17,27,.88);
@@ -241,13 +245,22 @@
     box-shadow:0 16px 45px rgba(0,0,0,.40),0 0 26px rgba(102,217,255,.07);
     transform:scale(var(--info-bubble-scale));
     transform-origin:left top;
-    transition:left .82s cubic-bezier(.2,.8,.2,1),top .82s cubic-bezier(.2,.8,.2,1),opacity .2s ease,transform .18s ease
+    transition:
+      left var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1),
+      top var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1),
+      opacity .2s ease,
+      filter .2s ease,
+      box-shadow .24s ease;
+    will-change:left,top,opacity,filter;
+    contain:layout style;
   }
-  .bubble-title{font-size:13px;font-weight:750;margin-bottom:7px}
+  .bubble-content{transform-origin:left top;will-change:transform,opacity,filter}
+  .bubble-title{font-size:13px;font-weight:750;margin-bottom:7px;min-height:17px}
   .bubble-line{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:var(--muted);line-height:1.7}
-  .bubble-line b{color:#e7f8ff;font-weight:600}
+  .bubble-line b{color:#e7f8ff;font-weight:600;transition:opacity .18s ease,transform .18s ease}
   .bubble-thought{
     margin-top:9px;padding-top:9px;border-top:1px solid rgba(255,255,255,.07);
+    min-height:29px;
     font-size:12px;color:#c3d7e4;line-height:1.65
   }
 
@@ -279,14 +292,14 @@
   .app[data-mode="simple"] .bubble-line,
   .app[data-mode="simple"] .bubble-thought,
   .app[data-mode="simple"] .bottom-timeline{display:none}
-  .app[data-mode="simple"] .info-bubble{width:auto;min-width:155px}
+  .app[data-mode="simple"] .info-bubble{width:auto;min-width:155px;min-height:0}
   .app[data-mode="detail"] .debug-only{display:none}
   .app[data-mode="simple"] .debug-only{display:none}
 
-  @media (max-width: 640px){
-    .info-bubble{
-      transform:translateX(-78%) scale(var(--info-bubble-scale));
-      transform-origin:right top;
-    }
+  @media (max-width:640px){
     .bottom-timeline{display:none}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    .cursor-wrap,.info-bubble{transition-duration:0ms}
   }
