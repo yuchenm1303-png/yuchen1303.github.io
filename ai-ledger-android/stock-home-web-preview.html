@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="./stock-home-sector-links.css?v=20260627-2">
 <link rel="stylesheet" href="./stock-home-ranking-links.css?v=20260627-2">
 <link rel="stylesheet" href="./stock-home-hot-links.css?v=20260627-1">
+<link rel="stylesheet" href="./stock-home-watchlist.css?v=20260627-1">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
@@ -108,8 +109,8 @@
 
   <aside class="controls" id="controls">
     <h1>A股市场首页网页调试</h1>
-    <div class="version">网页版本 2026-06-27.7 · 实时热点榜接入版</div>
-    <p>“新闻”入口已升级为股票软件内部的实时热点：首次点击时按需读取东方财富个股人气榜，首页展示前六名并进入独立的人气榜/飙升榜详情页。</p>
+    <div class="version">网页版本 2026-06-27.8 · 自选闭环版</div>
+    <p>个股详情页加入的自选股会保存在当前浏览器，并在首页“自选”页直接展示、跳转和移除；热点、榜单和双板块逻辑保持不变。</p>
 
     <div class="control-group">
       <h2>实时数据</h2>
@@ -135,12 +136,13 @@
         <li>六类行情榜和两类资金榜独立详情入口</li>
         <li>行业板块与概念板块按页签独立展示</li>
         <li>东方财富个股人气榜与飙升榜</li>
-        <li>热点股票继续进入项目自己的个股详情</li>
+        <li>个股详情加自选并同步到首页自选列表</li>
         <li>数据覆盖状态、AI 看盘与底部导航</li>
       </ul>
     </div>
   </aside>
 </main>
 <script src="./stock-home-web-preview.js?v=20260627-6"></script>
+<script src="./stock-home-watchlist.js?v=20260627-1"></script>
 </body>
 </html>
