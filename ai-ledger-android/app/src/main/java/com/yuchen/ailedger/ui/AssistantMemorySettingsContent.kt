@@ -591,8 +591,8 @@ private fun MemoryGlassAction(
 ) {
     PressableGlass(
         quality = state.quality,
-        intensity = state.glassIntensity * if (enabled) 1f else 0.68f,
-        motion = 0f,
+        glassIntensity = state.glassIntensity * if (enabled) 1f else 0.68f,
+        motionIntensity = 0f,
         radius = 22,
         modifier = modifier.height(58.dp),
         role = GlassRole.Chip,
