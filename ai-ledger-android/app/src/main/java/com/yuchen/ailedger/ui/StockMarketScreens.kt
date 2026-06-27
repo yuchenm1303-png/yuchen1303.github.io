@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.StockMarketViewModel
 import com.yuchen.ailedger.StockNativePageViewModel
+import com.yuchen.ailedger.data.StockWatchlistRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockNativeHotType
 import com.yuchen.ailedger.model.StockNativeRankingType
@@ -45,10 +46,12 @@ fun AStockMarketScreenV2(
     val nativeViewModel: StockNativePageViewModel = viewModel()
     val marketUi by marketViewModel.uiState.collectAsState()
     val nativeUi by nativeViewModel.uiState.collectAsState()
-    val context = LocalContext.current
+    val context = LocalContext.current.applicationContext
+    val watchlistRepository = remember(context) { StockWatchlistRepository.get(context) }
+    val watchlistState by watchlistRepository.state.collectAsState()
+    val watchlist = watchlistState.items
     var route by remember { mutableStateOf<StockNativeRoute>(StockNativeRoute.Home) }
     val routeStack = remember { mutableStateListOf<StockNativeRoute>() }
-    var watchlist by remember { mutableStateOf(loadNativeWatchlist(context)) }
 
     fun navigate(next: StockNativeRoute) {
         if (next == route) return
@@ -72,12 +75,11 @@ fun AStockMarketScreenV2(
     fun toggleWatch() {
         val quote = marketUi.stock.quote
         if (quote.code.length != 6) return
-        watchlist = if (watchlist.any { it.code == quote.code }) {
-            watchlist.filterNot { it.code == quote.code }
-        } else {
-            listOf(NativeWatchEntry(quote.code, quote.name.ifBlank { quote.code }, quote.market)) + watchlist
-        }
-        saveNativeWatchlist(context, watchlist)
+        watchlistRepository.toggle(
+            code = quote.code,
+            name = quote.name.ifBlank { quote.code },
+            market = quote.market
+        )
     }
 
     BackHandler {
@@ -97,18 +99,19 @@ fun AStockMarketScreenV2(
                         marketUi = marketUi,
                         nativeUi = nativeUi,
                         watchlist = watchlist,
+                        watchlistStatus = watchlistState.statusLabel,
+                        watchlistMessage = watchlistState.message,
+                        watchlistBusy = watchlistState.loading || watchlistState.saving,
                         onBack = onBack,
                         onRefresh = marketViewModel::refreshHome,
+                        onRefreshWatchlist = watchlistRepository::refresh,
                         onQueryChange = marketViewModel::updateQuery,
                         onSearch = {
                             val query = marketUi.query.trim()
                             if (query.isNotBlank()) openStock(query)
                         },
                         onOpenStock = ::openStock,
-                        onRemoveWatch = { code ->
-                            watchlist = watchlist.filterNot { it.code == code }
-                            saveNativeWatchlist(context, watchlist)
-                        },
+                        onRemoveWatch = watchlistRepository::remove,
                         onSelectAction = { action ->
                             marketViewModel.selectHomeAction(action)
                             if (action == "热点") nativeViewModel.loadHot(StockNativeHotType.Popularity)
