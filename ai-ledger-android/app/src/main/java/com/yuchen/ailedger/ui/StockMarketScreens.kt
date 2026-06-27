@@ -56,9 +56,7 @@ fun AStockMarketScreenV2(
 
     fun navigateBack() {
         val previous = if (routeStack.isNotEmpty()) routeStack.removeAt(routeStack.lastIndex) else StockNativeRoute.Home
-        if (route is StockNativeRoute.Detail) {
-            marketViewModel.backToHome()
-        }
+        if (route is StockNativeRoute.Detail) marketViewModel.backToHome()
         route = previous
     }
 
@@ -156,7 +154,7 @@ fun AStockMarketScreenV2(
             onOpenStock = ::openStock
         )
 
-        is StockNativeRoute.Index -> StockNativeIndexScreen(
+        is StockNativeRoute.Index -> StockNativeIndexScreenV2(
             ui = nativeUi,
             code = current.code,
             onBack = ::navigateBack,
