@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
+<title>AI Ledger · 板块详情</title>
+<link rel="stylesheet" href="./stock-sector-web-preview.css?v=20260627-1">
+</head>
+<body>
+<button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
+<main class="workspace">
+  <section class="phone" aria-label="板块详情手机预览">
+    <div class="screen">
+      <header class="status-bar">
+        <div class="status-left">
+          <span class="carriers">中国移动<br>中国电信</span>
+          <span class="clock" id="clock">--:--</span>
+          <span class="status-chip">◩</span><span class="status-chip">▣</span><span class="status-icon">⌁</span><span class="status-icon">◉</span>
+        </div>
+        <div class="status-right"><span>Ⓝ ⏰ ⌁ 4G▮▮▮ 4G▮▮▮</span><span class="battery">70</span></div>
+      </header>
+
+      <div class="sector-scroll" id="sectorScroll">
+        <div class="sector-top-row">
+          <button class="glass-button back-button" id="backButton" aria-label="返回市场首页">‹</button>
+          <span class="page-label">板块详情 · A股</span>
+          <button class="glass-button refresh-button" id="refreshButton" aria-label="刷新板块详情">⟳</button>
+        </div>
+
+        <section class="glass sector-hero">
+          <div class="sector-identity">
+            <div class="sector-title-copy">
+              <div class="sector-kicker">A-SHARE SECTOR</div>
+              <h1 id="sectorName">--</h1>
+              <div class="sector-code"><span id="sectorCode">------</span> · <span id="sectorType">板块</span></div>
+            </div>
+            <div class="sector-source" id="sectorSource">等待真实板块数据</div>
+          </div>
+          <div class="sector-quote-line">
+            <div class="sector-price" id="sectorPrice">--</div>
+            <div class="sector-quote-meta">
+              <div class="sector-change" id="sectorChange">--</div>
+              <div class="sector-updated" id="sectorUpdated">等待更新</div>
+            </div>
+          </div>
+          <div class="sector-metrics" id="sectorMetrics"></div>
+        </section>
+
+        <section class="glass sector-chart-card">
+          <div class="sector-tabs" id="sectorTabs">
+            <button class="sector-tab active" data-tab="minute">分时</button>
+            <button class="sector-tab" data-tab="daily">日K</button>
+            <button class="sector-tab" data-tab="weekly">周K</button>
+            <button class="sector-tab" data-tab="monthly">月K</button>
+          </div>
+          <div class="sector-legend">
+            <strong id="chartTitle">板块分时</strong>
+            <span class="average" id="chartSecondary">均价 --</span>
+            <span id="chartLatest">最新 --</span>
+            <span class="spacer"></span>
+            <span id="chartRange">--</span>
+          </div>
+          <div class="sector-chart-wrap" id="chartWrap">
+            <canvas id="sectorChart"></canvas>
+            <div class="sector-chart-empty" id="chartEmpty">等待真实板块走势</div>
+          </div>
+          <div class="sector-axis" id="sectorAxis"></div>
+          <div class="sector-caption" id="sectorCaption">分时数据按需刷新，历史K线按周期单独缓存。</div>
+        </section>
+
+        <section class="glass sector-breadth-panel">
+          <div class="section-title-block">
+            <h2>板块内部强弱</h2>
+            <p>上涨、下跌、红盘率、领涨股与资金状态</p>
+          </div>
+          <div class="sector-context-grid" id="sectorContextGrid"></div>
+          <div class="sector-wide-row">
+            <div><strong>领涨股</strong><span id="leaderChange">--</span></div>
+            <b id="leaderName">--</b>
+          </div>
+          <div class="sector-wide-row">
+            <div><strong>主力净流入</strong><span>公开板块资金字段</span></div>
+            <b id="mainInflow">--</b>
+          </div>
+        </section>
+
+        <section class="glass constituents-panel">
+          <div class="section-title-row">
+            <div class="section-title-block">
+              <h2>成分股</h2>
+              <p id="constituentSummary">按真实涨跌幅排序</p>
+            </div>
+            <button class="mini-button" id="loadMoreButton">加载更多</button>
+          </div>
+          <div class="constituent-list" id="constituentList"></div>
+        </section>
+
+        <section class="glass related-sector-panel">
+          <div class="section-title-block">
+            <h2>其他热门板块</h2>
+            <p>点击后共用同一板块详情页</p>
+          </div>
+          <div class="related-sector-grid" id="relatedSectorGrid"></div>
+        </section>
+
+        <div class="sector-data-status" id="dataStatus"><strong>初始化中</strong>：正在连接板块详情接口。</div>
+      </div>
+    </div>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-item"><span>AI</span><small>AI助手</small></button>
+      <button class="nav-item active"><span class="nav-star">✦</span><small>功能</small></button>
+      <button class="nav-item"><span>⚙</span><small>设置</small></button>
+    </nav>
+  </section>
+
+  <aside class="controls" id="controls">
+    <h1>板块详情页网页调试</h1>
+    <div class="version">网页版本 2026-06-27.1 · 真实板块详情版</div>
+    <p>板块实时行情、分时和成分股独立刷新；日K、周K、月K仅在切换页签后按需加载，并使用长缓存降低后端开销。</p>
+    <div class="control-group">
+      <h2>板块切换</h2>
+      <input id="sectorQuery" type="text" value="BK0428" placeholder="板块代码，例如 BK0428">
+      <div class="control-buttons">
+        <button class="primary" id="openSectorButton">打开板块</button>
+        <button id="manualRefresh">刷新数据</button>
+      </div>
+      <label class="switch-row"><span>20 秒自动刷新</span><input id="autoRefresh" type="checkbox" checked></label>
+    </div>
+    <div class="control-group">
+      <h2>图表参数</h2>
+      <label class="range-row"><span>K线基准根数 <b id="kBaseCountText">72根</b></span><input id="kBaseCount" type="range" min="36" max="120" value="72"></label>
+      <label class="range-row"><span>手机宽度 <b id="phoneWidthText">430px</b></span><input id="phoneWidth" type="range" min="360" max="500" value="430"></label>
+    </div>
+  </aside>
+</main>
+<script src="./stock-sector-web-preview.js?v=20260627-1"></script>
+</body>
+</html>
