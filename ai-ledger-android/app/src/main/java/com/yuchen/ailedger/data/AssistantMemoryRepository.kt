@@ -262,7 +262,27 @@ class AssistantMemoryRepository private constructor(context: Context) {
         }
     }
 
-    fun currentSnapshotText(): String? = state.value.snapshotText()
+    fun currentSnapshotText(): String? {
+        val customInstructions = AssistantCustomInstructionsRepository
+            .get(appContext)
+            .currentInstructionsText()
+        val memorySnapshot = state.value.snapshotText()
+        if (customInstructions.isNullOrBlank() && memorySnapshot.isNullOrBlank()) return null
+
+        return buildString {
+            if (!customInstructions.isNullOrBlank()) {
+                append("[[AI_LEDGER_CUSTOM_INSTRUCTIONS_V1]]\n")
+                append(customInstructions.trim())
+                append("\n[[/AI_LEDGER_CUSTOM_INSTRUCTIONS_V1]]")
+            }
+            if (!memorySnapshot.isNullOrBlank()) {
+                if (isNotEmpty()) append("\n\n")
+                append("[[AI_LEDGER_LONG_TERM_MEMORY_V2]]\n")
+                append(memorySnapshot.trim())
+                append("\n[[/AI_LEDGER_LONG_TERM_MEMORY_V2]]")
+            }
+        }.trim()
+    }
 
     private suspend fun loadForSessionLocked(session: SupabaseUserSession) {
         val enabled = preferences.getBoolean(memoryEnabledKey(session.userId), false)
