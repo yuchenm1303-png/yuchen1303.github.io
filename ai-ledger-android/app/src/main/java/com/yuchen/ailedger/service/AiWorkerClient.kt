@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.AssistantMemoryRepository
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -283,6 +284,13 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         }
         val normalChatCapabilities = DeviceControlRouter.normalChatSupportedCapabilities()
         val normalChatStepTypes = DeviceControlRouter.normalChatSupportedStepTypes()
+        val memorySnapshot = if (!shouldStartAgent) {
+            AiLedgerApplication.contextOrNull()
+                ?.let { context -> AssistantMemoryRepository.get(context).currentSnapshotText() }
+                ?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
 
         return JSONObject().apply {
             put("action", "chat")
@@ -294,6 +302,8 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("prompt", requestText)
             put("text", requestText)
             put("content", requestText)
+            if (memorySnapshot != null) put("memorySnapshot", memorySnapshot)
+            put("memoryEnabled", memorySnapshot != null)
             put("modelPreference", resolvedId)
             put("aiModelPreference", resolvedId)
             put("requestedModelPreference", resolvedId)
