@@ -55,7 +55,6 @@ internal class VisualAgentHudHost(
     fun start() {
         if (started) return
         started = true
-        capsuleHost.start()
         scope.launch {
             combine(
                 AgentRuntimeController.progress,
@@ -169,6 +168,10 @@ internal class VisualAgentHudHost(
                 overlayCreationFailed = false
                 webView = view
                 layoutParams = params
+                // Add the interactive capsule only after the full-screen layer is attached. Windows
+                // with the same accessibility-overlay type are ordered by attach time, so this keeps
+                // the tightly-sized control surface reliably above the presentation WebView.
+                capsuleHost.start()
                 // Some vendor window managers reconstruct accessibility-overlay attributes after the
                 // first attach. Reassert the non-touchable contract once the ViewRoot is established.
                 view.post { reinforcePassthroughWindowContract() }
