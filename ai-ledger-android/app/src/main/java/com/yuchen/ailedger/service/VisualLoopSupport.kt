@@ -20,7 +20,7 @@ internal object VisualLoopSupport {
     /**
      * Converts GUI Plus normalized coordinates to physical screen pixels without interpreting the
      * declared target. Visual grounding and target existence are owned by the cloud GUI verifier;
-     * Android only preserves coordinates, protocol metadata and objective execution traces.
+     * Android only verifies the execution permit, preserves coordinates and records objective traces.
      */
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         val surfaceAwareStep = step.withExecutionTraceField(
@@ -28,6 +28,23 @@ internal object VisualLoopSupport {
             surfaceEvidenceMode(snapshot),
         )
         if (surfaceAwareStep.type != "tap_xy") return surfaceAwareStep
+        if (!surfaceAwareStep.hasVerifiedTapExecutionPermit()) {
+            return surfaceAwareStep
+                .withExecutionTraceFields(
+                    linkedMapOf(
+                        TRACE_PERMIT_REJECTED to true,
+                        TRACE_REJECTED_ACTION to "tap_xy",
+                    ),
+                )
+                .copy(
+                    type = "wait",
+                    x = null,
+                    y = null,
+                    durationMs = MISSING_PERMIT_REOBSERVE_MS,
+                    targetText = "重新观察",
+                    reason = "Verified GUI execution permit is missing or invalid; the coordinate was not executed.",
+                )
+        }
 
         val modelX = surfaceAwareStep.x ?: return surfaceAwareStep
         val modelY = surfaceAwareStep.y ?: return surfaceAwareStep
@@ -81,6 +98,16 @@ internal object VisualLoopSupport {
         VisualAgentHudRuntime.notePlannedStep(materialized)
         awaitHudPointerLead()
         return materialized
+    }
+
+    private fun CloudAgentStep.hasVerifiedTapExecutionPermit(): Boolean {
+        val args = toolArgs ?: return false
+        val permitId = args.optString("executionPermitId").trim()
+        val permitKind = args.optString("executionPermitKind").trim()
+        val permitObservationId = args.optString("executionPermitObservationId").trim()
+        return permitId.isNotBlank() &&
+            permitObservationId.isNotBlank() &&
+            permitKind in ACCEPTED_TAP_EXECUTION_PERMIT_KINDS
     }
 
     private fun CloudAgentStep.withTapExecutionTrace(
@@ -266,7 +293,12 @@ internal object VisualLoopSupport {
         return (maxSteps * 3).coerceAtLeast(maxSteps + 8).coerceAtMost(120)
     }
 
+    private val ACCEPTED_TAP_EXECUTION_PERMIT_KINDS = setOf(
+        "android_structural_clickable_anchor",
+        "independent_gui_visual_grounding",
+    )
     private val EXECUTED_POINT_PATTERN = Regex("实际落点\\s+(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
+    private const val MISSING_PERMIT_REOBSERVE_MS = 220L
     private const val HUD_POINTER_LEAD_MS = 240L
     private const val TRACE_SURFACE_MODE = "__androidVisualSurfaceMode"
     private const val TRACE_COORDINATE_PROTOCOL = "__androidCoordinateProtocol"
@@ -279,4 +311,6 @@ internal object VisualLoopSupport {
     private const val TRACE_DISPLAY_WIDTH = "__androidDisplayWidth"
     private const val TRACE_DISPLAY_HEIGHT = "__androidDisplayHeight"
     private const val TRACE_GROUNDING_APPLIED = "__androidGroundingApplied"
+    private const val TRACE_PERMIT_REJECTED = "__androidExecutionPermitRejected"
+    private const val TRACE_REJECTED_ACTION = "__androidRejectedAction"
 }
