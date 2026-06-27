@@ -1,0 +1,111 @@
+@import url("./stock-home-web-preview.css?v=20260627-3");
+
+:root{
+  --index-rise:#ff8f8f;
+  --index-fall:#80f7b4;
+  --index-aqua:#8df9ea;
+  --index-yellow:#ffd86b;
+}
+
+.index-scroll{
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  padding:8px 12px 112px;
+  scrollbar-width:none;
+}
+.index-scroll::-webkit-scrollbar{display:none}
+
+.index-top-row{height:42px;display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.index-top-row .page-label{margin-left:auto;color:rgba(255,255,255,.46);font-size:11px;font-weight:950}
+.index-top-row .back-button{width:54px;font-size:24px}
+.index-top-row .refresh-button{width:46px}
+
+.index-hero{
+  min-height:188px;
+  padding:16px;
+  border-radius:30px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.index-hero>*{position:relative;z-index:1}
+.index-identity{display:flex;align-items:flex-start;gap:12px}
+.index-title-copy{min-width:0;flex:1}
+.index-kicker{color:rgba(141,249,234,.66);font-size:9px;font-weight:950;letter-spacing:.08em}
+.index-title-copy h1{margin:2px 0 0;color:white;font-size:28px;line-height:32px;letter-spacing:-.045em;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.index-code{margin-top:2px;color:rgba(255,255,255,.40);font-size:10px;font-weight:850}
+.index-source{width:132px;color:rgba(255,255,255,.38);font-size:8px;line-height:12px;text-align:right;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.index-price-row{display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;align-items:end;padding-top:10px;border-top:1px solid rgba(255,255,255,.08)}
+.index-price{font-size:39px;line-height:40px;font-weight:950;letter-spacing:-.055em}
+.index-change{font-size:13px;line-height:18px;font-weight:950}
+.index-updated{color:rgba(255,255,255,.35);font-size:8px}
+.index-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.index-metric{height:48px;padding:7px 8px;border-radius:15px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.index-metric span{color:rgba(255,255,255,.40);font-size:8px;font-weight:800}
+.index-metric strong{font-size:11px;line-height:14px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.index-chart-card{
+  height:394px;
+  margin-top:10px;
+  padding:13px;
+  border-radius:30px;
+  display:flex;
+  flex-direction:column;
+  gap:9px;
+}
+.index-chart-card>*{position:relative;z-index:1}
+.index-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.index-tab{height:36px;border-radius:999px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.54);font-size:11px;font-weight:950;cursor:pointer}
+.index-tab.active{background:rgba(255,255,255,.17);color:white;box-shadow:inset 0 0 0 1px rgba(141,249,234,.14)}
+.index-legend{display:flex;align-items:center;gap:9px;min-height:18px;color:rgba(255,255,255,.48);font-size:9px;white-space:nowrap;overflow:hidden}
+.index-legend strong{color:rgba(255,255,255,.92);font-size:10px}
+.index-legend .average{color:var(--index-yellow)}
+.index-legend .spacer{flex:1}
+.index-chart-wrap{position:relative;flex:1;min-height:0;border-radius:18px;overflow:hidden;background:rgba(1,5,23,.36);border:1px solid rgba(255,255,255,.07)}
+#indexChart{display:block;width:100%;height:100%;touch-action:none}
+.index-chart-empty{position:absolute;inset:0;display:grid;place-items:center;color:rgba(255,255,255,.40);font-size:11px;pointer-events:none}
+.index-axis{height:16px;display:flex;align-items:center;justify-content:space-between;color:rgba(255,255,255,.34);font-size:8px;padding:0 4px}
+.index-caption{height:14px;color:rgba(255,255,255,.38);font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.market-context{
+  min-height:208px;
+  margin-top:10px;
+  padding:14px;
+  border-radius:30px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.market-context>*{position:relative;z-index:1}
+.context-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.context-card{height:62px;padding:8px;border-radius:16px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);display:flex;flex-direction:column;justify-content:space-between;min-width:0}
+.context-card span{color:rgba(255,255,255,.40);font-size:8px;white-space:nowrap}
+.context-card strong{font-size:13px;font-weight:950;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.context-wide{height:54px;padding:0 12px;border-radius:17px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);display:flex;align-items:center;gap:10px}
+.context-wide>div{display:flex;flex-direction:column;gap:2px}.context-wide span{color:rgba(255,255,255,.38);font-size:8px}.context-wide strong{color:rgba(255,255,255,.74);font-size:10px}.context-wide b{margin-left:auto;color:white;font-size:15px;white-space:nowrap}
+
+.related-panel{
+  min-height:192px;
+  margin-top:10px;
+  padding:14px;
+  border-radius:30px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.related-panel>*{position:relative;z-index:1}
+.related-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.related-index{height:58px;padding:8px 10px;border-radius:17px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.075);display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;gap:2px 8px;text-align:left;cursor:pointer}
+.related-index strong{color:rgba(255,255,255,.86);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.related-index small{color:rgba(255,255,255,.34);font-size:8px}.related-index b{grid-column:2;grid-row:1/3;font-size:11px;white-space:nowrap}
+
+.index-data-status{margin-top:8px;color:rgba(255,255,255,.42);font-size:9px;line-height:14px}
+.index-loading{animation:spin 1s linear infinite}
+
+@media(max-width:390px){
+  .index-price-row{grid-template-columns:118px minmax(0,1fr)}
+  .index-price{font-size:34px}
+  .index-metrics{gap:5px}.index-metric{padding-left:6px;padding-right:6px}
+  .context-grid{gap:5px}.context-card{padding-left:6px;padding-right:6px}.context-card strong{font-size:12px}
+}
