@@ -42,7 +42,7 @@ internal object InlineStickerDisplaySettings {
     const val DefaultRepeatCount = 1
     val FrequencyRange: ClosedFloatingPointRange<Float> = 0f..100f
     val IntensityRange: ClosedFloatingPointRange<Float> = 0f..100f
-    val MaxPerReplyRange: ClosedFloatingPointRange<Float> = 0f..19f
+    val MaxPerReplyRange: ClosedFloatingPointRange<Float> = 0f..64f
     val RepeatCountRange: ClosedFloatingPointRange<Float> = 1f..4f
 
     private const val PreferencesName = "inline_sticker_display_settings"
@@ -143,7 +143,7 @@ internal object InlineStickerDisplaySettings {
 
     fun updateMaxPerReply(context: Context, value: Float) {
         initialize(context.applicationContext)
-        val normalized = value.roundToInt().coerceIn(0, 19)
+        val normalized = value.roundToInt().coerceIn(0, 64)
         if (maxPerReplyValue == normalized) return
         maxPerReplyValue = normalized
         maxPerReplyState = normalized
@@ -202,7 +202,7 @@ internal object InlineStickerDisplaySettings {
                 .coerceIn(0, 100),
             maxPerReply = preferences
                 .getInt(MaxPerReplyKey, DefaultMaxPerReply)
-                .coerceIn(0, 19),
+                .coerceIn(0, 64),
             repeatCount = preferences
                 .getInt(RepeatCountKey, DefaultRepeatCount)
                 .coerceIn(1, 4),
@@ -248,7 +248,7 @@ internal object InlineStickerDisplaySettings {
                     ?.putFloat(SizeKey, latestValue.sizeDp.coerceIn(MinSizeDp, MaxSizeDp))
                     ?.putInt(FrequencyKey, latestValue.frequency.coerceIn(0, 100))
                     ?.putInt(IntensityKey, latestValue.intensity.coerceIn(0, 100))
-                    ?.putInt(MaxPerReplyKey, latestValue.maxPerReply.coerceIn(0, 19))
+                    ?.putInt(MaxPerReplyKey, latestValue.maxPerReply.coerceIn(0, 64))
                     ?.putInt(RepeatCountKey, latestValue.repeatCount.coerceIn(1, 4))
                     ?.apply()
             }
