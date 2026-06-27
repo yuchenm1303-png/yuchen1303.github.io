@@ -504,13 +504,15 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
 
             val streamedText = streamedReply.toString().trim()
             val finalJson = finalData
+            val finalReply = finalJson?.let { extractReply(it, it.toString()) }.orEmpty()
+            val mergedReply = mergeStreamedReplyWithFinalReply(streamedText, finalReply)
             when {
                 finalJson != null -> parseChatResponse(
                     data = finalJson,
                     body = finalJson.toString(),
                     payload = payload,
                     route = route,
-                    replyOverride = streamedText.takeIf { it.isNotBlank() },
+                    replyOverride = mergedReply.takeIf { it.isNotBlank() },
                 )
                 streamedText.isNotBlank() -> AiChatResponse(
                     reply = streamedText,
@@ -524,6 +526,17 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             throw IOException("云端 AI 流式请求超时：${endpoint.substringAfter("://")}", error)
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun mergeStreamedReplyWithFinalReply(streamedReply: String, finalReply: String): String {
+        val streamed = streamedReply.trim()
+        val final = finalReply.trim()
+        return when {
+            streamed.isBlank() -> final
+            final.isBlank() || final == streamed -> streamed
+            final.startsWith(streamed) -> final
+            else -> streamed
         }
     }
 
