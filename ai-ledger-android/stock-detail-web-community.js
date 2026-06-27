@@ -1,7 +1,6 @@
 'use strict';
 
 const DISCUSSION_LIST_API = `${API_BASE}/api/stock/a-share/discussions`;
-const DISCUSSION_DETAIL_API = `${API_BASE}/api/stock/a-share/discussion/detail`;
 const WATCHLIST_STORAGE_KEY = 'ai-ledger-stock-watchlist-v1';
 const communityState = {
   mode: 'market',
@@ -9,20 +8,15 @@ const communityState = {
   posts: [],
   page: 0,
   hasMore: false,
-  loadingList: false,
-  listError: '',
-  listSourceUrl: '',
-  activePostId: '',
-  activePost: null,
-  comments: [],
-  commentPage: 0,
-  hasMoreComments: false,
-  loadingPost: false,
-  postError: '',
+  loading: false,
+  error: '',
+  sourceUrl: '',
   requestCount: 0,
-  listCache: new Map(),
-  postCache: new Map()
+  requestSerial: 0,
+  sort: 'latest',
+  pageCache: new Map()
 };
+let discussionToastTimer = null;
 
 function communityEscape(value) {
   return String(value ?? '').replace(/[&<>'"]/g, char => ({
@@ -73,7 +67,9 @@ async function communityFetchJson(url, timeoutMs = 30000) {
 function readWatchlist() {
   try {
     const parsed = JSON.parse(localStorage.getItem(WATCHLIST_STORAGE_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.filter(item => /^\d{6}$/.test(String(item?.code || ''))) : [];
+    return Array.isArray(parsed)
+      ? parsed.filter(item => /^\d{6}$/.test(String(item?.code || '')))
+      : [];
   } catch (_) {
     return [];
   }
@@ -111,29 +107,27 @@ function toggleCurrentWatchlist() {
   const code = discussionCode();
   if (!code) return;
   const items = readWatchlist();
-  const existing = items.findIndex(item => item.code === code);
-  let next;
-  if (existing >= 0) {
-    next = items.filter(item => item.code !== code);
-  } else {
-    next = [{
-      code,
-      name: discussionName(),
-      market: communityText(state.quote?.market, 'A股'),
-      addedAt: new Date().toISOString()
-    }, ...items];
-  }
-  if (!writeWatchlist(next)) {
-    const status = document.getElementById('discussionStatus');
-    if (status) status.textContent = '浏览器未允许保存自选状态';
-  }
+  const exists = items.some(item => item.code === code);
+  const next = exists
+    ? items.filter(item => item.code !== code)
+    : [{
+        code,
+        name: discussionName(),
+        market: communityText(state.quote?.market, 'A股'),
+        addedAt: new Date().toISOString()
+      }, ...items];
+  if (!writeWatchlist(next)) showDiscussionToast('浏览器未允许保存自选状态');
   renderWatchlistButton();
   window.dispatchEvent(new CustomEvent('ai-ledger-watchlist-change', { detail: { code } }));
 }
 
 function discussionKindLabel(kind) {
   return ({
-    announcement: '公告', research: '研报', news: '资讯', qa: '问董秘', discussion: '讨论'
+    announcement: '公告',
+    research: '研报',
+    news: '资讯',
+    qa: '问董秘',
+    discussion: '讨论'
   })[kind] || '讨论';
 }
 
@@ -144,219 +138,224 @@ function formatDiscussionCount(value) {
   return String(amount);
 }
 
+function feedAuthorHue(author) {
+  let hash = 0;
+  for (const char of String(author || '股吧用户')) {
+    hash = (hash * 31 + char.charCodeAt(0)) % 360;
+  }
+  return hash;
+}
+
+function feedAuthorInitial(author) {
+  const value = String(author || '股吧用户').trim();
+  return value ? [...value][0] : '股';
+}
+
+function feedPostText(post) {
+  const original = String(post?.title || '').trim();
+  if (!original) return '点击查看该条讨论';
+  return original
+    .replace(/^\$[^$]{1,48}\$\s*/, '')
+    .replace(/^#[^#]{1,48}#\s*/, '')
+    .trim() || original;
+}
+
+function sortedDiscussionPosts() {
+  const posts = [...communityState.posts];
+  if (communityState.sort !== 'hot') return posts;
+  return posts.sort((left, right) => {
+    const leftScore = (communityNumber(left.commentCount) || 0) * 500
+      + (communityNumber(left.readCount) || 0);
+    const rightScore = (communityNumber(right.commentCount) || 0) * 500
+      + (communityNumber(right.readCount) || 0);
+    return rightScore - leftScore;
+  });
+}
+
 function resetDiscussionForCode(code) {
+  communityState.requestSerial += 1;
   communityState.code = code;
   communityState.posts = [];
   communityState.page = 0;
   communityState.hasMore = false;
-  communityState.loadingList = false;
-  communityState.listError = '';
-  communityState.listSourceUrl = '';
-  communityState.activePostId = '';
-  communityState.activePost = null;
-  communityState.comments = [];
-  communityState.commentPage = 0;
-  communityState.hasMoreComments = false;
-  communityState.loadingPost = false;
-  communityState.postError = '';
+  communityState.loading = false;
+  communityState.error = '';
+  communityState.sourceUrl = '';
+}
+
+function openStandaloneDiscussion(postId) {
+  const code = discussionCode();
+  if (!code || !postId) return;
+  location.href = `./stock-discussion-web-preview.html?query=${encodeURIComponent(code)}&postId=${encodeURIComponent(postId)}`;
 }
 
 function renderDiscussionHeader() {
   const title = document.getElementById('discussionTitle');
   const subtitle = document.getElementById('discussionSubtitle');
-  if (title) title.textContent = `${discussionName()}讨论`;
-  if (subtitle) subtitle.textContent = communityState.activePost
-    ? '帖子正文与公开评论只读展示'
-    : '东方财富股吧最新讨论 · 点击帖子查看评论';
+  if (title) title.textContent = '社区';
+  if (subtitle) {
+    subtitle.textContent = `${discussionName()}（${discussionCode() || '------'}）· 东方财富股吧只读社区`;
+  }
+}
+
+function renderDiscussionSort() {
+  document.querySelectorAll('[data-discussion-sort]').forEach(button => {
+    button.classList.toggle('active', button.dataset.discussionSort === communityState.sort);
+  });
 }
 
 function renderDiscussionList() {
   const view = document.getElementById('discussionListView');
-  const postView = document.getElementById('discussionPostView');
   const list = document.getElementById('discussionList');
   const more = document.getElementById('discussionMore');
   const count = document.getElementById('discussionCount');
-  if (!view || !postView || !list || !more || !count) return;
-  view.hidden = false;
-  postView.hidden = true;
-  count.textContent = communityState.posts.length ? `已加载 ${communityState.posts.length} 条` : '等待讨论数据';
+  if (!view || !list || !more || !count) return;
 
-  if (communityState.loadingList && !communityState.posts.length) {
-    list.innerHTML = '<div class="discussion-loading">正在读取真实股吧帖子…</div>';
-  } else if (communityState.listError && !communityState.posts.length) {
-    list.innerHTML = `<div class="discussion-error"><div>${communityEscape(communityState.listError)}<br><button type="button" data-discussion-retry>重新加载</button></div></div>`;
+  view.hidden = false;
+  renderDiscussionSort();
+  count.textContent = communityState.posts.length
+    ? `${communityState.posts.length} 条`
+    : communityState.loading ? '加载中' : '等待数据';
+
+  if (communityState.loading && !communityState.posts.length) {
+    list.innerHTML = '<div class="discussion-loading">正在读取真实股吧社区…</div>';
+  } else if (communityState.error && !communityState.posts.length) {
+    list.innerHTML = `<div class="discussion-error"><div>${communityEscape(communityState.error)}<br><button type="button" data-discussion-retry>重新加载</button></div></div>`;
   } else if (!communityState.posts.length) {
-    list.innerHTML = '<div class="discussion-empty">当前股票暂未返回可展示的股吧帖子</div>';
+    list.innerHTML = '<div class="discussion-empty">当前股票暂未返回可展示的社区帖子</div>';
   } else {
-    list.innerHTML = communityState.posts.map((post, index) => `<button type="button" class="discussion-row" data-post-id="${communityEscape(post.postId)}"><span class="discussion-rank">${index + 1}</span><span class="discussion-row-copy"><strong>${communityEscape(post.title)}</strong><span>${communityEscape(discussionKindLabel(post.kind))} · ${communityEscape(post.author)} · ${communityEscape(post.updatedAt || '时间未知')}</span></span><span class="discussion-counts"><b>评 ${communityEscape(formatDiscussionCount(post.commentCount))}</b><span>阅 ${communityEscape(formatDiscussionCount(post.readCount))}</span></span></button>`).join('');
+    const stockTag = `$${discussionName()}(${discussionCode()})$`;
+    list.innerHTML = sortedDiscussionPosts().map(post => {
+      const commentCount = communityNumber(post.commentCount) || 0;
+      const readCount = communityNumber(post.readCount) || 0;
+      const author = post.author || '股吧用户';
+      const kindChip = post.kind && post.kind !== 'discussion'
+        ? `<span class="feed-kind-chip">${communityEscape(discussionKindLabel(post.kind))}</span>`
+        : '';
+      const preview = commentCount > 0
+        ? `<strong>网友讨论：</strong>已有 ${communityEscape(formatDiscussionCount(commentCount))} 条评论，进入详情后按需加载`
+        : '点击进入独立帖子详情页查看正文';
+      return `<article class="discussion-feed-card" data-post-id="${communityEscape(post.postId)}" tabindex="0" role="button" aria-label="查看${communityEscape(post.title)}"><div class="feed-author-row"><span class="feed-avatar" style="--avatar-hue:${feedAuthorHue(author)}">${communityEscape(feedAuthorInitial(author))}</span><span class="feed-author-copy"><strong>${communityEscape(author)}</strong><span>${communityEscape(post.updatedAt || '时间未知')}</span></span><span class="feed-more">•••</span></div><div class="feed-content">${kindChip}<span class="feed-stock-tag">${communityEscape(stockTag)}</span>${communityEscape(feedPostText(post))}</div><div class="feed-actions"><span class="feed-action"><span class="feed-action-icon">↗</span>分享</span><span class="feed-action"><span class="feed-action-icon">◯</span>${communityEscape(formatDiscussionCount(commentCount))}</span><span class="feed-action"><span class="feed-action-icon">♡</span>阅读 ${communityEscape(formatDiscussionCount(readCount))}</span></div><div class="feed-comment-preview">${preview}</div></article>`;
+    }).join('');
   }
 
-  more.disabled = communityState.loadingList || !communityState.hasMore;
-  more.textContent = communityState.loadingList && communityState.posts.length
+  more.disabled = communityState.loading || !communityState.hasMore;
+  more.textContent = communityState.loading && communityState.posts.length
     ? '加载中…'
-    : communityState.hasMore ? '加载更多讨论' : '已加载当前页讨论';
+    : communityState.hasMore ? '加载更多社区帖子' : '已加载当前社区内容';
 
-  list.querySelectorAll('[data-post-id]').forEach(button => button.addEventListener('click', () => openDiscussionPost(button.dataset.postId)));
-  list.querySelectorAll('[data-discussion-retry]').forEach(button => button.addEventListener('click', () => loadDiscussionPage(true)));
-}
-
-function renderNestedReplies(replies) {
-  if (!Array.isArray(replies) || !replies.length) return '';
-  return `<div class="nested-replies">${replies.slice(0, 6).map(reply => `<div class="nested-reply"><strong>${communityEscape(reply.author || '股吧用户')}</strong><p>${communityEscape(reply.content || '')}</p></div>`).join('')}</div>`;
-}
-
-function renderDiscussionPost() {
-  const listView = document.getElementById('discussionListView');
-  const view = document.getElementById('discussionPostView');
-  const body = document.getElementById('discussionPostScroll');
-  const postStatus = document.getElementById('discussionPostStatus');
-  if (!listView || !view || !body || !postStatus) return;
-  listView.hidden = true;
-  view.hidden = false;
-  const detail = communityState.activePost;
-  const post = detail?.post || null;
-  postStatus.textContent = communityState.loadingPost
-    ? '正在读取帖子正文与评论'
-    : communityState.postError
-      ? communityState.postError
-      : post ? `${communityState.comments.length} 条公开评论已加载` : '等待帖子正文';
-
-  if (communityState.loadingPost && !post) {
-    body.innerHTML = '<div class="discussion-loading">正在加载真实帖子与评论…</div>';
-    return;
-  }
-  if (communityState.postError && !post) {
-    body.innerHTML = `<div class="discussion-error"><div>${communityEscape(communityState.postError)}<br><button type="button" data-post-retry>重新加载</button></div></div>`;
-    body.querySelector('[data-post-retry]')?.addEventListener('click', () => loadDiscussionPost(communityState.activePostId, true));
-    return;
-  }
-  if (!post) {
-    body.innerHTML = '<div class="discussion-empty">帖子正文暂不可用</div>';
-    return;
-  }
-
-  const comments = communityState.comments;
-  body.innerHTML = `<article class="discussion-article"><h3>${communityEscape(post.title)}</h3><div class="discussion-article-meta">${communityEscape(post.author || '股吧用户')} · ${communityEscape(post.publishedAt || '时间未知')} · 赞 ${communityEscape(formatDiscussionCount(post.likeCount))}</div><div class="discussion-article-body">${communityEscape(post.content || '该帖子未返回纯文本正文。')}</div><div class="discussion-risk">股吧内容来自公开社区，仅代表发布者个人观点，不构成投资建议。页面仅做只读展示。</div></article><div class="comment-section-title"><strong>网友评论</strong><span>${communityEscape(String(detail.commentTotalParsed ?? comments.length))} 条已解析</span></div>${comments.length ? comments.map(comment => `<article class="comment-row"><div class="comment-head"><span class="comment-author">${communityEscape(comment.author || '股吧用户')}</span><span class="comment-time">${communityEscape(comment.publishedAt || '')}</span></div><div class="comment-content">${communityEscape(comment.content || '')}</div><div class="comment-meta"><span>赞 ${communityEscape(formatDiscussionCount(comment.likeCount))}</span><span>回复 ${communityEscape(formatDiscussionCount(comment.replyCount))}</span></div>${renderNestedReplies(comment.replies)}</article>`).join('') : '<div class="discussion-empty">正文已加载，但当前页面没有返回公开评论。</div>'}${communityState.hasMoreComments ? '<button type="button" class="comment-more" id="commentMore">加载更多评论</button>' : ''}<button type="button" class="comment-more" data-open-post-source>查看东方财富原帖 ↗</button>`;
-  body.querySelector('#commentMore')?.addEventListener('click', () => loadMoreDiscussionComments());
-  body.querySelector('[data-open-post-source]')?.addEventListener('click', () => {
-    const url = post.sourceUrl || detail.sourcePageUrl;
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  list.querySelectorAll('[data-post-id]').forEach(card => {
+    const open = () => openStandaloneDiscussion(card.dataset.postId);
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        open();
+      }
+    });
   });
+  list.querySelector('[data-discussion-retry]')?.addEventListener('click', () => loadDiscussionPage(true));
 }
 
 function renderDiscussionStatus() {
   const status = document.getElementById('discussionStatus');
   if (!status) return;
-  if (communityState.loadingList || communityState.loadingPost) {
-    status.textContent = '正在连接东方财富股吧，只读抓取不会参与行情刷新。';
-  } else if (communityState.listError || communityState.postError) {
-    status.textContent = communityState.postError || communityState.listError;
+  if (communityState.loading) {
+    status.textContent = communityState.posts.length
+      ? `正在加载更多社区帖子 · 已有 ${communityState.posts.length} 条`
+      : '正在连接东方财富股吧，只读抓取不会参与行情刷新。';
+  } else if (communityState.error) {
+    status.textContent = communityState.error;
   } else if (communityState.posts.length) {
-    status.textContent = `讨论 ${communityState.posts.length} 条 · 社区请求 ${communityState.requestCount} 次 · 45秒列表缓存 / 120秒帖子缓存`;
+    status.textContent = `讨论 ${communityState.posts.length} 条 · 社区请求 ${communityState.requestCount} 次 · 45秒列表缓存`;
   } else {
-    status.textContent = '讨论页首次打开时才加载，不增加个股行情首屏开销。';
+    status.textContent = '社区首次打开时才加载，不增加个股行情首屏开销。';
   }
 }
 
 function renderDiscussion() {
   renderDiscussionHeader();
-  if (communityState.activePostId) renderDiscussionPost();
-  else renderDiscussionList();
+  renderDiscussionList();
   renderDiscussionStatus();
 }
 
 async function loadDiscussionPage(force = false) {
   const code = discussionCode();
-  if (!code || communityState.loadingList) return;
+  if (!code || communityState.loading) return;
   if (communityState.code !== code) resetDiscussionForCode(code);
-  const targetPage = force && !communityState.posts.length ? 1 : communityState.page + 1;
+
+  const targetPage = force && !communityState.posts.length
+    ? 1
+    : communityState.page + 1;
   const cacheKey = `${code}:${targetPage}`;
-  const cached = communityState.listCache.get(cacheKey);
+  const cached = communityState.pageCache.get(cacheKey);
   if (!force && cached) {
-    communityState.posts = targetPage === 1 ? cached.posts : [...communityState.posts, ...cached.posts];
+    communityState.posts = targetPage === 1
+      ? cached.posts
+      : mergeDiscussionPosts(communityState.posts, cached.posts);
     communityState.page = targetPage;
     communityState.hasMore = Boolean(cached.hasMore);
-    communityState.listSourceUrl = cached.sourcePageUrl || communityState.listSourceUrl;
+    communityState.sourceUrl = cached.sourcePageUrl || communityState.sourceUrl;
     renderDiscussion();
     return;
   }
-  communityState.loadingList = true;
-  communityState.listError = '';
+
+  const requestSerial = ++communityState.requestSerial;
+  communityState.loading = true;
+  communityState.error = '';
   renderDiscussion();
+
   try {
-    const payload = await communityFetchJson(`${DISCUSSION_LIST_API}?query=${encodeURIComponent(code)}&page=${targetPage}&pageSize=20&_=${Date.now()}`);
-    const posts = Array.isArray(payload.posts) ? payload.posts.filter(post => post?.postId && post?.title) : [];
+    const payload = await communityFetchJson(
+      `${DISCUSSION_LIST_API}?query=${encodeURIComponent(code)}&page=${targetPage}&pageSize=20&_=${Date.now()}`
+    );
+    if (requestSerial !== communityState.requestSerial || code !== discussionCode()) return;
+    const posts = Array.isArray(payload.posts)
+      ? payload.posts.filter(post => post?.postId && post?.title)
+      : [];
     if (!posts.length) throw new Error('讨论接口未返回可展示帖子');
-    communityState.listCache.set(cacheKey, { ...payload, posts });
-    communityState.posts = targetPage === 1 ? posts : [...communityState.posts, ...posts.filter(post => !communityState.posts.some(existing => existing.postId === post.postId))];
+    communityState.pageCache.set(cacheKey, { ...payload, posts });
+    communityState.posts = targetPage === 1
+      ? posts
+      : mergeDiscussionPosts(communityState.posts, posts);
     communityState.page = targetPage;
     communityState.hasMore = Boolean(payload.hasMore);
-    communityState.listSourceUrl = payload.sourcePageUrl || communityState.listSourceUrl;
-    communityState.requestCount++;
+    communityState.sourceUrl = payload.sourcePageUrl || communityState.sourceUrl;
+    communityState.requestCount += 1;
   } catch (error) {
-    communityState.listError = error?.name === 'AbortError' ? '讨论请求超时' : error?.message || String(error);
+    if (requestSerial !== communityState.requestSerial) return;
+    communityState.error = error?.name === 'AbortError'
+      ? '社区请求超时'
+      : error?.message || String(error);
   } finally {
-    communityState.loadingList = false;
-    renderDiscussion();
+    if (requestSerial === communityState.requestSerial) {
+      communityState.loading = false;
+      renderDiscussion();
+    }
   }
 }
 
-async function loadDiscussionPost(postId, force = false, page = 1) {
-  const code = discussionCode();
-  if (!code || !postId || communityState.loadingPost) return;
-  const cacheKey = `${code}:${postId}:${page}`;
-  const cached = communityState.postCache.get(cacheKey);
-  if (!force && cached) {
-    communityState.activePost = cached;
-    communityState.comments = page === 1 ? cached.comments || [] : [...communityState.comments, ...(cached.comments || [])];
-    communityState.commentPage = page;
-    communityState.hasMoreComments = Boolean(cached.hasMoreComments);
-    renderDiscussion();
-    return;
-  }
-  communityState.loadingPost = true;
-  communityState.postError = '';
-  renderDiscussion();
-  try {
-    const payload = await communityFetchJson(`${DISCUSSION_DETAIL_API}?query=${encodeURIComponent(code)}&postId=${encodeURIComponent(postId)}&page=${page}&pageSize=20&_=${Date.now()}`, 35000);
-    communityState.postCache.set(cacheKey, payload);
-    communityState.activePost = { ...payload, comments: undefined };
-    communityState.comments = page === 1 ? (payload.comments || []) : [...communityState.comments, ...(payload.comments || [])];
-    communityState.commentPage = page;
-    communityState.hasMoreComments = Boolean(payload.hasMoreComments);
-    communityState.requestCount++;
-  } catch (error) {
-    communityState.postError = error?.name === 'AbortError' ? '帖子请求超时' : error?.message || String(error);
-  } finally {
-    communityState.loadingPost = false;
-    renderDiscussion();
-  }
+function mergeDiscussionPosts(existing, incoming) {
+  const seen = new Set(existing.map(post => String(post.postId)));
+  return [
+    ...existing,
+    ...incoming.filter(post => !seen.has(String(post.postId)))
+  ];
 }
 
-function openDiscussionPost(postId) {
-  communityState.activePostId = String(postId || '');
-  communityState.activePost = null;
-  communityState.comments = [];
-  communityState.commentPage = 0;
-  communityState.hasMoreComments = false;
-  communityState.postError = '';
+function setDiscussionSort(sort) {
+  communityState.sort = sort === 'hot' ? 'hot' : 'latest';
   renderDiscussion();
-  loadDiscussionPost(communityState.activePostId, false, 1);
+  document.getElementById('discussionList')?.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-function closeDiscussionPost() {
-  communityState.activePostId = '';
-  communityState.activePost = null;
-  communityState.comments = [];
-  communityState.commentPage = 0;
-  communityState.hasMoreComments = false;
-  communityState.postError = '';
-  renderDiscussion();
-}
-
-function loadMoreDiscussionComments() {
-  if (!communityState.activePostId || !communityState.hasMoreComments) return;
-  loadDiscussionPost(communityState.activePostId, false, communityState.commentPage + 1);
+function showDiscussionToast(message) {
+  const toast = document.getElementById('discussionToast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(discussionToastTimer);
+  discussionToastTimer = setTimeout(() => toast.classList.remove('show'), 2200);
 }
 
 function setDetailMode(mode) {
@@ -366,12 +365,15 @@ function setDetailMode(mode) {
   document.body.classList.toggle('discussion-mode', communityState.mode === 'discussion');
   if (chart) chart.hidden = communityState.mode === 'discussion';
   if (discussion) discussion.hidden = communityState.mode !== 'discussion';
-  document.querySelectorAll('[data-detail-mode]').forEach(button => button.classList.toggle('active', button.dataset.detailMode === communityState.mode));
+  document.querySelectorAll('[data-detail-mode]').forEach(button => {
+    button.classList.toggle('active', button.dataset.detailMode === communityState.mode);
+  });
+
   if (communityState.mode === 'discussion') {
     const code = discussionCode();
     if (code && communityState.code !== code) resetDiscussionForCode(code);
     renderDiscussion();
-    if (!communityState.posts.length && !communityState.loadingList) loadDiscussionPage(false);
+    if (!communityState.posts.length && !communityState.loading) loadDiscussionPage(false);
   } else {
     requestAnimationFrame(drawSelectedChart);
   }
@@ -391,12 +393,20 @@ function syncCommunityStock() {
 }
 
 document.getElementById('watchlistButton')?.addEventListener('click', toggleCurrentWatchlist);
-document.querySelectorAll('[data-detail-mode]').forEach(button => button.addEventListener('click', () => setDetailMode(button.dataset.detailMode)));
+document.querySelectorAll('[data-detail-mode]').forEach(button => {
+  button.addEventListener('click', () => setDetailMode(button.dataset.detailMode));
+});
+document.querySelectorAll('[data-discussion-sort]').forEach(button => {
+  button.addEventListener('click', () => setDiscussionSort(button.dataset.discussionSort));
+});
 document.getElementById('discussionMore')?.addEventListener('click', () => loadDiscussionPage(false));
-document.getElementById('discussionPostBack')?.addEventListener('click', closeDiscussionPost);
 document.getElementById('discussionSourceButton')?.addEventListener('click', () => {
-  const url = communityState.listSourceUrl || (discussionCode() ? `https://guba.eastmoney.com/list,${discussionCode()}.html` : '');
+  const code = discussionCode();
+  const url = communityState.sourceUrl || (code ? `https://guba.eastmoney.com/list,${code}.html` : '');
   if (url) window.open(url, '_blank', 'noopener,noreferrer');
+});
+document.getElementById('discussionCompose')?.addEventListener('click', () => {
+  showDiscussionToast('当前为只读社区，暂不支持登录、发帖或回复');
 });
 window.addEventListener('storage', event => {
   if (event.key === WATCHLIST_STORAGE_KEY) renderWatchlistButton();
@@ -406,8 +416,20 @@ window.addEventListener('ai-ledger-watchlist-change', renderWatchlistButton);
 const communityCodeObserver = new MutationObserver(syncCommunityStock);
 const observedCode = document.getElementById('code');
 const observedName = document.getElementById('name');
-if (observedCode) communityCodeObserver.observe(observedCode, { childList: true, characterData: true, subtree: true });
-if (observedName) communityCodeObserver.observe(observedName, { childList: true, characterData: true, subtree: true });
+if (observedCode) {
+  communityCodeObserver.observe(observedCode, {
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
+}
+if (observedName) {
+  communityCodeObserver.observe(observedName, {
+    childList: true,
+    characterData: true,
+    subtree: true
+  });
+}
 
 renderWatchlistButton();
 renderDiscussion();
