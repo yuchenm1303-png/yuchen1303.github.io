@@ -7,6 +7,8 @@ import org.json.JSONObject
 
 private const val SUPABASE_AUTH_CONNECT_TIMEOUT_MS = 12_000
 private const val SUPABASE_AUTH_READ_TIMEOUT_MS = 18_000
+private const val SUPABASE_SESSION_EXPIRY_LEEWAY_SECONDS = 30L
+private const val SUPABASE_SESSION_REFRESH_EARLY_SECONDS = 300L
 
 data class SupabaseUserSession(
     val userId: String,
@@ -15,8 +17,26 @@ data class SupabaseUserSession(
     val refreshToken: String,
     val expiresAtEpochSeconds: Long
 ) {
+    val hasRequiredCredentials: Boolean
+        get() = userId.isNotBlank() && email.isNotBlank() && accessToken.isNotBlank()
+
     val isUsable: Boolean
-        get() = accessToken.isNotBlank() && email.isNotBlank()
+        get() = hasRequiredCredentials && !isExpired(SUPABASE_SESSION_EXPIRY_LEEWAY_SECONDS)
+
+    fun isExpired(
+        leewaySeconds: Long = 0L,
+        nowEpochSeconds: Long = System.currentTimeMillis() / 1000L
+    ): Boolean {
+        if (expiresAtEpochSeconds <= 0L) return true
+        return expiresAtEpochSeconds <= nowEpochSeconds + leewaySeconds.coerceAtLeast(0L)
+    }
+
+    fun shouldRefreshSoon(
+        nowEpochSeconds: Long = System.currentTimeMillis() / 1000L
+    ): Boolean {
+        return expiresAtEpochSeconds <= 0L ||
+            expiresAtEpochSeconds <= nowEpochSeconds + SUPABASE_SESSION_REFRESH_EARLY_SECONDS
+    }
 }
 
 data class SupabaseAuthResult(
