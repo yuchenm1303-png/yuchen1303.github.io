@@ -14,6 +14,7 @@ import android.view.animation.DecelerateInterpolator
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -157,6 +158,8 @@ internal class VisualAgentHudHost(
                 overlayCreationFailed = true
                 view.stopLoading()
                 view.destroy()
+                val message = "系统未能创建视觉 HUD 无障碍浮层，请重新开启无障碍服务后重试。"
+                Toast.makeText(service, message, Toast.LENGTH_LONG).show()
                 AgentRuntimeController.noteDiagnostic(
                     "视觉 HUD 无障碍浮层创建失败：${error.message ?: error.javaClass.simpleName}"
                 )
