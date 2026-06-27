@@ -64,10 +64,10 @@ data class VisualAgentHudParameters(
     val infoBubbleScale: Float = 1f,
     val edgeInset: Float = 0f,
     val edgeRadius: Float = 0f,
-    val edgeHaloWidth: Float = 42f,
+    val edgeHaloWidth: Float = 0f,
     val edgeHaloBlur: Float = 0f,
     val edgeHaloOpacity: Float = 0.58f,
-    val edgeCastDepth: Float = 120f,
+    val edgeCastDepth: Float = 29.2f,
     val edgeCastBlur: Float = 0f,
     val edgeCastOpacity: Float = 0.8f,
     val edgeFlowDuration: Float = 7.5f,
@@ -144,7 +144,7 @@ data class VisualAgentHudParameters(
 
     companion object {
         private const val SCHEMA_VERSION_KEY = "_schemaVersion"
-        private const val CURRENT_SCHEMA_VERSION = 2
+        private const val CURRENT_SCHEMA_VERSION = 3
 
         val ALL_KEYS = listOf(
             "p0x","p0y","p1x","p1y","p2x","p2y","p3x","p3y","p4x","p4y","p5x","p5y","p6x","p6y",
@@ -172,6 +172,12 @@ data class VisualAgentHudParameters(
                     }
                 }
                 if (schemaVersion < 2) result = result.copy(size = 47.5f)
+                if (schemaVersion < 3) {
+                    result = result.copy(
+                        edgeHaloWidth = 0f,
+                        edgeCastDepth = 29.2f,
+                    )
+                }
                 result
             }.getOrDefault(VisualAgentHudParameters())
         }
