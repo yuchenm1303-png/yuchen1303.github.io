@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
+<title>AI Ledger · 帖子详情</title>
+<link rel="stylesheet" href="./stock-discussion-web-preview.css?v=20260627-1">
+</head>
+<body>
+<button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
+<main class="workspace">
+  <section class="phone" aria-label="帖子详情手机预览">
+    <div class="screen">
+      <header class="status-bar">
+        <div class="status-left"><span class="carriers">中国移动<br>中国电信</span><span class="clock" id="clock">--:--</span><span>◧</span><span>◉</span></div>
+        <div class="status-right"><span>⌁ ◉ Ⓝ 4G▮▮▮ 4G▮▮▮</span><span class="battery">42</span></div>
+      </header>
+
+      <div class="discussion-page-scroll" id="discussionPageScroll">
+        <div class="discussion-page-top">
+          <button class="glass-button back-button" id="backButton" aria-label="返回社区">‹</button>
+          <strong>帖子详情</strong>
+          <button class="glass-button source-button" id="sourceButton">原帖 ↗</button>
+        </div>
+
+        <section class="glass post-card" id="postCard">
+          <div class="post-loading" id="postLoading">正在加载帖子正文…</div>
+          <div class="post-content" id="postContent" hidden>
+            <div class="post-author-row">
+              <span class="post-avatar" id="postAvatar">股</span>
+              <span class="post-author-copy"><strong id="postAuthor">股吧用户</strong><small id="postTime">时间未知</small></span>
+              <span class="post-more">•••</span>
+            </div>
+            <div class="post-stock-tag" id="postStockTag">$当前股票$</div>
+            <h1 id="postTitle">帖子详情</h1>
+            <div class="post-body" id="postBody"></div>
+            <div class="post-risk">社区内容来自公开股吧，仅代表发布者个人观点，不构成投资建议。</div>
+            <div class="post-actions">
+              <span><b>↗</b> 分享</span>
+              <button type="button" id="commentAction"><b>◯</b> 查看评论</button>
+              <span><b>♡</b> 赞 <i id="postLikeCount">0</i></span>
+            </div>
+          </div>
+        </section>
+
+        <section class="glass comments-card" id="commentsCard">
+          <div class="comments-head">
+            <div><h2>网友评论</h2><p>点击后才加载，不随帖子正文预取</p></div>
+            <span id="commentCountLabel">未加载</span>
+          </div>
+          <div class="comments-gate" id="commentsGate">
+            <strong>查看这篇帖子的网友评论</strong>
+            <span>评论内容将在点击后单独请求</span>
+            <button type="button" id="loadCommentsButton">加载评论</button>
+          </div>
+          <div class="comments-list" id="commentsList" hidden></div>
+          <button type="button" class="comments-more" id="commentsMore" hidden>加载更多评论</button>
+        </section>
+
+        <div class="discussion-page-status" id="dataStatus"><strong>初始化中</strong>：正在读取帖子正文。</div>
+      </div>
+    </div>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-item"><span>AI</span><small>AI助手</small></button>
+      <button class="nav-item active"><span class="nav-star">✦</span><small>功能</small></button>
+      <button class="nav-item"><span>⚙</span><small>设置</small></button>
+    </nav>
+  </section>
+
+  <aside class="controls" id="controls">
+    <h1>帖子详情网页调试</h1>
+    <div class="version">网页版本 2026-06-27.1 · 评论按需加载版</div>
+    <p>页面进入时只请求帖子正文；评论区保持折叠，用户点击“加载评论”后才请求评论接口。返回社区后仍只显示社区信息流。</p>
+    <div class="control-group">
+      <h2>页面参数</h2>
+      <label class="range-row"><span>手机宽度 <b id="phoneWidthText">430px</b></span><input id="phoneWidth" type="range" min="360" max="500" value="430"></label>
+      <div class="control-buttons"><button class="primary" id="reloadPost">刷新正文</button><button id="reloadComments">刷新评论</button></div>
+    </div>
+  </aside>
+</main>
+<script src="./stock-discussion-web-preview.js?v=20260627-1"></script>
+</body>
+</html>
