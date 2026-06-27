@@ -12,7 +12,10 @@ class AgentAccessibilityGuideActivity : Activity() {
         super.onCreate(savedInstanceState)
         AlertDialog.Builder(this)
             .setTitle("开启手机智能体")
-            .setMessage("手机智能体需要无障碍权限，才能在你主动发起任务时读取当前屏幕上的文字、按钮和输入框。\n\n当前版本采用按需快照模式，不会持续后台扫描，也不会自动点击、输入或滚动。")
+            .setMessage(
+                "手机智能体需要你手动开启无障碍服务，才能在主动发起任务时读取当前页面、执行手势，并在其他应用上方显示只读视觉 HUD。\n\n" +
+                    "视觉 HUD 由无障碍服务承载，不需要额外开启“显示在其他应用上层”。空闲时不会监听窗口事件、持续扫描节点或持续截图。"
+            )
             .setPositiveButton("去开启") { _, _ ->
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 finish()
