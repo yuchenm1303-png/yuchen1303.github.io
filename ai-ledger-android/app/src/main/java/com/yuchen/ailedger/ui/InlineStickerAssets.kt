@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -13,10 +14,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import com.yuchen.ailedger.AiLedgerApplication
-import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
@@ -26,16 +23,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 
-private const val INLINE_STICKER_CONNECT_TIMEOUT_MS = 5_000
-private const val INLINE_STICKER_READ_TIMEOUT_MS = 12_000
-private const val INLINE_STICKER_MAX_BYTES = 512 * 1024
-private const val INLINE_STICKER_DISK_CACHE_DIR = "inline_stickers_v1"
 private const val INLINE_STICKER_TAG_START = 0xE0001
 private const val INLINE_STICKER_TAG_CANCEL = 0xE007F
 private const val INLINE_STICKER_TAG_BASE = 0xE0000
 private const val INLINE_STICKER_PAYLOAD_PREFIX = "ai_sticker:"
 private const val INLINE_STICKER_COMPACT_PREFIX = "s"
 private const val INLINE_STICKER_VISIBLE_PREFIX = "[[AI_LEDGER_INLINE_STICKER:"
+private const val INLINE_STICKER_ASSET_SOURCE = "inline_sticker_source.js"
+private const val INLINE_STICKER_MAX_ENTRY_BYTES = 512 * 1024
 
 internal data class InlineStickerProtocolMarker(
     val start: Int,
@@ -48,9 +43,6 @@ internal fun interface InlineStickerLoadHandle {
 }
 
 internal object InlineStickerAssets {
-    private const val CN_ENDPOINT = "https://ai-ledg-chat-cn-dnuxlrhytb.cn-hangzhou.fcapp.run"
-    private const val CLOUDFLARE_ENDPOINT = "https://ai-ledger-parser.552078638.workers.dev"
-
     private val loaderScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bitmapCache = ConcurrentHashMap<String, Bitmap>()
@@ -102,6 +94,9 @@ internal object InlineStickerAssets {
 
     private val visibleMarkerRegex =
         Regex("""\[\[AI_LEDGER_INLINE_STICKER:([a-z0-9_]{2,48})]]""", RegexOption.IGNORE_CASE)
+
+    @Volatile
+    private var bundledStickerBytesCache: Map<String, ByteArray>? = null
 
     internal fun normalizeKey(value: String): String? {
         return value.trim().lowercase().takeIf { it in supportedKeys }
@@ -257,9 +252,13 @@ internal object InlineStickerAssets {
         bitmapCache[assetKey]?.let { return it }
 
         val deferred = inFlight.computeIfAbsent(assetKey) {
-            loaderScope.async {
-                loadDiskCachedBitmap(assetKey) ?: loadFromEndpoints(assetKey)
+            val created = loaderScope.async {
+                loadBundledBitmap(assetKey)
             }
+            created.invokeOnCompletion {
+                inFlight.remove(assetKey, created)
+            }
+            created
         }
         return try {
             val loaded = deferred.await()
@@ -270,89 +269,73 @@ internal object InlineStickerAssets {
         }
     }
 
-    private fun loadDiskCachedBitmap(assetKey: String): Bitmap? {
-        val file = diskCacheFile(assetKey) ?: return null
-        if (!file.isFile || file.length() !in 1..INLINE_STICKER_MAX_BYTES.toLong()) {
-            if (file.exists()) file.delete()
-            return null
-        }
-        return BitmapFactory.decodeFile(file.absolutePath) ?: run {
-            file.delete()
-            null
+    private fun loadBundledBitmap(assetKey: String): Bitmap? {
+        val bytes = bundledStickerBytes()[assetKey] ?: return null
+        return BitmapFactory.decodeByteArray(
+            bytes,
+            0,
+            bytes.size,
+            BitmapFactory.Options().apply { inScaled = false }
+        )
+    }
+
+    private fun bundledStickerBytes(): Map<String, ByteArray> {
+        bundledStickerBytesCache?.let { return it }
+        synchronized(this) {
+            bundledStickerBytesCache?.let { return it }
+            val loaded = loadBundledStickerPack()
+            if (loaded.isNotEmpty()) bundledStickerBytesCache = loaded
+            return loaded
         }
     }
 
-    private fun diskCacheFile(assetKey: String): File? {
-        val context = AiLedgerApplication.contextOrNull() ?: return null
-        return File(File(context.filesDir, INLINE_STICKER_DISK_CACHE_DIR), "$assetKey.webp")
-    }
+    private fun loadBundledStickerPack(): Map<String, ByteArray> {
+        val context = AiLedgerApplication.contextOrNull() ?: return emptyMap()
+        return runCatching {
+            val loaded = LinkedHashMap<String, ByteArray>(supportedKeys.size)
+            val entryRegex = Regex("""^\s*([a-z0-9_]+):\s*"([A-Za-z0-9+/=]+)",?\s*$""")
+            var insideStickerObject = false
 
-    private fun persistDiskCache(assetKey: String, bytes: ByteArray) {
-        if (bytes.isEmpty() || bytes.size > INLINE_STICKER_MAX_BYTES) return
-        val target = diskCacheFile(assetKey) ?: return
-        runCatching {
-            val directory = target.parentFile ?: return@runCatching
-            if (!directory.exists() && !directory.mkdirs()) return@runCatching
-            val temporary = File(directory, ".${target.name}.${System.nanoTime()}.tmp")
-            temporary.outputStream().use { it.write(bytes) }
-            if (!temporary.renameTo(target)) {
-                target.outputStream().use { it.write(bytes) }
-                temporary.delete()
-            }
-        }
-    }
+            context.assets.open(INLINE_STICKER_ASSET_SOURCE)
+                .bufferedReader(Charsets.UTF_8)
+                .useLines { lines ->
+                    for (line in lines) {
+                        if (!insideStickerObject) {
+                            if (line.contains("const CHAT_STICKER_WEBP_BASE64 = Object.freeze({")) {
+                                insideStickerObject = true
+                            }
+                            continue
+                        }
+                        if (line.trim() == "});") break
 
-    private fun loadFromEndpoints(assetKey: String): Bitmap? {
-        val path = "/chat-stickers/v1/$assetKey.webp"
-        for (endpoint in listOf(CN_ENDPOINT, CLOUDFLARE_ENDPOINT)) {
-            val loaded = runCatching { downloadBitmap(endpoint + path) }.getOrNull()
-            if (loaded != null) {
-                persistDiskCache(assetKey, loaded.bytes)
-                return loaded.bitmap
-            }
-        }
-        return null
-    }
-
-    private data class DownloadedBitmap(
-        val bitmap: Bitmap,
-        val bytes: ByteArray
-    )
-
-    @Throws(IOException::class)
-    private fun downloadBitmap(url: String): DownloadedBitmap {
-        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = INLINE_STICKER_CONNECT_TIMEOUT_MS
-            readTimeout = INLINE_STICKER_READ_TIMEOUT_MS
-            useCaches = true
-            setRequestProperty("Accept", "image/webp,image/*;q=0.8")
-        }
-        try {
-            val status = connection.responseCode
-            if (status !in 200..299) throw IOException("表情资源请求失败：HTTP $status")
-            val declaredLength = connection.contentLengthLong
-            if (declaredLength > INLINE_STICKER_MAX_BYTES) throw IOException("表情资源过大")
-            val bytes = connection.inputStream.use { input ->
-                val output = java.io.ByteArrayOutputStream(
-                    declaredLength.takeIf { it in 1..INLINE_STICKER_MAX_BYTES.toLong() }?.toInt() ?: 32 * 1024
-                )
-                val buffer = ByteArray(8 * 1024)
-                var total = 0
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    total += read
-                    if (total > INLINE_STICKER_MAX_BYTES) throw IOException("表情资源超过大小限制")
-                    output.write(buffer, 0, read)
+                        val match = entryRegex.matchEntire(line) ?: continue
+                        val assetKey = normalizeKey(match.groupValues[1]) ?: continue
+                        val bytes = Base64.decode(match.groupValues[2], Base64.DEFAULT)
+                        if (bytes.isEmpty() || bytes.size > INLINE_STICKER_MAX_ENTRY_BYTES) {
+                            throw IllegalStateException("内置表情资源大小异常：$assetKey")
+                        }
+                        val isWebP = bytes.size >= 12 &&
+                            bytes[0] == 'R'.code.toByte() &&
+                            bytes[1] == 'I'.code.toByte() &&
+                            bytes[2] == 'F'.code.toByte() &&
+                            bytes[3] == 'F'.code.toByte() &&
+                            bytes[8] == 'W'.code.toByte() &&
+                            bytes[9] == 'E'.code.toByte() &&
+                            bytes[10] == 'B'.code.toByte() &&
+                            bytes[11] == 'P'.code.toByte()
+                        if (!isWebP) {
+                            throw IllegalStateException("内置表情资源格式异常：$assetKey")
+                        }
+                        loaded[assetKey] = bytes
+                    }
                 }
-                output.toByteArray()
+
+            if (!insideStickerObject || loaded.keys != supportedKeys) {
+                throw IllegalStateException(
+                    "内置表情资源不完整：缺少=${supportedKeys - loaded.keys}，多余=${loaded.keys - supportedKeys}"
+                )
             }
-            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: throw IOException("表情资源解码失败")
-            return DownloadedBitmap(bitmap = bitmap, bytes = bytes)
-        } finally {
-            connection.disconnect()
-        }
+            loaded
+        }.getOrDefault(emptyMap())
     }
 }
