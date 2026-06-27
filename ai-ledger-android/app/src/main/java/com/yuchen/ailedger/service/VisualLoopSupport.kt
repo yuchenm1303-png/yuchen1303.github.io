@@ -1,9 +1,6 @@
 package com.yuchen.ailedger.service
 
 import android.os.SystemClock
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
 import org.json.JSONObject
 
 internal object VisualLoopSupport {
@@ -20,38 +17,18 @@ internal object VisualLoopSupport {
     const val MAX_REJECTIONS = 3
     const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
 
+    /**
+     * Converts GUI Plus normalized coordinates to physical screen pixels without interpreting the
+     * declared target. Visual grounding and target existence are owned by the cloud GUI verifier;
+     * Android only preserves coordinates, protocol metadata and objective execution traces.
+     */
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         val surfaceAwareStep = step.withExecutionTraceField(
             TRACE_SURFACE_MODE,
             surfaceEvidenceMode(snapshot),
         )
-        if (surfaceAwareStep.type == "tap_node") {
-            var pointerTargetPublished = false
-            val declaredTarget = surfaceAwareStep.targetText?.trim().orEmpty()
-            if (declaredTarget.isNotBlank()) {
-                val terms = declaredTargetTerms(declaredTarget)
-                val selectedBounds = (snapshot.clickableNodes + snapshot.allNodes.filter(AgentScreenNode::clickable))
-                    .distinctBy { "${it.text}|${it.bounds}|${it.className}" }
-                    .mapNotNull { node ->
-                        val bounds = parseBounds(node.bounds) ?: return@mapNotNull null
-                        val score = targetMatchScore(node.text, terms)
-                        score.takeIf { it > 0 }?.let { scoreValue -> bounds to scoreValue }
-                    }
-                    .maxByOrNull { it.second }
-                    ?.first
-                if (selectedBounds != null) {
-                    VisualAgentHudRuntime.notePlannedTarget(
-                        step = surfaceAwareStep,
-                        x = selectedBounds.centerX,
-                        y = selectedBounds.centerY,
-                    )
-                    pointerTargetPublished = true
-                }
-            }
-            if (pointerTargetPublished) awaitHudPointerLead()
-            return surfaceAwareStep
-        }
         if (surfaceAwareStep.type != "tap_xy") return surfaceAwareStep
+
         val modelX = surfaceAwareStep.x ?: return surfaceAwareStep
         val modelY = surfaceAwareStep.y ?: return surfaceAwareStep
         val visual = snapshot.visual
@@ -87,25 +64,16 @@ internal object VisualLoopSupport {
             } else {
                 val pixelX = (modelX * width).coerceIn(0f, width.toFloat())
                 val pixelY = (modelY * height).coerceIn(0f, height.toFloat())
-                val grounded = groundDeclaredTapTarget(
-                    step = surfaceAwareStep.copy(x = pixelX, y = pixelY),
-                    snapshot = snapshot,
-                    displayWidth = width,
-                    displayHeight = height,
-                )
-                val materializedX = grounded.x ?: pixelX
-                val materializedY = grounded.y ?: pixelY
-                grounded.withTapExecutionTrace(
+                surfaceAwareStep.copy(x = pixelX, y = pixelY).withTapExecutionTrace(
                     modelX = modelX,
                     modelY = modelY,
                     modelPixelX = pixelX,
                     modelPixelY = pixelY,
-                    materializedX = materializedX,
-                    materializedY = materializedY,
+                    materializedX = pixelX,
+                    materializedY = pixelY,
                     displayWidth = width,
                     displayHeight = height,
-                    groundingApplied = abs(materializedX - pixelX) > TRACE_COORDINATE_EPSILON ||
-                        abs(materializedY - pixelY) > TRACE_COORDINATE_EPSILON,
+                    groundingApplied = false,
                     coordinateProtocol = VisualAgentProtocol.coordinateProtocol,
                 )
             }
@@ -175,151 +143,9 @@ internal object VisualLoopSupport {
     }
 
     private fun awaitHudPointerLead() {
-        // VisualLoop is hosted on Dispatchers.IO. This short presentation barrier gives the
-        // hardware-accelerated WebView one complete pointer transition before the clean capture
-        // window hides the HUD and the accessibility gesture is dispatched.
+        // Preserve the established HUD presentation timing; this is visual presentation only and
+        // does not participate in grounding, routing or semantic decisions.
         SystemClock.sleep(HUD_POINTER_LEAD_MS)
-    }
-
-    private fun groundDeclaredTapTarget(
-        step: CloudAgentStep,
-        snapshot: AgentScreenSnapshot,
-        displayWidth: Int,
-        displayHeight: Int,
-    ): CloudAgentStep {
-        val pointX = step.x ?: return step
-        val pointY = step.y ?: return step
-        val declaredTarget = step.targetText?.trim().orEmpty()
-        if (declaredTarget.isBlank()) return step
-
-        val targetTerms = declaredTargetTerms(declaredTarget)
-        if (targetTerms.isEmpty()) return step
-        val candidates = (snapshot.clickableNodes + snapshot.allNodes.filter(AgentScreenNode::clickable))
-            .distinctBy { "${it.text}|${it.bounds}|${it.className}" }
-            .mapNotNull { node ->
-                val bounds = parseBounds(node.bounds) ?: return@mapNotNull null
-                val score = targetMatchScore(node.text, targetTerms)
-                score.takeIf { it > 0 }?.let { DeclaredTapCandidate(node, bounds, score) }
-            }
-        if (candidates.isEmpty()) return step
-
-        val bestScore = candidates.maxOf(DeclaredTapCandidate::score)
-        val bestCandidates = candidates.filter { it.score == bestScore }
-        val selected = when {
-            bestCandidates.size == 1 -> bestCandidates.single()
-            else -> bestCandidates.minByOrNull { it.bounds.distanceTo(pointX, pointY) } ?: return step
-        }
-        if (selected.bounds.contains(pointX, pointY)) return step
-
-        val targetDistance = selected.bounds.distanceTo(pointX, pointY)
-        val proximityLimit = (min(displayWidth, displayHeight) * TARGET_GROUNDING_PROXIMITY_RATIO)
-            .coerceIn(MIN_TARGET_GROUNDING_PX, MAX_TARGET_GROUNDING_PX)
-        val exactDeclaredMatch = bestScore >= EXACT_TARGET_SCORE
-        // A unique exact/quoted label may be grounded across the page. Partial text matches and
-        // repeated labels are corrected only when the original coordinate is already nearby.
-        if (!exactDeclaredMatch && targetDistance > proximityLimit) return step
-        if (bestCandidates.size > 1 && targetDistance > proximityLimit) return step
-
-        val corrected = selected.bounds.nearestInteriorPoint(pointX, pointY)
-        val label = selected.node.text.trim().take(32)
-        val groundingNote = "坐标已按声明目标${label.takeIf(String::isNotBlank)?.let { "“$it”" }.orEmpty()}校准到可点击区域"
-        val mergedReason = listOfNotNull(
-            step.reason?.trim()?.takeIf(String::isNotBlank),
-            groundingNote,
-        ).joinToString("。").take(320)
-        return step.copy(
-            x = corrected.first,
-            y = corrected.second,
-            reason = mergedReason,
-        )
-    }
-
-    private fun declaredTargetTerms(targetText: String): List<String> {
-        val quoted = QUOTED_TARGET_PATTERN.findAll(targetText)
-            .mapNotNull { match -> match.groupValues.drop(1).firstOrNull(String::isNotBlank) }
-            .map(::normalizeTargetText)
-            .filter { it.length >= MIN_TARGET_TERM_CHARS }
-            .toList()
-        return (quoted + normalizeTargetText(targetText))
-            .filter { it.length >= MIN_TARGET_TERM_CHARS }
-            .distinct()
-    }
-
-    private fun targetMatchScore(nodeText: String, terms: List<String>): Int {
-        val normalizedNode = normalizeTargetText(nodeText)
-        if (normalizedNode.length < MIN_TARGET_TERM_CHARS) return 0
-        return terms.maxOfOrNull { term ->
-            when {
-                term == normalizedNode -> EXACT_TARGET_SCORE + normalizedNode.length
-                term.contains(normalizedNode) -> CONTAINED_TARGET_SCORE + normalizedNode.length
-                normalizedNode.contains(term) -> CONTAINED_TARGET_SCORE + term.length
-                else -> 0
-            }
-        } ?: 0
-    }
-
-    private fun normalizeTargetText(value: String): String = value
-        .trim()
-        .lowercase()
-        .replace(TARGET_PUNCTUATION_PATTERN, "")
-        .replace(TARGET_WHITESPACE_PATTERN, "")
-        .take(MAX_TARGET_TEXT_CHARS)
-
-    private fun parseBounds(value: String): TapBounds? {
-        val values = BOUNDS_NUMBER_PATTERN.findAll(value)
-            .mapNotNull { it.value.toIntOrNull() }
-            .take(4)
-            .toList()
-        if (values.size != 4) return null
-        val left = min(values[0], values[2]).toFloat()
-        val top = min(values[1], values[3]).toFloat()
-        val right = max(values[0], values[2]).toFloat()
-        val bottom = max(values[1], values[3]).toFloat()
-        if (right <= left || bottom <= top) return null
-        return TapBounds(left, top, right, bottom)
-    }
-
-    private data class DeclaredTapCandidate(
-        val node: AgentScreenNode,
-        val bounds: TapBounds,
-        val score: Int,
-    )
-
-    private data class TapBounds(
-        val left: Float,
-        val top: Float,
-        val right: Float,
-        val bottom: Float,
-    ) {
-        val centerX: Float get() = (left + right) / 2f
-        val centerY: Float get() = (top + bottom) / 2f
-
-        fun contains(x: Float, y: Float): Boolean = x in left..right && y in top..bottom
-
-        fun distanceTo(x: Float, y: Float): Float {
-            val dx = when {
-                x < left -> left - x
-                x > right -> x - right
-                else -> 0f
-            }
-            val dy = when {
-                y < top -> top - y
-                y > bottom -> y - bottom
-                else -> 0f
-            }
-            return kotlin.math.sqrt(dx * dx + dy * dy)
-        }
-
-        fun nearestInteriorPoint(x: Float, y: Float): Pair<Float, Float> {
-            val insetX = ((right - left) * TARGET_INTERIOR_INSET_RATIO)
-                .coerceIn(MIN_TARGET_INTERIOR_INSET_PX, MAX_TARGET_INTERIOR_INSET_PX)
-                .coerceAtMost((right - left) / 3f)
-            val insetY = ((bottom - top) * TARGET_INTERIOR_INSET_RATIO)
-                .coerceIn(MIN_TARGET_INTERIOR_INSET_PX, MAX_TARGET_INTERIOR_INSET_PX)
-                .coerceAtMost((bottom - top) / 3f)
-            return x.coerceIn(left + insetX, right - insetX) to
-                y.coerceIn(top + insetY, bottom - insetY)
-        }
     }
 
     fun requiresFreshObservation(step: CloudAgentStep): Boolean =
@@ -382,8 +208,10 @@ internal object VisualLoopSupport {
         if (step.type != "tap_xy") return surfaceMode?.let { "surface=$it" }
 
         val actualPoint = EXECUTED_POINT_PATTERN.find(result.message)?.let { match ->
-            match.groupValues[1].toFloatOrNull() to match.groupValues[2].toFloatOrNull()
-        }?.takeIf { it.first != null && it.second != null }
+            val x = match.groupValues[1].toFloatOrNull()
+            val y = match.groupValues[2].toFloatOrNull()
+            if (x != null && y != null) x to y else null
+        }
         val modelX = args?.optNullableTraceFloat(TRACE_MODEL_X)
         val modelY = args?.optNullableTraceFloat(TRACE_MODEL_Y)
         val modelPixelX = args?.optNullableTraceFloat(TRACE_MODEL_PIXEL_X)
@@ -402,9 +230,7 @@ internal object VisualLoopSupport {
             if (materializedX != null && materializedY != null) {
                 add("materializedPx=${formatTraceCoordinate(materializedX)},${formatTraceCoordinate(materializedY)}")
             }
-            if (actualPoint?.first != null && actualPoint.second != null) {
-                add("executedPx=${formatTraceCoordinate(actualPoint.first!!)},${formatTraceCoordinate(actualPoint.second!!)}")
-            }
+            actualPoint?.let { add("executedPx=${formatTraceCoordinate(it.first)},${formatTraceCoordinate(it.second)}") }
             add("groundingApplied=$groundingApplied")
             add("boundaryAdjusted=$boundaryAdjusted")
         }.joinToString(",")
@@ -440,23 +266,8 @@ internal object VisualLoopSupport {
         return (maxSteps * 3).coerceAtLeast(maxSteps + 8).coerceAtMost(120)
     }
 
-    private val BOUNDS_NUMBER_PATTERN = Regex("-?\\d+")
-    private val QUOTED_TARGET_PATTERN = Regex("[“\"'‘]([^”\"'’]{2,48})[”\"'’]")
-    private val TARGET_PUNCTUATION_PATTERN = Regex("[\\p{P}\\p{S}]")
-    private val TARGET_WHITESPACE_PATTERN = Regex("\\s+")
     private val EXECUTED_POINT_PATTERN = Regex("实际落点\\s+(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
     private const val HUD_POINTER_LEAD_MS = 240L
-    private const val MIN_TARGET_TERM_CHARS = 2
-    private const val MAX_TARGET_TEXT_CHARS = 160
-    private const val EXACT_TARGET_SCORE = 1_000
-    private const val CONTAINED_TARGET_SCORE = 700
-    private const val TARGET_GROUNDING_PROXIMITY_RATIO = 0.1f
-    private const val MIN_TARGET_GROUNDING_PX = 48f
-    private const val MAX_TARGET_GROUNDING_PX = 180f
-    private const val TARGET_INTERIOR_INSET_RATIO = 0.08f
-    private const val MIN_TARGET_INTERIOR_INSET_PX = 6f
-    private const val MAX_TARGET_INTERIOR_INSET_PX = 18f
-    private const val TRACE_COORDINATE_EPSILON = 0.5f
     private const val TRACE_SURFACE_MODE = "__androidVisualSurfaceMode"
     private const val TRACE_COORDINATE_PROTOCOL = "__androidCoordinateProtocol"
     private const val TRACE_MODEL_X = "__androidModelX"
