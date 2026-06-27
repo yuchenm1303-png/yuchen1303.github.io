@@ -18,24 +18,15 @@ import org.json.JSONObject
 class StockMarketDataRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
-    @Volatile
-    private var lastSuccessfulHome: StockMarketHomeSnapshot? = null
-
-    fun loadMarketHome(): Result<StockMarketHomeSnapshot> {
-        return runCatching {
-            val root = JSONObject(
-                httpGet(
-                    "${baseUrl()}/api/stock/a-share/market/home",
-                    MARKET_TIMEOUT_MS,
-                    MARKET_MICRO_CACHE_MS
-                )
+    fun loadMarketHome(): Result<StockMarketHomeSnapshot> = runCatching {
+        val root = JSONObject(
+            httpGet(
+                "${baseUrl()}/api/stock/a-share/market/home",
+                MARKET_TIMEOUT_MS,
+                MARKET_MICRO_CACHE_MS
             )
-            parseMarketHome(root).also { snapshot ->
-                if (snapshot.hasUsefulData()) lastSuccessfulHome = snapshot
-            }
-        }.recoverCatching { error ->
-            lastSuccessfulHome?.asClientStale(error) ?: throw error
-        }
+        )
+        parseMarketHome(root)
     }
 
     fun loadSlowStock(query: String): Result<StockSlowDataSnapshot> = runCatching {
@@ -116,34 +107,6 @@ class StockMarketDataRepository(
             limitUpMeta = metaFromModule(limitUpModule),
             updatedAt = firstText(payload, "updatedAt").orEmpty(),
             warnings = stringList(payload.optJSONArray("warnings"))
-        )
-    }
-
-    private fun StockMarketHomeSnapshot.hasUsefulData(): Boolean {
-        return indices.isNotEmpty() ||
-            marketBreadth.meta.hasRealData ||
-            sentiment.meta.hasRealData ||
-            boards.isNotEmpty() ||
-            sectors.isNotEmpty()
-    }
-
-    private fun StockMarketHomeSnapshot.asClientStale(error: Throwable): StockMarketHomeSnapshot {
-        val warning = "android_refresh_failed: ${error.javaClass.simpleName}: ${error.message.orEmpty()}"
-        return copy(
-            indicesMeta = indicesMeta.asClientStale(warning),
-            marketBreadth = marketBreadth.copy(meta = marketBreadth.meta.asClientStale(warning)),
-            sentiment = sentiment.copy(meta = sentiment.meta.asClientStale(warning)),
-            marketNewsMeta = marketNewsMeta.asClientStale(warning),
-            popularityMeta = popularityMeta.asClientStale(warning),
-            limitUpMeta = limitUpMeta.asClientStale(warning),
-            warnings = (warnings + warning).distinct()
-        )
-    }
-
-    private fun StockModuleMeta.asClientStale(warning: String): StockModuleMeta {
-        return copy(
-            status = if (hasRealData) StockModuleStatus.Stale else status,
-            warnings = (warnings + warning).distinct()
         )
     }
 
@@ -315,8 +278,7 @@ class StockMarketDataRepository(
                         summary = firstText(item, "summary", "description").orEmpty(),
                         publishTime = firstText(item, "publishTime", "time", "updatedAt").orEmpty(),
                         source = firstText(item, "source", "institution").orEmpty(),
-                        url = firstText(item, "url", "attachmentUrl").orEmpty(),
-                        tag = firstText(item, "tag", "type").orEmpty()
+                        url = firstText(item, "url", "attachmentUrl").orEmpty()
                     )
                 )
             }
@@ -325,23 +287,33 @@ class StockMarketDataRepository(
 
     private fun metaFromModule(module: JSONObject?): StockModuleMeta {
         if (module == null) return StockModuleMeta()
-        val status = StockModuleStatus.fromWire(firstText(module, "status"))
         return StockModuleMeta(
-            status = status,
+            status = StockModuleStatus.fromWire(firstText(module, "status")),
             source = firstText(module, "source").orEmpty(),
             sourceUrlType = firstText(module, "sourceUrlType").orEmpty(),
-            cacheAgeMs = firstLong(module, "cacheAgeMs") ?: 0L,
             updatedAt = firstText(module, "updatedAt").orEmpty(),
+            cacheAgeMs = firstLong(module, "cacheAgeMs") ?: 0L,
+            isDerived = firstBoolean(module, "isDerived") ?: false,
             warnings = stringList(module.optJSONArray("warnings"))
         )
     }
 
     private fun payloadObject(root: JSONObject): JSONObject {
-        return root.optJSONObject("data")
-            ?: root.optJSONObject("payload")
-            ?: root.optJSONObject("snapshot")
-            ?: root.optJSONObject("result")
-            ?: root
+        val data = root.optJSONObject("data")
+        if (data != null && hasMarketPayload(data)) return data
+        val payload = root.optJSONObject("payload")
+        if (payload != null && hasMarketPayload(payload)) return payload
+        val result = root.optJSONObject("result")
+        if (result != null && hasMarketPayload(result)) return result
+        return root
+    }
+
+    private fun hasMarketPayload(value: JSONObject): Boolean {
+        return value.has("indices") ||
+            value.has("marketBreadth") ||
+            value.has("profile") ||
+            value.has("items") ||
+            value.has("status")
     }
 
     private fun moduleItemsArray(module: JSONObject?): JSONArray? {
