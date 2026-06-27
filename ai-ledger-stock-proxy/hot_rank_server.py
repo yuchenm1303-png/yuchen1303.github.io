@@ -228,9 +228,7 @@ def _build_hot_rank_payload(rank_type: str) -> dict[str, Any]:
         "type": rank_type,
         "title": HOT_RANK_LABELS[rank_type],
         "source": "eastmoney_guba_stockrank",
-        "sourceUrlType": (
-            "emappdata stockrank POST + push2 batch quote"
-        ),
+        "sourceUrlType": "emappdata stockrank POST + push2 batch quote",
         "sourcePageUrl": HOT_RANK_PAGE_URL,
         "upstreamUpdateIntervalSeconds": 600,
         "dataSourceLabel": (
@@ -322,10 +320,14 @@ _remove_get_routes({LEGACY_POPULARITY_PATH})
 
 @app.get(HOT_RANKING_PATH)
 def a_share_hot_ranking(
-    type: str = Query("popularity", pattern="^(popularity|surge)$"),
+    rank_type_query: str = Query(
+        "popularity",
+        alias="type",
+        pattern="^(popularity|surge)$",
+    ),
     limit: int = Query(50, ge=1, le=HOT_RANK_MAX_ITEMS),
 ) -> dict[str, Any]:
-    rank_type = _normalize_rank_type(type)
+    rank_type = _normalize_rank_type(rank_type_query)
     try:
         return _limited_payload(_load_hot_rank_cached(rank_type), limit)
     except HTTPException:
@@ -333,7 +335,7 @@ def a_share_hot_ranking(
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"实时热点榜暂不可用：{type(exc).__name__}: {exc}",
+            detail=f"实时热点榜暂不可用：{exc.__class__.__name__}: {exc}",
         ) from exc
 
 
@@ -346,5 +348,5 @@ def a_share_popularity_ranking_real(
     except (httpx.HTTPError, ValueError, TypeError) as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"个股人气榜暂不可用：{type(exc).__name__}: {exc}",
+            detail=f"个股人气榜暂不可用：{exc.__class__.__name__}: {exc}",
         ) from exc
