@@ -169,7 +169,7 @@ fun CitationInlineRichText(
                         Placeholder(
                             width = stickerSizeTextUnit,
                             height = stickerSlotHeightTextUnit,
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextTop
+                            placeholderVerticalAlign = PlaceholderVerticalAlign.AboveBaseline
                         )
                     ) {
                         val image = InlineStickerAssets.rememberImageBitmap(token.assetKey)
