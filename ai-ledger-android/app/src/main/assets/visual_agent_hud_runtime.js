@@ -1,6 +1,8 @@
 (() => {
   const app=document.getElementById('app');
   const cursor=document.getElementById('cursor');
+  const bubble=document.getElementById('bubble');
+  const bubbleContent=document.getElementById('bubbleContent');
   const bubbleTitle=document.getElementById('bubbleTitle');
   const thought=document.getElementById('thought');
   const confidence=document.getElementById('confidence');
@@ -25,6 +27,7 @@
   const innerGlow=document.getElementById('innerGlow');
   const innerBlurNode=document.getElementById('innerBlurNode');
   const root=document.documentElement;
+  const reduceMotion=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const phaseNames=[
     ['正在观察页面','Step 1 / 5','OBSERVE'],
     ['正在分析目标','Step 2 / 5','ANALYZE'],
@@ -32,8 +35,18 @@
     ['正在执行点击','Step 4 / 5','TAP'],
     ['正在验证结果','Step 5 / 5','VERIFY']
   ];
+
   let lastClickRevision=-1;
   let phaseTimer=0;
+  let contentRevision=0;
+  let lastContentSignature='';
+  let bubblePositionFrame=0;
+  let currentPoint={x:innerWidth*.5,y:innerHeight*.5};
+  let currentCursorSize=36.1;
+  let currentScaleX=1;
+  let currentScaleY=.95;
+  let currentAuraSize=72;
+  let currentBubbleScale=.65;
 
   function number(value,fallback){
     const parsed=Number(value);
@@ -74,16 +87,22 @@
   function applyParameters(parameters){
     if(!parameters||typeof parameters!=='object')return;
 
+    currentCursorSize=Math.max(1,number(parameters.size,36.1));
+    currentScaleX=number(parameters.scaleX,1);
+    currentScaleY=number(parameters.scaleY,.95);
+    currentAuraSize=Math.max(0,number(parameters.auraSize,72));
+    currentBubbleScale=Math.max(.1,number(parameters.infoBubbleScale,.65));
+
     shape.setAttribute('d',cursorPath(parameters));
-    setCss('--lab-cursor-size',parameters.size,'px');
-    setCss('--lab-scale-x',parameters.scaleX);
-    setCss('--lab-scale-y',parameters.scaleY);
+    setCss('--lab-cursor-size',currentCursorSize,'px');
+    setCss('--lab-scale-x',currentScaleX);
+    setCss('--lab-scale-y',currentScaleY);
     setCss('--lab-rotation',parameters.rotation,'deg');
     setCss('--lab-offset-x',parameters.offsetX,'px');
     setCss('--lab-offset-y',parameters.offsetY,'px');
     setCss('--hotspot-x',parameters.hotspotX,'px');
     setCss('--hotspot-y',parameters.hotspotY,'px');
-    setCss('--lab-aura-size',parameters.auraSize,'px');
+    setCss('--lab-aura-size',currentAuraSize,'px');
     setCss('--lab-aura-blur',parameters.auraBlur,'px');
     setCss('--lab-aura-opacity',parameters.auraOpacity);
 
@@ -109,7 +128,7 @@
     innerBlurNode.setAttribute('stdDeviation',number(parameters.innerGlowBlur,2.5));
 
     setCss('--info-bubble-width',parameters.infoBubbleWidth,'px');
-    setCss('--info-bubble-scale',parameters.infoBubbleScale);
+    setCss('--info-bubble-scale',currentBubbleScale);
 
     setCss('--edge-inset',parameters.edgeInset,'px');
     setCss('--edge-radius',parameters.edgeRadius,'px');
@@ -122,16 +141,109 @@
     setCss('--edge-flow-speed',Math.max(.01,number(parameters.edgeFlowDuration,7.5)),'s');
     setCss('--edge-breath-speed',Math.max(.01,number(parameters.edgeBreathDuration,1.5)),'s');
     setCss('--edge-breath-strength',parameters.edgeBreathStrength);
+    scheduleBubblePosition();
   }
 
   function setPoint(xNorm,yNorm){
     const x=Math.max(0,Math.min(1,number(xNorm,0)))*innerWidth;
     const y=Math.max(0,Math.min(1,number(yNorm,0)))*innerHeight;
+    currentPoint={x,y};
     root.style.setProperty('--cursor-x',x+'px');
     root.style.setProperty('--cursor-y',y+'px');
     const cx=Math.round(x),cy=Math.round(y);
     coords.textContent=`${cx}, ${cy}`;
     debugPoint.textContent=`screen_point: (${cx}, ${cy})`;
+    scheduleBubblePosition();
+  }
+
+  function overlapArea(a,b){
+    const width=Math.max(0,Math.min(a.right,b.right)-Math.max(a.left,b.left));
+    const height=Math.max(0,Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top));
+    return width*height;
+  }
+
+  function scheduleBubblePosition(){
+    if(bubblePositionFrame)return;
+    bubblePositionFrame=requestAnimationFrame(()=>{
+      bubblePositionFrame=0;
+      positionBubble();
+    });
+  }
+
+  function positionBubble(){
+    if(!bubble||!bubble.offsetWidth||!bubble.offsetHeight)return;
+
+    const visualWidth=bubble.offsetWidth*currentBubbleScale;
+    const visualHeight=bubble.offsetHeight*currentBubbleScale;
+    const screenWidth=Math.max(1,innerWidth);
+    const screenHeight=Math.max(1,innerHeight);
+    const safeLeft=12;
+    const safeRight=12;
+    const safeTop=12;
+    const safeBottom=12;
+    const cursorRadius=Math.max(
+      18,
+      currentCursorSize*Math.max(Math.abs(currentScaleX),Math.abs(currentScaleY))*.62,
+      currentAuraSize*.18
+    );
+    const gap=Math.max(10,currentCursorSize*.22);
+    const x=currentPoint.x;
+    const y=currentPoint.y;
+    const cursorRect={
+      left:x-cursorRadius,
+      top:y-cursorRadius,
+      right:x+cursorRadius,
+      bottom:y+cursorRadius
+    };
+    const candidates=[
+      {name:'right-bottom',x:x+cursorRadius+gap,y:y+gap,priority:0},
+      {name:'left-bottom',x:x-cursorRadius-gap-visualWidth,y:y+gap,priority:1},
+      {name:'right-top',x:x+cursorRadius+gap,y:y-gap-visualHeight,priority:2},
+      {name:'left-top',x:x-cursorRadius-gap-visualWidth,y:y-gap-visualHeight,priority:3},
+      {name:'bottom',x:x-visualWidth*.5,y:y+cursorRadius+gap,priority:4},
+      {name:'top',x:x-visualWidth*.5,y:y-cursorRadius-gap-visualHeight,priority:5}
+    ];
+
+    const maxX=Math.max(safeLeft,screenWidth-safeRight-visualWidth);
+    const maxY=Math.max(safeTop,screenHeight-safeBottom-visualHeight);
+    let best=null;
+    for(const candidate of candidates){
+      const overflow=
+        Math.max(0,safeLeft-candidate.x)+
+        Math.max(0,candidate.x+visualWidth-(screenWidth-safeRight))+
+        Math.max(0,safeTop-candidate.y)+
+        Math.max(0,candidate.y+visualHeight-(screenHeight-safeBottom));
+      const left=Math.min(maxX,Math.max(safeLeft,candidate.x));
+      const top=Math.min(maxY,Math.max(safeTop,candidate.y));
+      const rect={left,top,right:left+visualWidth,bottom:top+visualHeight};
+      const overlap=overlapArea(rect,cursorRect);
+      const centerDistance=Math.hypot(left+visualWidth*.5-x,top+visualHeight*.5-y);
+      const score=overflow*900+overlap*120+centerDistance*.035+candidate.priority*2;
+      if(!best||score<best.score)best={...candidate,left,top,score};
+    }
+    if(!best)return;
+
+    const previousPlacement=bubble.dataset.placement||'';
+    const placementChanged=previousPlacement&&previousPlacement!==best.name;
+    if(placementChanged){
+      bubble.style.transition='none';
+    }
+    bubble.style.left=`${best.left}px`;
+    bubble.style.top=`${best.top}px`;
+    bubble.dataset.placement=best.name;
+    if(placementChanged){
+      void bubble.offsetWidth;
+      bubble.style.transition='';
+      if(!reduceMotion&&bubble.animate){
+        bubble.animate(
+          [
+            {opacity:.58,filter:'blur(1.4px) saturate(.9)'},
+            {opacity:1,filter:'blur(0) saturate(1)'}
+          ],
+          {duration:180,easing:'cubic-bezier(.2,.8,.2,1)'}
+        );
+      }
+    }
   }
 
   function setPhase(index){
@@ -146,11 +258,85 @@
     });
   }
 
+  function revealText(element,text,revision,speed,delayMs=0){
+    const value=String(text||'');
+    if(reduceMotion||value.length<2){
+      element.textContent=value;
+      scheduleBubblePosition();
+      return;
+    }
+    const characters=Array.from(value);
+    element.textContent='';
+    let startedAt=0;
+    let rendered=0;
+    function frame(now){
+      if(revision!==contentRevision)return;
+      if(!startedAt)startedAt=now+delayMs;
+      if(now<startedAt){
+        requestAnimationFrame(frame);
+        return;
+      }
+      const next=Math.min(characters.length,Math.floor((now-startedAt)/speed)+1);
+      if(next!==rendered){
+        rendered=next;
+        element.textContent=characters.slice(0,rendered).join('');
+        scheduleBubblePosition();
+      }
+      if(rendered<characters.length)requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function updateBubbleContent(data){
+    const titleText=data.bubbleTitle||data.currentAction||'正在执行视觉任务';
+    const thoughtText=data.thought||data.result||'正在根据页面证据选择下一步操作。';
+    const confidenceText=data.confidence||'—';
+    const sourceText=data.actionSource||'视觉识别';
+    const signature=JSON.stringify([titleText,thoughtText,confidenceText,sourceText]);
+    if(signature===lastContentSignature){
+      confidence.textContent=confidenceText;
+      actionSource.textContent=sourceText;
+      return;
+    }
+
+    lastContentSignature=signature;
+    contentRevision+=1;
+    const revision=contentRevision;
+    confidence.textContent=confidenceText;
+    actionSource.textContent=sourceText;
+
+    if(!reduceMotion&&bubble.animate&&bubbleContent.animate){
+      bubble.animate(
+        [
+          {opacity:.76,filter:'brightness(.92) saturate(.9)'},
+          {opacity:1,filter:'brightness(1) saturate(1)'}
+        ],
+        {duration:300,easing:'cubic-bezier(.2,.8,.2,1)'}
+      );
+      bubbleContent.animate(
+        [
+          {opacity:.15,transform:'translateY(6px) scale(.985)',filter:'blur(2px)'},
+          {opacity:1,transform:'translateY(0) scale(1)',filter:'blur(0)'}
+        ],
+        {duration:280,easing:'cubic-bezier(.16,.84,.24,1)'}
+      );
+    }
+
+    revealText(bubbleTitle,titleText,revision,16,0);
+    revealText(thought,thoughtText,revision,10,72);
+    scheduleBubblePosition();
+  }
+
   function clickPulse(){
     cursor.classList.remove('clicking');
     void cursor.offsetWidth;
     cursor.classList.add('clicking');
   }
+
+  if(window.ResizeObserver){
+    new ResizeObserver(scheduleBubblePosition).observe(bubble);
+  }
+  window.addEventListener('resize',scheduleBubblePosition,{passive:true});
 
   window.VisualHud={
     update(payload){
@@ -163,10 +349,7 @@
       setPhase(data.phase);
       if(data.title)topTitle.textContent=data.title;
       if(data.meta)topMeta.textContent=data.meta;
-      bubbleTitle.textContent=data.bubbleTitle||data.currentAction||'正在执行视觉任务';
-      thought.textContent=data.thought||data.result||'正在根据页面证据选择下一步操作。';
-      confidence.textContent=data.confidence||'—';
-      actionSource.textContent=data.actionSource||'视觉识别';
+      updateBubbleContent(data);
       debugLatency.textContent=data.debugLatency||'latency_total: —';
       if(number(data.autoClickAfterMs,0)>0){
         phaseTimer=setTimeout(()=>{
