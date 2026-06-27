@@ -4,31 +4,45 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
-<title>AI Ledger · 股票详情页多周期原型</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/yuchenm1303-png/yuchen1303.github.io@aeb00afa939185240e138a79ab485c5a21ad5b85/ai-ledger-android/stock-detail-web-preview.css">
+<title>AI Ledger · 新版个股详情页</title>
+<link rel="stylesheet" href="./stock-detail-web-v2.css?v=20260627-2">
 </head>
 <body>
-<button class="mobile-toggle" id="mobileToggle">⚙</button>
+<button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
 <main class="workspace">
-  <section class="phone">
+  <section class="phone" aria-label="新版个股详情页手机预览">
     <div class="screen">
       <header class="status-bar">
-        <div class="status-left"><span class="carriers">中国移动<br>中国电信</span><span class="clock">4:33</span><span>◧</span><span>◉</span></div>
+        <div class="status-left">
+          <span class="carriers">中国移动<br>中国电信</span>
+          <span class="clock" id="clock">--:--</span>
+          <span>◧</span><span>◉</span>
+        </div>
         <div class="status-right"><span>⌁ ◉ Ⓝ 4G▮▮▮ 4G▮▮▮</span><span class="battery">42</span></div>
       </header>
+      <span class="detail-page-tag">A-SHARE DETAIL</span>
 
-      <section class="glass quote">
+      <section class="glass quote" aria-label="个股实时行情卡">
         <div class="quote-head">
-          <div class="identity"><h1 class="name" id="name">--</h1><div class="code"><span id="code">------</span> · <span id="market">--</span></div></div>
+          <button class="back-button" id="backButton" aria-label="返回市场首页">‹</button>
+          <div class="identity">
+            <h1 class="name" id="name">--</h1>
+            <div class="code"><span id="code">------</span> · <span id="market">--</span></div>
+          </div>
           <div class="source" id="source">等待真实后端行情</div>
         </div>
+
         <div class="quote-main">
-          <div class="price-box"><div class="price" id="price">--</div><div class="change" id="change">--</div><div class="price-note">昨收 <span id="previousCloseText">--</span></div></div>
+          <div class="price-box">
+            <div class="price" id="price">--</div>
+            <div class="change" id="change">--</div>
+            <div class="price-note">昨收 <span id="previousCloseText">--</span></div>
+          </div>
           <div class="metrics" id="metrics"></div>
         </div>
       </section>
 
-      <section class="glass chart-card section" id="chartCard">
+      <section class="glass chart-card section" id="chartCard" aria-label="行情图表与盘口">
         <div class="tabs">
           <button class="pill active" data-tab="分时">分时</button>
           <button class="pill" data-tab="日K">日K</button>
@@ -36,6 +50,7 @@
           <button class="pill" data-tab="月K">月K</button>
           <button class="pill" data-tab="五日">五日</button>
         </div>
+
         <div class="legend">
           <span class="legend-title" id="legendTitle">分时 · 首尾集合竞价</span>
           <span class="yellow" id="legendSecondary">均价 <b id="average">--</b></span>
@@ -44,7 +59,9 @@
           <span class="auction-status" id="auctionStatus">等待真实竞价数据</span>
           <span id="legendChange">--</span>
         </div>
+
         <div class="kline-tools" id="klineTools"></div>
+
         <div class="terminal" id="terminal">
           <div class="chart-column">
             <div class="chart-wrap" id="chartWrap">
@@ -60,6 +77,7 @@
             <div class="axis" id="axis"></div>
             <div class="caption" id="caption"></div>
           </div>
+
           <aside class="order-panel">
             <div class="order-head"><span class="order-title">五档盘口</span><span class="order-state" id="depthState">--</span></div>
             <div class="columns"><span>盘口</span><span>价格</span><span>手</span></div>
@@ -70,19 +88,29 @@
         </div>
       </section>
     </div>
-    <nav class="bottom-nav"><div class="nav">AI<br>AI助手</div><div class="nav active">✦<br>功能</div><div class="nav">⚙<br>设置</div></nav>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <div class="nav">AI<br>AI助手</div>
+      <div class="nav active">✦<br>功能</div>
+      <div class="nav">⚙<br>设置</div>
+    </nav>
   </section>
 
   <aside class="controls">
-    <h1>股票详情页实时原型</h1>
-    <div class="version">网页版本 2026-06-26.16 · 指标等比分区版</div>
-    <p>现在不是让边框缩窄，而是在边框内部按可用高度重新分配区域：K线主图、成交量和技术指标共同铺满剩余空间，主图不会再无限挤占底部指标。</p>
+    <h1>新版个股详情页网页调试</h1>
+    <div class="version">网页版本 2026-06-27.2 · 对齐当前 StockDetailPageV3</div>
+    <p>顶部改为 40dp 返回按钮、紧凑股票身份与数据源；行情卡固定 138dp，图表玻璃卡自适应铺满剩余高度。分时、集合竞价、成交量、五档盘口、逐笔成交和多周期 K 线全部加载当前分支资源。</p>
+
     <div class="group">
       <h2>实时数据</h2>
       <input id="query" type="text" value="600667" placeholder="股票代码或名称">
-      <div class="buttons"><button class="primary" id="start">开始实时刷新</button><button id="stop">停止刷新</button></div>
-      <div class="data-status" id="dataStatus"><strong>脚本加载中</strong>：正在初始化行情、K线和技术指标。</div>
+      <div class="buttons">
+        <button class="primary" id="start">开始实时刷新</button>
+        <button id="stop">停止刷新</button>
+      </div>
+      <div class="data-status" id="dataStatus"><strong>脚本加载中</strong>：正在初始化当前分支行情、K线和技术指标。</div>
     </div>
+
     <div class="group">
       <h2>布局与图表</h2>
       <div class="control-row"><div class="control-head"><span>图表总高度</span><span id="chartHeightText">自动适配</span></div><input id="chartHeight" type="range" min="400" max="650" value="510" disabled></div>
@@ -92,20 +120,11 @@
     </div>
   </aside>
 </main>
-<script>
-(async function bootstrapStockPrototype(){
-  const status=document.getElementById('dataStatus');
-  const routeQuery=new URLSearchParams(location.search).get('query');
-  if(routeQuery)document.getElementById('query').value=routeQuery;
-  const base='https://raw.githubusercontent.com/yuchenm1303-png/yuchen1303.github.io/aeb00afa939185240e138a79ab485c5a21ad5b85/ai-ledger-android/';
-  const files=['stock-detail-web-core.js','stock-detail-web-charts.js','stock-detail-web-indicators.js','stock-detail-web-runtime.js'];
-  try{
-    const responses=await Promise.all(files.map(file=>fetch(base+file,{cache:'no-store'})));
-    responses.forEach((response,index)=>{if(!response.ok)throw new Error(files[index]+' HTTP '+response.status)});
-    const sources=await Promise.all(responses.map(response=>response.text()));
-    new Function(sources.join('\n\n;\n\n')+'\n//# sourceURL=stock-detail-web-bundle.js')();
-  }catch(error){status.innerHTML='<strong>脚本初始化失败</strong>：'+(error&&error.message?error.message:String(error))+'<br>请刷新页面后重试。';console.error('股票网页原型初始化失败',error)}
-})();
-</script>
+
+<script src="./stock-detail-web-shell.js?v=20260627-2"></script>
+<script src="./stock-detail-web-core.js?v=20260627-2"></script>
+<script src="./stock-detail-web-charts.js?v=20260627-2"></script>
+<script src="./stock-detail-web-indicators.js?v=20260627-2"></script>
+<script src="./stock-detail-web-runtime.js?v=20260627-2"></script>
 </body>
 </html>
