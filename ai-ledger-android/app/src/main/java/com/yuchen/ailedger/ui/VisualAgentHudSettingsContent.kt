@@ -68,7 +68,7 @@ private val visualHudParameterSections = listOf(
     VisualHudParameterSection(
         "光标几何与热点",
         listOf(
-            VisualHudParameterSpec("size", "光标尺寸", "SVG 光标显示尺寸，默认 47.5 px。", 24f..96f, " px", 1),
+            VisualHudParameterSpec("size", "光标尺寸", "SVG 光标显示尺寸，默认 36.1 px。", 24f..96f, " px", 1),
             VisualHudParameterSpec("scaleX", "横向缩放", "光标横向比例。", 0.5f..1.5f),
             VisualHudParameterSpec("scaleY", "纵向缩放", "光标纵向比例。", 0.5f..1.5f),
             VisualHudParameterSpec("rotation", "旋转角度", "围绕热点旋转光标。", -30f..30f, "°", 1),
@@ -198,7 +198,7 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
         VisualHudActionButton(
             title = "恢复默认参数",
-            subtitle = "光标默认 47.5 px",
+            subtitle = "光标 36.1 px · 信息栏 420 / 0.65",
             state = state,
             modifier = Modifier.weight(1f),
             onClick = store::resetParameters,
