@@ -1,8 +1,10 @@
 package com.yuchen.ailedger.service
 
 import android.os.SystemClock
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import org.json.JSONObject
 
 internal object VisualLoopSupport {
     const val MAX_RECENT_ACTIONS = 14
@@ -19,9 +21,13 @@ internal object VisualLoopSupport {
     const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
 
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
-        if (step.type == "tap_node") {
+        val surfaceAwareStep = step.withExecutionTraceField(
+            TRACE_SURFACE_MODE,
+            surfaceEvidenceMode(snapshot),
+        )
+        if (surfaceAwareStep.type == "tap_node") {
             var pointerTargetPublished = false
-            val declaredTarget = step.targetText?.trim().orEmpty()
+            val declaredTarget = surfaceAwareStep.targetText?.trim().orEmpty()
             if (declaredTarget.isNotBlank()) {
                 val terms = declaredTargetTerms(declaredTarget)
                 val selectedBounds = (snapshot.clickableNodes + snapshot.allNodes.filter(AgentScreenNode::clickable))
@@ -35,7 +41,7 @@ internal object VisualLoopSupport {
                     ?.first
                 if (selectedBounds != null) {
                     VisualAgentHudRuntime.notePlannedTarget(
-                        step = step,
+                        step = surfaceAwareStep,
                         x = selectedBounds.centerX,
                         y = selectedBounds.centerY,
                     )
@@ -43,33 +49,129 @@ internal object VisualLoopSupport {
                 }
             }
             if (pointerTargetPublished) awaitHudPointerLead()
-            return step
+            return surfaceAwareStep
         }
-        if (step.type != "tap_xy") return step
-        val x = step.x ?: return step
-        val y = step.y ?: return step
+        if (surfaceAwareStep.type != "tap_xy") return surfaceAwareStep
+        val modelX = surfaceAwareStep.x ?: return surfaceAwareStep
+        val modelY = surfaceAwareStep.y ?: return surfaceAwareStep
         val visual = snapshot.visual
         val materialized = if (visual == null) {
-            step
+            surfaceAwareStep.withTapExecutionTrace(
+                modelX = modelX,
+                modelY = modelY,
+                modelPixelX = null,
+                modelPixelY = null,
+                materializedX = modelX,
+                materializedY = modelY,
+                displayWidth = null,
+                displayHeight = null,
+                groundingApplied = false,
+                coordinateProtocol = "unresolved",
+            )
         } else {
             val width = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 }
             val height = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 }
             if (width == null || height == null) {
-                step
+                surfaceAwareStep.withTapExecutionTrace(
+                    modelX = modelX,
+                    modelY = modelY,
+                    modelPixelX = null,
+                    modelPixelY = null,
+                    materializedX = modelX,
+                    materializedY = modelY,
+                    displayWidth = null,
+                    displayHeight = null,
+                    groundingApplied = false,
+                    coordinateProtocol = "unresolved",
+                )
             } else {
-                val pixelX = (x * width).coerceIn(0f, width.toFloat())
-                val pixelY = (y * height).coerceIn(0f, height.toFloat())
-                groundDeclaredTapTarget(
-                    step = step.copy(x = pixelX, y = pixelY),
+                val pixelX = (modelX * width).coerceIn(0f, width.toFloat())
+                val pixelY = (modelY * height).coerceIn(0f, height.toFloat())
+                val grounded = groundDeclaredTapTarget(
+                    step = surfaceAwareStep.copy(x = pixelX, y = pixelY),
                     snapshot = snapshot,
                     displayWidth = width,
                     displayHeight = height,
+                )
+                val materializedX = grounded.x ?: pixelX
+                val materializedY = grounded.y ?: pixelY
+                grounded.withTapExecutionTrace(
+                    modelX = modelX,
+                    modelY = modelY,
+                    modelPixelX = pixelX,
+                    modelPixelY = pixelY,
+                    materializedX = materializedX,
+                    materializedY = materializedY,
+                    displayWidth = width,
+                    displayHeight = height,
+                    groundingApplied = abs(materializedX - pixelX) > TRACE_COORDINATE_EPSILON ||
+                        abs(materializedY - pixelY) > TRACE_COORDINATE_EPSILON,
+                    coordinateProtocol = VisualAgentProtocol.coordinateProtocol,
                 )
             }
         }
         VisualAgentHudRuntime.notePlannedStep(materialized)
         awaitHudPointerLead()
         return materialized
+    }
+
+    private fun CloudAgentStep.withTapExecutionTrace(
+        modelX: Float,
+        modelY: Float,
+        modelPixelX: Float?,
+        modelPixelY: Float?,
+        materializedX: Float,
+        materializedY: Float,
+        displayWidth: Int?,
+        displayHeight: Int?,
+        groundingApplied: Boolean,
+        coordinateProtocol: String,
+    ): CloudAgentStep {
+        val fields = linkedMapOf<String, Any?>(
+            TRACE_COORDINATE_PROTOCOL to coordinateProtocol,
+            TRACE_MODEL_X to modelX,
+            TRACE_MODEL_Y to modelY,
+            TRACE_MODEL_PIXEL_X to modelPixelX,
+            TRACE_MODEL_PIXEL_Y to modelPixelY,
+            TRACE_MATERIALIZED_X to materializedX,
+            TRACE_MATERIALIZED_Y to materializedY,
+            TRACE_DISPLAY_WIDTH to displayWidth,
+            TRACE_DISPLAY_HEIGHT to displayHeight,
+            TRACE_GROUNDING_APPLIED to groundingApplied,
+        )
+        return withExecutionTraceFields(fields)
+    }
+
+    private fun CloudAgentStep.withExecutionTraceField(key: String, value: Any?): CloudAgentStep =
+        withExecutionTraceFields(linkedMapOf(key to value))
+
+    private fun CloudAgentStep.withExecutionTraceFields(fields: Map<String, Any?>): CloudAgentStep {
+        val args = JSONObject()
+        toolArgs?.let { source ->
+            val keys = source.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                args.put(key, source.opt(key))
+            }
+        }
+        fields.forEach { (key, value) ->
+            if (value != null) args.put(key, value)
+        }
+        return copy(toolArgs = args)
+    }
+
+    private fun surfaceEvidenceMode(snapshot: AgentScreenSnapshot): String {
+        val hasNodeEvidence = snapshot.clickableNodes.isNotEmpty() ||
+            snapshot.inputNodes.isNotEmpty() ||
+            snapshot.scrollableNodes.isNotEmpty() ||
+            snapshot.allNodes.any { it.clickable || it.editable || it.scrollable }
+        val hasVisualEvidence = snapshot.visual?.hasImage == true
+        return when {
+            hasVisualEvidence && hasNodeEvidence -> "hybrid"
+            hasVisualEvidence -> "visual_only"
+            hasNodeEvidence -> "node_grounded"
+            else -> "package_only"
+        }
     }
 
     private fun awaitHudPointerLead() {
@@ -262,15 +364,59 @@ internal object VisualLoopSupport {
             ?: step.appName?.takeIf(String::isNotBlank)
             ?: step.packageName?.takeIf(String::isNotBlank)
             ?: step.text?.take(32)?.takeIf(String::isNotBlank)
+        val executionTrace = buildExecutionTrace(step, result)
         return buildList {
             add(signature)
             add(status)
             target?.let { add("target=${it.take(56)}") }
             step.purpose?.takeIf(String::isNotBlank)?.let { add("purpose=${it.take(72)}") }
             step.hypothesisId?.takeIf(String::isNotBlank)?.let { add("hypothesis=${it.take(72)}") }
+            executionTrace?.let { add("executionTrace=${it.take(360)}") }
             add("result=${result.message.take(80)}")
         }.joinToString(":").take(MAX_RECENT_ACTION_CHARS)
     }
+
+    private fun buildExecutionTrace(step: CloudAgentStep, result: AgentExecutionResult): String? {
+        val args = step.toolArgs
+        val surfaceMode = args?.optString(TRACE_SURFACE_MODE).orEmpty().takeIf(String::isNotBlank)
+        if (step.type != "tap_xy") return surfaceMode?.let { "surface=$it" }
+
+        val actualPoint = EXECUTED_POINT_PATTERN.find(result.message)?.let { match ->
+            match.groupValues[1].toFloatOrNull() to match.groupValues[2].toFloatOrNull()
+        }?.takeIf { it.first != null && it.second != null }
+        val modelX = args?.optNullableTraceFloat(TRACE_MODEL_X)
+        val modelY = args?.optNullableTraceFloat(TRACE_MODEL_Y)
+        val modelPixelX = args?.optNullableTraceFloat(TRACE_MODEL_PIXEL_X)
+        val modelPixelY = args?.optNullableTraceFloat(TRACE_MODEL_PIXEL_Y)
+        val materializedX = args?.optNullableTraceFloat(TRACE_MATERIALIZED_X) ?: step.x
+        val materializedY = args?.optNullableTraceFloat(TRACE_MATERIALIZED_Y) ?: step.y
+        val groundingApplied = args?.optBoolean(TRACE_GROUNDING_APPLIED, false) ?: false
+        val boundaryAdjusted = result.message.contains("边界保护")
+        val protocol = args?.optString(TRACE_COORDINATE_PROTOCOL).orEmpty().ifBlank { "unknown" }
+
+        return buildList {
+            surfaceMode?.let { add("surface=$it") }
+            add("protocol=$protocol")
+            if (modelX != null && modelY != null) add("modelNorm=${formatTraceCoordinate(modelX)},${formatTraceCoordinate(modelY)}")
+            if (modelPixelX != null && modelPixelY != null) add("modelPx=${formatTraceCoordinate(modelPixelX)},${formatTraceCoordinate(modelPixelY)}")
+            if (materializedX != null && materializedY != null) {
+                add("materializedPx=${formatTraceCoordinate(materializedX)},${formatTraceCoordinate(materializedY)}")
+            }
+            if (actualPoint?.first != null && actualPoint.second != null) {
+                add("executedPx=${formatTraceCoordinate(actualPoint.first!!)},${formatTraceCoordinate(actualPoint.second!!)}")
+            }
+            add("groundingApplied=$groundingApplied")
+            add("boundaryAdjusted=$boundaryAdjusted")
+        }.joinToString(",")
+    }
+
+    private fun JSONObject.optNullableTraceFloat(key: String): Float? {
+        if (!has(key) || isNull(key)) return null
+        return runCatching { getDouble(key).toFloat() }.getOrNull()
+            ?: optString(key).trim().toFloatOrNull()
+    }
+
+    private fun formatTraceCoordinate(value: Float): String = "%.3f".format(java.util.Locale.US, value)
 
     fun appendRecent(actions: MutableList<String>, value: String) {
         value.trim().take(MAX_RECENT_ACTION_CHARS).takeIf(String::isNotBlank)?.let(actions::add)
@@ -298,6 +444,7 @@ internal object VisualLoopSupport {
     private val QUOTED_TARGET_PATTERN = Regex("[“\"'‘]([^”\"'’]{2,48})[”\"'’]")
     private val TARGET_PUNCTUATION_PATTERN = Regex("[\\p{P}\\p{S}]")
     private val TARGET_WHITESPACE_PATTERN = Regex("\\s+")
+    private val EXECUTED_POINT_PATTERN = Regex("实际落点\\s+(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
     private const val HUD_POINTER_LEAD_MS = 240L
     private const val MIN_TARGET_TERM_CHARS = 2
     private const val MAX_TARGET_TEXT_CHARS = 160
@@ -309,4 +456,16 @@ internal object VisualLoopSupport {
     private const val TARGET_INTERIOR_INSET_RATIO = 0.08f
     private const val MIN_TARGET_INTERIOR_INSET_PX = 6f
     private const val MAX_TARGET_INTERIOR_INSET_PX = 18f
+    private const val TRACE_COORDINATE_EPSILON = 0.5f
+    private const val TRACE_SURFACE_MODE = "__androidVisualSurfaceMode"
+    private const val TRACE_COORDINATE_PROTOCOL = "__androidCoordinateProtocol"
+    private const val TRACE_MODEL_X = "__androidModelX"
+    private const val TRACE_MODEL_Y = "__androidModelY"
+    private const val TRACE_MODEL_PIXEL_X = "__androidModelPixelX"
+    private const val TRACE_MODEL_PIXEL_Y = "__androidModelPixelY"
+    private const val TRACE_MATERIALIZED_X = "__androidMaterializedX"
+    private const val TRACE_MATERIALIZED_Y = "__androidMaterializedY"
+    private const val TRACE_DISPLAY_WIDTH = "__androidDisplayWidth"
+    private const val TRACE_DISPLAY_HEIGHT = "__androidDisplayHeight"
+    private const val TRACE_GROUNDING_APPLIED = "__androidGroundingApplied"
 }
