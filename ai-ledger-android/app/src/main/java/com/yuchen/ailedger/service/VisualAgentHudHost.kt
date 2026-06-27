@@ -9,8 +9,6 @@ import android.os.Build
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
-import android.view.animation.AccelerateInterpolator
-import android.view.animation.DecelerateInterpolator
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -33,8 +31,8 @@ private data class VisualHudRenderSnapshot(
 /**
  * The single visual-HUD host. It belongs to the connected AccessibilityService and therefore uses
  * TYPE_ACCESSIBILITY_OVERLAY instead of SYSTEM_ALERT_WINDOW. The web assets remain the only HUD
- * implementation; Android only owns lifecycle, state delivery, input pass-through and screenshot
- * suppression.
+ * implementation; Android only owns lifecycle, state delivery, input pass-through and capture-safe
+ * presentation.
  */
 internal class VisualAgentHudHost(
     private val service: AccessibilityService,
@@ -51,7 +49,6 @@ internal class VisualAgentHudHost(
     private var lastPreviewGeneration = 0L
     private var overlayContentActive = false
     private var captureSuppressed = false
-    private var presentationRevision = 0L
     private var overlayCreationFailed = false
     private var started = false
 
@@ -128,6 +125,7 @@ internal class VisualAgentHudHost(
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     pageReady = true
+                    dispatchCaptureState()
                     pendingPayload?.let { payload ->
                         pendingPayload = null
                         dispatchPayload(payload)
@@ -185,7 +183,6 @@ internal class VisualAgentHudHost(
     }
 
     private fun destroyOverlay() {
-        presentationRevision += 1L
         pageReady = false
         pendingPayload = null
         overlayContentActive = false
@@ -250,69 +247,29 @@ internal class VisualAgentHudHost(
 
     private fun setOverlayPresentation(hiddenForCapture: Boolean) {
         val view = webView ?: return
-        val nextSuppressed = hiddenForCapture
         val activeChanged = !overlayContentActive
-        val suppressionChanged = captureSuppressed != nextSuppressed
+        val suppressionChanged = captureSuppressed != hiddenForCapture
         if (!activeChanged && !suppressionChanged) return
 
         overlayContentActive = true
-        captureSuppressed = nextSuppressed
-        presentationRevision += 1L
-        val revision = presentationRevision
+        captureSuppressed = hiddenForCapture
         view.animate().cancel()
-        reinforcePassthroughWindowContract()
-
-        if (nextSuppressed) {
-            if (view.visibility != View.VISIBLE) {
-                view.visibility = View.VISIBLE
-                view.onResume()
-            }
-            updateWindowAlpha(1f)
-            if (view.alpha <= 0.001f) {
-                view.alpha = 0f
-                updateWindowAlpha(0f)
-            } else {
-                view.animate()
-                    .alpha(0f)
-                    .setDuration(HUD_CAPTURE_FADE_OUT_MS)
-                    .setInterpolator(HUD_CAPTURE_HIDE_INTERPOLATOR)
-                    .withEndAction {
-                        if (
-                            presentationRevision == revision &&
-                            overlayContentActive &&
-                            captureSuppressed
-                        ) {
-                            view.alpha = 0f
-                            updateWindowAlpha(0f)
-                        }
-                    }
-                    .start()
-            }
-        } else {
-            if (view.visibility != View.VISIBLE) {
-                view.visibility = View.VISIBLE
-                view.onResume()
-            }
-            updateWindowAlpha(1f)
-            if (view.alpha < 0.999f) {
-                view.animate()
-                    .alpha(1f)
-                    .setDuration(HUD_RESTORE_FADE_MS)
-                    .setInterpolator(HUD_RESTORE_INTERPOLATOR)
-                    .withEndAction {
-                        if (
-                            presentationRevision == revision &&
-                            overlayContentActive &&
-                            !captureSuppressed
-                        ) {
-                            view.alpha = 1f
-                        }
-                    }
-                    .start()
-            } else {
-                view.alpha = 1f
-            }
+        if (view.visibility != View.VISIBLE) {
+            view.visibility = View.VISIBLE
+            view.onResume()
         }
+        view.alpha = 1f
+        updateWindowAlpha(1f)
+        reinforcePassthroughWindowContract()
+        dispatchCaptureState()
+    }
+
+    private fun dispatchCaptureState() {
+        if (!pageReady) return
+        webView?.evaluateJavascript(
+            "window.VisualHud&&window.VisualHud.setCaptureSafe(${captureSuppressed});",
+            null,
+        )
     }
 
     private fun applyPassthroughWindowContract(params: WindowManager.LayoutParams) {
@@ -451,10 +408,6 @@ internal class VisualAgentHudHost(
         private const val ASSET_URL = "file:///android_asset/visual_agent_hud_runtime.html"
         private const val TARGET_MOVE_VISIBLE_MS = 1_200L
         private const val SAMPLE_CLICK_DELAY_MS = 820L
-        private const val HUD_CAPTURE_FADE_OUT_MS = 84L
-        private const val HUD_RESTORE_FADE_MS = 128L
-        private val HUD_CAPTURE_HIDE_INTERPOLATOR = AccelerateInterpolator(1.25f)
-        private val HUD_RESTORE_INTERPOLATOR = DecelerateInterpolator(1.55f)
 
         private val REQUIRED_PASSTHROUGH_FLAGS =
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
