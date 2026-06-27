@@ -786,7 +786,7 @@ private fun SettingsDetailPanel(
                         SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
                         SettingsPanel.Advanced -> AdvancedContent()
                         SettingsPanel.Chat -> ChatPageSettingsContent()
-                        SettingsPanel.Memory -> MemorySettingsContent()
+                        SettingsPanel.Memory -> AccountMemorySettingsContent(state)
                         SettingsPanel.Debug -> GlassDebugFloatingPanel(
                             state,
                             onBackdropChange,
