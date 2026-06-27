@@ -10,6 +10,7 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.StructuredMetric
 import com.yuchen.ailedger.model.WebSource
+import com.yuchen.ailedger.ui.InlineStickerDisplaySettings
 import java.io.BufferedReader
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -284,13 +285,16 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         }
         val normalChatCapabilities = DeviceControlRouter.normalChatSupportedCapabilities()
         val normalChatStepTypes = DeviceControlRouter.normalChatSupportedStepTypes()
+        val appContext = AiLedgerApplication.contextOrNull()
         val memorySnapshot = if (!shouldStartAgent) {
-            AiLedgerApplication.contextOrNull()
+            appContext
                 ?.let { context -> AssistantMemoryRepository.get(context).currentSnapshotText() }
                 ?.takeIf { it.isNotBlank() }
         } else {
             null
         }
+        val stickerExpressionPreferences =
+            InlineStickerDisplaySettings.currentExpressionPreferences(appContext)
 
         return JSONObject().apply {
             put("action", "chat")
@@ -304,6 +308,13 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("content", requestText)
             if (memorySnapshot != null) put("memorySnapshot", memorySnapshot)
             put("memoryEnabled", memorySnapshot != null)
+            put("chatExpressionPreferences", JSONObject().apply {
+                put("schema", "ai_ledger_chat_expression_preferences_v1")
+                put("inlineStickerFrequency", stickerExpressionPreferences.frequency)
+                put("inlineStickerIntensity", stickerExpressionPreferences.intensity)
+                put("inlineStickerMaxPerReply", stickerExpressionPreferences.maxPerReply)
+                put("inlineStickerRepeatCount", stickerExpressionPreferences.repeatCount)
+            })
             put("modelPreference", resolvedId)
             put("aiModelPreference", resolvedId)
             put("requestedModelPreference", resolvedId)
@@ -393,7 +404,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 "clientVersion",
                 if (hasImage) "compose-native-qwen-vision-v2-single-image-transport"
                 else if (shouldStartAgent) "compose-native-agent-switch-v5"
-                else "compose-native-command-chat-v4",
+                else "compose-native-command-chat-v5-sticker-preferences",
             )
             put("now", System.currentTimeMillis())
         }
