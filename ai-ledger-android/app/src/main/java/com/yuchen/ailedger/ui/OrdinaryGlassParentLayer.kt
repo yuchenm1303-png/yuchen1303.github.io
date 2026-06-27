@@ -161,7 +161,7 @@ internal class VisibleOrdinaryGlassItem(
     var rect: Rect,
     var transformedBounds: Rect,
     var sampleOffset: Offset,
-    var clipRect: Rect
+    var foldoutClipRect: Rect?
 ) {
     val transform = OrdinaryGlassVisualTransform()
 }
@@ -187,7 +187,7 @@ class OrdinaryGlassSceneState(
         node: OrdinaryGlassRenderNode,
         rect: Rect,
         viewport: Rect,
-        foldoutClip: Rect,
+        foldoutClip: Rect?,
         backdropOrigin: BackdropCoordinateSource?,
         resolveSampleOffset: Boolean
     ) {
@@ -199,7 +199,7 @@ class OrdinaryGlassSceneState(
                 rect = rect,
                 transformedBounds = rect,
                 sampleOffset = Offset.Zero,
-                clipRect = viewport
+                foldoutClipRect = null
             )
             visiblePool.add(created)
             created
@@ -207,13 +207,14 @@ class OrdinaryGlassSceneState(
 
         item.node = node
         item.rect = rect
-        item.clipRect = foldoutClip
+        item.foldoutClipRect = foldoutClip
         updateOrdinaryGlassVisualTransform(node = node, out = item.transform)
         val transformedBounds = ordinaryGlassTransformedBounds(
             transform = item.transform,
             rect = rect
         )
-        item.transformedBounds = transformedBounds.intersectionOrNull(foldoutClip) ?: return
+        val visibilityClip = foldoutClip ?: viewport
+        item.transformedBounds = transformedBounds.intersectionOrNull(visibilityClip) ?: return
 
         item.sampleOffset = if (resolveSampleOffset) {
             node.coordinates.offsetRelativeTo(backdropOrigin)
@@ -446,11 +447,17 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
         val itemSize = node.coordinates.itemSize()
         if (itemSize.width <= 0 || itemSize.height <= 0) continue
 
-        val foldoutClip = node.foldoutClipRegistry.resolveLocalClip(
-            descendant = node.coordinates.coordinates,
-            hostRootOffset = hostRoot,
-            viewport = viewport
-        ) ?: continue
+        val foldoutClip = when (
+            val result = node.foldoutClipRegistry?.resolveFor(node.coordinates.coordinates)
+                ?: GlassFoldoutClipResult.Unbounded
+        ) {
+            GlassFoldoutClipResult.Unbounded -> null
+            GlassFoldoutClipResult.Hidden -> continue
+            is GlassFoldoutClipResult.Visible -> {
+                val local = result.rectInRoot.translate(-hostRoot)
+                local.intersectionOrNull(viewport) ?: continue
+            }
+        }
 
         val localTopLeft = node.coordinates.rootOffset() - hostRoot
         val rect = Rect(
@@ -472,14 +479,18 @@ private inline fun DrawScope.withOrdinaryGlassFoldoutClip(
     item: VisibleOrdinaryGlassItem,
     block: DrawScope.() -> Unit
 ) {
-    val clip = item.clipRect
-    clipRect(
-        left = clip.left,
-        top = clip.top,
-        right = clip.right,
-        bottom = clip.bottom
-    ) {
+    val clip = item.foldoutClipRect
+    if (clip == null) {
         block()
+    } else {
+        clipRect(
+            left = clip.left,
+            top = clip.top,
+            right = clip.right,
+            bottom = clip.bottom
+        ) {
+            block()
+        }
     }
 }
 
