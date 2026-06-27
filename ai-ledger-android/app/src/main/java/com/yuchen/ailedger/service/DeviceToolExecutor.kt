@@ -15,6 +15,7 @@ import android.os.StatFs
 import android.provider.Settings
 import android.text.format.Formatter
 import kotlin.math.roundToInt
+import org.json.JSONObject
 
 /**
  * Executes structured device_tool steps selected by the cloud planner.
@@ -36,6 +37,15 @@ class DeviceToolExecutor(
 
     fun execute(step: CloudAgentStep, confirmedHighRisk: Boolean = false): AgentExecutionResult {
         if (ledgerToolExecutor.canExecute(step)) return ledgerToolExecutor.execute(step)
+        val validation = DeviceControlSpecs.validate(step)
+        if (!validation.ok) {
+            return AgentExecutionResult(
+                ok = false,
+                message = "内部控制参数校验失败：${validation.reason}。请让云端重新返回符合 schema 的设备工具步骤。",
+                shouldContinue = false,
+                diagnostics = "device_control_validation_failed:${validation.reason}",
+            )
+        }
         return runCatching {
             when (step.type) {
                 "open_app" -> executeOpenApp(step)
@@ -148,7 +158,12 @@ class DeviceToolExecutor(
         } else {
             "调节亮度失败，当前系统可能限制第三方应用修改该设置。"
         }
-        return AgentExecutionResult(ok, message, shouldContinue = false)
+        return AgentExecutionResult(
+            ok = ok,
+            message = message,
+            shouldContinue = false,
+            undoStep = if (ok) undoStep("set_brightness", "恢复执行前屏幕亮度", "percent" to currentPercent) else null,
+        )
     }
 
     private fun executeSetScreenTimeout(step: CloudAgentStep): AgentExecutionResult {
@@ -158,10 +173,18 @@ class DeviceToolExecutor(
             openWriteSettingsPermission()
             return AgentExecutionResult(false, "需要先授权“修改系统设置”。我已打开授权页，开启后可再次执行息屏时间设置。", false)
         }
+        val previousTimeoutMs = currentScreenTimeoutMs()
         val ok = runCatching {
             Settings.System.putInt(appContext.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT, timeoutMs)
         }.getOrDefault(false)
-        return AgentExecutionResult(ok, if (ok) "已把自动息屏时间设置为 ${formatTimeout(timeoutMs)}。" else "设置息屏时间失败，当前系统可能限制第三方应用修改该设置。", shouldContinue = false)
+        return AgentExecutionResult(
+            ok = ok,
+            message = if (ok) "已把自动息屏时间设置为 ${formatTimeout(timeoutMs)}。" else "设置息屏时间失败，当前系统可能限制第三方应用修改该设置。",
+            shouldContinue = false,
+            undoStep = previousTimeoutMs?.takeIf { ok }?.let {
+                undoStep("set_screen_timeout", "恢复执行前自动息屏时间", "timeoutMs" to it)
+            },
+        )
     }
 
     private fun executeSetAutoRotate(step: CloudAgentStep): AgentExecutionResult {
@@ -171,10 +194,18 @@ class DeviceToolExecutor(
             openWriteSettingsPermission()
             return AgentExecutionResult(false, "需要先授权“修改系统设置”。我已打开授权页，开启后可再次执行自动旋转设置。", false)
         }
+        val previousEnabled = currentAutoRotateEnabled()
         val ok = runCatching {
             Settings.System.putInt(appContext.contentResolver, Settings.System.ACCELEROMETER_ROTATION, if (enabled) 1 else 0)
         }.getOrDefault(false)
-        return AgentExecutionResult(ok, if (ok) "已${if (enabled) "开启" else "关闭"}自动旋转。" else "设置自动旋转失败。", shouldContinue = false)
+        return AgentExecutionResult(
+            ok = ok,
+            message = if (ok) "已${if (enabled) "开启" else "关闭"}自动旋转。" else "设置自动旋转失败。",
+            shouldContinue = false,
+            undoStep = previousEnabled?.takeIf { ok }?.let {
+                undoStep("set_auto_rotate", "恢复执行前自动旋转状态", "enabled" to it)
+            },
+        )
     }
 
     private fun executeSetMediaVolume(step: CloudAgentStep): AgentExecutionResult {
@@ -200,7 +231,12 @@ class DeviceToolExecutor(
             audio.setStreamVolume(AudioManager.STREAM_MUSIC, targetIndex, 0)
             true
         }.getOrDefault(false)
-        return AgentExecutionResult(ok, if (ok) "已把媒体音量从约 ${currentPercent.roundToInt()}% 调到约 ${targetPercent.roundToInt()}%。" else "设置媒体音量失败。", shouldContinue = false)
+        return AgentExecutionResult(
+            ok = ok,
+            message = if (ok) "已把媒体音量从约 ${currentPercent.roundToInt()}% 调到约 ${targetPercent.roundToInt()}%。" else "设置媒体音量失败。",
+            shouldContinue = false,
+            undoStep = if (ok) undoStep("set_media_volume", "恢复执行前媒体音量", "percent" to currentPercent) else null,
+        )
     }
 
     private fun executeSetWifiEnabled(step: CloudAgentStep): AgentExecutionResult {
@@ -339,6 +375,7 @@ class DeviceToolExecutor(
             confirmedHighRisk = confirmedHighRisk,
             pendingMessage = "${tool.title} ${app.label}（$packageName）属于高风险内部控制，需要确认后执行。",
             successMessage = "已执行：${tool.title} ${app.label}。",
+            undoStep = tool.undoStep(packageName),
         )
     }
 
@@ -349,9 +386,10 @@ class DeviceToolExecutor(
         confirmedHighRisk: Boolean,
         pendingMessage: String,
         successMessage: String,
+        undoStep: CloudAgentStep? = null,
     ): AgentExecutionResult {
         if (!confirmedHighRisk) return AgentExecutionResult(false, pendingMessage, shouldContinue = false)
-        return executeEnhancedCommand(title, command, timeoutMs, successMessage)
+        return executeEnhancedCommand(title, command, timeoutMs, successMessage, undoStep)
     }
 
     private fun executeEnhancedCommandOrOpenSettingsFallback(
@@ -379,6 +417,7 @@ class DeviceToolExecutor(
         command: String,
         timeoutMs: Long,
         successMessage: String,
+        undoStep: CloudAgentStep? = null,
     ): AgentExecutionResult {
         val result = shellBridge.runEnhancedCommand(title = title, command = command, timeoutMs = timeoutMs)
         val message = buildString {
@@ -387,7 +426,7 @@ class DeviceToolExecutor(
             if (result.output.isNotBlank() && result.output != "无输出") append("\n\n输出：").append(result.output)
             if (result.error.isNotBlank()) append("\n\n错误：").append(result.error)
         }
-        return AgentExecutionResult(result.ok, message, shouldContinue = false)
+        return AgentExecutionResult(result.ok, message, shouldContinue = false, undoStep = undoStep.takeIf { result.ok })
     }
 
     private fun resolveApp(step: CloudAgentStep): InstalledAppEntry? {
@@ -475,6 +514,18 @@ class DeviceToolExecutor(
             Settings.System.getInt(appContext.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
         }.getOrNull() ?: return null
         return (raw.coerceIn(0, 255) * 100f / 255f).coerceIn(0f, 100f)
+    }
+
+    private fun currentScreenTimeoutMs(): Int? {
+        return runCatching {
+            Settings.System.getInt(appContext.contentResolver, Settings.System.SCREEN_OFF_TIMEOUT)
+        }.getOrNull()
+    }
+
+    private fun currentAutoRotateEnabled(): Boolean? {
+        return runCatching {
+            Settings.System.getInt(appContext.contentResolver, Settings.System.ACCELEROMETER_ROTATION) == 1
+        }.getOrNull()
     }
 
     private fun brightnessOperationDelta(step: CloudAgentStep): Float? = percentOperationDelta(step, DEFAULT_BRIGHTNESS_DELTA)
@@ -601,7 +652,16 @@ class DeviceToolExecutor(
     }
 
     private fun isSafePackageName(packageName: String): Boolean {
-        return packageName.matches(Regex("""[A-Za-z0-9_.]+""")) && packageName.contains('.')
+        return DeviceControlSpecs.isSafePackageName(packageName)
+    }
+
+    private fun undoStep(type: String, reason: String, vararg args: Pair<String, Any>): CloudAgentStep {
+        return CloudAgentStep(
+            type = type,
+            reason = reason,
+            requiresConfirmation = DeviceControlSpecs.specFor(type)?.requiresConfirmation == true,
+            toolArgs = JSONObject().apply { args.forEach { (key, value) -> put(key, value) } },
+        )
     }
 
     private enum class AppSettingsKind { Notification, Permission, Battery, Details }
@@ -627,6 +687,21 @@ class DeviceToolExecutor(
         };
 
         abstract fun command(packageName: String): String
+
+        fun undoStep(packageName: String): CloudAgentStep? {
+            val undoType = when (this) {
+                Disable -> "enable_app"
+                Enable -> "disable_app"
+                else -> return null
+            }
+            return CloudAgentStep(
+                type = undoType,
+                packageName = packageName,
+                reason = "撤销${title}",
+                requiresConfirmation = true,
+                toolArgs = JSONObject().put("packageName", packageName),
+            )
+        }
     }
 
     private data class SystemSettingTarget(

@@ -4,4 +4,6 @@ data class AgentExecutionResult(
     val ok: Boolean,
     val message: String,
     val shouldContinue: Boolean = true,
+    val undoStep: CloudAgentStep? = null,
+    val diagnostics: String = "",
 )
