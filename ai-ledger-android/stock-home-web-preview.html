@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="./stock-home-index-links.css?v=20260627-1">
 <link rel="stylesheet" href="./stock-home-sector-links.css?v=20260627-2">
 <link rel="stylesheet" href="./stock-home-ranking-links.css?v=20260627-2">
+<link rel="stylesheet" href="./stock-home-hot-links.css?v=20260627-1">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
@@ -74,7 +75,7 @@
         <section class="glass parent-panel content-panel">
           <div class="section-title-block">
             <h2>市场数据</h2>
-            <p>榜单入口、行业板块、概念板块与资金排序</p>
+            <p>实时榜单、行业板块、概念板块、资金与个股热点</p>
           </div>
           <div class="quick-grid" id="quickGrid"></div>
           <div class="section-divider"></div>
@@ -88,7 +89,7 @@
           </div>
           <div class="status-grid" id="statusGrid"></div>
           <div class="section-divider"></div>
-          <p class="coverage-copy">公告、新闻、研报、财务、人气、龙虎榜等没有稳定真实源时显示不可用，不再展示本地模板。</p>
+          <p class="coverage-copy">普通新闻、研报、公告等没有稳定真实源时继续显示不可用；股票软件内部的人气榜与飙升榜已独立接入，不再用普通新闻热搜替代。</p>
           <div class="section-divider"></div>
           <button class="ai-watch" id="aiWatchButton">
             <strong>AI 看盘</strong>
@@ -107,8 +108,8 @@
 
   <aside class="controls" id="controls">
     <h1>A股市场首页网页调试</h1>
-    <div class="version">网页版本 2026-06-27.6 · 榜单与双板块重构版</div>
-    <p>六类行情榜和两类资金榜均使用独立入口卡片；板块页签分为行业板块与概念板块，概念数据只在首次切换时按需加载。</p>
+    <div class="version">网页版本 2026-06-27.7 · 实时热点榜接入版</div>
+    <p>“新闻”入口已升级为股票软件内部的实时热点：首次点击时按需读取东方财富个股人气榜，首页展示前六名并进入独立的人气榜/飙升榜详情页。</p>
 
     <div class="control-group">
       <h2>实时数据</h2>
@@ -130,16 +131,16 @@
     <div class="control-group">
       <h2>当前移植范围</h2>
       <ul class="scope-list">
-        <li>顶部返回、标题、刷新与真实数据状态</li>
-        <li>搜索栏、主要指数与市场宽度</li>
+        <li>搜索、主要指数、市场宽度与情绪</li>
         <li>六类行情榜和两类资金榜独立详情入口</li>
         <li>行业板块与概念板块按页签独立展示</li>
-        <li>板块和个股行继续进入对应详情页</li>
+        <li>东方财富个股人气榜与飙升榜</li>
+        <li>热点股票继续进入项目自己的个股详情</li>
         <li>数据覆盖状态、AI 看盘与底部导航</li>
       </ul>
     </div>
   </aside>
 </main>
-<script src="./stock-home-web-preview.js?v=20260627-5"></script>
+<script src="./stock-home-web-preview.js?v=20260627-6"></script>
 </body>
 </html>
