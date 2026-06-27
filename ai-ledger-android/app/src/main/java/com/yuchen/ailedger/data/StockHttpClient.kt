@@ -5,6 +5,7 @@ import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.LinkedHashMap
+import java.util.Locale
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutionException
@@ -127,8 +128,8 @@ internal object StockHttpClient {
         timeoutMs: Int,
         elapsedMs: Long
     ): Throwable {
-        val elapsedSeconds = "%.1f".format(elapsedMs / 1_000.0)
-        val budgetSeconds = "%.1f".format(timeoutMs / 1_000.0)
+        val elapsedSeconds = String.format(Locale.US, "%.1f", elapsedMs / 1_000.0)
+        val budgetSeconds = String.format(Locale.US, "%.1f", timeoutMs / 1_000.0)
         val message = when (error) {
             is UnknownHostException -> "无法解析行情服务地址，请检查网络或 DNS"
             is ConnectException -> "无法连接行情服务，请稍后重试"
@@ -155,7 +156,11 @@ internal object StockHttpClient {
     private fun rememberTransportFailure(url: String, error: Throwable) {
         val now = System.currentTimeMillis()
         if (transportFailures.size > MAX_TRANSPORT_FAILURES) {
-            transportFailures.entries.removeIf { it.value.expiresAtMs <= now }
+            transportFailures.entries.forEach { entry ->
+                if (entry.value.expiresAtMs <= now) {
+                    transportFailures.remove(entry.key, entry.value)
+                }
+            }
             if (transportFailures.size > MAX_TRANSPORT_FAILURES) transportFailures.clear()
         }
         transportFailures[requestFamily(url)] = TransportFailure(
