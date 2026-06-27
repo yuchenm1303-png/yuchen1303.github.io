@@ -417,7 +417,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                                 onRetryMessage = viewModel::retryMessage,
                                                 onClearMessages = viewModel::clearChat
                                             )
-                                            AgentChatHeaderOverlay(
+                                            AgentChatHeaderControlCluster(
                                                 modifier = Modifier
                                                     .align(Alignment.TopStart)
                                                     .padding(start = 68.dp, top = 222.dp)
