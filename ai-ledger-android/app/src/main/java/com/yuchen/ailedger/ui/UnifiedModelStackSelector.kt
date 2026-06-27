@@ -315,6 +315,12 @@ internal fun UnifiedParentModelStackSelector(
                     }
                     hasModelStackEntered = true
                     val wasFullyFolded = !selected && !renderAsFullCard
+                    if (expanded && wasFullyFolded) {
+                        visualAnim.stop()
+                        motionAnim.stop()
+                        visualAnim.snapTo(0f)
+                        motionAnim.snapTo(0f)
+                    }
                     renderAsFullCard = true
                     foldedBlendAnim.stop()
                     if (expanded && !selected) {
@@ -502,7 +508,12 @@ internal fun UnifiedParentModelStackSelector(
                 )
                 val xPx = baseX + (-motionDy / motionLength) * lateralOffset
                 val yPx = baseY + (motionDx / motionLength) * lateralOffset + sinkY
-                val alpha = modelLerpFloat(if (selected) 1f else 0.54f, 1f, targetProgress) * (1f - foldedBlend).coerceIn(0f, 1f)
+                val baseAlpha = modelLerpFloat(if (selected) 1f else 0.54f, 1f, targetProgress)
+                val alpha = if (expanded) {
+                    baseAlpha
+                } else {
+                    baseAlpha * (1f - foldedBlend).coerceIn(0f, 1f)
+                }
                 val energy = if (selected) {
                     modelLerpFloat(0.50f * style.unselectedEnergy.coerceIn(0f, 5f), 1f, selection)
                 } else {
