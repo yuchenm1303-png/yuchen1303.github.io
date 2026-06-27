@@ -3,7 +3,8 @@
 const API_BASE = 'https://ai-ledger-stock-proxy.onrender.com';
 const MARKET_HOME_API = `${API_BASE}/api/stock/a-share/market/home`;
 const SECTOR_LIST_API = `${API_BASE}/api/stock/a-share/sectors`;
-const ACTIONS = ['自选','热榜','板块','资金','异动','新闻','研报','预警'];
+const HOT_PREVIEW_API = `${API_BASE}/api/stock/a-share/hot/ranking`;
+const ACTIONS = ['自选','热榜','板块','资金','异动','热点','研报','预警'];
 const BOARD_DEFINITIONS = [
   ['gainers','涨幅榜','实时涨幅由高到低','gainers'],
   ['losers','跌幅榜','实时跌幅由低到高','losers'],
@@ -26,6 +27,13 @@ const state = {
   sectorConceptLoaded:false,
   sectorConceptLoading:false,
   sectorConceptError:'',
+  hotPayload:null,
+  hotItems:[],
+  hotMeta:emptyMeta(),
+  hotLoaded:false,
+  hotLoading:false,
+  hotError:'',
+  hotFetchedAt:0,
   lastSuccessAt:0,
   lastError:'',
   requestCount:0,
@@ -56,6 +64,7 @@ function rankingChange(item,rankingType){return text(rankingType==='speed'?item?
 function parseRankItem(item,rankingType){const code=text(first(item?.code,item?.symbol),'');const name=text(first(item?.name,item?.stockName),code);if(!code&&!name)return null;const changeValue=rankingChange(item,rankingType);return{name,code,metricValue:rankingMetric(item,rankingType),changeValue,changePercent:text(first(item?.changePercent,item?.pct),'--'),isRising:!changeValue.startsWith('-')}}
 function parseSector(item){const code=text(first(item?.sectorCode,item?.code),'');const name=text(first(item?.sectorName,item?.name),code);if(!code&&!name)return null;return{code,name,type:text(item?.type,''),changePercent:text(first(item?.changePercent,item?.pct),'--'),upCount:integer(item?.upCount),downCount:integer(item?.downCount),flatCount:integer(item?.flatCount),leaderName:text(item?.leaderName,''),leaderChangePercent:text(item?.leaderChangePercent,''),amount:text(item?.amount,''),turnoverRate:text(item?.turnoverRate,''),mainInflow:text(item?.mainInflow,''),heatRank:integer(item?.heatRank)}}
 function parseInformation(item){const title=text(first(item?.title,item?.name),'');if(!title)return null;return{id:text(first(item?.id,item?.reportId),''),title,summary:text(first(item?.summary,item?.description),''),publishTime:text(first(item?.publishTime,item?.time,item?.updatedAt),''),source:text(first(item?.source,item?.institution),''),url:text(first(item?.url,item?.attachmentUrl),'')}}
+function parseHotItem(item,index){const code=text(item?.code,'');const name=text(item?.name,code);if(!code||!name)return null;return{rank:integer(item?.rank)??index+1,currentRank:integer(item?.currentRank)??integer(item?.rank)??index+1,code,name,price:text(item?.price,'--'),changePercent:text(item?.changePercent,'--'),industry:text(item?.industry,''),market:text(item?.market,''),isRising:!text(item?.changePercent,'--').startsWith('-')}}
 
 function parseMarketHome(root){
   const payload=unwrap(root);
@@ -108,68 +117,53 @@ function renderIndices(){
 function metricCard(label,value,tone,prominent=false){return `<article class="breadth-card${prominent?' prominent':''}"><span class="breadth-label">${escapeHtml(label)}</span><strong class="breadth-value ${tone}">${escapeHtml(value)}</strong></article>`}
 function renderBreadth(){
   const breadth=state.snapshot.breadth,sentiment=state.snapshot.sentiment;
-  $('#breadthPrimary').innerHTML=[
-    metricCard('上涨',breadth.upCount??'--','rise-text',true),metricCard('下跌',breadth.downCount??'--','fall-text',true),metricCard('涨停',breadth.limitUpCount??'--','rise-text',true),metricCard('跌停',breadth.limitDownCount??'--','fall-text',true)
-  ].join('');
-  $('#breadthSecondary').innerHTML=[
-    metricCard('红盘率',percent(breadth.redRate),'neutral-text'),metricCard('赚钱效应',percent(breadth.moneyMakingEffect),'aqua-text'),metricCard('情绪温度',temperature(sentiment.temperature),sentimentTone(sentiment.temperature))
-  ].join('');
+  $('#breadthPrimary').innerHTML=[metricCard('上涨',breadth.upCount??'--','rise-text',true),metricCard('下跌',breadth.downCount??'--','fall-text',true),metricCard('涨停',breadth.limitUpCount??'--','rise-text',true),metricCard('跌停',breadth.limitDownCount??'--','fall-text',true)].join('');
+  $('#breadthSecondary').innerHTML=[metricCard('红盘率',percent(breadth.redRate),'neutral-text'),metricCard('赚钱效应',percent(breadth.moneyMakingEffect),'aqua-text'),metricCard('情绪温度',temperature(sentiment.temperature),sentimentTone(sentiment.temperature))].join('');
   $('#marketAmount').textContent=breadth.marketAmount||'--';
 }
+function selectAction(action){state.selectedAction=action;renderQuickGrid();renderToolContent();if(action==='热点'&&!state.hotLoaded&&!state.hotLoading)loadHotPreview(false)}
 function renderQuickGrid(){
   $('#quickGrid').innerHTML=ACTIONS.map(action=>`<button class="quick-button${state.selectedAction===action?' active':''}" data-action="${action}">${action}</button>`).join('');
-  document.querySelectorAll('.quick-button').forEach(button=>button.addEventListener('click',()=>{state.selectedAction=button.dataset.action;renderQuickGrid();renderToolContent()}));
+  document.querySelectorAll('.quick-button').forEach(button=>button.addEventListener('click',()=>selectAction(button.dataset.action)));
 }
 function boardDefinition(rankingType){const definition=BOARD_DEFINITIONS.find(item=>item[3]===rankingType);return definition?{title:definition[1],subtitle:definition[2],rankingType}:null}
-function rankingEntryCard(board,rankingType){
-  const definition=boardDefinition(rankingType),resolved=board||{...definition,items:[]},top=resolved.items?.[0];
-  return `<article class="ranking-entry-card"><button type="button" class="ranking-entry-head" data-ranking-type="${escapeHtml(rankingType)}" aria-label="进入${escapeHtml(resolved.title)}"><span><strong>${escapeHtml(resolved.title)}</strong><small>${escapeHtml(resolved.subtitle)}</small></span><b>进入榜单&nbsp;›</b></button>${top?`<button type="button" class="ranking-entry-stock" data-code="${escapeHtml(top.code)}" aria-label="查看${escapeHtml(top.name)}详情"><span class="ranking-entry-rank">1</span><span class="ranking-entry-name"><strong>${escapeHtml(top.name)}</strong><small>${escapeHtml(top.code)} · ${escapeHtml(top.metricValue)}</small></span><span class="ranking-entry-change ${toneClass(top.isRising)}">${escapeHtml(top.changeValue)}</span></button>`:'<div class="ranking-entry-empty">等待真实排行预览</div>'}</article>`;
-}
-function renderRankingOverview(types,title,subtitle){
-  const boardMap=new Map(state.snapshot.boards.map(board=>[board.rankingType,board]));
-  const cards=types.map(type=>rankingEntryCard(boardMap.get(type),type)).join('');
-  return sectionHeading(title,subtitle,`<span class="market-section-count">${types.length} 个入口</span>`)+`<div class="ranking-entry-grid">${cards}</div>`;
-}
+function rankingEntryCard(board,rankingType){const definition=boardDefinition(rankingType),resolved=board||{...definition,items:[]},top=resolved.items?.[0];return `<article class="ranking-entry-card"><button type="button" class="ranking-entry-head" data-ranking-type="${escapeHtml(rankingType)}" aria-label="进入${escapeHtml(resolved.title)}"><span><strong>${escapeHtml(resolved.title)}</strong><small>${escapeHtml(resolved.subtitle)}</small></span><b>进入榜单&nbsp;›</b></button>${top?`<button type="button" class="ranking-entry-stock" data-code="${escapeHtml(top.code)}" aria-label="查看${escapeHtml(top.name)}详情"><span class="ranking-entry-rank">1</span><span class="ranking-entry-name"><strong>${escapeHtml(top.name)}</strong><small>${escapeHtml(top.code)} · ${escapeHtml(top.metricValue)}</small></span><span class="ranking-entry-change ${toneClass(top.isRising)}">${escapeHtml(top.changeValue)}</span></button>`:'<div class="ranking-entry-empty">等待真实排行预览</div>'}</article>`}
+function renderRankingOverview(types,title,subtitle){const boardMap=new Map(state.snapshot.boards.map(board=>[board.rankingType,board]));const cards=types.map(type=>rankingEntryCard(boardMap.get(type),type)).join('');return sectionHeading(title,subtitle,`<span class="market-section-count">${types.length} 个入口</span>`)+`<div class="ranking-entry-grid">${cards}</div>`}
 function sectorTypeSwitcher(){return `<div class="sector-type-switcher"><button type="button" class="sector-type-button${state.selectedSectorType==='industry'?' active':''}" data-sector-type="industry">行业板块</button><button type="button" class="sector-type-button${state.selectedSectorType==='concept'?' active':''}" data-sector-type="concept">概念板块</button></div>`}
 function renderSectorRows(sectors){return `<div class="sector-list">${sectors.slice(0,10).map(sector=>`<button type="button" class="sector-row" data-sector-code="${escapeHtml(sector.code)}" aria-label="查看${escapeHtml(sector.name)}板块详情"><span class="sector-copy"><strong>${escapeHtml(sector.name)}</strong><span>${state.selectedSectorType==='concept'?'概念':'行业'} · 涨 ${escapeHtml(sector.upCount??'--')} · 跌 ${escapeHtml(sector.downCount??'--')}${sector.leaderName?` · 领涨 ${escapeHtml(sector.leaderName)}`:''}</span></span><span class="sector-flow ${flowTone(sector.mainInflow)}">${escapeHtml(sector.mainInflow||sector.amount||'--')}</span><span class="sector-change ${toneClass(!sector.changePercent.startsWith('-'))}">${escapeHtml(sector.changePercent)}</span></button>`).join('')}</div>`}
-function renderSectors(){
-  const concept=state.selectedSectorType==='concept';
-  const sectors=concept?state.snapshot.sectorsConcept:state.snapshot.sectorsIndustry;
-  const meta=concept?state.snapshot.sectorConceptMeta:state.snapshot.sectorIndustryMeta;
-  let body='';
-  if(concept&&state.sectorConceptLoading)body='<div class="sector-loading-line">正在加载真实概念板块排行…</div>';
-  else if(concept&&state.sectorConceptError)body=`<button type="button" class="sector-retry" data-sector-retry>概念板块加载失败 · 点击重试</button>`;
-  else if(sectors.length)body=renderSectorRows(sectors);
-  else body=statusMarkup(meta);
-  return sectionHeading('板块排行','行业与概念分开呈现，点击任意板块进入详情',`<span class="market-section-count">${sectors.length||'--'} 个板块</span>`)+sectorTypeSwitcher()+body;
-}
-function renderNews(){
-  const items=state.snapshot.marketNews;
-  if(!items.length)return sectionHeading('市场新闻','只展示后端确认的真实内容')+statusMarkup(state.snapshot.marketNewsMeta);
-  return sectionHeading('市场新闻','只展示后端确认的真实内容')+items.slice(0,8).map(item=>`<article class="info-row"><strong>${escapeHtml(item.title)}</strong><span>${escapeHtml([item.source,item.publishTime].filter(Boolean).join(' · '))}</span></article>`).join('');
+function renderSectors(){const concept=state.selectedSectorType==='concept';const sectors=concept?state.snapshot.sectorsConcept:state.snapshot.sectorsIndustry;const meta=concept?state.snapshot.sectorConceptMeta:state.snapshot.sectorIndustryMeta;let body='';if(concept&&state.sectorConceptLoading)body='<div class="sector-loading-line">正在加载真实概念板块排行…</div>';else if(concept&&state.sectorConceptError)body='<button type="button" class="sector-retry" data-sector-retry>概念板块加载失败 · 点击重试</button>';else if(sectors.length)body=renderSectorRows(sectors);else body=statusMarkup(meta);return sectionHeading('板块排行','行业与概念分开呈现，点击任意板块进入详情',`<span class="market-section-count">${sectors.length||'--'} 个板块</span>`)+sectorTypeSwitcher()+body}
+function renderHotPreview(){
+  const heading=sectionHeading('实时热点','东方财富个股人气榜 · 约10分钟更新',`<span class="market-section-count">${state.hotItems.length||'--'} 只</span>`);
+  const entry='<button type="button" class="hot-preview-head" data-open-hot><span><strong>个股人气榜与飙升榜</strong><small>股票软件内部热度，不是普通新闻热搜</small></span><b>进入热点榜 ›</b></button>';
+  if(state.hotLoading&&!state.hotItems.length)return heading+entry+'<div class="hot-preview-loading">正在读取真实个股人气排行…</div>';
+  if(state.hotError&&!state.hotItems.length)return heading+entry+`<button type="button" class="hot-preview-error" data-hot-retry>${escapeHtml(state.hotError)} · 点击重试</button>`;
+  if(!state.hotItems.length)return heading+entry+'<div class="hot-preview-loading">点击进入后按需加载，不增加首页首次打开开销</div>';
+  const rows=state.hotItems.slice(0,6).map(item=>`<button type="button" class="hot-preview-row" data-code="${escapeHtml(item.code)}"><span class="hot-preview-rank">${escapeHtml(item.rank)}</span><span class="hot-preview-stock"><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml([item.code,item.industry].filter(Boolean).join(' · '))}</span></span><span class="hot-preview-price">${escapeHtml(item.price)}</span><span class="hot-preview-metric"><strong>#${escapeHtml(item.currentRank)}</strong><span class="${toneClass(item.isRising)}">${escapeHtml(item.changePercent)}</span></span></button>`).join('');
+  return heading+entry+`<div class="hot-preview-list">${rows}</div>`;
 }
 function renderToolContent(){
-  const root=$('#toolContent');root.classList.remove('scrollable');
-  const snapshot=state.snapshot;
+  const root=$('#toolContent');root.classList.remove('scrollable');const snapshot=state.snapshot;
   switch(state.selectedAction){
     case '自选':root.innerHTML=sectionHeading('我的自选','当前仅保存本次页面状态，不注入固定股票')+'<div class="empty-line">尚未添加自选股</div>';break;
     case '热榜':root.innerHTML=renderRankingOverview(HOT_RANKING_TYPES,'实时行情榜单','每个榜单都有独立详情入口，首页仅展示第一名预览');break;
     case '板块':root.innerHTML=renderSectors();break;
     case '资金':root.innerHTML=renderRankingOverview(FUND_RANKING_TYPES,'主力资金榜单','净流入与净流出分别进入完整榜单');break;
     case '异动':root.innerHTML=sectionHeading('交易异动','没有稳定真实数据源时不会生成模板数据')+statusMarkup(snapshot.limitUpMeta);break;
-    case '新闻':root.innerHTML=renderNews();break;
+    case '热点':root.innerHTML=renderHotPreview();break;
     case '研报':root.innerHTML=sectionHeading('机构研报','没有稳定真实数据源时不会生成模板数据')+statusMarkup({status:'unavailable',source:'未接稳定真实数据源'});break;
     case '预警':root.innerHTML='<div class="empty-line">价格预警属于本地功能，当前尚未配置预警条件</div>';break;
   }
   root.querySelectorAll('.ranking-entry-head[data-ranking-type]').forEach(button=>button.addEventListener('click',()=>openRankingDetail(button.dataset.rankingType)));
-  root.querySelectorAll('.ranking-entry-stock[data-code]').forEach(button=>button.addEventListener('click',()=>openDetail(button.dataset.code)));
+  root.querySelectorAll('.ranking-entry-stock[data-code],.hot-preview-row[data-code]').forEach(button=>button.addEventListener('click',()=>openDetail(button.dataset.code)));
   root.querySelectorAll('[data-sector-type]').forEach(button=>button.addEventListener('click',()=>selectSectorType(button.dataset.sectorType)));
   root.querySelectorAll('[data-sector-code]').forEach(button=>button.addEventListener('click',()=>openSectorDetail(button.dataset.sectorCode)));
   root.querySelectorAll('[data-sector-retry]').forEach(button=>button.addEventListener('click',()=>loadConceptSectors(true)));
+  root.querySelectorAll('[data-open-hot]').forEach(button=>button.addEventListener('click',()=>openHotDetail('popularity')));
+  root.querySelectorAll('[data-hot-retry]').forEach(button=>button.addEventListener('click',()=>loadHotPreview(true)));
 }
 function renderStatus(){
-  const snapshot=state.snapshot;
-  const entries=[['指数',snapshot.indicesMeta],['宽度',snapshot.breadth.meta],['情绪',snapshot.sentiment.meta],['新闻',snapshot.marketNewsMeta]];
+  const snapshot=state.snapshot;const hotMeta=state.hotLoaded?state.hotMeta:{status:'unavailable',source:'点击热点后按需加载'};
+  const entries=[['指数',snapshot.indicesMeta],['宽度',snapshot.breadth.meta],['情绪',snapshot.sentiment.meta],['热点',hotMeta]];
   $('#statusGrid').innerHTML=entries.map(([label,meta])=>`<div class="status-metric"><span>${label}</span><strong class="${statusClass(meta.status)}">${escapeHtml(statusText(meta))}</strong></div>`).join('');
   const breadth=snapshot.breadth,sentiment=snapshot.sentiment,leading=snapshot.indices[0];
   $('#aiSummary').textContent=leading?`${leading.name} ${leading.value}，涨跌幅 ${leading.changePercent}；全市场上涨 ${breadth.upCount??'--'} 家、下跌 ${breadth.downCount??'--'} 家，情绪温度 ${temperature(sentiment.temperature)}。`:'真实市场数据暂未完整返回。';
@@ -178,48 +172,25 @@ function renderAll(){renderHeader();renderIndices();renderBreadth();renderQuickG
 
 function updateDebugStatus(){
   const status=$('#dataStatus');
-  if(state.loading){status.innerHTML='<strong>正在连接</strong>：读取真实指数、宽度、榜单、板块与新闻。';return}
+  if(state.loading){status.innerHTML='<strong>正在连接</strong>：读取真实指数、宽度、榜单与板块。';return}
   if(state.lastError){status.innerHTML=`<strong>刷新失败</strong>：${escapeHtml(state.lastError)}\n保留上一份真实成功数据。`;return}
   const time=state.lastSuccessAt?new Intl.DateTimeFormat('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(state.lastSuccessAt)):'--';
-  status.innerHTML=`<strong>真实后端已连接</strong>\n更新时间 ${time}\n指数 ${state.snapshot.indices.length} · 榜单 ${state.snapshot.boards.length}\n行业板块 ${state.snapshot.sectorsIndustry.length} · 概念板块 ${state.snapshot.sectorsConcept.length||'按需加载'}\n请求 ${state.requestCount} 次`;
+  status.innerHTML=`<strong>真实后端已连接</strong>\n更新时间 ${time}\n指数 ${state.snapshot.indices.length} · 榜单 ${state.snapshot.boards.length}\n行业板块 ${state.snapshot.sectorsIndustry.length} · 概念板块 ${state.snapshot.sectorsConcept.length||'按需加载'} · 热点 ${state.hotItems.length||'按需加载'}\n请求 ${state.requestCount} 次`;
 }
-async function fetchJson(url,timeoutMs=35000){
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
-  try{const response=await fetch(url,{signal:controller.signal,cache:'no-store',headers:{'Cache-Control':'no-cache'}});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body?.detail||`HTTP ${response.status}`);return body}finally{clearTimeout(timer)}
-}
-async function loadConceptSectors(force=false){
-  if(state.sectorConceptLoading||(!force&&state.sectorConceptLoaded))return;
-  state.sectorConceptLoading=true;state.sectorConceptError='';renderToolContent();
-  try{
-    const payload=await fetchJson(`${SECTOR_LIST_API}?type=concept&limit=20&_=${Date.now()}`);
-    const sectors=itemsArray(payload).map(parseSector).filter(Boolean);
-    if(!sectors.length)throw new Error('概念板块接口未返回可展示数据');
-    state.snapshot.sectorsConcept=sectors;
-    state.snapshot.sectorConceptMeta=parseMeta(payload);
-    state.sectorConceptLoaded=true;
-    state.requestCount++;
-  }catch(error){state.sectorConceptError=error?.name==='AbortError'?'请求超时':error?.message||String(error)}
-  finally{state.sectorConceptLoading=false;renderToolContent();updateDebugStatus()}
-}
-function selectSectorType(type){
-  state.selectedSectorType=type==='concept'?'concept':'industry';
-  renderToolContent();
-  if(state.selectedSectorType==='concept'&&!state.sectorConceptLoaded)loadConceptSectors(false);
+async function fetchJson(url,timeoutMs=35000){const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);try{const response=await fetch(url,{signal:controller.signal,cache:'no-store',headers:{'Cache-Control':'no-cache'}});const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body?.detail||`HTTP ${response.status}`);return body}finally{clearTimeout(timer)}}
+async function loadConceptSectors(force=false){if(state.sectorConceptLoading||(!force&&state.sectorConceptLoaded))return;state.sectorConceptLoading=true;state.sectorConceptError='';renderToolContent();try{const payload=await fetchJson(`${SECTOR_LIST_API}?type=concept&limit=20&_=${Date.now()}`);const sectors=itemsArray(payload).map(parseSector).filter(Boolean);if(!sectors.length)throw new Error('概念板块接口未返回可展示数据');state.snapshot.sectorsConcept=sectors;state.snapshot.sectorConceptMeta=parseMeta(payload);state.sectorConceptLoaded=true;state.requestCount++}catch(error){state.sectorConceptError=error?.name==='AbortError'?'请求超时':error?.message||String(error)}finally{state.sectorConceptLoading=false;renderToolContent();updateDebugStatus()}}
+function selectSectorType(type){state.selectedSectorType=type==='concept'?'concept':'industry';renderToolContent();if(state.selectedSectorType==='concept'&&!state.sectorConceptLoaded)loadConceptSectors(false)}
+async function loadHotPreview(force=false){
+  if(state.hotLoading||(!force&&state.hotLoaded&&Date.now()-state.hotFetchedAt<120000))return;
+  state.hotLoading=true;state.hotError='';renderToolContent();
+  try{const payload=await fetchJson(`${HOT_PREVIEW_API}?type=popularity&limit=10&_=${Date.now()}`);const items=itemsArray(payload).map(parseHotItem).filter(Boolean);if(!items.length)throw new Error('实时热点接口未返回可展示股票');state.hotPayload=payload;state.hotItems=items;state.hotMeta=parseMeta(payload);state.hotLoaded=true;state.hotFetchedAt=Date.now();state.requestCount++}
+  catch(error){state.hotError=error?.name==='AbortError'?'热点请求超时':error?.message||String(error)}
+  finally{state.hotLoading=false;renderToolContent();renderStatus();updateDebugStatus()}
 }
 async function loadMarketHome(silent=false){
-  if(state.loading)return;
-  state.loading=true;state.lastError='';renderHeader();if(!silent)updateDebugStatus();
-  try{
-    const previousConcepts=state.snapshot.sectorsConcept;
-    const previousConceptMeta=state.snapshot.sectorConceptMeta;
-    const root=await fetchJson(`${MARKET_HOME_API}?_=${Date.now()}`);
-    const snapshot=parseMarketHome(root);
-    if(!snapshot.indices.length&&!hasRealData(snapshot.breadth.meta)&&!snapshot.boards.length)throw new Error('市场首页接口未返回可展示数据');
-    if(!snapshot.sectorsConcept.length&&state.sectorConceptLoaded){snapshot.sectorsConcept=previousConcepts;snapshot.sectorConceptMeta=previousConceptMeta}
-    state.snapshot=snapshot;
-    if(snapshot.sectorsConcept.length||hasRealData(snapshot.sectorConceptMeta))state.sectorConceptLoaded=true;
-    state.lastSuccessAt=Date.now();state.requestCount++;
-  }catch(error){state.lastError=error?.name==='AbortError'?'请求超时':error?.message||String(error)}
+  if(state.loading)return;state.loading=true;state.lastError='';renderHeader();if(!silent)updateDebugStatus();
+  try{const previousConcepts=state.snapshot.sectorsConcept,previousConceptMeta=state.snapshot.sectorConceptMeta;const root=await fetchJson(`${MARKET_HOME_API}?_=${Date.now()}`);const snapshot=parseMarketHome(root);if(!snapshot.indices.length&&!hasRealData(snapshot.breadth.meta)&&!snapshot.boards.length)throw new Error('市场首页接口未返回可展示数据');if(!snapshot.sectorsConcept.length&&state.sectorConceptLoaded){snapshot.sectorsConcept=previousConcepts;snapshot.sectorConceptMeta=previousConceptMeta}state.snapshot=snapshot;if(snapshot.sectorsConcept.length||hasRealData(snapshot.sectorConceptMeta))state.sectorConceptLoaded=true;state.lastSuccessAt=Date.now();state.requestCount++}
+  catch(error){state.lastError=error?.name==='AbortError'?'请求超时':error?.message||String(error)}
   finally{state.loading=false;renderAll();updateDebugStatus();scheduleRefresh()}
 }
 function scheduleRefresh(){clearTimeout(state.timer);if(!state.autoRefresh)return;state.timer=setTimeout(()=>loadMarketHome(true),20000)}
@@ -227,11 +198,12 @@ function openDetail(code){const query=text(code,$('#query').value.trim()||'60039
 function openIndexDetail(code){const query=text(code,'000001');location.href=`./stock-index-web-preview.html?query=${encodeURIComponent(query)}`}
 function openRankingDetail(type){const query=text(type,'gainers');location.href=`./stock-ranking-web-preview.html?type=${encodeURIComponent(query)}`}
 function openSectorDetail(code){const query=text(code,'');if(query)location.href=`./stock-sector-web-preview.html?query=${encodeURIComponent(query)}`}
+function openHotDetail(type='popularity'){location.href=`./stock-hot-web-preview.html?type=${encodeURIComponent(type)}`}
 function installClock(){const update=()=>{$('#clock').textContent=new Intl.DateTimeFormat('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())};update();setInterval(update,30000)}
 
 $('#searchForm').addEventListener('submit',event=>{event.preventDefault();openDetail($('#query').value.trim())});
-$('#refreshButton').addEventListener('click',()=>loadMarketHome(false));
-$('#manualRefresh').addEventListener('click',()=>loadMarketHome(false));
+$('#refreshButton').addEventListener('click',()=>{loadMarketHome(false);if(state.selectedAction==='热点')loadHotPreview(true)});
+$('#manualRefresh').addEventListener('click',()=>{loadMarketHome(false);if(state.selectedAction==='热点')loadHotPreview(true)});
 $('#openDetail').addEventListener('click',()=>openDetail($('#query').value.trim()));
 $('#backButton').addEventListener('click',()=>{if(history.length>1)history.back();else $('#marketScroll').scrollTo({top:0,behavior:'smooth'})});
 $('#aiWatchButton').addEventListener('click',()=>$('#dataStatus').innerHTML+='<br>AI 看盘入口在网页调试版中保留交互占位。');
@@ -240,6 +212,6 @@ $('#glassRange').addEventListener('input',event=>{document.documentElement.style
 $('#phoneWidth').addEventListener('input',event=>{document.documentElement.style.setProperty('--phone-w',`${event.target.value}px`);$('#phoneWidthText').textContent=`${event.target.value}px`});
 $('#radiusRange').addEventListener('input',event=>{document.documentElement.style.setProperty('--radius',`${event.target.value}px`);$('#radiusText').textContent=`${event.target.value}px`});
 $('#mobileToggle').addEventListener('click',()=>document.body.classList.toggle('controls-open'));
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.autoRefresh)loadMarketHome(true)});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&state.autoRefresh){loadMarketHome(true);if(state.selectedAction==='热点')loadHotPreview(false)}});
 
 installClock();renderAll();updateDebugStatus();setTimeout(()=>loadMarketHome(false),180);
