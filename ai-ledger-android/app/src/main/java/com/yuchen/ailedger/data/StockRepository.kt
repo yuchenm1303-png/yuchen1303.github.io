@@ -9,8 +9,6 @@ import com.yuchen.ailedger.model.StockOrderLevel
 import com.yuchen.ailedger.model.StockQuote
 import com.yuchen.ailedger.model.StockTone
 import com.yuchen.ailedger.model.StockTradeTick
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import org.json.JSONArray
 import org.json.JSONObject
@@ -23,19 +21,30 @@ class StockRepository(
         val safeMode = if (mode == "full") "full" else "lite"
         val encoded = encode(normalized)
         val base = emptyStock(normalized)
+        val timeout = if (safeMode == "full") FULL_TIMEOUT_MS else LITE_TIMEOUT_MS
 
         val detailResult = runCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/a-share/detail?query=$encoded&mode=$safeMode",
-                timeoutMs = if (safeMode == "full") FULL_TIMEOUT_MS else LITE_TIMEOUT_MS
+            parseDetail(
+                JSONObject(
+                    httpGet(
+                        "${baseUrl()}/api/stock/a-share/detail?query=$encoded&mode=$safeMode",
+                        timeout,
+                        DETAIL_MICRO_CACHE_MS
+                    )
+                ),
+                base
             )
-            parseDetail(JSONObject(body), base)
         }.recoverCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=$safeMode",
-                timeoutMs = if (safeMode == "full") FULL_TIMEOUT_MS else LITE_TIMEOUT_MS
+            parseDetail(
+                JSONObject(
+                    httpGet(
+                        "${baseUrl()}/api/stock/crawl/a-share/detail?query=$encoded&mode=$safeMode",
+                        timeout,
+                        DETAIL_MICRO_CACHE_MS
+                    )
+                ),
+                base
             )
-            parseDetail(JSONObject(body), base)
         }
         if (detailResult.isSuccess) return detailResult.getOrThrow()
 
@@ -76,21 +85,25 @@ class StockRepository(
             else -> "daily"
         }
         return runCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/a-share/kline?query=$encoded&period=$safePeriod&limit=160",
-                timeoutMs = KLINE_TIMEOUT_MS
-            )
-            parseKLines(JSONObject(body)).ifEmpty {
-                throw IllegalStateException("$safePeriod K线接口返回为空")
-            }
+            parseKLines(
+                JSONObject(
+                    httpGet(
+                        "${baseUrl()}/api/stock/a-share/kline?query=$encoded&period=$safePeriod&limit=160",
+                        KLINE_TIMEOUT_MS,
+                        KLINE_MICRO_CACHE_MS
+                    )
+                )
+            ).ifEmpty { throw IllegalStateException("$safePeriod K线接口返回为空") }
         }.recoverCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/crawl/a-share/kline?query=$encoded&period=$safePeriod&limit=160",
-                timeoutMs = KLINE_TIMEOUT_MS
-            )
-            parseKLines(JSONObject(body)).ifEmpty {
-                throw IllegalStateException("crawl $safePeriod K线接口返回为空")
-            }
+            parseKLines(
+                JSONObject(
+                    httpGet(
+                        "${baseUrl()}/api/stock/crawl/a-share/kline?query=$encoded&period=$safePeriod&limit=160",
+                        KLINE_TIMEOUT_MS,
+                        KLINE_MICRO_CACHE_MS
+                    )
+                )
+            ).ifEmpty { throw IllegalStateException("crawl $safePeriod K线接口返回为空") }
         }
     }
 
@@ -98,21 +111,25 @@ class StockRepository(
         val normalized = query.trim().ifBlank { DEFAULT_STOCK_CODE }
         val encoded = encode(normalized)
         return runCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/a-share/realtime?query=$encoded&ndays=1",
-                timeoutMs = MINUTE_TIMEOUT_MS
-            )
-            parseMinutePoints(JSONObject(body)).ifEmpty {
-                throw IllegalStateException("真实分时接口返回为空")
-            }
+            parseMinutePoints(
+                JSONObject(
+                    httpGet(
+                        "${baseUrl()}/api/stock/a-share/realtime?query=$encoded&ndays=1&compact=false",
+                        MINUTE_TIMEOUT_MS,
+                        REALTIME_MICRO_CACHE_MS
+                    )
+                )
+            ).ifEmpty { throw IllegalStateException("真实分时接口返回为空") }
         }.recoverCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/crawl/a-share/minute?query=$encoded",
-                timeoutMs = MINUTE_TIMEOUT_MS
-            )
-            parseMinutePoints(JSONObject(body)).ifEmpty {
-                throw IllegalStateException("兼容分时接口返回为空")
-            }
+            parseMinutePoints(
+                JSONObject(
+                    httpGet(
+                        "${baseUrl()}/api/stock/crawl/a-share/minute?query=$encoded",
+                        MINUTE_TIMEOUT_MS,
+                        REALTIME_MICRO_CACHE_MS
+                    )
+                )
+            ).ifEmpty { throw IllegalStateException("兼容分时接口返回为空") }
         }
     }
 
@@ -120,28 +137,35 @@ class StockRepository(
         val encoded = encode(query)
         val fallback = blankQuote(query)
         return runCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/a-share/quotes?codes=$encoded",
-                timeoutMs = QUOTE_TIMEOUT_MS
+            val root = JSONObject(
+                httpGet(
+                    "${baseUrl()}/api/stock/a-share/quotes?codes=$encoded",
+                    QUOTE_TIMEOUT_MS,
+                    QUOTE_MICRO_CACHE_MS
+                )
             )
-            val quoteJson = parseQuoteObjects(JSONObject(body)).firstOrNull()
-                ?: throw IllegalStateException("quotes接口没有报价对象")
-            quoteFromJson(quoteJson, fallback)
+            quoteFromJson(
+                parseQuoteObjects(root).firstOrNull()
+                    ?: throw IllegalStateException("quotes接口没有报价对象"),
+                fallback
+            )
         }.recoverCatching {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/crawl/a-share/quotes?codes=$encoded",
-                timeoutMs = QUOTE_TIMEOUT_MS
+            val root = JSONObject(
+                httpGet(
+                    "${baseUrl()}/api/stock/crawl/a-share/quotes?codes=$encoded",
+                    QUOTE_TIMEOUT_MS,
+                    QUOTE_MICRO_CACHE_MS
+                )
             )
-            val quoteJson = parseQuoteObjects(JSONObject(body)).firstOrNull()
-                ?: throw IllegalStateException("crawl quotes接口没有报价对象")
-            quoteFromJson(quoteJson, fallback)
+            quoteFromJson(
+                parseQuoteObjects(root).firstOrNull()
+                    ?: throw IllegalStateException("crawl quotes接口没有报价对象"),
+                fallback
+            )
         }
     }
 
-    private fun parseDetail(
-        root: JSONObject,
-        base: StockDetailUiState
-    ): StockDetailUiState {
+    private fun parseDetail(root: JSONObject, base: StockDetailUiState): StockDetailUiState {
         val payload = payloadObject(root)
         val quoteJson = payload.optJSONObject("quote")
             ?: parseQuoteObjects(payload).firstOrNull()
@@ -149,8 +173,10 @@ class StockRepository(
         val quote = quoteFromJson(quoteJson, base.quote)
         if (quote.code.isBlank()) throw IllegalStateException("代理行情缺少股票代码")
 
-        val warnings = stringList(payload.optJSONArray("warnings")) +
-            stringList(root.optJSONArray("warnings"))
+        val warnings = (
+            stringList(payload.optJSONArray("warnings")) +
+                stringList(root.optJSONArray("warnings"))
+            ).distinct()
         val ticksAreDerived = warnings.any {
             it.contains("rebuilt_from_minute", ignoreCase = true) ||
                 it.contains("derived_from_minute", ignoreCase = true) ||
@@ -159,9 +185,6 @@ class StockRepository(
         val minuteIsFallback = warnings.any {
             it.contains("minute_points_fallback", ignoreCase = true)
         }
-
-        val kLines = parseKLines(payload)
-        val minutePoints = if (minuteIsFallback) emptyList() else parseMinutePoints(payload)
         val sourceLabel = firstText(payload, "dataSourceLabel")
             ?: firstText(root, "dataSourceLabel")
             ?: "A股真实行情 · ${quote.code}"
@@ -169,7 +192,7 @@ class StockRepository(
         return base.copy(
             quote = quote,
             topMetrics = topMetricsFor(quote),
-            minutePoints = minutePoints,
+            minutePoints = if (minuteIsFallback) emptyList() else parseMinutePoints(payload),
             sellLevels = parseOrderLevels(payload, listOf("sellLevels", "askLevels", "asks"), true),
             buyLevels = parseOrderLevels(payload, listOf("buyLevels", "bidLevels", "bids"), false),
             tradeTicks = if (ticksAreDerived) emptyList() else parseTradeTicks(payload),
@@ -180,7 +203,7 @@ class StockRepository(
             indices = emptyList(),
             watchlist = emptyList(),
             marketBoards = emptyList(),
-            kLinePoints = kLines,
+            kLinePoints = parseKLines(payload),
             dataSourceLabel = sourceLabel,
             errorMessage = null,
             aiSummary = firstText(payload, "aiSummary")
@@ -191,14 +214,12 @@ class StockRepository(
     private fun payloadObject(root: JSONObject): JSONObject {
         return root.optJSONObject("data")
             ?: root.optJSONObject("payload")
+            ?: root.optJSONObject("snapshot")
             ?: root.optJSONObject("result")
             ?: root
     }
 
-    private fun findArray(
-        obj: JSONObject,
-        keys: List<String>
-    ): JSONArray? {
+    private fun findArray(obj: JSONObject, keys: List<String>): JSONArray? {
         keys.forEach { key -> obj.optJSONArray(key)?.let { return it } }
         listOf("data", "payload", "result", "snapshot").forEach { containerKey ->
             val nested = obj.optJSONObject(containerKey) ?: return@forEach
@@ -210,10 +231,7 @@ class StockRepository(
     private fun parseQuoteObjects(root: JSONObject): List<JSONObject> {
         val payload = payloadObject(root)
         payload.optJSONObject("quote")?.let { return listOf(it) }
-        val array = findArray(
-            payload,
-            listOf("quotes", "items", "list", "records", "stocks")
-        )
+        val array = findArray(payload, listOf("quotes", "items", "list", "records", "stocks"))
         if (array != null) {
             return buildList {
                 for (index in 0 until array.length()) {
@@ -221,21 +239,14 @@ class StockRepository(
                 }
             }
         }
-        return if (
-            payload.has("code") ||
-            payload.has("name") ||
-            payload.has("price")
-        ) {
+        return if (payload.has("code") || payload.has("name") || payload.has("price")) {
             listOf(payload)
         } else {
             emptyList()
         }
     }
 
-    private fun quoteFromJson(
-        json: JSONObject,
-        fallback: StockQuote
-    ): StockQuote {
+    private fun quoteFromJson(json: JSONObject, fallback: StockQuote): StockQuote {
         val changePercent = firstText(
             json,
             "changePercent",
@@ -244,34 +255,39 @@ class StockRepository(
             "percent",
             "涨跌幅"
         ) ?: fallback.changePercent
-        val changeAmount = firstText(
-            json,
-            "changeAmount",
-            "change",
-            "涨跌额",
-            "涨跌"
-        ) ?: fallback.changeAmount
+        val changeAmount = firstText(json, "changeAmount", "change", "涨跌额", "涨跌")
+            ?: fallback.changeAmount
         return StockQuote(
             name = firstText(json, "name", "stockName", "securityName", "名称") ?: fallback.name,
             code = firstText(json, "code", "symbol", "ticker", "代码") ?: fallback.code,
             market = firstText(json, "market", "exchange", "市场") ?: fallback.market,
-            price = firstText(json, "price", "last", "latest", "current", "close", "最新价") ?: fallback.price,
+            price = firstText(json, "price", "last", "latest", "current", "close", "最新价")
+                ?: fallback.price,
             changeAmount = changeAmount,
             changePercent = changePercent,
             isRising = firstBoolean(json, "isRising")
                 ?: (!changePercent.startsWith("-") && !changeAmount.startsWith("-")),
-            previousClose = firstDouble(json, "previousClose", "preClose", "prevClose", "昨收") ?: fallback.previousClose,
+            previousClose = firstDouble(json, "previousClose", "preClose", "prevClose", "昨收")
+                ?: fallback.previousClose,
             high = firstText(json, "high", "最高") ?: fallback.high,
             low = firstText(json, "low", "最低") ?: fallback.low,
             open = firstText(json, "open", "今开", "开盘") ?: fallback.open,
-            totalMarketValue = firstText(json, "totalMarketValue", "marketValue", "总市值", "市值") ?: fallback.totalMarketValue,
-            floatMarketValue = firstText(json, "floatMarketValue", "circulatingMarketValue", "流通市值") ?: fallback.floatMarketValue,
+            totalMarketValue = firstText(json, "totalMarketValue", "marketValue", "总市值", "市值")
+                ?: fallback.totalMarketValue,
+            floatMarketValue = firstText(
+                json,
+                "floatMarketValue",
+                "circulatingMarketValue",
+                "流通市值"
+            ) ?: fallback.floatMarketValue,
             volumeRatio = firstText(json, "volumeRatio", "量比") ?: fallback.volumeRatio,
-            turnoverRate = firstText(json, "turnoverRate", "turnover", "换手", "换手率") ?: fallback.turnoverRate,
+            turnoverRate = firstText(json, "turnoverRate", "turnover", "换手", "换手率")
+                ?: fallback.turnoverRate,
             peTtm = firstText(json, "peTtm", "pe", "市盈率") ?: fallback.peTtm,
             pb = firstText(json, "pb", "市净率") ?: fallback.pb,
             amount = firstText(json, "amount", "成交额") ?: fallback.amount,
-            popularityRank = firstText(json, "popularityRank", "rank", "人气") ?: fallback.popularityRank
+            popularityRank = firstText(json, "popularityRank", "rank", "人气")
+                ?: fallback.popularityRank
         )
     }
 
@@ -280,31 +296,54 @@ class StockRepository(
         val price: Float,
         val average: Float,
         val explicitRatio: Float?,
-        val volume: Float
+        val volume: Float,
+        val matchedVolume: Float?,
+        val unmatchedVolume: Float?,
+        val unmatchedDirection: String,
+        val phase: String
     )
 
     private fun parseMinutePoints(root: JSONObject): List<StockMinutePoint> {
-        val array = findArray(root, listOf("minutePoints", "minutes")) ?: return emptyList()
+        val array = findArray(
+            root,
+            listOf("minutePoints", "minutes", "minuteDelta", "latestMinutePoints")
+        ) ?: return emptyList()
         val raw = buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
                 val price = firstDouble(item, "price", "close", "p", "最新价") ?: continue
                 if (price <= 0f) continue
                 val date = firstText(item, "date", "tradeDate", "day").orEmpty()
-                val timeValue = firstText(item, "time", "minute", "t", "datetime", "dateTime", "时间")
-                    ?: firstLong(item, "timestamp")?.toString()
-                    ?: ""
+                val rawTime = firstText(
+                    item,
+                    "time",
+                    "minute",
+                    "t",
+                    "datetime",
+                    "dateTime",
+                    "时间"
+                ) ?: firstLong(item, "timestamp")?.toString().orEmpty()
+                val time = if (date.isNotBlank() && rawTime.isNotBlank() && !rawTime.contains(date)) {
+                    "$date $rawTime"
+                } else {
+                    rawTime
+                }
                 add(
                     RawMinutePoint(
-                        time = if (date.isNotBlank() && timeValue.isNotBlank() && !timeValue.contains(date)) {
-                            "$date $timeValue"
-                        } else {
-                            timeValue
-                        },
+                        time = time,
                         price = price,
                         average = firstDouble(item, "average", "avg", "avgPrice", "均价") ?: price,
                         explicitRatio = firstDouble(item, "volumeRatio", "ratio"),
-                        volume = firstDouble(item, "volume", "vol") ?: 0f
+                        volume = firstDouble(item, "volume", "vol") ?: 0f,
+                        matchedVolume = firstDouble(item, "matchedVolume", "matchVolume", "matched"),
+                        unmatchedVolume = firstDouble(item, "unmatchedVolume", "unmatchVolume", "unmatched"),
+                        unmatchedDirection = firstText(
+                            item,
+                            "unmatchedDirection",
+                            "unmatchDirection"
+                        ) ?: "unavailable",
+                        phase = firstText(item, "phase", "sessionPhase", "auctionPhase")
+                            ?: "continuous"
                     )
                 )
             }
@@ -316,7 +355,16 @@ class StockRepository(
                 price = point.price,
                 average = point.average,
                 volumeRatio = point.explicitRatio?.coerceIn(0.02f, 1f)
-                    ?: (point.volume / maxVolume).coerceIn(0.02f, 1f)
+                    ?: if (point.volume > 0f) {
+                        (point.volume / maxVolume).coerceIn(0.02f, 1f)
+                    } else {
+                        0.02f
+                    },
+                volume = point.volume,
+                matchedVolume = point.matchedVolume,
+                unmatchedVolume = point.unmatchedVolume,
+                unmatchedDirection = point.unmatchedDirection,
+                phase = point.phase
             )
         }
     }
@@ -340,7 +388,10 @@ class StockRepository(
                         low = firstDouble(item, "low", "l", "最低") ?: close,
                         volume = firstDouble(item, "volume", "vol", "成交量") ?: 0f,
                         amount = firstDouble(item, "amount", "成交额") ?: 0f,
-                        changePercent = firstText(item, "changePercent", "pct", "涨跌幅") ?: "--"
+                        changePercent = firstText(item, "changePercent", "pct", "涨跌幅") ?: "--",
+                        amplitude = firstText(item, "amplitude", "振幅") ?: "--",
+                        changeAmount = firstText(item, "changeAmount", "change", "涨跌额") ?: "--",
+                        turnoverRate = firstText(item, "turnoverRate", "turnover", "换手率") ?: "--"
                     )
                 )
             }
@@ -372,7 +423,10 @@ class StockRepository(
     }
 
     private fun parseTradeTicks(root: JSONObject): List<StockTradeTick> {
-        val array = findArray(root, listOf("tradeTicks", "ticks", "deals")) ?: return emptyList()
+        val array = findArray(
+            root,
+            listOf("tradeTicks", "ticks", "deals", "newTradeTicks", "tradeTickDelta")
+        ) ?: return emptyList()
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
@@ -380,7 +434,9 @@ class StockRepository(
                 val direction = firstText(item, "direction", "side", "type") ?: "--"
                 add(
                     StockTradeTick(
-                        time = firstText(item, "time", "t") ?: "--",
+                        time = firstText(item, "time", "t")
+                            ?: firstLong(item, "timestamp")?.toString()
+                            ?: "--",
                         price = price,
                         volume = firstText(item, "volume", "qty", "vol") ?: "--",
                         direction = direction,
@@ -406,12 +462,8 @@ class StockRepository(
         )
     }
 
-    private fun parseMetrics(
-        root: JSONObject,
-        key: String
-    ): List<StockMetric> {
-        val payload = payloadObject(root)
-        val array = payload.optJSONArray(key) ?: return emptyList()
+    private fun parseMetrics(root: JSONObject, key: String): List<StockMetric> {
+        val array = payloadObject(root).optJSONArray(key) ?: return emptyList()
         return buildList {
             for (index in 0 until array.length()) {
                 val item = array.optJSONObject(index) ?: continue
@@ -468,7 +520,7 @@ class StockRepository(
     )
 
     private fun blankQuote(query: String): StockQuote {
-        val code = query.filter { it.isDigit() }.takeIf { it.length == 6 }.orEmpty()
+        val code = query.filter(Char::isDigit).takeIf { it.length == 6 }.orEmpty()
         return StockQuote(
             name = code.ifBlank { query },
             code = code,
@@ -574,30 +626,16 @@ class StockRepository(
         return base
     }
 
-    private fun httpGet(url: String, timeoutMs: Int): String {
-        var connection: HttpURLConnection? = null
-        try {
-            connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = timeoutMs
-                readTimeout = timeoutMs
-                useCaches = false
-                setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("Connection", "keep-alive")
-            }
-            val responseCode = connection.responseCode
-            val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (responseCode !in 200..299) {
-                throw IllegalStateException("HTTP $responseCode ${body.take(160)}".trim())
-            }
-            if (body.isBlank()) throw IllegalStateException("行情代理返回为空")
-            return body
-        } finally {
-            connection?.disconnect()
-        }
-    }
+    private fun httpGet(
+        url: String,
+        timeoutMs: Int,
+        microCacheMs: Long
+    ): String = StockHttpClient.get(
+        url = url,
+        timeoutMs = timeoutMs,
+        emptyMessage = "行情代理返回为空",
+        microCacheMs = microCacheMs
+    )
 
     companion object {
         private const val DEFAULT_STOCK_CODE = "600396"
@@ -606,5 +644,9 @@ class StockRepository(
         private const val FULL_TIMEOUT_MS = 16_000
         private const val MINUTE_TIMEOUT_MS = 4_000
         private const val KLINE_TIMEOUT_MS = 16_000
+        private const val REALTIME_MICRO_CACHE_MS = 220L
+        private const val QUOTE_MICRO_CACHE_MS = 350L
+        private const val DETAIL_MICRO_CACHE_MS = 350L
+        private const val KLINE_MICRO_CACHE_MS = 2_000L
     }
 }
