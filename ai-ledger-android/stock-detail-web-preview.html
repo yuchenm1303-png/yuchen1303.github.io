@@ -97,7 +97,7 @@
         </div>
       </section>
 
-      <section class="glass discussion-card section" id="discussionCard" aria-label="个股社区与评论" hidden>
+      <section class="glass discussion-card section" id="discussionCard" aria-label="个股社区" hidden>
         <header class="discussion-head">
           <div class="discussion-head-copy">
             <h2 id="discussionTitle">社区</h2>
@@ -117,15 +117,6 @@
           <button type="button" class="discussion-more" id="discussionMore" disabled>加载更多社区帖子</button>
         </div>
 
-        <div class="discussion-post-view" id="discussionPostView" hidden>
-          <div class="discussion-post-top">
-            <button type="button" class="discussion-post-back" id="discussionPostBack" aria-label="返回社区列表">‹</button>
-            <strong>帖子详情</strong>
-            <span id="discussionPostStatus">等待帖子正文</span>
-          </div>
-          <div class="discussion-post-scroll" id="discussionPostScroll"></div>
-        </div>
-
         <button type="button" class="discussion-compose" id="discussionCompose" aria-label="发布讨论">✎</button>
         <div class="discussion-toast" id="discussionToast" role="status"></div>
         <div class="discussion-status" id="discussionStatus">社区首次打开时才加载，不增加个股行情首屏开销。</div>
@@ -141,8 +132,8 @@
 
   <aside class="controls">
     <h1>新版个股详情页网页调试</h1>
-    <div class="version">网页版本 2026-06-27.4 · 标准股票社区版</div>
-    <p>个股讨论区已重构为标准股票软件社区信息流：头像、作者、时间、股票标签、正文、互动数据、最新/热门排序和帖子评论详情；社区仍保持只读，不伪装登录和发布能力。</p>
+    <div class="version">网页版本 2026-06-27.5 · 独立帖子详情版</div>
+    <p>个股社区页只保留标准信息流；点击帖子后进入独立帖子详情页面。详情页先加载正文，网友评论仅在用户点击后单独请求。</p>
 
     <div class="group">
       <h2>实时数据</h2>
@@ -170,6 +161,6 @@
 <script src="./stock-detail-web-indicators.js?v=20260627-2"></script>
 <script src="./stock-detail-web-runtime.js?v=20260627-2"></script>
 <script src="./stock-detail-web-community.js?v=20260627-1"></script>
-<script src="./stock-detail-web-community-feed.js?v=20260627-1"></script>
+<script src="./stock-detail-web-community-feed.js?v=20260627-2"></script>
 </body>
 </html>
