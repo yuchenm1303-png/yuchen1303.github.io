@@ -84,7 +84,7 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
                         "date": "2026-06-27",
                         "time": "09:20",
                         "price": 12.20,
-                        "volume": 80,
+                        "volume": 0,
                         "phase": "openAuction",
                         "matchedVolume": 80,
                     },
@@ -115,6 +115,7 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["quote"]["code"], "600667")
         self.assertEqual(len(payload["minutePoints"]), 2)
         self.assertEqual(payload["minutePoints"][0]["matchedVolume"], 80)
+        self.assertEqual(payload["minutePoints"][0]["volume"], 0)
         self.assertEqual(payload["minutePoints"][1]["volume"], 120)
         self.assertEqual(payload["kLinePoints"], [])
 
@@ -157,6 +158,7 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["minuteDelta"]), 2)
         self.assertEqual(result["minuteDelta"][0]["volume"], 70)
         self.assertEqual(result["minuteDelta"][1]["volume"], 90)
+        self.assertEqual(result["minuteDelta"][1]["volumeRatio"], 1.0)
         self.assertEqual(len(result["newTradeTicks"]), 2)
         self.assertEqual(result["minuteCursor"], "2026-06-27 09:32")
         self.assertEqual(result["tradeCursor"], "09:32:01|12.34||")
@@ -210,16 +212,18 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([point["time"] for point in repaired], ["09:20", "15:00"])
         self.assertEqual(repaired[0]["matchedVolume"], 88)
         self.assertEqual(repaired[0]["unmatchedVolume"], 25)
-        self.assertEqual(repaired[1]["volume"], 66)
+        self.assertEqual(repaired[0]["volume"], 0)
+        self.assertEqual(repaired[1]["matchedVolume"], 66)
+        self.assertEqual(repaired[1]["volume"], 0)
 
-    def test_minute_contract_preserves_continuous_and_auction_volumes(self) -> None:
+    def test_minute_contract_separates_continuous_and_auction_volumes(self) -> None:
         payload = {
             "minutePoints": [
                 {
                     "date": "2026-06-27",
                     "time": "09:20",
                     "price": 12.10,
-                    "volume": 88,
+                    "volume": 8800,
                     "sessionPhase": "openAuction",
                 },
                 {
@@ -227,6 +231,13 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
                     "time": "09:30",
                     "price": 12.12,
                     "volume": 135,
+                    "sessionPhase": "continuous",
+                },
+                {
+                    "date": "2026-06-27",
+                    "time": "09:31",
+                    "price": 12.15,
+                    "volume": 270,
                     "sessionPhase": "continuous",
                 },
             ],
@@ -239,13 +250,15 @@ class FastStockServerTest(unittest.IsolatedAsyncioTestCase):
             since_trade_key="",
             compact=False,
         )
-        auction_point, continuous_point = result["minutePoints"]
+        auction_point, first_continuous, second_continuous = result["minutePoints"]
         self.assertEqual(auction_point["phase"], "openAuction")
-        self.assertEqual(auction_point["matchedVolume"], 88)
-        self.assertEqual(auction_point["volume"], 88)
-        self.assertEqual(continuous_point["phase"], "continuous")
-        self.assertIsNone(continuous_point["matchedVolume"])
-        self.assertEqual(continuous_point["volume"], 135)
+        self.assertEqual(auction_point["matchedVolume"], 8800)
+        self.assertEqual(auction_point["volume"], 0)
+        self.assertEqual(auction_point["volumeRatio"], 0)
+        self.assertEqual(first_continuous["volume"], 135)
+        self.assertEqual(first_continuous["volumeRatio"], 0.5)
+        self.assertEqual(second_continuous["volume"], 270)
+        self.assertEqual(second_continuous["volumeRatio"], 1.0)
 
     def test_one_day_cursor_resets_on_trade_date_change(self) -> None:
         payload = {
