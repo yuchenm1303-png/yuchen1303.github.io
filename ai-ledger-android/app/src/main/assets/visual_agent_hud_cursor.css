@@ -1,5 +1,5 @@
   :root{
-    --lab-cursor-size:47.5px;
+    --lab-cursor-size:36.1px;
     --lab-scale-x:1;
     --lab-scale-y:.95;
     --lab-rotation:-2.5deg;
@@ -10,6 +10,8 @@
     --lab-aura-opacity:.54;
     --hotspot-x:10px;
     --hotspot-y:10.5px;
+    --info-bubble-width:420px;
+    --info-bubble-scale:.65;
   }
   .cursor-icon{
     width:var(--lab-cursor-size) !important;
