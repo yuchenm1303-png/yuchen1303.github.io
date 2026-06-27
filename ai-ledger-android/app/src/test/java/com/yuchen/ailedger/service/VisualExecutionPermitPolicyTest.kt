@@ -9,9 +9,20 @@ import org.junit.Test
 class VisualExecutionPermitPolicyTest {
     @Test
     fun validPermitIsAccepted() {
-        val step = permittedTap()
+        val result = VisualExecutionPermitPolicy.validateTap(permittedTap())
 
-        val result = VisualExecutionPermitPolicy.validateTap(step)
+        assertTrue(result.valid)
+        assertEquals("verified", result.reason)
+    }
+
+    @Test
+    fun sixDecimalBackendCoordinateSurvivesFloatParsing() {
+        val result = VisualExecutionPermitPolicy.validateTap(
+            permittedTap(
+                permitX = 0.826107,
+                permitY = 0.173893,
+            ),
+        )
 
         assertTrue(result.valid)
         assertEquals("verified", result.reason)
@@ -19,13 +30,12 @@ class VisualExecutionPermitPolicyTest {
 
     @Test
     fun observationMismatchIsRejected() {
-        val step = permittedTap().copy(
-            toolArgs = permittedTap().toolArgs!!.apply {
-                put("responseObservationId", "other-observation")
-            },
-        )
+        val base = permittedTap()
+        val args = JSONObject(base.toolArgs.toString()).apply {
+            put("responseObservationId", "other-observation")
+        }
 
-        val result = VisualExecutionPermitPolicy.validateTap(step)
+        val result = VisualExecutionPermitPolicy.validateTap(base.copy(toolArgs = args))
 
         assertFalse(result.valid)
         assertEquals("permit_observation_mismatch", result.reason)
@@ -33,13 +43,12 @@ class VisualExecutionPermitPolicyTest {
 
     @Test
     fun sessionMismatchIsRejected() {
-        val step = permittedTap().copy(
-            toolArgs = permittedTap().toolArgs!!.apply {
-                put("responseSessionId", "other-session")
-            },
-        )
+        val base = permittedTap()
+        val args = JSONObject(base.toolArgs.toString()).apply {
+            put("responseSessionId", "other-session")
+        }
 
-        val result = VisualExecutionPermitPolicy.validateTap(step)
+        val result = VisualExecutionPermitPolicy.validateTap(base.copy(toolArgs = args))
 
         assertFalse(result.valid)
         assertEquals("permit_session_mismatch", result.reason)
@@ -47,9 +56,7 @@ class VisualExecutionPermitPolicyTest {
 
     @Test
     fun coordinateMutationIsRejected() {
-        val step = permittedTap().copy(x = 0.51f)
-
-        val result = VisualExecutionPermitPolicy.validateTap(step)
+        val result = VisualExecutionPermitPolicy.validateTap(permittedTap().copy(x = 0.51f))
 
         assertFalse(result.valid)
         assertEquals("permit_coordinate_mismatch", result.reason)
@@ -70,17 +77,23 @@ class VisualExecutionPermitPolicyTest {
     }
 
     private fun permittedTap(
-        x: Float = 0.5f,
-        y: Float = 0.25f,
+        permitX: Double = 0.5,
+        permitY: Double = 0.25,
         kind: String = "android_structural_clickable_anchor",
     ): CloudAgentStep {
         val sessionId = "visual-session-123"
         val observationId = "observation-456"
-        val hash = VisualExecutionPermitPolicy.tapPermitHash(sessionId, observationId, x, y, kind)
+        val hash = VisualExecutionPermitPolicy.tapPermitHash(
+            sessionId,
+            observationId,
+            permitX,
+            permitY,
+            kind,
+        )
         return CloudAgentStep(
             type = "tap_xy",
-            x = x,
-            y = y,
+            x = permitX.toFloat(),
+            y = permitY.toFloat(),
             toolArgs = JSONObject().apply {
                 put("responseObservationId", observationId)
                 put("responseSessionId", sessionId)
@@ -89,8 +102,8 @@ class VisualExecutionPermitPolicyTest {
                 put("executionPermitObservationId", observationId)
                 put("executionPermitSessionId", sessionId)
                 put("executionPermitActionType", "tap_xy")
-                put("executionPermitX", x)
-                put("executionPermitY", y)
+                put("executionPermitX", permitX)
+                put("executionPermitY", permitY)
                 put("executionPermitActionHash", hash)
             },
         )
