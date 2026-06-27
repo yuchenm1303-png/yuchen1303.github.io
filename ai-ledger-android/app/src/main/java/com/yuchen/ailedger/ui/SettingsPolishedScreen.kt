@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,7 +66,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 import kotlin.math.roundToInt
 
-private enum class SettingsPanel { Appearance, Glass, Assistant, Data, Service, Advanced, Debug }
+private enum class SettingsPanel { Appearance, Glass, Assistant, Data, Service, Advanced, Chat, Memory, Debug }
 private val SettingsChipRole = GlassRole.Chip
 private val SettingsFloatingRole = GlassRole.Floating
 private val SettingsOverviewRole = GlassRole.Shell
@@ -424,6 +425,8 @@ private fun SettingsDashboardGrid(
     selectedPanel: SettingsPanel,
     onSelected: (SettingsPanel) -> Unit
 ) {
+    val context = LocalContext.current
+    val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -488,6 +491,27 @@ private fun SettingsDashboardGrid(
                 Modifier.weight(1f)
             ) { onSelected(SettingsPanel.Advanced) }
         }
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            SettingsTile(
+                "聊",
+                "聊天页设置",
+                "消息与表情",
+                "${stickerSizeDp.roundToInt()} dp",
+                selectedPanel == SettingsPanel.Chat,
+                Modifier.weight(1f)
+            ) { onSelected(SettingsPanel.Chat) }
+            SettingsTile(
+                "忆",
+                "记忆",
+                "长期上下文",
+                "待开放",
+                selectedPanel == SettingsPanel.Memory,
+                Modifier.weight(1f)
+            ) { onSelected(SettingsPanel.Memory) }
+        }
     }
 }
 
@@ -520,6 +544,8 @@ private fun SettingsTile(
         label = "settings-tile-pressed-$title"
     )
     val glow = (selectedPulse + pressPulse * 0.55f).coerceIn(0f, 1f)
+    val titleFontSize = if (title.length >= 5) 16.sp else 20.sp
+    val titleLineHeight = if (title.length >= 5) 20.sp else 23.sp
     val radius = 17.44f
     val frostAlpha = 0.085f + glow * 0.034f
     val parentLayer = LocalSettingsFrostParentLayer.current
@@ -585,8 +611,8 @@ private fun SettingsTile(
                     Text(
                         title,
                         color = Color.White.copy(alpha = 0.88f + glow * 0.10f),
-                        fontSize = 20.sp,
-                        lineHeight = 23.sp,
+                        fontSize = titleFontSize,
+                        lineHeight = titleLineHeight,
                         fontWeight = FontWeight.Black,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -741,6 +767,8 @@ private fun SettingsDetailPanel(
                         SettingsPanel.Data -> DataContent(state)
                         SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
                         SettingsPanel.Advanced -> AdvancedContent()
+                        SettingsPanel.Chat -> ChatPageSettingsContent()
+                        SettingsPanel.Memory -> Unit
                         SettingsPanel.Debug -> GlassDebugFloatingPanel(
                             state,
                             onBackdropChange,
@@ -767,15 +795,17 @@ private fun DetailHeader(title: String, subtitle: String) {
             fontWeight = FontWeight.Black,
             maxLines = 1
         )
-        Text(
-            subtitle,
-            color = Color.White.copy(alpha = 0.48f),
-            fontSize = 12.sp,
-            lineHeight = 17.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+        if (subtitle.isNotBlank()) {
+            Text(
+                subtitle,
+                color = Color.White.copy(alpha = 0.48f),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -926,6 +956,51 @@ private fun AdvancedContent() {
     SettingInfoRow("隔离范围", "Card / Chip / Floating / Nav / Flex")
     SettingInfoRow("几何同步", "普通控件不注册 registry，也不请求 geometry sync")
     SettingInfoRow("账号控件", "纯 Compose + REST API，不接入 OpenGL registry")
+}
+
+@Composable
+private fun ChatPageSettingsContent() {
+    val context = LocalContext.current
+    val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
+    InsetGlassParameterSlider(
+        title = "表情包大小",
+        description = "调节聊天消息中内联表情的显示与排版占位尺寸。",
+        value = stickerSizeDp,
+        valueRange = InlineStickerDisplaySettings.SizeRange,
+        onValueChange = { InlineStickerDisplaySettings.updateSizeDp(context, it) },
+        valueText = "${stickerSizeDp.roundToInt()} dp"
+    )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.060f))
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "示例消息",
+            color = Color.White.copy(alpha = 0.58f),
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.ExtraBold
+        )
+        OptimizedRichMessageContent(
+            text = "这次终于调顺了[[AI_LEDGER_INLINE_STICKER:joy_burst]][[AI_LEDGER_INLINE_STICKER:sparkle_excited]]，句中的表情也会跟着当前尺寸实时变化。",
+            color = Color.White.copy(alpha = 0.88f),
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            "拖动上方滑块，示例和聊天页中的表情会同步更新。",
+            color = Color.White.copy(alpha = 0.42f),
+            fontSize = 10.5.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
 }
 
 @Composable
@@ -1178,7 +1253,9 @@ private fun SettingsPanel.settingsOrder(): Int = when (this) {
     SettingsPanel.Data -> 3
     SettingsPanel.Service -> 4
     SettingsPanel.Advanced -> 5
-    SettingsPanel.Debug -> 6
+    SettingsPanel.Chat -> 6
+    SettingsPanel.Memory -> 7
+    SettingsPanel.Debug -> 8
 }
 
 private fun panelTitle(panel: SettingsPanel): String = when (panel) {
@@ -1188,6 +1265,8 @@ private fun panelTitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Data -> "数据"
     SettingsPanel.Service -> "服务"
     SettingsPanel.Advanced -> "高级"
+    SettingsPanel.Chat -> "聊天页设置"
+    SettingsPanel.Memory -> "记忆"
     SettingsPanel.Debug -> "玻璃实验室"
 }
 
@@ -1198,6 +1277,8 @@ private fun panelSubtitle(panel: SettingsPanel): String = when (panel) {
     SettingsPanel.Data -> "账单状态、预算、本地数据和常用导航地址。"
     SettingsPanel.Service -> "账号登录、AI Worker 和云端接口。"
     SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"
+    SettingsPanel.Chat -> "聊天消息与内联表情显示参数。"
+    SettingsPanel.Memory -> ""
     SettingsPanel.Debug -> "高级玻璃参数与实验入口。"
 }
 
