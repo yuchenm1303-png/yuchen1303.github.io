@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
 <title>AI Ledger · A股市场首页网页预览</title>
-<link rel="stylesheet" href="./stock-home-web-preview.css?v=20260627-1">
+<link rel="stylesheet" href="./stock-home-web-preview.css?v=20260627-2">
 </head>
 <body>
 <button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
@@ -47,7 +47,7 @@
           <section class="panel-section index-section">
             <div class="section-title-block">
               <h2>主要指数</h2>
-              <p>核心指数实时快照 · 左右滑动查看更多</p>
+              <p>点击进入共用指数详情页 · 左右滑动查看更多</p>
             </div>
             <div class="indices-scroll" id="indices"></div>
           </section>
@@ -104,14 +104,14 @@
 
   <aside class="controls" id="controls">
     <h1>A股市场首页网页调试</h1>
-    <div class="version">网页版本 2026-06-27.1 · Compose 原样移植版</div>
-    <p>当前页面按 Android Compose 的 StockHomePage、HomeHeader、MarketIndexSection、MarketBreadthSection、HomeToolGrid 与 HomeDataStatusSection 逐项移植，先保持结构和尺寸一致，再进行网页调试。</p>
+    <div class="version">网页版本 2026-06-27.2 · 指数详情入口版</div>
+    <p>首页保持 Android Compose 的结构与尺寸，并新增主要指数卡片点击能力。指数进入共用详情页，个股搜索仍进入个股详情页。</p>
 
     <div class="control-group">
       <h2>实时数据</h2>
       <div class="control-buttons">
         <button class="primary" id="manualRefresh">立即刷新</button>
-        <button id="openDetail">打开详情页</button>
+        <button id="openDetail">打开个股详情</button>
       </div>
       <label class="switch-row"><span>20 秒自动刷新</span><input id="autoRefresh" type="checkbox" checked></label>
       <div class="data-status" id="dataStatus"><strong>初始化中</strong>：正在连接真实市场首页接口。</div>
@@ -128,7 +128,7 @@
       <h2>当前移植范围</h2>
       <ul class="scope-list">
         <li>顶部返回、标题、刷新与真实数据状态</li>
-        <li>搜索栏、主要指数横向卡片</li>
+        <li>搜索栏、可点击主要指数横向卡片</li>
         <li>市场宽度、情绪温度与成交额</li>
         <li>八个市场数据入口及对应内容区</li>
         <li>数据覆盖状态、AI 看盘与底部导航</li>
@@ -136,6 +136,6 @@
     </div>
   </aside>
 </main>
-<script src="./stock-home-web-preview.js?v=20260627-1"></script>
+<script src="./stock-home-web-preview.js?v=20260627-2"></script>
 </body>
 </html>
