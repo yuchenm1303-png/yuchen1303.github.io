@@ -152,13 +152,37 @@ def _merge_delta_with_auction_snapshot(
 
 
 def _normalize_minute_contract(payload: dict[str, Any]) -> None:
-    for point in list(payload.get("minutePoints") or []):
+    points = list(payload.get("minutePoints") or [])
+    continuous_max_volume = 0.0
+
+    for point in points:
         phase = _point_phase(point) or "continuous"
+        is_auction = phase.lower() != "continuous"
+        raw_volume = max(detail._safe_float(point.get("volume")), 0.0)
+
         point["phase"] = phase
         point.setdefault("sessionPhase", phase)
-        point.setdefault("matchedVolume", point.get("volume") if phase != "continuous" else None)
         point.setdefault("unmatchedVolume", None)
         point.setdefault("unmatchedDirection", "unavailable")
+
+        if is_auction:
+            matched_volume = point.get("matchedVolume")
+            if matched_volume is None:
+                point["matchedVolume"] = raw_volume
+            point["volume"] = 0.0
+            point["volumeRatio"] = 0.0
+        else:
+            point.setdefault("matchedVolume", None)
+            continuous_max_volume = max(continuous_max_volume, raw_volume)
+
+    if continuous_max_volume > 0:
+        for point in points:
+            if _is_auction_point(point):
+                continue
+            volume = max(detail._safe_float(point.get("volume")), 0.0)
+            point["volumeRatio"] = min(max(volume / continuous_max_volume, 0.02), 1.0)
+
+    payload["minutePoints"] = points
 
 
 def _apply_incremental_payload(
