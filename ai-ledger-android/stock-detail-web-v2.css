@@ -10,6 +10,10 @@
   padding: 0 var(--detail-side-padding) var(--detail-bottom-padding);
 }
 
+.detail-page-tag {
+  display: none;
+}
+
 .quote {
   flex: 0 0 138px;
   height: 138px;
