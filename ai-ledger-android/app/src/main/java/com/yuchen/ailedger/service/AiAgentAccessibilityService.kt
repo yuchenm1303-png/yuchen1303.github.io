@@ -44,6 +44,10 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private val modeLock = Any()
     private var workingSessionDepth: Int = 0
     private var taskSessionDepth: Int = 0
+    private val reusableExecutionCaptureState = VisualExecutionCaptureState<RootCapture>(
+        elapsedRealtime = SystemClock::elapsedRealtime,
+        ttlMs = REUSABLE_EXECUTION_CAPTURE_TTL_MS,
+    )
 
     private val screenshotExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "ai-agent-screenshot").apply { isDaemon = true }
@@ -56,6 +60,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         activeService = this
+        reusableExecutionCaptureState.clear()
         visualHudHost?.destroy()
         visualHudHost = VisualAgentHudHost(this).also { it.start() }
         configureIdleServiceInfo(force = true)
@@ -84,6 +89,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     override fun onInterrupt() = Unit
 
     override fun onDestroy() {
+        reusableExecutionCaptureState.clear()
         visualHudHost?.destroy()
         visualHudHost = null
         if (activeService === this) activeService = null
@@ -122,6 +128,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun beginTaskWorkingSession() {
         synchronized(modeLock) {
+            reusableExecutionCaptureState.clear()
             taskSessionDepth += 1
             startTaskForegroundNotification()
             // 彻底轻量化：任务会话只保留通知，不常驻 Working。
@@ -132,6 +139,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private fun endTaskWorkingSession() {
         synchronized(modeLock) {
+            reusableExecutionCaptureState.clear()
             taskSessionDepth = (taskSessionDepth - 1).coerceAtLeast(0)
             if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
         }
@@ -170,6 +178,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun captureSnapshotInternal(forceVisual: Boolean = false): ScreenObservation = withWorkingAccessibilityMode {
+        reusableExecutionCaptureState.clear()
         val now = System.currentTimeMillis()
         val startedAt = SystemClock.elapsedRealtime()
         val nodeLimit = if (forceVisual) VISUAL_AFFORDANCE_NODES else MAX_SNAPSHOT_NODES
@@ -214,6 +223,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
             ScreenObservation(enabled = true, serviceConnected = true, updatedAt = now)
         }
 
+        if (!forceVisual && selected != null) {
+            reusableExecutionCaptureState.store(
+                packageName = selected.packageName,
+                rootIdentity = rootIdentity(selected.root),
+                value = selected,
+            )
+        }
         val visual = if (forceVisual) captureVisualObservation("forced") else null
         val finishedAt = SystemClock.elapsedRealtime()
         Log.d(
@@ -514,13 +530,37 @@ class AiAgentAccessibilityService : AccessibilityService() {
         // 让出主线程给悬浮窗先应用 INVISIBLE/NOT_TOUCHABLE，避免点击被自己的浮窗截获。
         delay(OVERLAY_HIDE_BEFORE_ACTION_MS)
         return if (step.requiresWindowContent()) {
-            withWorkingAccessibilityModeSuspending { executeStepInternalUnchecked(step) }
+            withWorkingAccessibilityModeSuspending {
+                val reusableCapture = takeReusableExecutionCapture(step)
+                executeStepInternalUnchecked(step, reusableCapture)
+            }
         } else {
-            executeStepInternalUnchecked(step)
+            reusableExecutionCaptureState.clear()
+            executeStepInternalUnchecked(step, null)
         }
     }
 
-    private suspend fun executeStepInternalUnchecked(step: CloudAgentStep): AgentExecutionResult {
+    private fun takeReusableExecutionCapture(step: CloudAgentStep): RootCapture? {
+        if (!step.requiresWindowContent()) return null
+        val currentRoot = rootInActiveWindow ?: run {
+            reusableExecutionCaptureState.clear()
+            Log.d(VISUAL_LOOP_PERF_TAG, "freshNodeReuse type=${step.type} hit=false reason=no_active_root")
+            return null
+        }
+        val packageName = currentRoot.packageName?.toString().orEmpty()
+        val rootKey = rootIdentity(currentRoot)
+        val capture = reusableExecutionCaptureState.take(packageName, rootKey)
+        Log.d(
+            VISUAL_LOOP_PERF_TAG,
+            "freshNodeReuse type=${step.type} hit=${capture != null} package=$packageName nodes=${capture?.capture?.handles?.size ?: 0}",
+        )
+        return capture
+    }
+
+    private suspend fun executeStepInternalUnchecked(
+        step: CloudAgentStep,
+        reusableCapture: RootCapture?,
+    ): AgentExecutionResult {
         return when (step.type) {
             "open_app" -> executeOpenApp(step)
             "back" -> executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回")
@@ -528,10 +568,10 @@ class AiAgentAccessibilityService : AccessibilityService() {
             "recents" -> executeGlobalActionStep(GLOBAL_ACTION_RECENTS, "打开最近任务")
             "notifications" -> executeGlobalActionStep(GLOBAL_ACTION_NOTIFICATIONS, "下拉通知栏")
             "quick_settings" -> executeGlobalActionStep(GLOBAL_ACTION_QUICK_SETTINGS, "打开快捷设置")
-            "tap_node" -> executeTapNode(step)
+            "tap_node" -> executeTapNode(step, reusableCapture)
             "tap_xy" -> executeTapXY(step)
-            "input_text" -> executeInputText(step)
-            "scroll" -> executeScroll(step)
+            "input_text" -> executeInputText(step, reusableCapture)
+            "scroll" -> executeScroll(step, reusableCapture)
             "swipe" -> executeSwipe(step)
             "wait" -> AgentExecutionResult(ok = true, message = "等待 ${step.durationMs ?: DEFAULT_WAIT_MS}ms")
             "finish" -> AgentExecutionResult(ok = true, message = "任务完成", shouldContinue = false)
@@ -579,7 +619,31 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return AgentExecutionResult(ok = ok, message = if (ok) "已执行：$label" else "执行失败：$label", shouldContinue = ok)
     }
 
-    private suspend fun executeTapNode(step: CloudAgentStep): AgentExecutionResult {
+    private suspend fun executeTapNode(
+        step: CloudAgentStep,
+        reusableCapture: RootCapture?,
+    ): AgentExecutionResult {
+        val reusableTarget = reusableCapture?.capture?.handles
+            ?.let { handles -> findTargetHandle(handles, step) }
+            ?.let { handle -> refreshReusableHandle(handle, step) }
+        if (reusableTarget != null) {
+            performClickSmart(reusableTarget.node)?.let { ok ->
+                return AgentExecutionResult(
+                    ok = ok,
+                    message = if (ok) {
+                        "已点击节点 ${reusableTarget.observed.id} · freshNodeReuse=true"
+                    } else {
+                        "节点点击失败 · freshNodeReuse=true"
+                    },
+                    shouldContinue = ok,
+                )
+            }
+            return tapRect(
+                reusableTarget.bounds,
+                "已点击节点 ${reusableTarget.observed.id} · freshNodeReuse=true",
+            )
+        }
+
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
         val targetText = step.targetText?.takeIf { it.isNotBlank() }
         if (targetText != null) {
@@ -597,6 +661,23 @@ class AiAgentAccessibilityService : AccessibilityService() {
             return AgentExecutionResult(ok = ok, message = if (ok) "已点击节点 ${target.observed.id}" else "节点点击失败", shouldContinue = ok)
         }
         return tapRect(target.bounds, "已点击节点 ${target.observed.id}")
+    }
+
+    private fun refreshReusableHandle(
+        handle: NodeHandle,
+        step: CloudAgentStep,
+    ): NodeHandle? {
+        val refreshed = runCatching { handle.node.refresh() }.getOrDefault(false)
+        if (!refreshed) return null
+        val rebuilt = handle.node.toHandleOrNull(
+            id = handle.observed.id,
+            deadlineMs = SystemClock.elapsedRealtime() + NODE_HANDLE_BUDGET_MS,
+        ) ?: return null
+        return rebuilt.takeIf { candidate ->
+            findTargetHandle(listOf(candidate), step) != null ||
+                (step.type == "scroll" && candidate.observed.scrollable) ||
+                (step.type == "input_text" && candidate.observed.editable)
+        }
     }
 
     private suspend fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
@@ -633,13 +714,24 @@ class AiAgentAccessibilityService : AccessibilityService() {
         )
     }
 
-    private fun executeInputText(step: CloudAgentStep): AgentExecutionResult {
+    private fun executeInputText(
+        step: CloudAgentStep,
+        reusableCapture: RootCapture?,
+    ): AgentExecutionResult {
         val text = step.text ?: return AgentExecutionResult(false, "缺少输入文本", false)
         val focusedDirect = step.shouldUseFocusedDirectInput
         if (focusedDirect) SystemClock.sleep(INPUT_DIRECT_FOCUS_SETTLE_MS)
         setInputClipboard(text)
 
-        var lastCandidateCount = 0
+        val reusableCandidates = reusableInputCandidates(step, reusableCapture)
+        for (node in reusableCandidates) {
+            val result = tryInputTextOnNode(node, text)
+            if (result != null) {
+                return result.copy(message = "${result.message} · freshNodeReuse=true")
+            }
+        }
+
+        var lastCandidateCount = reusableCandidates.size
         var shellFallbackAttempted = false
         repeat(INPUT_FOCUS_RETRY_COUNT) { attempt ->
             val candidateNodes = collectInputCandidateNodes(step)
@@ -667,6 +759,23 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
 
         return AgentInputRecoveryPolicy.onInputFailure(step, lastCandidateCount)
+    }
+
+    private fun reusableInputCandidates(
+        step: CloudAgentStep,
+        reusableCapture: RootCapture?,
+    ): List<AccessibilityNodeInfo> {
+        val handles = reusableCapture?.capture?.handles.orEmpty()
+        if (handles.isEmpty()) return emptyList()
+        val ordered = buildList {
+            findTargetHandle(handles, step)?.let(::add)
+            handles.filter { it.node.isFocused || it.node.isAccessibilityFocused }.forEach(::add)
+            handles.filter { it.observed.editable }.forEach(::add)
+        }.distinctBy { it.observed.id + it.observed.bounds + it.observed.text }
+        return ordered.mapNotNull { handle ->
+            val refreshed = runCatching { handle.node.refresh() }.getOrDefault(false)
+            handle.node.takeIf { refreshed }
+        }
     }
 
     private fun collectInputCandidateNodes(step: CloudAgentStep): List<AccessibilityNodeInfo> {
@@ -830,10 +939,31 @@ class AiAgentAccessibilityService : AccessibilityService() {
         return result.ok
     }
 
-    private suspend fun executeScroll(step: CloudAgentStep): AgentExecutionResult {
+    private suspend fun executeScroll(
+        step: CloudAgentStep,
+        reusableCapture: RootCapture?,
+    ): AgentExecutionResult {
         if (step.indicatesBackNavigation()) {
             return executeGlobalActionStep(GLOBAL_ACTION_BACK, "返回上一界面（纠正 scroll 返回语义）")
         }
+        val direction = step.direction.orEmpty().lowercase()
+        val action = if (direction in setOf("up", "left", "backward", "previous")) {
+            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+        } else {
+            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        }
+
+        val reusableTarget = reusableCapture?.capture?.handles?.let { handles ->
+            (findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable })
+                ?.let { handle -> refreshReusableHandle(handle, step) }
+        }
+        if (
+            reusableTarget?.node?.isScrollable == true &&
+            runCatching { reusableTarget.node.performAction(action) }.getOrDefault(false)
+        ) {
+            return AgentExecutionResult(true, "已滚动节点 ${reusableTarget.observed.id} · freshNodeReuse=true")
+        }
+
         val root = selectBestRoot() ?: return AgentExecutionResult(false, "无法读取当前屏幕", false)
         val handles = collectNodeHandles(
             root,
@@ -841,12 +971,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
             SystemClock.elapsedRealtime() + EXECUTION_NODE_BUDGET_MS,
         ).handles
         val target = findTargetHandle(handles, step) ?: handles.firstOrNull { it.observed.scrollable }
-        val direction = step.direction.orEmpty().lowercase()
-        val action = if (direction in setOf("up", "left", "backward", "previous")) {
-            AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
-        } else {
-            AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-        }
         if (target?.node?.isScrollable == true && target.node.performAction(action)) {
             return AgentExecutionResult(true, "已滚动节点 ${target.observed.id}")
         }
@@ -1275,5 +1399,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val NODE_CAPTURE_DEFAULT_BUDGET_MS = 180L
         private const val NODE_HANDLE_BUDGET_MS = 22L
         private const val CHILD_TEXT_BUDGET_MS = 6L
+        private const val REUSABLE_EXECUTION_CAPTURE_TTL_MS = 800L
     }
 }
