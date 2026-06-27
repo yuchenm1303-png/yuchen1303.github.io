@@ -1,0 +1,1104 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>AI Ledger · 记忆快捷面板实验台 V1</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --panel-width: 326px;
+      --panel-radius: 26px;
+      --panel-opacity: .78;
+      --panel-blur: 28px;
+      --panel-saturation: 1.24;
+      --panel-glow: .56;
+      --panel-border: .22;
+      --panel-x: 0px;
+      --panel-y: 9px;
+      --panel-scale: 1;
+      --item-radius: 17px;
+      --item-gap: 9px;
+      --item-opacity: .07;
+      --open-duration: 420ms;
+      --stagger: 54ms;
+      --accent-a: 141 255 244;
+      --accent-b: 177 132 255;
+      --accent-c: 255 139 203;
+      --ink: 242 247 255;
+      --muted: 191 202 229;
+      --surface: 11 20 48;
+      --surface-2: 30 23 62;
+      --device-width: 405px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: rgb(var(--ink));
+      background:
+        radial-gradient(circle at 18% 16%, rgba(48, 121, 255, .20), transparent 33%),
+        radial-gradient(circle at 78% 78%, rgba(255, 105, 181, .17), transparent 31%),
+        linear-gradient(145deg, #050913 0%, #091229 52%, #090b18 100%);
+      overflow-x: hidden;
+    }
+
+    button, input { font: inherit; }
+    button { color: inherit; }
+
+    .workspace {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) 330px;
+      gap: 18px;
+      padding: 18px;
+    }
+
+    .stage-shell,
+    .lab {
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(10, 16, 34, .62);
+      box-shadow: 0 28px 90px rgba(0,0,0,.34);
+      backdrop-filter: blur(26px);
+      -webkit-backdrop-filter: blur(26px);
+    }
+
+    .stage-shell {
+      min-height: calc(100vh - 36px);
+      border-radius: 32px;
+      position: relative;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+    }
+
+    .stage-shell::before,
+    .stage-shell::after {
+      content: "";
+      position: absolute;
+      width: 520px;
+      height: 520px;
+      border-radius: 50%;
+      filter: blur(36px);
+      opacity: .34;
+      pointer-events: none;
+    }
+    .stage-shell::before {
+      left: -240px;
+      top: -260px;
+      background: radial-gradient(circle, rgba(78, 163, 255, .52), transparent 68%);
+    }
+    .stage-shell::after {
+      right: -220px;
+      bottom: -250px;
+      background: radial-gradient(circle, rgba(255, 126, 199, .42), transparent 68%);
+    }
+
+    .stage-caption {
+      position: absolute;
+      left: 26px;
+      top: 22px;
+      z-index: 20;
+    }
+    .stage-caption strong {
+      display: block;
+      font-size: 14px;
+      letter-spacing: .08em;
+    }
+    .stage-caption span {
+      display: block;
+      margin-top: 5px;
+      color: rgba(var(--muted), .48);
+      font-size: 11px;
+    }
+
+    .phone {
+      width: min(var(--device-width), calc(100vw - 390px));
+      min-width: 360px;
+      aspect-ratio: 405 / 835;
+      border-radius: 44px;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      background:
+        radial-gradient(circle at 63% 9%, rgba(83, 157, 255, .24) 0 1px, transparent 2px),
+        radial-gradient(circle at 24% 22%, rgba(255,255,255,.55) 0 1px, transparent 2px),
+        radial-gradient(circle at 80% 37%, rgba(122, 220, 255, .46) 0 1px, transparent 2px),
+        radial-gradient(circle at 43% 54%, rgba(255,255,255,.35) 0 1px, transparent 2px),
+        linear-gradient(180deg, #050a24 0%, #07164d 48%, #042978 79%, #a34d87 112%);
+      box-shadow:
+        0 40px 110px rgba(0,0,0,.55),
+        inset 0 0 0 1px rgba(255,255,255,.12),
+        inset 0 0 40px rgba(58, 135, 255, .08);
+    }
+
+    .phone::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -2;
+      background:
+        radial-gradient(ellipse at 8% 83%, rgba(18, 151, 255, .76), transparent 37%),
+        radial-gradient(ellipse at 96% 92%, rgba(255, 132, 104, .67), transparent 36%),
+        conic-gradient(from 214deg at 53% 92%, transparent 0 42%, rgba(255,255,255,.22) 44%, transparent 46% 60%, rgba(255, 140, 204, .22) 63%, transparent 66%);
+      filter: saturate(1.16);
+    }
+    .phone::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      opacity: .18;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+      mix-blend-mode: soft-light;
+      pointer-events: none;
+    }
+
+    .statusbar {
+      height: 43px;
+      padding: 14px 18px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      font-size: 10px;
+      font-weight: 800;
+      color: rgba(255,255,255,.92);
+    }
+    .status-icons { letter-spacing: .13em; opacity: .86; }
+
+    .app-content { padding: 12px 14px 18px; }
+    .hero-kicker {
+      margin-top: 3px;
+      color: rgba(var(--accent-a), .72);
+      font-weight: 900;
+      letter-spacing: .11em;
+      font-size: 9px;
+    }
+    .hero-title {
+      margin: 5px 0 2px;
+      font-size: 29px;
+      line-height: 1.1;
+      font-weight: 950;
+      letter-spacing: -.04em;
+    }
+    .hero-subtitle {
+      color: rgba(var(--muted), .52);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .model-row {
+      margin-top: 13px;
+      height: 58px;
+      display: grid;
+      grid-template-columns: 1fr 124px;
+      gap: 10px;
+    }
+    .model-card,
+    .online-card,
+    .chat-shell,
+    .composer,
+    .dock {
+      border: 1px solid rgba(255,255,255,.10);
+      background: linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.025));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 14px 34px rgba(1,5,25,.16);
+      backdrop-filter: blur(18px) saturate(1.22);
+      -webkit-backdrop-filter: blur(18px) saturate(1.22);
+    }
+    .model-card {
+      border-radius: 23px;
+      padding: 10px 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .model-card::after {
+      content:"";
+      position:absolute;
+      inset:auto -15% -80% 18%;
+      height:140%;
+      background: radial-gradient(circle, rgba(var(--accent-c),.22), transparent 60%);
+    }
+    .model-card b { display:block; font-size: 14px; }
+    .model-card small { color: rgba(var(--muted),.45); font-weight:800; }
+    .online-card {
+      border-radius: 23px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:9px;
+      font-weight:900;
+      font-size:14px;
+      color:rgba(var(--muted),.58);
+    }
+
+    .chat-shell {
+      margin-top: 10px;
+      height: 525px;
+      border-radius: 31px;
+      padding: 11px;
+      position: relative;
+      overflow: hidden;
+    }
+    .chat-shell::before {
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        radial-gradient(circle at 99% 20%, rgba(82, 126, 255,.20), transparent 28%),
+        radial-gradient(circle at 45% 100%, rgba(135, 114, 255,.12), transparent 38%);
+      pointer-events:none;
+    }
+
+    .chat-header {
+      height: 30px;
+      position: relative;
+      z-index: 12;
+      display:flex;
+      align-items:center;
+      gap: 8px;
+    }
+    .chat-title {
+      font-size: 16px;
+      font-weight: 950;
+      letter-spacing: -.02em;
+      margin-right: 1px;
+    }
+    .control-rail {
+      display:flex;
+      align-items:center;
+      gap:5px;
+      min-width:0;
+    }
+
+    .agent-pill,
+    .float-pill,
+    .memory-trigger,
+    .clear-pill {
+      height: 23px;
+      border: 0;
+      outline: 0;
+      border-radius: 999px;
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(245,248,255,.78);
+      background:
+        linear-gradient(110deg, rgba(255,255,255,.09), rgba(255,255,255,.035));
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.10), inset 0 0 0 1px rgba(255,255,255,.06);
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .agent-pill { width: 90px; gap: 5px; font-size: 9px; font-weight: 900; }
+    .agent-pill svg { width: 38px; height: 14px; overflow: visible; }
+    .float-pill { width: 70px; gap: 5px; font-size: 9px; font-weight: 900; }
+    .switch-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: rgba(190,201,229,.66);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.14);
+    }
+    .clear-pill { margin-left:auto; width: 43px; font-size:9px; font-weight:900; color:rgba(255,255,255,.52); }
+
+    .memory-anchor { position: relative; }
+    .memory-trigger {
+      width: 30px;
+      padding: 0;
+      isolation: isolate;
+      transition: transform 170ms ease, filter 220ms ease;
+    }
+    .memory-trigger:active { transform: scale(.92); }
+    .memory-trigger.is-open { transform: scale(1.045); }
+    .memory-trigger::before {
+      content:"";
+      position:absolute;
+      inset:-5px;
+      border-radius:999px;
+      opacity: calc(var(--panel-glow) * .58);
+      background: radial-gradient(circle, rgba(var(--accent-b),.44), transparent 68%);
+      filter: blur(6px);
+      z-index:-1;
+      animation: triggerBreath 2.6s ease-in-out infinite alternate;
+    }
+    .folder-icon { width: 15px; height: 15px; filter: drop-shadow(0 0 5px rgba(var(--accent-b),.34)); }
+
+    @keyframes triggerBreath {
+      from { transform: scale(.84); opacity: calc(var(--panel-glow) * .26); }
+      to   { transform: scale(1.14); opacity: calc(var(--panel-glow) * .72); }
+    }
+
+    .memory-panel {
+      width: var(--panel-width);
+      position: absolute;
+      top: calc(100% + var(--panel-y));
+      right: var(--panel-x);
+      z-index: 100;
+      transform-origin: calc(100% - 18px) 0;
+      transform: translateY(-7px) scale(calc(var(--panel-scale) * .93));
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition:
+        transform var(--open-duration) cubic-bezier(.18,.88,.22,1.16),
+        opacity 170ms ease,
+        visibility 0s linear var(--open-duration);
+      filter: drop-shadow(0 23px 44px rgba(1,4,20,.42));
+    }
+    .memory-panel.is-open {
+      transform: translateY(0) scale(var(--panel-scale));
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+      transition-delay: 0s;
+    }
+
+    .panel-pointer {
+      width: 17px;
+      height: 17px;
+      position:absolute;
+      right: 8px;
+      top: -6px;
+      border-radius: 4px;
+      transform: rotate(45deg);
+      background: rgba(var(--surface), var(--panel-opacity));
+      border-left: 1px solid rgba(255,255,255,calc(var(--panel-border) * .72));
+      border-top: 1px solid rgba(255,255,255,calc(var(--panel-border) * .72));
+      backdrop-filter: blur(var(--panel-blur));
+      -webkit-backdrop-filter: blur(var(--panel-blur));
+    }
+
+    .panel-surface {
+      position: relative;
+      overflow: hidden;
+      border-radius: var(--panel-radius);
+      padding: 14px;
+      border: 1px solid rgba(255,255,255,var(--panel-border));
+      background:
+        linear-gradient(145deg,
+          rgba(255,255,255,.105),
+          rgba(var(--surface), var(--panel-opacity)) 27%,
+          rgba(var(--surface-2), calc(var(--panel-opacity) * .92)) 76%,
+          rgba(13, 27, 54, calc(var(--panel-opacity) * .96))
+        );
+      backdrop-filter: blur(var(--panel-blur)) saturate(var(--panel-saturation));
+      -webkit-backdrop-filter: blur(var(--panel-blur)) saturate(var(--panel-saturation));
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,.16),
+        inset 0 -1px 0 rgba(103,145,255,.08),
+        0 0 0 1px rgba(var(--accent-b), calc(var(--panel-glow) * .04));
+    }
+    .panel-surface::before,
+    .panel-surface::after {
+      content:"";
+      position:absolute;
+      pointer-events:none;
+      border-radius:50%;
+      filter:blur(12px);
+      opacity:var(--panel-glow);
+    }
+    .panel-surface::before {
+      width:170px;
+      height:130px;
+      left:-75px;
+      top:-74px;
+      background:radial-gradient(circle, rgba(var(--accent-a),.32), transparent 69%);
+    }
+    .panel-surface::after {
+      width:190px;
+      height:170px;
+      right:-96px;
+      bottom:-112px;
+      background:radial-gradient(circle, rgba(var(--accent-c),.25), rgba(var(--accent-b),.12) 36%, transparent 70%);
+    }
+    .panel-sheen {
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      overflow:hidden;
+      border-radius:inherit;
+    }
+    .panel-sheen::after {
+      content:"";
+      position:absolute;
+      width:130px;
+      height:180%;
+      left:-170px;
+      top:-40%;
+      transform:rotate(18deg);
+      background:linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent);
+    }
+    .memory-panel.is-open .panel-sheen::after { animation: sheen 1.25s .12s ease-out 1; }
+    @keyframes sheen { to { left: 420px; } }
+
+    .panel-head {
+      position:relative;
+      display:grid;
+      grid-template-columns: 39px 1fr auto;
+      gap:10px;
+      align-items:center;
+      z-index:1;
+    }
+    .panel-icon {
+      width:39px;
+      height:39px;
+      border-radius:14px;
+      display:grid;
+      place-items:center;
+      background:linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.04));
+      border:1px solid rgba(255,255,255,.09);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 6px 16px rgba(var(--accent-b),.08);
+    }
+    .panel-icon svg { width:23px; height:23px; }
+    .panel-title { font-size:16px; font-weight:950; letter-spacing:-.02em; }
+    .panel-subtitle { margin-top:2px; color:rgba(var(--muted),.48); font-size:9.5px; font-weight:750; }
+    .status-chip {
+      height:25px;
+      padding:0 10px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      gap:6px;
+      color:rgba(242,255,253,.88);
+      font-size:9px;
+      font-weight:900;
+      background:linear-gradient(105deg, rgba(var(--accent-a),.13), rgba(var(--accent-b),.13));
+      border:1px solid rgba(var(--accent-a),.13);
+    }
+    .status-chip i {
+      width:6px;
+      height:6px;
+      border-radius:50%;
+      background:rgb(var(--accent-a));
+      box-shadow:0 0 9px rgba(var(--accent-a),.82);
+      animation: dotPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes dotPulse { 50% { opacity:.42; transform:scale(.78); } }
+
+    .panel-divider {
+      position:relative;
+      z-index:1;
+      height:1px;
+      margin:12px 0 10px;
+      background:linear-gradient(90deg, transparent, rgba(255,255,255,.14), rgba(var(--accent-b),.14), transparent);
+    }
+
+    .memory-list {
+      position:relative;
+      z-index:1;
+      display:flex;
+      flex-direction:column;
+      gap:var(--item-gap);
+    }
+    .memory-item {
+      min-height:58px;
+      display:grid;
+      grid-template-columns: 13px 1fr;
+      gap:8px;
+      opacity:0;
+      transform:translateY(8px);
+    }
+    .memory-panel.is-open .memory-item {
+      animation:itemIn 280ms cubic-bezier(.2,.8,.2,1) forwards;
+      animation-delay:calc(var(--i) * var(--stagger) + 90ms);
+    }
+    @keyframes itemIn { to { opacity:1; transform:none; } }
+
+    .timeline {
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+    }
+    .timeline-dot {
+      width:7px;
+      height:7px;
+      margin-top:10px;
+      border-radius:50%;
+      background:var(--dot);
+      box-shadow:0 0 9px color-mix(in srgb, var(--dot), transparent 28%);
+    }
+    .timeline-line {
+      width:1px;
+      flex:1;
+      min-height:32px;
+      background:linear-gradient(var(--dot), rgba(255,255,255,.035));
+      opacity:.34;
+    }
+    .memory-item:last-child .timeline-line { display:none; }
+
+    .memory-card {
+      min-width:0;
+      border-radius:var(--item-radius);
+      padding:9px 11px 10px;
+      background:linear-gradient(135deg, rgba(255,255,255,var(--item-opacity)), rgba(255,255,255,calc(var(--item-opacity) * .42)));
+      border:1px solid rgba(255,255,255,.075);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.055);
+    }
+    .memory-meta {
+      display:flex;
+      align-items:center;
+      gap:7px;
+      min-width:0;
+      margin-bottom:4px;
+    }
+    .memory-kind {
+      color:var(--dot);
+      font-size:9px;
+      font-weight:950;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .memory-priority {
+      margin-left:auto;
+      color:rgba(var(--muted),.36);
+      font-size:8px;
+      font-weight:850;
+      white-space:nowrap;
+    }
+    .memory-text {
+      color:rgba(var(--ink),.76);
+      font-size:10.6px;
+      line-height:1.48;
+      font-weight:620;
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+
+    .panel-foot {
+      position:relative;
+      z-index:1;
+      margin-top:11px;
+      display:flex;
+      align-items:center;
+      min-height:27px;
+      padding-left:2px;
+    }
+    .panel-foot-note { color:rgba(var(--muted),.34); font-size:9px; font-weight:750; }
+    .panel-action {
+      margin-left:auto;
+      height:27px;
+      padding:0 11px;
+      border:0;
+      border-radius:999px;
+      color:rgba(222,255,251,.82);
+      background:linear-gradient(105deg, rgba(var(--accent-a),.12), rgba(var(--accent-b),.11));
+      box-shadow:inset 0 0 0 1px rgba(var(--accent-a),.09);
+      font-size:9px;
+      font-weight:900;
+      cursor:pointer;
+    }
+
+    .message-area { position:relative; z-index:2; margin-top:8px; }
+    .message-bubble {
+      border-radius:28px;
+      padding:16px 17px;
+      color:rgba(255,255,255,.78);
+      font-size:12px;
+      line-height:1.65;
+      background:linear-gradient(135deg, rgba(255,255,255,.10), rgba(255,255,255,.035));
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.06);
+    }
+    .message-bubble + .message-bubble { margin-top:9px; }
+    .suggestions { margin-top:18px; color:rgba(var(--muted),.38); font-size:10px; font-weight:800; }
+    .suggestion-row { margin-top:15px; display:flex; justify-content:space-around; font-size:11px; font-weight:900; color:rgba(255,255,255,.82); }
+
+    .composer {
+      margin-top:9px;
+      height:55px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      padding:0 10px 0 16px;
+      color:rgba(var(--muted),.44);
+      font-size:12px;
+      font-weight:700;
+    }
+    .composer b { margin-right:15px; color:white; font-size:25px; font-weight:500; }
+    .send {
+      margin-left:auto;
+      width:37px;
+      height:37px;
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      background:rgba(255,255,255,.075);
+      color:rgba(255,255,255,.48);
+      font-size:18px;
+    }
+    .dock {
+      margin-top:9px;
+      height:56px;
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:space-around;
+      color:rgba(var(--muted),.48);
+      font-size:9px;
+      font-weight:900;
+    }
+    .dock .active { color:white; }
+
+    .lab {
+      min-height: calc(100vh - 36px);
+      border-radius: 28px;
+      padding: 18px;
+      overflow:auto;
+    }
+    .lab h1 { margin:0; font-size:17px; letter-spacing:-.02em; }
+    .lab .lead { margin:6px 0 17px; color:rgba(var(--muted),.47); font-size:10.5px; line-height:1.55; }
+    .lab-section {
+      padding:13px;
+      border-radius:19px;
+      background:rgba(255,255,255,.038);
+      border:1px solid rgba(255,255,255,.065);
+      margin-top:10px;
+    }
+    .lab-section h2 { margin:0 0 10px; font-size:11px; color:rgba(255,255,255,.76); }
+    .control { margin:10px 0; }
+    .control-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+    .control label { color:rgba(var(--muted),.62); font-size:9.5px; font-weight:800; }
+    .control output { color:rgba(var(--accent-a),.78); font-size:9px; font-weight:900; }
+    input[type="range"] {
+      width:100%;
+      height:4px;
+      appearance:none;
+      border-radius:999px;
+      background:linear-gradient(90deg, rgba(var(--accent-a),.54), rgba(var(--accent-b),.62));
+      outline:none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      appearance:none;
+      width:15px;
+      height:15px;
+      border-radius:50%;
+      background:#f5fffd;
+      box-shadow:0 0 12px rgba(var(--accent-a),.42);
+      cursor:pointer;
+    }
+    .button-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .lab-btn,
+    .theme-btn,
+    .state-btn {
+      min-height:36px;
+      border:0;
+      border-radius:13px;
+      cursor:pointer;
+      background:rgba(255,255,255,.055);
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);
+      color:rgba(255,255,255,.72);
+      font-size:10px;
+      font-weight:900;
+    }
+    .lab-btn.primary {
+      background:linear-gradient(105deg, rgba(var(--accent-a),.16), rgba(var(--accent-b),.18));
+      color:rgba(240,255,253,.92);
+    }
+    .theme-row,
+    .state-row { display:flex; gap:7px; flex-wrap:wrap; }
+    .theme-btn,
+    .state-btn { min-height:30px; padding:0 10px; flex:1; }
+    .theme-btn.active,
+    .state-btn.active {
+      background:linear-gradient(105deg, rgba(var(--accent-a),.16), rgba(var(--accent-b),.18));
+      box-shadow:inset 0 0 0 1px rgba(var(--accent-a),.18);
+      color:white;
+    }
+    .json-box {
+      margin-top:10px;
+      padding:10px;
+      min-height:62px;
+      border-radius:13px;
+      white-space:pre-wrap;
+      word-break:break-all;
+      color:rgba(var(--muted),.46);
+      background:rgba(0,0,0,.18);
+      font:9px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    .toast {
+      position:fixed;
+      left:50%;
+      bottom:26px;
+      transform:translate(-50%,18px);
+      padding:10px 15px;
+      border-radius:999px;
+      background:rgba(12,20,39,.88);
+      border:1px solid rgba(255,255,255,.11);
+      box-shadow:0 14px 36px rgba(0,0,0,.34);
+      color:rgba(255,255,255,.82);
+      font-size:10px;
+      font-weight:850;
+      opacity:0;
+      pointer-events:none;
+      transition:.22s ease;
+      z-index:500;
+    }
+    .toast.show { opacity:1; transform:translate(-50%,0); }
+
+    @media (max-width: 930px) {
+      .workspace { grid-template-columns:1fr; padding:10px; }
+      .stage-shell { min-height:740px; padding:46px 8px 18px; }
+      .lab { min-height:auto; }
+      .phone { width:min(405px, calc(100vw - 28px)); min-width:0; }
+      .stage-caption { left:18px; top:14px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="workspace">
+    <section class="stage-shell">
+      <div class="stage-caption">
+        <strong>记忆快捷面板 · V1</strong>
+        <span>单行入口 / 锚点气泡 / 轻量玻璃</span>
+      </div>
+
+      <div class="phone" id="phone">
+        <div class="statusbar">
+          <span>12:46</span>
+          <span class="status-icons">● ◇ ◉ ▥ 74%</span>
+        </div>
+        <div class="app-content">
+          <div class="hero-kicker">AI ASSISTANT</div>
+          <div class="hero-title">AI 助手</div>
+          <div class="hero-subtitle">直接说需求，我来帮你拆成动作。</div>
+
+          <div class="model-row">
+            <div class="model-card"><b>自动</b><small>auto · Qwen · DeepSeek</small></div>
+            <div class="online-card"><span>●</span> 联网</div>
+          </div>
+
+          <section class="chat-shell">
+            <header class="chat-header">
+              <span class="chat-title">对话</span>
+              <div class="control-rail">
+                <button class="agent-pill" type="button" aria-label="Agent 开关">
+                  <span>Agent</span>
+                  <svg viewBox="0 0 60 24" fill="none" aria-hidden="true">
+                    <path d="M8 12C14 2.5 23 2.5 30 12C37 21.5 46 21.5 52 12C46 2.5 37 2.5 30 12C23 21.5 14 21.5 8 12Z" stroke="rgba(218,227,255,.76)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <button class="float-pill" type="button" aria-label="浮窗开关"><span>浮窗</span><i class="switch-dot"></i><span>关</span></button>
+
+                <div class="memory-anchor">
+                  <button class="memory-trigger" id="memoryTrigger" type="button" aria-label="打开记忆面板" aria-expanded="false">
+                    <svg class="folder-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <defs>
+                        <linearGradient id="folderGrad" x1="3" y1="5" x2="20" y2="20" gradientUnits="userSpaceOnUse">
+                          <stop stop-color="#D9FFFA"/>
+                          <stop offset=".48" stop-color="#B28CFF"/>
+                          <stop offset="1" stop-color="#FF9BCD"/>
+                        </linearGradient>
+                      </defs>
+                      <path d="M3.5 7.1c0-1.1.9-2 2-2h4.1l1.7 2h7.2c1.1 0 2 .9 2 2v1H3.5v-3Z" fill="url(#folderGrad)" opacity=".68"/>
+                      <path d="M3.5 9.3h17v7.4c0 1.2-1 2.2-2.2 2.2H5.7c-1.2 0-2.2-1-2.2-2.2V9.3Z" fill="url(#folderGrad)"/>
+                      <path d="M7 13h10" stroke="white" stroke-opacity=".62" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+
+                  <aside class="memory-panel" id="memoryPanel" aria-hidden="true">
+                    <div class="panel-pointer"></div>
+                    <div class="panel-surface">
+                      <div class="panel-sheen"></div>
+                      <div class="panel-head">
+                        <div class="panel-icon">
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <defs>
+                              <linearGradient id="folderGrad2" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse">
+                                <stop stop-color="#DDFFFB"/>
+                                <stop offset=".48" stop-color="#B58DFF"/>
+                                <stop offset="1" stop-color="#FF9BCC"/>
+                              </linearGradient>
+                            </defs>
+                            <path d="M3.2 7c0-1.2 1-2.2 2.2-2.2h4.2l1.8 2.1h7.2c1.2 0 2.2 1 2.2 2.2v1.1H3.2V7Z" fill="url(#folderGrad2)" opacity=".7"/>
+                            <path d="M3.2 9.4h17.6v7.4c0 1.3-1 2.3-2.3 2.3h-13c-1.3 0-2.3-1-2.3-2.3V9.4Z" fill="url(#folderGrad2)"/>
+                            <path d="M7.1 13.1h9.8" stroke="white" stroke-opacity=".64" stroke-width="1.1" stroke-linecap="round"/>
+                          </svg>
+                        </div>
+                        <div>
+                          <div class="panel-title">记忆</div>
+                          <div class="panel-subtitle" id="panelSubtitle">本轮已注入 4 项 · 已保存 8 项</div>
+                        </div>
+                        <div class="status-chip" id="statusChip"><i></i><span>生效中</span></div>
+                      </div>
+
+                      <div class="panel-divider"></div>
+
+                      <div class="memory-list" id="memoryList">
+                        <article class="memory-item" style="--i:0;--dot:#C19AFF" data-role="instruction">
+                          <div class="timeline"><i class="timeline-dot"></i><i class="timeline-line"></i></div>
+                          <div class="memory-card">
+                            <div class="memory-meta"><span class="memory-kind">自定义指令</span><span class="memory-priority">高优先级</span></div>
+                            <div class="memory-text">回答使用中文，先给结论，再解释关键原因；避免机械化套话和无意义分点。</div>
+                          </div>
+                        </article>
+                        <article class="memory-item" style="--i:1;--dot:#FFD07F" data-role="memory">
+                          <div class="timeline"><i class="timeline-dot"></i><i class="timeline-line"></i></div>
+                          <div class="memory-card">
+                            <div class="memory-meta"><span class="memory-kind">置顶 · 个人信息</span><span class="memory-priority">核心</span></div>
+                            <div class="memory-text">用户名字是邹羽宸，电气工程及其自动化专业。</div>
+                          </div>
+                        </article>
+                        <article class="memory-item" style="--i:2;--dot:#8DFFF4" data-role="memory">
+                          <div class="timeline"><i class="timeline-dot"></i><i class="timeline-line"></i></div>
+                          <div class="memory-card">
+                            <div class="memory-meta"><span class="memory-kind">偏好</span><span class="memory-priority">重要</span></div>
+                            <div class="memory-text">喜欢自然、简洁、少分点的表达，数学讲解要通俗并突出关键步骤。</div>
+                          </div>
+                        </article>
+                        <article class="memory-item" style="--i:3;--dot:#78C9FF" data-role="memory">
+                          <div class="timeline"><i class="timeline-dot"></i><i class="timeline-line"></i></div>
+                          <div class="memory-card">
+                            <div class="memory-meta"><span class="memory-kind">项目</span><span class="memory-priority">普通</span></div>
+                            <div class="memory-text">AI Ledger Android App 使用 Kotlin Compose，核心界面改动必须直接写入正式源码。</div>
+                          </div>
+                        </article>
+                      </div>
+
+                      <footer class="panel-foot">
+                        <span class="panel-foot-note" id="panelFootNote">另有 4 项未展开</span>
+                        <button class="panel-action" type="button">完整管理</button>
+                      </footer>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+              <button class="clear-pill" type="button">清空</button>
+            </header>
+
+            <div class="message-area">
+              <div class="message-bubble">你好，我是你的 AI 助手。你可以直接告诉我需要处理的事情。</div>
+              <div class="message-bubble">当前记忆会在发送请求时按优先级筛选，不会改变聊天框的真实布局高度。</div>
+              <div class="suggestions">可以这样说</div>
+              <div class="suggestion-row"><span>记一笔</span><span>设提醒</span><span>上传图片</span></div>
+            </div>
+          </section>
+
+          <div class="composer"><b>+</b><span>和我说点什么…</span><i class="send">↑</i></div>
+          <div class="dock"><span class="active">AI 助手</span><span>功能</span><span>设置</span></div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="lab">
+      <h1>视觉参数实验台</h1>
+      <p class="lead">点击手机里的文件夹按钮展开。调整后可复制参数，后续再映射到 Compose。</p>
+
+      <div class="lab-section">
+        <h2>预设主题</h2>
+        <div class="theme-row">
+          <button class="theme-btn active" data-theme="nebula">星雾</button>
+          <button class="theme-btn" data-theme="clear">清透</button>
+          <button class="theme-btn" data-theme="pearl">珍珠</button>
+        </div>
+      </div>
+
+      <div class="lab-section">
+        <h2>内容状态</h2>
+        <div class="state-row">
+          <button class="state-btn active" data-state="active">生效</button>
+          <button class="state-btn" data-state="paused">暂停</button>
+          <button class="state-btn" data-state="empty">空</button>
+          <button class="state-btn" data-state="logout">未登录</button>
+        </div>
+      </div>
+
+      <div class="lab-section" id="controls"></div>
+
+      <div class="lab-section">
+        <h2>操作</h2>
+        <div class="button-grid">
+          <button class="lab-btn primary" id="toggleBtn">展开 / 收起</button>
+          <button class="lab-btn" id="resetBtn">恢复默认</button>
+          <button class="lab-btn" id="copyBtn">复制参数</button>
+          <button class="lab-btn" id="randomBtn">轻微随机</button>
+        </div>
+        <pre class="json-box" id="jsonBox"></pre>
+      </div>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast">已复制参数</div>
+
+  <script>
+    const root = document.documentElement;
+    const trigger = document.getElementById('memoryTrigger');
+    const panel = document.getElementById('memoryPanel');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const copyBtn = document.getElementById('copyBtn');
+    const randomBtn = document.getElementById('randomBtn');
+    const controls = document.getElementById('controls');
+    const jsonBox = document.getElementById('jsonBox');
+    const toast = document.getElementById('toast');
+    const panelSubtitle = document.getElementById('panelSubtitle');
+    const statusChip = document.getElementById('statusChip');
+    const memoryList = document.getElementById('memoryList');
+    const panelFootNote = document.getElementById('panelFootNote');
+
+    const specs = [
+      { key:'panelWidth', label:'面板宽度', min:270, max:370, step:1, unit:'px', css:'--panel-width', value:326 },
+      { key:'panelRadius', label:'面板圆角', min:18, max:38, step:1, unit:'px', css:'--panel-radius', value:26 },
+      { key:'panelBlur', label:'背景模糊', min:8, max:46, step:1, unit:'px', css:'--panel-blur', value:28 },
+      { key:'panelOpacity', label:'底色不透明度', min:.46, max:.94, step:.01, unit:'', css:'--panel-opacity', value:.78 },
+      { key:'panelSaturation', label:'背景饱和度', min:.8, max:1.8, step:.01, unit:'', css:'--panel-saturation', value:1.24 },
+      { key:'panelGlow', label:'彩色环境光', min:0, max:1.2, step:.01, unit:'', css:'--panel-glow', value:.56 },
+      { key:'panelBorder', label:'边缘高光', min:.05, max:.42, step:.01, unit:'', css:'--panel-border', value:.22 },
+      { key:'panelX', label:'水平偏移', min:-80, max:80, step:1, unit:'px', css:'--panel-x', value:0 },
+      { key:'panelY', label:'垂直间距', min:0, max:34, step:1, unit:'px', css:'--panel-y', value:9 },
+      { key:'panelScale', label:'整体缩放', min:.82, max:1.08, step:.01, unit:'', css:'--panel-scale', value:1 },
+      { key:'itemRadius', label:'条目圆角', min:10, max:25, step:1, unit:'px', css:'--item-radius', value:17 },
+      { key:'itemGap', label:'条目间距', min:3, max:17, step:1, unit:'px', css:'--item-gap', value:9 },
+      { key:'itemOpacity', label:'条目亮度', min:.025, max:.15, step:.005, unit:'', css:'--item-opacity', value:.07 },
+      { key:'openDuration', label:'展开时长', min:180, max:720, step:10, unit:'ms', css:'--open-duration', value:420 },
+      { key:'stagger', label:'条目错峰', min:0, max:120, step:2, unit:'ms', css:'--stagger', value:54 }
+    ];
+
+    const values = Object.fromEntries(specs.map(s => [s.key, s.value]));
+    const defaults = structuredClone(values);
+
+    controls.innerHTML = '<h2>面板参数</h2>' + specs.map(s => `
+      <div class="control">
+        <div class="control-head"><label for="${s.key}">${s.label}</label><output id="${s.key}Out"></output></div>
+        <input id="${s.key}" type="range" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.value}">
+      </div>
+    `).join('');
+
+    function cssValue(spec, value) {
+      return `${value}${spec.unit}`;
+    }
+
+    function applyValue(spec, raw) {
+      const value = Number(raw);
+      values[spec.key] = value;
+      root.style.setProperty(spec.css, cssValue(spec, value));
+      document.getElementById(`${spec.key}Out`).textContent = cssValue(spec, value);
+      updateJson();
+    }
+
+    specs.forEach(spec => {
+      const input = document.getElementById(spec.key);
+      input.addEventListener('input', () => applyValue(spec, input.value));
+      applyValue(spec, input.value);
+    });
+
+    function setOpen(open) {
+      trigger.classList.toggle('is-open', open);
+      panel.classList.toggle('is-open', open);
+      trigger.setAttribute('aria-expanded', String(open));
+      panel.setAttribute('aria-hidden', String(!open));
+    }
+    trigger.addEventListener('click', e => {
+      e.stopPropagation();
+      setOpen(!panel.classList.contains('is-open'));
+    });
+    panel.addEventListener('click', e => e.stopPropagation());
+    document.addEventListener('click', () => setOpen(false));
+    toggleBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      setOpen(!panel.classList.contains('is-open'));
+    });
+
+    function updateJson() {
+      jsonBox.textContent = JSON.stringify({
+        version: 'memory_quick_panel_web_v1',
+        theme: document.querySelector('.theme-btn.active')?.dataset.theme || 'nebula',
+        state: document.querySelector('.state-btn.active')?.dataset.state || 'active',
+        ...values
+      }, null, 2);
+    }
+
+    resetBtn.addEventListener('click', () => {
+      specs.forEach(spec => {
+        document.getElementById(spec.key).value = defaults[spec.key];
+        applyValue(spec, defaults[spec.key]);
+      });
+      document.querySelector('[data-theme="nebula"]').click();
+      document.querySelector('[data-state="active"]').click();
+      setOpen(true);
+    });
+
+    randomBtn.addEventListener('click', () => {
+      const keys = ['panelGlow','panelOpacity','panelBlur','itemOpacity','panelRadius'];
+      keys.forEach(key => {
+        const spec = specs.find(s => s.key === key);
+        const spread = (spec.max - spec.min) * .10;
+        const next = Math.min(spec.max, Math.max(spec.min, values[key] + (Math.random() - .5) * spread));
+        const rounded = Math.round(next / spec.step) * spec.step;
+        const input = document.getElementById(key);
+        input.value = rounded;
+        applyValue(spec, rounded);
+      });
+      setOpen(true);
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      const text = jsonBox.textContent;
+      try { await navigator.clipboard.writeText(text); }
+      catch { const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 1300);
+    });
+
+    const themes = {
+      nebula: { a:'141 255 244', b:'177 132 255', c:'255 139 203', surface:'11 20 48', surface2:'30 23 62' },
+      clear:  { a:'173 244 255', b:'111 177 255', c:'192 218 255', surface:'13 27 48', surface2:'18 34 58' },
+      pearl:  { a:'245 238 255', b:'202 171 255', c:'255 194 225', surface:'25 24 43', surface2:'44 31 56' }
+    };
+    document.querySelectorAll('.theme-btn').forEach(btn => btn.addEventListener('click', () => {
+      document.querySelectorAll('.theme-btn').forEach(x => x.classList.toggle('active', x === btn));
+      const t = themes[btn.dataset.theme];
+      root.style.setProperty('--accent-a', t.a);
+      root.style.setProperty('--accent-b', t.b);
+      root.style.setProperty('--accent-c', t.c);
+      root.style.setProperty('--surface', t.surface);
+      root.style.setProperty('--surface-2', t.surface2);
+      updateJson();
+      setOpen(true);
+    }));
+
+    function setState(state) {
+      document.querySelectorAll('.state-btn').forEach(x => x.classList.toggle('active', x.dataset.state === state));
+      const items = [...memoryList.children];
+      if (state === 'active') {
+        items.forEach(x => x.style.display = 'grid');
+        panelSubtitle.textContent = '本轮已注入 4 项 · 已保存 8 项';
+        statusChip.innerHTML = '<i></i><span>生效中</span>';
+        panelFootNote.textContent = '另有 4 项未展开';
+        trigger.style.opacity = '1';
+      } else if (state === 'paused') {
+        items.forEach((x,i) => x.style.display = i < 3 ? 'grid' : 'none');
+        panelSubtitle.textContent = '已保存 8 项 · 当前暂停';
+        statusChip.innerHTML = '<span>已暂停</span>';
+        panelFootNote.textContent = '总开关关闭，不会发送给模型';
+        trigger.style.opacity = '.76';
+      } else if (state === 'empty') {
+        items.forEach(x => x.style.display = 'none');
+        panelSubtitle.textContent = '暂时没有已保存内容';
+        statusChip.innerHTML = '<span>空</span>';
+        panelFootNote.textContent = '可在设置 → 记忆中添加';
+        trigger.style.opacity = '.62';
+      } else {
+        items.forEach(x => x.style.display = 'none');
+        panelSubtitle.textContent = '登录后查看账号记忆';
+        statusChip.innerHTML = '<span>未登录</span>';
+        panelFootNote.textContent = '记忆会按账号独立同步';
+        trigger.style.opacity = '.58';
+      }
+      updateJson();
+      setOpen(true);
+    }
+    document.querySelectorAll('.state-btn').forEach(btn => btn.addEventListener('click', () => setState(btn.dataset.state)));
+
+    updateJson();
+    setTimeout(() => setOpen(true), 380);
+  </script>
+</body>
+</html>
