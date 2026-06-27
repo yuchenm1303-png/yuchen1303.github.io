@@ -189,6 +189,26 @@ internal class VisualAgentHudHost(
             .isSuccess
     }
 
+    private fun suspendOverlay() {
+        overlayContentActive = false
+        captureSuppressed = false
+        pendingPayload = null
+        if (webView == null) {
+            overlayCreationFailed = false
+            return
+        }
+        if (pageReady) {
+            webView?.evaluateJavascript("window.VisualHud&&window.VisualHud.hide();", null)
+        }
+        webView?.let { view ->
+            view.animate().cancel()
+            view.alpha = 0f
+            view.visibility = View.INVISIBLE
+            view.onPause()
+        }
+        updateWindowAlpha(0f)
+    }
+
     private fun destroyOverlay() {
         pageReady = false
         pendingPayload = null
@@ -217,7 +237,7 @@ internal class VisualAgentHudHost(
         val contentActive = realHudActive || sampleMode
 
         if (!contentActive) {
-            if (webView != null || overlayCreationFailed) destroyOverlay()
+            suspendOverlay()
             return
         }
         if (!createOverlay()) return
