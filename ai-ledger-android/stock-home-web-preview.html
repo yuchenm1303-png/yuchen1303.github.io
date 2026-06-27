@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store,no-cache,must-revalidate,max-age=0">
+<title>AI Ledger · A股市场首页网页预览</title>
+<link rel="stylesheet" href="./stock-home-web-preview.css?v=20260627-1">
+</head>
+<body>
+<button class="mobile-toggle" id="mobileToggle" aria-label="打开调试面板">⚙</button>
+<main class="workspace">
+  <section class="phone" aria-label="A股市场首页手机预览">
+    <div class="screen">
+      <header class="status-bar">
+        <div class="status-left">
+          <span class="carriers">中国移动<br>中国电信</span>
+          <span class="clock" id="clock">11:10</span>
+          <span class="status-chip">◩</span><span class="status-chip">▣</span><span class="status-icon">⌁</span><span class="status-icon">◉</span>
+        </div>
+        <div class="status-right"><span>Ⓝ ⏰ ⌁ 4G▮▮▮ 4G▮▮▮</span><span class="battery">70</span></div>
+      </header>
+
+      <div class="market-scroll" id="marketScroll">
+        <header class="home-header">
+          <div class="home-top-row">
+            <button class="glass-button back-button" id="backButton">‹ 首页</button>
+            <span class="market-label">市场总览 · A股</span>
+            <button class="glass-button refresh-button" id="refreshButton" aria-label="刷新市场数据">⟳</button>
+          </div>
+          <div class="eyebrow">A-SHARE MARKET</div>
+          <h1>市场概览</h1>
+          <div class="home-status" id="homeStatus">正在同步指数、宽度、榜单与板块</div>
+        </header>
+
+        <section class="glass parent-panel overview-panel">
+          <form class="search-row" id="searchForm">
+            <label class="search-box">
+              <span class="search-icon">⌕</span>
+              <input id="query" type="text" value="688818" autocomplete="off" placeholder="股票代码或名称">
+            </label>
+            <button class="search-button" id="searchButton" type="submit">搜索</button>
+          </form>
+
+          <div class="section-divider"></div>
+
+          <section class="panel-section index-section">
+            <div class="section-title-block">
+              <h2>主要指数</h2>
+              <p>核心指数实时快照 · 左右滑动查看更多</p>
+            </div>
+            <div class="indices-scroll" id="indices"></div>
+          </section>
+
+          <div class="section-divider"></div>
+
+          <section class="panel-section breadth-section">
+            <div class="section-title-block">
+              <h2>市场宽度</h2>
+              <p>涨跌结构、赚钱效应与市场热度</p>
+            </div>
+            <div class="breadth-grid four" id="breadthPrimary"></div>
+            <div class="breadth-grid three" id="breadthSecondary"></div>
+            <div class="turnover-card">
+              <div><strong>全市场成交额</strong><span>沪深京实时汇总</span></div>
+              <b id="marketAmount">--</b>
+            </div>
+          </section>
+        </section>
+
+        <section class="glass parent-panel content-panel">
+          <div class="section-title-block">
+            <h2>市场数据</h2>
+            <p>真实榜单、板块与资金排序</p>
+          </div>
+          <div class="quick-grid" id="quickGrid"></div>
+          <div class="section-divider"></div>
+          <div class="tool-content" id="toolContent"></div>
+        </section>
+
+        <section class="glass parent-panel status-panel">
+          <div class="section-title-block">
+            <h2>数据覆盖状态</h2>
+            <p>真实可用与暂不可用模块分开显示</p>
+          </div>
+          <div class="status-grid" id="statusGrid"></div>
+          <div class="section-divider"></div>
+          <p class="coverage-copy">公告、新闻、研报、财务、人气、龙虎榜等没有稳定真实源时显示不可用，不再展示本地模板。</p>
+          <div class="section-divider"></div>
+          <button class="ai-watch" id="aiWatchButton">
+            <strong>AI 看盘</strong>
+            <span id="aiSummary">正在等待真实市场数据。</span>
+          </button>
+        </section>
+      </div>
+    </div>
+
+    <nav class="bottom-nav" aria-label="主导航">
+      <button class="nav-item"><span>AI</span><small>AI助手</small></button>
+      <button class="nav-item active"><span class="nav-star">✦</span><small>功能</small></button>
+      <button class="nav-item"><span>⚙</span><small>设置</small></button>
+    </nav>
+  </section>
+
+  <aside class="controls" id="controls">
+    <h1>A股市场首页网页调试</h1>
+    <div class="version">网页版本 2026-06-27.1 · Compose 原样移植版</div>
+    <p>当前页面按 Android Compose 的 StockHomePage、HomeHeader、MarketIndexSection、MarketBreadthSection、HomeToolGrid 与 HomeDataStatusSection 逐项移植，先保持结构和尺寸一致，再进行网页调试。</p>
+
+    <div class="control-group">
+      <h2>实时数据</h2>
+      <div class="control-buttons">
+        <button class="primary" id="manualRefresh">立即刷新</button>
+        <button id="openDetail">打开详情页</button>
+      </div>
+      <label class="switch-row"><span>20 秒自动刷新</span><input id="autoRefresh" type="checkbox" checked></label>
+      <div class="data-status" id="dataStatus"><strong>初始化中</strong>：正在连接真实市场首页接口。</div>
+    </div>
+
+    <div class="control-group">
+      <h2>预览参数</h2>
+      <label class="range-row"><span>玻璃透明度 <b id="glassText">66%</b></span><input id="glassRange" type="range" min="40" max="88" value="66"></label>
+      <label class="range-row"><span>手机宽度 <b id="phoneWidthText">430px</b></span><input id="phoneWidth" type="range" min="360" max="500" value="430"></label>
+      <label class="range-row"><span>卡片圆角 <b id="radiusText">30px</b></span><input id="radiusRange" type="range" min="18" max="42" value="30"></label>
+    </div>
+
+    <div class="control-group">
+      <h2>当前移植范围</h2>
+      <ul class="scope-list">
+        <li>顶部返回、标题、刷新与真实数据状态</li>
+        <li>搜索栏、主要指数横向卡片</li>
+        <li>市场宽度、情绪温度与成交额</li>
+        <li>八个市场数据入口及对应内容区</li>
+        <li>数据覆盖状态、AI 看盘与底部导航</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+<script src="./stock-home-web-preview.js?v=20260627-1"></script>
+</body>
+</html>
