@@ -50,6 +50,7 @@ internal class VisualAgentHudHost(
     private var overlayContentActive = false
     private var captureSuppressed = false
     private var presentationRevision = 0L
+    private var overlayCreationFailed = false
     private var started = false
 
     fun start() {
@@ -77,6 +78,7 @@ internal class VisualAgentHudHost(
     @SuppressLint("SetJavaScriptEnabled")
     private fun createOverlay(): Boolean {
         if (webView != null) return true
+        if (overlayCreationFailed) return false
         val wm = windowManager ?: return false
         val view = WebView(service).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -147,10 +149,12 @@ internal class VisualAgentHudHost(
         }
         return runCatching { wm.addView(view, params) }
             .onSuccess {
+                overlayCreationFailed = false
                 webView = view
                 layoutParams = params
             }
             .onFailure { error ->
+                overlayCreationFailed = true
                 view.stopLoading()
                 view.destroy()
                 AgentRuntimeController.noteDiagnostic(
@@ -166,6 +170,7 @@ internal class VisualAgentHudHost(
         pendingPayload = null
         overlayContentActive = false
         captureSuppressed = false
+        overlayCreationFailed = false
         webView?.let { view ->
             view.animate().cancel()
             runCatching { windowManager?.removeView(view) }
@@ -188,7 +193,7 @@ internal class VisualAgentHudHost(
         val contentActive = realHudActive || sampleMode
 
         if (!contentActive) {
-            if (webView != null) destroyOverlay()
+            if (webView != null || overlayCreationFailed) destroyOverlay()
             return
         }
         if (!createOverlay()) return
