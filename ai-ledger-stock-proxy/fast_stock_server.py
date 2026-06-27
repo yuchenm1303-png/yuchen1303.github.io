@@ -112,14 +112,48 @@ def _delta_from_cursor(
     return [point for point in points if _cursor_time(key_fn(point)) >= cursor_time]
 
 
+def _point_phase(point: dict[str, Any]) -> str:
+    explicit = str(
+        point.get("phase")
+        or point.get("sessionPhase")
+        or point.get("auctionPhase")
+        or ""
+    ).strip()
+    if explicit:
+        return explicit
+    return detail._phase_for_time(str(point.get("time") or "")[:5])
+
+
+def _is_auction_point(point: dict[str, Any]) -> bool:
+    phase = _point_phase(point).lower()
+    return phase != "continuous" and phase not in {"", "none", "null"}
+
+
+def _merge_delta_with_auction_snapshot(
+    delta: list[dict[str, Any]],
+    minute_points: list[dict[str, Any]],
+    ndays: int,
+) -> list[dict[str, Any]]:
+    if ndays != 1:
+        return delta
+    repaired: dict[str, dict[str, Any]] = {}
+    for point in minute_points:
+        if _is_auction_point(point):
+            repaired[_minute_key(point)] = point
+    for point in delta:
+        repaired[_minute_key(point)] = point
+    return sorted(
+        repaired.values(),
+        key=lambda point: (
+            int(point.get("timestamp") or 0),
+            _minute_key(point),
+        ),
+    )
+
+
 def _normalize_minute_contract(payload: dict[str, Any]) -> None:
     for point in list(payload.get("minutePoints") or []):
-        phase = str(
-            point.get("phase")
-            or point.get("sessionPhase")
-            or point.get("auctionPhase")
-            or "continuous"
-        )
+        phase = _point_phase(point) or "continuous"
         point["phase"] = phase
         point.setdefault("sessionPhase", phase)
         point.setdefault("matchedVolume", point.get("volume") if phase != "continuous" else None)
@@ -162,13 +196,21 @@ def _apply_incremental_payload(
     )
 
     if since_minute_key and not minute_reset:
-        payload.pop("minutePoints", None)
-        payload["minuteDelta"] = _delta_from_cursor(
+        minute_delta = _delta_from_cursor(
             minute_points,
             since_minute_key,
             _minute_key,
         )
+        minute_delta = _merge_delta_with_auction_snapshot(
+            minute_delta,
+            minute_points,
+            ndays,
+        )
+        payload.pop("minutePoints", None)
+        payload["minuteDelta"] = minute_delta
         payload["minuteIsSnapshot"] = False
+        if ndays == 1:
+            payload["auctionPointsIncluded"] = True
     else:
         payload["minuteIsSnapshot"] = True
 
@@ -309,6 +351,11 @@ async def _fast_core_realtime(
         "tradeTicksIsDerived": False,
         "warnings": warnings,
     }
+    _normalize_minute_contract(payload)
+    if payload["minutePoints"] and not any(
+        float(point.get("volume") or 0) > 0 for point in payload["minutePoints"]
+    ):
+        payload["warnings"].append("minute_volume: upstream returned no positive volume")
     payload["payloadBytes"] = len(
         json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     )
@@ -519,7 +566,11 @@ async def fast_detail_payload(
 ) -> dict[str, Any]:
     normalized_mode = "full" if mode == "full" else "lite"
     if normalized_mode == "lite" and not include_market:
-        payload = await _fast_core_realtime(query, 1)
+        payload = await fast_realtime_payload(
+            query,
+            1,
+            compact=False,
+        )
         return _fast_lite_detail(payload, query)
 
     return await asyncio.to_thread(
