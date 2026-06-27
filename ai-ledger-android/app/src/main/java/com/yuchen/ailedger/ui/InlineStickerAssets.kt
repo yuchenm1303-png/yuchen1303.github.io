@@ -12,6 +12,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import com.yuchen.ailedger.AiLedgerApplication
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -27,6 +29,7 @@ import kotlinx.coroutines.launch
 private const val INLINE_STICKER_CONNECT_TIMEOUT_MS = 5_000
 private const val INLINE_STICKER_READ_TIMEOUT_MS = 12_000
 private const val INLINE_STICKER_MAX_BYTES = 512 * 1024
+private const val INLINE_STICKER_DISK_CACHE_DIR = "inline_stickers_v1"
 private const val INLINE_STICKER_TAG_START = 0xE0001
 private const val INLINE_STICKER_TAG_CANCEL = 0xE007F
 private const val INLINE_STICKER_TAG_BASE = 0xE0000
@@ -254,7 +257,9 @@ internal object InlineStickerAssets {
         bitmapCache[assetKey]?.let { return it }
 
         val deferred = inFlight.computeIfAbsent(assetKey) {
-            loaderScope.async { loadFromEndpoints(assetKey) }
+            loaderScope.async {
+                loadDiskCachedBitmap(assetKey) ?: loadFromEndpoints(assetKey)
+            }
         }
         return try {
             val loaded = deferred.await()
@@ -265,17 +270,57 @@ internal object InlineStickerAssets {
         }
     }
 
+    private fun loadDiskCachedBitmap(assetKey: String): Bitmap? {
+        val file = diskCacheFile(assetKey) ?: return null
+        if (!file.isFile || file.length() !in 1..INLINE_STICKER_MAX_BYTES.toLong()) {
+            if (file.exists()) file.delete()
+            return null
+        }
+        return BitmapFactory.decodeFile(file.absolutePath) ?: run {
+            file.delete()
+            null
+        }
+    }
+
+    private fun diskCacheFile(assetKey: String): File? {
+        val context = AiLedgerApplication.contextOrNull() ?: return null
+        return File(File(context.filesDir, INLINE_STICKER_DISK_CACHE_DIR), "$assetKey.webp")
+    }
+
+    private fun persistDiskCache(assetKey: String, bytes: ByteArray) {
+        if (bytes.isEmpty() || bytes.size > INLINE_STICKER_MAX_BYTES) return
+        val target = diskCacheFile(assetKey) ?: return
+        runCatching {
+            val directory = target.parentFile ?: return@runCatching
+            if (!directory.exists() && !directory.mkdirs()) return@runCatching
+            val temporary = File(directory, ".${target.name}.${System.nanoTime()}.tmp")
+            temporary.outputStream().use { it.write(bytes) }
+            if (!temporary.renameTo(target)) {
+                target.outputStream().use { it.write(bytes) }
+                temporary.delete()
+            }
+        }
+    }
+
     private fun loadFromEndpoints(assetKey: String): Bitmap? {
         val path = "/chat-stickers/v1/$assetKey.webp"
         for (endpoint in listOf(CN_ENDPOINT, CLOUDFLARE_ENDPOINT)) {
             val loaded = runCatching { downloadBitmap(endpoint + path) }.getOrNull()
-            if (loaded != null) return loaded
+            if (loaded != null) {
+                persistDiskCache(assetKey, loaded.bytes)
+                return loaded.bitmap
+            }
         }
         return null
     }
 
+    private data class DownloadedBitmap(
+        val bitmap: Bitmap,
+        val bytes: ByteArray
+    )
+
     @Throws(IOException::class)
-    private fun downloadBitmap(url: String): Bitmap {
+    private fun downloadBitmap(url: String): DownloadedBitmap {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = INLINE_STICKER_CONNECT_TIMEOUT_MS
@@ -303,8 +348,9 @@ internal object InlineStickerAssets {
                 }
                 output.toByteArray()
             }
-            return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 ?: throw IOException("表情资源解码失败")
+            return DownloadedBitmap(bitmap = bitmap, bytes = bytes)
         } finally {
             connection.disconnect()
         }
