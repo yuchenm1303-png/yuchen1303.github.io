@@ -187,6 +187,8 @@ object DeviceControlCapabilityRegistry {
 
     fun toJsonArray(): JSONArray = JSONArray().apply { capabilities.forEach { put(it.toJson()) } }
 
+    fun toolSpecJsonArray(): JSONArray = JSONArray().apply { DeviceControlSpecs.all.forEach { put(it.toJson()) } }
+
     fun publicSummary(): String {
         val grouped = capabilities.groupBy { it.status.substringBefore('_') }
         val implemented = grouped["implemented"].orEmpty()

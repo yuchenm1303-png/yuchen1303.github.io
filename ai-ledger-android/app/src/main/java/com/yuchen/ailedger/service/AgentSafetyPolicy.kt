@@ -16,15 +16,6 @@ object AgentSafetyPolicy {
         "wait",
     ) + deviceToolStepTypes
 
-    private val confirmationProtectedDeviceTools = setOf(
-        "set_animation_scale",
-        "force_stop_app",
-        "clear_app_data",
-        "uninstall_app",
-        "disable_app",
-        "enable_app",
-    )
-
     /**
      * Android does not infer semantic risk from goal text, target labels, coordinates or riskLevel
      * wording. The cloud semantic owner must explicitly set requiresConfirmation=true for a
@@ -32,7 +23,11 @@ object AgentSafetyPolicy {
      */
     @Suppress("UNUSED_PARAMETER")
     fun requiresConfirmation(goal: String, step: CloudAgentStep): Boolean {
-        return step.requiresConfirmation || step.type in confirmationProtectedDeviceTools
+        return if (step.type in deviceToolStepTypes) {
+            DeviceControlSpecs.requiresConfirmation(step)
+        } else {
+            step.requiresConfirmation
+        }
     }
 
     fun canAutoExecuteInCurrentStage(goal: String, step: CloudAgentStep): Boolean {

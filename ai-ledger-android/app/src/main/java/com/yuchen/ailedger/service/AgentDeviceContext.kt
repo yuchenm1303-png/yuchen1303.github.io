@@ -138,6 +138,7 @@ object AgentDeviceContextProvider {
                 put("semanticOwner", "cloud")
                 put("policy", "execute_supported_internal_tools_with_android_safety_and_post_action_verification")
                 put("capabilities", DeviceControlCapabilityRegistry.toJsonArray())
+                put("toolSpecs", DeviceControlCapabilityRegistry.toolSpecJsonArray())
                 put("shellToolCatalog", shellBridge.controlledToolCatalogJson())
                 put("postActionVerification", JSONObject().apply {
                     put("enabled", true)

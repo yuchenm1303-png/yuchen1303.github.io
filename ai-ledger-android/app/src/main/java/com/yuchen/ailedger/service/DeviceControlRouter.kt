@@ -9,53 +9,6 @@ import org.json.JSONObject
  * mapping, argument shape, risk defaults, and supported-tool allowlist.
  */
 object DeviceControlRouter {
-    private val capabilityToStepType = mapOf(
-        "device.health" to "device_status",
-        "device.status" to "device_status",
-        "shell.probe" to "shizuku_status",
-        "shell.status" to "shizuku_status",
-        "shizuku.status" to "shizuku_status",
-        "shizuku.permission.request" to "request_shizuku_permission",
-        "shell.shizuku_permission" to "request_shizuku_permission",
-        "settings.open" to "open_system_settings",
-        "app.open" to "open_app",
-        "app.settings" to "open_app_settings",
-        "system.brightness.set" to "set_brightness",
-        "system.brightness" to "set_brightness",
-        "system.screen_timeout.set" to "set_screen_timeout",
-        "system.screen_timeout" to "set_screen_timeout",
-        "system.auto_rotate.set" to "set_auto_rotate",
-        "system.media_volume.set" to "set_media_volume",
-        "network.wifi.set" to "set_wifi_enabled",
-        "network.wifi_toggle" to "set_wifi_enabled",
-        "network.bluetooth.set" to "set_bluetooth_enabled",
-        "network.bluetooth_toggle" to "set_bluetooth_enabled",
-        "network.mobile_data.set" to "set_mobile_data_enabled",
-        "network.mobile_data_toggle" to "set_mobile_data_enabled",
-        "system.dark_mode.set" to "set_dark_mode",
-        "system.dark_mode" to "set_dark_mode",
-        "system.animation_scale.set" to "set_animation_scale",
-        "system.settings_global_write" to "set_animation_scale",
-        "app.force_stop" to "force_stop_app",
-        "app.clear_data" to "clear_app_data",
-        "app.uninstall" to "uninstall_app",
-        "app.disable" to "disable_app",
-        "app.enable" to "enable_app",
-    )
-
-    private val highRiskTypes = setOf(
-        "set_animation_scale",
-        "force_stop_app",
-        "clear_app_data",
-        "uninstall_app",
-        "disable_app",
-        "enable_app",
-    )
-
-    private val normalChatExcludedTypes = highRiskTypes + setOf(
-        "request_shizuku_permission",
-    )
-
     fun fromAgentActionJson(agentAction: JSONObject?): CloudAgentStep? {
         if (agentAction == null) return null
         val explicit = listOf("deviceControlAction", "device_control_action", "agentStep", "step")
@@ -83,10 +36,10 @@ object DeviceControlRouter {
         copyIfPresent(raw, merged, "seconds", "minutes", "timeoutMs")
 
         val risk = raw.deviceControlFirstNonBlank("riskLevel", "risk")
-            ?: if (stepType in highRiskTypes) "high" else "low"
+            ?: DeviceControlSpecs.riskFor(stepType)
         val requiresConfirmation = raw.optFlexibleBooleanCompat("requiresConfirmation")
             ?: raw.optFlexibleBooleanCompat("confirm")
-            ?: (stepType in highRiskTypes)
+            ?: (DeviceControlSpecs.specFor(stepType)?.requiresConfirmation == true)
 
         return CloudAgentStep(
             type = stepType,
@@ -106,27 +59,15 @@ object DeviceControlRouter {
         )
     }
 
-    fun supportedCapabilities(): List<String> = capabilityToStepType.keys.sorted()
+    fun supportedCapabilities(): List<String> = DeviceControlSpecs.supportedCapabilities()
 
-    fun normalChatSupportedCapabilities(): List<String> {
-        return capabilityToStepType
-            .filterValues { stepType -> stepType !in normalChatExcludedTypes }
-            .keys
-            .sorted()
-    }
+    fun normalChatSupportedCapabilities(): List<String> = DeviceControlSpecs.normalChatSupportedCapabilities()
 
-    fun normalChatSupportedStepTypes(): List<String> {
-        return capabilityToStepType
-            .values
-            .filterNot { stepType -> stepType in normalChatExcludedTypes }
-            .distinct()
-            .sorted()
-    }
+    fun normalChatSupportedStepTypes(): List<String> = DeviceControlSpecs.normalChatSupportedStepTypes()
 
     private fun normalizeCapability(raw: String): String? {
+        DeviceControlSpecs.normalizeCapability(raw)?.let { return it }
         val key = raw.trim().lowercase().replace('-', '_')
-        capabilityToStepType[key.replace('_', '.')]?.let { return it }
-        capabilityToStepType[key]?.let { return it }
         return CloudAgentStep.fromJson(JSONObject().put("type", key))
             ?.takeIf { it.type in CloudAgentStep.deviceToolTypes }
             ?.type
