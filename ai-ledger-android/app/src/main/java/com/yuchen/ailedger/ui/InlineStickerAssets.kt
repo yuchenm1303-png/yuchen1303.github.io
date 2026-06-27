@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -32,8 +31,9 @@ private const val INLINE_STICKER_PAYLOAD_PREFIX = "ai_sticker:"
 private const val INLINE_STICKER_COMPACT_PREFIX = "s"
 private const val INLINE_STICKER_VISIBLE_PREFIX = "[[AI_LEDGER_INLINE_STICKER:"
 private const val INLINE_STICKER_PACK_ASSET = "inline_stickers_v1.zip"
-private const val INLINE_STICKER_FALLBACK_ASSET_SOURCE = "inline_sticker_source.js"
 private const val INLINE_STICKER_MAX_ENTRY_BYTES = 512 * 1024
+private const val INLINE_STICKER_MIN_DIMENSION = 32
+private const val INLINE_STICKER_MAX_DIMENSION = 2048
 
 internal data class InlineStickerProtocolMarker(
     val start: Int,
@@ -100,6 +100,9 @@ internal object InlineStickerAssets {
 
     @Volatile
     private var bundledStickerBytesCache: Map<String, ByteArray>? = null
+
+    @Volatile
+    private var bundledStickerPackLoadAttempted = false
 
     internal fun normalizeKey(value: String): String? {
         return value.trim().lowercase().takeIf { it in supportedKeys }
@@ -274,20 +277,34 @@ internal object InlineStickerAssets {
 
     private fun loadBundledBitmap(assetKey: String): Bitmap? {
         val bytes = bundledStickerBytes()[assetKey] ?: return null
-        return BitmapFactory.decodeByteArray(
+        val bitmap = BitmapFactory.decodeByteArray(
             bytes,
             0,
             bytes.size,
-            BitmapFactory.Options().apply { inScaled = false }
-        )
+            BitmapFactory.Options().apply {
+                inScaled = false
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+        ) ?: return null
+
+        if (!isSupportedTransparentBitmap(bitmap)) {
+            bitmap.recycle()
+            return null
+        }
+        return bitmap
     }
 
     private fun bundledStickerBytes(): Map<String, ByteArray> {
         bundledStickerBytesCache?.let { return it }
+        if (AiLedgerApplication.contextOrNull() == null) return emptyMap()
+
         synchronized(this) {
             bundledStickerBytesCache?.let { return it }
+            if (bundledStickerPackLoadAttempted) return emptyMap()
+
             val loaded = loadBundledStickerPack()
-            if (loaded.isNotEmpty()) bundledStickerBytesCache = loaded
+            bundledStickerPackLoadAttempted = true
+            bundledStickerBytesCache = loaded
             return loaded
         }
     }
@@ -296,7 +313,7 @@ internal object InlineStickerAssets {
         val context = AiLedgerApplication.contextOrNull() ?: return emptyMap()
         val assets = context.assets
 
-        val packaged = runCatching {
+        return runCatching {
             assets.open(INLINE_STICKER_PACK_ASSET).use { input ->
                 val loaded = LinkedHashMap<String, ByteArray>(supportedKeys.size)
                 ZipInputStream(input.buffered()).use { zip ->
@@ -330,49 +347,6 @@ internal object InlineStickerAssets {
                 validateCompletePack(loaded)
                 loaded
             }
-        }.getOrNull()
-        if (!packaged.isNullOrEmpty()) return packaged
-
-        return loadLegacyBundledStickerPack()
-    }
-
-    private fun loadLegacyBundledStickerPack(): Map<String, ByteArray> {
-        val context = AiLedgerApplication.contextOrNull() ?: return emptyMap()
-        return runCatching {
-            val loaded = LinkedHashMap<String, ByteArray>(supportedKeys.size)
-            val entryRegex = Regex("""^\s*([a-z0-9_]+):\s*"([A-Za-z0-9+/=]+)",?\s*$""")
-            var insideStickerObject = false
-
-            context.assets.open(INLINE_STICKER_FALLBACK_ASSET_SOURCE)
-                .bufferedReader(Charsets.UTF_8)
-                .useLines { lines ->
-                    for (line in lines) {
-                        if (!insideStickerObject) {
-                            if (line.contains("const CHAT_STICKER_WEBP_BASE64 = Object.freeze({")) {
-                                insideStickerObject = true
-                            }
-                            continue
-                        }
-                        if (line.trim() == "});") break
-
-                        val match = entryRegex.matchEntire(line) ?: continue
-                        val assetKey = normalizeKey(match.groupValues[1]) ?: continue
-                        val bytes = Base64.decode(match.groupValues[2], Base64.DEFAULT)
-                        if (bytes.isEmpty() || bytes.size > INLINE_STICKER_MAX_ENTRY_BYTES) {
-                            throw IllegalStateException("内置表情资源大小异常：$assetKey")
-                        }
-                        if (!isWebP(bytes)) {
-                            throw IllegalStateException("内置表情资源格式异常：$assetKey")
-                        }
-                        loaded[assetKey] = bytes
-                    }
-                }
-
-            if (!insideStickerObject) {
-                throw IllegalStateException("旧版内置表情资源未找到")
-            }
-            validateCompletePack(loaded)
-            loaded
         }.getOrDefault(emptyMap())
     }
 
@@ -403,6 +377,21 @@ internal object InlineStickerAssets {
                 "内置表情资源不完整：缺少=${supportedKeys - loaded.keys}，多余=${loaded.keys - supportedKeys}"
             )
         }
+    }
+
+    private fun isSupportedTransparentBitmap(bitmap: Bitmap): Boolean {
+        if (bitmap.width !in INLINE_STICKER_MIN_DIMENSION..INLINE_STICKER_MAX_DIMENSION) return false
+        if (bitmap.height !in INLINE_STICKER_MIN_DIMENSION..INLINE_STICKER_MAX_DIMENSION) return false
+        if (!bitmap.hasAlpha()) return false
+
+        val row = IntArray(bitmap.width)
+        for (y in 0 until bitmap.height) {
+            bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
+            for (pixel in row) {
+                if ((pixel ushr 24) != 0xFF) return true
+            }
+        }
+        return false
     }
 
     private fun isWebP(bytes: ByteArray): Boolean {
