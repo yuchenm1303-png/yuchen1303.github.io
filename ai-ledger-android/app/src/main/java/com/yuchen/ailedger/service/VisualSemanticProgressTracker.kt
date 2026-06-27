@@ -122,7 +122,7 @@ class VisualSemanticProgressTracker(
         val structuralRegression = verifiedTargetPackage.isNotBlank() &&
             VisualSurfacePackagePolicy.isConfidentForeignPackage(
                 currentPackage = after.packageName,
-                verifiedTargetPackage = verifiedTargetPackage,
+                expectedPackage = verifiedTargetPackage,
             )
 
         val status = when {
