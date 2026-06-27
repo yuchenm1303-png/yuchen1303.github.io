@@ -22,13 +22,20 @@ internal object VisualLoopSupport {
      * Android never interprets target text or changes the GUI model's chosen point.
      */
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
+        if (step.type != "tap_xy") {
+            return step.withExecutionTraceField(
+                TRACE_SURFACE_MODE,
+                surfaceEvidenceMode(snapshot),
+            )
+        }
+
+        // Validate the original cloud response before Android adds local trace metadata. This keeps
+        // missing/invalid permit diagnostics precise without weakening the execution guard.
+        val permit = VisualExecutionPermitPolicy.validateTap(step)
         val surfaceAwareStep = step.withExecutionTraceField(
             TRACE_SURFACE_MODE,
             surfaceEvidenceMode(snapshot),
         )
-        if (surfaceAwareStep.type != "tap_xy") return surfaceAwareStep
-
-        val permit = VisualExecutionPermitPolicy.validateTap(surfaceAwareStep)
         if (!permit.valid) {
             return surfaceAwareStep
                 .withExecutionTraceFields(
