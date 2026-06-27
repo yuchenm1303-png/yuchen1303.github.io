@@ -52,11 +52,21 @@ fun AStockMarketScreenV2(
     var route by remember { mutableStateOf<StockNativeRoute>(StockNativeRoute.Home) }
     val routeStack = remember { mutableStateListOf<StockNativeRoute>() }
     val baseDensity = LocalDensity.current
-    val stockDensity = remember(baseDensity.density, baseDensity.fontScale) {
+    val routeFontScale = when (route) {
+        StockNativeRoute.Home -> 0.92f
+        is StockNativeRoute.Detail -> 1.00f
+        else -> 0.98f
+    }
+    val stockDensity = remember(baseDensity.density, baseDensity.fontScale, routeFontScale) {
         Density(
             density = baseDensity.density,
-            fontScale = (baseDensity.fontScale * 1.10f).coerceAtMost(1.35f)
+            fontScale = (baseDensity.fontScale * routeFontScale).coerceIn(0.88f, 1.30f)
         )
+    }
+    val routeHorizontalPadding = when (route) {
+        StockNativeRoute.Home -> 6.dp
+        is StockNativeRoute.Detail -> 0.dp
+        else -> 4.dp
     }
 
     fun navigate(next: StockNativeRoute) {
@@ -99,7 +109,7 @@ fun AStockMarketScreenV2(
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 6.dp)
+                .padding(horizontal = routeHorizontalPadding)
         ) {
             when (val current = route) {
                 StockNativeRoute.Home -> StockNativeHomeScreen(
