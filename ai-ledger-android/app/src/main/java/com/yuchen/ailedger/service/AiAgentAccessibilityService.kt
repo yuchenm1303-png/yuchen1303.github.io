@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Base64
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.RequiresApi
@@ -174,10 +175,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val nodeLimit = if (forceVisual) VISUAL_AFFORDANCE_NODES else MAX_SNAPSHOT_NODES
         val nodeBudgetMs = if (forceVisual) VISUAL_AFFORDANCE_BUDGET_MS else SNAPSHOT_NODE_BUDGET_MS
         val selected = selectBestRootCapture(limit = nodeLimit, timeBudgetMs = nodeBudgetMs)
+        val nodeFinishedAt = SystemClock.elapsedRealtime()
 
         val nodeObservation = if (selected != null) {
             val nodes = selected.capture.handles.map { it.observed }
-            val nodeMs = SystemClock.elapsedRealtime() - startedAt
+            val nodeMs = nodeFinishedAt - startedAt
             val title = buildString {
                 append(selected.windowTitle)
                 append(" · nodeMs=").append(nodeMs)
@@ -213,6 +215,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
 
         val visual = if (forceVisual) captureVisualObservation("forced") else null
+        val finishedAt = SystemClock.elapsedRealtime()
+        Log.d(
+            VISUAL_LOOP_PERF_TAG,
+            "snapshot forceVisual=$forceVisual package=${nodeObservation.packageName} " +
+                "nodes=${nodeObservation.capturedNodeCount}/${nodeObservation.nodeCount} " +
+                "nodeMs=${nodeFinishedAt - startedAt} visualMs=${finishedAt - nodeFinishedAt} totalMs=${finishedAt - startedAt}",
+        )
         nodeObservation.copy(visual = visual)
     }
 
@@ -235,9 +244,14 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.R)
     private fun captureDisplayScreenshotCompat(reason: String): ScreenVisualObservation {
+        val startedAt = SystemClock.elapsedRealtime()
         AgentRuntimeController.beginCleanVisualCapture()
         return try {
-            SystemClock.sleep(OVERLAY_HIDE_BEFORE_SCREENSHOT_MS)
+            val hideWaitMs = AgentRuntimeController.cleanVisualCaptureSettleRemaining(
+                OVERLAY_HIDE_BEFORE_SCREENSHOT_MS,
+            )
+            if (hideWaitMs > 0L) SystemClock.sleep(hideWaitMs)
+            val requestStartedAt = SystemClock.elapsedRealtime()
             val latch = CountDownLatch(1)
             var result = ScreenVisualObservation(available = false, source = "pending", reason = reason)
             takeScreenshot(
@@ -264,7 +278,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
                     }
                 },
             )
-            latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            val completed = latch.await(SCREENSHOT_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            val finishedAt = SystemClock.elapsedRealtime()
+            Log.d(
+                VISUAL_LOOP_PERF_TAG,
+                "screenshot reason=$reason hideWaitMs=$hideWaitMs requestMs=${finishedAt - requestStartedAt} " +
+                    "totalMs=${finishedAt - startedAt} completed=$completed source=${result.source}",
+            )
             result
         } finally {
             AgentRuntimeController.endCleanVisualCapture()
@@ -282,6 +302,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun Bitmap.toVisualObservation(reason: String): ScreenVisualObservation {
+        val startedAt = SystemClock.elapsedRealtime()
         val originalWidth = width
         val originalHeight = height
         val encoded = try {
@@ -289,6 +310,16 @@ class AiAgentAccessibilityService : AccessibilityService() {
         } finally {
             recycle()
         }
+        val base64StartedAt = SystemClock.elapsedRealtime()
+        val base64Jpeg = Base64.encodeToString(encoded.bytes, Base64.NO_WRAP)
+        val finishedAt = SystemClock.elapsedRealtime()
+        Log.d(
+            VISUAL_LOOP_PERF_TAG,
+            "encode original=${originalWidth}x$originalHeight output=${encoded.width}x${encoded.height} " +
+                "quality=${encoded.quality} bytes=${encoded.bytes.size} encodeMs=${encoded.encodeMs} " +
+                "base64Ms=${finishedAt - base64StartedAt} totalMs=${finishedAt - startedAt} " +
+                "compressPasses=${encoded.compressionPasses} scalePasses=${encoded.scalePasses}",
+        )
         return ScreenVisualObservation(
             available = true,
             mimeType = "image/jpeg",
@@ -296,7 +327,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
             height = encoded.height,
             displayWidth = originalWidth,
             displayHeight = originalHeight,
-            base64Jpeg = Base64.encodeToString(encoded.bytes, Base64.NO_WRAP),
+            base64Jpeg = base64Jpeg,
             source = "accessibility_takeScreenshot_high_resolution",
             reason = "$reason · ${encoded.width}x${encoded.height} · q${encoded.quality} · ${encoded.bytes.size / 1024}KB",
             capturedAt = System.currentTimeMillis(),
@@ -1169,6 +1200,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
             return service.executeStepInternal(step)
         }
 
+        private const val VISUAL_LOOP_PERF_TAG = "VisualLoopPerf"
         private const val WINDOW_HINT_THROTTLE_MS = 900L
 
         // Idle 绝对低负载：不监听事件、不持有 flags。
