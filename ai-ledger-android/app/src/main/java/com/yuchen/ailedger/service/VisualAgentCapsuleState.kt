@@ -74,6 +74,7 @@ internal object VisualAgentCapsuleStateResolver {
         val autoExpandKey = when (mode) {
             VisualAgentCapsuleMode.PendingInput -> pendingInput?.id?.let { "input:$it" }
             VisualAgentCapsuleMode.PendingConfirmation -> pendingConfirmation?.id?.let { "confirm:$it" }
+            VisualAgentCapsuleMode.UserTakeover -> "pause:${progress.taskId}:${progress.logs.size}"
             else -> null
         }
         return VisualAgentCapsulePresentation(
