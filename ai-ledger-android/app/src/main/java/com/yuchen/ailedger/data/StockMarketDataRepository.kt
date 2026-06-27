@@ -472,8 +472,8 @@ class StockMarketDataRepository(
     )
 
     companion object {
-        private const val MARKET_TIMEOUT_MS = 38_000
-        private const val SLOW_TIMEOUT_MS = 28_000
+        private const val MARKET_TIMEOUT_MS = 18_000
+        private const val SLOW_TIMEOUT_MS = 12_000
         private const val MARKET_MICRO_CACHE_MS = 900L
         private const val SLOW_MICRO_CACHE_MS = 2_000L
     }
