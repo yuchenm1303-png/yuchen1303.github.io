@@ -18,7 +18,9 @@
       <div class="edge-aurora-vignette"></div>
     </div>
 
-    <div class="hud-top">
+    <!-- Kept as a hidden data target for the runtime script. The visible interactive top bar is
+         rendered by VisualAgentCapsuleHost in its own tightly-sized accessibility overlay. -->
+    <div class="hud-top" aria-hidden="true" style="display:none">
       <span class="pulse"></span>
       <strong id="topTitle">正在分析页面</strong>
       <span id="topMeta">Step 3 / 5</span>
