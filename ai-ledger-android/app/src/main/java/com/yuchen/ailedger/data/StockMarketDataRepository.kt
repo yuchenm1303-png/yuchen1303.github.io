@@ -11,8 +11,6 @@ import com.yuchen.ailedger.model.StockModuleStatus
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockSectorSnapshot
 import com.yuchen.ailedger.model.StockSlowDataSnapshot
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import org.json.JSONArray
 import org.json.JSONObject
@@ -28,27 +26,29 @@ class StockMarketDataRepository(
             val root = JSONObject(
                 httpGet(
                     "${baseUrl()}/api/stock/a-share/market/home",
-                    timeoutMs = MARKET_TIMEOUT_MS
+                    MARKET_TIMEOUT_MS,
+                    MARKET_MICRO_CACHE_MS
                 )
             )
             parseMarketHome(root).also { snapshot ->
                 if (snapshot.hasUsefulData()) lastSuccessfulHome = snapshot
             }
         }.recoverCatching { error ->
-            lastSuccessfulHome?.asClientStale(error)
-                ?: throw error
+            lastSuccessfulHome?.asClientStale(error) ?: throw error
         }
     }
 
     fun loadSlowStock(query: String): Result<StockSlowDataSnapshot> = runCatching {
         val encoded = encode(query.trim())
-        val root = JSONObject(
-            httpGet(
-                "${baseUrl()}/api/stock/a-share/stock/full?query=$encoded",
-                timeoutMs = SLOW_TIMEOUT_MS
+        val payload = payloadObject(
+            JSONObject(
+                httpGet(
+                    "${baseUrl()}/api/stock/a-share/stock/full?query=$encoded",
+                    SLOW_TIMEOUT_MS,
+                    SLOW_MICRO_CACHE_MS
+                )
             )
         )
-        val payload = payloadObject(root)
 
         val profile = payload.optJSONObject("profile")
         val financials = payload.optJSONObject("financialsSummary")
@@ -119,12 +119,13 @@ class StockMarketDataRepository(
         )
     }
 
-    private fun StockMarketHomeSnapshot.hasUsefulData(): Boolean =
-        indices.isNotEmpty() ||
+    private fun StockMarketHomeSnapshot.hasUsefulData(): Boolean {
+        return indices.isNotEmpty() ||
             marketBreadth.meta.hasRealData ||
             sentiment.meta.hasRealData ||
             boards.isNotEmpty() ||
             sectors.isNotEmpty()
+    }
 
     private fun StockMarketHomeSnapshot.asClientStale(error: Throwable): StockMarketHomeSnapshot {
         val warning = "android_refresh_failed: ${error.javaClass.simpleName}: ${error.message.orEmpty()}"
@@ -344,20 +345,20 @@ class StockMarketDataRepository(
         return root
     }
 
-    private fun hasMarketPayload(value: JSONObject): Boolean =
-        value.has("indices") ||
+    private fun hasMarketPayload(value: JSONObject): Boolean {
+        return value.has("indices") ||
             value.has("marketBreadth") ||
             value.has("profile") ||
             value.has("items") ||
             value.has("status")
+    }
 
     private fun moduleItemsArray(module: JSONObject?): JSONArray? {
         if (module == null) return null
         module.optJSONArray("items")?.let { return it }
         module.optJSONArray("data")?.let { return it }
         module.optJSONArray("result")?.let { return it }
-        val containers = listOf("data", "result", "payload")
-        for (key in containers) {
+        for (key in listOf("data", "result", "payload")) {
             val nested = module.optJSONObject(key) ?: continue
             nested.optJSONArray("items")?.let { return it }
             nested.optJSONArray("data")?.let { return it }
@@ -468,33 +469,21 @@ class StockMarketDataRepository(
         return value
     }
 
-    private fun httpGet(url: String, timeoutMs: Int): String {
-        var connection: HttpURLConnection? = null
-        try {
-            connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = timeoutMs
-                readTimeout = timeoutMs
-                useCaches = false
-                setRequestProperty("User-Agent", "AI-Ledger-Android/1.0")
-                setRequestProperty("Accept", "application/json")
-                setRequestProperty("Connection", "keep-alive")
-            }
-            val responseCode = connection.responseCode
-            val stream = if (responseCode in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (responseCode !in 200..299) {
-                throw IllegalStateException("HTTP $responseCode ${body.take(160)}".trim())
-            }
-            if (body.isBlank()) throw IllegalStateException("股票扩展数据返回为空")
-            return body
-        } finally {
-            connection?.disconnect()
-        }
-    }
+    private fun httpGet(
+        url: String,
+        timeoutMs: Int,
+        microCacheMs: Long
+    ): String = StockHttpClient.get(
+        url = url,
+        timeoutMs = timeoutMs,
+        emptyMessage = "股票扩展数据返回为空",
+        microCacheMs = microCacheMs
+    )
 
     companion object {
         private const val MARKET_TIMEOUT_MS = 18_000
         private const val SLOW_TIMEOUT_MS = 12_000
+        private const val MARKET_MICRO_CACHE_MS = 900L
+        private const val SLOW_MICRO_CACHE_MS = 2_000L
     }
 }
