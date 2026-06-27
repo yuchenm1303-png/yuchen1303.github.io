@@ -78,7 +78,7 @@ class SupabaseAuthRepository private constructor(context: Context) {
             if (session != null) {
                 acceptSession(session, result.message)
             } else {
-                refreshJob?.cancel()
+                cancelScheduledRefresh()
                 _state.value = SupabaseAccountState(
                     loading = false,
                     session = null,
@@ -105,7 +105,7 @@ class SupabaseAuthRepository private constructor(context: Context) {
         scope.launch {
             operationMutex.withLock {
                 val current = _state.value.session
-                refreshJob?.cancel()
+                cancelScheduledRefresh()
                 _state.value = _state.value.copy(
                     loading = true,
                     message = "正在退出…",
@@ -216,7 +216,7 @@ class SupabaseAuthRepository private constructor(context: Context) {
         }
 
         _state.value = _state.value.copy(
-            loading = !automatic,
+            loading = !automatic || !current.isUsable,
             session = current.takeIf { it.isUsable },
             message = loadingMessage,
             tone = SupabaseAccountMessageTone.Normal,
@@ -233,7 +233,7 @@ class SupabaseAuthRepository private constructor(context: Context) {
         } catch (error: Throwable) {
             if (current.isExpired()) {
                 sessionStore.clear()
-                refreshJob?.cancel()
+                cancelScheduledRefresh()
                 _state.value = SupabaseAccountState(
                     loading = false,
                     session = null,
@@ -268,7 +268,7 @@ class SupabaseAuthRepository private constructor(context: Context) {
     }
 
     private fun scheduleAutomaticRefresh(session: SupabaseUserSession) {
-        refreshJob?.cancel()
+        cancelScheduledRefresh()
         if (session.refreshToken.isBlank()) return
         val nowSeconds = System.currentTimeMillis() / 1000L
         val delaySeconds = (session.expiresAtEpochSeconds - nowSeconds - SESSION_REFRESH_EARLY_SECONDS)
@@ -276,6 +276,7 @@ class SupabaseAuthRepository private constructor(context: Context) {
         refreshJob = scope.launch {
             delay(delaySeconds * 1000L)
             operationMutex.withLock {
+                refreshJob = null
                 refreshCurrentSession(
                     automatic = true,
                     loadingMessage = "正在自动刷新登录状态…",
@@ -286,10 +287,11 @@ class SupabaseAuthRepository private constructor(context: Context) {
     }
 
     private fun scheduleRefreshRetry(session: SupabaseUserSession) {
-        refreshJob?.cancel()
+        cancelScheduledRefresh()
         refreshJob = scope.launch {
             delay(SESSION_REFRESH_RETRY_DELAY_MS)
             operationMutex.withLock {
+                refreshJob = null
                 refreshCurrentSession(
                     automatic = true,
                     loadingMessage = "正在重试登录状态…",
@@ -297,6 +299,11 @@ class SupabaseAuthRepository private constructor(context: Context) {
                 )
             }
         }
+    }
+
+    private fun cancelScheduledRefresh() {
+        refreshJob?.cancel()
+        refreshJob = null
     }
 
     private fun updateError(message: String) {
