@@ -3,6 +3,9 @@
     <cache-path
         name="camera_cache"
         path="camera/" />
+    <cache-path
+        name="visual_diagnostics_exports"
+        path="visual-diagnostics-exports/" />
     <external-cache-path
         name="external_camera_cache"
         path="camera/" />
