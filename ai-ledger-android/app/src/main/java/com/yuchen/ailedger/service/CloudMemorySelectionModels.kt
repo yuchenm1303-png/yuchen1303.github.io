@@ -106,7 +106,7 @@ internal fun parseCloudMemorySelectionReply(
     val byId = candidates.associateBy { it.transportId }
     val array = root.optJSONArray("selected") ?: JSONArray()
     val safeLimit = selectionLimit.coerceIn(1, CLOUD_MEMORY_FINAL_SELECTION_LIMIT)
-    val selected = buildList {
+    val selected = buildList<CloudSelectedMemory> {
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
             val id = item.optString("id").trim()
