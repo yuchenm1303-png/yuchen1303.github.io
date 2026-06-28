@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import android.os.SystemClock
+import org.json.JSONArray
 import org.json.JSONObject
 
 internal object VisualLoopSupport {
@@ -23,10 +24,12 @@ internal object VisualLoopSupport {
      */
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         if (step.type != "tap_xy") {
-            return step.withExecutionTraceField(
+            val traced = step.withExecutionTraceField(
                 TRACE_SURFACE_MODE,
                 surfaceEvidenceMode(snapshot),
             )
+            recordPlannedAction(traced, snapshot, "non_coordinate_action")
+            return traced
         }
 
         // Validate the original cloud response before Android adds local trace metadata. This keeps
@@ -37,7 +40,7 @@ internal object VisualLoopSupport {
             surfaceEvidenceMode(snapshot),
         )
         if (!permit.valid) {
-            return surfaceAwareStep
+            val rejected = surfaceAwareStep
                 .withExecutionTraceFields(
                     linkedMapOf(
                         TRACE_PERMIT_REJECTED to true,
@@ -53,6 +56,16 @@ internal object VisualLoopSupport {
                     targetText = "重新观察",
                     reason = "Verified GUI execution permit is invalid (${permit.reason}); the coordinate was not executed.",
                 )
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                type = "tap_permit_rejected",
+                details = JSONObject().apply {
+                    put("originalType", step.type)
+                    put("reason", permit.reason)
+                    put("surfaceMode", surfaceEvidenceMode(snapshot))
+                    put("packageName", snapshot.packageName)
+                },
+            )
+            return rejected
         }
 
         val modelX = surfaceAwareStep.x ?: return surfaceAwareStep
@@ -101,9 +114,37 @@ internal object VisualLoopSupport {
                 )
             }
         }
+        recordPlannedAction(materialized, snapshot, "tap_materialized")
         VisualAgentHudRuntime.notePlannedStep(materialized)
         awaitHudPointerLead()
         return materialized
+    }
+
+    private fun recordPlannedAction(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        stage: String,
+    ) {
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "planned_action",
+            details = JSONObject().apply {
+                put("stage", stage)
+                put("type", step.type)
+                put("targetNodeId", step.targetNodeId ?: JSONObject.NULL)
+                put("targetText", step.targetText ?: JSONObject.NULL)
+                put("text", if (step.type == "input_text") "[输入内容已隐藏]" else step.text ?: JSONObject.NULL)
+                put("direction", step.direction ?: JSONObject.NULL)
+                put("reason", step.reason ?: JSONObject.NULL)
+                put("appName", step.appName ?: JSONObject.NULL)
+                put("packageName", step.packageName ?: JSONObject.NULL)
+                put("x", step.x ?: JSONObject.NULL)
+                put("y", step.y ?: JSONObject.NULL)
+                put("confidence", step.confidence ?: JSONObject.NULL)
+                put("hypothesisId", step.hypothesisId)
+                put("currentPackage", snapshot.packageName)
+                put("toolArgs", step.toolArgs ?: JSONObject.NULL)
+            },
+        )
     }
 
     private fun CloudAgentStep.withTapExecutionTrace(
@@ -208,13 +249,26 @@ internal object VisualLoopSupport {
             ?: step.packageName?.takeIf(String::isNotBlank)
             ?: step.text?.take(32)?.takeIf(String::isNotBlank)
         val executionTrace = buildExecutionTrace(step, result)
-        return buildList {
+        val summary = buildList {
             add(signature)
             add(status)
             target?.let { add("target=${it.take(56)}") }
             executionTrace?.let { add("executionTrace=${it.take(360)}") }
             add("result=${result.message.take(80)}")
         }.joinToString(":").take(MAX_RECENT_ACTION_CHARS)
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "execution_result",
+            details = JSONObject().apply {
+                put("stepType", step.type)
+                put("signature", signature)
+                put("ok", result.ok)
+                put("shouldContinue", result.shouldContinue)
+                put("message", result.message)
+                put("summary", summary)
+                put("toolArgs", step.toolArgs ?: JSONObject.NULL)
+            },
+        )
+        return summary
     }
 
     private fun buildExecutionTrace(step: CloudAgentStep, result: AgentExecutionResult): String? {
@@ -275,7 +329,20 @@ internal object VisualLoopSupport {
         val mergedInteractions = interactions + AgentTakeoverDialogueBridge.interactionActions()
         val interactionBudget = mergedInteractions.takeLast(MAX_INTERACTION_IN_REQUEST)
         val runtimeBudget = (CLIENT_ACTION_LIMIT - interactionBudget.size).coerceAtLeast(MIN_RUNTIME_ACTIONS)
-        return recent.takeLast(runtimeBudget) + interactionBudget
+        val request = recent.takeLast(runtimeBudget) + interactionBudget
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "model_request_memory",
+            details = JSONObject().apply {
+                put("recentActionsBeforeBudget", JSONArray(recent))
+                put("interactionActionsBeforeBudget", JSONArray(mergedInteractions))
+                put("runtimeBudget", runtimeBudget)
+                put("interactionBudget", interactionBudget.size)
+                put("actualRequestActions", JSONArray(request))
+                put("supportedAgentSteps", JSONArray(VisualAgentProtocol.supportedStepTypes.toList()))
+                put("supportedDeviceTools", JSONArray(CloudAgentStep.deviceToolTypes.toList()))
+            },
+        )
+        return request
     }
 
     fun modelTurnBudget(maxSteps: Int): Int {
