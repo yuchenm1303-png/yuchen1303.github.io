@@ -55,7 +55,7 @@ class AssistantMemoryCompilerTest {
     }
 
     @Test
-    fun scopedAndroidProjectMemoryIsRetrievedForAndroidQuestion() {
+    fun scopedAndroidProjectConstraintIsPromotedForAndroidQuestion() {
         val androidProject = AssistantMemoryItem(
             id = "android-project",
             content = "AI Ledger 使用 Kotlin Compose，核心界面必须直接修改正式源码。",
@@ -80,11 +80,9 @@ class AssistantMemoryCompilerTest {
         assertTrue(compilation.selectedMemoryIds.contains("android-project"))
         assertFalse(compilation.selectedMemoryIds.contains("travel"))
         assertTrue(
-            compilation.memorySnapshot
-                ?.optJSONArray("relevantMemories")
-                ?.toString()
+            compilation.personaInstructions
                 .orEmpty()
-                .contains("Kotlin Compose")
+                .contains("核心界面必须直接修改正式源码")
         )
     }
 
