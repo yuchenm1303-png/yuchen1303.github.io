@@ -256,6 +256,8 @@ class VisualLoopRunner(
             (!turn.observation.enabled || !turn.observation.serviceConnected)
         ) return fatal(session, "The Android accessibility service is not connected.")
 
+        handleRedundantVerifiedOpenApp(session, turn, plan)?.let { return it }
+
         val validation = VisualActionValidator.validate(step, turn.snapshot, turn.runtime)
         if (!validation.ok) return rejectPlan(session, turn, plan, validation)
         if (step.type == "finish") return handleFinish(session, turn, plan)
@@ -487,6 +489,56 @@ class VisualLoopRunner(
         } finally {
             releaseExecutionLease()
         }
+    }
+
+    private fun handleRedundantVerifiedOpenApp(
+        session: VisualTaskSession,
+        turn: VisualTurn,
+        plan: CloudAgentPlan,
+    ): VisualLoopDecision? {
+        val step = plan.step
+        if (step.type != "open_app") return null
+        val requestedPackage = step.packageName?.trim().orEmpty()
+        if (!VisualOpenAppHandoffPolicy.isRedundantVerifiedTarget(turn.runtime, requestedPackage)) {
+            return null
+        }
+        val installed = session.installedAppsByPackage[requestedPackage] ?: return null
+        val executable = step.copy(
+            appName = installed.label,
+            packageName = installed.packageName,
+        )
+        session.clearCompletionCandidate()
+        val result = AgentExecutionResult(
+            ok = true,
+            message = VisualOpenAppHandoffPolicy.suppressionMessage(
+                runtime = turn.runtime,
+                requestedPackage = requestedPackage,
+                alreadyForeground = turn.snapshot.currentApp == requestedPackage,
+            ),
+            shouldContinue = true,
+        )
+        recordResult(session, turn.snapshot.currentApp, executable, result)
+        session.state.executedActions += 1
+        session.state.lastAction = VisualActionValidator.actionSignature(executable)
+        session.state.rejectedPlans = 0
+        session.state.reobservations += 1
+        val summary = VisualLoopSupport.resultSummary(executable, session.state.lastAction, result)
+        val feedback = buildString {
+            append("open_app_redundant_verified_target_skipped:package=")
+            append(requestedPackage.take(120))
+            append("|surfaceState=").append(turn.runtime.surfaceState.wireValue)
+            append("|routeEpoch=").append(turn.runtime.routeEpoch)
+            append("|replanRequired=false")
+        }
+        VisualLoopSupport.appendRecent(session.recentActions, summary)
+        VisualLoopSupport.appendRecent(session.recentActions, feedback)
+        VisualLoopMemorySupport.rememberTurn(
+            session.visualHistory,
+            turn.snapshot,
+            plan,
+            "$summary;$feedback",
+        )
+        return VisualLoopDecision.Continue
     }
 
     private fun fatal(session: VisualTaskSession, message: String): VisualLoopDecision {
