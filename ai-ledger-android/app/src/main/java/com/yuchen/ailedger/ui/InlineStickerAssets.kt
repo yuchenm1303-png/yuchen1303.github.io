@@ -2,6 +2,9 @@ package com.yuchen.ailedger.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BlurMaskFilter
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.Composable
@@ -39,6 +42,7 @@ private const val INLINE_STICKER_MIN_DIMENSION = 32
 private const val INLINE_STICKER_MAX_DIMENSION = 2048
 private const val INLINE_STICKER_WARMUP_DELAY_MS = 420L
 private const val INLINE_STICKER_MAX_DECODE_CONCURRENCY = 2
+private const val INLINE_STICKER_PLACEHOLDER_SIZE_PX = 96
 
 internal data class InlineStickerProtocolMarker(
     val start: Int,
@@ -57,6 +61,9 @@ internal object InlineStickerAssets {
     private val inFlight = ConcurrentHashMap<String, Deferred<Bitmap?>>()
     private val decodeSemaphore = Semaphore(INLINE_STICKER_MAX_DECODE_CONCURRENCY)
     private val warmUpStarted = AtomicBoolean(false)
+    private val loadingPlaceholderBitmap: Bitmap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        createLoadingPlaceholderBitmap()
+    }
 
     private val supportedKeys = setOf(
         "joy_burst",
@@ -248,6 +255,10 @@ internal object InlineStickerAssets {
             return InlineStickerLoadHandle { cancelled.set(true) }
         }
 
+        mainHandler.post {
+            if (!cancelled.get()) onResult(loadingPlaceholderBitmap)
+        }
+
         val waiter = loaderScope.launch {
             val bitmap = runCatching { loadBitmap(key) }.getOrNull()
             mainHandler.post {
@@ -406,6 +417,50 @@ internal object InlineStickerAssets {
                 "内置表情资源不完整：缺少=${supportedKeys - loaded.keys}，多余=${loaded.keys - supportedKeys}"
             )
         }
+    }
+
+    private fun createLoadingPlaceholderBitmap(): Bitmap {
+        val size = INLINE_STICKER_PLACEHOLDER_SIZE_PX
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = size / 2f
+
+        val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x408DF9EA.toInt()
+            maskFilter = BlurMaskFilter(size * 0.12f, BlurMaskFilter.Blur.NORMAL)
+        }
+        canvas.drawCircle(center, center + size * 0.02f, size * 0.19f, glowPaint)
+
+        val shellPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xA68DF9EA.toInt()
+        }
+        canvas.drawCircle(center, center, size * 0.14f, shellPaint)
+
+        val corePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xD0B8FFF5.toInt()
+        }
+        canvas.drawCircle(center, center, size * 0.095f, corePaint)
+
+        val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xEFFFFFFF.toInt()
+        }
+        canvas.drawCircle(
+            center - size * 0.035f,
+            center - size * 0.04f,
+            size * 0.035f,
+            highlightPaint
+        )
+
+        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x385A74FF.toInt()
+        }
+        canvas.drawCircle(
+            center + size * 0.045f,
+            center + size * 0.05f,
+            size * 0.025f,
+            shadowPaint
+        )
+        return bitmap
     }
 
     private fun isSupportedTransparentBitmap(bitmap: Bitmap): Boolean {
