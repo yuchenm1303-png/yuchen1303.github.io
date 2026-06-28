@@ -18,8 +18,11 @@ data class DeviceControlSpec(
     val riskLevel: DeviceControlRiskLevel,
     val permissions: Set<DeviceControlPermission> = emptySet(),
     val requiredArgGroups: List<Set<String>> = emptyList(),
+    val allowedArgNames: Set<String> = emptySet(),
     val rangeArgs: Map<String, ClosedFloatingPointRange<Double>> = emptyMap(),
     val allowedValues: Map<String, Set<String>> = emptyMap(),
+    val booleanArgs: Set<String> = emptySet(),
+    val mutuallyExclusiveArgGroups: List<Set<String>> = emptyList(),
     val requiresConfirmation: Boolean = riskLevel == DeviceControlRiskLevel.High || riskLevel == DeviceControlRiskLevel.Critical,
     val normalChatAllowed: Boolean = !requiresConfirmation,
     val stateChanging: Boolean = false,
@@ -33,10 +36,9 @@ data class DeviceControlSpec(
         put("riskLabel", riskLevel.label)
         put("permissions", JSONArray().apply { permissions.map { it.name }.forEach(::put) })
         put("requiredArgGroups", JSONArray().apply {
-            requiredArgGroups.forEach { group ->
-                put(JSONArray().apply { group.forEach(::put) })
-            }
+            requiredArgGroups.forEach { group -> put(JSONArray().apply { group.forEach(::put) }) }
         })
+        put("allowedArgNames", JSONArray().apply { allowedArgNames.forEach(::put) })
         put("rangeArgs", JSONObject().apply {
             rangeArgs.forEach { (key, range) ->
                 put(key, JSONObject().put("min", range.start).put("max", range.endInclusive))
@@ -46,6 +48,10 @@ data class DeviceControlSpec(
             allowedValues.forEach { (key, values) ->
                 put(key, JSONArray().apply { values.forEach(::put) })
             }
+        })
+        put("booleanArgs", JSONArray().apply { booleanArgs.forEach(::put) })
+        put("mutuallyExclusiveArgGroups", JSONArray().apply {
+            mutuallyExclusiveArgGroups.forEach { group -> put(JSONArray().apply { group.forEach(::put) }) }
         })
         put("requiresConfirmation", requiresConfirmation)
         put("normalChatAllowed", normalChatAllowed)
@@ -64,21 +70,28 @@ data class DeviceControlValidation(
     }
 }
 
+/**
+ * Pure Android execution contract for cloud-selected internal controls.
+ *
+ * This layer never reads or interprets the user's natural-language goal. Every semantic decision,
+ * tool selection and relative-value calculation must already be completed by the cloud AgentBrain.
+ * Android accepts only canonical JSON fields and performs schema, permission and safety validation.
+ */
 object DeviceControlSpecs {
+    private val packageArgs = setOf("packageName", "appName")
+
     val all: List<DeviceControlSpec> = listOf(
         DeviceControlSpec(
             stepType = "device_status",
             capabilityIds = listOf("device.health", "device.status"),
             title = "手机体检",
             riskLevel = DeviceControlRiskLevel.Low,
-            reversible = true,
         ),
         DeviceControlSpec(
             stepType = "shizuku_status",
             capabilityIds = listOf("shell.probe", "shell.status", "shizuku.status"),
             title = "Shell/Shizuku 增强模式探测",
             riskLevel = DeviceControlRiskLevel.Low,
-            reversible = true,
         ),
         DeviceControlSpec(
             stepType = "request_shizuku_permission",
@@ -95,6 +108,14 @@ object DeviceControlSpecs {
             capabilityIds = listOf("settings.open"),
             title = "打开系统设置入口",
             riskLevel = DeviceControlRiskLevel.Low,
+            requiredArgGroups = listOf(setOf("page")),
+            allowedArgNames = setOf("page"),
+            allowedValues = mapOf(
+                "page" to setOf(
+                    "system", "wifi", "bluetooth", "battery", "display", "notification",
+                    "accessibility", "apps", "storage", "sound", "location", "data", "developer", "dnd",
+                ),
+            ),
         ),
         DeviceControlSpec(
             stepType = "open_app",
@@ -102,7 +123,8 @@ object DeviceControlSpecs {
             title = "打开应用",
             riskLevel = DeviceControlRiskLevel.Low,
             permissions = setOf(DeviceControlPermission.ExactPackage),
-            requiredArgGroups = listOf(setOf("packageName", "package", "pkg")),
+            requiredArgGroups = listOf(setOf("packageName")),
+            allowedArgNames = packageArgs,
         ),
         DeviceControlSpec(
             stepType = "open_app_settings",
@@ -110,7 +132,9 @@ object DeviceControlSpecs {
             title = "打开 App 专属系统设置",
             riskLevel = DeviceControlRiskLevel.Low,
             permissions = setOf(DeviceControlPermission.ExactPackage),
-            requiredArgGroups = listOf(setOf("packageName", "package", "pkg")),
+            requiredArgGroups = listOf(setOf("packageName"), setOf("page")),
+            allowedArgNames = packageArgs + "page",
+            allowedValues = mapOf("page" to setOf("details", "notification", "permission", "battery")),
         ),
         DeviceControlSpec(
             stepType = "set_brightness",
@@ -118,8 +142,10 @@ object DeviceControlSpecs {
             title = "调节屏幕亮度",
             riskLevel = DeviceControlRiskLevel.Medium,
             permissions = setOf(DeviceControlPermission.WriteSettings),
-            requiredArgGroups = listOf(setOf("percent", "brightness", "value", "deltaPercent", "delta", "brightnessDelta", "changePercent", "adjustBy", "operation")),
-            rangeArgs = percentRanges("percent", "brightness", "value"),
+            requiredArgGroups = listOf(setOf("percent", "deltaPercent")),
+            allowedArgNames = setOf("percent", "deltaPercent"),
+            rangeArgs = mapOf("percent" to 0.0..100.0, "deltaPercent" to -100.0..100.0),
+            mutuallyExclusiveArgGroups = listOf(setOf("percent", "deltaPercent")),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -128,8 +154,9 @@ object DeviceControlSpecs {
             title = "设置自动锁屏时间",
             riskLevel = DeviceControlRiskLevel.Medium,
             permissions = setOf(DeviceControlPermission.WriteSettings),
-            requiredArgGroups = listOf(setOf("timeoutMs", "screenTimeoutMs", "seconds", "second", "sec", "minutes", "minute", "min")),
-            rangeArgs = mapOf("timeoutMs" to 5_000.0..1_800_000.0, "seconds" to 5.0..1_800.0, "minutes" to 1.0..30.0),
+            requiredArgGroups = listOf(setOf("timeoutMs")),
+            allowedArgNames = setOf("timeoutMs"),
+            rangeArgs = mapOf("timeoutMs" to 5_000.0..1_800_000.0),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -138,7 +165,9 @@ object DeviceControlSpecs {
             title = "设置自动旋转",
             riskLevel = DeviceControlRiskLevel.Medium,
             permissions = setOf(DeviceControlPermission.WriteSettings),
-            requiredArgGroups = listOf(setOf("enabled", "enable", "on", "state", "value", "mode")),
+            requiredArgGroups = listOf(setOf("enabled")),
+            allowedArgNames = setOf("enabled"),
+            booleanArgs = setOf("enabled"),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -146,8 +175,10 @@ object DeviceControlSpecs {
             capabilityIds = listOf("system.media_volume", "system.media_volume.set"),
             title = "设置媒体音量",
             riskLevel = DeviceControlRiskLevel.Low,
-            requiredArgGroups = listOf(setOf("percent", "volume", "value", "deltaPercent", "delta", "changePercent", "adjustBy", "operation")),
-            rangeArgs = percentRanges("percent", "volume", "value"),
+            requiredArgGroups = listOf(setOf("percent", "deltaPercent")),
+            allowedArgNames = setOf("percent", "deltaPercent"),
+            rangeArgs = mapOf("percent" to 0.0..100.0, "deltaPercent" to -100.0..100.0),
+            mutuallyExclusiveArgGroups = listOf(setOf("percent", "deltaPercent")),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -156,7 +187,9 @@ object DeviceControlSpecs {
             title = "开启/关闭 Wi-Fi",
             riskLevel = DeviceControlRiskLevel.Medium,
             permissions = setOf(DeviceControlPermission.EnhancedShell),
-            requiredArgGroups = listOf(setOf("enabled", "enable", "on", "state", "value", "mode")),
+            requiredArgGroups = listOf(setOf("enabled")),
+            allowedArgNames = setOf("enabled"),
+            booleanArgs = setOf("enabled"),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -165,7 +198,9 @@ object DeviceControlSpecs {
             title = "开启/关闭蓝牙",
             riskLevel = DeviceControlRiskLevel.Medium,
             permissions = setOf(DeviceControlPermission.EnhancedShell),
-            requiredArgGroups = listOf(setOf("enabled", "enable", "on", "state", "value", "mode")),
+            requiredArgGroups = listOf(setOf("enabled")),
+            allowedArgNames = setOf("enabled"),
+            booleanArgs = setOf("enabled"),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -174,7 +209,9 @@ object DeviceControlSpecs {
             title = "开启/关闭移动数据",
             riskLevel = DeviceControlRiskLevel.Medium,
             permissions = setOf(DeviceControlPermission.EnhancedShell),
-            requiredArgGroups = listOf(setOf("enabled", "enable", "on", "state", "value", "mode")),
+            requiredArgGroups = listOf(setOf("enabled")),
+            allowedArgNames = setOf("enabled"),
+            booleanArgs = setOf("enabled"),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -183,8 +220,9 @@ object DeviceControlSpecs {
             title = "设置深色模式",
             riskLevel = DeviceControlRiskLevel.Medium,
             permissions = setOf(DeviceControlPermission.EnhancedShell),
-            requiredArgGroups = listOf(setOf("mode", "state", "value", "enabled", "on")),
-            allowedValues = mapOf("mode" to setOf("yes", "no", "auto", "on", "off", "true", "false", "enable", "disable", "enabled", "disabled", "open", "close")),
+            requiredArgGroups = listOf(setOf("mode")),
+            allowedArgNames = setOf("mode"),
+            allowedValues = mapOf("mode" to setOf("yes", "no", "auto")),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -193,66 +231,21 @@ object DeviceControlSpecs {
             title = "设置动画缩放",
             riskLevel = DeviceControlRiskLevel.High,
             permissions = setOf(DeviceControlPermission.EnhancedShell),
-            rangeArgs = mapOf("scale" to 0.0..10.0, "value" to 0.0..10.0),
+            requiredArgGroups = listOf(setOf("scale")),
+            allowedArgNames = setOf("scale"),
+            rangeArgs = mapOf("scale" to 0.0..10.0),
             stateChanging = true,
         ),
-        DeviceControlSpec(
-            stepType = "force_stop_app",
-            capabilityIds = listOf("app.force_stop"),
-            title = "强停应用",
-            riskLevel = DeviceControlRiskLevel.High,
-            permissions = setOf(DeviceControlPermission.EnhancedShell, DeviceControlPermission.ExactPackage),
-            requiredArgGroups = listOf(setOf("packageName", "package", "pkg")),
-            stateChanging = true,
-            reversible = false,
-        ),
-        DeviceControlSpec(
-            stepType = "clear_app_data",
-            capabilityIds = listOf("app.clear_data"),
-            title = "清除应用数据",
-            riskLevel = DeviceControlRiskLevel.Critical,
-            permissions = setOf(DeviceControlPermission.EnhancedShell, DeviceControlPermission.ExactPackage),
-            requiredArgGroups = listOf(setOf("packageName", "package", "pkg")),
-            stateChanging = true,
-            reversible = false,
-        ),
-        DeviceControlSpec(
-            stepType = "uninstall_app",
-            capabilityIds = listOf("app.uninstall"),
-            title = "卸载当前用户应用",
-            riskLevel = DeviceControlRiskLevel.Critical,
-            permissions = setOf(DeviceControlPermission.EnhancedShell, DeviceControlPermission.ExactPackage),
-            requiredArgGroups = listOf(setOf("packageName", "package", "pkg")),
-            stateChanging = true,
-            reversible = false,
-        ),
-        DeviceControlSpec(
-            stepType = "disable_app",
-            capabilityIds = listOf("app.disable", "system.app_disable"),
-            title = "禁用应用",
-            riskLevel = DeviceControlRiskLevel.Critical,
-            permissions = setOf(DeviceControlPermission.EnhancedShell, DeviceControlPermission.ExactPackage),
-            requiredArgGroups = listOf(setOf("packageName", "package", "pkg")),
-            stateChanging = true,
-        ),
-        DeviceControlSpec(
-            stepType = "enable_app",
-            capabilityIds = listOf("app.enable", "system.app_enable"),
-            title = "启用应用",
-            riskLevel = DeviceControlRiskLevel.Critical,
-            permissions = setOf(DeviceControlPermission.EnhancedShell, DeviceControlPermission.ExactPackage),
-            requiredArgGroups = listOf(setOf("packageName", "package", "pkg")),
-            stateChanging = true,
-        ),
+        privilegedAppSpec("force_stop_app", listOf("app.force_stop"), "强停应用", DeviceControlRiskLevel.High, reversible = false),
+        privilegedAppSpec("clear_app_data", listOf("app.clear_data"), "清除应用数据", DeviceControlRiskLevel.Critical, reversible = false),
+        privilegedAppSpec("uninstall_app", listOf("app.uninstall"), "卸载当前用户应用", DeviceControlRiskLevel.Critical, reversible = false),
+        privilegedAppSpec("disable_app", listOf("app.disable", "system.app_disable"), "禁用应用", DeviceControlRiskLevel.Critical),
+        privilegedAppSpec("enable_app", listOf("app.enable", "system.app_enable"), "启用应用", DeviceControlRiskLevel.Critical),
     )
 
     val byStepType: Map<String, DeviceControlSpec> = all.associateBy { it.stepType }
     val capabilityToStepType: Map<String, String> = buildMap {
-        all.forEach { spec ->
-            spec.capabilityIds.forEach { capability ->
-                put(normalizeKey(capability), spec.stepType)
-            }
-        }
+        all.forEach { spec -> spec.capabilityIds.forEach { capability -> put(normalizeKey(capability), spec.stepType) } }
     }
 
     fun specFor(stepType: String): DeviceControlSpec? = byStepType[stepType]
@@ -266,87 +259,114 @@ object DeviceControlSpecs {
 
     fun supportedCapabilities(): List<String> = capabilityToStepType.keys.sorted()
 
-    fun normalChatSupportedCapabilities(): List<String> {
-        return all.filter { it.normalChatAllowed }.flatMap { it.capabilityIds }.map(::normalizeKey).sorted()
-    }
+    fun normalChatSupportedCapabilities(): List<String> = all
+        .filter { it.normalChatAllowed }
+        .flatMap { it.capabilityIds }
+        .map(::normalizeKey)
+        .sorted()
 
-    fun normalChatSupportedStepTypes(): List<String> {
-        return all.filter { it.normalChatAllowed }.map { it.stepType }.distinct().sorted()
-    }
+    fun normalChatSupportedStepTypes(): List<String> = all
+        .filter { it.normalChatAllowed }
+        .map { it.stepType }
+        .distinct()
+        .sorted()
 
-    fun requiresConfirmation(step: CloudAgentStep): Boolean {
-        return step.requiresConfirmation || byStepType[step.type]?.requiresConfirmation == true
-    }
+    fun requiresConfirmation(step: CloudAgentStep): Boolean =
+        step.requiresConfirmation || byStepType[step.type]?.requiresConfirmation == true
 
     fun riskFor(stepType: String): String = byStepType[stepType]?.riskLevel?.name?.lowercase() ?: "low"
 
     fun validate(step: CloudAgentStep): DeviceControlValidation {
-        val spec = byStepType[step.type] ?: return DeviceControlValidation.invalid("unsupported_device_tool:${step.type}")
+        val spec = byStepType[step.type]
+            ?: return DeviceControlValidation.invalid("unsupported_device_tool:${step.type}")
         val args = step.toolArgs ?: JSONObject()
 
+        val unknownArgs = args.keys().asSequence().filterNot { it in spec.allowedArgNames }.toList()
+        if (unknownArgs.isNotEmpty()) {
+            return DeviceControlValidation.invalid("non_canonical_args:${unknownArgs.sorted().joinToString("|")}")
+        }
+
         if (DeviceControlPermission.ExactPackage in spec.permissions) {
-            val packageName = (step.packageName ?: args.specFirstNonBlank("packageName", "package", "pkg")).orEmpty()
-            if (!isSafePackageName(packageName)) return DeviceControlValidation.invalid("missing_or_invalid_package_name")
+            val packageName = canonicalPackageName(step, args)
+            if (!isSafePackageName(packageName)) {
+                return DeviceControlValidation.invalid("missing_or_invalid_package_name")
+            }
         }
 
         for (group in spec.requiredArgGroups) {
-            if (!group.any { hasStepArg(step, args, it) }) {
+            if (!group.any { hasCanonicalArg(step, args, it) }) {
                 return DeviceControlValidation.invalid("missing_required_args:${group.sorted().joinToString("|")}")
             }
         }
 
-        spec.rangeArgs.forEach { (name, range) ->
-            val number = numericArg(step, args, name) ?: return@forEach
+        for (group in spec.mutuallyExclusiveArgGroups) {
+            if (group.count { hasCanonicalArg(step, args, it) } > 1) {
+                return DeviceControlValidation.invalid("mutually_exclusive_args:${group.sorted().joinToString("|")}")
+            }
+        }
+
+        for ((name, range) in spec.rangeArgs) {
+            if (!args.hasCanonicalValue(name)) continue
+            val number = args.canonicalNumber(name)
+                ?: return DeviceControlValidation.invalid("arg_not_number:$name")
             if (number !in range) return DeviceControlValidation.invalid("arg_out_of_range:$name")
         }
 
-        spec.allowedValues.forEach { (name, values) ->
-            val raw = stringArg(step, args, name)?.lowercase()?.replace('-', '_') ?: return@forEach
-            if (raw.isNotBlank() && raw !in values) return DeviceControlValidation.invalid("arg_not_allowed:$name")
+        for (name in spec.booleanArgs) {
+            if (!args.hasCanonicalValue(name)) continue
+            if (args.opt(name) !is Boolean) return DeviceControlValidation.invalid("arg_not_boolean:$name")
+        }
+
+        for ((name, values) in spec.allowedValues) {
+            if (!args.hasCanonicalValue(name)) continue
+            val raw = args.opt(name) as? String
+                ?: return DeviceControlValidation.invalid("arg_not_string:$name")
+            if (raw !in values) return DeviceControlValidation.invalid("arg_not_allowed:$name")
         }
 
         return DeviceControlValidation.Ok
     }
 
-    fun isSafePackageName(packageName: String): Boolean {
-        return packageName.matches(Regex("""[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+"""))
+    fun isSafePackageName(packageName: String): Boolean =
+        packageName.matches(Regex("""[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+"""))
+
+    private fun privilegedAppSpec(
+        stepType: String,
+        capabilityIds: List<String>,
+        title: String,
+        riskLevel: DeviceControlRiskLevel,
+        reversible: Boolean = true,
+    ) = DeviceControlSpec(
+        stepType = stepType,
+        capabilityIds = capabilityIds,
+        title = title,
+        riskLevel = riskLevel,
+        permissions = setOf(DeviceControlPermission.EnhancedShell, DeviceControlPermission.ExactPackage),
+        requiredArgGroups = listOf(setOf("packageName")),
+        allowedArgNames = packageArgs,
+        stateChanging = true,
+        reversible = reversible,
+    )
+
+    private fun canonicalPackageName(step: CloudAgentStep, args: JSONObject): String =
+        step.packageName?.trim().takeUnless { it.isNullOrBlank() }
+            ?: args.optString("packageName").trim()
+
+    private fun hasCanonicalArg(step: CloudAgentStep, args: JSONObject, name: String): Boolean = when (name) {
+        "packageName" -> canonicalPackageName(step, args).isNotBlank()
+        else -> args.hasCanonicalValue(name)
     }
 
     private fun normalizeKey(value: String): String = value.trim().lowercase().replace('-', '_')
-
-    private fun percentRanges(vararg names: String): Map<String, ClosedFloatingPointRange<Double>> =
-        names.associateWith { 0.0..100.0 }
-
-    private fun hasStepArg(step: CloudAgentStep, args: JSONObject, name: String): Boolean {
-        return when (name) {
-            "packageName" -> !step.packageName.isNullOrBlank() || !args.specFirstNonBlank("packageName", "package", "pkg").isNullOrBlank()
-            "text" -> !step.text.isNullOrBlank() || !args.specFirstNonBlank("text", "inputText", "value", "query", "content").isNullOrBlank()
-            "target" -> !step.targetText.isNullOrBlank() || !args.specFirstNonBlank("target", "targetText", "page", "kind", "setting").isNullOrBlank()
-            else -> !stringArg(step, args, name).isNullOrBlank()
-        }
-    }
-
-    private fun numericArg(step: CloudAgentStep, args: JSONObject, name: String): Double? {
-        val raw = stringArg(step, args, name) ?: return null
-        return raw.removeSuffix("%").toDoubleOrNull()
-    }
-
-    private fun stringArg(step: CloudAgentStep, args: JSONObject, name: String): String? {
-        val fromArgs = if (args.has(name) && !args.isNull(name)) args.optString(name).trim() else ""
-        if (fromArgs.isNotBlank()) return fromArgs
-        return when (name) {
-            "packageName", "package", "pkg" -> step.packageName
-            "target", "targetText", "page", "kind", "setting" -> step.targetText
-            "text", "inputText", "value", "query", "content" -> step.text
-            else -> null
-        }?.trim()?.takeIf { it.isNotBlank() }
-    }
 }
 
-private fun JSONObject.specFirstNonBlank(vararg names: String): String? {
-    for (name in names) {
-        val value = optString(name).trim()
-        if (value.isNotBlank()) return value
+private fun JSONObject.hasCanonicalValue(name: String): Boolean =
+    has(name) && !isNull(name) && when (val value = opt(name)) {
+        is String -> value.isNotBlank()
+        else -> value != null
     }
-    return null
+
+private fun JSONObject.canonicalNumber(name: String): Double? = when (val value = opt(name)) {
+    is Number -> value.toDouble()
+    else -> null
 }
