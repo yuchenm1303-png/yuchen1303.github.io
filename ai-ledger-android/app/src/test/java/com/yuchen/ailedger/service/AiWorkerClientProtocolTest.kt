@@ -64,7 +64,7 @@ class AiWorkerClientProtocolTest {
     }
 
     @Test
-    fun ordinaryChatUsesStructuredFieldsWithoutEmbeddedModelCommands() {
+    fun ordinaryChatUsesStructuredParallelProbeWithoutEmbeddedModelCommands() {
         val payload = client.buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -77,20 +77,33 @@ class AiWorkerClientProtocolTest {
 
         assertEquals("chat", payload.getString("intent"))
         assertFalse(payload.getBoolean("allowModelCommands"))
+
         val protocol = payload.getJSONObject("commandProtocol")
         assertFalse(protocol.getBoolean("allowModelCommands"))
         assertTrue(protocol.getBoolean("structuredCommandsOnly"))
         assertEquals("structured_low_risk_only", protocol.getString("deviceControlMode"))
         assertEquals("structured_response_only", protocol.getString("fallbackTransport"))
-        assertEquals(0, protocol.getJSONArray("supportedAgentActions").length())
+
+        val supportedAgentActions = protocol.getJSONArray("supportedAgentActions")
+        assertEquals(1, supportedAgentActions.length())
+        assertEquals("run_device_control", supportedAgentActions.getString(0))
 
         val responseFormat = payload.getJSONObject("responseFormat")
-        assertFalse(responseFormat.getBoolean("includeAgentAction"))
+        assertTrue(responseFormat.getBoolean("includeAgentAction"))
         assertFalse(responseFormat.getBoolean("includeEmbeddedCommandMarker"))
 
-        val capabilities = protocol.getJSONArray("supportedDeviceControlActions")
-        assertEquals(0, capabilities.length())
-        assertEquals(0, protocol.getJSONArray("supportedDeviceToolSteps").length())
+        val legacyCapabilities = protocol.getJSONArray("supportedDeviceControlActions")
+        assertEquals(0, legacyCapabilities.length())
+
+        val supportedSteps = protocol.getJSONArray("supportedDeviceToolSteps")
+        assertTrue(supportedSteps.length() > 0)
+
+        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
+        assertTrue(probe.getBoolean("enabled"))
+        assertTrue(probe.getBoolean("singleRequestParallel"))
+        assertEquals("deepseek_primary_qwen_failure_fallback", probe.getString("decisionOwner"))
+        assertEquals("android_local_verified", probe.getString("executionOwner"))
+        assertEquals(supportedSteps.length(), probe.getJSONArray("supportedDeviceToolSteps").length())
     }
 
     @Test
