@@ -61,6 +61,7 @@ enum class VisualTargetPackageVerificationReason(
     StableTargetWithVisualFrame("stable_target_with_visual_frame", false),
     TaskStopped("task_stopped", true),
     StableSamplesIncomplete("stable_samples_incomplete", true),
+    VisualFrameUnavailable("visual_frame_unavailable", true),
     TransientSurface("transient_surface", true),
     TargetNotStable("target_not_stable", false),
 }
@@ -371,6 +372,8 @@ class VisualObservationCoordinator(
 
         val reason = when {
             isStopped() -> VisualTargetPackageVerificationReason.TaskStopped
+            stableSamples >= requiredSamples && lastSnapshot?.packageName == expectedPackage ->
+                VisualTargetPackageVerificationReason.VisualFrameUnavailable
             lastSnapshot?.packageName == expectedPackage && stableSamples in 1 until requiredSamples ->
                 VisualTargetPackageVerificationReason.StableSamplesIncomplete
             lastEvidenceStrength == VisualPackageEvidenceStrength.Inherited ->
