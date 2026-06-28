@@ -8,7 +8,7 @@ import org.junit.Test
 
 class VisualObservationCoordinatorTest {
     @Test
-    fun trustedFallbackRepairsBlankAccessibilityPackage() = runBlocking {
+    fun trustedFallbackRepairsBlankAccessibilityPackageWithoutSuppressingHud() = runBlocking {
         val overlay = RecordingOverlayController()
         var probeCount = 0
         val coordinator = VisualObservationCoordinator(
@@ -41,12 +41,12 @@ class VisualObservationCoordinatorTest {
         assertEquals("com.example.target", observation.packageName)
         assertTrue(observation.windowTitle.contains("activity_manager"))
         assertEquals(1, probeCount)
-        assertEquals(1, overlay.beginCount)
-        assertEquals(1, overlay.endCount)
+        assertEquals(0, overlay.beginCount)
+        assertEquals(0, overlay.endCount)
     }
 
     @Test
-    fun usableAccessibilityPackageSkipsShellProbe() = runBlocking {
+    fun usableAccessibilityPackageSkipsShellProbeAndDoesNotSuppressHud() = runBlocking {
         val overlay = RecordingOverlayController()
         var probeCount = 0
         val coordinator = VisualObservationCoordinator(
@@ -78,12 +78,12 @@ class VisualObservationCoordinatorTest {
 
         assertEquals("com.example.target", observation.packageName)
         assertEquals(0, probeCount)
-        assertEquals(1, overlay.beginCount)
-        assertEquals(1, overlay.endCount)
+        assertEquals(0, overlay.beginCount)
+        assertEquals(0, overlay.endCount)
     }
 
     @Test
-    fun twoStablePackageSamplesAndVisualFrameCompleteHandoff() = runBlocking {
+    fun twoStablePackageSamplesAndVisualFrameCompleteHandoffWithOneHudSuppression() = runBlocking {
         var clock = 0L
         val overlay = RecordingOverlayController()
         val coordinator = VisualObservationCoordinator(
@@ -113,8 +113,8 @@ class VisualObservationCoordinatorTest {
         assertEquals(2, verification.stableSamples)
         assertEquals("com.example.target", verification.lastSnapshot?.packageName)
         assertTrue(verification.lastObservation?.visual?.hasImage == true)
-        assertEquals(3, overlay.beginCount)
-        assertEquals(3, overlay.endCount)
+        assertEquals(1, overlay.beginCount)
+        assertEquals(1, overlay.endCount)
     }
 
     @Test
@@ -154,7 +154,7 @@ class VisualObservationCoordinatorTest {
     }
 
     @Test
-    fun overlayIsRestoredWhenCaptureFails() = runBlocking {
+    fun overlayIsRestoredWhenVisualCaptureFails() = runBlocking {
         val overlay = RecordingOverlayController()
         val coordinator = VisualObservationCoordinator(
             captureSource = VisualObservationCaptureSource {
