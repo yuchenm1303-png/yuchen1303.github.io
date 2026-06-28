@@ -7,3 +7,4 @@ Build Compose Android APK verification
 2026-06-28 OpenGL 无损收尾最终源码构建验证
 2026-06-28 设置页旧版 OpenGL 几何缓存恢复验证
 2026-06-28 OpenGL 玻璃运行链回退到 8a8589 基准构建验证
+2026-06-28 完整 OpenGL 子系统精确回退到 8a8589 构建验证
