@@ -24,7 +24,7 @@ class ForegroundPackageEvidenceTest {
     }
 
     @Test
-    fun assistantOrTransientSurfaceUsesTrustedShellFallback() {
+    fun assistantTransientAndUnresolvedSurfacesUseTrustedShellFallback() {
         val shell = ForegroundPackageProbeResult(
             packageName = "com.example.target",
             source = ForegroundPackageEvidenceSource.WindowManager,
@@ -33,14 +33,34 @@ class ForegroundPackageEvidenceTest {
 
         listOf(
             VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE,
+            "",
+            "unknown",
             "android",
             "com.android.systemui",
             "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+            "com.vendor.security.permissioncontroller",
         ).forEach { accessibilityPackage ->
             val result = ForegroundPackageEvidenceResolver.resolve(accessibilityPackage, shell)
             assertEquals("com.example.target", result.packageName)
             assertEquals(ForegroundPackageEvidenceSource.WindowManager, result.source)
+            assertTrue(ForegroundPackageEvidenceResolver.needsShellFallback(accessibilityPackage))
         }
+    }
+
+    @Test
+    fun transientShellResultCannotMasqueradeAsContentApp() {
+        val result = ForegroundPackageEvidenceResolver.resolve(
+            accessibilityPackage = "unknown",
+            shellProbe = ForegroundPackageProbeResult(
+                packageName = "com.google.android.permissioncontroller",
+                source = ForegroundPackageEvidenceSource.ActivityManager,
+                available = true,
+            ),
+        )
+
+        assertEquals("unknown", result.packageName)
+        assertEquals(ForegroundPackageEvidenceSource.Accessibility, result.source)
     }
 
     @Test
