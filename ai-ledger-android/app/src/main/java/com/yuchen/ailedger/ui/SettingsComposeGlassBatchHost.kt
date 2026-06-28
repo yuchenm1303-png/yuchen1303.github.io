@@ -2,11 +2,15 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 
 /**
  * 设置页生产态 Compose 玻璃单宿主。
@@ -23,11 +27,16 @@ internal fun SettingsComposeGlassBatchHost(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
+    // 在子树创建 TextureView 前开启计数，保证 Host、纹理、EGL 与首帧事件都被采集。
+    val diagnosticsSession = remember { beginSettingsOpenGLDiagnostics() }
     val frostLayerState = rememberSettingsFrostParentLayerState()
     val foldoutClipRegistry = remember { GlassFoldoutClipRegistry() }
 
-    DisposableEffect(foldoutClipRegistry) {
-        onDispose { foldoutClipRegistry.clear() }
+    DisposableEffect(foldoutClipRegistry, diagnosticsSession) {
+        onDispose {
+            foldoutClipRegistry.clear()
+            endSettingsOpenGLDiagnostics(diagnosticsSession)
+        }
     }
 
     CompositionLocalProvider(
@@ -41,6 +50,13 @@ internal fun SettingsComposeGlassBatchHost(
                 modifier = Modifier.matchParentSize()
             )
             content()
+            SettingsOpenGLDiagnosticsPanel(
+                session = diagnosticsSession,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 10.dp, vertical = 92.dp)
+                    .zIndex(1000f),
+            )
         }
     }
 }
