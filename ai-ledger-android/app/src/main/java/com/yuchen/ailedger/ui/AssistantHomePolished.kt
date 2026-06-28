@@ -122,9 +122,8 @@ private data class ComposerBarUiState(
         }
 }
 
-
 @Stable
-private class AssistantHomeMotionClock(
+internal class AssistantHomeMotionClock(
     private val frameNanos: State<Long>,
     private val motionIntensity: Float
 ) {
@@ -143,23 +142,34 @@ private class AssistantHomeMotionClock(
 }
 
 @Composable
-private fun rememberAssistantHomeMotionClock(motionIntensity: Float): AssistantHomeMotionClock {
-    val frameNanos = rememberAssistantHomeFrameNanos(motionIntensity)
+private fun rememberAssistantHomeMotionClock(
+    motionIntensity: Float,
+    active: Boolean
+): AssistantHomeMotionClock {
+    val frameNanos = rememberAssistantHomeFrameNanos(motionIntensity, active)
     return remember(frameNanos, motionIntensity) {
         AssistantHomeMotionClock(frameNanos = frameNanos, motionIntensity = motionIntensity)
     }
 }
 
 @Composable
-private fun rememberAssistantHomeFrameNanos(motionIntensity: Float): State<Long> {
+private fun rememberAssistantHomeFrameNanos(
+    motionIntensity: Float,
+    active: Boolean
+): State<Long> {
     val frameNanos = remember { mutableStateOf(0L) }
-    LaunchedEffect(motionIntensity) {
-        if (motionIntensity <= 0.02f) {
-            frameNanos.value = 0L
-            return@LaunchedEffect
-        }
-        while (true) {
-            withFrameNanos { nanos -> frameNanos.value = nanos }
+    LaunchedEffect(motionIntensity, active) {
+        if (!active || motionIntensity <= 0.02f) return@LaunchedEffect
+        PerformanceRuntimeMetrics.recordAssistantClockStart()
+        try {
+            while (true) {
+                withFrameNanos { nanos ->
+                    frameNanos.value = nanos
+                    PerformanceRuntimeMetrics.recordAssistantClockTick()
+                }
+            }
+        } finally {
+            PerformanceRuntimeMetrics.recordAssistantClockStop()
         }
     }
     return frameNanos
@@ -225,7 +235,6 @@ internal fun AssistantScreenV2(
         keyboardAnchorHeld -> OpenGLGlassSurfaceAnchor.Top
         else -> OpenGLGlassSurfaceAnchor.Center
     }
-    val motionClock = rememberAssistantHomeMotionClock(state.motionIntensity)
 
     val chatPanelState = remember(
         state.messages,
@@ -327,7 +336,6 @@ internal fun AssistantScreenV2(
                     state = chatPanelState,
                     modifier = Modifier.fillMaxWidth(),
                     viewportTopInset = modelExpandDelta,
-                    motionClock = motionClock,
                     onDraftCommand = onDraftCommand,
                     onPickImage = onPickImage,
                     onCopyMessage = onCopyMessage,
@@ -476,7 +484,6 @@ private fun ChatPanelV2(
     state: ChatPanelUiState,
     modifier: Modifier,
     viewportTopInset: Dp = 0.dp,
-    motionClock: AssistantHomeMotionClock,
     onDraftCommand: (String) -> Unit,
     onPickImage: () -> Unit,
     onCopyMessage: (String) -> Unit,
@@ -526,9 +533,32 @@ private fun ChatPanelV2(
     val lastMessageId = lastMessage?.id
     val lastMessageStatus = lastMessage?.status
     val lastMessageIndex = messages.lastIndex
-    val lastActionableMessageId = remember(messages) {
-        messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }?.id
+    val lastActionableMessage = remember(messages) {
+        messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }
     }
+    val lastActionableMessageId = lastActionableMessage?.id
+    val hasSendingAssistantMessage = remember(messages) {
+        messages.any { it.role == MessageRole.Assistant && it.status == MessageStatus.Sending }
+    }
+    val pendingStreamMotion = streamedMessageIds.any { it !in streamRevealCompletedMessageIds }
+    val pendingRevealMotion = lastActionableMessage?.let { message ->
+        message.id !in revealedMessageIds &&
+            message.id !in streamedMessageIds &&
+            message.status == MessageStatus.Sent &&
+            messageText(message).length > 24
+    } == true
+    val motionClockActive = state.motionIntensity > 0.02f && (
+        state.isSending ||
+            hasSendingAssistantMessage ||
+            pendingStreamMotion ||
+            pendingRevealMotion
+        )
+    val motionClock = rememberAssistantHomeMotionClock(
+        motionIntensity = state.motionIntensity,
+        active = motionClockActive
+    )
+    SideEffect { PerformanceRuntimeMetrics.recordAssistantComposition() }
+
     LaunchedEffect(lastMessageId, state.isSending) {
         if (messages.isEmpty()) return@LaunchedEffect
         if (state.isSending || lastMessageStatus == MessageStatus.Sending) {
@@ -640,7 +670,7 @@ private fun ChatBubbleMaterialLayerHost(
         layerState = layerState,
         listState = listState,
         messages = messages,
-        phase = motionClock.phase(7200L),
+        motionClock = motionClock,
         motionIntensity = motionIntensity,
         modifier = modifier
     )
@@ -817,6 +847,7 @@ private fun MessageBubbleV2(
     )
 
     SideEffect {
+        PerformanceRuntimeMetrics.recordMessageBubbleComposition()
         bubbleLayerState.updateBubbleVisual(
             id = message.id,
             fromUser = fromUser,
@@ -985,7 +1016,6 @@ private fun StreamingAssistantContentV2(
         }
     }
 }
-
 
 @Immutable
 private data class FluidStreamingTextVisualStateV2(
@@ -1411,7 +1441,6 @@ private fun isThinkingSweepPlaceholderV2(text: String): Boolean {
         clean == "正在执行手机智能体任务…" ||
         clean == "正在执行手机智能体任务"
 }
-
 
 @Composable
 private fun MessageAttachmentListV2(attachments: List<ChatAttachment>) {
