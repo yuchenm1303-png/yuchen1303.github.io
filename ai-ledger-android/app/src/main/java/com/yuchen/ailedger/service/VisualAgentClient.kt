@@ -90,6 +90,8 @@ fun AiWorkerClient.requestVisualAgentStep(
         runtimeContext = runtimeContext,
         taskMemory = taskMemory,
     )
+    // 记录最终发送的真实 JSON；存储层会剥离截图字节和敏感字段。
+    VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordModelRequestPayload(payload)
     return postVisualAgentStep(endpointBase, payload, deviceId, agentSessionId)
 }
 
@@ -707,6 +709,9 @@ private fun AiWorkerClient.postVisualAgentStep(
     agentSessionId: String,
 ): CloudAgentPlan {
     val requestStart = SystemClock.elapsedRealtime()
+    var requestByteCount = 0
+    var terminalDiagnosticRecorded = false
+    val diagnostics = VisualIntelligenceDiagnosticsStore.currentOrNull()
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = VISUAL_AGENT_CONNECT_TIMEOUT_MS
@@ -722,25 +727,103 @@ private fun AiWorkerClient.postVisualAgentStep(
     }
     return try {
         val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
+        requestByteCount = requestBytes.size
         connection.outputStream.use { it.write(requestBytes) }
         val status = connection.responseCode
         val body = connection.visualAgentReadBody(status)
+        val responseByteCount = body.toByteArray(Charsets.UTF_8).size
         val data = body.visualAgentJsonOrNull()
         val workerVersion = connection.getHeaderField("X-AI-Ledger-Worker-Version").orEmpty().take(48)
         val routeProtocol = connection.getHeaderField("X-AI-Ledger-Route-Protocol").orEmpty().take(48)
+        val durationMs = SystemClock.elapsedRealtime() - requestStart
         AgentRuntimeController.noteDiagnostic(buildString {
             append("VisualDirect q=").append(visualAgentBytesToKb(requestBytes.size)).append("K")
-            append(" r=").append(visualAgentBytesToKb(body.length)).append("K")
-            append(" h=").append(SystemClock.elapsedRealtime() - requestStart)
+            append(" r=").append(visualAgentBytesToKb(responseByteCount)).append("K")
+            append(" h=").append(durationMs)
             if (workerVersion.isNotBlank()) append(" w=").append(workerVersion)
             if (routeProtocol.isNotBlank()) append(" p=").append(routeProtocol)
         })
-        if (status !in 200..299) throw parseVisualAgentHttpFailure(status, body)
-        validateVisualAgentResponseObservationId(payload.optString("expectedActionObservationId"), data)
-        CloudAgentPlan.fromJson(data)
+
+        if (status !in 200..299) {
+            diagnostics?.recordModelTransportResponse(
+                httpStatus = status,
+                body = body,
+                requestBytes = requestByteCount,
+                responseBytes = responseByteCount,
+                durationMs = durationMs,
+                workerVersion = workerVersion,
+                routeProtocol = routeProtocol,
+                parseOutcome = "http_error",
+                parsedStepType = "",
+                observationIdValid = false,
+            )
+            terminalDiagnosticRecorded = true
+            throw parseVisualAgentHttpFailure(status, body)
+        }
+
+        val observationValidation = runCatching {
+            validateVisualAgentResponseObservationId(payload.optString("expectedActionObservationId"), data)
+        }
+        if (observationValidation.isFailure) {
+            diagnostics?.recordModelTransportResponse(
+                httpStatus = status,
+                body = body,
+                requestBytes = requestByteCount,
+                responseBytes = responseByteCount,
+                durationMs = durationMs,
+                workerVersion = workerVersion,
+                routeProtocol = routeProtocol,
+                parseOutcome = "observation_id_invalid",
+                parsedStepType = "",
+                observationIdValid = false,
+            )
+            terminalDiagnosticRecorded = true
+            throw (observationValidation.exceptionOrNull() as? IOException
+                ?: IOException("visual_agent_step observation validation failed", observationValidation.exceptionOrNull()))
+        }
+
+        val plan = CloudAgentPlan.fromJson(data)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
-            ?: throw IOException("visual_agent_step did not return one agentStep")
+        if (plan == null) {
+            diagnostics?.recordModelTransportResponse(
+                httpStatus = status,
+                body = body,
+                requestBytes = requestByteCount,
+                responseBytes = responseByteCount,
+                durationMs = durationMs,
+                workerVersion = workerVersion,
+                routeProtocol = routeProtocol,
+                parseOutcome = if (data == null) "invalid_json" else "agent_step_missing",
+                parsedStepType = "",
+                observationIdValid = true,
+            )
+            terminalDiagnosticRecorded = true
+            throw IOException("visual_agent_step did not return one agentStep")
+        }
+
+        diagnostics?.recordModelTransportResponse(
+            httpStatus = status,
+            body = body,
+            requestBytes = requestByteCount,
+            responseBytes = responseByteCount,
+            durationMs = durationMs,
+            workerVersion = workerVersion,
+            routeProtocol = routeProtocol,
+            parseOutcome = "ok",
+            parsedStepType = plan.step.type,
+            observationIdValid = true,
+        )
+        terminalDiagnosticRecorded = true
+        plan
     } catch (error: SocketTimeoutException) {
+        if (!terminalDiagnosticRecorded) {
+            diagnostics?.recordModelTransportFailure(
+                code = "network_timeout",
+                message = error.message.orEmpty(),
+                durationMs = SystemClock.elapsedRealtime() - requestStart,
+                requestBytes = requestByteCount,
+            )
+        }
         throw VisualAgentRequestException(
             httpStatus = null,
             code = "network_timeout",
@@ -748,6 +831,16 @@ private fun AiWorkerClient.postVisualAgentStep(
             backendMessage = "visual_agent_step timed out after ${VISUAL_AGENT_READ_TIMEOUT_MS / 1000}s",
             cause = error,
         )
+    } catch (error: IOException) {
+        if (!terminalDiagnosticRecorded) {
+            diagnostics?.recordModelTransportFailure(
+                code = (error as? VisualAgentRequestException)?.code ?: "io_error",
+                message = error.message.orEmpty(),
+                durationMs = SystemClock.elapsedRealtime() - requestStart,
+                requestBytes = requestByteCount,
+            )
+        }
+        throw error
     } finally {
         connection.disconnect()
     }
