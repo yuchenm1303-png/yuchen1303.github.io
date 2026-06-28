@@ -33,6 +33,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.VisualAgentHudTuningStore
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.collect
 
 private data class VisualHudParameterSpec(
     val key: String,
