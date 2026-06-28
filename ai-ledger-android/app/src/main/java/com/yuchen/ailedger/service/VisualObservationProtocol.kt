@@ -30,8 +30,12 @@ object VisualObservationProtocol {
 
     /**
      * Performs a lightweight, action-aware execution guard against the fresh accessibility probe.
-     * It deliberately does not compare JPEG bytes, dynamic values or full text dumps, so normal
-     * clocks, prices, cursors and animations do not add screenshots, CPU load or false replans.
+     *
+     * GUI Plus tap_xy is visual-authoritative: accessibility nodes may be incomplete, delayed,
+     * wrapper-only or reduced to a full-screen root, so node presence and node geometry must never
+     * veto an already permitted visual coordinate. Package ownership remains mandatory here; the
+     * execution permit and physical display-frame checks remain mandatory in the execution chain.
+     * Node-based freshness is retained only for node-semantic actions such as tap_node/input/scroll.
      */
     internal fun evaluateActionContextFreshness(
         step: CloudAgentStep,
@@ -42,6 +46,10 @@ object VisualObservationProtocol {
         val currentPackage = currentSnapshot.packageName.trim()
         if (observedPackage.isBlank() || observedPackage != currentPackage) {
             return VisualActionContextFreshness(false, "foreground_package_changed", 0f)
+        }
+
+        if (step.type == "tap_xy") {
+            return VisualActionContextFreshness(true, "visual_coordinate_package_verified")
         }
 
         targetFreshness(step, observedSnapshot, currentSnapshot)?.let { return it }
@@ -131,23 +139,6 @@ object VisualObservationProtocol {
         observedSnapshot: AgentScreenSnapshot,
         currentSnapshot: AgentScreenSnapshot,
     ): VisualActionContextFreshness? {
-        if (step.type == "tap_xy") {
-            val x = step.x ?: return null
-            val y = step.y ?: return null
-            val observedHits = hitNodes(observedSnapshot, x, y)
-            val currentHits = hitNodes(currentSnapshot, x, y)
-            val sameTargetStillUnderPoint = observedHits.any { observed ->
-                currentHits.any { current -> samePhysicalTarget(observed, current) }
-            }
-            return when {
-                observedHits.isEmpty() && currentHits.isEmpty() -> null
-                observedHits.isEmpty() -> VisualActionContextFreshness(false, "coordinate_target_covered")
-                currentHits.isEmpty() -> VisualActionContextFreshness(false, "coordinate_target_missing")
-                sameTargetStillUnderPoint -> null
-                else -> VisualActionContextFreshness(false, "coordinate_target_changed")
-            }
-        }
-
         val targetAwareType = step.type in setOf("tap_node", "input_text", "scroll")
         if (!targetAwareType) return null
         if (step.type == "input_text" && step.shouldUseFocusedDirectInput) return null
@@ -182,16 +173,6 @@ object VisualObservationProtocol {
         }
         val targetId = step.targetNodeId?.trim().orEmpty()
         return targetId.takeIf(String::isNotBlank)?.let { id -> candidates.firstOrNull { it.id == id } }
-    }
-
-    private fun hitNodes(snapshot: AgentScreenSnapshot, x: Float, y: Float): List<AgentScreenNode> {
-        return interactionNodes(snapshot)
-            .asSequence()
-            .mapNotNull { node -> parseBounds(node.bounds)?.takeIf { it.contains(x, y) }?.let { node to it } }
-            .sortedBy { (_, bounds) -> bounds.area }
-            .map { (node, _) -> node }
-            .take(MAX_COORDINATE_HIT_CANDIDATES)
-            .toList()
     }
 
     private fun samePhysicalTarget(first: AgentScreenNode, second: AgentScreenNode): Boolean {
@@ -283,8 +264,6 @@ object VisualObservationProtocol {
         val area: Long
             get() = (right - left).toLong() * (bottom - top).toLong()
 
-        fun contains(x: Float, y: Float): Boolean = x >= left && x <= right && y >= top && y <= bottom
-
         fun bucketedKey(): String = listOf(left, top, right, bottom)
             .joinToString(",") { (it / BOUNDS_BUCKET_PX).toString() }
 
@@ -331,7 +310,6 @@ object VisualObservationProtocol {
     private const val MAX_TEXT_ITEMS = 24
     private const val MAX_NODE_ITEMS = 20
     private const val MAX_EXECUTION_SURFACE_NODES = 64
-    private const val MAX_COORDINATE_HIT_CANDIDATES = 8
     private const val MIN_RICH_SURFACE_TOKENS = 4
     private const val MIN_SURFACE_OVERLAP = 0.58f
     private const val MIN_TARGET_IOU = 0.62f
