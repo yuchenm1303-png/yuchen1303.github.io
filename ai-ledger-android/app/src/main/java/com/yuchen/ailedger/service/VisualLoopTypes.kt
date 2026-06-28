@@ -42,6 +42,13 @@ internal object VisualActionValidator {
         runtime: VisualAgentRuntimeContext? = null,
     ): VisualActionValidation {
         if (step.type !in CloudAgentStep.supportedTypes) return structural("Unsupported visual action: ${step.type}")
+        if (isRepairableGuiProtocolFailure(step)) {
+            return VisualActionValidation(
+                ok = false,
+                message = "GUI Plus returned a malformed mobile_use protocol result. Keep the original task and current work surface, inspect the fresh screenshot, and return exactly one supported official mobile_use action instead of asking the user for help.",
+                failureClass = VisualFailureClass.VisualLocal,
+            )
+        }
         if (step.type == "open_app" && step.packageName.isNullOrBlank()) {
             return structural("open_app requires a packageName from the current device app catalog.")
         }
@@ -98,6 +105,12 @@ internal object VisualActionValidator {
         return listOf(snapshot.currentApp, text, nodes).joinToString("::")
     }
 
+    private fun isRepairableGuiProtocolFailure(step: CloudAgentStep): Boolean {
+        if (step.type != "need_user_help") return false
+        val reason = step.reason.orEmpty().lowercase()
+        return REPAIRABLE_GUI_PROTOCOL_MARKERS.any(reason::contains)
+    }
+
     private fun structural(message: String) =
         VisualActionValidation(false, message, VisualFailureClass.StructuralRoute)
 
@@ -115,6 +128,14 @@ internal object VisualActionValidator {
         return "${image.width}x${image.height}:${data.length}:${hash.toString(16)}"
     }
 
+    private val REPAIRABLE_GUI_PROTOCOL_MARKERS = listOf(
+        "未知 mobile_use action",
+        "unknown mobile_use action",
+        "没有返回官方 mobile_use tool_call",
+        "did not return official mobile_use tool_call",
+        "model_contract_error",
+        "android client does not support gui plus action",
+    )
     private val PRE_WORK_SURFACE_ACTIONS = CloudAgentStep.deviceToolTypes + "need_user_help"
     private const val LEGACY_TAP_CLUSTER_PX = 160f
 }
