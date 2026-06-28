@@ -65,31 +65,38 @@ class VisualObservationCoordinator(
         settleMs: Long = if (forceVisual) timing.fullVisualSettleMs else timing.nonVisualSettleMs,
     ): ScreenObservation {
         val observation = captureOnce(forceVisual = forceVisual, settleMs = settleMs)
-        if (
+        val resolved = if (
             expectedPackage.isBlank() ||
             !ForegroundPackageEvidenceResolver.needsShellFallback(observation.packageName)
         ) {
-            return observation
+            observation
+        } else {
+            val shellProbe = withContext(Dispatchers.IO) { foregroundPackageReader.probe() }
+            val evidence = ForegroundPackageEvidenceResolver.resolve(
+                accessibilityPackage = observation.packageName,
+                shellProbe = shellProbe,
+            )
+            if (evidence.packageName.isBlank() || evidence.packageName == observation.packageName) {
+                observation
+            } else {
+                observation.copy(
+                    packageName = evidence.packageName,
+                    windowTitle = listOf(
+                        observation.windowTitle,
+                        "foreground=${evidence.source.wireValue}",
+                    ).filter(String::isNotBlank)
+                        .joinToString(" · ")
+                        .take(120),
+                )
+            }
         }
-
-        val shellProbe = withContext(Dispatchers.IO) { foregroundPackageReader.probe() }
-        val evidence = ForegroundPackageEvidenceResolver.resolve(
-            accessibilityPackage = observation.packageName,
-            shellProbe = shellProbe,
+        // 只复用本轮已经得到的观察结果，不触发额外截图或节点扫描。
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordObservation(
+            forceVisual = forceVisual,
+            expectedPackage = expectedPackage,
+            observation = resolved,
         )
-        if (evidence.packageName.isBlank() || evidence.packageName == observation.packageName) {
-            return observation
-        }
-
-        return observation.copy(
-            packageName = evidence.packageName,
-            windowTitle = listOf(
-                observation.windowTitle,
-                "foreground=${evidence.source.wireValue}",
-            ).filter(String::isNotBlank)
-                .joinToString(" · ")
-                .take(120),
-        )
+        return resolved
     }
 
     suspend fun awaitStableTargetPackage(
