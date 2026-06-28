@@ -412,6 +412,22 @@ class VisualLoopRunner(
             releaseExecutionLease()
             val after = afterObservation.toAgentScreenSnapshot()
             session.execution.synchronizeWith(after)
+            val firstForeignSurfaceSample =
+                session.execution.surfaceState == VisualSurfaceState.WorkSurface &&
+                    turn.runtime.verifiedTargetPackage.isNotBlank() &&
+                    VisualSurfacePackagePolicy.isConfidentForeignPackage(
+                        currentPackage = after.packageName,
+                        expectedPackage = turn.runtime.verifiedTargetPackage,
+                    )
+            val nextObservation = if (firstForeignSurfaceSample) {
+                delay(120L)
+                observationCoordinator.captureTrustedObservation(
+                    forceVisual = false,
+                    expectedPackage = session.execution.selectedTargetPackage,
+                )
+            } else {
+                afterObservation
+            }
             val structuralRegressionConfirmed =
                 session.execution.surfaceState == VisualSurfaceState.Replanning
             val progress = session.semantic.evaluate(
@@ -425,7 +441,7 @@ class VisualLoopRunner(
             VisualLoopSupport.appendRecent(session.recentActions, feedback)
             VisualLoopMemorySupport.replaceMemoryLine(session.recentActions, progress.taskMemory)
             VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-            session.prefetchedObservation = afterObservation
+            session.prefetchedObservation = nextObservation
             if (progress.status == VisualSemanticProgressStatus.Ambiguous && progress.reobserveRecommended) {
                 delay(120L)
                 session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
