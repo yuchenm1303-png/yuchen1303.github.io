@@ -16,18 +16,8 @@ private const val CLOUD_PROFILE_BUDGET = 580
 private const val CLOUD_PREFERENCE_LIMIT = 10
 private const val CLOUD_RELEVANT_LIMIT = 12
 
-@Suppress("unused")
 enum class AssistantMemoryIntent(val id: String, val scope: String) {
     CLOUD_ORCHESTRATED("cloud_orchestrated", "cloud"),
-    ENGLISH_VOCABULARY("legacy_english_vocabulary", "legacy"),
-    ENGLISH_LEARNING("legacy_english_learning", "legacy"),
-    ANDROID_DEVELOPMENT("legacy_android_development", "legacy"),
-    PROGRAMMING("legacy_programming", "legacy"),
-    MATHEMATICS("legacy_mathematics", "legacy"),
-    ACADEMIC_WRITING("legacy_academic_writing", "legacy"),
-    FINANCE("legacy_finance", "legacy"),
-    TRAVEL("legacy_travel", "legacy"),
-    GENERAL("legacy_general", "legacy"),
 }
 
 data class AssistantMemorySource(
@@ -224,7 +214,7 @@ object AssistantMemoryCompiler {
     private fun CloudSelectedMemory.toMemorySource(): AssistantMemorySource = AssistantMemorySource(
         id = candidate.originId,
         category = candidate.category,
-        scope = "cloud",
+        scope = candidate.scope,
         role = role,
         score = 100,
         reason = reason.ifBlank { "cloud_semantic_selection" },
