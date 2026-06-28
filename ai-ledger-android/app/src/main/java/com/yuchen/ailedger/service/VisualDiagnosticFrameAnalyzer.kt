@@ -25,9 +25,9 @@ internal object VisualDiagnosticFrameAnalyzer {
 
     fun hammingDistance(first: String, second: String): Int? {
         if (first.length != 16 || second.length != 16) return null
-        val left = first.toULongOrNull(16) ?: return null
-        val right = second.toULongOrNull(16) ?: return null
-        return (left xor right).countOneBits()
+        val left = runCatching { java.lang.Long.parseUnsignedLong(first, 16) }.getOrNull() ?: return null
+        val right = runCatching { java.lang.Long.parseUnsignedLong(second, 16) }.getOrNull() ?: return null
+        return java.lang.Long.bitCount(left xor right)
     }
 
     private fun computeDifferenceHash(bytes: ByteArray): String {
@@ -45,19 +45,19 @@ internal object VisualDiagnosticFrameAnalyzer {
             decoded.recycle()
             return ""
         }
-        var hash = 0uL
+        var hash = 0L
         var bit = 0
         for (y in 0 until 8) {
             for (x in 0 until 8) {
                 val left = luminance(scaled.getPixel(x, y))
                 val right = luminance(scaled.getPixel(x + 1, y))
-                if (left > right) hash = hash or (1uL shl bit)
+                if (left > right) hash = hash or (1L shl bit)
                 bit += 1
             }
         }
         if (scaled !== decoded) scaled.recycle()
         decoded.recycle()
-        return hash.toString(16).padStart(16, '0')
+        return java.lang.Long.toUnsignedString(hash, 16).padStart(16, '0')
     }
 
     private fun luminance(color: Int): Int {
