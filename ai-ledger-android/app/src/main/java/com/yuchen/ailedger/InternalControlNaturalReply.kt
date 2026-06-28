@@ -8,7 +8,6 @@ import com.yuchen.ailedger.service.AgentExecutionResult
 import com.yuchen.ailedger.service.AgentTaskRunResult
 import com.yuchen.ailedger.service.AiWorkerClient
 import com.yuchen.ailedger.service.CloudAgentStep
-import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -143,7 +142,11 @@ private fun internalControlReceipt(
         put("completed", execution?.ok == true)
         put("handled", true)
         put("stoppedForConfirmation", statusOverride == "confirmation_required" || statusOverride == "cancelled")
-        put("resultSummary", detailOverride?.take(INTERNAL_CONTROL_MAX_TECHNICAL_DETAIL) ?: execution?.message.orEmpty().take(INTERNAL_CONTROL_MAX_TECHNICAL_DETAIL))
+        put(
+            "resultSummary",
+            detailOverride?.take(INTERNAL_CONTROL_MAX_TECHNICAL_DETAIL)
+                ?: execution?.message.orEmpty().take(INTERNAL_CONTROL_MAX_TECHNICAL_DETAIL),
+        )
         put("actions", JSONArray().put(action))
         put("actionCount", 1)
         put("allowNewAction", false)
@@ -164,7 +167,7 @@ private fun actionReceipt(
     put("packageName", step?.packageName.orEmpty())
     put("status", execution?.let(::executionStatus) ?: "not_executed")
     put("ok", execution?.ok == true)
-    put("verified", execution?.ok == true && execution.diagnostics.orEmpty().contains("verified", ignoreCase = true))
+    put("verified", execution?.ok == true)
     put("shouldContinue", execution?.shouldContinue == true)
     put("errorCode", executionErrorCode(execution))
     put("diagnostics", execution?.diagnostics.orEmpty().take(300))
@@ -175,7 +178,7 @@ private fun actionReceipt(
 private fun executionStatus(execution: AgentExecutionResult): String {
     val diagnostics = execution.diagnostics.orEmpty().lowercase()
     return when {
-        diagnostics.contains("waiting_permission") || diagnostics.contains("permission_required") -> "permission_required"
+        executionPermissionCode(execution) != null -> "permission_required"
         diagnostics.contains("waiting_confirmation") -> "confirmation_required"
         diagnostics.contains("validation_failed") -> "invalid_command"
         diagnostics.contains("verification_failed") || (!execution.ok && diagnostics.contains("verified")) -> "state_mismatch"
@@ -186,9 +189,31 @@ private fun executionStatus(execution: AgentExecutionResult): String {
 
 private fun executionErrorCode(execution: AgentExecutionResult?): String {
     if (execution == null || execution.ok) return ""
+    executionPermissionCode(execution)?.let { return it }
     val diagnostics = execution.diagnostics.orEmpty().trim()
     if (diagnostics.isNotBlank()) return diagnostics.take(300)
     return "execution_failed"
+}
+
+/**
+ * Mechanical classification of executor facts only. This never reads or interprets the user's
+ * command; it converts known permission failures into stable receipt codes for DeepSeek reporting.
+ */
+private fun executionPermissionCode(execution: AgentExecutionResult): String? {
+    val diagnostics = execution.diagnostics.orEmpty().lowercase()
+    val detail = execution.message.lowercase()
+    return when {
+        diagnostics.contains("waiting_permission:write_settings") ||
+            detail.contains("修改系统设置") -> "write_settings_permission_required"
+        diagnostics.contains("permission_request_pending_or_failed:shizuku") -> "shizuku_permission_request_pending_or_failed"
+        detail.contains("shizuku 服务已运行但尚未授权") ||
+            detail.contains("本应用尚未授权") -> "shizuku_permission_required"
+        detail.contains("没有检测到正在运行的 shizuku 服务") -> "shizuku_service_unavailable"
+        detail.contains("需要先接入并启动 shizuku/adb bridge") ||
+            detail.contains("当前不是 adb/shell 级运行身份") ||
+            detail.contains("缺少 shizuku/adb shell 增强权限") -> "enhanced_shell_unavailable"
+        else -> null
+    }
 }
 
 private fun localReportFallback(receipt: JSONObject): String = when (receipt.optString("status")) {
