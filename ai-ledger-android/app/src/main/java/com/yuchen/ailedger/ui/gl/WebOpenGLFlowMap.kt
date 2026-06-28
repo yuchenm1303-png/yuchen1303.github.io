@@ -70,15 +70,11 @@ internal object WebOpenGLFlowMapFactory {
     private const val SOLVE_ITERATIONS = 180
     private const val DIAGONAL_WEIGHT = 0.70710678f
     private val cacheLock = Any()
-    private val cache = object : LinkedHashMap<WebOpenGLFlowMapKey, CachedWebOpenGLFlowMap>(
+    private val cache = LinkedHashMap<WebOpenGLFlowMapKey, CachedWebOpenGLFlowMap>(
         CACHE_CAPACITY,
         0.75f,
-        true
-    ) {
-        override fun removeEldestEntry(
-            eldest: MutableMap.MutableEntry<WebOpenGLFlowMapKey, CachedWebOpenGLFlowMap>?
-        ): Boolean = size > CACHE_CAPACITY
-    }
+        true,
+    )
 
     fun build(fullWidth: Int, fullHeight: Int, radiusPx: Float): WebOpenGLFlowMap {
         val safeFullWidth = fullWidth.coerceAtLeast(1)
@@ -96,9 +92,29 @@ internal object WebOpenGLFlowMapFactory {
 
         val generated = buildUncached(safeFullWidth, safeFullHeight, safeRadius)
         val canonical = synchronized(cacheLock) {
-            cache[key] ?: generated.also { cache[key] = it }
+            val existing = cache[key]
+            if (existing != null) {
+                existing
+            } else {
+                cache[key] = generated
+                trimCacheLocked()
+                generated
+            }
         }
         return canonical.newUploadBuffer()
+    }
+
+    /**
+     * 必须在 cacheLock 内调用。普通 access-order LinkedHashMap 保留原 LRU 行为，
+     * 避免匿名泛型子类让 K2 为 Java SequencedMap 生成大量桥接方法。
+     */
+    private fun trimCacheLocked() {
+        if (cache.size <= CACHE_CAPACITY) return
+        val iterator = cache.entries.iterator()
+        if (iterator.hasNext()) {
+            iterator.next()
+            iterator.remove()
+        }
     }
 
     private fun buildUncached(
