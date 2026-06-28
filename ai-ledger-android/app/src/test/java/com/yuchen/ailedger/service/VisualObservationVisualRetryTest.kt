@@ -96,7 +96,7 @@ class VisualObservationVisualRetryTest {
             trustedPackageTtlMs = 100L,
         ),
         elapsedRealtime = clock,
-        sleeper = advanceClock,
+        sleeper = { durationMs -> advanceClock(durationMs) },
     )
 
     private fun unavailableVisual() = ScreenVisualObservation(
