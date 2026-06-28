@@ -1,2 +1,2 @@
 Build Compose Android APK verification
-2026-06-28 首页帧时钟隔离与新旧 OpenGL 宿主轻量化构建验证
+2026-06-28 修复气泡可见性与性能统计字符串编译错误
