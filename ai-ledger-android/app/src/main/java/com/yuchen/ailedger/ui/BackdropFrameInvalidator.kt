@@ -1,31 +1,19 @@
 package com.yuchen.ailedger.ui
 
-import android.os.SystemClock
-
-private const val SCROLL_BACKDROP_MIN_INTERVAL_MS = 12L
-
 /**
  * Lightweight scroll/backdrop invalidation gate.
  *
- * Normal scroll traffic is cheap-throttled like the stable baseline: multiple
- * nested-scroll callbacks inside the interval are ignored immediately, without
- * posting extra frame callbacks. Forced requests still pass through so fling and
- * geometry boundary updates are not left stale.
+ * 所有滚动回调直接交给 [BackdropFrameTicker]；Ticker 使用 Choreographer 保证同一显示帧
+ * 最多提交一次，因此不再用固定 12ms 节流与 60/90/120Hz 屏幕节奏互相打架。
  */
 internal class BackdropFrameInvalidator(
     private val ticker: BackdropFrameTicker,
-    private val scrollMinIntervalMs: Long = SCROLL_BACKDROP_MIN_INTERVAL_MS
 ) {
-    private var lastDispatchUptimeMs = 0L
     private var disposed = false
 
     fun request(force: Boolean = false) {
         if (disposed) return
-        val now = SystemClock.uptimeMillis()
-        if (force || now - lastDispatchUptimeMs >= scrollMinIntervalMs) {
-            lastDispatchUptimeMs = now
-            ticker.requestFrame(force = force)
-        }
+        ticker.requestFrame(force = force)
     }
 
     fun dispose() {
