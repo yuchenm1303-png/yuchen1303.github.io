@@ -333,7 +333,9 @@ class VisualSemanticProgressTracker(
         )
         failedHypotheses[key] = updated
         trimMap(failedHypotheses)
-        remainingExplorationBudget = (remainingExplorationBudget - 1).coerceAtLeast(0)
+        if (intent.exploratory) {
+            remainingExplorationBudget = (remainingExplorationBudget - 1).coerceAtLeast(0)
+        }
         if (updated.count >= BLOCK_AFTER_FAILURE_COUNT) {
             blockedActions[key] = VisualBlockedAction(
                 milestoneId = milestoneId,
@@ -389,7 +391,7 @@ class VisualSemanticProgressTracker(
             completedMilestoneIds = completed,
             explorationBudgetPerMilestone = incoming.explorationBudgetPerMilestone.coerceIn(1, 4),
             schema = incoming.schema.ifBlank { previous?.schema.orEmpty() }.ifBlank { "visual_task_contract_v1" }.take(80),
-            legacyMode = previous?.legacyMode == true && incoming.legacyMode,
+            legacyMode = previous?.let { it.legacyMode && incoming.legacyMode } ?: incoming.legacyMode,
         )
     }
 
