@@ -260,17 +260,40 @@ class VisualExecutionSessionStateTest {
     }
 
     @Test
-    fun verifiedPackageDriftRevokesGuiOwnershipAndIncrementsRouteEpoch() {
+    fun oneForeignSampleKeepsGuiOwnershipButSecondMatchingSampleRevokesIt() {
         val target = "com.example.target"
         val session = VisualExecutionSessionState().apply { beginLaunch(target) }
         assertTrue(session.markTargetVerified(target, verification(target)))
         val before = session.routeEpoch
 
-        val runtime = session.runtimeContext(snapshot("com.example.other"))
+        val ambiguous = session.runtimeContext(snapshot("com.example.other"))
 
-        assertEquals(VisualSurfaceState.Replanning, runtime.surfaceState)
-        assertFalse(runtime.guiPlusEligible)
-        assertEquals(before + 1L, runtime.routeEpoch)
+        assertEquals(VisualSurfaceState.WorkSurface, ambiguous.surfaceState)
+        assertTrue(ambiguous.guiPlusEligible)
+        assertEquals(before, ambiguous.routeEpoch)
+
+        val revoked = session.runtimeContext(snapshot("com.example.other"))
+
+        assertEquals(VisualSurfaceState.Replanning, revoked.surfaceState)
+        assertFalse(revoked.guiPlusEligible)
+        assertEquals(before + 1L, revoked.routeEpoch)
+    }
+
+    @Test
+    fun unknownAndTransientPackagesKeepVerifiedGuiOwnership() {
+        val target = "com.example.target"
+        val transientPackages = listOf("", "unknown", "android", "com.android.systemui")
+
+        transientPackages.forEach { packageName ->
+            val session = VisualExecutionSessionState().apply { beginLaunch(target) }
+            assertTrue(session.markTargetVerified(target, verification(target)))
+
+            val runtime = session.runtimeContext(snapshot(packageName))
+
+            assertEquals(VisualSurfaceState.WorkSurface, runtime.surfaceState)
+            assertTrue(runtime.guiPlusEligible)
+            assertEquals(target, runtime.verifiedTargetPackage)
+        }
     }
 
     @Test
