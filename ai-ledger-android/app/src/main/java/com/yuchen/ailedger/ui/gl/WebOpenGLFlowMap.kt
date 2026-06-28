@@ -43,6 +43,21 @@ private data class CachedWebOpenGLFlowMap(
     }
 }
 
+private data class WebOpenGLFlowGeometry(
+    val fullWidth: Int,
+    val fullHeight: Int,
+    val outerRadius: Float,
+    val flowWidth: Int,
+    val flowHeight: Int,
+    val scaleX: Float,
+    val scaleY: Float,
+    val cell: Float,
+    val flowDepth: Float,
+    val innerWidth: Float,
+    val innerHeight: Float,
+    val innerRadius: Float,
+)
+
 /**
  * Exact CPU port of the web preview's precomputed harmonic ring Flow Map.
  *
@@ -52,6 +67,8 @@ private data class CachedWebOpenGLFlowMap(
  */
 internal object WebOpenGLFlowMapFactory {
     private const val CACHE_CAPACITY = 6
+    private const val SOLVE_ITERATIONS = 180
+    private const val DIAGONAL_WEIGHT = 0.70710678f
     private val cacheLock = Any()
     private val cache = object : LinkedHashMap<WebOpenGLFlowMapKey, CachedWebOpenGLFlowMap>(
         CACHE_CAPACITY,
@@ -89,6 +106,46 @@ internal object WebOpenGLFlowMapFactory {
         safeFullHeight: Int,
         outerRadius: Float
     ): CachedWebOpenGLFlowMap {
+        val geometry = createGeometry(safeFullWidth, safeFullHeight, outerRadius)
+        val count = geometry.flowWidth * geometry.flowHeight
+        val fieldA = FloatArray(count)
+        val fieldB = FloatArray(count)
+        val fixed = ByteArray(count)
+        val ring = ByteArray(count)
+
+        initializeBoundaryFields(
+            geometry = geometry,
+            fieldA = fieldA,
+            fieldB = fieldB,
+            fixed = fixed,
+            ring = ring,
+        )
+        val solvedField = solveHarmonicField(
+            flowWidth = geometry.flowWidth,
+            flowHeight = geometry.flowHeight,
+            fieldA = fieldA,
+            fieldB = fieldB,
+            fixed = fixed,
+        )
+        val pixels = encodeFlowPixels(
+            geometry = geometry,
+            solvedField = solvedField,
+            ring = ring,
+        )
+
+        return CachedWebOpenGLFlowMap(
+            width = geometry.flowWidth,
+            height = geometry.flowHeight,
+            depthPx = geometry.flowDepth,
+            pixels = pixels
+        )
+    }
+
+    private fun createGeometry(
+        safeFullWidth: Int,
+        safeFullHeight: Int,
+        outerRadius: Float,
+    ): WebOpenGLFlowGeometry {
         val aspect = safeFullWidth.toFloat() / safeFullHeight.toFloat()
         val flowWidth = (safeFullWidth / 3.5f).roundToInt().coerceIn(256, 448)
         val flowHeight = (flowWidth / max(aspect, 0.25f)).roundToInt().coerceIn(64, 160)
@@ -105,138 +162,166 @@ internal object WebOpenGLFlowMapFactory {
             max(outerRadius - flowDepth * 0.45f, 4f),
             min(innerWidth, innerHeight) * 0.45f
         )
+        return WebOpenGLFlowGeometry(
+            fullWidth = safeFullWidth,
+            fullHeight = safeFullHeight,
+            outerRadius = outerRadius,
+            flowWidth = flowWidth,
+            flowHeight = flowHeight,
+            scaleX = scaleX,
+            scaleY = scaleY,
+            cell = cell,
+            flowDepth = flowDepth,
+            innerWidth = innerWidth,
+            innerHeight = innerHeight,
+            innerRadius = innerRadius,
+        )
+    }
 
-        val count = flowWidth * flowHeight
-        val fieldA = FloatArray(count)
-        val fieldB = FloatArray(count)
-        val fixed = ByteArray(count)
-        val ring = ByteArray(count)
-        val boundary = cell * 1.35f
-
-        for (y in 0 until flowHeight) {
-            for (x in 0 until flowWidth) {
-                val index = y * flowWidth + x
-                val px = (x + 0.5f) * scaleX
-                val py = (y + 0.5f) * scaleY
+    private fun initializeBoundaryFields(
+        geometry: WebOpenGLFlowGeometry,
+        fieldA: FloatArray,
+        fieldB: FloatArray,
+        fixed: ByteArray,
+        ring: ByteArray,
+    ) {
+        val boundary = geometry.cell * 1.35f
+        for (y in 0 until geometry.flowHeight) {
+            for (x in 0 until geometry.flowWidth) {
+                val index = y * geometry.flowWidth + x
+                val px = (x + 0.5f) * geometry.scaleX
+                val py = (y + 0.5f) * geometry.scaleY
                 val outer = roundedRectSdf(
                     x = px,
                     y = py,
-                    width = safeFullWidth.toFloat(),
-                    height = safeFullHeight.toFloat(),
-                    radius = outerRadius
+                    width = geometry.fullWidth.toFloat(),
+                    height = geometry.fullHeight.toFloat(),
+                    radius = geometry.outerRadius
                 )
                 val inner = roundedRectSdf(
-                    x = px - flowDepth,
-                    y = py - flowDepth,
-                    width = innerWidth,
-                    height = innerHeight,
-                    radius = innerRadius
+                    x = px - geometry.flowDepth,
+                    y = py - geometry.flowDepth,
+                    width = geometry.innerWidth,
+                    height = geometry.innerHeight,
+                    radius = geometry.innerRadius
                 )
                 when {
-                    outer > 0f -> {
-                        fixed[index] = 1
-                        fieldA[index] = 0f
-                        fieldB[index] = 0f
-                    }
-                    inner <= 0f -> {
-                        fixed[index] = 1
-                        fieldA[index] = 1f
-                        fieldB[index] = 1f
-                    }
-                    else -> {
-                        ring[index] = 1
-                        val outerDepth = max(-outer, 0f)
-                        val innerDistance = max(inner, 0f)
-                        val estimate = clamp01(outerDepth / max(outerDepth + innerDistance, 1e-5f))
-                        fieldA[index] = estimate
-                        fieldB[index] = estimate
-                        if (outerDepth <= boundary) {
-                            fixed[index] = 1
-                            fieldA[index] = 0f
-                            fieldB[index] = 0f
-                        } else if (innerDistance <= boundary) {
-                            fixed[index] = 1
-                            fieldA[index] = 1f
-                            fieldB[index] = 1f
-                        }
-                    }
+                    outer > 0f -> setFixedValue(index, 0f, fieldA, fieldB, fixed)
+                    inner <= 0f -> setFixedValue(index, 1f, fieldA, fieldB, fixed)
+                    else -> initializeRingValue(
+                        index = index,
+                        outer = outer,
+                        inner = inner,
+                        boundary = boundary,
+                        fieldA = fieldA,
+                        fieldB = fieldB,
+                        fixed = fixed,
+                        ring = ring,
+                    )
                 }
             }
         }
+    }
 
+    private fun setFixedValue(
+        index: Int,
+        value: Float,
+        fieldA: FloatArray,
+        fieldB: FloatArray,
+        fixed: ByteArray,
+    ) {
+        fixed[index] = 1
+        fieldA[index] = value
+        fieldB[index] = value
+    }
+
+    private fun initializeRingValue(
+        index: Int,
+        outer: Float,
+        inner: Float,
+        boundary: Float,
+        fieldA: FloatArray,
+        fieldB: FloatArray,
+        fixed: ByteArray,
+        ring: ByteArray,
+    ) {
+        ring[index] = 1
+        val outerDepth = max(-outer, 0f)
+        val innerDistance = max(inner, 0f)
+        val estimate = clamp01(outerDepth / max(outerDepth + innerDistance, 1e-5f))
+        fieldA[index] = estimate
+        fieldB[index] = estimate
+        when {
+            outerDepth <= boundary -> setFixedValue(index, 0f, fieldA, fieldB, fixed)
+            innerDistance <= boundary -> setFixedValue(index, 1f, fieldA, fieldB, fixed)
+        }
+    }
+
+    private fun solveHarmonicField(
+        flowWidth: Int,
+        flowHeight: Int,
+        fieldA: FloatArray,
+        fieldB: FloatArray,
+        fixed: ByteArray,
+    ): FloatArray {
         var current = fieldA
         var next = fieldB
-        val diagonal = 0.70710678f
-        val denominator = 4f + 4f * diagonal
-        repeat(180) {
+        val denominator = 4f + 4f * DIAGONAL_WEIGHT
+        repeat(SOLVE_ITERATIONS) {
             for (y in 1 until flowHeight - 1) {
                 for (x in 1 until flowWidth - 1) {
                     val index = y * flowWidth + x
                     if (fixed[index].toInt() != 0) continue
                     val cardinal = current[index - 1] + current[index + 1] +
                         current[index - flowWidth] + current[index + flowWidth]
-                    val diagonals = current[index - flowWidth - 1] + current[index - flowWidth + 1] +
-                        current[index + flowWidth - 1] + current[index + flowWidth + 1]
-                    next[index] = (cardinal + diagonal * diagonals) / denominator
+                    val diagonals = current[index - flowWidth - 1] +
+                        current[index - flowWidth + 1] +
+                        current[index + flowWidth - 1] +
+                        current[index + flowWidth + 1]
+                    next[index] = (cardinal + DIAGONAL_WEIGHT * diagonals) / denominator
                 }
             }
             val swap = current
             current = next
             next = swap
         }
+        return current
+    }
 
-        val pixels = ByteArray(count * 4)
+    private fun encodeFlowPixels(
+        geometry: WebOpenGLFlowGeometry,
+        solvedField: FloatArray,
+        ring: ByteArray,
+    ): ByteArray {
+        val pixels = ByteArray(geometry.flowWidth * geometry.flowHeight * 4)
         var outputIndex = 0
-        for (y in 0 until flowHeight) {
-            for (x in 0 until flowWidth) {
-                val index = y * flowWidth + x
-                val t = clamp01(current[index])
+        for (y in 0 until geometry.flowHeight) {
+            for (x in 0 until geometry.flowWidth) {
+                val index = y * geometry.flowWidth + x
+                val t = clamp01(solvedField[index])
                 var nx = 0f
                 var ny = 0f
                 var safe = 0f
 
-                if (ring[index].toInt() != 0 && x > 0 && x < flowWidth - 1 && y > 0 && y < flowHeight - 1) {
-                    val gx = (current[index + 1] - current[index - 1]) / (2f * scaleX)
-                    val gy = (current[index + flowWidth] - current[index - flowWidth]) / (2f * scaleY)
+                if (isInteriorRingCell(x, y, index, geometry, ring)) {
+                    val gx = (solvedField[index + 1] - solvedField[index - 1]) /
+                        (2f * geometry.scaleX)
+                    val gy = (solvedField[index + geometry.flowWidth] -
+                        solvedField[index - geometry.flowWidth]) / (2f * geometry.scaleY)
                     val gradient = hypot(gx.toDouble(), gy.toDouble()).toFloat()
                     if (gradient > 1e-6f) {
                         nx = -gx / gradient
                         ny = -gy / gradient
                     } else {
-                        val epsilon = max(1f, cell * 0.5f)
-                        val dx = roundedRectSdf(
-                            (x + 0.5f) * scaleX + epsilon,
-                            (y + 0.5f) * scaleY,
-                            safeFullWidth.toFloat(),
-                            safeFullHeight.toFloat(),
-                            outerRadius
-                        ) - roundedRectSdf(
-                            (x + 0.5f) * scaleX - epsilon,
-                            (y + 0.5f) * scaleY,
-                            safeFullWidth.toFloat(),
-                            safeFullHeight.toFloat(),
-                            outerRadius
-                        )
-                        val dy = roundedRectSdf(
-                            (x + 0.5f) * scaleX,
-                            (y + 0.5f) * scaleY + epsilon,
-                            safeFullWidth.toFloat(),
-                            safeFullHeight.toFloat(),
-                            outerRadius
-                        ) - roundedRectSdf(
-                            (x + 0.5f) * scaleX,
-                            (y + 0.5f) * scaleY - epsilon,
-                            safeFullWidth.toFloat(),
-                            safeFullHeight.toFloat(),
-                            outerRadius
-                        )
+                        val dx = fallbackGradientX(x, y, geometry)
+                        val dy = fallbackGradientY(x, y, geometry)
                         val magnitude = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                            .takeIf { it > 1e-6f } ?: 1f
-                        nx = dx / magnitude
-                        ny = dy / magnitude
+                        val safeMagnitude = if (magnitude > 1e-6f) magnitude else 1f
+                        nx = dx / safeMagnitude
+                        ny = dy / safeMagnitude
                     }
                     val innerFade = 1f - smoothStep(0.78f, 0.995f, t)
-                    val quality = clamp01(gradient * flowDepth * 0.9f)
+                    val quality = clamp01(gradient * geometry.flowDepth * 0.9f)
                     safe = innerFade * (0.55f + 0.45f * quality)
                 }
 
@@ -246,12 +331,62 @@ internal object WebOpenGLFlowMapFactory {
                 pixels[outputIndex++] = toByte(clamp01(safe))
             }
         }
+        return pixels
+    }
 
-        return CachedWebOpenGLFlowMap(
-            width = flowWidth,
-            height = flowHeight,
-            depthPx = flowDepth,
-            pixels = pixels
+    private fun isInteriorRingCell(
+        x: Int,
+        y: Int,
+        index: Int,
+        geometry: WebOpenGLFlowGeometry,
+        ring: ByteArray,
+    ): Boolean = ring[index].toInt() != 0 &&
+        x > 0 && x < geometry.flowWidth - 1 &&
+        y > 0 && y < geometry.flowHeight - 1
+
+    private fun fallbackGradientX(
+        x: Int,
+        y: Int,
+        geometry: WebOpenGLFlowGeometry,
+    ): Float {
+        val epsilon = max(1f, geometry.cell * 0.5f)
+        val px = (x + 0.5f) * geometry.scaleX
+        val py = (y + 0.5f) * geometry.scaleY
+        return roundedRectSdf(
+            px + epsilon,
+            py,
+            geometry.fullWidth.toFloat(),
+            geometry.fullHeight.toFloat(),
+            geometry.outerRadius
+        ) - roundedRectSdf(
+            px - epsilon,
+            py,
+            geometry.fullWidth.toFloat(),
+            geometry.fullHeight.toFloat(),
+            geometry.outerRadius
+        )
+    }
+
+    private fun fallbackGradientY(
+        x: Int,
+        y: Int,
+        geometry: WebOpenGLFlowGeometry,
+    ): Float {
+        val epsilon = max(1f, geometry.cell * 0.5f)
+        val px = (x + 0.5f) * geometry.scaleX
+        val py = (y + 0.5f) * geometry.scaleY
+        return roundedRectSdf(
+            px,
+            py + epsilon,
+            geometry.fullWidth.toFloat(),
+            geometry.fullHeight.toFloat(),
+            geometry.outerRadius
+        ) - roundedRectSdf(
+            px,
+            py - epsilon,
+            geometry.fullWidth.toFloat(),
+            geometry.fullHeight.toFloat(),
+            geometry.outerRadius
         )
     }
 
