@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -46,6 +48,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
+import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
 import kotlin.math.roundToInt
 import kotlin.random.Random
 import kotlinx.coroutines.launch
@@ -170,42 +173,44 @@ fun GlassPanel(
     val shellPressEnabled = motionIntensity > 0.02f
     val shellPress = remember { Animatable(0f) }
     val shellOpenGlPressAnim = remember { Animatable(0f) }
+    val shellDynamicState = remember { OpenGLGlassDynamicState() }
     val shellPressScope = rememberCoroutineScope()
     var shellPressSize by remember { mutableStateOf(Size(1f, 1f)) }
-    var shellPressCenter by remember { mutableStateOf(Offset(0.50f, 0.42f)) }
-    var shellRimFlowSeed by remember { mutableStateOf(0.50f) }
-    var shellRimFlowDirection by remember { mutableStateOf(1f) }
-    var shellRimFlowBand by remember { mutableStateOf(0) }
-    var shellRimFlowStrength by remember { mutableStateOf(1f) }
 
-    val shellPressValue = if (shellPressEnabled) shellPress.value.coerceIn(-0.14f, 1.08f) else 0f
-    val shellPressCompression = glassSmoothStep((shellPressValue.coerceAtLeast(0f) / 0.72f).coerceIn(0f, 1f))
-    val shellOpenGlPress = if (shellPressEnabled) shellOpenGlPressAnim.value.coerceIn(0f, 1f) else 0f
-    val shellPressRebound = glassSmoothStep((-shellPressValue / 0.10f).coerceIn(0f, 1f))
-    val shellSurfaceOpticsPress = if (shellPressEnabled) {
-        maxOf(shellPressValue.coerceAtLeast(0f), shellOpenGlPress * 0.62f, shellPressRebound * 0.24f)
-    } else 0f
-    val pressedGlassIntensity = baseIntensity * (1f + shellPressCompression * 0.10f)
+    LaunchedEffect(shellPressEnabled, shellPress, shellOpenGlPressAnim, shellDynamicState) {
+        if (!shellPressEnabled) {
+            shellDynamicState.reset()
+            return@LaunchedEffect
+        }
+        snapshotFlow { shellPress.value to shellOpenGlPressAnim.value }
+            .collect { (pressValue, openGlPress) ->
+                shellDynamicState.updateAnimation(pressValue, openGlPress)
+            }
+    }
 
     val shellPressModifier = if (shellPressEnabled) {
         Modifier
             .onSizeChanged { size ->
                 shellPressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat())
             }
-            .pointerInput(motionIntensity) {
+            .pointerInput(motionIntensity, shellDynamicState) {
                 awaitEachGesture {
                     fun updatePressCenter(position: Offset) {
-                        shellPressCenter = Offset(
-                            x = (position.x / shellPressSize.width).coerceIn(0f, 1f),
-                            y = (position.y / shellPressSize.height).coerceIn(0f, 1f)
+                        shellDynamicState.updatePressCenter(
+                            Offset(
+                                x = (position.x / shellPressSize.width).coerceIn(0f, 1f),
+                                y = (position.y / shellPressSize.height).coerceIn(0f, 1f)
+                            )
                         )
                     }
                     val down = awaitFirstDown(requireUnconsumed = false)
                     updatePressCenter(down.position)
-                    shellRimFlowSeed = Random.nextFloat()
-                    shellRimFlowDirection = if (Random.nextBoolean()) 1f else -1f
-                    shellRimFlowBand = Random.nextInt(0, 4)
-                    shellRimFlowStrength = 0.86f + Random.nextFloat() * 0.52f
+                    shellDynamicState.updateRimFlow(
+                        seed = Random.nextFloat(),
+                        direction = if (Random.nextBoolean()) 1f else -1f,
+                        band = Random.nextInt(0, 4),
+                        strength = 0.86f + Random.nextFloat() * 0.52f
+                    )
                     shellPressScope.launch {
                         shellPress.stop()
                         if (shellPress.value < 0.18f) shellPress.snapTo(0.18f)
@@ -268,11 +273,12 @@ fun GlassPanel(
 
     val shellTransformModifier = if (shellPressEnabled) {
         Modifier.graphicsLayer {
-            transformOrigin = TransformOrigin(shellPressCenter.x, shellPressCenter.y)
-            scaleX = 1f + shellPressCompression * 0.014f - shellPressRebound * 0.004f
-            scaleY = 1f - shellPressCompression * 0.022f + shellPressRebound * 0.008f
-            translationY = shellPressCompression * 2.10f - shellPressRebound * 0.80f
-            shadowElevation = shellPressCompression * 0.45f
+            val dynamic = shellDynamicState.snapshotState.value
+            transformOrigin = TransformOrigin(dynamic.pressCenter.x, dynamic.pressCenter.y)
+            scaleX = 1f + dynamic.pressCompression * 0.014f - dynamic.pressRebound * 0.004f
+            scaleY = 1f - dynamic.pressCompression * 0.022f + dynamic.pressRebound * 0.008f
+            translationY = dynamic.pressCompression * 2.10f - dynamic.pressRebound * 0.80f
+            shadowElevation = dynamic.pressCompression * 0.45f
         }
     } else Modifier
 
@@ -285,72 +291,109 @@ fun GlassPanel(
         if (useNewOpenGlBackdrop) {
             NewOpenGLGlassCardLayer(
                 radius = effectiveRadius,
-                glassIntensity = pressedGlassIntensity,
+                glassIntensity = baseIntensity,
                 coordinateSource = coordinates,
                 modifier = Modifier.matchParentSize(),
-                pressProgress = shellOpenGlPress,
-                pressCenter = shellPressCenter,
-                viewportTopInsetPx = safeViewportTopInsetPx
+                viewportTopInsetPx = safeViewportTopInsetPx,
+                dynamicState = shellDynamicState
             )
         }
 
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .padding(top = safeViewportTopInset)
-                .ordinaryGlassFrame(
-                    radius = effectiveRadius,
-                    glassIntensity = pressedGlassIntensity,
-                    role = GlassRole.Shell,
-                    parentOwnsOrdinaryGlass = false
-                )
-        ) {
-            if (!useNewOpenGlBackdrop && !viewportOwnsShell && backdrop != null) {
-                SampledWeatherGlassBackdrop(
-                    modifier = Modifier.matchParentSize(),
-                    radius = effectiveRadius,
-                    coordinateSource = coordinates,
-                    quality = backdrop.quality,
-                    motionIntensity = backdrop.motionIntensity,
-                    theme = backdrop.theme,
-                    blurRadiusDp = blurForRole(GlassRole.Shell),
-                    liftAlpha = ordinaryBackdropAlpha(GlassRole.Shell, pressedGlassIntensity)
-                )
-            }
-            if (!useNewOpenGlBackdrop) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .glassSkin(
-                            quality,
-                            effectiveRadius,
-                            shimmer + shellPressCompression * 0.030f,
-                            breathe,
-                            pressedGlassIntensity,
-                            role = GlassRole.Shell,
-                            includeShadow = false
-                        )
-                )
-            }
-            content()
-            if (shellPressEnabled) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .shellPressSurfaceOptics(
-                            press = shellSurfaceOpticsPress,
-                            radius = effectiveRadius,
-                            pressCenter = shellPressCenter,
-                            rimFlowSeed = shellRimFlowSeed,
-                            rimFlowDirection = shellRimFlowDirection,
-                            rimFlowBand = shellRimFlowBand,
-                            rimFlowStrength = shellRimFlowStrength,
-                            prismEdgeHighlight = prismEdgeHighlight
-                        )
-                )
-            }
+        ShellFramedContent(
+            quality = quality,
+            baseIntensity = baseIntensity,
+            shimmer = shimmer,
+            breathe = breathe,
+            effectiveRadius = effectiveRadius,
+            safeViewportTopInset = safeViewportTopInset,
+            useNewOpenGlBackdrop = useNewOpenGlBackdrop,
+            viewportOwnsShell = viewportOwnsShell,
+            backdrop = backdrop,
+            coordinates = coordinates,
+            dynamicState = shellDynamicState,
+            shellPressEnabled = shellPressEnabled,
+            prismEdgeHighlight = prismEdgeHighlight,
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun ShellFramedContent(
+    quality: RenderQuality,
+    baseIntensity: Float,
+    shimmer: Float,
+    breathe: Float,
+    effectiveRadius: Int,
+    safeViewportTopInset: Dp,
+    useNewOpenGlBackdrop: Boolean,
+    viewportOwnsShell: Boolean,
+    backdrop: GlassBackdropSpec?,
+    coordinates: GlassCoordinateSource,
+    dynamicState: OpenGLGlassDynamicState,
+    shellPressEnabled: Boolean,
+    prismEdgeHighlight: Float,
+    content: @Composable () -> Unit
+) {
+    val dynamic = dynamicState.snapshotState.value
+    val pressedGlassIntensity = baseIntensity * dynamic.glassIntensityScale
+
+    Box(
+        modifier = Modifier
+            .matchParentSize()
+            .padding(top = safeViewportTopInset)
+            .ordinaryGlassFrame(
+                radius = effectiveRadius,
+                glassIntensity = pressedGlassIntensity,
+                role = GlassRole.Shell,
+                parentOwnsOrdinaryGlass = false
+            )
+    ) {
+        if (!useNewOpenGlBackdrop && !viewportOwnsShell && backdrop != null) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = blurForRole(GlassRole.Shell),
+                liftAlpha = ordinaryBackdropAlpha(GlassRole.Shell, pressedGlassIntensity)
+            )
+        }
+        if (!useNewOpenGlBackdrop) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .glassSkin(
+                        quality,
+                        effectiveRadius,
+                        shimmer + dynamic.pressCompression * 0.030f,
+                        breathe,
+                        pressedGlassIntensity,
+                        role = GlassRole.Shell,
+                        includeShadow = false
+                    )
+            )
+        }
+        ShellStaticContent(content)
+        if (shellPressEnabled) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .shellPressSurfaceOptics(
+                        dynamicState = dynamicState,
+                        radius = effectiveRadius,
+                        prismEdgeHighlight = prismEdgeHighlight
+                    )
+            )
         }
     }
+}
+
+@Composable
+private fun ShellStaticContent(content: @Composable () -> Unit) {
+    content()
 }
 
 @Composable
@@ -734,17 +777,13 @@ private fun Modifier.glassOuterFrame(radius: Int, glassIntensity: Float, role: G
 }
 
 private fun Modifier.shellPressSurfaceOptics(
-    press: Float,
+    dynamicState: OpenGLGlassDynamicState,
     radius: Int,
-    pressCenter: Offset,
-    rimFlowSeed: Float,
-    rimFlowDirection: Float,
-    rimFlowBand: Int,
-    rimFlowStrength: Float,
     prismEdgeHighlight: Float
 ): Modifier = drawWithContent {
     drawContent()
-    val safePress = press.coerceIn(0f, 1.08f)
+    val dynamic = dynamicState.snapshotState.value
+    val safePress = dynamic.surfaceOpticsPress.coerceIn(0f, 1.08f)
     if (safePress < 0.001f) return@drawWithContent
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
@@ -752,7 +791,7 @@ private fun Modifier.shellPressSurfaceOptics(
     val p = glassSmoothStep(raw)
     val breath = glassSmoothStep((safePress / 0.50f).coerceIn(0f, 1f)) * (1f - 0.11f * glassSmoothStep(((safePress - 0.58f) / 0.28f).coerceIn(0f, 1f)))
     val compression = p * p
-    val centerNorm = Offset(pressCenter.x.coerceIn(0f, 1f), pressCenter.y.coerceIn(0f, 1f))
+    val centerNorm = Offset(dynamic.pressCenter.x.coerceIn(0f, 1f), dynamic.pressCenter.y.coerceIn(0f, 1f))
     val center = Offset(centerNorm.x * w, centerNorm.y * h)
     val rimInset = 0.56.dp.toPx()
     val rimRadius = (radius.dp.toPx() - rimInset).coerceAtLeast(0f)
@@ -768,11 +807,11 @@ private fun Modifier.shellPressSurfaceOptics(
     val edgeStroke = (0.74.dp + (0.26f * p).dp).toPx()
     val localEdgeStroke = (1.18.dp + (0.48f * p).dp).toPx()
     val flow = glassSmoothStep((safePress / 0.62f).coerceIn(0f, 1f))
-    val seedShift = (rimFlowSeed - 0.5f) * 0.36f
-    val sweepX = if (rimFlowDirection >= 0f) -0.24f + seedShift + flow * 1.42f else 1.24f + seedShift - flow * 1.42f
-    val bandStartY = when (rimFlowBand % 4) { 0 -> 0.02f; 1 -> 0.74f; 2 -> 0.10f; else -> 0.18f }
-    val bandEndY = when (rimFlowBand % 4) { 0 -> 0.26f; 1 -> 0.98f; 2 -> 0.92f; else -> 0.58f }
-    val bandAlpha = breath * rimFlowStrength.coerceIn(0.70f, 1.45f)
+    val seedShift = (dynamic.rimFlowSeed - 0.5f) * 0.36f
+    val sweepX = if (dynamic.rimFlowDirection >= 0f) -0.24f + seedShift + flow * 1.42f else 1.24f + seedShift - flow * 1.42f
+    val bandStartY = when (dynamic.rimFlowBand % 4) { 0 -> 0.02f; 1 -> 0.74f; 2 -> 0.10f; else -> 0.18f }
+    val bandEndY = when (dynamic.rimFlowBand % 4) { 0 -> 0.26f; 1 -> 0.98f; 2 -> 0.92f; else -> 0.58f }
+    val bandAlpha = breath * dynamic.rimFlowStrength.coerceIn(0.70f, 1.45f)
     val prism = prismEdgeHighlight.coerceIn(0f, 2f)
     val prismSoft = prism * 0.55f
 
@@ -857,7 +896,6 @@ fun Modifier.glassSkin(
         val innerRight = (w - opticalBandWidth).coerceAtLeast(innerLeft + 1f)
         val innerBottom = (h - opticalBandWidth).coerceAtLeast(innerTop + 1f)
         val innerRadius = (radiusPx - opticalBandWidth).coerceAtLeast(0f)
-
         val edgeBandPath = Path().apply {
             fillType = PathFillType.EvenOdd
             addRoundRect(RoundRect(0f, 0f, w, h, radiusPx, radiusPx))
