@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>AI Ledger · 记忆快捷面板实验台 V6</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050815}
+    iframe{display:block;width:100%;height:100%;border:0;background:#050815}
+  </style>
+</head>
+<body>
+  <iframe
+    id="preview"
+    src="https://raw.githack.com/yuchenm1303-png/yuchen1303.github.io/9f0189a7789addcf685f31a1101254364dc44211/ai-ledger-android/memory-quick-panel-web-preview-v4.html?v=6"
+    title="记忆快捷面板实验台 V6">
+  </iframe>
+
+  <script>
+    const outerFrame = document.getElementById('preview');
+
+    function patchNestedPreview() {
+      const wrapperDocument = outerFrame.contentDocument;
+      const nestedFrame = wrapperDocument?.getElementById('preview');
+      if (!nestedFrame) return;
+
+      const applyPatch = () => {
+        const d = nestedFrame.contentDocument;
+        const w = nestedFrame.contentWindow;
+        if (!d || !w || d.getElementById('memory-viewport-fit-v6')) return;
+
+        d.title = 'AI Ledger · 记忆快捷面板实验台 V6';
+        const note = d.querySelector('.stage-note');
+        if (note) {
+          note.innerHTML = '<b>记忆快捷面板 · V6</b><span>优先向上 / 自动避让顶部 / 锚点自适应缩放</span>';
+        }
+        const lead = d.querySelector('.lab .lead');
+        if (lead) {
+          lead.textContent = '面板现在会实时检测顶部可用空间。空间不足时先切换紧凑布局，再围绕气泡尾部缩放，始终留在屏幕内。';
+        }
+
+        const style = d.createElement('style');
+        style.id = 'memory-viewport-fit-v6';
+        style.textContent = `
+          :root {
+            --viewport-fit-scale: 1;
+            --viewport-safe-top: 12px;
+          }
+
+          .memory-anchor { position: relative !important; }
+
+          .memory-panel,
+          .memory-panel.is-open {
+            top: auto !important;
+            left: auto !important;
+            right: 0 !important;
+            bottom: calc(100% + var(--panel-gap)) !important;
+          }
+
+          .memory-panel {
+            transform:
+              translateX(var(--panel-x))
+              translateY(8px)
+              scale(calc(var(--panel-scale) * var(--viewport-fit-scale) * .94)) !important;
+          }
+
+          .memory-panel.is-open {
+            transform:
+              translateX(var(--panel-x))
+              translateY(0)
+              scale(calc(var(--panel-scale) * var(--viewport-fit-scale))) !important;
+          }
+
+          .memory-panel.v6-tight .v4-bubble-content {
+            padding: 10px 10px 0 !important;
+          }
+          .memory-panel.v6-tight .head {
+            grid-template-columns: 30px 1fr auto !important;
+            gap: 7px !important;
+          }
+          .memory-panel.v6-tight .icon-box {
+            width: 30px !important;
+            height: 30px !important;
+            border-radius: 11px !important;
+          }
+          .memory-panel.v6-tight .icon-box svg {
+            width: 18px !important;
+            height: 18px !important;
+          }
+          .memory-panel.v6-tight .head-title {
+            font-size: 13px !important;
+            line-height: 15px !important;
+          }
+          .memory-panel.v6-tight .head-sub {
+            font-size: 8px !important;
+          }
+          .memory-panel.v6-tight .divider {
+            margin: 8px 0 6px !important;
+          }
+          .memory-panel.v6-tight .memory-list {
+            gap: 6px !important;
+          }
+          .memory-panel.v6-tight .memory-card {
+            padding: 7px 8px !important;
+            border-radius: 14px !important;
+          }
+          .memory-panel.v6-tight .memory-text {
+            font-size: 9px !important;
+          }
+          .memory-panel.v6-tight .foot {
+            margin-top: 6px !important;
+          }
+
+          .memory-panel.v6-ultra-tight .memory-item:nth-child(n+3) {
+            display: none !important;
+          }
+          .memory-panel.v6-ultra-tight .foot-note::before {
+            content: '顶部空间较小 · ';
+          }
+
+          @media (max-height: 780px) {
+            .stage {
+              place-items: start center !important;
+              overflow-y: auto !important;
+              padding-top: 22px !important;
+            }
+            .phone {
+              transform: scale(.91);
+              transform-origin: center top;
+            }
+          }
+        `;
+        d.head.appendChild(style);
+
+        const panel = d.getElementById('memoryPanel');
+        const trigger = d.getElementById('memoryTrigger');
+        const bubbleContent = d.querySelector('.v4-bubble-content');
+        if (!panel || !trigger || !bubbleContent) return;
+
+        const forceUpward = () => {
+          panel.style.setProperty('top', 'auto', 'important');
+          panel.style.setProperty('left', 'auto', 'important');
+          panel.style.setProperty('right', '0', 'important');
+          panel.style.setProperty('bottom', 'calc(100% + var(--panel-gap))', 'important');
+        };
+
+        let scheduled = false;
+        function scheduleFit() {
+          if (scheduled) return;
+          scheduled = true;
+          w.requestAnimationFrame(() => {
+            scheduled = false;
+            fitPanelToViewport();
+          });
+        }
+
+        function fitPanelToViewport() {
+          forceUpward();
+
+          const rootStyle = w.getComputedStyle(d.documentElement);
+          const userScale = Number.parseFloat(rootStyle.getPropertyValue('--panel-scale')) || 1;
+          const gap = Number.parseFloat(rootStyle.getPropertyValue('--panel-gap')) || 10;
+          const safeTop = 12;
+          const triggerRect = trigger.getBoundingClientRect();
+          const availableHeight = Math.max(76, triggerRect.top - safeTop - gap);
+
+          panel.classList.remove('v6-tight', 'v6-ultra-tight');
+          d.documentElement.style.setProperty('--viewport-fit-scale', '1');
+
+          let naturalHeight = panel.offsetHeight;
+          if (naturalHeight * userScale > availableHeight * .94) {
+            panel.classList.add('v6-tight');
+            naturalHeight = panel.offsetHeight;
+          }
+          if (naturalHeight * userScale > availableHeight * .94) {
+            panel.classList.add('v6-ultra-tight');
+            naturalHeight = panel.offsetHeight;
+          }
+
+          const fitScale = Math.min(1, availableHeight / Math.max(1, naturalHeight * userScale));
+          d.documentElement.style.setProperty('--viewport-fit-scale', Math.max(.56, fitScale).toFixed(4));
+
+          w.requestAnimationFrame(() => {
+            const rect = panel.getBoundingClientRect();
+            if (rect.top < safeTop) {
+              const corrected = Math.max(.50, (fitScale * ((availableHeight - (safeTop - rect.top)) / availableHeight)));
+              d.documentElement.style.setProperty('--viewport-fit-scale', corrected.toFixed(4));
+            }
+          });
+        }
+
+        forceUpward();
+        scheduleFit();
+
+        const observedInputs = ['panelX','panelWidth','panelRadius','panelScale','panelGap','itemGap'];
+        observedInputs.forEach(id => {
+          d.getElementById(id)?.addEventListener('input', scheduleFit);
+        });
+
+        new w.ResizeObserver(scheduleFit).observe(bubbleContent);
+        new w.ResizeObserver(scheduleFit).observe(trigger);
+        new w.MutationObserver(scheduleFit).observe(panel, {
+          attributes: true,
+          childList: true,
+          subtree: true,
+          attributeFilter: ['class','style']
+        });
+        w.addEventListener('resize', scheduleFit);
+        w.addEventListener('orientationchange', scheduleFit);
+
+        setTimeout(scheduleFit, 180);
+        setTimeout(scheduleFit, 620);
+        setTimeout(scheduleFit, 1200);
+      };
+
+      nestedFrame.addEventListener('load', () => setTimeout(applyPatch, 120), { once: true });
+      setTimeout(applyPatch, 260);
+      setTimeout(applyPatch, 900);
+    }
+
+    outerFrame.addEventListener('load', patchNestedPreview);
+  </script>
+</body>
+</html>
