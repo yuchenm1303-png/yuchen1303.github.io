@@ -50,10 +50,10 @@ internal data class AgentInfinityMotionFrame(
 )
 
 internal val AgentInfinityOffTheme = AgentInfinityWebTheme(
-    NativeColor.rgb(104, 117, 151), NativeColor.rgb(92, 102, 133), NativeColor.rgb(127, 139, 169), 0.34f, 0f
+    NativeColor.rgb(104, 117, 151), NativeColor.rgb(92, 102, 133), NativeColor.rgb(127, 139, 169), 0.12f, 0f
 )
 internal val AgentInfinityStandbyTheme = AgentInfinityWebTheme(
-    NativeColor.rgb(102, 255, 240), NativeColor.rgb(93, 132, 255), NativeColor.rgb(164, 105, 255), 0.83f, 0.42f
+    NativeColor.rgb(102, 255, 240), NativeColor.rgb(93, 132, 255), NativeColor.rgb(164, 105, 255), 0.24f, 0.42f
 )
 internal val AgentInfinityRunningTheme = AgentInfinityWebTheme(
     NativeColor.rgb(105, 255, 241), NativeColor.rgb(87, 132, 255), NativeColor.rgb(186, 101, 255), 1f, 1f
