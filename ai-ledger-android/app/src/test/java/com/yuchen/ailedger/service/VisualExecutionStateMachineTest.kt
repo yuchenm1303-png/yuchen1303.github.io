@@ -57,6 +57,22 @@ class VisualExecutionStateMachineTest {
     }
 
     @Test
+    fun duplicateLaunchDoesNotErasePendingForeignEvidence() {
+        val machine = VisualExecutionStateMachine()
+        machine.beginLaunch("com.example.target")
+        machine.markTargetVerified("com.example.target")
+        machine.synchronizeWith("com.example.other")
+
+        assertTrue(machine.requiresForeignConfirmation("com.example.other"))
+
+        machine.beginLaunch("com.example.target")
+        machine.synchronizeWith("com.example.other")
+
+        assertEquals(VisualSurfaceState.Replanning, machine.surfaceState)
+        assertEquals(1L, machine.routeEpoch)
+    }
+
+    @Test
     fun verificationCannotReplaceTheSelectedTarget() {
         val machine = VisualExecutionStateMachine()
 
@@ -84,7 +100,7 @@ class VisualExecutionStateMachineTest {
     }
 
     @Test
-    fun oneForeignSampleIsTreatedAsAmbiguousButTwoConsecutiveSamplesReplan() {
+    fun oneForeignSampleRequiresConfirmationAndTwoConsecutiveSamplesReplan() {
         val machine = VisualExecutionStateMachine()
         machine.beginLaunch("com.example.target")
         machine.markTargetVerified("com.example.target")
@@ -94,6 +110,7 @@ class VisualExecutionStateMachineTest {
         assertEquals(VisualSurfaceState.WorkSurface, machine.surfaceState)
         assertEquals("com.example.target", machine.verifiedTargetPackage)
         assertEquals(0L, machine.routeEpoch)
+        assertTrue(machine.requiresForeignConfirmation("com.example.other"))
         assertTrue(machine.isVerifiedWorkSurface("com.example.other"))
 
         machine.synchronizeWith("com.example.other")
@@ -101,6 +118,7 @@ class VisualExecutionStateMachineTest {
         assertEquals(VisualSurfaceState.Replanning, machine.surfaceState)
         assertEquals("", machine.verifiedTargetPackage)
         assertEquals(1L, machine.routeEpoch)
+        assertFalse(machine.requiresForeignConfirmation("com.example.other"))
         assertFalse(machine.isVerifiedWorkSurface("com.example.target"))
     }
 
@@ -116,6 +134,7 @@ class VisualExecutionStateMachineTest {
         assertEquals(VisualSurfaceState.WorkSurface, machine.surfaceState)
         assertEquals("com.example.target", machine.verifiedTargetPackage)
         assertEquals(0L, machine.routeEpoch)
+        assertTrue(machine.requiresForeignConfirmation("com.example.second"))
         assertTrue(machine.isVerifiedWorkSurface("com.example.second"))
     }
 
@@ -129,6 +148,7 @@ class VisualExecutionStateMachineTest {
             "android",
             "com.android.systemui",
             "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
         )
 
         transientPackages.forEach { packageName ->
@@ -141,6 +161,7 @@ class VisualExecutionStateMachineTest {
             assertEquals(VisualSurfaceState.WorkSurface, machine.surfaceState)
             assertEquals("com.example.target", machine.verifiedTargetPackage)
             assertTrue(machine.isVerifiedWorkSurface(packageName))
+            assertFalse(machine.requiresForeignConfirmation(packageName))
         }
     }
 }
