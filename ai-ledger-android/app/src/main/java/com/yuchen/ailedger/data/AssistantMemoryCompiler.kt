@@ -110,6 +110,7 @@ object AssistantMemoryCompiler {
             memoryState.memories.asSequence()
                 .filter { it.isActiveAt(nowMillis) }
                 .map { rank(it, intent, activeScopes, promptTokens, nowMillis) }
+                .filter { it.score > Int.MIN_VALUE / 2 }
                 .sortedWith(
                     compareByDescending<RankedMemory> { it.score }
                         .thenByDescending { it.item.updatedAt }
@@ -127,7 +128,7 @@ object AssistantMemoryCompiler {
         val activeRules = selected
             .filter { rankedItem ->
                 isInstructionLike(rankedItem.item) &&
-                    instructionScopeMatches(rankedItem.scope, activeScopes, rankedItem.item.pinned)
+                    instructionScopeMatches(rankedItem.scope, activeScopes)
             }
             .take(6)
 
@@ -206,6 +207,16 @@ object AssistantMemoryCompiler {
         nowMillis: Long,
     ): RankedMemory {
         val scope = effectiveScope(item)
+        val explicitScopeMismatch = scope != "auto" && scope != "global" && scope !in activeScopes
+        if (explicitScopeMismatch) {
+            return RankedMemory(
+                item = item,
+                scope = scope,
+                score = Int.MIN_VALUE,
+                reason = "scope_mismatch",
+            )
+        }
+
         val overlap = promptTokens.intersect(tokenize(item.content)).size
         val scopeMatches = scope == "auto" || scope in activeScopes
         val ruleLike = isInstructionLike(item)
@@ -316,6 +327,7 @@ object AssistantMemoryCompiler {
                 if (intent == AssistantMemoryIntent.ENGLISH_VOCABULARY && containsEnglishLearningSignal(segment)) score += 40
                 segment to score
             }
+            .filter { it.second >= 16 }
             .sortedByDescending { it.second }
             .take(6)
             .map { it.first }
@@ -356,8 +368,8 @@ object AssistantMemoryCompiler {
             selected.any { containsEnglishLearningSignal(it.item.content) }
     }
 
-    private fun instructionScopeMatches(scope: String, activeScopes: Set<String>, pinned: Boolean): Boolean {
-        return scope == "global" || scope == "auto" || scope in activeScopes || pinned
+    private fun instructionScopeMatches(scope: String, activeScopes: Set<String>): Boolean {
+        return scope == "global" || scope == "auto" || scope in activeScopes
     }
 
     private fun isInstructionLike(item: AssistantMemoryItem): Boolean {
