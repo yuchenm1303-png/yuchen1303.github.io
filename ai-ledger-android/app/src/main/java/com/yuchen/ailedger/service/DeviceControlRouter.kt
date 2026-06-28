@@ -93,7 +93,7 @@ object DeviceControlRouter {
         val clean = JSONObject()
 
         source.keys().asSequence().forEach { key ->
-            if (key !in CONTROL_ENVELOPE_KEYS && source.has(key) && !source.isNull(key)) {
+            if (key !in DeviceControlEnvelopeKeys && source.has(key) && !source.isNull(key)) {
                 clean.put(key, source.opt(key))
             }
         }
@@ -115,41 +115,6 @@ object DeviceControlRouter {
         }
         return null
     }
-
-    private val CONTROL_ENVELOPE_KEYS = setOf(
-        "tool",
-        "capability",
-        "type",
-        "action",
-        "name",
-        "args",
-        "arguments",
-        "params",
-        "deviceControlAction",
-        "device_control_action",
-        "agentStep",
-        "step",
-        "kind",
-        "target",
-        "targetText",
-        "text",
-        "title",
-        "label",
-        "reason",
-        "rationale",
-        "risk",
-        "riskLevel",
-        "requiresConfirmation",
-        "confirm",
-        "expectedEvidence",
-        "failureEvidence",
-        "successEvidence",
-        "evidence",
-        "observationId",
-        "expectedActionObservationId",
-        "actionObservationId",
-        "appName",
-    )
 }
 
 private fun JSONObject.canonicalString(name: String): String =
