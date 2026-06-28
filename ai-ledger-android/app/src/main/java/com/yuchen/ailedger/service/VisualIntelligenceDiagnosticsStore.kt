@@ -422,7 +422,7 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
         val sessions = rootDir.listFiles { file -> file.isDirectory && file.name.startsWith("task_") }
             .orEmpty()
             .sortedByDescending { File(it, "summary.json").lastModified().coerceAtLeast(it.lastModified()) }
-        sessions.drop(MAX_DIAGNOSTIC_SESSIONS).forEach(File::deleteRecursively)
+        sessions.drop(MAX_DIAGNOSTIC_SESSIONS).forEach { it.deleteRecursively() }
     }
 
     private fun sessionDir(taskId: Long): File = File(rootDir, "task_$taskId")
@@ -430,17 +430,22 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
     private fun sanitizeJson(value: Any?): Any? = when (value) {
         null, JSONObject.NULL -> JSONObject.NULL
         is JSONObject -> JSONObject().apply {
+            val inputAction = value.optString("type").equals("input_text", true) ||
+                value.optString("stepType").equals("input_text", true)
             val keys = value.keys()
             while (keys.hasNext()) {
                 val key = keys.next()
                 val raw = value.opt(key)
+                val sensitiveInputField = inputAction && key.lowercase() in setOf(
+                    "text", "inputtext", "query", "content", "value", "toolargs",
+                )
                 when {
                     key.equals("base64Data", true) || key.equals("base64Jpeg", true) ->
                         put(key, "[图像已单独保存]")
-                    key.contains("token", true) || key.contains("password", true) || key.contains("secret", true) ->
-                        put(key, "[敏感内容已隐藏]")
-                    key.equals("text", true) && value.optString("type") == "input_text" ->
-                        put(key, "[输入内容已隐藏]")
+                    key.contains("token", true) || key.contains("password", true) ||
+                        key.contains("secret", true) || key.contains("authorization", true) ||
+                        key.contains("cookie", true) -> put(key, "[敏感内容已隐藏]")
+                    sensitiveInputField -> put(key, "[输入内容已隐藏]")
                     else -> put(key, sanitizeJson(raw))
                 }
             }
