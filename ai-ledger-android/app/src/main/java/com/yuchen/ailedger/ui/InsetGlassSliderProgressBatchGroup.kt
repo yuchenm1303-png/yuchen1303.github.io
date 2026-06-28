@@ -19,6 +19,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.IntSize
@@ -28,14 +30,14 @@ import kotlin.math.abs
 private const val ProgressTrackPreloadMarginDp = 48f
 private const val ProgressChangeEpsilon = 0.0001f
 
-private class CachedInsetProgressTrack {
+internal class CachedInsetProgressTrack {
     var geometrySignature: Long = Long.MIN_VALUE
     var localSize: Size = Size.Zero
-    var corner: CornerRadius = CornerRadius.Zero
+    var corner: CornerRadius = CornerRadius(0f, 0f)
     var activeBrush: Brush? = null
 }
 
-private class InsetProgressTrackSlot(
+internal class InsetProgressTrackSlot(
     var rect: Rect,
     var coordinates: LayoutCoordinates,
     var progress: Float,
