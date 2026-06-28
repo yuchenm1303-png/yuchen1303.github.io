@@ -50,6 +50,36 @@ class VisualOpenAppHandoffPolicyTest {
         )
     }
 
+    @Test
+    fun oneOfTwoStableSamplesRemainsLocalPendingEvidence() {
+        assertTrue(
+            VisualOpenAppHandoffPolicy.isPendingVerification(
+                VisualTargetPackageVerification(
+                    verified = false,
+                    stableSamples = 1,
+                    lastSnapshot = null,
+                    lastObservation = null,
+                    reason = "stable_samples_incomplete",
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun confirmedForeignTargetFailureDoesNotRemainPending() {
+        assertFalse(
+            VisualOpenAppHandoffPolicy.isPendingVerification(
+                VisualTargetPackageVerification(
+                    verified = false,
+                    stableSamples = 0,
+                    lastSnapshot = null,
+                    lastObservation = null,
+                    reason = "target_not_stable",
+                ),
+            ),
+        )
+    }
+
     private fun runtime(
         state: VisualSurfaceState,
         selected: String,
