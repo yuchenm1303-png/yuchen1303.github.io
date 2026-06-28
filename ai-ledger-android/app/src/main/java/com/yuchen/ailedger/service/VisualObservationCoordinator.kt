@@ -271,6 +271,7 @@ class VisualObservationCoordinator(
         var deadline = startedAt + baseTimeout
         var stableSamples = 0
         var lastSnapshot: AgentScreenSnapshot? = null
+        var lastEvidenceStrength = VisualPackageEvidenceStrength.Unresolved
         sleep(timing.openAppInitialSettleMs)
 
         while (!isStopped() && elapsedRealtime() < deadline) {
@@ -281,6 +282,7 @@ class VisualObservationCoordinator(
             )
             val probeSnapshot = probeResolution.observation.toAgentScreenSnapshot()
             lastSnapshot = probeSnapshot
+            lastEvidenceStrength = probeResolution.evidenceStrength
             val now = elapsedRealtime()
 
             when {
@@ -301,6 +303,7 @@ class VisualObservationCoordinator(
                         val visualObservation = visualResolution.observation
                         val visualSnapshot = visualObservation.toAgentScreenSnapshot()
                         lastSnapshot = visualSnapshot
+                        lastEvidenceStrength = visualResolution.evidenceStrength
                         if (
                             visualSnapshot.packageName == expectedPackage &&
                             visualSnapshot.visual?.hasImage == true
@@ -354,6 +357,8 @@ class VisualObservationCoordinator(
             isStopped() -> VisualTargetPackageVerificationReason.TaskStopped
             lastSnapshot?.packageName == expectedPackage && stableSamples in 1 until requiredSamples ->
                 VisualTargetPackageVerificationReason.StableSamplesIncomplete
+            lastEvidenceStrength == VisualPackageEvidenceStrength.Inherited ->
+                VisualTargetPackageVerificationReason.TransientSurface
             VisualSurfacePackagePolicy.requiresForegroundFallback(lastSnapshot?.packageName.orEmpty()) ->
                 VisualTargetPackageVerificationReason.TransientSurface
             else -> VisualTargetPackageVerificationReason.TargetNotStable
