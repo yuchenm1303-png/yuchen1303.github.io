@@ -22,11 +22,6 @@ internal object VisualOpenAppHandoffPolicy {
         }
     }
 
-    fun isPendingVerification(verification: VisualTargetPackageVerification): Boolean {
-        if (verification.verified) return false
-        return verification.reason in PENDING_REASONS
-    }
-
     fun suppressionMessage(
         runtime: VisualAgentRuntimeContext,
         requestedPackage: String,
@@ -38,10 +33,4 @@ internal object VisualOpenAppHandoffPolicy {
         else ->
             "Target package already owns the verified work surface; redundant open_app was skipped: $requestedPackage"
     }
-
-    private val PENDING_REASONS = setOf(
-        "stable_samples_incomplete",
-        "transient_surface",
-        "task_stopped",
-    )
 }
