@@ -100,35 +100,66 @@ class VisualLoopRunner(
         .toList()
 
     private suspend fun captureTurn(session: VisualTaskSession): VisualTurn? {
-        var observation = session.prefetchedObservation?.also { session.prefetchedObservation = null }
+        val initialObservation = session.prefetchedObservation?.also { session.prefetchedObservation = null }
             ?: observationCoordinator.captureTrustedObservation(
                 forceVisual = session.execution.requiresVisualObservation(),
                 expectedPackage = session.execution.selectedTargetPackage,
             )
-        var snapshot = observation.toAgentScreenSnapshot()
-        session.state.currentPackage = snapshot.currentApp
-        var runtime = session.execution.runtimeContext(snapshot)
-        if (runtime.guiPlusEligible && snapshot.visual?.hasImage != true) {
-            observation = observationCoordinator.captureTrustedObservation(
+        var surface = stabilizeSurfaceObservation(session, initialObservation)
+        var visualAttempts = 0
+        while (
+            surface.runtime.guiPlusEligible &&
+            surface.snapshot.visual?.hasImage != true &&
+            visualAttempts < MAX_WORK_SURFACE_VISUAL_ATTEMPTS &&
+            !session.stopped()
+        ) {
+            val visualObservation = observationCoordinator.captureTrustedObservation(
                 forceVisual = true,
+                expectedPackage = session.execution.selectedTargetPackage,
+            )
+            surface = stabilizeSurfaceObservation(session, visualObservation)
+            visualAttempts += 1
+        }
+        if (session.stopped()) return null
+
+        session.state.currentPackage = surface.snapshot.currentApp
+        VisualLoopMemorySupport.replaceRuntimeLine(session.recentActions, surface.runtime)
+        VisualLoopMemorySupport.replaceMemoryLine(
+            session.recentActions,
+            session.semantic.memorySnapshot(surface.snapshot),
+        )
+        when {
+            surface.runtime.guiPlusEligible -> AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前子目标与页面证据")
+            surface.runtime.surfaceState == VisualSurfaceState.Launching ->
+                AgentRuntimeController.noteDiagnostic("正在确认目标应用前台状态")
+        }
+        return VisualTurn(surface.observation, surface.snapshot, surface.runtime)
+    }
+
+    private suspend fun stabilizeSurfaceObservation(
+        session: VisualTaskSession,
+        initialObservation: ScreenObservation,
+    ): StabilizedSurfaceObservation {
+        var observation = initialObservation
+        var snapshot = observation.toAgentScreenSnapshot()
+        var runtime = session.execution.runtimeContext(snapshot)
+        var confirmationProbes = 0
+
+        while (
+            session.execution.requiresForeignConfirmation(snapshot) &&
+            confirmationProbes < MAX_FOREIGN_CONFIRMATION_PROBES &&
+            !session.stopped()
+        ) {
+            delay(FOREIGN_CONFIRMATION_DELAY_MS)
+            observation = observationCoordinator.captureTrustedObservation(
+                forceVisual = false,
                 expectedPackage = session.execution.selectedTargetPackage,
             )
             snapshot = observation.toAgentScreenSnapshot()
             runtime = session.execution.runtimeContext(snapshot)
-            session.state.currentPackage = snapshot.currentApp
+            confirmationProbes += 1
         }
-        if (session.stopped()) return null
-        VisualLoopMemorySupport.replaceRuntimeLine(session.recentActions, runtime)
-        VisualLoopMemorySupport.replaceMemoryLine(
-            session.recentActions,
-            session.semantic.memorySnapshot(snapshot),
-        )
-        when {
-            runtime.guiPlusEligible -> AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前子目标与页面证据")
-            runtime.surfaceState == VisualSurfaceState.Launching ->
-                AgentRuntimeController.noteDiagnostic("正在确认目标应用前台状态")
-        }
-        return VisualTurn(observation, snapshot, runtime)
+        return StabilizedSurfaceObservation(observation, snapshot, runtime)
     }
 
     private fun appContextForTurn(
@@ -180,10 +211,9 @@ class VisualLoopRunner(
                         forceVisual = true,
                         expectedPackage = session.execution.selectedTargetPackage,
                     )
-                    val recoveredSnapshot = recovered.toAgentScreenSnapshot()
-                    val recoveredRuntime = session.execution.runtimeContext(recoveredSnapshot)
-                    session.prefetchedObservation = recovered
-                    VisualLoopMemorySupport.replaceRuntimeLine(session.recentActions, recoveredRuntime)
+                    val recoveredSurface = stabilizeSurfaceObservation(session, recovered)
+                    session.prefetchedObservation = recoveredSurface.observation
+                    VisualLoopMemorySupport.replaceRuntimeLine(session.recentActions, recoveredSurface.runtime)
                     val structured = error as? VisualAgentRequestException
                     VisualLoopSupport.appendRecent(
                         session.recentActions,
@@ -192,9 +222,9 @@ class VisualLoopRunner(
                             append("|code=").append(structured?.code ?: "io_error")
                             append("|httpStatus=").append(structured?.httpStatus ?: 0)
                             append("|retryable=true|currentPackage=")
-                            append(recoveredSnapshot.packageName.take(100))
-                            append("|workSurfaceRecovered=").append(recoveredRuntime.guiPlusEligible)
-                            append("|observationId=").append(recoveredRuntime.observationId)
+                            append(recoveredSurface.snapshot.packageName.take(100))
+                            append("|workSurfaceRecovered=").append(recoveredSurface.runtime.guiPlusEligible)
+                            append("|observationId=").append(recoveredSurface.runtime.observationId)
                         },
                     )
                     delay(decision.backoffMs)
@@ -324,13 +354,15 @@ class VisualLoopRunner(
         try {
             if (VisualLoopSupport.requiresFreshObservation(executable)) {
                 executionLease = AgentRuntimeController.acquireCleanVisualCaptureLease()
-                val fresh = observationCoordinator.captureTrustedObservation(
+                val freshObservation = observationCoordinator.captureTrustedObservation(
                     forceVisual = false,
                     expectedPackage = session.execution.selectedTargetPackage,
                     settleMs = 160L,
-                ).toAgentScreenSnapshot()
-                session.execution.synchronizeWith(fresh)
-                val verified = session.execution.isVerifiedWorkSurface(fresh)
+                )
+                val freshSurface = stabilizeSurfaceObservation(session, freshObservation)
+                val fresh = freshSurface.snapshot
+                val verified = freshSurface.runtime.guiPlusEligible &&
+                    session.execution.isVerifiedWorkSurface(fresh)
                 val freshness = VisualObservationProtocol.evaluateActionContextFreshness(
                     step = executable,
                     observedSnapshot = turn.snapshot,
@@ -354,7 +386,7 @@ class VisualLoopRunner(
                     )
                     VisualLoopSupport.appendRecent(session.recentActions, feedback)
                     VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
-                    if (!verified) session.execution.markStructuralReplan()
+                    session.prefetchedObservation = freshSurface.observation
                     session.state.reobservations += 1
                     return VisualLoopDecision.Continue
                 }
@@ -410,26 +442,10 @@ class VisualLoopRunner(
                 expectedPackage = session.execution.selectedTargetPackage,
             )
             releaseExecutionLease()
-            val after = afterObservation.toAgentScreenSnapshot()
-            session.execution.synchronizeWith(after)
-            val firstForeignSurfaceSample =
-                session.execution.surfaceState == VisualSurfaceState.WorkSurface &&
-                    turn.runtime.verifiedTargetPackage.isNotBlank() &&
-                    VisualSurfacePackagePolicy.isConfidentForeignPackage(
-                        currentPackage = after.packageName,
-                        expectedPackage = turn.runtime.verifiedTargetPackage,
-                    )
-            val nextObservation = if (firstForeignSurfaceSample) {
-                delay(120L)
-                observationCoordinator.captureTrustedObservation(
-                    forceVisual = false,
-                    expectedPackage = session.execution.selectedTargetPackage,
-                )
-            } else {
-                afterObservation
-            }
+            val afterSurface = stabilizeSurfaceObservation(session, afterObservation)
+            val after = afterSurface.snapshot
             val structuralRegressionConfirmed =
-                session.execution.surfaceState == VisualSurfaceState.Replanning
+                afterSurface.runtime.surfaceState == VisualSurfaceState.Replanning
             val progress = session.semantic.evaluate(
                 step = executable,
                 before = turn.snapshot,
@@ -441,7 +457,7 @@ class VisualLoopRunner(
             VisualLoopSupport.appendRecent(session.recentActions, feedback)
             VisualLoopMemorySupport.replaceMemoryLine(session.recentActions, progress.taskMemory)
             VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-            session.prefetchedObservation = nextObservation
+            session.prefetchedObservation = afterSurface.observation
             if (progress.status == VisualSemanticProgressStatus.Ambiguous && progress.reobserveRecommended) {
                 delay(120L)
                 session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
@@ -739,11 +755,9 @@ class VisualLoopRunner(
             }
         } else {
             val actual = verification.lastSnapshot?.packageName.orEmpty()
-            val pending = VisualOpenAppHandoffPolicy.isPendingVerification(verification) ||
+            val pending = verification.reason.pending ||
                 VisualSurfacePackagePolicy.requiresForegroundFallback(actual)
-            val reason = verification.reason.ifBlank {
-                if (pending) "transient_surface" else "target_not_stable"
-            }
+            val reason = verification.reason.wireValue
             val feedback = if (pending) {
                 "open_app_package_verification_pending:expected=$expectedPackage|actual=${actual.take(100)}|stableSamples=${verification.stableSamples}|reason=$reason"
             } else {
@@ -837,10 +851,20 @@ class VisualLoopRunner(
     }
 
     companion object {
+        private const val FOREIGN_CONFIRMATION_DELAY_MS = 120L
+        private const val MAX_FOREIGN_CONFIRMATION_PROBES = 2
+        private const val MAX_WORK_SURFACE_VISUAL_ATTEMPTS = 2
+
         internal fun requiresAgentSwitch(executionMode: AgentExecutionMode): Boolean =
             executionMode == AgentExecutionMode.VisualForce
     }
 }
+
+private data class StabilizedSurfaceObservation(
+    val observation: ScreenObservation,
+    val snapshot: AgentScreenSnapshot,
+    val runtime: VisualAgentRuntimeContext,
+)
 
 internal data class VisualTaskSession(
     val state: VisualLoopState,
