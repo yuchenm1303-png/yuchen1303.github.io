@@ -1,3 +1,4 @@
+// AI_LEDGER_SOURCE_SEGMENT_1_BEGIN
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
@@ -74,6 +75,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.yuchen.ailedger.data.createWelcomeMessage
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -336,8 +338,6 @@ internal fun AssistantScreenV2(
                     state = chatPanelState,
                     modifier = Modifier.fillMaxWidth(),
                     viewportTopInset = modelExpandDelta,
-                    onDraftCommand = onDraftCommand,
-                    onPickImage = onPickImage,
                     onCopyMessage = onCopyMessage,
                     onRetryMessage = onRetryMessage,
                     onClearMessages = onClearMessages
@@ -484,8 +484,6 @@ private fun ChatPanelV2(
     state: ChatPanelUiState,
     modifier: Modifier,
     viewportTopInset: Dp = 0.dp,
-    onDraftCommand: (String) -> Unit,
-    onPickImage: () -> Unit,
     onCopyMessage: (String) -> Unit,
     onRetryMessage: (String) -> Unit,
     onClearMessages: () -> Unit
@@ -496,10 +494,22 @@ private fun ChatPanelV2(
     var streamedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var streamRevealCompletedMessageIds by remember { mutableStateOf(emptySet<String>()) }
     var collapsedLongReplyMessageIds by remember { mutableStateOf(emptySet<String>()) }
-    val messages = state.messages
+    val sourceMessages = state.messages
+    val messages = remember(sourceMessages) {
+        sourceMessages.ifEmpty {
+            listOf(
+                createWelcomeMessage(
+                    id = "assistant-welcome-cleared-${System.nanoTime()}"
+                )
+            )
+        }
+    }
     val activeMessageIds = remember(messages) { messages.map { it.id }.toSet() }
     LaunchedEffect(activeMessageIds) {
         bubbleLayerState.removeMissing(activeMessageIds)
+// AI_LEDGER_SOURCE_SEGMENT_1_END
+
+// AI_LEDGER_SOURCE_SEGMENT_2_BEGIN
         if (revealedMessageIds.any { it !in activeMessageIds }) {
             revealedMessageIds = revealedMessageIds.intersect(activeMessageIds)
         }
@@ -593,7 +603,7 @@ private fun ChatPanelV2(
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
                     ClearChatButtonV2(
-                        enabled = messages.isNotEmpty(),
+                        enabled = sourceMessages.isNotEmpty(),
                         onClick = onClearMessages
                     )
                 }
@@ -640,16 +650,6 @@ private fun ChatPanelV2(
                                 onRetryMessage = onRetryMessage
                             )
                         }
-                        item {
-                            StarterSuggestionsV2(
-                                visible = messages.size <= 2,
-                                quality = state.quality,
-                                glassIntensity = state.glassIntensity,
-                                motionIntensity = state.motionIntensity,
-                                onDraftCommand = onDraftCommand,
-                                onPickImage = onPickImage
-                            )
-                        }
                     }
                 }
             }
@@ -674,35 +674,6 @@ private fun ChatBubbleMaterialLayerHost(
         motionIntensity = motionIntensity,
         modifier = modifier
     )
-}
-
-@Composable
-private fun StarterSuggestionsV2(
-    visible: Boolean,
-    quality: RenderQuality,
-    glassIntensity: Float,
-    motionIntensity: Float,
-    onDraftCommand: (String) -> Unit,
-    onPickImage: () -> Unit
-) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) + slideInVertically(spring(dampingRatio = 0.72f)) { it / 2 },
-        exit = fadeOut(tween(120)) + slideOutVertically(tween(120)) { it / 2 }
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(top = 2.dp)) {
-            Text("可以这样说", color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
-                SuggestionButtonV2("记一笔", quality, glassIntensity, motionIntensity, Modifier.weight(1f)) {
-                    onDraftCommand("记一笔 午饭 18 元")
-                }
-                SuggestionButtonV2("设提醒", quality, glassIntensity, motionIntensity, Modifier.weight(1f)) {
-                    onDraftCommand("今晚 9 点半提醒我复盘")
-                }
-                SuggestionButtonV2("上传图片", quality, glassIntensity, motionIntensity, Modifier.weight(1f), onClick = onPickImage)
-            }
-        }
-    }
 }
 
 private fun phaseOffsetForMessage(id: String): Float = ((id.hashCode() ushr 1) % 997) / 997f
@@ -972,6 +943,9 @@ private fun StreamingAssistantContentV2(
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (hasLiveText) {
             if (useFullRichStreaming) {
+// AI_LEDGER_SOURCE_SEGMENT_2_END
+
+// AI_LEDGER_SOURCE_SEGMENT_3_BEGIN
                 OptimizedRichMessageContent(
                     text = displayText,
                     color = Color.White.copy(alpha = 0.86f),
@@ -1488,6 +1462,9 @@ private fun MessageBadgeV2(message: ChatMessage) {
         badgeColorV2(message)
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+// AI_LEDGER_SOURCE_SEGMENT_3_END
+
+// AI_LEDGER_SOURCE_SEGMENT_4_BEGIN
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
         Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -1781,22 +1758,6 @@ private fun RoundIconButtonV2(
 }
 
 @Composable
-private fun SuggestionButtonV2(
-    text: String,
-    quality: RenderQuality,
-    glassIntensity: Float,
-    motionIntensity: Float,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    PressableGlass(quality, glassIntensity * 0.92f, motionIntensity, 20, modifier.height(38.dp), GlassRole.Chip, onClick = onClick) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text, color = Color.White.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-        }
-    }
-}
-
-@Composable
 private fun ClearChatButtonV2(enabled: Boolean, onClick: () -> Unit) {
     val alpha = if (enabled) 0.64f else 0.26f
     Text(
@@ -1954,3 +1915,5 @@ private fun modelSignalV2(message: ChatMessage): String {
         .joinToString(" ")
         .lowercase()
 }
+// AI_LEDGER_SOURCE_SEGMENT_4_END
+
