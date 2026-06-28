@@ -12,6 +12,7 @@ import android.view.Surface
 import android.view.TextureView
 import android.widget.FrameLayout
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.PerformanceRuntimeMetrics
 import com.yuchen.ailedger.ui.StartupPerformanceGate
 import kotlin.math.abs
 import kotlin.math.max
@@ -80,6 +81,7 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
         val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
         stableSurfaceWidth = targetWidth
         stableSurfaceHeight = targetHeight
+        PerformanceRuntimeMetrics.recordOpenGlSurface(stableSurfaceWidth, stableSurfaceHeight)
 
         val current = textureView.layoutParams as? LayoutParams
         val layoutDirty = current == null ||
@@ -106,7 +108,9 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
         }
         val glassDirty = syncGlassSpecToTexture()
         val samplingDirty = syncSamplingSpecToTexture()
-        if (changed || glassDirty || samplingDirty) textureView.requestRender()
+        // Surface 尺寸变化由 TextureView 回调唤醒；这里只处理真正改变的玻璃/采样数据，
+        // 避免普通父布局 changed 再额外提交一帧相同内容。
+        if (glassDirty || samplingDirty) textureView.requestRender()
     }
 
     override fun onDetachedFromWindow() {
@@ -276,15 +280,22 @@ private class WebOpenGLGlassTextureView(
         blurMediumBitmap: Bitmap,
         blurHighBitmap: Bitmap
     ): Boolean {
-        val dirty = clearBitmap !== latestClearBitmap ||
-            blurLowBitmap !== latestBlurLowBitmap ||
-            blurMediumBitmap !== latestBlurMediumBitmap ||
-            blurHighBitmap !== latestBlurHighBitmap
+        val clearChanged = clearBitmap !== latestClearBitmap
+        val lowChanged = blurLowBitmap !== latestBlurLowBitmap
+        val mediumChanged = blurMediumBitmap !== latestBlurMediumBitmap
+        val highChanged = blurHighBitmap !== latestBlurHighBitmap
+        val dirty = clearChanged || lowChanged || mediumChanged || highChanged
         latestClearBitmap = clearBitmap
         latestBlurLowBitmap = blurLowBitmap
         latestBlurMediumBitmap = blurMediumBitmap
         latestBlurHighBitmap = blurHighBitmap
         if (dirty) {
+            if (clearChanged) PerformanceRuntimeMetrics.recordOpenGlTextureUpload(clearBitmap.width, clearBitmap.height)
+            if (lowChanged) PerformanceRuntimeMetrics.recordOpenGlTextureUpload(blurLowBitmap.width, blurLowBitmap.height)
+            if (mediumChanged) PerformanceRuntimeMetrics.recordOpenGlTextureUpload(blurMediumBitmap.width, blurMediumBitmap.height)
+            if (highChanged && blurHighBitmap !== blurMediumBitmap) {
+                PerformanceRuntimeMetrics.recordOpenGlTextureUpload(blurHighBitmap.width, blurHighBitmap.height)
+            }
             renderThread?.setBackdropTextures(clearBitmap, blurLowBitmap, blurMediumBitmap, blurHighBitmap)
         }
         return dirty
@@ -372,6 +383,7 @@ private class WebOpenGLGlassEglThread(
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var preservedSwap = false
     private var firstFramePresented = false
+    private var metricsContextActive = false
 
     fun setGlassSpec(
         width: Float,
@@ -397,7 +409,10 @@ private class WebOpenGLGlassEglThread(
 
     fun requestRender() {
         synchronized(renderLock) {
-            pendingRender = true
+            if (running && !pendingRender) {
+                pendingRender = true
+                PerformanceRuntimeMetrics.recordOpenGlRenderRequest()
+            }
             renderLock.notifyAll()
         }
     }
@@ -405,13 +420,14 @@ private class WebOpenGLGlassEglThread(
     fun resize(width: Int, height: Int) {
         viewportWidth = max(width, 1)
         viewportHeight = max(height, 1)
+        PerformanceRuntimeMetrics.recordOpenGlSurface(viewportWidth, viewportHeight)
         sizeDirty = true
         requestRender()
     }
 
     fun shutdown() {
         running = false
-        requestRender()
+        synchronized(renderLock) { renderLock.notifyAll() }
     }
 
     override fun run() {
@@ -420,6 +436,7 @@ private class WebOpenGLGlassEglThread(
             renderer.setPartialClearSupported(preservedSwap)
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportWidth, viewportHeight)
+            PerformanceRuntimeMetrics.recordOpenGlSurface(viewportWidth, viewportHeight)
             sizeDirty = false
             while (running) {
                 synchronized(renderLock) {
@@ -433,9 +450,12 @@ private class WebOpenGLGlassEglThread(
                 }
                 renderer.onDrawFrame()
                 val swapped = EGL14.eglSwapBuffers(eglDisplay, eglSurface)
-                if (swapped && !firstFramePresented) {
-                    firstFramePresented = true
-                    onFirstFramePresented()
+                if (swapped) {
+                    PerformanceRuntimeMetrics.recordOpenGlFrame()
+                    if (!firstFramePresented) {
+                        firstFramePresented = true
+                        onFirstFramePresented()
+                    }
                 }
             }
         } finally {
@@ -474,6 +494,8 @@ private class WebOpenGLGlassEglThread(
         )
         check(eglSurface != EGL14.EGL_NO_SURFACE)
         check(EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext))
+        metricsContextActive = true
+        PerformanceRuntimeMetrics.recordOpenGlContextCreated()
 
         preservedSwap = preservedConfig != null && EGL14.eglSurfaceAttrib(
             eglDisplay,
@@ -521,6 +543,10 @@ private class WebOpenGLGlassEglThread(
             if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(eglDisplay, eglSurface)
             if (eglContext != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(eglDisplay, eglContext)
             EGL14.eglTerminate(eglDisplay)
+        }
+        if (metricsContextActive) {
+            metricsContextActive = false
+            PerformanceRuntimeMetrics.recordOpenGlContextReleased()
         }
         eglDisplay = EGL14.EGL_NO_DISPLAY
         eglSurface = EGL14.EGL_NO_SURFACE
