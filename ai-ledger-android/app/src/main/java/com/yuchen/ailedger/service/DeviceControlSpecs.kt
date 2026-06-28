@@ -22,6 +22,7 @@ data class DeviceControlSpec(
     val rangeArgs: Map<String, ClosedFloatingPointRange<Double>> = emptyMap(),
     val allowedValues: Map<String, Set<String>> = emptyMap(),
     val booleanArgs: Set<String> = emptySet(),
+    val integerArgs: Set<String> = emptySet(),
     val mutuallyExclusiveArgGroups: List<Set<String>> = emptyList(),
     val requiresConfirmation: Boolean = riskLevel == DeviceControlRiskLevel.High || riskLevel == DeviceControlRiskLevel.Critical,
     val normalChatAllowed: Boolean = !requiresConfirmation,
@@ -50,6 +51,7 @@ data class DeviceControlSpec(
             }
         })
         put("booleanArgs", JSONArray().apply { booleanArgs.forEach(::put) })
+        put("integerArgs", JSONArray().apply { integerArgs.forEach(::put) })
         put("mutuallyExclusiveArgGroups", JSONArray().apply {
             mutuallyExclusiveArgGroups.forEach { group -> put(JSONArray().apply { group.forEach(::put) }) }
         })
@@ -73,12 +75,11 @@ data class DeviceControlValidation(
 /**
  * Pure Android execution contract for cloud-selected internal controls.
  *
- * This layer never reads or interprets the user's natural-language goal. Every semantic decision,
- * tool selection and relative-value calculation must already be completed by the cloud AgentBrain.
- * Android accepts only canonical JSON fields and performs schema, permission and safety validation.
+ * DeepSeek is the only semantic planner. Android accepts canonical tool + args only, rejects
+ * aliases and unknown fields, and performs schema, permission, package and risk-boundary checks.
  */
 object DeviceControlSpecs {
-    private val packageArgs = setOf("packageName", "appName")
+    private val packageArgs = setOf("packageName")
 
     val all: List<DeviceControlSpec> = listOf(
         DeviceControlSpec(
@@ -157,6 +158,7 @@ object DeviceControlSpecs {
             requiredArgGroups = listOf(setOf("timeoutMs")),
             allowedArgNames = setOf("timeoutMs"),
             rangeArgs = mapOf("timeoutMs" to 5_000.0..1_800_000.0),
+            integerArgs = setOf("timeoutMs"),
             stateChanging = true,
         ),
         DeviceControlSpec(
@@ -287,7 +289,12 @@ object DeviceControlSpecs {
         }
 
         if (DeviceControlPermission.ExactPackage in spec.permissions) {
-            val packageName = canonicalPackageName(step, args)
+            val topLevelPackage = step.packageName?.trim().orEmpty()
+            val argsPackage = args.canonicalString("packageName")
+            if (topLevelPackage.isNotBlank() && argsPackage.isNotBlank() && topLevelPackage != argsPackage) {
+                return DeviceControlValidation.invalid("conflicting_package_name")
+            }
+            val packageName = topLevelPackage.ifBlank { argsPackage }
             if (!isSafePackageName(packageName)) {
                 return DeviceControlValidation.invalid("missing_or_invalid_package_name")
             }
@@ -309,7 +316,15 @@ object DeviceControlSpecs {
             if (!args.hasCanonicalValue(name)) continue
             val number = args.canonicalNumber(name)
                 ?: return DeviceControlValidation.invalid("arg_not_number:$name")
+            if (!number.isFinite()) return DeviceControlValidation.invalid("arg_not_finite:$name")
             if (number !in range) return DeviceControlValidation.invalid("arg_out_of_range:$name")
+        }
+
+        for (name in spec.integerArgs) {
+            if (!args.hasCanonicalValue(name)) continue
+            val number = args.canonicalNumber(name)
+                ?: return DeviceControlValidation.invalid("arg_not_number:$name")
+            if (number % 1.0 != 0.0) return DeviceControlValidation.invalid("arg_not_integer:$name")
         }
 
         for (name in spec.booleanArgs) {
@@ -348,12 +363,8 @@ object DeviceControlSpecs {
         reversible = reversible,
     )
 
-    private fun canonicalPackageName(step: CloudAgentStep, args: JSONObject): String =
-        step.packageName?.trim().takeUnless { it.isNullOrBlank() }
-            ?: args.optString("packageName").trim()
-
     private fun hasCanonicalArg(step: CloudAgentStep, args: JSONObject, name: String): Boolean = when (name) {
-        "packageName" -> canonicalPackageName(step, args).isNotBlank()
+        "packageName" -> step.packageName?.trim().orEmpty().isNotBlank() || args.hasCanonicalValue(name)
         else -> args.hasCanonicalValue(name)
     }
 
@@ -370,3 +381,6 @@ private fun JSONObject.canonicalNumber(name: String): Double? = when (val value 
     is Number -> value.toDouble()
     else -> null
 }
+
+private fun JSONObject.canonicalString(name: String): String =
+    (opt(name) as? String)?.trim().orEmpty()
