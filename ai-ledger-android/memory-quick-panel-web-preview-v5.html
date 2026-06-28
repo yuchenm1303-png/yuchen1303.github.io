@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>AI Ledger · 记忆快捷面板实验台 V5</title>
+  <style>
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050815}
+    iframe{display:block;width:100%;height:100%;border:0;background:#050815}
+  </style>
+</head>
+<body>
+  <iframe
+    id="preview"
+    src="https://raw.githack.com/yuchenm1303-png/yuchen1303.github.io/9f0189a7789addcf685f31a1101254364dc44211/ai-ledger-android/memory-quick-panel-web-preview-v4.html"
+    title="记忆快捷面板实验台 V5">
+  </iframe>
+
+  <script>
+    const outerFrame = document.getElementById('preview');
+
+    function patchInnerPreview() {
+      const wrapperDocument = outerFrame.contentDocument;
+      const nestedFrame = wrapperDocument?.getElementById('preview');
+      if (!nestedFrame) return;
+
+      const applyPatch = () => {
+        const d = nestedFrame.contentDocument;
+        const w = nestedFrame.contentWindow;
+        if (!d || !w || d.getElementById('memory-upward-lock-v5')) return;
+
+        d.title = 'AI Ledger · 记忆快捷面板实验台 V5';
+        const note = d.querySelector('.stage-note');
+        if (note) {
+          note.innerHTML = '<b>记忆快捷面板 · V5</b><span>强制向上展开 / 缓存隔离 / 正向右移</span>';
+        }
+        const lead = d.querySelector('.lab .lead');
+        if (lead) {
+          lead.textContent = 'V5 已锁定为向上展开：旧版 top 定位会被彻底清除，面板只能出现在文件夹按钮上方。';
+        }
+
+        const style = d.createElement('style');
+        style.id = 'memory-upward-lock-v5';
+        style.textContent = `
+          .memory-anchor { position: relative !important; }
+          .memory-panel,
+          .memory-panel.is-open {
+            top: auto !important;
+            left: auto !important;
+            right: 0 !important;
+            bottom: calc(100% + var(--panel-gap)) !important;
+          }
+        `;
+        d.head.appendChild(style);
+
+        const xInput = d.getElementById('panelX');
+        if (xInput) {
+          xInput.min = '-60';
+          xInput.max = '180';
+          const label = d.querySelector('label[for="panelX"]');
+          if (label) label.textContent = '向右偏移';
+        }
+
+        const forceUpward = () => {
+          const panel = d.getElementById('memoryPanel');
+          if (!panel) return;
+          panel.style.setProperty('top', 'auto', 'important');
+          panel.style.setProperty('left', 'auto', 'important');
+          panel.style.setProperty('right', '0', 'important');
+          panel.style.setProperty('bottom', 'calc(100% + var(--panel-gap))', 'important');
+        };
+
+        forceUpward();
+        new w.MutationObserver(forceUpward).observe(d.getElementById('memoryPanel'), {
+          attributes: true,
+          attributeFilter: ['class', 'style']
+        });
+      };
+
+      nestedFrame.addEventListener('load', () => setTimeout(applyPatch, 120), { once: true });
+      setTimeout(applyPatch, 240);
+      setTimeout(applyPatch, 900);
+    }
+
+    outerFrame.addEventListener('load', patchInnerPreview);
+  </script>
+</body>
+</html>
