@@ -40,25 +40,34 @@ internal object VisualCompletionPermitPolicy {
         expectedSessionId: String,
         expectedObservationId: String,
     ): VisualCompletionValidation<VisualCompletionCandidate> {
-        if (step.type != ACTION_TYPE) return invalid("wrong_action_type")
-        val args = step.toolArgs ?: return invalid("missing_completion_candidate_args")
-        if (!args.optBoolean("completionCandidate", false)) return invalid("completion_candidate_marker_missing")
+        fun finish(result: VisualCompletionValidation<VisualCompletionCandidate>) = report(
+            stage = "candidate",
+            validation = result,
+            step = step,
+            expectedSessionId = expectedSessionId,
+            expectedObservationId = expectedObservationId,
+        )
+        if (step.type != ACTION_TYPE) return finish(invalid("wrong_action_type"))
+        val args = step.toolArgs ?: return finish(invalid("missing_completion_candidate_args"))
+        if (!args.optBoolean("completionCandidate", false)) {
+            return finish(invalid("completion_candidate_marker_missing"))
+        }
 
         val candidateId = args.cleanString("completionCandidateId")
         val sessionId = args.cleanString("completionCandidateSessionId")
         val observationId = args.cleanString("completionCandidateObservationId")
         val responseSessionId = args.cleanString("responseSessionId")
         val responseObservationId = args.cleanString("responseObservationId")
-        if (candidateId.isBlank()) return invalid("completion_candidate_id_missing")
+        if (candidateId.isBlank()) return finish(invalid("completion_candidate_id_missing"))
         if (
             sessionId != expectedSessionId.trim() ||
             responseSessionId != expectedSessionId.trim()
-        ) return invalid("completion_candidate_session_mismatch")
+        ) return finish(invalid("completion_candidate_session_mismatch"))
         if (
             observationId != expectedObservationId.trim() ||
             responseObservationId != expectedObservationId.trim()
-        ) return invalid("completion_candidate_observation_mismatch")
-        return valid(VisualCompletionCandidate(candidateId, sessionId, observationId))
+        ) return finish(invalid("completion_candidate_observation_mismatch"))
+        return finish(valid(VisualCompletionCandidate(candidateId, sessionId, observationId)))
     }
 
     fun permit(
@@ -67,8 +76,15 @@ internal object VisualCompletionPermitPolicy {
         expectedObservationId: String,
         expectedCandidate: VisualCompletionCandidate,
     ): VisualCompletionValidation<VisualCompletionPermit> {
-        if (step.type != ACTION_TYPE) return invalid("wrong_action_type")
-        val args = step.toolArgs ?: return invalid("missing_completion_permit_args")
+        fun finish(result: VisualCompletionValidation<VisualCompletionPermit>) = report(
+            stage = "permit",
+            validation = result,
+            step = step,
+            expectedSessionId = expectedSessionId,
+            expectedObservationId = expectedObservationId,
+        )
+        if (step.type != ACTION_TYPE) return finish(invalid("wrong_action_type"))
+        val args = step.toolArgs ?: return finish(invalid("missing_completion_permit_args"))
         val permitId = args.cleanString("completionPermitId")
         val permitKind = args.cleanString("completionPermitKind")
         val permitObservationId = args.cleanString("completionPermitObservationId")
@@ -82,26 +98,26 @@ internal object VisualCompletionPermitPolicy {
         val verdict = args.cleanString("completionVerifierVerdict").lowercase()
         val confidence = args.finiteDouble("completionVerifierConfidence") ?: 0.0
 
-        if (permitKind != PERMIT_KIND) return invalid("completion_permit_kind_invalid")
-        if (permitActionType != ACTION_TYPE) return invalid("completion_permit_action_mismatch")
+        if (permitKind != PERMIT_KIND) return finish(invalid("completion_permit_kind_invalid"))
+        if (permitActionType != ACTION_TYPE) return finish(invalid("completion_permit_action_mismatch"))
         if (
             permitSessionId != expectedSessionId.trim() ||
             responseSessionId != expectedSessionId.trim()
-        ) return invalid("completion_permit_session_mismatch")
+        ) return finish(invalid("completion_permit_session_mismatch"))
         if (
             permitObservationId != expectedObservationId.trim() ||
             responseObservationId != expectedObservationId.trim()
-        ) return invalid("completion_permit_observation_mismatch")
+        ) return finish(invalid("completion_permit_observation_mismatch"))
         if (
             candidateId != expectedCandidate.id ||
             candidateObservationId != expectedCandidate.observationId ||
             expectedCandidate.sessionId != expectedSessionId.trim()
-        ) return invalid("completion_candidate_binding_mismatch")
+        ) return finish(invalid("completion_candidate_binding_mismatch"))
         if (candidateObservationId == permitObservationId) {
-            return invalid("completion_permit_requires_fresh_observation")
+            return finish(invalid("completion_permit_requires_fresh_observation"))
         }
-        if (verdict != "confirmed") return invalid("completion_verifier_not_confirmed")
-        if (confidence < MIN_CONFIDENCE) return invalid("completion_verifier_confidence_low")
+        if (verdict != "confirmed") return finish(invalid("completion_verifier_not_confirmed"))
+        if (confidence < MIN_CONFIDENCE) return finish(invalid("completion_verifier_confidence_low"))
 
         val expectedHash = completionPermitHash(
             sessionId = permitSessionId,
@@ -111,17 +127,19 @@ internal object VisualCompletionPermitPolicy {
             kind = permitKind,
         )
         if (permitHash != expectedHash || permitId != "completion_permit_$expectedHash") {
-            return invalid("completion_permit_hash_mismatch")
+            return finish(invalid("completion_permit_hash_mismatch"))
         }
-        return valid(
-            VisualCompletionPermit(
-                id = permitId,
-                kind = permitKind,
-                sessionId = permitSessionId,
-                observationId = permitObservationId,
-                actionHash = permitHash,
-                candidate = expectedCandidate,
-                confidence = confidence,
+        return finish(
+            valid(
+                VisualCompletionPermit(
+                    id = permitId,
+                    kind = permitKind,
+                    sessionId = permitSessionId,
+                    observationId = permitObservationId,
+                    actionHash = permitHash,
+                    candidate = expectedCandidate,
+                    confidence = confidence,
+                ),
             ),
         )
     }
@@ -145,6 +163,28 @@ internal object VisualCompletionPermitPolicy {
             .digest(canonical.toByteArray(Charsets.UTF_8))
             .joinToString("") { byte -> "%02x".format(byte) }
             .take(HASH_CHARS)
+    }
+
+    private fun <T> report(
+        stage: String,
+        validation: VisualCompletionValidation<T>,
+        step: CloudAgentStep,
+        expectedSessionId: String,
+        expectedObservationId: String,
+    ): VisualCompletionValidation<T> {
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "completion_protocol",
+            details = JSONObject().apply {
+                put("stage", stage)
+                put("valid", validation.valid)
+                put("reason", validation.reason)
+                put("stepType", step.type)
+                put("expectedSessionId", expectedSessionId.take(180))
+                put("expectedObservationId", expectedObservationId.take(180))
+                put("toolArgs", step.toolArgs ?: JSONObject.NULL)
+            },
+        )
+        return validation
     }
 
     private fun JSONObject.cleanString(name: String): String = optString(name).trim().take(180)
