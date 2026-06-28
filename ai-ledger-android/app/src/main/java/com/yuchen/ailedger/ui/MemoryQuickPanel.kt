@@ -44,7 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -53,7 +52,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -71,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -114,14 +113,14 @@ internal fun MemoryQuickPanelHost(
     val density = LocalDensity.current
     var expanded by remember { mutableStateOf(false) }
     var anchorTopPx by remember { mutableStateOf(0f) }
-    val panelVisibility = remember { MutableTransitionState(false) }
+    val visibility = remember { MutableTransitionState(false) }
 
     LaunchedEffect(expanded) {
-        panelVisibility.targetState = expanded
+        visibility.targetState = expanded
     }
 
     val availableUpwardDp = with(density) {
-        ((anchorTopPx - 12.dp.toPx()).coerceAtLeast(0f)).toDp().value
+        (anchorTopPx - 12.dp.toPx()).coerceAtLeast(0f).toDp().value
     }
     val compact = availableUpwardDp in 0f..214f
     val visibleCount = when {
@@ -135,9 +134,9 @@ internal fun MemoryQuickPanelHost(
         modifier = modifier
             .width(44.dp)
             .height(26.dp)
-            .onGloballyPositioned { coordinates: LayoutCoordinates ->
+            .onGloballyPositioned { coordinates ->
                 val nextTop = coordinates.boundsInWindow().top
-                if (kotlin.math.abs(anchorTopPx - nextTop) > 0.5f) anchorTopPx = nextTop
+                if (abs(anchorTopPx - nextTop) > 0.5f) anchorTopPx = nextTop
             },
         contentAlignment = Alignment.Center
     ) {
@@ -146,7 +145,7 @@ internal fun MemoryQuickPanelHost(
             onClick = { expanded = !expanded }
         )
 
-        if (panelVisibility.currentState || panelVisibility.targetState) {
+        if (visibility.currentState || visibility.targetState) {
             val positionProvider = remember(density) {
                 MemoryQuickPanelPositionProvider(
                     desiredGapPx = with(density) { 10.dp.roundToPx() },
@@ -162,7 +161,7 @@ internal fun MemoryQuickPanelHost(
                 properties = PopupProperties(focusable = true)
             ) {
                 AnimatedVisibility(
-                    visibleState = panelVisibility,
+                    visibleState = visibility,
                     enter = fadeIn(tween(120)) +
                         slideInVertically(
                             animationSpec = spring(
@@ -217,7 +216,7 @@ private fun MemoryFolderCapsuleButton(
         animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium),
         label = "memory-folder-capsule-scale"
     )
-    val translationY by animateFloatAsState(
+    val pressOffset by animateFloatAsState(
         targetValue = if (pressed || expanded) 0.9f else 0f,
         animationSpec = tween(150),
         label = "memory-folder-capsule-press"
@@ -229,7 +228,7 @@ private fun MemoryFolderCapsuleButton(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                this.translationY = translationY.dp.toPx()
+                translationY = pressOffset.dp.toPx()
             }
             .clip(RoundedCornerShape(999.dp))
             .background(
@@ -279,11 +278,21 @@ private fun FolderGlyph(modifier: Modifier = Modifier) {
     Canvas(modifier) {
         val tab = Path().apply {
             moveTo(size.width * 0.15f, size.height * 0.37f)
-            quadraticBezierTo(size.width * 0.15f, size.height * 0.22f, size.width * 0.30f, size.height * 0.22f)
+            quadraticBezierTo(
+                size.width * 0.15f,
+                size.height * 0.22f,
+                size.width * 0.30f,
+                size.height * 0.22f
+            )
             lineTo(size.width * 0.49f, size.height * 0.22f)
             lineTo(size.width * 0.59f, size.height * 0.34f)
             lineTo(size.width * 0.82f, size.height * 0.34f)
-            quadraticBezierTo(size.width * 0.88f, size.height * 0.34f, size.width * 0.88f, size.height * 0.41f)
+            quadraticBezierTo(
+                size.width * 0.88f,
+                size.height * 0.34f,
+                size.width * 0.88f,
+                size.height * 0.41f
+            )
             lineTo(size.width * 0.88f, size.height * 0.46f)
             lineTo(size.width * 0.15f, size.height * 0.46f)
             close()
@@ -320,7 +329,9 @@ private fun MemoryQuickPanel(
             tailFraction = MEMORY_PANEL_TAIL_FRACTION
         )
     }
-    val shownItems = remember(visibleCount) { memoryQuickPreviewItems.take(visibleCount.coerceIn(1, 3)) }
+    val shownItems = remember(visibleCount) {
+        memoryQuickPreviewItems.take(visibleCount.coerceIn(1, 3))
+    }
 
     Box(
         modifier = Modifier
@@ -366,7 +377,7 @@ private fun MemoryQuickPanel(
                     bottom = tailHeight + if (compact) 6.dp else 8.dp
                 )
         ) {
-            MemoryPanelHeader(compact = compact)
+            MemoryPanelHeader(compact)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -441,8 +452,11 @@ private fun MemoryPanelHeader(compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 9.dp)
     ) {
-        MemoryStackGlyph(size = if (compact) 24.dp else 30.dp)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        MemoryStackGlyph(glyphSize = if (compact) 24.dp else 30.dp)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
             Text(
                 text = "记忆",
                 color = Color.White.copy(alpha = 0.94f),
@@ -487,24 +501,24 @@ private fun MemoryPanelHeader(compact: Boolean) {
 }
 
 @Composable
-private fun MemoryStackGlyph(size: Dp) {
+private fun MemoryStackGlyph(glyphSize: Dp) {
+    val radius = if (glyphSize <= 24.dp) 9.dp else 11.dp
     Box(
         modifier = Modifier
-            .size(size)
-            .clip(RoundedCornerShape(if (size <= 24.dp) 9.dp else 11.dp))
+            .size(glyphSize)
+            .clip(RoundedCornerShape(radius))
             .background(
                 Brush.linearGradient(
-                    listOf(Color.White.copy(alpha = 0.10f), Color.White.copy(alpha = 0.035f))
+                    listOf(
+                        Color.White.copy(alpha = 0.10f),
+                        Color.White.copy(alpha = 0.035f)
+                    )
                 )
             )
-            .border(
-                0.7.dp,
-                Color.White.copy(alpha = 0.075f),
-                RoundedCornerShape(if (size <= 24.dp) 9.dp else 11.dp)
-            ),
+            .border(0.7.dp, Color.White.copy(alpha = 0.075f), RoundedCornerShape(radius)),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.size(size * 0.62f)) {
+        Canvas(Modifier.size(glyphSize * 0.62f)) {
             drawRoundRect(
                 color = Color(0xFFF2F8FF).copy(alpha = 0.88f),
                 topLeft = Offset(size.width * 0.06f, size.height * 0.08f),
@@ -595,7 +609,10 @@ private fun MemoryPreviewRow(
                     Color.White.copy(alpha = 0.065f),
                     RoundedCornerShape(if (compact) 11.dp else 14.dp)
                 )
-                .padding(horizontal = if (compact) 7.dp else 9.dp, vertical = if (compact) 5.dp else 6.dp),
+                .padding(
+                    horizontal = if (compact) 7.dp else 9.dp,
+                    vertical = if (compact) 5.dp else 6.dp
+                ),
             verticalArrangement = Arrangement.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -646,7 +663,10 @@ private class MemoryQuickPanelPositionProvider(
     ): IntOffset {
         val anchorCenterX = (anchorBounds.left + anchorBounds.right) / 2
         val desiredLeft = anchorCenterX - (popupContentSize.width * tailFraction).roundToInt()
-        val maximumLeft = max(safeHorizontalPx, windowSize.width - safeHorizontalPx - popupContentSize.width)
+        val maximumLeft = max(
+            safeHorizontalPx,
+            windowSize.width - safeHorizontalPx - popupContentSize.width
+        )
         val left = desiredLeft.coerceIn(safeHorizontalPx, maximumLeft)
 
         val freeForGap = anchorBounds.top - safeTopPx - popupContentSize.height
@@ -677,6 +697,7 @@ private class MemoryBubbleShape(
             radius + tailHalfWidthPx + 2f,
             size.width - radius - tailHalfWidthPx - 2f
         )
+
         val path = Path().apply {
             moveTo(radius, 0f)
             lineTo(size.width - radius, 0f)
