@@ -77,7 +77,7 @@ class DeviceControlSpecsTest {
     }
 
     @Test
-    fun routerCanonicalizesBrightnessAliasBeforeValidation() {
+    fun routerPreservesBrightnessAliasForStrictValidation() {
         val step = DeviceControlRouter.fromDeviceControlJson(
             JSONObject()
                 .put("capability", "system.brightness.set")
@@ -85,13 +85,16 @@ class DeviceControlSpecsTest {
         )
 
         assertEquals("set_brightness", step?.type)
-        assertEquals(40, step?.toolArgs?.optInt("percent"))
-        assertFalse(step?.toolArgs?.has("brightness") == true)
-        assertTrue(DeviceControlSpecs.validate(step!!).ok)
+        assertEquals(40, step?.toolArgs?.optInt("brightness"))
+        assertFalse(step?.toolArgs?.has("percent") == true)
+
+        val validation = DeviceControlSpecs.validate(step!!)
+        assertFalse(validation.ok)
+        assertEquals("non_canonical_args:brightness", validation.reason)
     }
 
     @Test
-    fun routerCanonicalizesBooleanAndTimeoutAliasesBeforeValidation() {
+    fun routerPreservesBooleanAndTimeoutAliasesForStrictValidation() {
         val wifi = DeviceControlRouter.fromDeviceControlJson(
             JSONObject()
                 .put("capability", "network.wifi_toggle")
@@ -103,11 +106,39 @@ class DeviceControlSpecsTest {
                 .put("minutes", 2)
         )
 
-        assertEquals(true, wifi?.toolArgs?.optBoolean("enabled"))
-        assertFalse(wifi?.toolArgs?.has("on") == true)
+        assertEquals("enabled", wifi?.toolArgs?.optString("on"))
+        assertFalse(wifi?.toolArgs?.has("enabled") == true)
+        val wifiValidation = DeviceControlSpecs.validate(wifi!!)
+        assertFalse(wifiValidation.ok)
+        assertEquals("non_canonical_args:on", wifiValidation.reason)
+
+        assertEquals(2, timeout?.toolArgs?.optInt("minutes"))
+        assertFalse(timeout?.toolArgs?.has("timeoutMs") == true)
+        val timeoutValidation = DeviceControlSpecs.validate(timeout!!)
+        assertFalse(timeoutValidation.ok)
+        assertEquals("non_canonical_args:minutes", timeoutValidation.reason)
+    }
+
+    @Test
+    fun routerAcceptsCanonicalRootArguments() {
+        val brightness = DeviceControlRouter.fromDeviceControlJson(
+            JSONObject()
+                .put("capability", "system.brightness.set")
+                .put("percent", 40)
+        )
+        val wifi = DeviceControlRouter.fromDeviceControlJson(
+            JSONObject()
+                .put("capability", "network.wifi_toggle")
+                .put("enabled", true)
+        )
+        val timeout = DeviceControlRouter.fromDeviceControlJson(
+            JSONObject()
+                .put("capability", "system.screen_timeout.set")
+                .put("timeoutMs", 120_000)
+        )
+
+        assertTrue(DeviceControlSpecs.validate(brightness!!).ok)
         assertTrue(DeviceControlSpecs.validate(wifi!!).ok)
-        assertEquals(120_000, timeout?.toolArgs?.optInt("timeoutMs"))
-        assertFalse(timeout?.toolArgs?.has("minutes") == true)
         assertTrue(DeviceControlSpecs.validate(timeout!!).ok)
     }
 }
