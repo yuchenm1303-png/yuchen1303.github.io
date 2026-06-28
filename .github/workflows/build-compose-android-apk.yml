@@ -28,9 +28,13 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
-      - name: Test and build Compose APKs
+      - name: Test and build debug APK
         working-directory: ai-ledger-android
-        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug :app:assemblePerformance
+        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug --no-daemon --max-workers=1 --no-parallel
+
+      - name: Build performance APK
+        working-directory: ai-ledger-android
+        run: gradle -p . :app:assemblePerformance --no-daemon --max-workers=1 --no-parallel
 
       - name: Upload materialized home sources
         if: always()
