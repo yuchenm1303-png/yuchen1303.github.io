@@ -22,7 +22,10 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 private const val INLINE_STICKER_TAG_START = 0xE0001
 private const val INLINE_STICKER_TAG_CANCEL = 0xE007F
@@ -34,6 +37,8 @@ private const val INLINE_STICKER_PACK_ASSET = "inline_stickers_v1.zip"
 private const val INLINE_STICKER_MAX_ENTRY_BYTES = 512 * 1024
 private const val INLINE_STICKER_MIN_DIMENSION = 32
 private const val INLINE_STICKER_MAX_DIMENSION = 2048
+private const val INLINE_STICKER_WARMUP_DELAY_MS = 420L
+private const val INLINE_STICKER_MAX_DECODE_CONCURRENCY = 2
 
 internal data class InlineStickerProtocolMarker(
     val start: Int,
@@ -50,6 +55,8 @@ internal object InlineStickerAssets {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bitmapCache = ConcurrentHashMap<String, Bitmap>()
     private val inFlight = ConcurrentHashMap<String, Deferred<Bitmap?>>()
+    private val decodeSemaphore = Semaphore(INLINE_STICKER_MAX_DECODE_CONCURRENCY)
+    private val warmUpStarted = AtomicBoolean(false)
 
     private val supportedKeys = setOf(
         "joy_burst",
@@ -111,6 +118,26 @@ internal object InlineStickerAssets {
     internal fun cachedBitmap(assetKey: String): Bitmap? {
         val key = normalizeKey(assetKey) ?: return null
         return bitmapCache[key]
+    }
+
+    /**
+     * Warms the small built-in sticker pack away from the first chat render. Decoding stays bounded
+     * and sequential from this caller, so opening the app does not create a burst of 19 concurrent
+     * WebP decodes or main-thread layout callbacks.
+     */
+    internal fun warmUpAll() {
+        if (!warmUpStarted.compareAndSet(false, true)) return
+        loaderScope.launch {
+            delay(INLINE_STICKER_WARMUP_DELAY_MS)
+            var loadedAny = false
+            for (assetKey in supportedKeys) {
+                val loaded = runCatching { loadBitmap(assetKey) }.getOrNull()
+                if (loaded != null) loadedAny = true
+            }
+            if (!loadedAny && bitmapCache.isEmpty()) {
+                warmUpStarted.set(false)
+            }
+        }
     }
 
     internal fun containsProtocolMarker(text: String): Boolean {
@@ -222,7 +249,7 @@ internal object InlineStickerAssets {
         }
 
         val waiter = loaderScope.launch {
-            val bitmap = loadBitmap(key)
+            val bitmap = runCatching { loadBitmap(key) }.getOrNull()
             mainHandler.post {
                 if (!cancelled.get()) onResult(bitmap)
             }
@@ -259,7 +286,9 @@ internal object InlineStickerAssets {
 
         val deferred = inFlight.computeIfAbsent(assetKey) {
             val created = loaderScope.async {
-                loadBundledBitmap(assetKey)
+                decodeSemaphore.withPermit {
+                    loadBundledBitmap(assetKey)
+                }
             }
             created.invokeOnCompletion {
                 inFlight.remove(assetKey, created)
@@ -384,11 +413,16 @@ internal object InlineStickerAssets {
         if (bitmap.height !in INLINE_STICKER_MIN_DIMENSION..INLINE_STICKER_MAX_DIMENSION) return false
         if (!bitmap.hasAlpha()) return false
 
+        var hasTransparentPixel = false
+        var hasVisiblePixel = false
         val row = IntArray(bitmap.width)
         for (y in 0 until bitmap.height) {
             bitmap.getPixels(row, 0, bitmap.width, 0, y, bitmap.width, 1)
             for (pixel in row) {
-                if ((pixel ushr 24) != 0xFF) return true
+                val alpha = pixel ushr 24
+                if (alpha != 0xFF) hasTransparentPixel = true
+                if (alpha >= 0x08) hasVisiblePixel = true
+                if (hasTransparentPixel && hasVisiblePixel) return true
             }
         }
         return false
