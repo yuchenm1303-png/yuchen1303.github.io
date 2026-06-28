@@ -45,7 +45,7 @@ internal object VisualActionValidator {
         if (isRepairableGuiProtocolFailure(step)) {
             return VisualActionValidation(
                 ok = false,
-                message = "GUI Plus returned a malformed mobile_use protocol result. Keep the original task and current work surface, inspect the fresh screenshot, and return exactly one supported official mobile_use action instead of asking the user for help.",
+                message = "protocolRepairRequired=true; GUI Plus returned a malformed or non-executable mobile_use protocol result. Keep the original task and current work surface, inspect the fresh screenshot, and return exactly one supported official mobile_use action instead of asking the user for help.",
                 failureClass = VisualFailureClass.VisualLocal,
             )
         }
@@ -143,6 +143,12 @@ internal object VisualActionValidator {
         "did not return official mobile_use tool_call",
         "model_contract_error",
         "android client does not support gui plus action",
+        "mobile_use click 缺少可靠坐标",
+        "视觉定位未给出可靠中心坐标",
+        "视觉未可靠定位目标控件",
+        "android 当前动作协议不支持 long_press",
+        "android 当前不支持 mobile_use key",
+        "android 当前不支持 system_button",
     )
     private val PRE_WORK_SURFACE_ACTIONS = CloudAgentStep.deviceToolTypes + "need_user_help"
     private const val LEGACY_TAP_CLUSTER_PX = 160f
