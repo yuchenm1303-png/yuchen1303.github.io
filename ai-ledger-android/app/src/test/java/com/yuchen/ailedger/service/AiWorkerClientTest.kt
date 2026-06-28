@@ -28,7 +28,7 @@ class AiWorkerClientTest {
         assertEquals(0, preferences.getInt("inlineStickerMaxPerReply"))
         assertEquals(1, preferences.getInt("inlineStickerRepeatCount"))
         assertEquals(
-            "compose-native-command-chat-v5-sticker-preferences",
+            "compose-native-command-chat-v6-parallel-device-probe",
             payload.getString("clientVersion"),
         )
     }
