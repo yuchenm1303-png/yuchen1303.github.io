@@ -9,9 +9,20 @@ object VisualSurfacePackagePolicy {
         "com.android.permissioncontroller",
     )
 
+    private val unresolvedPackageMarkers: Set<String> = setOf(
+        "unknown",
+        "none",
+        "unavailable",
+    )
+
+    fun isUnresolvedPackage(packageName: String): Boolean {
+        val cleanPackage = packageName.trim().lowercase()
+        return cleanPackage.isBlank() || cleanPackage in unresolvedPackageMarkers
+    }
+
     fun requiresForegroundFallback(packageName: String): Boolean {
         val cleanPackage = packageName.trim()
-        return cleanPackage.isBlank() ||
+        return isUnresolvedPackage(cleanPackage) ||
             cleanPackage == ASSISTANT_HOST_PACKAGE ||
             cleanPackage in transientSystemPackages
     }
@@ -22,9 +33,8 @@ object VisualSurfacePackagePolicy {
     ): Boolean {
         val current = currentPackage.trim()
         val expected = expectedPackage.trim()
-        if (current.isBlank() || current == expected) return false
-        if (current == ASSISTANT_HOST_PACKAGE) return false
-        if (current in transientSystemPackages) return false
+        if (expected.isBlank() || current == expected) return false
+        if (requiresForegroundFallback(current)) return false
         return true
     }
 }
