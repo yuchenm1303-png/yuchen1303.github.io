@@ -34,7 +34,6 @@ internal class CachedInsetProgressTrack {
     var geometrySignature: Long = Long.MIN_VALUE
     var localSize: Size = Size.Zero
     var corner: CornerRadius = CornerRadius(0f, 0f)
-    var activeBrush: Brush? = null
 }
 
 internal class InsetProgressTrackSlot(
@@ -212,6 +211,14 @@ private fun BoxScope.InsetGlassSliderProgressBatchLayer(
 ) {
     val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
     val inactiveColor = remember { Color.White.copy(alpha = 0.09f) }
+    val activeBrush = remember {
+        Brush.horizontalGradient(
+            listOf(
+                Color(0xFFBFFAFF).copy(alpha = 0.95f),
+                Color(0xFF8DF9EA).copy(alpha = 0.72f),
+            )
+        )
+    }
 
     Canvas(modifier = Modifier.matchParentSize()) {
         state.geometryVersion
@@ -262,7 +269,7 @@ private fun BoxScope.InsetGlassSliderProgressBatchLayer(
                     val activeWidth = cache.localSize.width * track.progress.coerceIn(0f, 1f)
                     if (activeWidth > 0f) {
                         drawRoundRect(
-                            brush = requireNotNull(cache.activeBrush),
+                            brush = activeBrush,
                             size = Size(activeWidth, cache.localSize.height),
                             cornerRadius = cache.corner,
                             blendMode = BlendMode.Screen,
@@ -286,14 +293,6 @@ private fun ensureProgressTrackCache(
     cache.localSize = Size(width, height)
     val radius = height / 2f
     cache.corner = CornerRadius(radius, radius)
-    cache.activeBrush = Brush.horizontalGradient(
-        colors = listOf(
-            Color(0xFFBFFAFF).copy(alpha = 0.95f),
-            Color(0xFF8DF9EA).copy(alpha = 0.72f),
-        ),
-        startX = 0f,
-        endX = width,
-    )
     cache.geometrySignature = signature
     return cache
 }
