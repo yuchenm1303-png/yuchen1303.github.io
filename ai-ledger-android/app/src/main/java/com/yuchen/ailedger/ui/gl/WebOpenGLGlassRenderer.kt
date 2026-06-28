@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.opengl.GLES20
 import android.opengl.GLUtils
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.PerformanceRuntimeMetrics
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.ceil
@@ -66,27 +67,40 @@ private const val STYLE_DISPERSION_EDGE_WIDTH = 22
 private const val STYLE_DISPERSION_CONCENTRATION = 23
 private const val STYLE_SIZE = 24
 
-private data class GlassScissorRect(
-    val left: Int,
-    val top: Int,
-    val right: Int,
-    val bottom: Int
-) {
+private class MutableWebGlassScissorRect {
+    var left: Int = 0
+    var top: Int = 0
+    var right: Int = 0
+    var bottom: Int = 0
+
     val width: Int get() = (right - left).coerceAtLeast(0)
     val height: Int get() = (bottom - top).coerceAtLeast(0)
 
-    fun union(other: GlassScissorRect): GlassScissorRect = GlassScissorRect(
-        left = min(left, other.left),
-        top = min(top, other.top),
-        right = max(right, other.right),
-        bottom = max(bottom, other.bottom)
-    )
+    fun set(left: Int, top: Int, right: Int, bottom: Int) {
+        this.left = left
+        this.top = top
+        this.right = right
+        this.bottom = bottom
+    }
+
+    fun copyFrom(other: MutableWebGlassScissorRect) {
+        set(other.left, other.top, other.right, other.bottom)
+    }
+
+    fun unionFrom(first: MutableWebGlassScissorRect, second: MutableWebGlassScissorRect) {
+        set(
+            left = min(first.left, second.left),
+            top = min(first.top, second.top),
+            right = max(first.right, second.right),
+            bottom = max(first.bottom, second.bottom),
+        )
+    }
 }
 
 /**
- * 单卡 Shell Renderer：只在状态脏时更新 uniform，并在纹理引用真正变化时上传。
- * high 级纹理按需创建；两级模糊模式直接绑定 medium texture，并释放曾经分配的
- * high 像素存储，保证切换模糊层级后不残留无效显存。
+ * 单卡 Shell Renderer：完整帧状态在一次锁内写入，只在对应状态脏时更新 uniform，
+ * 并在纹理引用真正变化时上传。high 级纹理按需创建；两级模糊模式直接绑定 medium
+ * texture，并释放曾经分配的 high 像素存储。
  */
 internal class WebOpenGLGlassRenderer {
     private val textureLock = Any()
@@ -142,7 +156,11 @@ internal class WebOpenGLGlassRenderer {
     private var drawRectOffsetY = 0f
     private var partialClearSupported = false
     private var forceFullClear = true
-    private var previousGlassScissor: GlassScissorRect? = null
+
+    private val currentGlassScissor = MutableWebGlassScissorRect()
+    private val previousGlassScissor = MutableWebGlassScissorRect()
+    private val dirtyGlassScissor = MutableWebGlassScissorRect()
+    private var hasPreviousGlassScissor = false
 
     private var program = 0
     private var quadBufferId = 0
@@ -178,40 +196,115 @@ internal class WebOpenGLGlassRenderer {
         partialClearSupported = supported
     }
 
+    fun setFrameState(
+        width: Float,
+        height: Float,
+        rectOffsetY: Float,
+        radius: Float,
+        intensity: Float,
+        originX: Float,
+        originY: Float,
+        rootWidth: Float,
+        rootHeight: Float,
+        pressProgress: Float,
+        pressCenterX: Float,
+        pressCenterY: Float,
+        geometryDirty: Boolean,
+        samplingDirty: Boolean,
+        pressDirty: Boolean,
+    ) {
+        if (!geometryDirty && !samplingDirty && !pressDirty) return
+        synchronized(specLock) {
+            var dirtyMask = 0
+            if (geometryDirty) {
+                geometryState[GEOMETRY_WIDTH] = width.coerceAtLeast(1f)
+                geometryState[GEOMETRY_HEIGHT] = height.coerceAtLeast(1f)
+                geometryState[GEOMETRY_OFFSET_Y] = rectOffsetY
+                geometryState[GEOMETRY_RADIUS] = radius
+                geometryState[GEOMETRY_INTENSITY] = intensity
+                dirtyMask = dirtyMask or DIRTY_GEOMETRY
+            }
+            if (samplingDirty) {
+                samplingState[SAMPLING_ORIGIN_X] = originX
+                samplingState[SAMPLING_ORIGIN_Y] = originY
+                samplingState[SAMPLING_ROOT_WIDTH] = rootWidth.coerceAtLeast(1f)
+                samplingState[SAMPLING_ROOT_HEIGHT] = rootHeight.coerceAtLeast(1f)
+                dirtyMask = dirtyMask or DIRTY_SAMPLING
+            }
+            if (pressDirty) {
+                pressState[PRESS_PROGRESS] = pressProgress.coerceIn(0f, 1f)
+                pressState[PRESS_CENTER_X] = pressCenterX.coerceIn(0f, 1f)
+                pressState[PRESS_CENTER_Y] = pressCenterY.coerceIn(0f, 1f)
+                dirtyMask = dirtyMask or DIRTY_PRESS
+            }
+            pendingDirtyMask = pendingDirtyMask or dirtyMask
+        }
+    }
+
     fun setGlassSpec(
         width: Float,
         height: Float,
         rectOffsetY: Float,
         radius: Float,
-        intensity: Float
+        intensity: Float,
     ) {
-        synchronized(specLock) {
-            geometryState[GEOMETRY_WIDTH] = width.coerceAtLeast(1f)
-            geometryState[GEOMETRY_HEIGHT] = height.coerceAtLeast(1f)
-            geometryState[GEOMETRY_OFFSET_Y] = rectOffsetY
-            geometryState[GEOMETRY_RADIUS] = radius
-            geometryState[GEOMETRY_INTENSITY] = intensity
-            pendingDirtyMask = pendingDirtyMask or DIRTY_GEOMETRY
-        }
+        setFrameState(
+            width = width,
+            height = height,
+            rectOffsetY = rectOffsetY,
+            radius = radius,
+            intensity = intensity,
+            originX = 0f,
+            originY = 0f,
+            rootWidth = 1f,
+            rootHeight = 1f,
+            pressProgress = 0f,
+            pressCenterX = 0.5f,
+            pressCenterY = 0.5f,
+            geometryDirty = true,
+            samplingDirty = false,
+            pressDirty = false,
+        )
     }
 
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) {
-        synchronized(specLock) {
-            samplingState[SAMPLING_ORIGIN_X] = originX
-            samplingState[SAMPLING_ORIGIN_Y] = originY
-            samplingState[SAMPLING_ROOT_WIDTH] = rootWidth.coerceAtLeast(1f)
-            samplingState[SAMPLING_ROOT_HEIGHT] = rootHeight.coerceAtLeast(1f)
-            pendingDirtyMask = pendingDirtyMask or DIRTY_SAMPLING
-        }
+        setFrameState(
+            width = 1f,
+            height = 1f,
+            rectOffsetY = 0f,
+            radius = 0f,
+            intensity = 1f,
+            originX = originX,
+            originY = originY,
+            rootWidth = rootWidth,
+            rootHeight = rootHeight,
+            pressProgress = 0f,
+            pressCenterX = 0.5f,
+            pressCenterY = 0.5f,
+            geometryDirty = false,
+            samplingDirty = true,
+            pressDirty = false,
+        )
     }
 
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float) {
-        synchronized(specLock) {
-            pressState[PRESS_PROGRESS] = progress.coerceIn(0f, 1f)
-            pressState[PRESS_CENTER_X] = centerX.coerceIn(0f, 1f)
-            pressState[PRESS_CENTER_Y] = centerY.coerceIn(0f, 1f)
-            pendingDirtyMask = pendingDirtyMask or DIRTY_PRESS
-        }
+        setFrameState(
+            width = 1f,
+            height = 1f,
+            rectOffsetY = 0f,
+            radius = 0f,
+            intensity = 1f,
+            originX = 0f,
+            originY = 0f,
+            rootWidth = 1f,
+            rootHeight = 1f,
+            pressProgress = progress,
+            pressCenterX = centerX,
+            pressCenterY = centerY,
+            geometryDirty = false,
+            samplingDirty = false,
+            pressDirty = true,
+        )
     }
 
     fun setBackdropTextures(clear: Bitmap, low: Bitmap, medium: Bitmap, high: Bitmap) {
@@ -291,16 +384,15 @@ internal class WebOpenGLGlassRenderer {
             GLES20.GL_ARRAY_BUFFER,
             FULLSCREEN_QUAD.size * 4,
             quadVertices,
-            GLES20.GL_STATIC_DRAW
+            GLES20.GL_STATIC_DRAW,
         )
-        GLES20.glEnableVertexAttribArray(positionHandle)
-        GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, 0)
+        bindQuad()
 
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
         forceFullClear = true
-        previousGlassScissor = null
+        hasPreviousGlassScissor = false
         synchronized(specLock) {
             pendingDirtyMask = pendingDirtyMask or DIRTY_ALL
         }
@@ -311,7 +403,7 @@ internal class WebOpenGLGlassRenderer {
         viewportHeight = max(height, 1)
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
         forceFullClear = true
-        previousGlassScissor = null
+        hasPreviousGlassScissor = false
         synchronized(specLock) {
             pendingDirtyMask = pendingDirtyMask or DIRTY_SURFACE
         }
@@ -320,6 +412,8 @@ internal class WebOpenGLGlassRenderer {
     fun onDrawFrame() {
         uploadPendingTexturesIfNeeded()
         if (program == 0) return
+        GLES20.glUseProgram(program)
+        bindQuad()
 
         val dirtyMask: Int
         synchronized(specLock) {
@@ -342,23 +436,23 @@ internal class WebOpenGLGlassRenderer {
             GLES20.glUniform4f(rectHandle, 0f, drawRectOffsetY, drawCardWidth, drawCardHeight)
             GLES20.glUniform1f(
                 radiusHandle,
-                geometrySnapshot[GEOMETRY_RADIUS].coerceIn(2f, max(drawCardWidth, drawCardHeight))
+                geometrySnapshot[GEOMETRY_RADIUS].coerceIn(2f, max(drawCardWidth, drawCardHeight)),
             )
             GLES20.glUniform1f(
                 intensityHandle,
-                geometrySnapshot[GEOMETRY_INTENSITY].coerceIn(0.35f, 1.35f)
+                geometrySnapshot[GEOMETRY_INTENSITY].coerceIn(0.35f, 1.35f),
             )
         }
         if (dirtyMask and DIRTY_SAMPLING != 0) {
             GLES20.glUniform2f(
                 cardOriginHandle,
                 samplingSnapshot[SAMPLING_ORIGIN_X],
-                samplingSnapshot[SAMPLING_ORIGIN_Y]
+                samplingSnapshot[SAMPLING_ORIGIN_Y],
             )
             GLES20.glUniform2f(
                 rootResolutionHandle,
                 samplingSnapshot[SAMPLING_ROOT_WIDTH],
-                samplingSnapshot[SAMPLING_ROOT_HEIGHT]
+                samplingSnapshot[SAMPLING_ROOT_HEIGHT],
             )
         }
         if (dirtyMask and DIRTY_PRESS != 0) {
@@ -367,25 +461,24 @@ internal class WebOpenGLGlassRenderer {
                 pressSnapshot[PRESS_PROGRESS],
                 pressSnapshot[PRESS_CENTER_X],
                 pressSnapshot[PRESS_CENTER_Y],
-                0f
+                0f,
             )
         }
-        if (dirtyMask and DIRTY_BLUR != 0) {
-            GLES20.glUniform1f(blurAmountHandle, blurSnapshot)
-        }
+        if (dirtyMask and DIRTY_BLUR != 0) GLES20.glUniform1f(blurAmountHandle, blurSnapshot)
         if (dirtyMask and DIRTY_STYLE != 0) uploadStyleUniforms()
 
-        val currentScissor = calculateGlassScissor()
-        clearDirtyRegion(currentScissor)
-        if (currentScissor == null) {
-            previousGlassScissor = null
+        val hasCurrentScissor = calculateGlassScissor()
+        clearDirtyRegion(hasCurrentScissor)
+        if (!hasCurrentScissor) {
+            hasPreviousGlassScissor = false
             GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
             return
         }
 
-        applyScissor(currentScissor)
+        applyScissor(currentGlassScissor)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        previousGlassScissor = currentScissor
+        previousGlassScissor.copyFrom(currentGlassScissor)
+        hasPreviousGlassScissor = true
     }
 
     fun onRelease() {
@@ -414,7 +507,7 @@ internal class WebOpenGLGlassRenderer {
             pendingBlurHighBitmap = null
             textureSetPending = false
         }
-        previousGlassScissor = null
+        hasPreviousGlassScissor = false
     }
 
     private fun uploadStyleUniforms() {
@@ -423,47 +516,47 @@ internal class WebOpenGLGlassRenderer {
             styleSnapshot[STYLE_MATERIAL_X],
             styleSnapshot[STYLE_MATERIAL_Y],
             styleSnapshot[STYLE_MATERIAL_Z],
-            0f
+            0f,
         )
         GLES20.glUniform4f(
             bodyLensAHandle,
             styleSnapshot[STYLE_BODY_LENS_A_X],
             styleSnapshot[STYLE_BODY_LENS_A_Y],
             styleSnapshot[STYLE_BODY_LENS_A_Z],
-            0f
+            0f,
         )
         GLES20.glUniform4f(
             bodyLensBHandle,
             styleSnapshot[STYLE_BODY_LENS_B_X],
             styleSnapshot[STYLE_BODY_LENS_B_Y],
             styleSnapshot[STYLE_BODY_LENS_B_Z],
-            styleSnapshot[STYLE_BODY_LENS_B_W]
+            styleSnapshot[STYLE_BODY_LENS_B_W],
         )
         GLES20.glUniform4f(
             bodyHandle,
             styleSnapshot[STYLE_BODY_X],
             styleSnapshot[STYLE_BODY_Y],
             styleSnapshot[STYLE_BODY_Z],
-            styleSnapshot[STYLE_BODY_W]
+            styleSnapshot[STYLE_BODY_W],
         )
         GLES20.glUniform4f(
             shoulderHandle,
             styleSnapshot[STYLE_SHOULDER_WIDTH],
             styleSnapshot[STYLE_SHOULDER_ANGLE],
             styleSnapshot[STYLE_SHOULDER_FALLOFF],
-            styleSnapshot[STYLE_SHOULDER_MATERIAL]
+            styleSnapshot[STYLE_SHOULDER_MATERIAL],
         )
         GLES20.glUniform2f(
             shoulderFlowHandle,
             styleSnapshot[STYLE_SHOULDER_CAPTURE],
-            styleSnapshot[STYLE_SHOULDER_FLOW]
+            styleSnapshot[STYLE_SHOULDER_FLOW],
         )
         GLES20.glUniform4f(
             dispersionHandle,
             styleSnapshot[STYLE_DISPERSION_STRENGTH],
             styleSnapshot[STYLE_DISPERSION_DISTANCE],
             styleSnapshot[STYLE_DISPERSION_EDGE_WIDTH],
-            styleSnapshot[STYLE_DISPERSION_CONCENTRATION]
+            styleSnapshot[STYLE_DISPERSION_CONCENTRATION],
         )
     }
 
@@ -509,7 +602,7 @@ internal class WebOpenGLGlassRenderer {
             style.newOpenGlDispersionConcentration.coerceIn(0.25f, 4f)
     }
 
-    private fun calculateGlassScissor(): GlassScissorRect? {
+    private fun calculateGlassScissor(): Boolean {
         val left = 0
         val top = (floor(drawRectOffsetY.toDouble()).toInt() - WEB_GLASS_SCISSOR_PADDING_PX)
             .coerceIn(0, viewportHeight)
@@ -517,41 +610,42 @@ internal class WebOpenGLGlassRenderer {
             .toInt()
             .coerceIn(0, viewportWidth)
         val bottom = ceil(
-            (drawRectOffsetY + drawCardHeight + WEB_GLASS_SCISSOR_PADDING_PX).toDouble()
+            (drawRectOffsetY + drawCardHeight + WEB_GLASS_SCISSOR_PADDING_PX).toDouble(),
         )
             .toInt()
             .coerceIn(0, viewportHeight)
-        return if (right > left && bottom > top) {
-            GlassScissorRect(left, top, right, bottom)
-        } else {
-            null
-        }
+        if (right <= left || bottom <= top) return false
+        currentGlassScissor.set(left, top, right, bottom)
+        return true
     }
 
-    private fun clearDirtyRegion(current: GlassScissorRect?) {
+    private fun clearDirtyRegion(hasCurrent: Boolean) {
         if (!partialClearSupported || forceFullClear) {
             GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            PerformanceRuntimeMetrics.recordOpenGlFullClear(viewportWidth, viewportHeight)
             forceFullClear = false
             return
         }
 
-        val dirty = when {
-            previousGlassScissor == null -> current
-            current == null -> previousGlassScissor
-            else -> previousGlassScissor!!.union(current)
-        } ?: return
-        applyScissor(dirty)
+        when {
+            !hasPreviousGlassScissor && hasCurrent -> dirtyGlassScissor.copyFrom(currentGlassScissor)
+            hasPreviousGlassScissor && !hasCurrent -> dirtyGlassScissor.copyFrom(previousGlassScissor)
+            hasPreviousGlassScissor && hasCurrent ->
+                dirtyGlassScissor.unionFrom(previousGlassScissor, currentGlassScissor)
+            else -> return
+        }
+        applyScissor(dirtyGlassScissor)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
     }
 
-    private fun applyScissor(rect: GlassScissorRect) {
+    private fun applyScissor(rect: MutableWebGlassScissorRect) {
         GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
         GLES20.glScissor(
             rect.left,
             viewportHeight - rect.bottom,
             rect.width,
-            rect.height
+            rect.height,
         )
     }
 
@@ -634,29 +728,19 @@ internal class WebOpenGLGlassRenderer {
         GLES20.glGenTextures(1, textures, 0)
         val textureId = textures[0]
         bindTexture(textureUnit, textureId)
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MIN_FILTER,
-            GLES20.GL_LINEAR
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MAG_FILTER,
-            GLES20.GL_LINEAR
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_S,
-            GLES20.GL_CLAMP_TO_EDGE
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_T,
-            GLES20.GL_CLAMP_TO_EDGE
-        )
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
         textureWidths[index] = 0
         textureHeights[index] = 0
         return textureId
+    }
+
+    private fun bindQuad() {
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, quadBufferId)
+        GLES20.glEnableVertexAttribArray(positionHandle)
+        GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, 0)
     }
 
     private fun bindTexture(textureUnit: Int, textureId: Int) {
@@ -665,9 +749,7 @@ internal class WebOpenGLGlassRenderer {
     }
 
     private fun deleteTexture(textureId: Int) {
-        if (textureId != 0) {
-            GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
-        }
+        if (textureId != 0) GLES20.glDeleteTextures(1, intArrayOf(textureId), 0)
     }
 }
 
@@ -700,7 +782,7 @@ private val FULLSCREEN_QUAD = floatArrayOf(
     -1f, -1f,
     1f, -1f,
     -1f, 1f,
-    1f, 1f
+    1f, 1f,
 )
 
 private const val WEB_VERTEX_SHADER = """
