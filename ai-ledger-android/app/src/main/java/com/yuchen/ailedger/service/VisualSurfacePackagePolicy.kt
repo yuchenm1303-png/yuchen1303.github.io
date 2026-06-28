@@ -7,6 +7,14 @@ object VisualSurfacePackagePolicy {
         "android",
         "com.android.systemui",
         "com.android.permissioncontroller",
+        "com.google.android.permissioncontroller",
+        "com.android.packageinstaller",
+        "com.google.android.packageinstaller",
+    )
+
+    private val transientSystemPackageSuffixes: Set<String> = setOf(
+        ".permissioncontroller",
+        ".packageinstaller",
     )
 
     private val unresolvedPackageMarkers: Set<String> = setOf(
@@ -20,11 +28,17 @@ object VisualSurfacePackagePolicy {
         return cleanPackage.isBlank() || cleanPackage in unresolvedPackageMarkers
     }
 
+    fun isTransientSystemPackage(packageName: String): Boolean {
+        val cleanPackage = packageName.trim().lowercase()
+        return cleanPackage in transientSystemPackages ||
+            transientSystemPackageSuffixes.any(cleanPackage::endsWith)
+    }
+
     fun requiresForegroundFallback(packageName: String): Boolean {
         val cleanPackage = packageName.trim()
         return isUnresolvedPackage(cleanPackage) ||
             cleanPackage == ASSISTANT_HOST_PACKAGE ||
-            cleanPackage in transientSystemPackages
+            isTransientSystemPackage(cleanPackage)
     }
 
     fun isConfidentForeignPackage(
