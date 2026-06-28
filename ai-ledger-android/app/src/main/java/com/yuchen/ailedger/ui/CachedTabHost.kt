@@ -180,7 +180,9 @@ fun CachedAppTabHost(
                                 if (tab == AppTab.Settings) {
                                     SettingsComposeGlassBatchHost(Modifier.fillMaxSize()) {
                                         InsetGlassSliderBatchGroup(Modifier.fillMaxSize()) {
-                                            content(tab)
+                                            InsetGlassSliderProgressBatchGroup(Modifier.fillMaxSize()) {
+                                                content(tab)
+                                            }
                                         }
                                     }
                                 } else {
