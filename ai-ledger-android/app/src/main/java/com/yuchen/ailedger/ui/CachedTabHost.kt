@@ -69,7 +69,9 @@ fun CachedAppTabHost(
         if (effectivePrewarmTabs.isEmpty()) {
             emptyList()
         } else {
-            AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
+            AppTab.entries.filter { tab ->
+                tab in effectivePrewarmTabs && tab != currentTab && tab != AppTab.Settings
+            }
         }
     }
     val parentGlassBackdrop = LocalGlassBackdrop.current
@@ -88,7 +90,11 @@ fun CachedAppTabHost(
     LaunchedEffect(currentTab) {
         AppPageActivity.update(currentTab)
         val tabBit = currentTab.cacheBit()
-        if (renderedTabMask and tabBit == 0) renderedTabMask = renderedTabMask or tabBit
+        var nextMask = renderedTabMask or tabBit
+        if (currentTab != AppTab.Settings) {
+            nextMask = nextMask and AppTab.Settings.cacheBit().inv()
+        }
+        if (nextMask != renderedTabMask) renderedTabMask = nextMask
     }
 
     LaunchedEffect(orderedPrewarmTabs, prewarmDelayMs, prewarmStepDelayMs, diagnostics.pagePrewarmOff) {
@@ -111,15 +117,24 @@ fun CachedAppTabHost(
 
     Box(modifier) {
         AppTab.entries.forEach { tab ->
-            // 只保留当前页和正在淡出的上一页。淡出结束后释放整页 Composition，
-            // SaveableStateHolder 继续保存滚动位置和可保存交互状态。
-            if (tab == currentTab || renderedTabMask and tab.cacheBit() != 0) {
+            val usesPageHostTransition = tab != AppTab.Settings
+            val keptForExit = usesPageHostTransition && renderedTabMask and tab.cacheBit() != 0
+
+            // 设置页包含 TextureView OpenGL Shell：当前即挂载、离开即释放，禁止把它保留在
+            // 整页 alpha/scale/translation RenderNode 中。其他页面继续保留原有淡入淡出。
+            if (tab == currentTab || keptForExit) {
                 val active = tab == currentTab
                 val activationKey = activationTicks[tab.ordinal]
-                val initialAlpha = if (tab == initialTab && activationKey == 1) 1f else 0f
+                val initialAlpha = if (
+                    !usesPageHostTransition || (tab == initialTab && activationKey == 1)
+                ) 1f else 0f
                 val alphaState = remember(tab) { Animatable(initialAlpha) }
 
-                LaunchedEffect(active) {
+                LaunchedEffect(active, usesPageHostTransition) {
+                    if (!usesPageHostTransition) {
+                        alphaState.snapTo(1f)
+                        return@LaunchedEffect
+                    }
                     alphaState.animateTo(
                         targetValue = if (active) 1f else 0f,
                         animationSpec = tween(
@@ -132,9 +147,13 @@ fun CachedAppTabHost(
                     }
                 }
 
-                val alpha = alphaState.value
-                val visibleDuringTransition = active || alpha > PAGE_HIDDEN_ALPHA_EPSILON
-                val leaving = !active && visibleDuringTransition
+                val alpha = if (usesPageHostTransition) alphaState.value else 1f
+                val visibleDuringTransition = if (usesPageHostTransition) {
+                    active || alpha > PAGE_HIDDEN_ALPHA_EPSILON
+                } else {
+                    active
+                }
+                val leaving = usesPageHostTransition && !active && visibleDuringTransition
                 // 离场期间保持原激活序号，避免子页面把整套卡片入退场动画重新启动。
                 val pageHeavyEffectsReady = active && heavyEffectsReady
                 val visualEffectsEnabled = visibleDuringTransition && pageHeavyEffectsReady && !diagnostics.openGlGlassOff
@@ -145,20 +164,25 @@ fun CachedAppTabHost(
                 } else {
                     OrdinaryGlassRenderMode.Shadow
                 }
-                val pageOffsetDp = if (active) PAGE_ENTER_OFFSET_DP else PAGE_EXIT_OFFSET_DP
-                val pageScale = PAGE_MIN_SCALE + (1f - PAGE_MIN_SCALE) * alpha
+                val basePageModifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(if (active) 1f else -1f)
+                val pageModifier = if (usesPageHostTransition) {
+                    val pageOffsetDp = if (active) PAGE_ENTER_OFFSET_DP else PAGE_EXIT_OFFSET_DP
+                    val pageScale = PAGE_MIN_SCALE + (1f - PAGE_MIN_SCALE) * alpha
+                    basePageModifier.graphicsLayer {
+                        this.alpha = alpha
+                        translationY = pageOffsetDp.dp.toPx() * (1f - alpha)
+                        scaleX = pageScale
+                        scaleY = pageScale
+                    }
+                } else {
+                    basePageModifier
+                }
 
                 OrdinaryGlassSceneHost(
                     group = sceneGroup,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(if (active) 1f else -1f)
-                        .graphicsLayer {
-                            this.alpha = alpha
-                            translationY = pageOffsetDp.dp.toPx() * (1f - alpha)
-                            scaleX = pageScale
-                            scaleY = pageScale
-                        },
+                    modifier = pageModifier,
                     renderMode = ordinaryRenderMode
                 ) {
                     saveableStateHolder.SaveableStateProvider(tab.name) {
