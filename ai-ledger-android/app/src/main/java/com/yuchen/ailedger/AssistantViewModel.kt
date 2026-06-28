@@ -276,7 +276,7 @@ class AssistantViewModel(
             executionMode = AgentExecutionMode.NormalChatDeviceTool
         )
         if (!result.handled) return null
-        return buildAgentRunMessage(id, goal, result)
+        return aiWorkerClient.buildNaturalInternalControlMessage(id, goal, result)
     }
 
     private fun shouldProbeNormalChatDeviceTool(goal: String, hasImageRequest: Boolean): Boolean {
@@ -511,28 +511,28 @@ class AssistantViewModel(
     }
 
     private suspend fun buildDeviceControlMessage(id: String, goal: String, action: CloudAgentAction): ChatMessage {
-        val step = action.deviceControlStep ?: return ChatMessage(
+        val step = action.deviceControlStep ?: return aiWorkerClient.buildNaturalInternalControlMessage(
             id = id,
-            text = "内部控制缺少结构化动作，已安全取消。",
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sent,
-            source = "local_agent",
-            modelLabel = "内部控制"
+            goal = action.resolvedGoal(goal),
+            step = null,
+            execution = null,
+            statusOverride = "invalid_command",
+            detailOverride = "云端没有返回可执行的结构化内部控制动作。",
         )
         val app = getApplication<Application>()
         val executor = DeviceToolExecutor(app)
+        val resolvedGoal = action.resolvedGoal(goal)
         if (!executor.canExecute(step)) {
-            return ChatMessage(
+            return aiWorkerClient.buildNaturalInternalControlMessage(
                 id = id,
-                text = "内部控制不支持该工具：${step.typeLabel}。",
-                role = MessageRole.Assistant,
-                status = MessageStatus.Sent,
-                source = "local_agent",
-                modelLabel = "内部控制"
+                goal = resolvedGoal,
+                step = step,
+                execution = null,
+                statusOverride = "unsupported",
+                detailOverride = "Android 当前不支持云端选择的内部控制工具：${step.type}。",
             )
         }
 
-        val resolvedGoal = action.resolvedGoal(goal)
         val requiresConfirmation = action.requiresConfirmation || AgentSafetyPolicy.requiresConfirmation(resolvedGoal, step)
         val confirmedHighRisk = if (requiresConfirmation) {
             AgentRuntimeController.requestRiskConfirmation(resolvedGoal, step)
@@ -540,13 +540,13 @@ class AssistantViewModel(
             false
         }
         if (requiresConfirmation && !confirmedHighRisk) {
-            return ChatMessage(
+            return aiWorkerClient.buildNaturalInternalControlMessage(
                 id = id,
-                text = "该内部控制需要确认，已取消执行。",
-                role = MessageRole.Assistant,
-                status = MessageStatus.Sent,
-                source = "local_agent",
-                modelLabel = "已取消"
+                goal = resolvedGoal,
+                step = step,
+                execution = null,
+                statusOverride = "cancelled",
+                detailOverride = "该内部控制需要用户确认，但确认流程没有完成，因此没有执行。",
             )
         }
 
@@ -556,23 +556,11 @@ class AssistantViewModel(
         val verified = withContext(Dispatchers.IO) {
             DeviceControlActionVerifier(app).verify(step, raw)
         }
-        val text = buildString {
-            append("内部控制执行\n\n")
-            append("目标：").append(resolvedGoal).append('\n')
-            append("工具：").append(step.typeLabel).append('\n')
-            step.appName?.takeIf { it.isNotBlank() }?.let { append("应用：").append(it).append('\n') }
-            step.packageName?.takeIf { it.isNotBlank() }?.let { append("包名：").append(it).append('\n') }
-            step.reason?.takeIf { it.isNotBlank() }?.let { append("原因：").append(it).append('\n') }
-            append("结果：").append(verified.message)
-        }
-        return ChatMessage(
+        return aiWorkerClient.buildNaturalInternalControlMessage(
             id = id,
-            text = text,
-            role = MessageRole.Assistant,
-            status = MessageStatus.Sent,
-            source = "local_agent",
-            modelLabel = "内部控制",
-            errorText = null
+            goal = resolvedGoal,
+            step = step,
+            execution = verified,
         )
     }
 
