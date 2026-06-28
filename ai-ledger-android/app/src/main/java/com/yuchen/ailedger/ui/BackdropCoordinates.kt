@@ -93,14 +93,6 @@ class GlassCoordinateSource {
         return { placementListeners -= listener }
     }
 
-    /**
-     * 不写 Compose 状态，直接通知当前 OpenGL Host 在下一 VSync 重新同步并提交一帧。
-     * 用于 graphicsLayer 动画结束后 onPlaced 不再回调的静态 Shell。
-     */
-    internal fun requestOpenGlFrameSync() {
-        notifyPlacementListeners()
-    }
-
     private fun syncPlacementVersion(current: LayoutCoordinates?) {
         val attached = current?.isAttached == true
         val size = if (attached) current?.size ?: IntSize.Zero else IntSize.Zero
