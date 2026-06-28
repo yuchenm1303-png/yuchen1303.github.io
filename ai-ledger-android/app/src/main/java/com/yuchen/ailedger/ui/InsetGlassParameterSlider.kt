@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -113,8 +114,8 @@ private class SliderFrameValueDispatcher {
 
 /**
  * 设置页与玻璃实验室共用的凹槽参数滑块。
- * 进入 InsetGlassSliderBatchGroup 时，静态玻璃由父级批绘制；
- * 未进入批绘制组时自动回退为单滑块绘制，视觉与交互保持一致。
+ * 进入 InsetGlassSliderBatchGroup 时，静态玻璃由父级批绘制；进入设置页进度批绘制组时，
+ * 灰色轨底与青色进度也由父级单画布统一绘制。其他场景自动回退为单滑块绘制。
  */
 @Composable
 internal fun InsetGlassParameterSlider(
@@ -194,15 +195,17 @@ private fun InsetGlassSliderControl(
     val currentOnValueChange by rememberUpdatedState(onValueChange)
     val currentExternalValue by rememberUpdatedState(clampedValue)
     val batchState = LocalInsetGlassSliderBatchState.current
+    val progressBatchState = LocalInsetGlassSliderProgressBatchState.current
     val batchSlotKey = remember { Any() }
     val frameDispatcher = remember { SliderFrameValueDispatcher() }
     val coroutineScope = rememberCoroutineScope()
     val slotShape = remember { RoundedCornerShape(LaboratoryInsetRadius.dp) }
     val valueSuffix = remember(valueText) { valueText.sliderValueSuffix() }
 
-    DisposableEffect(batchState, batchSlotKey, frameDispatcher) {
+    DisposableEffect(batchState, progressBatchState, batchSlotKey, frameDispatcher) {
         onDispose {
             batchState?.removeSlot(batchSlotKey)
+            progressBatchState?.removeTrack(batchSlotKey)
             frameDispatcher.cancelPending()
         }
     }
@@ -225,6 +228,10 @@ private fun InsetGlassSliderControl(
         displayValue.formatInsetSliderValue() + valueSuffix
     } else {
         valueText
+    }
+
+    SideEffect {
+        progressBatchState?.updateProgress(batchSlotKey, progress)
     }
 
     LaunchedEffect(clampedValue, dragging, pendingCommit, commitGuardReady, start, end) {
@@ -321,7 +328,9 @@ private fun InsetGlassSliderControl(
             InsetGlassSliderTrackContent(
                 progress = progress,
                 leadingMark = leadingMark,
-                valueText = displayValueText
+                valueText = displayValueText,
+                progressBatchState = progressBatchState,
+                trackSlotKey = batchSlotKey
             )
         }
     } else {
@@ -337,7 +346,9 @@ private fun InsetGlassSliderControl(
             InsetGlassSliderTrackContent(
                 progress = progress,
                 leadingMark = leadingMark,
-                valueText = displayValueText
+                valueText = displayValueText,
+                progressBatchState = progressBatchState,
+                trackSlotKey = batchSlotKey
             )
         }
     }
@@ -347,7 +358,9 @@ private fun InsetGlassSliderControl(
 private fun InsetGlassSliderTrackContent(
     progress: Float,
     leadingMark: String,
-    valueText: String
+    valueText: String,
+    progressBatchState: InsetGlassSliderProgressBatchState?,
+    trackSlotKey: Any
 ) {
     Row(
         modifier = Modifier
@@ -362,12 +375,21 @@ private fun InsetGlassSliderTrackContent(
             fontSize = 12.sp,
             fontWeight = FontWeight.Black
         )
-        LaboratoryRecessedProgressTrack(
-            progress = progress,
-            modifier = Modifier
-                .weight(1f)
-                .height(12.dp)
-        )
+        if (progressBatchState != null) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(12.dp)
+                    .onPlaced { progressBatchState.updateTrack(trackSlotKey, it) }
+            )
+        } else {
+            LaboratoryRecessedProgressTrack(
+                progress = progress,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(12.dp)
+            )
+        }
         Text(
             text = valueText,
             color = Color.White.copy(alpha = 0.58f),
@@ -442,7 +464,7 @@ private fun LaboratoryInsetGlassSlot(
     }
 }
 
-/** 动态进度轨保留在子项，拖动单条滑块不会让整组静态玻璃重绘。 */
+/** 非设置页回退路径；设置页生产态不创建此逐项 Canvas。 */
 @Composable
 private fun LaboratoryRecessedProgressTrack(
     progress: Float,
