@@ -153,6 +153,54 @@ class VisualObservationCoordinatorTest {
     }
 
     @Test
+    fun inheritedTrustedBaseDoesNotCountAsSecondStableTargetSample() = runBlocking {
+        var clock = 0L
+        var captureIndex = 0
+        var visualCaptureCount = 0
+        val coordinator = VisualObservationCoordinator(
+            captureSource = VisualObservationCaptureSource { forceVisual ->
+                if (forceVisual) visualCaptureCount += 1
+                captureIndex += 1
+                ScreenObservation(
+                    enabled = true,
+                    serviceConnected = true,
+                    packageName = if (captureIndex == 1) {
+                        "com.example.target"
+                    } else {
+                        "com.android.permissioncontroller"
+                    },
+                    visual = if (forceVisual) visualFrame() else null,
+                )
+            },
+            foregroundPackageReader = ForegroundPackageReader {
+                ForegroundPackageProbeResult(available = false)
+            },
+            overlayController = RecordingOverlayController(),
+            timing = zeroTiming().copy(
+                openAppVerifyPollMs = 1L,
+                openAppVerifyTimeoutMs = 4L,
+                openAppMaxVerifyTimeoutMs = 4L,
+                trustedPackageTtlMs = 100L,
+            ),
+            elapsedRealtime = { clock },
+            sleeper = { clock += it },
+        )
+
+        val verification = coordinator.awaitStableTargetPackage(
+            expectedPackage = "com.example.target",
+            isStopped = { false },
+        )
+
+        assertFalse(verification.verified)
+        assertEquals(1, verification.stableSamples)
+        assertEquals(0, visualCaptureCount)
+        assertEquals(
+            VisualTargetPackageVerificationReason.StableSamplesIncomplete,
+            verification.reason,
+        )
+    }
+
+    @Test
     fun twoStablePackageSamplesAndBlankPackageVisualFrameCompleteHandoff() = runBlocking {
         var clock = 0L
         var captureIndex = 0
