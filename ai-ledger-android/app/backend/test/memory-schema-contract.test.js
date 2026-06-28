@@ -27,6 +27,12 @@ test("长期记忆基础迁移包含全部分层存储表", () => {
   }
 });
 
+test("迁移可重复执行且触发器不会重复创建", () => {
+  assert.match(sql, /drop trigger if exists assistant_memory_items_set_updated_at/i);
+  assert.match(sql, /drop trigger if exists assistant_memory_embeddings_set_updated_at/i);
+  assert.match(sql, /drop trigger if exists assistant_memory_session_state_set_updated_at/i);
+});
+
 test("原子替代 RPC 同时锁定旧记忆并建立双向替代关系", () => {
   assert.match(sql, /create or replace function public\.supersede_assistant_memory_atomic/i);
   assert.match(sql, /for update;/i);
