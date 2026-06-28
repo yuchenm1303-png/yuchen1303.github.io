@@ -138,7 +138,7 @@ fun chatBubbleVisualTransform(appear: Float, fromUser: Boolean): ChatBubbleVisua
 fun rememberChatBubbleLayerState(): ChatBubbleLayerState = remember { ChatBubbleLayerState() }
 
 @Composable
-fun ChatBubbleMaterialLayer(
+internal fun ChatBubbleMaterialLayer(
     layerState: ChatBubbleLayerState,
     listState: LazyListState,
     messages: List<ChatMessage>,
