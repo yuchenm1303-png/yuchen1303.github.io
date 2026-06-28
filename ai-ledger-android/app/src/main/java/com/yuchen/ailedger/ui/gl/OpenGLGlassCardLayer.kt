@@ -42,9 +42,41 @@ private const val GLASS_PRESS_EPSILON = 0.003f
 private const val GLASS_PRESS_CENTER_EPSILON = 0.002f
 private const val GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y = 0.44f
 
-private const val EGL_SWAP_BEHAVIOR_VALUE = 0x3093
-private const val EGL_BUFFER_PRESERVED_VALUE = 0x3094
-private const val EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE = 0x0400
+/**
+ * legacy Shell 会在页面切换期间短暂并存多个 EGL Context。所有 Context 共用默认 Display，
+ * 因此由这里统一配对 initialize/terminate，避免旧页面释放时终止新页面仍在使用的 Display。
+ */
+private object LegacyEglDisplayRuntime {
+    private val lock = Any()
+    private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
+    private var leaseCount = 0
+
+    fun acquire(): EGLDisplay = synchronized(lock) {
+        if (display == EGL14.EGL_NO_DISPLAY) {
+            val candidate = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+            check(candidate != EGL14.EGL_NO_DISPLAY) { "Unable to get EGL display" }
+            val version = IntArray(2)
+            check(EGL14.eglInitialize(candidate, version, 0, version, 1)) {
+                "Unable to initialize EGL"
+            }
+            display = candidate
+        }
+        leaseCount += 1
+        display
+    }
+
+    fun release(leasedDisplay: EGLDisplay) {
+        if (leasedDisplay == EGL14.EGL_NO_DISPLAY) return
+        synchronized(lock) {
+            if (leasedDisplay != display || leaseCount <= 0) return
+            leaseCount -= 1
+            if (leaseCount == 0) {
+                EGL14.eglTerminate(display)
+                display = EGL14.EGL_NO_DISPLAY
+            }
+        }
+    }
+}
 
 enum class OpenGLGlassSurfaceAnchor(val fraction: Float) {
     Top(0f),
@@ -586,6 +618,7 @@ private class CardGlassEglThread(
     private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+    private var displayLeaseActive = false
     private var metricsContextActive = false
 
     fun setFrameState(
@@ -651,8 +684,8 @@ private class CardGlassEglThread(
     override fun run() {
         try {
             initEgl()
-            // 透明 TextureView 的 preserved back buffer 在聊天面板几何动画时会轮换旧像素。
-            // 旧版玻璃继续完整清屏，避免以性能优化为代价引入残影或闪烁。
+            // 透明 TextureView 每帧都完整清屏重绘，因此不申请 preserved back buffer。
+            // 这与纯色探针使用同一类标准 EGL window 配置，也避开厂商驱动的 preserved 合成分支。
             renderer.setPartialClearSupported(false)
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportWidth, viewportHeight)
@@ -681,17 +714,10 @@ private class CardGlassEglThread(
     }
 
     private fun initEgl() {
-        eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
-        check(eglDisplay != EGL14.EGL_NO_DISPLAY) { "Unable to get EGL display" }
-        val version = IntArray(2)
-        check(EGL14.eglInitialize(eglDisplay, version, 0, version, 1)) {
-            "Unable to initialize EGL"
-        }
+        eglDisplay = LegacyEglDisplayRuntime.acquire()
+        displayLeaseActive = true
 
-        val preservedConfig = chooseConfig(
-            EGL14.EGL_WINDOW_BIT or EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE,
-        )
-        val config = preservedConfig ?: chooseConfig(EGL14.EGL_WINDOW_BIT)
+        val config = chooseConfig(EGL14.EGL_WINDOW_BIT)
             ?: error("No EGL config found")
 
         eglContext = EGL14.eglCreateContext(
@@ -720,15 +746,6 @@ private class CardGlassEglThread(
         }
         metricsContextActive = true
         PerformanceRuntimeMetrics.recordOpenGlContextCreated()
-
-        if (preservedConfig != null) {
-            EGL14.eglSurfaceAttrib(
-                eglDisplay,
-                eglSurface,
-                EGL_SWAP_BEHAVIOR_VALUE,
-                EGL_BUFFER_PRESERVED_VALUE,
-            )
-        }
     }
 
     private fun chooseConfig(surfaceType: Int): EGLConfig? {
@@ -759,20 +776,24 @@ private class CardGlassEglThread(
     }
 
     private fun releaseEgl() {
-        if (eglDisplay != EGL14.EGL_NO_DISPLAY) {
+        val leasedDisplay = eglDisplay
+        if (leasedDisplay != EGL14.EGL_NO_DISPLAY) {
             EGL14.eglMakeCurrent(
-                eglDisplay,
+                leasedDisplay,
                 EGL14.EGL_NO_SURFACE,
                 EGL14.EGL_NO_SURFACE,
                 EGL14.EGL_NO_CONTEXT,
             )
             if (eglSurface != EGL14.EGL_NO_SURFACE) {
-                EGL14.eglDestroySurface(eglDisplay, eglSurface)
+                EGL14.eglDestroySurface(leasedDisplay, eglSurface)
             }
             if (eglContext != EGL14.EGL_NO_CONTEXT) {
-                EGL14.eglDestroyContext(eglDisplay, eglContext)
+                EGL14.eglDestroyContext(leasedDisplay, eglContext)
             }
-            EGL14.eglTerminate(eglDisplay)
+        }
+        if (displayLeaseActive) {
+            displayLeaseActive = false
+            LegacyEglDisplayRuntime.release(leasedDisplay)
         }
         if (metricsContextActive) {
             metricsContextActive = false
