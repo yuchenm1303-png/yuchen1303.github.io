@@ -5,52 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-fun interface VisualObservationCaptureSource {
-    suspend fun capture(forceVisual: Boolean): ScreenObservation
-}
-
-object AccessibilityVisualObservationCaptureSource : VisualObservationCaptureSource {
-    override suspend fun capture(forceVisual: Boolean): ScreenObservation {
-        return withContext(Dispatchers.Default) {
-            AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = forceVisual)
-        }
-    }
-}
-
-interface VisualCaptureOverlayController {
-    fun beginCapture()
-    fun endCapture()
-}
-
-object RuntimeVisualCaptureOverlayController : VisualCaptureOverlayController {
-    override fun beginCapture() {
-        AgentRuntimeController.beginCleanVisualCapture()
-    }
-
-    override fun endCapture() {
-        AgentRuntimeController.endCleanVisualCapture()
-    }
-}
-
-data class VisualObservationTiming(
-    // 无障碍截图层仍保留 150ms 的悬浮窗隐藏等待；这里只保留页面自身稳定所需的 110ms。
-    // 两层合计 260ms，维持原来的页面稳定基准，同时移除额外重复的 150ms。
-    val fullVisualSettleMs: Long = 110L,
-    val nonVisualSettleMs: Long = 160L,
-    val packageProbeSettleMs: Long = 160L,
-    val openAppInitialSettleMs: Long = 260L,
-    val openAppVerifyPollMs: Long = 140L,
-    val openAppVerifyTimeoutMs: Long = 4_200L,
-    val requiredStableSamples: Int = 2,
-)
-
-data class VisualTargetPackageVerification(
-    val verified: Boolean,
-    val stableSamples: Int,
-    val lastSnapshot: AgentScreenSnapshot?,
-    val lastObservation: ScreenObservation?,
-)
-
 class VisualObservationCoordinator(
     private val captureSource: VisualObservationCaptureSource,
     private val foregroundPackageReader: ForegroundPackageReader,
@@ -156,10 +110,15 @@ class VisualObservationCoordinator(
         forceVisual: Boolean,
         settleMs: Long,
     ): ScreenObservation {
+        if (!VisualCaptureOverlayPolicy.shouldHideOverlay(forceVisual)) {
+            sleep(settleMs)
+            return captureSource.capture(forceVisual = false)
+        }
+
         overlayController.beginCapture()
         return try {
             sleep(settleMs)
-            captureSource.capture(forceVisual)
+            captureSource.capture(forceVisual = true)
         } finally {
             overlayController.endCapture()
         }
