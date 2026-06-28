@@ -43,18 +43,18 @@ internal data class OpenGLGlassDynamicSnapshot(
  * 不再依赖整块 Shell 重组。
  */
 @Stable
-internal class OpenGLGlassDynamicState {
+class OpenGLGlassDynamicState {
     private val committedState = mutableStateOf(OpenGLGlassDynamicSnapshot())
     private var pendingSnapshot = committedState.value
     private var framePosted = false
     private val frameListeners = linkedSetOf<() -> Unit>()
 
-    val snapshotState: State<OpenGLGlassDynamicSnapshot>
+    internal val snapshotState: State<OpenGLGlassDynamicSnapshot>
         get() = committedState
 
-    fun latestSnapshot(): OpenGLGlassDynamicSnapshot = pendingSnapshot
+    internal fun latestSnapshot(): OpenGLGlassDynamicSnapshot = pendingSnapshot
 
-    fun updateAnimation(pressValue: Float, openGlPress: Float) {
+    internal fun updateAnimation(pressValue: Float, openGlPress: Float) {
         val next = pendingSnapshot.copy(
             pressValue = pressValue.coerceIn(-0.14f, 1.08f),
             openGlPress = openGlPress.coerceIn(0f, 1f),
@@ -62,7 +62,7 @@ internal class OpenGLGlassDynamicState {
         enqueue(next)
     }
 
-    fun updatePressCenter(center: Offset) {
+    internal fun updatePressCenter(center: Offset) {
         enqueue(
             pendingSnapshot.copy(
                 pressCenter = Offset(
@@ -73,7 +73,7 @@ internal class OpenGLGlassDynamicState {
         )
     }
 
-    fun updateRimFlow(seed: Float, direction: Float, band: Int, strength: Float) {
+    internal fun updateRimFlow(seed: Float, direction: Float, band: Int, strength: Float) {
         enqueue(
             pendingSnapshot.copy(
                 rimFlowSeed = seed.coerceIn(0f, 1f),
@@ -84,11 +84,11 @@ internal class OpenGLGlassDynamicState {
         )
     }
 
-    fun reset() {
+    internal fun reset() {
         enqueue(OpenGLGlassDynamicSnapshot())
     }
 
-    fun addFrameListener(listener: () -> Unit): () -> Unit {
+    internal fun addFrameListener(listener: () -> Unit): () -> Unit {
         frameListeners += listener
         return { frameListeners -= listener }
     }
