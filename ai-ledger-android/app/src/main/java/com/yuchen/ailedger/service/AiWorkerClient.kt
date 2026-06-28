@@ -289,10 +289,10 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             else -> "chat"
         }
         val appContext = AiLedgerApplication.contextOrNull()
-        val memorySnapshot = if (!shouldStartAgent) {
-            appContext
-                ?.let { context -> AssistantMemoryRepository.get(context).currentSnapshotText() }
-                ?.takeIf { it.isNotBlank() }
+        val memoryCompilation = if (!shouldStartAgent && requestText.isNotBlank()) {
+            appContext?.let { context ->
+                AssistantMemoryRepository.get(context).compileForRequest(requestText)
+            }
         } else {
             null
         }
@@ -319,8 +319,11 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("prompt", requestText)
             put("text", requestText)
             put("content", requestText)
-            if (memorySnapshot != null) put("memorySnapshot", memorySnapshot)
-            put("memoryEnabled", memorySnapshot != null)
+            memoryCompilation?.memorySnapshot?.let { put("memorySnapshot", it) }
+            memoryCompilation?.personaConfigJson()?.let { put("personaConfig", it) }
+            memoryCompilation?.diagnosticsJson()?.let { put("memoryContextDiagnostics", it) }
+            put("memoryEnabled", memoryCompilation?.hasAnyContext == true)
+            put("memorySchema", memoryCompilation?.schema ?: "ai_ledger_memory_context_v3")
             put("chatExpressionPreferences", JSONObject().apply {
                 put("schema", "ai_ledger_chat_expression_preferences_v1")
                 put("inlineStickerFrequency", stickerExpressionPreferences.frequency)
@@ -445,9 +448,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("deviceId", resolvedClientId)
             put(
                 "clientVersion",
-                if (hasImage) "compose-native-qwen-vision-v2-single-image-transport"
+                if (hasImage) "compose-native-qwen-vision-v3-memory-retrieval"
                 else if (shouldStartAgent) "compose-native-agent-switch-v5"
-                else "compose-native-command-chat-v6-parallel-device-probe",
+                else "compose-native-command-chat-v7-memory-retrieval",
             )
             put("now", System.currentTimeMillis())
         }
