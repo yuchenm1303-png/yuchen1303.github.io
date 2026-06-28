@@ -76,27 +76,32 @@ internal fun SettingsOpenGLDiagnosticsPanel(
 
     val stage = when {
         snapshot.openGlSurfacePixels <= 1L ->
-            "A：Host 尚未提交有效 Surface 尺寸"
+            "A：尚未提交有效 Surface 尺寸"
         uploadDelta <= 0L ->
-            "B：Host 已布局，但设置页纹理尚未送入"
+            "B：Surface 已布局，但背景纹理尚未送入"
         contextCreatedDelta <= 0L ->
-            "C：纹理已送入，但本次未创建 EGL Context/WindowSurface"
+            "C：纹理已送入，本次尚未记录 EGL Context"
         frameDelta <= 0L ->
             "D：EGL 已创建，但没有成功 swap 的帧"
         else ->
-            "E：已有成功 swap；若仍不可见，锁定 Android 合成/层级"
+            "E：全局已有成功 swap，请结合纯色探针判断"
     }
 
+    val probeStatus = SettingsOpenGLProbeState.status
+    val probeSwaps = SettingsOpenGLProbeState.swapCount
     val diagnosticText = buildString {
         appendLine("OPENGL DIAG · 设置页")
         appendLine(stage)
         appendLine("Surface 当前/峰值：${formatKpx(snapshot.openGlSurfacePixels)} / ${formatKpx(snapshot.openGlPeakSurfacePixels)}")
-        appendLine("Context 存活/峰值/本次创建：${snapshot.openGlContextsAlive} / ${snapshot.openGlPeakContextsAlive} / +$contextCreatedDelta")
+        appendLine("Context 存活/峰值/本次创建：${snapshot.openGlContextsAlive} / ${snapshot.openGlPeakContextsAlive} / +$contextCreatedDelta（全局计数）")
         appendLine("纹理上传：+$uploadDelta · ${formatMiB(uploadBytesDelta)} MiB")
         appendLine("渲染请求/成功帧：+$requestDelta / +$frameDelta")
         appendLine("legacy 缓存 帧/重建/回退：+$cacheFrameDelta / +$cacheRebuildDelta / +$cacheFallbackDelta")
         appendLine("Surface 缓存：${formatKpx(snapshot.legacyGeometryCachePixels)} · 全清：${formatMpx(fullClearDelta)} Mpx")
-        append("进入设置页后等待 2 秒再截图；点击本面板复制全部信息")
+        appendLine("EGL 纯色探针：$probeStatus · swap $probeSwaps")
+        appendLine("判断：右侧青绿色可见 → TextureView 合成正常，问题在玻璃 Shader/几何")
+        appendLine("判断：左侧洋红可见、右侧青绿不可见 → TextureView/Android 合成链异常")
+        append("进入设置页等待 2 秒后截图，点击本面板复制全部信息")
     }
 
     val shape = RoundedCornerShape(14.dp)
@@ -120,14 +125,17 @@ internal fun SettingsOpenGLDiagnosticsPanel(
                 fontWeight = FontWeight.Black,
             )
         }
+        SettingsOpenGLCompositionProbe(
+            modifier = Modifier.padding(top = 7.dp),
+        )
         Text(
             text = diagnosticText,
             color = Color.White,
-            fontSize = 10.sp,
-            lineHeight = 14.sp,
+            fontSize = 9.sp,
+            lineHeight = 13.sp,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(top = 5.dp),
+            modifier = Modifier.padding(top = 7.dp),
         )
     }
 }

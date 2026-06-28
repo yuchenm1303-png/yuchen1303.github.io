@@ -4,11 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -23,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.legacyOpenGlReferenceStyle
-import com.yuchen.ailedger.ui.BlurredBackdropBitmap
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.GlassSceneGroup
 import com.yuchen.ailedger.ui.LegacyOpenGLGlassPreviewShell
@@ -55,23 +50,12 @@ fun NewOpenGLGlassCardLayer(
     viewportTopInsetPx: Float = 0f,
     dynamicState: OpenGLGlassDynamicState? = null,
 ) {
-    val incomingBackdrop = LocalBlurredBackdrop.current
-    var retainedReadyBackdrop by remember { mutableStateOf<BlurredBackdropBitmap?>(null) }
+    val backdrop = LocalBlurredBackdrop.current ?: return
 
-    // 真实纹理第一次到达后只更新锁存值，不再让后续占位纹理卸载 AndroidView、
-    // TextureView 和 EGL Context。主题、尺寸或模糊参数重建期间继续复用上一套纹理。
-    LaunchedEffect(incomingBackdrop) {
-        if (incomingBackdrop?.isReady == true) {
-            retainedReadyBackdrop = incomingBackdrop
-        }
-    }
-
-    val renderBackdrop = when {
-        incomingBackdrop?.isReady == true -> incomingBackdrop
-        else -> retainedReadyBackdrop
-    }
-
-    if (renderBackdrop == null) {
+    // Do not create an EGL context, compile the shader or upload placeholder textures during the
+    // first layout burst. The Shell keeps exactly the same bounds and receives a cheap static skin;
+    // once the real sampler set arrives this node is replaced in-place by the single OpenGL host.
+    if (!backdrop.isReady) {
         Box(
             modifier = modifier.startupStaticGlassLayer(
                 radius = radius,
@@ -81,50 +65,6 @@ fun NewOpenGLGlassCardLayer(
         return
     }
 
-    Box(modifier = modifier) {
-        // legacy Host 内部还会再次读取 LocalBlurredBackdrop，因此这里必须把锁存后的
-        // 有效纹理重新提供给整个 OpenGL 子树，而不是只在当前函数使用局部变量。
-        CompositionLocalProvider(LocalBlurredBackdrop provides renderBackdrop) {
-            ReadyOpenGLGlassCardLayer(
-                backdrop = renderBackdrop,
-                radius = radius,
-                glassIntensity = glassIntensity,
-                coordinateSource = coordinateSource,
-                modifier = Modifier.matchParentSize(),
-                pressProgress = pressProgress,
-                pressCenter = pressCenter,
-                viewportTopInsetPx = viewportTopInsetPx,
-                dynamicState = dynamicState,
-            )
-        }
-
-        // 重建真实纹理时保留原来的静态外壳观感，但只作为覆盖层；下面的
-        // TextureView 与 EGL Context 继续存活，新纹理到达后原位更新。
-        if (incomingBackdrop?.isReady != true) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .startupStaticGlassLayer(
-                        radius = radius,
-                        glassIntensity = glassIntensity
-                    )
-            ) {}
-        }
-    }
-}
-
-@Composable
-private fun ReadyOpenGLGlassCardLayer(
-    backdrop: BlurredBackdropBitmap,
-    radius: Int,
-    glassIntensity: Float,
-    coordinateSource: GlassCoordinateSource?,
-    modifier: Modifier,
-    pressProgress: Float,
-    pressCenter: Offset,
-    viewportTopInsetPx: Float,
-    dynamicState: OpenGLGlassDynamicState?,
-) {
     val sceneGroup = LocalGlassSceneGroup
     val useLegacyRenderer =
         sceneGroup == GlassSceneGroup.SettingsPage ||
