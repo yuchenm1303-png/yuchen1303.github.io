@@ -17,7 +17,8 @@ class VisualIntelligenceUpgradeTest {
         )
         assertFalse(validation.ok)
         assertEquals(VisualFailureClass.VisualLocal, validation.failureClass)
-        assertTrue(validation.message.contains("malformed mobile_use protocol"))
+        assertTrue(validation.message.contains("protocolRepairRequired=true"))
+        assertTrue(validation.message.contains("mobile_use protocol"))
     }
 
     @Test
@@ -28,6 +29,22 @@ class VisualIntelligenceUpgradeTest {
             runtime = workSurfaceRuntime(),
         )
         assertTrue(validation.ok)
+    }
+
+    @Test
+    fun inputTextNeverAppearsInActionSignature() {
+        val signature = VisualActionValidator.actionSignature(
+            CloudAgentStep(
+                type = "input_text",
+                text = "private-input-value",
+                milestoneId = "m1",
+                hypothesisId = "fill_private_field",
+            ),
+        )
+
+        assertFalse(signature.contains("private-input-value"))
+        assertTrue(signature.contains("input_text"))
+        assertTrue(signature.contains("fill_private_field"))
     }
 
     @Test
@@ -65,6 +82,33 @@ class VisualIntelligenceUpgradeTest {
         assertNotNull(tracker.blockedHypothesisReason(step, page))
         assertEquals(2, second.taskMemory.failedHypotheses.single().count)
         assertEquals(1, second.taskMemory.blockedActions.size)
+    }
+
+    @Test
+    fun nonExploratoryFailureDoesNotConsumeExplorationBudget() {
+        val tracker = VisualSemanticProgressTracker(originalGoal = "完成测试任务")
+        tracker.updateTaskContract(
+            VisualTaskContract(
+                originalGoal = "完成测试任务",
+                currentMilestoneId = "m1",
+                milestones = listOf(VisualTaskMilestone(id = "m1")),
+                explorationBudgetPerMilestone = 3,
+            ),
+        )
+        val step = CloudAgentStep(
+            type = "wait",
+            purpose = "确认稳定状态",
+            milestoneId = "m1",
+            hypothesisId = "stable_state",
+            exploratory = false,
+            legacyIntent = false,
+        )
+        val page = snapshot("page-a")
+
+        val result = tracker.evaluate(step, page, page, "com.example.app")
+
+        assertEquals(3, result.explorationBudgetRemaining)
+        assertEquals(1, result.failedHypothesisCount)
     }
 
     @Test
