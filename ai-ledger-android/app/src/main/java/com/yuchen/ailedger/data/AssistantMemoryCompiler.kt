@@ -181,17 +181,28 @@ object AssistantMemoryCompiler {
         val clean = text.trim().lowercase()
         if (clean.isBlank()) return AssistantMemoryIntent.GENERAL
 
+        val hasAndroidSignal = ANDROID_SIGNAL.any(clean::contains)
+        val hasProgrammingSignal = PROGRAMMING_SIGNAL.any(clean::contains)
+        val hasProgrammingContext = PROGRAMMING_CONTEXT_SIGNAL.any(clean::contains)
+        val hasStrongMathSignal = MATH_STRONG_SIGNAL.any(clean::contains) ||
+            FORMULA_SIGNAL.containsMatchIn(clean) ||
+            (clean.contains("函数") && !hasProgrammingContext)
         val hasLatinWord = LATIN_WORD_REGEX.containsMatchIn(clean)
-        val vocabularyQuestion = hasLatinWord && (
-            ENGLISH_VOCABULARY_SIGNAL.any(clean::contains) ||
-                clean.matches(Regex("^[a-z][a-z' -]{1,50}[？?]?$", RegexOption.IGNORE_CASE))
-            )
+        val vocabularyQuestion = hasLatinWord &&
+            !hasAndroidSignal &&
+            !hasProgrammingSignal &&
+            !hasStrongMathSignal &&
+            (
+                ENGLISH_VOCABULARY_SIGNAL.any(clean::contains) ||
+                    clean.matches(Regex("^[a-z][a-z' -]{1,50}[？?]?$", RegexOption.IGNORE_CASE))
+                )
+
         return when {
+            hasAndroidSignal -> AssistantMemoryIntent.ANDROID_DEVELOPMENT
+            hasStrongMathSignal -> AssistantMemoryIntent.MATHEMATICS
             vocabularyQuestion -> AssistantMemoryIntent.ENGLISH_VOCABULARY
             ENGLISH_LEARNING_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.ENGLISH_LEARNING
-            ANDROID_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.ANDROID_DEVELOPMENT
-            PROGRAMMING_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.PROGRAMMING
-            MATH_SIGNAL.any(clean::contains) || FORMULA_SIGNAL.containsMatchIn(clean) -> AssistantMemoryIntent.MATHEMATICS
+            hasProgrammingSignal -> AssistantMemoryIntent.PROGRAMMING
             WRITING_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.ACADEMIC_WRITING
             FINANCE_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.FINANCE
             TRAVEL_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.TRAVEL
@@ -207,20 +218,25 @@ object AssistantMemoryCompiler {
         nowMillis: Long,
     ): RankedMemory {
         val scope = effectiveScope(item)
+        val itemTokens = tokenize(item.content)
+        val overlap = promptTokens.intersect(itemTokens).size
+        val ruleLike = isInstructionLike(item)
         val explicitScopeMismatch = scope != "auto" && scope != "global" && scope !in activeScopes
-        if (explicitScopeMismatch) {
+        val autoRelevant = scope != "auto" ||
+            overlap > 0 ||
+            (intent == AssistantMemoryIntent.GENERAL && (item.pinned || item.priority >= 2))
+
+        if (explicitScopeMismatch || !autoRelevant) {
             return RankedMemory(
                 item = item,
                 scope = scope,
                 score = Int.MIN_VALUE,
-                reason = "scope_mismatch",
+                reason = if (explicitScopeMismatch) "scope_mismatch" else "auto_without_relevance",
             )
         }
 
-        val overlap = promptTokens.intersect(tokenize(item.content)).size
-        val scopeMatches = scope == "auto" || scope in activeScopes
-        val ruleLike = isInstructionLike(item)
-
+        val exactScopeMatch = scope in activeScopes
+        val scopeMatches = scope == "global" || exactScopeMatch
         var score = item.priority * 13
         if (item.pinned) score += 20
         score += (item.confidence.coerceIn(0.0, 1.0) * 5.0).toInt()
@@ -229,14 +245,16 @@ object AssistantMemoryCompiler {
         score += minOf(5, ln(item.useCount.toDouble() + 1.0).toInt())
 
         score += when {
-            scope == "global" -> 10
-            scopeMatches -> 28
+            exactScopeMatch -> 28
+            scope == "global" -> 14
+            scope == "auto" && overlap > 0 -> 10
+            scope == "auto" -> 3
             ruleLike -> -30
             item.category == "project" -> -14
             else -> -5
         }
         score += when (item.category) {
-            "rule", "skill" -> if (scopeMatches || scope == "global") 18 else -8
+            "rule", "skill" -> if (scopeMatches) 18 else -8
             "profile" -> 8
             "preference" -> 7
             "project" -> if (intent in setOf(
@@ -254,7 +272,14 @@ object AssistantMemoryCompiler {
             scope = scope,
             score = score,
             reason = buildString {
-                append(if (scopeMatches) "scope_match" else "scope_fallback")
+                append(
+                    when {
+                        exactScopeMatch -> "scope_match"
+                        scope == "global" -> "global"
+                        scope == "auto" -> "auto_relevant"
+                        else -> "scope_fallback"
+                    }
+                )
                 if (overlap > 0) append("+token_$overlap")
                 if (item.pinned) append("+pinned")
                 if (ruleLike) append("+instruction")
@@ -265,12 +290,29 @@ object AssistantMemoryCompiler {
     private fun suppressConflicts(ranked: List<RankedMemory>): ConflictResolution {
         val selected = mutableListOf<RankedMemory>()
         val occupiedSlots = hashSetOf<String>()
+        val supersededIds = ranked.asSequence()
+            .map { it.item.supersedesId.trim() }
+            .filter(String::isNotBlank)
+            .toHashSet()
         var suppressed = 0
+
         ranked.forEach { candidate ->
-            val slot = semanticSlot(candidate.item)
-            if (slot != null && !occupiedSlots.add(slot)) {
+            if (candidate.item.id in supersededIds) {
+                suppressed += 1
+                return@forEach
+            }
+
+            val slots = buildList {
+                add("content:${canonicalText(candidate.item.content)}")
+                semanticSlot(candidate.item)?.let(::add)
+                candidate.item.supersedesId.trim()
+                    .takeIf(String::isNotBlank)
+                    ?.let { add("supersedes:$it") }
+            }
+            if (slots.any(occupiedSlots::contains)) {
                 suppressed += 1
             } else {
+                occupiedSlots += slots
                 selected += candidate
             }
         }
@@ -294,7 +336,7 @@ object AssistantMemoryCompiler {
 
         val unique = candidates
             .map { it.trim().trimStart('-', '•', ' ') }
-            .filter { it.isNotBlank() }
+            .filter(String::isNotBlank)
             .distinctBy(::canonicalText)
         if (unique.isEmpty()) return null
 
@@ -386,7 +428,13 @@ object AssistantMemoryCompiler {
 
     private fun effectiveScope(item: AssistantMemoryItem): String {
         val explicit = normalizeMemoryScope(item.scope)
-        return if (explicit != "auto") explicit else inferScope(item.content)
+        if (explicit != "auto") return explicit
+        val inferred = inferScope(item.content)
+        return when {
+            inferred != "auto" -> inferred
+            isInstructionLike(item) -> "global"
+            else -> "auto"
+        }
     }
 
     internal fun inferScope(text: String): String {
@@ -399,6 +447,7 @@ object AssistantMemoryCompiler {
             WRITING_SIGNAL.any(clean::contains) -> "writing"
             FINANCE_SIGNAL.any(clean::contains) -> "finance"
             TRAVEL_SIGNAL.any(clean::contains) -> "travel"
+            RESPONSE_STYLE_SIGNAL.any(clean::contains) -> "global"
             looksInstructional(clean) -> "global"
             else -> "auto"
         }
@@ -423,7 +472,6 @@ object AssistantMemoryCompiler {
             containsEnglishLearningSignal(clean) && isInstructionLike(item) -> "instruction:english_learning"
             RESPONSE_STYLE_SIGNAL.any(clean::contains) -> "preference:response_style"
             containsAndroidSignal(clean) && item.category == "project" -> "project:android"
-            item.supersedesId.isNotBlank() -> "supersedes:${item.supersedesId}"
             else -> null
         }
     }
@@ -492,7 +540,7 @@ object AssistantMemoryCompiler {
 
     private val LATIN_WORD_REGEX = Regex("[a-zA-Z][a-zA-Z'-]{1,48}")
     private val CHINESE_RUN_REGEX = Regex("[\\u4e00-\\u9fff]{2,}")
-    private val FORMULA_SIGNAL = Regex("[=+\\-*/^√∫∑]|\\b(sin|cos|tan|log|lim)\\b")
+    private val FORMULA_SIGNAL = Regex("[=+*/^√∫∑]|\\b(sin|cos|tan|log|lim)\\b")
 
     private val ENGLISH_VOCABULARY_SIGNAL = listOf(
         "什么意思", "怎么用", "例句", "翻译", "中文", "读音", "发音", "单词", "短语", "meaning", "example",
@@ -509,9 +557,15 @@ object AssistantMemoryCompiler {
     private val PROGRAMMING_SIGNAL = listOf(
         "代码", "编程", "程序", "函数", "类", "bug", "报错", "python", "java", "javascript", "typescript", "api",
     )
-    private val MATH_SIGNAL = listOf(
-        "数学", "函数", "极限", "导数", "积分", "微分", "矩阵", "概率", "证明", "方程", "几何",
+    private val PROGRAMMING_CONTEXT_SIGNAL = listOf(
+        "代码", "编程", "程序", "怎么写", "实现", "调用", "参数", "返回值", "方法", "类", "bug", "报错",
+        "python", "kotlin", "java", "javascript", "typescript", "api", "compose", "android",
     )
+    private val MATH_STRONG_SIGNAL = listOf(
+        "数学", "极限", "导数", "积分", "微分", "矩阵", "概率", "证明", "方程", "几何", "偏导", "拐点",
+        "定义域", "值域", "单调", "奇函数", "偶函数", "反常积分",
+    )
+    private val MATH_SIGNAL = MATH_STRONG_SIGNAL + "函数"
     private val WRITING_SIGNAL = listOf(
         "论文", "报告", "总结", "润色", "改写", "提纲", "写作", "摘要", "开题", "文献综述",
     )
