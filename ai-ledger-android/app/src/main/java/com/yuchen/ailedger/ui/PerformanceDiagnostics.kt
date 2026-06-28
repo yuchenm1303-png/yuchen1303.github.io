@@ -48,6 +48,7 @@ fun PerformanceDiagnosticsPanel(
     var expanded by remember { mutableStateOf(false) }
     val frames = StartupMetrics.frameStats
     val warmup = StartupMetrics.warmupState
+    val runtime = PerformanceRuntimeMetrics.snapshot()
     val panelModifier = modifier
         .clip(RoundedCornerShape(18.dp))
         .background(Color(0xCC101A35))
@@ -67,7 +68,7 @@ fun PerformanceDiagnosticsPanel(
     }
 
     Column(
-        modifier = panelModifier.fillMaxWidth(0.72f),
+        modifier = panelModifier.fillMaxWidth(0.82f),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -76,6 +77,20 @@ fun PerformanceDiagnosticsPanel(
             Text(frames.shortFpsLabel(), color = Color(0xFF8DF9EA), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
         Text("页面：$warmup", color = Color.White.copy(alpha = 0.58f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(
+            runtime.assistantLabel(),
+            color = Color.White.copy(alpha = 0.52f),
+            fontSize = 8.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            runtime.openGlLabel(),
+            color = Color.White.copy(alpha = 0.52f),
+            fontSize = 8.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
         DiagnosticSwitchRow(
             title = "禁用页面预热",
             checked = state.disablePagePrewarm,
