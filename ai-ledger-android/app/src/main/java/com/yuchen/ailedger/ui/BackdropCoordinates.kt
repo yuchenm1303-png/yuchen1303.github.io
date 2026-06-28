@@ -13,12 +13,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.model.RenderQuality
-import java.util.concurrent.CopyOnWriteArraySet
 
 class BackdropCoordinateSource {
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
-    private val placementListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val placementListeners = linkedSetOf<() -> Unit>()
 
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -69,7 +68,8 @@ class BackdropCoordinateSource {
     }
 
     private fun notifyPlacementListeners() {
-        for (listener in placementListeners) listener()
+        if (placementListeners.isEmpty()) return
+        placementListeners.toList().forEach { listener -> listener() }
     }
 }
 
@@ -77,7 +77,7 @@ class GlassCoordinateSource {
     private var wasAttached = false
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
-    private val placementListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val placementListeners = linkedSetOf<() -> Unit>()
 
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -152,7 +152,8 @@ class GlassCoordinateSource {
     fun isAttachedNow(): Boolean = coordinates?.isAttached == true
 
     private fun notifyPlacementListeners() {
-        for (listener in placementListeners) listener()
+        if (placementListeners.isEmpty()) return
+        placementListeners.toList().forEach { listener -> listener() }
     }
 }
 
@@ -167,15 +168,16 @@ class BackdropFrameTicker {
         private set
 
     private var framePosted = false
-    private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val frameListeners = linkedSetOf<() -> Unit>()
 
     fun addFrameListener(listener: () -> Unit): () -> Unit {
         frameListeners += listener
         return { frameListeners -= listener }
     }
 
-    @Suppress("UNUSED_PARAMETER")
     fun requestFrame(nowNanos: Long = System.nanoTime(), force: Boolean = false) {
+        @Suppress("UNUSED_VARIABLE")
+        val compatibilityArgs = nowNanos to force
         if (framePosted) return
         framePosted = true
         Choreographer.getInstance().postFrameCallback(frameCallback)
@@ -184,7 +186,9 @@ class BackdropFrameTicker {
     private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
         framePosted = false
         frameNanos = frameTimeNanos
-        for (listener in frameListeners) listener()
+        if (frameListeners.isNotEmpty()) {
+            frameListeners.toList().forEach { listener -> listener() }
+        }
     }
 }
 

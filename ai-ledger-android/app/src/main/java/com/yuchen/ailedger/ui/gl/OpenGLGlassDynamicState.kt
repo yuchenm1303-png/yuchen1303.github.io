@@ -6,7 +6,6 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
-import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.math.max
 
 @Immutable
@@ -38,101 +37,55 @@ internal data class OpenGLGlassDynamicSnapshot(
 /**
  * Shell 动态效果的非布局状态通道。
  *
- * 热路径只更新 primitive pending 字段，不再为同一显示帧内的每次指针/动画写入创建
- * data class 副本。每帧最多生成一份最终快照，并在 Compose 与 OpenGL Host 之间复用。
+ * 指针移动与两条按压动画都只写 pending 快照；同一显示帧内无论写入多少次，
+ * 最终只在 Choreographer 回调中提交最后一份状态。Compose 图层/绘制节点读取
+ * [snapshotState] 只触发 layer/draw invalidation，OpenGL Host 则通过监听器直接消费，
+ * 不再依赖整块 Shell 重组。
  */
 @Stable
 class OpenGLGlassDynamicState {
     private val committedState = mutableStateOf(OpenGLGlassDynamicSnapshot())
-
-    private var pendingPressValue = committedState.value.pressValue
-    private var pendingOpenGlPress = committedState.value.openGlPress
-    private var pendingPressCenterX = committedState.value.pressCenter.x
-    private var pendingPressCenterY = committedState.value.pressCenter.y
-    private var pendingRimFlowSeed = committedState.value.rimFlowSeed
-    private var pendingRimFlowDirection = committedState.value.rimFlowDirection
-    private var pendingRimFlowBand = committedState.value.rimFlowBand
-    private var pendingRimFlowStrength = committedState.value.rimFlowStrength
     private var pendingSnapshot = committedState.value
-    private var pendingSnapshotDirty = false
-
     private var framePosted = false
-    private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val frameListeners = linkedSetOf<() -> Unit>()
 
     internal val snapshotState: State<OpenGLGlassDynamicSnapshot>
         get() = committedState
 
-    internal fun latestSnapshot(): OpenGLGlassDynamicSnapshot {
-        if (!pendingSnapshotDirty) return pendingSnapshot
-        pendingSnapshot = OpenGLGlassDynamicSnapshot(
-            pressValue = pendingPressValue,
-            openGlPress = pendingOpenGlPress,
-            pressCenter = Offset(pendingPressCenterX, pendingPressCenterY),
-            rimFlowSeed = pendingRimFlowSeed,
-            rimFlowDirection = pendingRimFlowDirection,
-            rimFlowBand = pendingRimFlowBand,
-            rimFlowStrength = pendingRimFlowStrength,
-        )
-        pendingSnapshotDirty = false
-        return pendingSnapshot
-    }
+    internal fun latestSnapshot(): OpenGLGlassDynamicSnapshot = pendingSnapshot
 
     internal fun updateAnimation(pressValue: Float, openGlPress: Float) {
-        val nextPressValue = pressValue.coerceIn(-0.14f, 1.08f)
-        val nextOpenGlPress = openGlPress.coerceIn(0f, 1f)
-        if (nextPressValue == pendingPressValue && nextOpenGlPress == pendingOpenGlPress) return
-        pendingPressValue = nextPressValue
-        pendingOpenGlPress = nextOpenGlPress
-        markPendingChanged()
+        val next = pendingSnapshot.copy(
+            pressValue = pressValue.coerceIn(-0.14f, 1.08f),
+            openGlPress = openGlPress.coerceIn(0f, 1f),
+        )
+        enqueue(next)
     }
 
     internal fun updatePressCenter(center: Offset) {
-        val nextX = center.x.coerceIn(0f, 1f)
-        val nextY = center.y.coerceIn(0f, 1f)
-        if (nextX == pendingPressCenterX && nextY == pendingPressCenterY) return
-        pendingPressCenterX = nextX
-        pendingPressCenterY = nextY
-        markPendingChanged()
+        enqueue(
+            pendingSnapshot.copy(
+                pressCenter = Offset(
+                    x = center.x.coerceIn(0f, 1f),
+                    y = center.y.coerceIn(0f, 1f),
+                ),
+            ),
+        )
     }
 
     internal fun updateRimFlow(seed: Float, direction: Float, band: Int, strength: Float) {
-        val nextSeed = seed.coerceIn(0f, 1f)
-        val nextDirection = if (direction >= 0f) 1f else -1f
-        val nextBand = band.coerceIn(0, 3)
-        val nextStrength = strength.coerceIn(0.70f, 1.45f)
-        if (
-            nextSeed == pendingRimFlowSeed &&
-            nextDirection == pendingRimFlowDirection &&
-            nextBand == pendingRimFlowBand &&
-            nextStrength == pendingRimFlowStrength
-        ) return
-        pendingRimFlowSeed = nextSeed
-        pendingRimFlowDirection = nextDirection
-        pendingRimFlowBand = nextBand
-        pendingRimFlowStrength = nextStrength
-        markPendingChanged()
+        enqueue(
+            pendingSnapshot.copy(
+                rimFlowSeed = seed.coerceIn(0f, 1f),
+                rimFlowDirection = if (direction >= 0f) 1f else -1f,
+                rimFlowBand = band.coerceIn(0, 3),
+                rimFlowStrength = strength.coerceIn(0.70f, 1.45f),
+            ),
+        )
     }
 
     internal fun reset() {
-        if (
-            pendingPressValue == 0f &&
-            pendingOpenGlPress == 0f &&
-            pendingPressCenterX == 0.50f &&
-            pendingPressCenterY == 0.42f &&
-            pendingRimFlowSeed == 0.50f &&
-            pendingRimFlowDirection == 1f &&
-            pendingRimFlowBand == 0 &&
-            pendingRimFlowStrength == 1f
-        ) return
-        pendingPressValue = 0f
-        pendingOpenGlPress = 0f
-        pendingPressCenterX = 0.50f
-        pendingPressCenterY = 0.42f
-        pendingRimFlowSeed = 0.50f
-        pendingRimFlowDirection = 1f
-        pendingRimFlowBand = 0
-        pendingRimFlowStrength = 1f
-        markPendingChanged()
+        enqueue(OpenGLGlassDynamicSnapshot())
     }
 
     internal fun addFrameListener(listener: () -> Unit): () -> Unit {
@@ -140,8 +93,9 @@ class OpenGLGlassDynamicState {
         return { frameListeners -= listener }
     }
 
-    private fun markPendingChanged() {
-        pendingSnapshotDirty = true
+    private fun enqueue(next: OpenGLGlassDynamicSnapshot) {
+        if (next == pendingSnapshot) return
+        pendingSnapshot = next
         if (framePosted) return
         framePosted = true
         Choreographer.getInstance().postFrameCallback(frameCallback)
@@ -149,9 +103,11 @@ class OpenGLGlassDynamicState {
 
     private val frameCallback = Choreographer.FrameCallback {
         framePosted = false
-        val next = latestSnapshot()
+        val next = pendingSnapshot
         if (committedState.value != next) committedState.value = next
-        for (listener in frameListeners) listener()
+        if (frameListeners.isNotEmpty()) {
+            frameListeners.toList().forEach { listener -> listener() }
+        }
     }
 }
 
