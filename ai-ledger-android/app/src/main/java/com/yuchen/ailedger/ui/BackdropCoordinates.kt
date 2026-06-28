@@ -13,11 +13,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.model.RenderQuality
+import java.util.concurrent.CopyOnWriteArraySet
 
 class BackdropCoordinateSource {
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
-    private val placementListeners = linkedSetOf<() -> Unit>()
+    private val placementListeners = CopyOnWriteArraySet<() -> Unit>()
 
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -68,8 +69,7 @@ class BackdropCoordinateSource {
     }
 
     private fun notifyPlacementListeners() {
-        if (placementListeners.isEmpty()) return
-        placementListeners.toList().forEach { listener -> listener() }
+        for (listener in placementListeners) listener()
     }
 }
 
@@ -77,7 +77,7 @@ class GlassCoordinateSource {
     private var wasAttached = false
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
-    private val placementListeners = linkedSetOf<() -> Unit>()
+    private val placementListeners = CopyOnWriteArraySet<() -> Unit>()
 
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -152,8 +152,7 @@ class GlassCoordinateSource {
     fun isAttachedNow(): Boolean = coordinates?.isAttached == true
 
     private fun notifyPlacementListeners() {
-        if (placementListeners.isEmpty()) return
-        placementListeners.toList().forEach { listener -> listener() }
+        for (listener in placementListeners) listener()
     }
 }
 
@@ -168,7 +167,7 @@ class BackdropFrameTicker {
         private set
 
     private var framePosted = false
-    private val frameListeners = linkedSetOf<() -> Unit>()
+    private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
 
     fun addFrameListener(listener: () -> Unit): () -> Unit {
         frameListeners += listener
@@ -186,9 +185,7 @@ class BackdropFrameTicker {
     private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
         framePosted = false
         frameNanos = frameTimeNanos
-        if (frameListeners.isNotEmpty()) {
-            frameListeners.toList().forEach { listener -> listener() }
-        }
+        for (listener in frameListeners) listener()
     }
 }
 
