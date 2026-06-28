@@ -174,9 +174,8 @@ class BackdropFrameTicker {
         return { frameListeners -= listener }
     }
 
+    @Suppress("UNUSED_PARAMETER")
     fun requestFrame(nowNanos: Long = System.nanoTime(), force: Boolean = false) {
-        @Suppress("UNUSED_VARIABLE")
-        val compatibilityArgs = nowNanos to force
         if (framePosted) return
         framePosted = true
         Choreographer.getInstance().postFrameCallback(frameCallback)
