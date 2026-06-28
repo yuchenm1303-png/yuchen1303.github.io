@@ -36,7 +36,7 @@ class ProductionAssistantRepository : AssistantRepository {
         }
         return AssistantUiState(
             glassBorderStyle = latestOpenGlDefaultBorderStyle(),
-            messages = restoredMessages.ifEmpty { listOf(welcomeMessage()) },
+            messages = restoredMessages.ifEmpty { listOf(createWelcomeMessage()) },
             tools = defaultToolEntries()
         )
     }
@@ -50,15 +50,15 @@ class PreviewAssistantRepository : AssistantRepository {
                 StatSummary("今日支出", "¥47.00"),
                 StatSummary("本月结余", "¥52.50")
             ),
-            messages = listOf(welcomeMessage()),
+            messages = listOf(createWelcomeMessage()),
             tools = defaultToolEntries(),
         )
     }
 }
 
-private fun welcomeMessage(): ChatMessage {
+internal fun createWelcomeMessage(id: String = "assistant-welcome"): ChatMessage {
     return ChatMessage(
-        id = "assistant-welcome",
+        id = id,
         text = WELCOME_MESSAGE_TEXTS.random(),
         role = MessageRole.Assistant
     )
