@@ -41,8 +41,8 @@ internal object VisualLoopMemorySupport {
     }
 
     /**
-     * Exposes only objective Android execution state. GUI Plus remains the sole owner of page
-     * meaning, milestones, route quality, hypotheses and completion semantics.
+     * Exposes objective Android execution state plus cloud-declared hypothesis identifiers. Android
+     * never derives page meaning, expected evidence or milestone semantics from labels or user text.
      */
     fun replaceMemoryLine(actions: MutableList<String>, memory: VisualTaskMemory) {
         actions.removeAll { it.startsWith(LEDGER_PREFIX) || it.startsWith(LEGACY_MEMORY_PREFIX) }
@@ -51,8 +51,13 @@ internal object VisualLoopMemorySupport {
             buildString {
                 append(LEDGER_PREFIX)
                 append("progressStatus=").append(memory.progressStatus.take(80))
+                append("|currentMilestoneId=").append(memory.currentMilestoneId.take(80))
+                append("|completedMilestoneCount=").append(memory.completedMilestoneIds.size)
                 append("|currentSurfaceId=").append(memory.currentPage?.id.orEmpty().take(100))
                 append("|lastConfirmedSurfaceId=").append(memory.lastConfirmedPage?.id.orEmpty().take(100))
+                append("|failedHypothesisCount=").append(memory.failedHypotheses.size)
+                append("|blockedActionCount=").append(memory.blockedActions.size)
+                append("|explorationBudgetRemaining=").append(memory.remainingExplorationBudget)
                 append("|replanRequested=").append(memory.replanRequested)
                 append("|recoveryMode=").append(memory.recoveryMode)
                 append("|semanticDecisionOwner=gui_plus")
@@ -63,6 +68,7 @@ internal object VisualLoopMemorySupport {
             type = "task_memory",
             details = JSONObject().apply {
                 put("progressStatus", memory.progressStatus)
+                put("currentMilestoneId", memory.currentMilestoneId)
                 put("currentSurface", memory.currentPage?.toJson() ?: JSONObject.NULL)
                 put("lastConfirmedSurface", memory.lastConfirmedPage?.toJson() ?: JSONObject.NULL)
                 put("replanRequested", memory.replanRequested)
