@@ -165,9 +165,12 @@ internal data class PerformanceRuntimeSnapshot(
         val uploadMiB = openGlTextureUploadBytes / (1024f * 1024f)
         val surfaceKpx = openGlSurfacePixels / 1000f
         val peakSurfaceKpx = openGlPeakSurfacePixels / 1000f
-        return "OpenGL 请求/帧 $openGlRenderRequests/$openGlFrames · 上传 $openGlTextureUploads 次 ${formatOneDecimal(uploadMiB)} MiB"
-            + " · Surface ${formatOneDecimal(surfaceKpx)}/${formatOneDecimal(peakSurfaceKpx)} Kpx"
-            + " · Context $openGlContextsAlive/$openGlPeakContextsAlive/$openGlContextsCreated"
+        return buildString {
+            append("OpenGL 请求/帧 $openGlRenderRequests/$openGlFrames")
+            append(" · 上传 $openGlTextureUploads 次 ${formatOneDecimal(uploadMiB)} MiB")
+            append(" · Surface ${formatOneDecimal(surfaceKpx)}/${formatOneDecimal(peakSurfaceKpx)} Kpx")
+            append(" · Context $openGlContextsAlive/$openGlPeakContextsAlive/$openGlContextsCreated")
+        }
     }
 }
 
