@@ -165,7 +165,7 @@ fun RainbowChatGlassOverlay(
             )
         }
 
-        AgentChatGlassTitleControls(
+        AgentChatMemoryTitleControls(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(start = 54.dp, top = 7.dp)
