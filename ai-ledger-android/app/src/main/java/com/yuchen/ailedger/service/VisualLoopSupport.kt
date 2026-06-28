@@ -142,7 +142,10 @@ internal object VisualLoopSupport {
                 put("confidence", step.confidence ?: JSONObject.NULL)
                 put("hypothesisId", step.hypothesisId)
                 put("currentPackage", snapshot.packageName)
-                put("toolArgs", step.toolArgs ?: JSONObject.NULL)
+                put(
+                    "toolArgs",
+                    if (step.type == "input_text") "[输入参数已隐藏]" else step.toolArgs ?: JSONObject.NULL,
+                )
             },
         )
     }
@@ -256,6 +259,11 @@ internal object VisualLoopSupport {
             executionTrace?.let { add("executionTrace=${it.take(360)}") }
             add("result=${result.message.take(80)}")
         }.joinToString(":").take(MAX_RECENT_ACTION_CHARS)
+        val diagnosticSummary = if (step.type == "input_text") {
+            "input_text:$status:result=${result.message.take(80)}"
+        } else {
+            summary
+        }
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "execution_result",
             details = JSONObject().apply {
@@ -264,8 +272,11 @@ internal object VisualLoopSupport {
                 put("ok", result.ok)
                 put("shouldContinue", result.shouldContinue)
                 put("message", result.message)
-                put("summary", summary)
-                put("toolArgs", step.toolArgs ?: JSONObject.NULL)
+                put("summary", diagnosticSummary)
+                put(
+                    "toolArgs",
+                    if (step.type == "input_text") "[输入参数已隐藏]" else step.toolArgs ?: JSONObject.NULL,
+                )
             },
         )
         return summary
