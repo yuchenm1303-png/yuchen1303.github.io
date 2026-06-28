@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONObject
+
 /**
  * Structural execution ledger for the GUI Plus loop.
  *
@@ -85,6 +87,16 @@ class VisualSemanticProgressTracker(
         currentMilestoneId = normalized.currentMilestoneId.ifBlank { DEFAULT_MILESTONE_ID }
         completedMilestoneIds += normalized.completedMilestoneIds
         completedMilestoneIds += normalized.milestones.filter { it.completed }.map { it.id }
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "task_contract_update",
+            details = JSONObject().apply {
+                put("currentMilestoneId", currentMilestoneId)
+                put("milestoneCount", normalized.milestones.size)
+                put("completedMilestoneCount", completedMilestoneIds.size)
+                put("explorationBudgetPerMilestone", normalized.explorationBudgetPerMilestone)
+                put("taskContract", normalized.toJson())
+            },
+        )
     }
 
     fun onVerifiedSurface(snapshot: AgentScreenSnapshot) {
@@ -92,6 +104,14 @@ class VisualSemanticProgressTracker(
         lastConfirmedPage = currentPage
         structuralReplanRequested = false
         lastProgressStatus = "surface_verified"
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "surface_verified",
+            details = JSONObject().apply {
+                put("packageName", snapshot.packageName)
+                put("surfaceId", currentPage?.id.orEmpty())
+                put("hasVisualFrame", snapshot.visual?.hasImage == true)
+            },
+        )
     }
 
     fun resetAfterUserTakeover(snapshot: AgentScreenSnapshot? = null) {
@@ -101,6 +121,13 @@ class VisualSemanticProgressTracker(
             currentPage = structuralPage(it)
             lastConfirmedPage = currentPage
         }
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "user_takeover_memory_reset",
+            details = JSONObject().apply {
+                put("packageName", snapshot?.packageName.orEmpty())
+                put("surfaceId", currentPage?.id.orEmpty())
+            },
+        )
     }
 
     /** GUI Plus owns hypothesis, route and evidence decisions; Android never blocks on semantics. */
@@ -145,7 +172,7 @@ class VisualSemanticProgressTracker(
             else -> "The observed screen structure remained stable. GUI Plus exclusively decides the next action."
         }
         val memory = memorySnapshot()
-        return VisualSemanticProgressResult(
+        val result = VisualSemanticProgressResult(
             status = status,
             actionSignature = VisualActionValidator.actionSignature(step),
             milestoneId = currentMilestoneId,
@@ -164,6 +191,27 @@ class VisualSemanticProgressTracker(
             reason = reason,
             taskMemory = memory,
         )
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "semantic_progress",
+            details = JSONObject().apply {
+                put("stepType", step.type)
+                put("actionSignature", result.actionSignature)
+                put("status", result.status.wireValue)
+                put("beforePackage", before.packageName)
+                put("afterPackage", after.packageName)
+                put("verifiedTargetPackage", verifiedTargetPackage)
+                put("beforeFingerprint", beforeFingerprint)
+                put("afterFingerprint", afterFingerprint)
+                put("pageChanged", pageChanged)
+                put("packageChanged", packageChanged)
+                put("structuralRegression", structuralRegression)
+                put("requiresReplan", result.requiresReplan)
+                put("reason", reason)
+                put("beforeHasVisual", before.visual?.hasImage == true)
+                put("afterHasVisual", after.visual?.hasImage == true)
+            },
+        )
+        return result
     }
 
     fun memorySnapshot(snapshot: AgentScreenSnapshot? = null): VisualTaskMemory {
