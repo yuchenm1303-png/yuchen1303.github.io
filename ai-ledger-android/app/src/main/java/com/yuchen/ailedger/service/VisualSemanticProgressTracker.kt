@@ -136,21 +136,23 @@ class VisualSemanticProgressTracker(
         @Suppress("UNUSED_PARAMETER") snapshot: AgentScreenSnapshot,
     ): String? = null
 
+    /**
+     * Package identity alone is intentionally insufficient to revoke the work surface. The caller
+     * must pass the execution state machine's confirmed result, which already requires consecutive
+     * foreign-package evidence. The default is false so no other caller can bypass that gate.
+     */
     fun evaluate(
         step: CloudAgentStep,
         before: AgentScreenSnapshot,
         after: AgentScreenSnapshot,
         verifiedTargetPackage: String,
+        structuralRegressionConfirmed: Boolean = false,
     ): VisualSemanticProgressResult {
         val beforeFingerprint = VisualActionValidator.snapshotFingerprint(before)
         val afterFingerprint = VisualActionValidator.snapshotFingerprint(after)
         val pageChanged = beforeFingerprint != afterFingerprint
         val packageChanged = before.packageName != after.packageName
-        val structuralRegression = verifiedTargetPackage.isNotBlank() &&
-            VisualSurfacePackagePolicy.isConfidentForeignPackage(
-                currentPackage = after.packageName,
-                expectedPackage = verifiedTargetPackage,
-            )
+        val structuralRegression = structuralRegressionConfirmed && verifiedTargetPackage.isNotBlank()
 
         val status = when {
             structuralRegression -> VisualSemanticProgressStatus.Regressed
@@ -167,7 +169,7 @@ class VisualSemanticProgressTracker(
         if (!structuralRegression) lastConfirmedPage = currentPage
 
         val reason = when {
-            structuralRegression -> "The Android-verified target package was lost; route ownership must be restored before another visual action."
+            structuralRegression -> "The Android-verified target package was lost after the execution state machine confirmed consecutive foreign-package evidence."
             pageChanged -> "The observed screen structure changed. GUI Plus exclusively decides whether this is task progress."
             else -> "The observed screen structure remained stable. GUI Plus exclusively decides the next action."
         }
@@ -204,6 +206,7 @@ class VisualSemanticProgressTracker(
                 put("afterFingerprint", afterFingerprint)
                 put("pageChanged", pageChanged)
                 put("packageChanged", packageChanged)
+                put("structuralRegressionConfirmed", structuralRegressionConfirmed)
                 put("structuralRegression", structuralRegression)
                 put("requiresReplan", result.requiresReplan)
                 put("reason", reason)
