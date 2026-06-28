@@ -24,6 +24,12 @@ private const val DEFAULT_READ_TIMEOUT_MS = 45_000
 private const val QWEN_VISION_ROUTE_ID = "qwen_vision"
 private const val CHAT_CLIENT_NAME = "android-compose"
 private const val CHAT_PROTOCOL_VERSION = 6
+private const val AUTO_ROUTE_AUTHORITY = "android_local_v2"
+private const val NORMAL_CHAT_DEVICE_PROBE_SCHEMA = "ai_ledger_normal_chat_device_tool_probe_v2"
+private const val NORMAL_CHAT_DEVICE_PROBE_MAX_APPS = 180
+
+private val NORMAL_CHAT_DEVICE_TOOL_TYPES: List<String> =
+    DeviceControlRouter.normalChatSupportedStepTypes()
 
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
@@ -292,6 +298,16 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         }
         val stickerExpressionPreferences =
             InlineStickerDisplaySettings.currentExpressionPreferences(appContext)
+        val normalChatDeviceProbeEnabled =
+            intent == "chat" && !hasImage && !shouldStartAgent && requestText.isNotBlank()
+        val normalChatInstalledApps = if (normalChatDeviceProbeEnabled) {
+            appContext
+                ?.let { context -> InstalledAppIndex(context).getLaunchableApps() }
+                .orEmpty()
+                .take(NORMAL_CHAT_DEVICE_PROBE_MAX_APPS)
+        } else {
+            emptyList()
+        }
 
         return JSONObject().apply {
             put("action", "chat")
@@ -321,6 +337,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             put("originalModelPreference", route.requested.id)
             put("autoRequested", route.isAuto)
             put("autoResolvedModel", resolvedId)
+            put("autoRouteAuthority", AUTO_ROUTE_AUTHORITY)
             put("autoRouteReason", route.reason)
             put("hasImage", hasImage)
             put("hasImages", hasImage)
@@ -375,21 +392,48 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 put("requireConfirmationForActions", true)
                 put(
                     "supportedAgentActions",
-                    JSONArray(if (shouldStartAgent) listOf("run_agent_task") else emptyList<String>())
+                    JSONArray(
+                        when {
+                            shouldStartAgent -> listOf("run_agent_task")
+                            normalChatDeviceProbeEnabled -> listOf("run_device_control")
+                            else -> emptyList<String>()
+                        }
+                    )
                 )
                 put("supportedDeviceControlActions", JSONArray())
-                put("supportedDeviceToolSteps", JSONArray())
+                put(
+                    "supportedDeviceToolSteps",
+                    JSONArray(if (normalChatDeviceProbeEnabled) NORMAL_CHAT_DEVICE_TOOL_TYPES else emptyList<String>())
+                )
                 put("supportedMobileActions", JSONArray(listOf("set_alarm", "navigate")))
                 put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
                 put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm")))
                 put("fallbackTransport", "structured_response_only")
+            })
+            put("normalChatDeviceToolProbe", JSONObject().apply {
+                put("schema", NORMAL_CHAT_DEVICE_PROBE_SCHEMA)
+                put("enabled", normalChatDeviceProbeEnabled)
+                put("decisionOwner", "deepseek_primary_qwen_failure_fallback")
+                put("executionOwner", "android_local_verified")
+                put("singleRequestParallel", true)
+                put("supportedDeviceToolSteps", JSONArray(NORMAL_CHAT_DEVICE_TOOL_TYPES))
+                put("supportedMobileActions", JSONArray(listOf("set_alarm", "navigate")))
+                put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
+                put("installedApps", JSONArray().apply {
+                    normalChatInstalledApps.forEach { app ->
+                        put(JSONObject().apply {
+                            put("label", app.label)
+                            put("packageName", app.packageName)
+                        })
+                    }
+                })
             })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
                 put("includeStructuredData", true)
                 put("includeMobileAction", true)
                 put("includePreferenceUpdate", true)
-                put("includeAgentAction", shouldStartAgent)
+                put("includeAgentAction", shouldStartAgent || normalChatDeviceProbeEnabled)
                 put("includeEmbeddedCommandMarker", false)
                 put("allowModelCommands", allowModelCommands)
             })
@@ -403,7 +447,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 "clientVersion",
                 if (hasImage) "compose-native-qwen-vision-v2-single-image-transport"
                 else if (shouldStartAgent) "compose-native-agent-switch-v5"
-                else "compose-native-command-chat-v5-sticker-preferences",
+                else "compose-native-command-chat-v6-parallel-device-probe",
             )
             put("now", System.currentTimeMillis())
         }
@@ -693,8 +737,22 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
 
     private fun parseCloudAgentActionForPayload(data: JSONObject?, payload: JSONObject): CloudAgentAction? {
         val action = parseCloudAgentAction(data) ?: return null
-        val explicitAgentStart = payload.optBoolean("agentStartRequested", false) || payload.optString("intent") == "agent_start"
-        return action.takeIf { explicitAgentStart && it.capability == "run_agent_task" }
+        val explicitAgentStart =
+            payload.optBoolean("agentStartRequested", false) || payload.optString("intent") == "agent_start"
+        if (explicitAgentStart) {
+            return action.takeIf { it.capability == "run_agent_task" }
+        }
+
+        val probe = payload.optJSONObject("normalChatDeviceToolProbe")
+        val parallelProbeEnabled =
+            payload.optString("intent") == "chat" &&
+                probe?.let { config ->
+                    config.optBoolean("enabled", false) &&
+                        config.optString("schema") == NORMAL_CHAT_DEVICE_PROBE_SCHEMA
+                } == true
+        return action.takeIf {
+            parallelProbeEnabled && it.capability == "run_device_control"
+        }
     }
 
     private fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
