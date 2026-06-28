@@ -23,14 +23,13 @@ class VisualExecutionStateMachine {
         val cleanPackage = packageName.trim()
         if (cleanPackage.isBlank()) return null
 
-        // Reopening the already verified base app is a no-op at the state layer. This prevents a
-        // redundant open_app plan from erasing a valid WorkSurface before the runner can observe it.
+        // Reopening the already verified base app is a state-layer no-op. Do not clear a pending
+        // foreign sample here: a redundant model open_app must not erase real switch evidence.
         if (
             surfaceState == VisualSurfaceState.WorkSurface &&
             selectedTargetPackage == cleanPackage &&
             verifiedTargetPackage == cleanPackage
         ) {
-            clearPendingForeignEvidence()
             return cleanPackage
         }
 
@@ -133,6 +132,15 @@ class VisualExecutionStateMachine {
         }
     }
 
+    fun requiresForeignConfirmation(currentPackage: String): Boolean {
+        val current = currentPackage.trim()
+        return surfaceState == VisualSurfaceState.WorkSurface &&
+            verifiedTargetPackage.isNotBlank() &&
+            pendingForeignPackage == current &&
+            pendingForeignSamples in 1 until REQUIRED_FOREIGN_SAMPLES &&
+            VisualSurfacePackagePolicy.isConfidentForeignPackage(current, verifiedTargetPackage)
+    }
+
     fun isVerifiedWorkSurface(currentPackage: String): Boolean {
         if (
             surfaceState != VisualSurfaceState.WorkSurface ||
@@ -144,7 +152,7 @@ class VisualExecutionStateMachine {
         val current = currentPackage.trim()
         return current == verifiedTargetPackage ||
             VisualSurfacePackagePolicy.requiresForegroundFallback(current) ||
-            (pendingForeignPackage == current && pendingForeignSamples in 1 until REQUIRED_FOREIGN_SAMPLES)
+            requiresForeignConfirmation(current)
     }
 
     private fun clearPendingForeignEvidence() {
