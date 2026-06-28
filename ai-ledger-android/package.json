@@ -13,6 +13,8 @@
     "android:build:debug": "cd android && gradlew.bat assembleDebug",
     "android:build:release": "cd android && gradlew.bat assembleRelease",
     "android:build:compose": "android\\gradlew.bat -p . :app:assembleDebug",
+    "backend:test": "npm --prefix app/backend test",
+    "backend:test:auth": "npm --prefix app/backend run test:auth",
     "gui-provider:mock": "node scripts/gui-provider-mock.js",
     "gui-provider:test": "node scripts/test-gui-provider-mock.js",
     "test:visual-agent": "node scripts/test-visual-agent-direct.js"
