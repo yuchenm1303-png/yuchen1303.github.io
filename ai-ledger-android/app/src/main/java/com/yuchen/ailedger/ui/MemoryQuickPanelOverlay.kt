@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -125,6 +127,7 @@ private object MemoryQuickOverlayState {
 
 @Immutable
 private data class MemoryPreviewUiItem(
+    val id: String,
     val title: String,
     val status: String,
     val content: String,
@@ -439,16 +442,40 @@ private fun MemoryPanelContent(
             )
             previewItems.isEmpty() -> EmptyBody(compact, onOpenManager)
             else -> {
-                val shown = previewItems.take(if (compact) 2 else 3)
-                shown.forEach { MemoryPreviewCard(it, compact) }
-                Spacer(Modifier.weight(1f))
+                MemoryScrollableEntries(
+                    previewItems = previewItems,
+                    compact = compact,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
                 MemoryFooter(
-                    hiddenCount = (savedCount - shown.size).coerceAtLeast(0),
+                    itemCount = previewItems.size,
+                    scrollable = previewItems.size > if (compact) 2 else 3,
                     memoryEnabled = memoryState.memoryEnabled,
                     compact = compact,
                     onOpenManager = onOpenManager,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun MemoryScrollableEntries(
+    previewItems: List<MemoryPreviewUiItem>,
+    compact: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
+    ) {
+        items(
+            items = previewItems,
+            key = { item -> item.id },
+        ) { item ->
+            MemoryPreviewCard(item, compact)
         }
     }
 }
@@ -763,7 +790,8 @@ private fun ColumnScope.MemoryMessageSurface(
 
 @Composable
 private fun MemoryFooter(
-    hiddenCount: Int,
+    itemCount: Int,
+    scrollable: Boolean,
     memoryEnabled: Boolean,
     compact: Boolean,
     onOpenManager: () -> Unit,
@@ -771,7 +799,7 @@ private fun MemoryFooter(
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             when {
-                hiddenCount > 0 -> "另有 $hiddenCount 项未展开"
+                scrollable -> "共 $itemCount 项 · 上下滑动"
                 memoryEnabled -> "长期记忆已开启"
                 else -> "长期记忆当前关闭"
             },
@@ -885,6 +913,7 @@ private fun buildPreviewItems(
 ): List<MemoryPreviewUiItem> {
     val customItem = customState.content.trim().takeIf { it.isNotBlank() }?.let { content ->
         MemoryPreviewUiItem(
+            id = "custom-instructions",
             title = "自定义指令",
             status = if (customState.enabled && customState.cloudReady) "生效中" else "已停用",
             content = content.lineSequence().firstOrNull().orEmpty().trim(),
@@ -914,6 +943,7 @@ private fun AssistantMemoryItem.toPreviewItem(memoryEnabled: Boolean): MemoryPre
         else -> Color(0xFFE3EBFF)
     }
     return MemoryPreviewUiItem(
+        id = id,
         title = buildString {
             if (pinned) append("置顶 · ")
             append(memoryCategoryLabel(category))
