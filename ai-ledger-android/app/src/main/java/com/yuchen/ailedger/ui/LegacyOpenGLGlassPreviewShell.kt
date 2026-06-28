@@ -12,6 +12,7 @@ import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
+import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
 
 /**
  * 旧版 OpenGL 的统一宿主结构。
@@ -29,6 +30,7 @@ fun LegacyOpenGLGlassPreviewShell(
     pressProgress: Float = 0f,
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f,
+    dynamicState: OpenGLGlassDynamicState? = null,
     content: @Composable () -> Unit
 ) {
     val ownedCoordinates = remember { GlassCoordinateSource() }
@@ -59,7 +61,8 @@ fun LegacyOpenGLGlassPreviewShell(
                 modifier = Modifier.matchParentSize(),
                 pressProgress = pressProgress,
                 pressCenter = pressCenter,
-                viewportTopInsetPx = viewportTopInsetPx
+                viewportTopInsetPx = viewportTopInsetPx,
+                dynamicState = dynamicState,
             )
             content()
         }
