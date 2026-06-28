@@ -62,6 +62,14 @@ data class VisualTaskContract(
         const val DEFAULT_EXPLORATION_BUDGET = 2
 
         fun fromJson(root: JSONObject?): VisualTaskContract? {
+            root?.let { response ->
+                // 记录后端已经解析为 JSON 的完整响应信封；存储层会统一移除令牌、密码和输入内容。
+                // 该旁路不改变任何解析结果，也不会触发额外网络请求。
+                VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                    type = "model_response_envelope",
+                    details = response,
+                )
+            }
             if (root == null) return null
             val containers = listOfNotNull(
                 root.optJSONObject("taskContract"),
