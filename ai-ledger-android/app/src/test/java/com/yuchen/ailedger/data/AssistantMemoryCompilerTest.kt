@@ -101,6 +101,136 @@ class AssistantMemoryCompilerTest {
     }
 
     @Test
+    fun unrelatedAutoMemoryDoesNotLeakEvenWhenPinnedAndHighPriority() {
+        val unrelated = AssistantMemoryItem(
+            id = "club-plan",
+            content = "用户下个月要参加社团活动。",
+            category = "episode",
+            scope = "auto",
+            priority = 3,
+            pinned = true,
+            updatedAt = "2026-06-28T12:00:00Z",
+        )
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "检查 Android Compose 的重组问题",
+            customInstructions = null,
+            memoryState = readyState(unrelated),
+            nowMillis = nowMillis,
+        )
+
+        assertEquals(AssistantMemoryIntent.ANDROID_DEVELOPMENT, compilation.intent)
+        assertFalse(compilation.selectedMemoryIds.contains("club-plan"))
+        assertNull(compilation.memorySnapshot)
+    }
+
+    @Test
+    fun autoMemoryWithRealTokenOverlapCanStillBeRetrieved() {
+        val petMemory = AssistantMemoryItem(
+            id = "pet",
+            content = "用户养了一只叫豆包的猫。",
+            category = "other",
+            scope = "auto",
+            priority = 1,
+        )
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "豆包最近怎么样",
+            customInstructions = null,
+            memoryState = readyState(petMemory),
+            nowMillis = nowMillis,
+        )
+
+        assertEquals(AssistantMemoryIntent.GENERAL, compilation.intent)
+        assertTrue(compilation.selectedMemoryIds.contains("pet"))
+    }
+
+    @Test
+    fun androidTechnicalTermMeaningQuestionStaysInAndroidScope() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "ViewModel 是什么意思",
+            customInstructions = null,
+            memoryState = readyState(),
+            nowMillis = nowMillis,
+        )
+
+        assertEquals(AssistantMemoryIntent.ANDROID_DEVELOPMENT, compilation.intent)
+        assertFalse(compilation.personaInstructions.orEmpty().contains("至少2个自然英文例句"))
+    }
+
+    @Test
+    fun functionLimitQuestionIsClassifiedAsMathematics() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "这个函数的极限怎么求",
+            customInstructions = null,
+            memoryState = readyState(),
+            nowMillis = nowMillis,
+        )
+
+        assertEquals(AssistantMemoryIntent.MATHEMATICS, compilation.intent)
+    }
+
+    @Test
+    fun functionImplementationQuestionIsClassifiedAsProgramming() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "这个函数应该怎么写和调用",
+            customInstructions = null,
+            memoryState = readyState(),
+            nowMillis = nowMillis,
+        )
+
+        assertEquals(AssistantMemoryIntent.PROGRAMMING, compilation.intent)
+    }
+
+    @Test
+    fun explicitReplacementSuppressesTargetEvenWhenReplacementHasLowerPriority() {
+        val oldPreference = AssistantMemoryItem(
+            id = "old-preference",
+            content = "用户常用旧版回答模板。",
+            category = "preference",
+            scope = "global",
+            priority = 3,
+        )
+        val replacement = AssistantMemoryItem(
+            id = "new-preference",
+            content = "用户现在更喜欢直接给结论。",
+            category = "preference",
+            scope = "global",
+            priority = 1,
+            supersedesId = "old-preference",
+        )
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "帮我回答这个问题",
+            customInstructions = null,
+            memoryState = readyState(oldPreference, replacement),
+            nowMillis = nowMillis,
+        )
+
+        assertFalse(compilation.selectedMemoryIds.contains("old-preference"))
+        assertTrue(compilation.selectedMemoryIds.contains("new-preference"))
+        assertEquals(1, compilation.suppressedConflictCount)
+    }
+
+    @Test
+    fun duplicateContentIsOnlyInjectedOnce() {
+        val first = AssistantMemoryItem(
+            id = "first",
+            content = "回答尽量简洁。",
+            category = "preference",
+            scope = "global",
+            priority = 2,
+        )
+        val duplicate = first.copy(id = "duplicate", priority = 1)
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "解释一下这个问题",
+            customInstructions = null,
+            memoryState = readyState(first, duplicate),
+            nowMillis = nowMillis,
+        )
+
+        assertEquals(1, compilation.selectedMemoryIds.size)
+        assertTrue(compilation.selectedMemoryIds.contains("first"))
+    }
+
+    @Test
     fun expiredAndDisabledMemoriesAreExcluded() {
         val expired = AssistantMemoryItem(
             id = "expired",
