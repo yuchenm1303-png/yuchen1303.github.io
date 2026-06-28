@@ -156,10 +156,18 @@ class VisualObservationCoordinator(
         forceVisual: Boolean,
         settleMs: Long,
     ): ScreenObservation {
+        // 轻量节点读取和前台包探测不会采集屏幕像素，不能因此反复隐藏 HUD。
+        // 真正的视觉截图仍使用 clean-visual lease；动作执行链也会在外层持有同一 lease，
+        // 因而一次“动作前校验—执行—动作后截图”只形成一个连续的不可见窗口。
+        if (!forceVisual) {
+            sleep(settleMs)
+            return captureSource.capture(forceVisual = false)
+        }
+
         overlayController.beginCapture()
         return try {
             sleep(settleMs)
-            captureSource.capture(forceVisual)
+            captureSource.capture(forceVisual = true)
         } finally {
             overlayController.endCapture()
         }
