@@ -73,13 +73,23 @@ data class VisualTargetPackageVerification(
     val reason: VisualTargetPackageVerificationReason = VisualTargetPackageVerificationReason.TargetNotStable,
 )
 
+private enum class VisualPackageEvidenceStrength(val wireValue: String) {
+    Direct("direct"),
+    Inherited("inherited"),
+    Unresolved("unresolved"),
+}
+
 private data class ResolvedObservationPackage(
     val observation: ScreenObservation,
     val rawPackage: String,
     val source: String,
+    val evidenceStrength: VisualPackageEvidenceStrength,
     val overlayPackage: String = "",
     val inheritedTrustedBase: Boolean = false,
-)
+) {
+    val countsTowardStableTarget: Boolean
+        get() = evidenceStrength == VisualPackageEvidenceStrength.Direct
+}
 
 class VisualObservationCoordinator(
     private val captureSource: VisualObservationCaptureSource,
@@ -98,6 +108,14 @@ class VisualObservationCoordinator(
         expectedPackage: String,
         settleMs: Long = if (forceVisual) timing.fullVisualSettleMs else timing.nonVisualSettleMs,
     ): ScreenObservation {
+        return captureResolvedObservation(forceVisual, expectedPackage, settleMs).observation
+    }
+
+    private suspend fun captureResolvedObservation(
+        forceVisual: Boolean,
+        expectedPackage: String,
+        settleMs: Long,
+    ): ResolvedObservationPackage {
         val captured = captureOnce(forceVisual = forceVisual, settleMs = settleMs)
         val resolution = resolveObservationPackage(captured, expectedPackage)
         val resolved = resolution.observation
@@ -117,6 +135,8 @@ class VisualObservationCoordinator(
                     put("rawPackage", resolution.rawPackage)
                     put("resolvedPackage", resolved.packageName)
                     put("packageEvidenceSource", resolution.source)
+                    put("packageEvidenceStrength", resolution.evidenceStrength.wireValue)
+                    put("countsTowardStableTarget", resolution.countsTowardStableTarget)
                     put("overlayPackage", resolution.overlayPackage)
                     put("inheritedTrustedBase", resolution.inheritedTrustedBase)
                     put("windowTitle", resolved.windowTitle)
@@ -138,7 +158,7 @@ class VisualObservationCoordinator(
                 },
             )
         }
-        return resolved
+        return resolution
     }
 
     private suspend fun resolveObservationPackage(
@@ -152,6 +172,7 @@ class VisualObservationCoordinator(
                 observation = observation.copy(packageName = rawPackage),
                 rawPackage = rawPackage,
                 source = "accessibility_capture",
+                evidenceStrength = VisualPackageEvidenceStrength.Direct,
             )
         }
 
@@ -177,6 +198,7 @@ class VisualObservationCoordinator(
                 ),
                 rawPackage = rawPackage,
                 source = evidence?.source?.wireValue.orEmpty().ifBlank { "foreground_probe" },
+                evidenceStrength = VisualPackageEvidenceStrength.Direct,
                 overlayPackage = rawPackage.takeIf(String::isNotBlank).orEmpty(),
             )
         }
@@ -193,6 +215,7 @@ class VisualObservationCoordinator(
                 ),
                 rawPackage = rawPackage,
                 source = "trusted_base_cache",
+                evidenceStrength = VisualPackageEvidenceStrength.Inherited,
                 overlayPackage = rawPackage.takeIf(String::isNotBlank).orEmpty(),
                 inheritedTrustedBase = true,
             )
@@ -202,6 +225,7 @@ class VisualObservationCoordinator(
             observation = observation,
             rawPackage = rawPackage,
             source = if (rawPackage.isBlank()) "unresolved" else "transient_unresolved",
+            evidenceStrength = VisualPackageEvidenceStrength.Unresolved,
             overlayPackage = rawPackage,
         )
     }
@@ -250,65 +274,78 @@ class VisualObservationCoordinator(
         sleep(timing.openAppInitialSettleMs)
 
         while (!isStopped() && elapsedRealtime() < deadline) {
-            val probeObservation = captureTrustedObservation(
+            val probeResolution = captureResolvedObservation(
                 forceVisual = false,
                 expectedPackage = expectedPackage,
                 settleMs = timing.packageProbeSettleMs,
             )
-            val probeSnapshot = probeObservation.toAgentScreenSnapshot()
+            val probeSnapshot = probeResolution.observation.toAgentScreenSnapshot()
             lastSnapshot = probeSnapshot
             val now = elapsedRealtime()
 
-            if (probeSnapshot.packageName == expectedPackage) {
-                stableSamples += 1
-                deadline = extendDeadline(
-                    currentDeadline = deadline,
-                    hardDeadline = hardDeadline,
-                    now = now,
-                    graceMs = timing.openAppEvidenceGraceMs,
-                )
-                if (stableSamples >= requiredSamples) {
-                    val visualObservation = captureTrustedObservation(
-                        forceVisual = true,
-                        expectedPackage = expectedPackage,
+            when {
+                probeSnapshot.packageName == expectedPackage && probeResolution.countsTowardStableTarget -> {
+                    stableSamples += 1
+                    deadline = extendDeadline(
+                        currentDeadline = deadline,
+                        hardDeadline = hardDeadline,
+                        now = now,
+                        graceMs = timing.openAppEvidenceGraceMs,
                     )
-                    val visualSnapshot = visualObservation.toAgentScreenSnapshot()
-                    lastSnapshot = visualSnapshot
-                    if (
-                        visualSnapshot.packageName == expectedPackage &&
-                        visualSnapshot.visual?.hasImage == true
-                    ) {
-                        return reportPackageVerification(
+                    if (stableSamples >= requiredSamples) {
+                        val visualResolution = captureResolvedObservation(
+                            forceVisual = true,
                             expectedPackage = expectedPackage,
-                            result = VisualTargetPackageVerification(
-                                verified = true,
-                                stableSamples = stableSamples,
-                                lastSnapshot = visualSnapshot,
-                                lastObservation = visualObservation,
-                            ),
-                            reason = VisualTargetPackageVerificationReason.StableTargetWithVisualFrame,
+                            settleMs = timing.fullVisualSettleMs,
                         )
-                    }
-                    if (!VisualSurfacePackagePolicy.requiresForegroundFallback(visualSnapshot.packageName)) {
-                        stableSamples = 0
-                    } else {
-                        deadline = extendDeadline(
-                            currentDeadline = deadline,
-                            hardDeadline = hardDeadline,
-                            now = elapsedRealtime(),
-                            graceMs = timing.openAppTransientGraceMs,
-                        )
+                        val visualObservation = visualResolution.observation
+                        val visualSnapshot = visualObservation.toAgentScreenSnapshot()
+                        lastSnapshot = visualSnapshot
+                        if (
+                            visualSnapshot.packageName == expectedPackage &&
+                            visualSnapshot.visual?.hasImage == true
+                        ) {
+                            return reportPackageVerification(
+                                expectedPackage = expectedPackage,
+                                result = VisualTargetPackageVerification(
+                                    verified = true,
+                                    stableSamples = stableSamples,
+                                    lastSnapshot = visualSnapshot,
+                                    lastObservation = visualObservation,
+                                ),
+                                reason = VisualTargetPackageVerificationReason.StableTargetWithVisualFrame,
+                            )
+                        }
+                        if (!VisualSurfacePackagePolicy.requiresForegroundFallback(visualSnapshot.packageName)) {
+                            stableSamples = 0
+                        } else {
+                            deadline = extendDeadline(
+                                currentDeadline = deadline,
+                                hardDeadline = hardDeadline,
+                                now = elapsedRealtime(),
+                                graceMs = timing.openAppTransientGraceMs,
+                            )
+                        }
                     }
                 }
-            } else if (VisualSurfacePackagePolicy.requiresForegroundFallback(probeSnapshot.packageName)) {
-                deadline = extendDeadline(
-                    currentDeadline = deadline,
-                    hardDeadline = hardDeadline,
-                    now = now,
-                    graceMs = timing.openAppTransientGraceMs,
-                )
-            } else {
-                stableSamples = 0
+                probeSnapshot.packageName == expectedPackage &&
+                    probeResolution.evidenceStrength == VisualPackageEvidenceStrength.Inherited -> {
+                    deadline = extendDeadline(
+                        currentDeadline = deadline,
+                        hardDeadline = hardDeadline,
+                        now = now,
+                        graceMs = timing.openAppTransientGraceMs,
+                    )
+                }
+                VisualSurfacePackagePolicy.requiresForegroundFallback(probeSnapshot.packageName) -> {
+                    deadline = extendDeadline(
+                        currentDeadline = deadline,
+                        hardDeadline = hardDeadline,
+                        now = now,
+                        graceMs = timing.openAppTransientGraceMs,
+                    )
+                }
+                else -> stableSamples = 0
             }
             sleep(timing.openAppVerifyPollMs)
         }
