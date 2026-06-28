@@ -53,12 +53,24 @@ data class VisualObservationTiming(
     val trustedPackageTtlMs: Long = 15_000L,
 )
 
+enum class VisualTargetPackageVerificationReason(
+    val wireValue: String,
+    val pending: Boolean,
+) {
+    ExpectedPackageBlank("expected_package_blank", false),
+    StableTargetWithVisualFrame("stable_target_with_visual_frame", false),
+    TaskStopped("task_stopped", true),
+    StableSamplesIncomplete("stable_samples_incomplete", true),
+    TransientSurface("transient_surface", true),
+    TargetNotStable("target_not_stable", false),
+}
+
 data class VisualTargetPackageVerification(
     val verified: Boolean,
     val stableSamples: Int,
     val lastSnapshot: AgentScreenSnapshot?,
     val lastObservation: ScreenObservation?,
-    val reason: String = "",
+    val reason: VisualTargetPackageVerificationReason = VisualTargetPackageVerificationReason.TargetNotStable,
 )
 
 private data class ResolvedObservationPackage(
@@ -223,7 +235,7 @@ class VisualObservationCoordinator(
             return reportPackageVerification(
                 expectedPackage = expectedPackage,
                 result = VisualTargetPackageVerification(false, 0, null, null),
-                reason = "expected_package_blank",
+                reason = VisualTargetPackageVerificationReason.ExpectedPackageBlank,
             )
         }
 
@@ -274,7 +286,7 @@ class VisualObservationCoordinator(
                                 lastSnapshot = visualSnapshot,
                                 lastObservation = visualObservation,
                             ),
-                            reason = "stable_target_with_visual_frame",
+                            reason = VisualTargetPackageVerificationReason.StableTargetWithVisualFrame,
                         )
                     }
                     if (!VisualSurfacePackagePolicy.requiresForegroundFallback(visualSnapshot.packageName)) {
@@ -302,12 +314,12 @@ class VisualObservationCoordinator(
         }
 
         val reason = when {
-            isStopped() -> "task_stopped"
+            isStopped() -> VisualTargetPackageVerificationReason.TaskStopped
             lastSnapshot?.packageName == expectedPackage && stableSamples in 1 until requiredSamples ->
-                "stable_samples_incomplete"
+                VisualTargetPackageVerificationReason.StableSamplesIncomplete
             VisualSurfacePackagePolicy.requiresForegroundFallback(lastSnapshot?.packageName.orEmpty()) ->
-                "transient_surface"
-            else -> "target_not_stable"
+                VisualTargetPackageVerificationReason.TransientSurface
+            else -> VisualTargetPackageVerificationReason.TargetNotStable
         }
         return reportPackageVerification(
             expectedPackage = expectedPackage,
@@ -334,14 +346,14 @@ class VisualObservationCoordinator(
     private fun reportPackageVerification(
         expectedPackage: String,
         result: VisualTargetPackageVerification,
-        reason: String,
+        reason: VisualTargetPackageVerificationReason,
     ): VisualTargetPackageVerification {
         val reported = result.copy(reason = reason)
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "open_app_verification",
             details = JSONObject().apply {
                 put("verified", reported.verified)
-                put("reason", reason)
+                put("reason", reason.wireValue)
                 put("expectedPackage", expectedPackage)
                 put("actualPackage", reported.lastSnapshot?.packageName.orEmpty())
                 put("stableSamples", reported.stableSamples)
