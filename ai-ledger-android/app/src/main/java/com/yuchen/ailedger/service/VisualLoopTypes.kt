@@ -73,8 +73,16 @@ internal object VisualActionValidator {
     }
 
     fun actionSignature(step: CloudAgentStep): String = listOfNotNull(
-        step.type, step.packageName, step.appName, step.targetText, step.text?.take(32),
-        step.direction, step.x?.toString(), step.y?.toString(), step.milestoneId, step.hypothesisId,
+        step.type,
+        step.packageName,
+        step.appName,
+        step.targetText,
+        step.text?.takeIf { step.type != "input_text" }?.take(32),
+        step.direction,
+        step.x?.toString(),
+        step.y?.toString(),
+        step.milestoneId,
+        step.hypothesisId,
     ).joinToString("|")
 
     /**
