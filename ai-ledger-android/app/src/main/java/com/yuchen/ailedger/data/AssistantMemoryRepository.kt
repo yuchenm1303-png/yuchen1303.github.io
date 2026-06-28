@@ -225,6 +225,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
         supersedesId: String = "",
     ) {
         val clean = normalizeMemoryContent(content) ?: return
+        val cleanSupersedesId = supersedesId.trim()
         runMutation("正在保存记忆…") { session ->
             val item = client.create(
                 session = session,
@@ -236,12 +237,26 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 validUntil = normalizeMemoryTimestamp(validUntil),
                 sourceType = normalizeMemorySourceType(sourceType),
                 confidence = normalizeMemoryConfidence(confidence),
-                supersedesId = supersedesId.trim(),
+                supersedesId = cleanSupersedesId,
             )
+            if (cleanSupersedesId.isNotBlank()) {
+                try {
+                    client.markSuperseded(session, cleanSupersedesId)
+                } catch (error: Throwable) {
+                    runCatching { client.delete(session, item.id) }
+                    throw error
+                }
+            }
             _state.value = _state.value.copy(
                 saving = false,
-                memories = listOf(item) + _state.value.memories.filterNot { it.id == item.id },
-                message = "记忆已保存，后续会按场景和相关性动态检索。",
+                memories = listOf(item) + _state.value.memories.filterNot {
+                    it.id == item.id || it.id == cleanSupersedesId
+                },
+                message = if (cleanSupersedesId.isBlank()) {
+                    "记忆已保存，后续会按场景和相关性动态检索。"
+                } else {
+                    "新记忆已保存，旧记忆已标记为被替代。"
+                },
                 error = false,
             )
         }
@@ -331,10 +346,11 @@ class AssistantMemoryRepository private constructor(context: Context) {
             memoryState = state.value,
         )
         AssistantMemoryRuntime.record(compilation)
-        if (compilation.selectedMemoryIds.isNotEmpty()) {
-            markMemoriesUsed(compilation.selectedMemoryIds)
-        }
         return compilation
+    }
+
+    fun recordSuccessfulUsage(ids: List<String>) {
+        markMemoriesUsed(ids)
     }
 
     fun currentSnapshotText(): String? {
@@ -564,6 +580,20 @@ private class SupabaseMemoryClient(
             path = itemPath(session, id),
             method = "PATCH",
             body = JSONObject().put("enabled", enabled),
+        )
+    }
+
+    fun markSuperseded(
+        session: SupabaseUserSession,
+        id: String,
+    ): AssistantMemoryItem {
+        return requestRepresentation(
+            session = session,
+            path = itemPath(session, id),
+            method = "PATCH",
+            body = JSONObject()
+                .put("status", "superseded")
+                .put("enabled", false),
         )
     }
 
