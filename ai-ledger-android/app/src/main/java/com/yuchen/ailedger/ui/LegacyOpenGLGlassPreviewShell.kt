@@ -27,8 +27,8 @@ private const val LegacyOpenGLMaxSettleFrames = 180
  * 纹理采样、裁剪或几何链不同，产生不同光学外观。
  *
  * Compose 的 graphicsLayer 入场动画不会保证再次触发 onPlaced。这里在宿主首次出现
- * 后按真实 VSync 观察左上角和右下角的根坐标，只有变换连续稳定后才补交一次最终帧，
- * 不轮询常驻、不恢复逐帧重组，也不依赖固定延时。
+ * 后按真实 VSync 观察左上角和右下角的根坐标，只有变换连续稳定后才通知当前 Host
+ * 补交一次最终帧；不轮询常驻、不恢复逐帧重组，也不依赖固定延时。
  */
 @Composable
 fun LegacyOpenGLGlassPreviewShell(
@@ -46,7 +46,6 @@ fun LegacyOpenGLGlassPreviewShell(
 ) {
     val ownedCoordinates = remember { GlassCoordinateSource() }
     val coordinates = coordinateSource ?: ownedCoordinates
-    val frameTicker = LocalBackdropFrameTicker.current
     val sourceBackdrop = LocalGlassBackdrop.current
     val optimizedBackdrop = remember(sourceBackdrop) {
         sourceBackdrop?.copy(
@@ -59,8 +58,7 @@ fun LegacyOpenGLGlassPreviewShell(
     }
     val previewShape = remember(radius) { RoundedCornerShape(radius.dp) }
 
-    LaunchedEffect(coordinates, frameTicker) {
-        val ticker = frameTicker ?: return@LaunchedEffect
+    LaunchedEffect(coordinates) {
         var observedAttachedFrame = false
         var stableFrameCount = 0
         var lastTopLeft = Offset.Zero
@@ -90,13 +88,13 @@ fun LegacyOpenGLGlassPreviewShell(
             lastBottomRight = bottomRight
 
             if (stableFrameCount >= LegacyOpenGLStableFrameCount) {
-                ticker.requestFrame(force = true)
+                coordinates.requestOpenGlFrameSync()
                 return@LaunchedEffect
             }
         }
 
         // 极端长动画或持续变换只在观察窗口结束时补一次，不启动常驻循环。
-        if (observedAttachedFrame) ticker.requestFrame(force = true)
+        if (observedAttachedFrame) coordinates.requestOpenGlFrameSync()
     }
 
     CompositionLocalProvider(LocalGlassBackdrop provides optimizedBackdrop) {
