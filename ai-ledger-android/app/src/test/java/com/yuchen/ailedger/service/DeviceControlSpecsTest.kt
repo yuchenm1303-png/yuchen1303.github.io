@@ -77,7 +77,7 @@ class DeviceControlSpecsTest {
     }
 
     @Test
-    fun routerPreservesBrightnessAliasesForValidation() {
+    fun routerCanonicalizesBrightnessAliasBeforeValidation() {
         val step = DeviceControlRouter.fromDeviceControlJson(
             JSONObject()
                 .put("capability", "system.brightness.set")
@@ -85,7 +85,29 @@ class DeviceControlSpecsTest {
         )
 
         assertEquals("set_brightness", step?.type)
-        assertEquals(40, step?.toolArgs?.optInt("brightness"))
+        assertEquals(40, step?.toolArgs?.optInt("percent"))
+        assertFalse(step?.toolArgs?.has("brightness") == true)
         assertTrue(DeviceControlSpecs.validate(step!!).ok)
+    }
+
+    @Test
+    fun routerCanonicalizesBooleanAndTimeoutAliasesBeforeValidation() {
+        val wifi = DeviceControlRouter.fromDeviceControlJson(
+            JSONObject()
+                .put("capability", "network.wifi_toggle")
+                .put("on", "enabled")
+        )
+        val timeout = DeviceControlRouter.fromDeviceControlJson(
+            JSONObject()
+                .put("capability", "system.screen_timeout.set")
+                .put("minutes", 2)
+        )
+
+        assertEquals(true, wifi?.toolArgs?.optBoolean("enabled"))
+        assertFalse(wifi?.toolArgs?.has("on") == true)
+        assertTrue(DeviceControlSpecs.validate(wifi!!).ok)
+        assertEquals(120_000, timeout?.toolArgs?.optInt("timeoutMs"))
+        assertFalse(timeout?.toolArgs?.has("minutes") == true)
+        assertTrue(DeviceControlSpecs.validate(timeout!!).ok)
     }
 }
