@@ -1,0 +1,13 @@
+{
+  "name": "ai-ledger-aliyun-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Ledger 阿里云后端模块源码与测试入口。",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:auth": "node --test test/auth-runtime.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
