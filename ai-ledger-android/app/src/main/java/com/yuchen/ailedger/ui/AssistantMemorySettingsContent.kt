@@ -6,6 +6,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,8 +51,8 @@ import com.yuchen.ailedger.data.AssistantMemoryItem
 import com.yuchen.ailedger.data.AssistantMemoryRepository
 import com.yuchen.ailedger.data.AssistantMemoryRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRuntimeState
-import com.yuchen.ailedger.data.AssistantMemoryState
 import com.yuchen.ailedger.data.AssistantMemorySource
+import com.yuchen.ailedger.data.AssistantMemoryState
 import com.yuchen.ailedger.data.memoryCategoryLabel
 import com.yuchen.ailedger.data.memoryPriorityLabel
 import com.yuchen.ailedger.data.memoryScopeLabel
@@ -1055,7 +1056,7 @@ private fun PersonalizationUnavailableCard(
 }
 
 @Composable
-private fun MemorySurface(content: @Composable Column.() -> Unit) {
+private fun MemorySurface(content: @Composable ColumnScope.() -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
