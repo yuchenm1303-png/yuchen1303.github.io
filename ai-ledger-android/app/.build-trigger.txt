@@ -1,2 +1,2 @@
 Build Compose Android APK verification
-2026-06-28 设备控制别名规范化与完整单测构建验证
+2026-06-28 OpenGL 动态 VSync 合并与 Shell 重组隔离构建验证
