@@ -54,7 +54,7 @@ internal fun SettingsComposeGlassBatchHost(
                 session = diagnosticsSession,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(horizontal = 10.dp, vertical = 92.dp)
+                    .padding(start = 10.dp, end = 10.dp, bottom = 92.dp)
                     .zIndex(1000f),
             )
         }
