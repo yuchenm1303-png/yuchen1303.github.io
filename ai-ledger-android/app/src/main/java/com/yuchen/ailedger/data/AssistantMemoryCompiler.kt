@@ -5,6 +5,7 @@ import com.yuchen.ailedger.service.CloudMemorySelectionClient
 import com.yuchen.ailedger.service.CloudMemorySelectionResult
 import com.yuchen.ailedger.service.CloudSelectedMemory
 import java.time.Instant
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -248,7 +249,7 @@ object AssistantMemoryCompiler {
         category = candidate.category,
         scope = candidate.scope,
         role = role,
-        score = 100,
+        score = (confidence.coerceIn(0.0, 1.0) * 100.0).roundToInt(),
         reason = reason.ifBlank { "cloud_semantic_selection" },
     )
 
