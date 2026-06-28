@@ -17,6 +17,9 @@ object StartupMetrics {
     @Volatile
     private var enabled = false
 
+    val isEnabled: Boolean
+        get() = enabled
+
     private val mainHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
     private val startMs = SystemClock.elapsedRealtime()
     private val eventNames = linkedSetOf<String>()
@@ -105,6 +108,7 @@ object StartupMetrics {
         fpsWindowFrames = 0
         recentFps = 0f
         _frameStats.value = StartupFrameStats()
+        PerformanceRuntimeMetrics.reset()
         mark("帧统计已重置")
     }
 
