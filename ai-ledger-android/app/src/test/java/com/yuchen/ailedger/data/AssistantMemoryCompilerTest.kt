@@ -68,7 +68,8 @@ class AssistantMemoryCompilerTest {
             content = "用户计划去温州自驾旅行。",
             category = "project",
             scope = "travel",
-            priority = 2,
+            priority = 3,
+            pinned = true,
         )
         val compilation = AssistantMemoryCompiler.compile(
             userText = "检查一下 Android Compose 首页代码",
@@ -84,6 +85,19 @@ class AssistantMemoryCompilerTest {
                 .orEmpty()
                 .contains("核心界面必须直接修改正式源码")
         )
+    }
+
+    @Test
+    fun scopedCustomInstructionDoesNotPolluteUnrelatedQuestion() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "检查 Compose 首页重组范围",
+            customInstructions = "学习英语时必须给出两个例句和中文翻译。",
+            memoryState = readyState(),
+            nowMillis = nowMillis,
+        )
+
+        assertEquals(AssistantMemoryIntent.ANDROID_DEVELOPMENT, compilation.intent)
+        assertFalse(compilation.personaInstructions.orEmpty().contains("两个例句"))
     }
 
     @Test
