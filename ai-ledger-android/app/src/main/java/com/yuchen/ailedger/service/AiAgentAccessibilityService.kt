@@ -14,11 +14,14 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Base64
+import android.util.DisplayMetrics
 import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.annotation.RequiresApi
@@ -26,6 +29,7 @@ import androidx.core.app.NotificationCompat
 import com.yuchen.ailedger.MainActivity
 import com.yuchen.ailedger.R
 import java.util.ArrayDeque
+import java.util.Locale
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -34,6 +38,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONObject
 
 class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var lastWindowHintAtMs: Long = 0L
@@ -681,36 +686,84 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private suspend fun executeTapXY(step: CloudAgentStep): AgentExecutionResult {
-        val x = step.x ?: return AgentExecutionResult(false, "缺少点击 x 坐标", false)
-        val y = step.y ?: return AgentExecutionResult(false, "缺少点击 y 坐标", false)
-        val point = normalizeTapPoint(x, y)
-        return dispatchTap(point.x, point.y, if (point.wasScaled) {
-            "视觉坐标 ${point.x.toInt()},${point.y.toInt()}（${point.source}）"
-        } else {
-            "点击坐标 ${point.x.toInt()},${point.y.toInt()}"
-        })
-    }
-
-    private fun normalizeTapPoint(rawX: Float, rawY: Float): NormalizedTapPoint {
-        val reference = currentTapReferenceFrame()
-        return if (rawX in 0f..1.05f && rawY in 0f..1.05f) {
-            NormalizedTapPoint(
-                x = rawX.coerceIn(0f, 1f) * reference.width,
-                y = rawY.coerceIn(0f, 1f) * reference.height,
-                wasScaled = true,
-                source = "归一化坐标 ${"%.3f".format(rawX)},${"%.3f".format(rawY)}→${reference.label}",
-            )
-        } else {
-            NormalizedTapPoint(rawX, rawY, false, reference.label)
+        val rawX = step.x ?: return AgentExecutionResult(false, "缺少点击 x 坐标", false)
+        val rawY = step.y ?: return AgentExecutionResult(false, "缺少点击 y 坐标", false)
+        val args = step.toolArgs
+        val currentReference = currentTapReferenceFrame()
+        val currentFrame = currentReference.toVisualDisplayFrame()
+        val expectedFrame = args?.let { source ->
+            val width = source.optInt(TRACE_DISPLAY_WIDTH).takeIf { it > 0 }
+            val height = source.optInt(TRACE_DISPLAY_HEIGHT).takeIf { it > 0 }
+            if (width != null && height != null) VisualDisplayFrame(width, height) else null
         }
+        val alreadyMaterialized = args?.optString(TRACE_PIXEL_MAPPING_PROTOCOL) ==
+            VisualCoordinateProtocol.pixelMappingProtocol &&
+            args.has(TRACE_MATERIALIZED_X) &&
+            args.has(TRACE_MATERIALIZED_Y)
+        val resolution = VisualCoordinateProtocol.resolveForExecution(
+            rawX = rawX,
+            rawY = rawY,
+            currentFrame = currentFrame,
+            expectedFrame = expectedFrame,
+            alreadyMaterialized = alreadyMaterialized,
+        )
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "tap_coordinate_execution",
+            details = JSONObject().apply {
+                put("valid", resolution.valid)
+                put("reason", resolution.reason)
+                put("rawX", rawX)
+                put("rawY", rawY)
+                put("alreadyMaterialized", alreadyMaterialized)
+                put("scaledFromNormalized", resolution.scaledFromNormalized)
+                put("frameMatched", resolution.frameMatched)
+                put("sourceFrame", expectedFrame?.label ?: JSONObject.NULL)
+                put("currentFrame", currentFrame.label)
+                put("resolvedX", resolution.point?.x ?: JSONObject.NULL)
+                put("resolvedY", resolution.point?.y ?: JSONObject.NULL)
+            },
+        )
+        val point = resolution.point
+        if (!resolution.valid || point == null) {
+            return AgentExecutionResult(
+                ok = false,
+                message = "视觉坐标已取消：${resolution.reason} · sourceFrame=${expectedFrame?.label ?: "unknown"} · currentFrame=${currentFrame.label}",
+                shouldContinue = true,
+            )
+        }
+        val source = if (resolution.scaledFromNormalized) {
+            "归一化坐标 ${formatCoordinate(rawX)},${formatCoordinate(rawY)}→${currentReference.label}"
+        } else {
+            "${VisualCoordinateProtocol.coordinateSpace} · ${currentReference.label}"
+        }
+        return dispatchTap(
+            x = point.x,
+            y = point.y,
+            successMessage = "视觉坐标 ${formatCoordinate(point.x)},${formatCoordinate(point.y)}（$source）",
+            allowBoundaryAdjustment = false,
+        )
     }
 
+    @Suppress("DEPRECATION")
     private fun currentTapReferenceFrame(): TapReferenceFrame {
-        val metrics = resources.displayMetrics
+        val realMetrics = DisplayMetrics()
+        val display = (getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
+            ?.getDisplay(Display.DEFAULT_DISPLAY)
+        if (display != null) {
+            runCatching { display.getRealMetrics(realMetrics) }
+            if (realMetrics.widthPixels > 0 && realMetrics.heightPixels > 0) {
+                return TapReferenceFrame(
+                    width = realMetrics.widthPixels,
+                    height = realMetrics.heightPixels,
+                    label = "物理屏幕 ${realMetrics.widthPixels}x${realMetrics.heightPixels}",
+                )
+            }
+        }
+        val fallback = resources.displayMetrics
         return TapReferenceFrame(
-            width = metrics.widthPixels.toFloat(),
-            height = metrics.heightPixels.toFloat(),
-            label = "屏幕 ${metrics.widthPixels}x${metrics.heightPixels}",
+            width = fallback.widthPixels,
+            height = fallback.heightPixels,
+            label = "兼容屏幕 ${fallback.widthPixels}x${fallback.heightPixels}",
         )
     }
 
@@ -983,8 +1036,8 @@ class AiAgentAccessibilityService : AccessibilityService() {
         }
         val direction = step.direction.orEmpty().lowercase().ifBlank { "up" }
         val reference = currentTapReferenceFrame()
-        val w = reference.width
-        val h = reference.height
+        val w = reference.width.toFloat()
+        val h = reference.height.toFloat()
         val (startX, startY, endX, endY) = when (direction) {
             "down" -> listOf(w * 0.5f, h * 0.32f, w * 0.5f, h * 0.72f)
             "left" -> listOf(w * 0.78f, h * 0.5f, w * 0.22f, h * 0.5f)
@@ -1124,35 +1177,61 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
     private suspend fun tapRect(rect: Rect, successMessage: String): AgentExecutionResult {
         if (rect.isEmpty) return AgentExecutionResult(false, "目标区域无效", false)
-        return dispatchTap(rect.centerX().toFloat(), rect.centerY().toFloat(), successMessage)
+        return dispatchTap(
+            x = rect.centerX().toFloat(),
+            y = rect.centerY().toFloat(),
+            successMessage = successMessage,
+            allowBoundaryAdjustment = true,
+        )
     }
 
-    private suspend fun dispatchTap(x: Float, y: Float, successMessage: String): AgentExecutionResult {
-        val (safeX, safeY) = safeTapPoint(x, y)
-        val path = Path().apply { moveTo(safeX, safeY) }
+    private suspend fun dispatchTap(
+        x: Float,
+        y: Float,
+        successMessage: String,
+        allowBoundaryAdjustment: Boolean,
+    ): AgentExecutionResult {
+        val frame = currentTapReferenceFrame().toVisualDisplayFrame()
+        val requestedInBounds = VisualCoordinateProtocol.contains(x, y, frame)
+        val resolved = when {
+            requestedInBounds -> VisualCoordinatePoint(x, y)
+            allowBoundaryAdjustment -> VisualCoordinateProtocol.clipPhysicalPoint(x, y, frame)
+            else -> null
+        }
+        if (resolved == null) {
+            return AgentExecutionResult(
+                ok = false,
+                message = "坐标执行已取消：physical_coordinate_out_of_bounds · requested=${formatCoordinate(x)},${formatCoordinate(y)} · currentFrame=${frame.label}",
+                shouldContinue = true,
+            )
+        }
+        val path = Path().apply { moveTo(resolved.x, resolved.y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, DEFAULT_TAP_MS))
             .build()
-        val finalMessage = if (safeX != x || safeY != y) {
-            "$successMessage · 实际落点 ${safeX.toInt()},${safeY.toInt()}（边界保护）"
+        val adjusted = resolved.x != x || resolved.y != y
+        val finalMessage = if (adjusted) {
+            "$successMessage · 实际落点 ${formatCoordinate(resolved.x)},${formatCoordinate(resolved.y)}（边界保护）"
         } else {
-            "$successMessage · 实际落点 ${safeX.toInt()},${safeY.toInt()}"
+            "$successMessage · 实际落点 ${formatCoordinate(resolved.x)},${formatCoordinate(resolved.y)}"
         }
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "tap_gesture_dispatch",
+            details = JSONObject().apply {
+                put("requestedX", x)
+                put("requestedY", y)
+                put("executedX", resolved.x)
+                put("executedY", resolved.y)
+                put("displayFrame", frame.label)
+                put("boundaryAdjusted", adjusted)
+                put("allowBoundaryAdjustment", allowBoundaryAdjustment)
+            },
+        )
         val outcome = dispatchGestureAndAwait(
             gesture = gesture,
             timeoutMs = GESTURE_COMPLETION_TIMEOUT_MS,
         )
         return VisualGestureExecutionPolicy.tapResult(outcome, finalMessage)
-    }
-
-    private fun safeTapPoint(x: Float, y: Float): Pair<Float, Float> {
-        val reference = currentTapReferenceFrame()
-        val density = resources.displayMetrics.density.coerceAtLeast(1f)
-        val minX = 2f * density
-        val maxX = (reference.width - 2f * density).coerceAtLeast(minX)
-        val minY = 2f * density
-        val maxY = (reference.height - 2f * density).coerceAtLeast(minY)
-        return x.coerceIn(minX, maxX) to y.coerceIn(minY, maxY)
     }
 
     private suspend fun dispatchSwipe(
@@ -1264,6 +1343,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
         manager.createNotificationChannel(channel)
     }
 
+    private fun formatCoordinate(value: Float): String =
+        String.format(Locale.US, "%.3f", value)
+
     private enum class AccessibilityRuntimeMode { Idle, Working }
 
     private data class RootCapture(
@@ -1286,18 +1368,13 @@ class AiAgentAccessibilityService : AccessibilityService() {
         val bounds: Rect,
     )
 
-    private data class NormalizedTapPoint(
-        val x: Float,
-        val y: Float,
-        val wasScaled: Boolean,
-        val source: String,
-    )
-
     private data class TapReferenceFrame(
-        val width: Float,
-        val height: Float,
+        val width: Int,
+        val height: Int,
         val label: String,
-    )
+    ) {
+        fun toVisualDisplayFrame(): VisualDisplayFrame = VisualDisplayFrame(width, height)
+    }
 
     companion object {
         @Volatile private var activeService: AiAgentAccessibilityService? = null
@@ -1400,5 +1477,11 @@ class AiAgentAccessibilityService : AccessibilityService() {
         private const val NODE_HANDLE_BUDGET_MS = 22L
         private const val CHILD_TEXT_BUDGET_MS = 6L
         private const val REUSABLE_EXECUTION_CAPTURE_TTL_MS = 800L
+
+        private const val TRACE_PIXEL_MAPPING_PROTOCOL = "__androidPixelMappingProtocol"
+        private const val TRACE_MATERIALIZED_X = "__androidMaterializedX"
+        private const val TRACE_MATERIALIZED_Y = "__androidMaterializedY"
+        private const val TRACE_DISPLAY_WIDTH = "__androidDisplayWidth"
+        private const val TRACE_DISPLAY_HEIGHT = "__androidDisplayHeight"
     }
 }
