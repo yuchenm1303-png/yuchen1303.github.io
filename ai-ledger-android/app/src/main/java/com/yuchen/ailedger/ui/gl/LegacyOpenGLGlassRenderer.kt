@@ -12,7 +12,6 @@ import kotlin.math.max
 import kotlin.math.min
 
 private const val LEGACY_GLASS_SCISSOR_PADDING_PX = 2
-private const val LEGACY_GEOMETRY_CACHE_MIN_ROOT_HEIGHT_FRACTION = 0.30f
 
 private const val DIRTY_SURFACE = 1
 private const val DIRTY_GEOMETRY = 1 shl 1
@@ -77,9 +76,6 @@ private data class LegacyGlassScissorRect(
  * 原始 Shader 始终保留为精确回退路径。支持可渲染 half-float FBO 的设备会缓存
  * 圆角 SDF、四点厚度梯度和内部距离；平移、背景采样与按压帧只执行材质合成。
  * 几何正在变化的帧仍直接使用原 Shader，避免 FBO 重建反而增加拉伸负担。
- *
- * 相对整屏高度较短的 Shell（设置页状态面板）固定使用原始 Shader。此类卡片缓存收益
- * 很低，而且避免历史裁剪 FBO 合成在短 Surface 上输出透明帧；聊天大 Shell 继续使用缓存。
  */
 internal class LegacyOpenGLGlassRenderer {
     private val textureLock = Any()
@@ -329,25 +325,17 @@ internal class LegacyOpenGLGlassRenderer {
         val geometryInvalidated = dirtyMask and DIRTY_CACHE_GEOMETRY != 0
         if (geometryInvalidated) geometryCache.invalidate()
         val cacheFrame = createCacheFrame(currentScissor)
-        val rootHeight = samplingSnapshot[SAMPLING_ROOT_HEIGHT].coerceAtLeast(1f)
-        val geometryCacheEligible =
-            drawCardHeight >= rootHeight * LEGACY_GEOMETRY_CACHE_MIN_ROOT_HEIGHT_FRACTION
-        val cached = if (geometryCacheEligible) {
-            geometryCache.drawFrame(
-                frame = cacheFrame,
-                quadBufferId = quadBufferId,
-                geometryInvalidatedThisFrame = geometryInvalidated,
-            )
-        } else {
-            geometryCache.invalidate()
-            false
-        }
+        val cached = geometryCache.drawFrame(
+            frame = cacheFrame,
+            quadBufferId = quadBufferId,
+            geometryInvalidatedThisFrame = geometryInvalidated,
+        )
         if (cached) {
             previousGlassScissor = currentScissor
             return
         }
 
-        // 缓存不可用、短高度 Shell、几何正在变化或运行时回退时，完整恢复原始直绘状态。
+        // 缓存不可用、几何正在变化或运行时回退时，完整恢复原始直绘状态。
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
         GLES20.glUseProgram(program)

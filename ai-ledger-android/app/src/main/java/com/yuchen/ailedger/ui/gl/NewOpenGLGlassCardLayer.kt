@@ -71,7 +71,8 @@ fun NewOpenGLGlassCardLayer(
             sceneGroup == GlassSceneGroup.AssistantPage
 
     // 设置页顶部状态卡片和首页聊天大玻璃共同复用实验室原版 OpenGL 完整宿主链：
-    // 同一参数源、单样本优化、Compose 轮廓裁剪和旧 Renderer。
+    // 同一参数源、单样本优化和旧 Renderer。设置页不再让 TextureView 进入 Compose
+    // clip 离屏层，聊天大 Shell 的裁剪与稳定尺寸链保持原样。
     if (useLegacyRenderer) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
@@ -91,6 +92,7 @@ fun NewOpenGLGlassCardLayer(
                     pressCenter = pressCenter,
                     viewportTopInsetPx = viewportTopInsetPx,
                     dynamicState = dynamicState,
+                    clipOpenGlHost = sceneGroup != GlassSceneGroup.SettingsPage,
                 ) {}
             }
         } else {
