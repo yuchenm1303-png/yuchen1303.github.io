@@ -122,17 +122,38 @@ object AssistantMemoryCompiler {
             )
         }
 
-        val instructions = result.selections.filter { it.role == "instruction" }
-        val profiles = result.selections.filter { it.role == "profile" }
-        val preferences = result.selections.filter { it.role == "preference" }
-        val memories = result.selections.filter { it.role == "memory" }
+        val instructionBlock = composeInstructionBlock(
+            result.selections.filter { it.role == "instruction" }
+        )
+        val profileBlock = composeProfileBlock(
+            result.selections.filter { it.role == "profile" }
+        )
+        val preferenceBlock = composeListBlock(
+            selections = result.selections.filter { it.role == "preference" },
+            itemLimit = CLOUD_PREFERENCE_LIMIT,
+            itemChars = 180,
+        )
+        val memoryBlock = composeListBlock(
+            selections = result.selections.filter { it.role == "memory" },
+            itemLimit = CLOUD_RELEVANT_LIMIT,
+            itemChars = 220,
+        )
+        val usedSelections = (
+            instructionBlock.used +
+                profileBlock.used +
+                preferenceBlock.used +
+                memoryBlock.used
+            ).distinctBy { it.candidate.transportId }
 
-        val personaInstructions = buildCloudPersonaInstructions(instructions)
-        val memorySnapshot = buildCloudMemorySnapshot(profiles, preferences, memories)
-        val sources = result.selections
+        val memorySnapshot = buildCloudMemorySnapshot(
+            profileSummary = profileBlock.text.orEmpty(),
+            preferences = preferenceBlock.items,
+            memories = memoryBlock.items,
+        )
+        val sources = usedSelections
             .map { it.toMemorySource() }
             .distinctBy { "${it.id}:${it.role}" }
-        val selectedIds = result.selections
+        val selectedIds = usedSelections
             .asSequence()
             .map { it.candidate.originId }
             .filter { it.isNotBlank() && it != CLOUD_MEMORY_CUSTOM_ORIGIN_ID }
@@ -140,73 +161,84 @@ object AssistantMemoryCompiler {
             .toList()
 
         return AssistantMemoryCompilation(
-            personaInstructions = personaInstructions,
+            personaInstructions = instructionBlock.text,
             memorySnapshot = memorySnapshot,
             selectedMemoryIds = selectedIds,
             sources = sources,
             suppressedConflictCount = result.suppressedCount,
-            selectionStatus = "selected",
+            selectionStatus = if (usedSelections.isEmpty()) "empty" else "selected",
         )
     }
 
-    private fun buildCloudPersonaInstructions(
+    private fun composeInstructionBlock(
         selections: List<CloudSelectedMemory>,
-    ): String? {
-        if (selections.isEmpty()) return null
+    ): TextComposition {
+        if (selections.isEmpty()) return TextComposition()
         val builder = StringBuilder(
             "以下是云端模型根据当前请求选出的用户明确长期指令。只要不与系统安全、事实准确性或工具协议冲突，就必须按其适用条件执行："
         )
-        selections
-            .map { it.candidate.content.trim() }
-            .filter(String::isNotBlank)
-            .distinct()
-            .forEach { instruction ->
-                val line = "\n- $instruction"
-                if (builder.length + line.length <= CLOUD_PERSONA_BUDGET) builder.append(line)
-            }
-        return builder.toString().take(CLOUD_PERSONA_BUDGET)
+        val used = mutableListOf<CloudSelectedMemory>()
+        selections.distinctBy { it.candidate.content.trim() }.forEach { selection ->
+            val content = selection.candidate.content.trim()
+            if (content.isBlank()) return@forEach
+            val prefix = "\n- "
+            val remaining = CLOUD_PERSONA_BUDGET - builder.length - prefix.length
+            if (remaining <= 0) return@forEach
+            builder.append(prefix).append(content.take(remaining))
+            used += selection
+        }
+        return TextComposition(
+            text = builder.toString().takeIf { used.isNotEmpty() },
+            used = used,
+        )
+    }
+
+    private fun composeProfileBlock(
+        selections: List<CloudSelectedMemory>,
+    ): TextComposition {
+        val builder = StringBuilder()
+        val used = mutableListOf<CloudSelectedMemory>()
+        selections.distinctBy { it.candidate.content.trim() }.forEach { selection ->
+            val content = selection.candidate.content.trim()
+            if (content.isBlank()) return@forEach
+            val separator = if (builder.isEmpty()) "" else "；"
+            val remaining = CLOUD_PROFILE_BUDGET - builder.length - separator.length
+            if (remaining <= 0) return@forEach
+            builder.append(separator).append(content.take(remaining))
+            used += selection
+        }
+        return TextComposition(builder.toString().takeIf(String::isNotBlank), used)
+    }
+
+    private fun composeListBlock(
+        selections: List<CloudSelectedMemory>,
+        itemLimit: Int,
+        itemChars: Int,
+    ): ListComposition {
+        val used = mutableListOf<CloudSelectedMemory>()
+        val items = mutableListOf<String>()
+        selections.forEach { selection ->
+            val text = selection.candidate.content.trim().take(itemChars)
+            if (text.isBlank() || text in items || items.size >= itemLimit) return@forEach
+            items += text
+            used += selection
+        }
+        return ListComposition(items, used)
     }
 
     private fun buildCloudMemorySnapshot(
-        profiles: List<CloudSelectedMemory>,
-        preferences: List<CloudSelectedMemory>,
-        memories: List<CloudSelectedMemory>,
+        profileSummary: String,
+        preferences: List<String>,
+        memories: List<String>,
     ): JSONObject? {
-        if (profiles.isEmpty() && preferences.isEmpty() && memories.isEmpty()) return null
-        val profileSummary = buildString {
-            profiles.map { it.candidate.content.trim() }
-                .filter(String::isNotBlank)
-                .distinct()
-                .forEach { text ->
-                    val separator = if (isEmpty()) "" else "；"
-                    if (length + separator.length + text.length <= CLOUD_PROFILE_BUDGET) {
-                        append(separator).append(text)
-                    }
-                }
-        }
+        if (profileSummary.isBlank() && preferences.isEmpty() && memories.isEmpty()) return null
         return JSONObject()
             .put("schema", "ai_ledger_cloud_memory_snapshot_v1")
             .put("intent", AssistantMemoryIntent.CLOUD_ORCHESTRATED.id)
             .put("activeScopes", JSONArray(listOf("cloud_model")))
             .put("profileSummary", profileSummary)
-            .put(
-                "preferences",
-                JSONArray(
-                    preferences.map { it.candidate.content.trim().take(180) }
-                        .filter(String::isNotBlank)
-                        .distinct()
-                        .take(CLOUD_PREFERENCE_LIMIT)
-                )
-            )
-            .put(
-                "relevantMemories",
-                JSONArray(
-                    memories.map { it.candidate.content.trim().take(220) }
-                        .filter(String::isNotBlank)
-                        .distinct()
-                        .take(CLOUD_RELEVANT_LIMIT)
-                )
-            )
+            .put("preferences", JSONArray(preferences))
+            .put("relevantMemories", JSONArray(memories))
             .put("sessionSummary", "")
             .put("selectionOwner", "cloud_model")
     }
@@ -218,6 +250,16 @@ object AssistantMemoryCompiler {
         role = role,
         score = 100,
         reason = reason.ifBlank { "cloud_semantic_selection" },
+    )
+
+    private data class TextComposition(
+        val text: String? = null,
+        val used: List<CloudSelectedMemory> = emptyList(),
+    )
+
+    private data class ListComposition(
+        val items: List<String>,
+        val used: List<CloudSelectedMemory>,
     )
 }
 
