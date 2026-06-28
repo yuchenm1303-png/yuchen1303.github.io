@@ -13,24 +13,21 @@ jobs:
   debug_test:
     name: Test and build debug APK
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Use JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-
+        with:
+          gradle-version: "8.14.3"
       - name: Test and build debug APK
         working-directory: ai-ledger-android
         run: gradle -p . :app:testDebugUnitTest :app:assembleDebug
-
       - name: Upload materialized home sources
         if: always()
         uses: actions/upload-artifact@v4
@@ -43,7 +40,6 @@ jobs:
             ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt
             ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLDropletGlassLayer.kt
           if-no-files-found: error
-
       - name: Upload Compose debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -55,26 +51,22 @@ jobs:
   performance:
     name: Build performance APK
     runs-on: ubuntu-24.04
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Use JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
+          gradle-version: "8.14.3"
           cache-read-only: true
-
       - name: Build performance APK
         working-directory: ai-ledger-android
         run: gradle -p . :app:assemblePerformance
-
       - name: Upload Compose performance APK
         uses: actions/upload-artifact@v4
         with:
