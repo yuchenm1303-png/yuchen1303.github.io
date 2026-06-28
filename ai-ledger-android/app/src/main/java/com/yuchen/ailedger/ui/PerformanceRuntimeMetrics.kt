@@ -86,7 +86,11 @@ internal object PerformanceRuntimeMetrics {
 
     fun recordOpenGlContextReleased() {
         if (!StartupMetrics.isEnabled) return
-        openGlContextsAlive.updateAndGet { current -> (current - 1).coerceAtLeast(0) }
+        while (true) {
+            val current = openGlContextsAlive.get()
+            if (current <= 0) return
+            if (openGlContextsAlive.compareAndSet(current, current - 1)) return
+        }
     }
 
     fun snapshot(): PerformanceRuntimeSnapshot = PerformanceRuntimeSnapshot(
@@ -118,8 +122,8 @@ internal object PerformanceRuntimeMetrics {
         openGlTextureUploadBytes.set(0L)
         openGlSurfacePixels.set(0L)
         openGlPeakSurfacePixels.set(0L)
-        openGlContextsAlive.set(0)
-        openGlPeakContextsAlive.set(0)
+        val aliveContexts = openGlContextsAlive.get()
+        openGlPeakContextsAlive.set(aliveContexts)
         openGlContextsCreated.set(0L)
     }
 
