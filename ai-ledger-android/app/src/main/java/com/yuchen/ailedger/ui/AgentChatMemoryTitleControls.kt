@@ -22,6 +22,6 @@ internal fun AgentChatMemoryTitleControls(modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         AgentChatGlassTitleControls()
-        MemoryQuickPanelV2Host()
+        MemoryQuickPanelDialogHost()
     }
 }
