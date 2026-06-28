@@ -9,14 +9,9 @@ on:
       - "ai-ledger-android/**"
       - ".github/workflows/build-compose-android-apk.yml"
 
-concurrency:
-  group: build-compose-android-apk-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -35,7 +30,7 @@ jobs:
 
       - name: Test and build Compose APKs
         working-directory: ai-ledger-android
-        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug :app:assemblePerformance --build-cache --no-parallel --console=plain
+        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug :app:assemblePerformance
 
       - name: Upload materialized home sources
         if: always()
