@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui
 
+import android.view.Choreographer
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -13,11 +14,11 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.model.RenderQuality
 
-private const val GLASS_SCROLL_INVALIDATION_MIN_INTERVAL_NS = 12_000_000L
-
 class BackdropCoordinateSource {
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
+    private val placementListeners = linkedSetOf<() -> Unit>()
+
     var placementVersion by mutableLongStateOf(0L)
         private set
 
@@ -27,12 +28,18 @@ class BackdropCoordinateSource {
             syncPlacementVersion(value)
         }
 
+    fun addPlacementListener(listener: () -> Unit): () -> Unit {
+        placementListeners += listener
+        return { placementListeners -= listener }
+    }
+
     private fun syncPlacementVersion(current: LayoutCoordinates?) {
         if (current == null || !current.isAttached) {
             if (lastRootOffset != null || lastSize != IntSize.Zero) {
                 lastRootOffset = null
                 lastSize = IntSize.Zero
                 placementVersion += 1L
+                notifyPlacementListeners()
             }
             return
         }
@@ -42,11 +49,16 @@ class BackdropCoordinateSource {
             lastRootOffset = rootOffset
             lastSize = size
             placementVersion += 1L
+            notifyPlacementListeners()
         }
     }
 
     fun rootOffset(): Offset {
         placementVersion
+        return rootOffsetNow()
+    }
+
+    fun rootOffsetNow(): Offset {
         val current = coordinates
         return if (current != null && current.isAttached) {
             current.localToRoot(Offset.Zero)
@@ -54,12 +66,19 @@ class BackdropCoordinateSource {
             Offset.Zero
         }
     }
+
+    private fun notifyPlacementListeners() {
+        if (placementListeners.isEmpty()) return
+        placementListeners.toList().forEach { listener -> listener() }
+    }
 }
 
 class GlassCoordinateSource {
     private var wasAttached = false
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
+    private val placementListeners = linkedSetOf<() -> Unit>()
+
     var placementVersion by mutableLongStateOf(0L)
         private set
 
@@ -68,6 +87,11 @@ class GlassCoordinateSource {
             field = value
             syncPlacementVersion(value)
         }
+
+    fun addPlacementListener(listener: () -> Unit): () -> Unit {
+        placementListeners += listener
+        return { placementListeners -= listener }
+    }
 
     private fun syncPlacementVersion(current: LayoutCoordinates?) {
         val attached = current?.isAttached == true
@@ -78,11 +102,16 @@ class GlassCoordinateSource {
             lastRootOffset = rootOffset
             lastSize = size
             placementVersion += 1L
+            notifyPlacementListeners()
         }
     }
 
     fun rootOffset(): Offset {
         placementVersion
+        return rootOffsetNow()
+    }
+
+    fun rootOffsetNow(): Offset {
         val current = coordinates
         return if (current != null && current.isAttached) {
             current.localToRoot(Offset.Zero)
@@ -93,15 +122,23 @@ class GlassCoordinateSource {
 
     fun itemSize(): IntSize {
         placementVersion
+        return itemSizeNow()
+    }
+
+    fun itemSizeNow(): IntSize {
         val current = coordinates
         return if (current != null && current.isAttached) current.size else IntSize.Zero
     }
 
     fun offsetRelativeTo(backdrop: BackdropCoordinateSource?): Offset {
         placementVersion
+        return offsetRelativeToNow(backdrop)
+    }
+
+    fun offsetRelativeToNow(backdrop: BackdropCoordinateSource?): Offset {
         val current = coordinates
         return if (current != null && current.isAttached) {
-            current.localToRoot(Offset.Zero) - (backdrop?.rootOffset() ?: Offset.Zero)
+            current.localToRoot(Offset.Zero) - (backdrop?.rootOffsetNow() ?: Offset.Zero)
         } else {
             Offset.Zero
         }
@@ -109,19 +146,48 @@ class GlassCoordinateSource {
 
     fun isAttached(): Boolean {
         placementVersion
-        return coordinates?.isAttached == true
+        return isAttachedNow()
+    }
+
+    fun isAttachedNow(): Boolean = coordinates?.isAttached == true
+
+    private fun notifyPlacementListeners() {
+        if (placementListeners.isEmpty()) return
+        placementListeners.toList().forEach { listener -> listener() }
     }
 }
 
+/**
+ * 背景/玻璃位置更新统一按真实显示 VSync 合并。
+ *
+ * 一帧内的 nested-scroll、程序化滚动和布局回调只保留最后一次请求；兼容的
+ * Compose frameNanos 状态仍只写一次，OpenGL Host 可通过监听器直接消费而无需重组。
+ */
 class BackdropFrameTicker {
-    private var lastFrameNanos = 0L
     var frameNanos by mutableLongStateOf(0L)
         private set
 
+    private var framePosted = false
+    private val frameListeners = linkedSetOf<() -> Unit>()
+
+    fun addFrameListener(listener: () -> Unit): () -> Unit {
+        frameListeners += listener
+        return { frameListeners -= listener }
+    }
+
     fun requestFrame(nowNanos: Long = System.nanoTime(), force: Boolean = false) {
-        if (force || nowNanos - lastFrameNanos >= GLASS_SCROLL_INVALIDATION_MIN_INTERVAL_NS) {
-            lastFrameNanos = nowNanos
-            frameNanos = nowNanos
+        @Suppress("UNUSED_VARIABLE")
+        val compatibilityArgs = nowNanos to force
+        if (framePosted) return
+        framePosted = true
+        Choreographer.getInstance().postFrameCallback(frameCallback)
+    }
+
+    private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
+        framePosted = false
+        frameNanos = frameTimeNanos
+        if (frameListeners.isNotEmpty()) {
+            frameListeners.toList().forEach { listener -> listener() }
         }
     }
 }
