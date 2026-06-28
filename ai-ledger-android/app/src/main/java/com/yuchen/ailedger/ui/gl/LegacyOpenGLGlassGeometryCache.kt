@@ -1,8 +1,7 @@
 package com.yuchen.ailedger.ui.gl
 
 import android.opengl.GLES20
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import com.yuchen.ailedger.ui.PerformanceRuntimeMetrics
 
 private const val GL_HALF_FLOAT_OES = 0x8D61
 private const val GEOMETRY_TEXTURE_UNIT = GLES20.GL_TEXTURE2
@@ -44,9 +43,9 @@ internal data class LegacyOpenGLGlassCacheFrame(
 /**
  * 旧版玻璃的无损几何缓存。
  *
- * 只在支持可渲染 RGBA half-float 的 GLES2 设备上启用。缓存内容为 mask、厚度梯度
- * 和内部距离，保持原 Shader 的几何公式；背景采样、按压和材质合成仍使用原精度逐帧
- * 执行。任何扩展、FBO 或 Shader 初始化失败都会永久回退到原直绘路径。
+ * 只在支持可渲染 RGBA half-float 的 GLES2 设备上启用。FBO 仅覆盖玻璃实际裁剪
+ * 边界，而不是整个稳定 Surface；几何公式仍以完整窗口坐标计算，像素中心映射与原
+ * Shader 一致。任何扩展、FBO 或 Shader 初始化失败都会永久回退到原直绘路径。
  */
 internal class LegacyOpenGLGlassGeometryCache {
     private var supported = false
@@ -56,10 +55,11 @@ internal class LegacyOpenGLGlassGeometryCache {
     private var geometryProgram = 0
     private var compositeProgram = 0
     private var geometryPositionHandle = -1
-    private var geometryResolutionHandle = -1
     private var geometryRectHandle = -1
     private var geometryRadiusHandle = -1
     private var geometryOpticsHandle = -1
+    private var geometryCacheOriginHandle = -1
+    private var geometryCacheSizeHandle = -1
 
     private var compositePositionHandle = -1
     private var compositeResolutionHandle = -1
@@ -72,6 +72,7 @@ internal class LegacyOpenGLGlassGeometryCache {
     private var compositeBlurTextureHandle = -1
     private var compositeLensTextureHandle = -1
     private var compositeGeometryTextureHandle = -1
+    private var compositeGeometryViewportHandle = -1
     private var compositeMaterialHandle = -1
     private var compositeRefractionHandle = -1
     private var compositeOpticsHandle = -1
@@ -100,10 +101,11 @@ internal class LegacyOpenGLGlassGeometryCache {
             geometryProgram = buildCacheProgram(CACHE_VERTEX_SHADER, GEOMETRY_FRAGMENT_SHADER)
             compositeProgram = buildCacheProgram(CACHE_VERTEX_SHADER, COMPOSITE_FRAGMENT_SHADER)
             geometryPositionHandle = GLES20.glGetAttribLocation(geometryProgram, "aPosition")
-            geometryResolutionHandle = GLES20.glGetUniformLocation(geometryProgram, "uResolution")
             geometryRectHandle = GLES20.glGetUniformLocation(geometryProgram, "uRect")
             geometryRadiusHandle = GLES20.glGetUniformLocation(geometryProgram, "uRadius")
             geometryOpticsHandle = GLES20.glGetUniformLocation(geometryProgram, "uOptics")
+            geometryCacheOriginHandle = GLES20.glGetUniformLocation(geometryProgram, "uCacheOriginTop")
+            geometryCacheSizeHandle = GLES20.glGetUniformLocation(geometryProgram, "uCacheSize")
 
             compositePositionHandle = GLES20.glGetAttribLocation(compositeProgram, "aPosition")
             compositeResolutionHandle = GLES20.glGetUniformLocation(compositeProgram, "uResolution")
@@ -116,6 +118,7 @@ internal class LegacyOpenGLGlassGeometryCache {
             compositeBlurTextureHandle = GLES20.glGetUniformLocation(compositeProgram, "uBlurTexture")
             compositeLensTextureHandle = GLES20.glGetUniformLocation(compositeProgram, "uLensTexture")
             compositeGeometryTextureHandle = GLES20.glGetUniformLocation(compositeProgram, "uGeometryTexture")
+            compositeGeometryViewportHandle = GLES20.glGetUniformLocation(compositeProgram, "uGeometryViewport")
             compositeMaterialHandle = GLES20.glGetUniformLocation(compositeProgram, "uMaterial")
             compositeRefractionHandle = GLES20.glGetUniformLocation(compositeProgram, "uRefraction")
             compositeOpticsHandle = GLES20.glGetUniformLocation(compositeProgram, "uOptics")
@@ -128,11 +131,9 @@ internal class LegacyOpenGLGlassGeometryCache {
     }
 
     fun onSurfaceChanged(width: Int, height: Int) {
+        @Suppress("UNUSED_VARIABLE")
+        val compatibilitySize = width to height
         cacheValid = false
-        if (!supported || permanentlyDisabled) return
-        if (width != textureWidth || height != textureHeight) {
-            releaseFramebuffer()
-        }
     }
 
     fun invalidate() {
@@ -144,21 +145,37 @@ internal class LegacyOpenGLGlassGeometryCache {
         quadBufferId: Int,
         geometryInvalidatedThisFrame: Boolean,
     ): Boolean {
-        if (!supported || permanentlyDisabled || frame.opticsDebugAlpha > 0.0001f) return false
+        if (!supported || permanentlyDisabled || frame.opticsDebugAlpha > 0.0001f) {
+            PerformanceRuntimeMetrics.recordLegacyGeometryCacheFallback()
+            return false
+        }
         if (geometryInvalidatedThisFrame) {
             cacheValid = false
+            PerformanceRuntimeMetrics.recordLegacyGeometryCacheFallback()
             return false
         }
-        if (!ensureFramebuffer(frame.viewportWidth, frame.viewportHeight)) return false
 
-        if (!cacheValid && !renderGeometry(frame, quadBufferId)) {
+        val cacheWidth = (frame.scissorRight - frame.scissorLeft).coerceAtLeast(1)
+        val cacheHeight = (frame.scissorBottom - frame.scissorTop).coerceAtLeast(1)
+        if (!ensureFramebuffer(cacheWidth, cacheHeight)) {
+            PerformanceRuntimeMetrics.recordLegacyGeometryCacheFallback()
+            return false
+        }
+
+        if (!cacheValid) {
+            if (!renderGeometry(frame, quadBufferId, cacheWidth, cacheHeight)) {
+                PerformanceRuntimeMetrics.recordLegacyGeometryCacheFallback()
+                disablePermanently()
+                return false
+            }
+            PerformanceRuntimeMetrics.recordLegacyGeometryCacheRebuild(cacheWidth, cacheHeight)
+        }
+        if (!renderComposite(frame, quadBufferId, cacheWidth, cacheHeight)) {
+            PerformanceRuntimeMetrics.recordLegacyGeometryCacheFallback()
             disablePermanently()
             return false
         }
-        if (!renderComposite(frame, quadBufferId)) {
-            disablePermanently()
-            return false
-        }
+        PerformanceRuntimeMetrics.recordLegacyGeometryCacheFrame()
         return true
     }
 
@@ -227,20 +244,26 @@ internal class LegacyOpenGLGlassGeometryCache {
         return true
     }
 
-    private fun renderGeometry(frame: LegacyOpenGLGlassCacheFrame, quadBufferId: Int): Boolean {
+    private fun renderGeometry(
+        frame: LegacyOpenGLGlassCacheFrame,
+        quadBufferId: Int,
+        cacheWidth: Int,
+        cacheHeight: Int,
+    ): Boolean {
         clearGlErrors()
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebufferId)
-        GLES20.glViewport(0, 0, frame.viewportWidth, frame.viewportHeight)
+        GLES20.glViewport(0, 0, cacheWidth, cacheHeight)
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         GLES20.glUseProgram(geometryProgram)
         bindQuad(quadBufferId, geometryPositionHandle)
         GLES20.glUniform2f(
-            geometryResolutionHandle,
-            frame.viewportWidth.toFloat(),
-            frame.viewportHeight.toFloat(),
+            geometryCacheOriginHandle,
+            frame.scissorLeft.toFloat(),
+            frame.scissorTop.toFloat(),
         )
+        GLES20.glUniform2f(geometryCacheSizeHandle, cacheWidth.toFloat(), cacheHeight.toFloat())
         GLES20.glUniform4f(
             geometryRectHandle,
             0f,
@@ -256,7 +279,6 @@ internal class LegacyOpenGLGlassGeometryCache {
             frame.opticsDebugAlpha,
             frame.opticsDarkScale,
         )
-        applyScissor(frame)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         val error = GLES20.glGetError()
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
@@ -266,7 +288,12 @@ internal class LegacyOpenGLGlassGeometryCache {
         return cacheValid
     }
 
-    private fun renderComposite(frame: LegacyOpenGLGlassCacheFrame, quadBufferId: Int): Boolean {
+    private fun renderComposite(
+        frame: LegacyOpenGLGlassCacheFrame,
+        quadBufferId: Int,
+        cacheWidth: Int,
+        cacheHeight: Int,
+    ): Boolean {
         clearGlErrors()
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, frame.viewportWidth, frame.viewportHeight)
@@ -315,6 +342,13 @@ internal class LegacyOpenGLGlassGeometryCache {
             frame.opticsRingWidth,
             frame.opticsDebugAlpha,
             frame.opticsDarkScale,
+        )
+        GLES20.glUniform4f(
+            compositeGeometryViewportHandle,
+            frame.scissorLeft.toFloat(),
+            (frame.viewportHeight - frame.scissorBottom).toFloat(),
+            cacheWidth.toFloat(),
+            cacheHeight.toFloat(),
         )
         GLES20.glUniform1i(compositeBlurTextureHandle, 0)
         GLES20.glUniform1i(compositeLensTextureHandle, 1)
@@ -416,10 +450,11 @@ private const val CACHE_VERTEX_SHADER = """
 
 private const val GEOMETRY_FRAGMENT_SHADER = """
     precision highp float;
-    uniform vec2 uResolution;
     uniform vec4 uRect;
     uniform float uRadius;
     uniform vec4 uOptics;
+    uniform vec2 uCacheOriginTop;
+    uniform vec2 uCacheSize;
 
     float sat(float x){return clamp(x,0.0,1.0);}
     float roundedBoxSdfPrepared(vec2 coord,vec2 halfSize,vec2 core,float radius){
@@ -445,7 +480,10 @@ private const val GEOMETRY_FRAGMENT_SHADER = """
         return (dome*0.22+rimWide*0.46+rimCore*0.34)*maskGuard;
     }
     void main(){
-        vec2 coord=vec2(gl_FragCoord.x,uResolution.y-gl_FragCoord.y);
+        vec2 coord=vec2(
+            uCacheOriginTop.x+gl_FragCoord.x,
+            uCacheOriginTop.y+(uCacheSize.y-gl_FragCoord.y)
+        );
         vec2 rectSize=max(uRect.zw,vec2(1.0));
         vec2 rectInv=1.0/rectSize;
         vec2 halfSize=rectSize*0.5;
@@ -482,6 +520,7 @@ private const val COMPOSITE_FRAGMENT_SHADER = """
     uniform vec4 uMaterial;
     uniform vec4 uRefraction;
     uniform vec4 uOptics;
+    uniform vec4 uGeometryViewport;
     uniform sampler2D uBlurTexture;
     uniform sampler2D uLensTexture;
     uniform sampler2D uGeometryTexture;
@@ -552,7 +591,10 @@ private const val COMPOSITE_FRAGMENT_SHADER = """
         return mix(vec3(0.0),soft,sat(dragAlpha));
     }
     void main(){
-        vec4 geometry=texture2D(uGeometryTexture,gl_FragCoord.xy/max(uResolution,vec2(1.0)));
+        vec2 geometryUv=(gl_FragCoord.xy-uGeometryViewport.xy)/max(uGeometryViewport.zw,vec2(1.0));
+        vec2 halfTexel=0.5/max(uGeometryViewport.zw,vec2(1.0));
+        geometryUv=clamp(geometryUv,halfTexel,vec2(1.0)-halfTexel);
+        vec4 geometry=texture2D(uGeometryTexture,geometryUv);
         float mask=geometry.r;
         if(mask<=0.001)discard;
         vec2 grad=geometry.gb;
