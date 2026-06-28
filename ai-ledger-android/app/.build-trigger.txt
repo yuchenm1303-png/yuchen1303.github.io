@@ -5,3 +5,4 @@ Build Compose Android APK verification
 2026-06-28 原生记忆快捷面板移植构建验证
 2026-06-28 新旧 OpenGL 无损热路径收尾构建验证
 2026-06-28 OpenGL 无损收尾最终源码构建验证
+2026-06-28 设置页旧版 OpenGL 几何缓存恢复验证
