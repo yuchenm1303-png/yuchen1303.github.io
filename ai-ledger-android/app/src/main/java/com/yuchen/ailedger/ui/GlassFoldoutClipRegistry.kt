@@ -155,7 +155,11 @@ internal fun View.applyGlassFoldoutClip(
 ) {
     val target = when {
         registry == null -> null
-        coordinates == null || !coordinates.isAttached -> AndroidRect(0, 0, 0, 0)
+        // AndroidView.update 可能早于 Compose onPlaced。此时坐标尚未建立并不代表节点
+        // 位于已折叠区域；先保持无界，待 registry/version 在真实布局后重新解析裁剪。
+        // 若这里写入 0×0，TextureView 可能永久保留空 clipBounds，导致 OpenGL 已 swap
+        // 却完全不可见。真正折叠的节点在坐标可用后仍会解析为 Hidden。
+        coordinates == null || !coordinates.isAttached -> null
         else -> when (val result = registry.resolveFor(coordinates)) {
             GlassFoldoutClipResult.Unbounded -> null
             GlassFoldoutClipResult.Hidden -> AndroidRect(0, 0, 0, 0)
