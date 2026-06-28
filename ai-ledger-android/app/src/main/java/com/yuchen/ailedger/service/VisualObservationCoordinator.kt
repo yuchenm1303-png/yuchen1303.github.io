@@ -44,6 +44,7 @@ data class VisualObservationTiming(
     val openAppVerifyPollMs: Long = 140L,
     val openAppVerifyTimeoutMs: Long = 4_200L,
     val requiredStableSamples: Int = 2,
+    val trustedPackageTtlMs: Long = 15_000L,
 )
 
 data class VisualTargetPackageVerification(
@@ -51,6 +52,14 @@ data class VisualTargetPackageVerification(
     val stableSamples: Int,
     val lastSnapshot: AgentScreenSnapshot?,
     val lastObservation: ScreenObservation?,
+)
+
+private data class ResolvedObservationPackage(
+    val observation: ScreenObservation,
+    val rawPackage: String,
+    val source: String,
+    val overlayPackage: String = "",
+    val inheritedTrustedBase: Boolean = false,
 )
 
 class VisualObservationCoordinator(
@@ -61,37 +70,19 @@ class VisualObservationCoordinator(
     private val elapsedRealtime: () -> Long = SystemClock::elapsedRealtime,
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
 ) {
+    private val trustedPackageLock = Any()
+    private var lastTrustedPackage: String = ""
+    private var lastTrustedPackageAt: Long = 0L
+
     suspend fun captureTrustedObservation(
         forceVisual: Boolean,
         expectedPackage: String,
         settleMs: Long = if (forceVisual) timing.fullVisualSettleMs else timing.nonVisualSettleMs,
     ): ScreenObservation {
-        val observation = captureOnce(forceVisual = forceVisual, settleMs = settleMs)
-        val resolved = if (
-            expectedPackage.isBlank() ||
-            !ForegroundPackageEvidenceResolver.needsShellFallback(observation.packageName)
-        ) {
-            observation
-        } else {
-            val shellProbe = withContext(Dispatchers.IO) { foregroundPackageReader.probe() }
-            val evidence = ForegroundPackageEvidenceResolver.resolve(
-                accessibilityPackage = observation.packageName,
-                shellProbe = shellProbe,
-            )
-            if (evidence.packageName.isBlank() || evidence.packageName == observation.packageName) {
-                observation
-            } else {
-                observation.copy(
-                    packageName = evidence.packageName,
-                    windowTitle = listOf(
-                        observation.windowTitle,
-                        "foreground=${evidence.source.wireValue}",
-                    ).filter(String::isNotBlank)
-                        .joinToString(" · ")
-                        .take(120),
-                )
-            }
-        }
+        val captured = captureOnce(forceVisual = forceVisual, settleMs = settleMs)
+        val resolution = resolveObservationPackage(captured, expectedPackage)
+        val resolved = resolution.observation
+
         // 只复用本轮已经得到的观察结果，不触发额外截图或节点扫描。
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.let { diagnostics ->
             diagnostics.recordObservation(
@@ -104,7 +95,11 @@ class VisualObservationCoordinator(
                 details = JSONObject().apply {
                     put("forceVisual", forceVisual)
                     put("expectedPackage", expectedPackage)
+                    put("rawPackage", resolution.rawPackage)
                     put("resolvedPackage", resolved.packageName)
+                    put("packageEvidenceSource", resolution.source)
+                    put("overlayPackage", resolution.overlayPackage)
+                    put("inheritedTrustedBase", resolution.inheritedTrustedBase)
                     put("windowTitle", resolved.windowTitle)
                     put("nodeCount", resolved.nodeCount)
                     put("capturedNodeCount", resolved.capturedNodeCount)
@@ -125,6 +120,92 @@ class VisualObservationCoordinator(
             )
         }
         return resolved
+    }
+
+    private suspend fun resolveObservationPackage(
+        observation: ScreenObservation,
+        expectedPackage: String,
+    ): ResolvedObservationPackage {
+        val rawPackage = observation.packageName.trim()
+        if (!VisualSurfacePackagePolicy.requiresForegroundFallback(rawPackage)) {
+            rememberTrustedPackage(rawPackage)
+            return ResolvedObservationPackage(
+                observation = observation.copy(packageName = rawPackage),
+                rawPackage = rawPackage,
+                source = "accessibility_capture",
+            )
+        }
+
+        val evidence = if (expectedPackage.isNotBlank()) {
+            val shellProbe = withContext(Dispatchers.IO) { foregroundPackageReader.probe() }
+            ForegroundPackageEvidenceResolver.resolve(
+                accessibilityPackage = rawPackage,
+                shellProbe = shellProbe,
+            )
+        } else {
+            null
+        }
+        val probedPackage = evidence?.packageName.orEmpty().trim()
+        if (!VisualSurfacePackagePolicy.requiresForegroundFallback(probedPackage)) {
+            rememberTrustedPackage(probedPackage)
+            return ResolvedObservationPackage(
+                observation = observation.copy(
+                    packageName = probedPackage,
+                    windowTitle = observation.windowTitle.withPackageEvidence(
+                        "foreground=${evidence?.source?.wireValue.orEmpty()}",
+                        rawPackage.takeIf(String::isNotBlank)?.let { "overlay=$it" }.orEmpty(),
+                    ),
+                ),
+                rawPackage = rawPackage,
+                source = evidence?.source?.wireValue.orEmpty().ifBlank { "foreground_probe" },
+                overlayPackage = rawPackage.takeIf(String::isNotBlank).orEmpty(),
+            )
+        }
+
+        val trustedBase = trustedPackageFor(expectedPackage)
+        if (trustedBase.isNotBlank()) {
+            return ResolvedObservationPackage(
+                observation = observation.copy(
+                    packageName = trustedBase,
+                    windowTitle = observation.windowTitle.withPackageEvidence(
+                        "foreground=trusted_base",
+                        rawPackage.takeIf(String::isNotBlank)?.let { "overlay=$it" }.orEmpty(),
+                    ),
+                ),
+                rawPackage = rawPackage,
+                source = "trusted_base_cache",
+                overlayPackage = rawPackage.takeIf(String::isNotBlank).orEmpty(),
+                inheritedTrustedBase = true,
+            )
+        }
+
+        return ResolvedObservationPackage(
+            observation = observation,
+            rawPackage = rawPackage,
+            source = if (rawPackage.isBlank()) "unresolved" else "transient_unresolved",
+            overlayPackage = rawPackage,
+        )
+    }
+
+    private fun rememberTrustedPackage(packageName: String) {
+        val cleanPackage = packageName.trim()
+        if (VisualSurfacePackagePolicy.requiresForegroundFallback(cleanPackage)) return
+        synchronized(trustedPackageLock) {
+            lastTrustedPackage = cleanPackage
+            lastTrustedPackageAt = elapsedRealtime()
+        }
+    }
+
+    private fun trustedPackageFor(expectedPackage: String): String {
+        val expected = expectedPackage.trim()
+        if (expected.isBlank()) return ""
+        val now = elapsedRealtime()
+        return synchronized(trustedPackageLock) {
+            val age = now - lastTrustedPackageAt
+            lastTrustedPackage.takeIf {
+                it == expected && age >= 0L && age <= timing.trustedPackageTtlMs.coerceAtLeast(0L)
+            }.orEmpty()
+        }
     }
 
     suspend fun awaitStableTargetPackage(
@@ -253,6 +334,13 @@ class VisualObservationCoordinator(
     private suspend fun sleep(durationMs: Long) {
         if (durationMs > 0L) sleeper(durationMs)
     }
+}
+
+private fun String.withPackageEvidence(vararg evidence: String): String {
+    return (listOf(this) + evidence)
+        .filter(String::isNotBlank)
+        .joinToString(" · ")
+        .take(120)
 }
 
 private fun ObservedScreenNode.toDiagnosticJson(): JSONObject = JSONObject().apply {
