@@ -1,2 +1,2 @@
 Build Compose Android APK verification
-2026-06-28 修复气泡可见性与性能统计字符串编译错误
+2026-06-28 设备控制别名规范化与完整单测构建验证
