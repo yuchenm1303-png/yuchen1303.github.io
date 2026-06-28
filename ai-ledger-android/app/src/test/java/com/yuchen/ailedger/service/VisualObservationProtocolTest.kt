@@ -36,7 +36,7 @@ class VisualObservationProtocolTest {
     }
 
     @Test
-    fun samePackageWithDifferentInteractionSurfaceIsRejected() {
+    fun samePackageWithDifferentInteractionSurfaceIsRejectedForNonVisualAction() {
         val observed = snapshot(
             nodes = listOf(
                 node("n1", "首页", "[0,0][300,80]", clickable = true),
@@ -65,7 +65,7 @@ class VisualObservationProtocolTest {
     }
 
     @Test
-    fun disappearingSemanticTargetIsRejectedBeforeExecution() {
+    fun disappearingSemanticTargetIsRejectedBeforeNodeExecution() {
         val observed = snapshot(
             nodes = listOf(
                 node("n1", "提交", "[100,300][300,400]", clickable = true),
@@ -90,7 +90,7 @@ class VisualObservationProtocolTest {
     }
 
     @Test
-    fun coordinateTargetChangingUnderTheSamePointIsRejected() {
+    fun visualCoordinateIgnoresNodeReplacementAtTheSamePoint() {
         val observed = snapshot(
             nodes = listOf(node("n1", "播放", "[0,0][200,200]", clickable = true)),
         )
@@ -104,31 +104,58 @@ class VisualObservationProtocolTest {
             currentSnapshot = current,
         )
 
-        assertFalse(result.fresh)
-        assertEquals("coordinate_target_changed", result.reason)
+        assertTrue(result.fresh)
+        assertEquals("visual_coordinate_package_verified", result.reason)
     }
 
     @Test
-    fun nestedCoordinateCandidateDoesNotHideTheStableOriginalTarget() {
-        val observed = snapshot(
-            nodes = listOf(
-                node("parent", "播放", "[0,0][200,200]", clickable = true),
-            ),
-        )
+    fun visualOnlyObservationIsNotVetoedByLaterFullScreenRootNode() {
+        val observed = snapshot(nodes = emptyList())
         val current = snapshot(
             nodes = listOf(
-                node("child", "图标", "[30,30][90,90]", clickable = true),
-                node("parent2", "播放", "[0,0][200,200]", clickable = true),
+                node(
+                    id = "root",
+                    text = "首页",
+                    bounds = "[0,0][1224,2700]",
+                    className = "android.view.View",
+                ),
             ),
         )
 
         val result = VisualObservationProtocol.evaluateActionContextFreshness(
-            step = CloudAgentStep(type = "tap_xy", x = 50f, y = 50f),
+            step = CloudAgentStep(type = "tap_xy", x = 314.311f, y = 2607.234f),
             observedSnapshot = observed,
             currentSnapshot = current,
         )
 
         assertTrue(result.fresh)
+        assertEquals("visual_coordinate_package_verified", result.reason)
+    }
+
+    @Test
+    fun visualCoordinateDoesNotUseInteractionSurfaceSimilarityAsAVeto() {
+        val observed = snapshot(
+            nodes = listOf(
+                node("n1", "首页", "[0,0][300,80]", clickable = true),
+                node("n2", "行情", "[0,2500][300,2700]", clickable = true),
+                node("n3", "资讯", "[300,2500][600,2700]", clickable = true),
+                node("n4", "我的", "[600,2500][900,2700]", clickable = true),
+            ),
+        )
+        val current = snapshot(
+            nodes = listOf(
+                node("root", "首页", "[0,0][1224,2700]", className = "android.view.View"),
+            ),
+        )
+
+        val result = VisualObservationProtocol.evaluateActionContextFreshness(
+            step = CloudAgentStep(type = "tap_xy", x = 314.311f, y = 2607.234f),
+            observedSnapshot = observed,
+            currentSnapshot = current,
+        )
+
+        assertTrue(result.fresh)
+        assertEquals("visual_coordinate_package_verified", result.reason)
     }
 
     @Test
@@ -171,7 +198,7 @@ class VisualObservationProtocolTest {
         val current = snapshot(packageName = "com.example.other")
 
         val result = VisualObservationProtocol.evaluateActionContextFreshness(
-            step = CloudAgentStep(type = "swipe", direction = "up"),
+            step = CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f),
             observedSnapshot = observed,
             currentSnapshot = current,
         )
