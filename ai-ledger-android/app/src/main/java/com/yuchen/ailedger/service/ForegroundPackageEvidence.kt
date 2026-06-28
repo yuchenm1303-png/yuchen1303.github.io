@@ -22,11 +22,7 @@ object ForegroundPackageEvidenceResolver {
         transientPackages: Set<String> = VisualSurfacePackagePolicy.transientSystemPackages,
     ): ForegroundPackageProbeResult {
         val accessibility = accessibilityPackage.trim()
-        if (
-            accessibility.isNotBlank() &&
-            accessibility != assistantHostPackage &&
-            accessibility !in transientPackages
-        ) {
+        if (!needsForegroundFallback(accessibility, assistantHostPackage, transientPackages)) {
             return ForegroundPackageProbeResult(
                 packageName = accessibility,
                 source = ForegroundPackageEvidenceSource.Accessibility,
@@ -36,7 +32,7 @@ object ForegroundPackageEvidenceResolver {
         }
 
         val shellPackage = shellProbe.packageName.trim()
-        if (shellProbe.available && shellPackage.isNotBlank()) {
+        if (shellProbe.available && !needsForegroundFallback(shellPackage, assistantHostPackage, transientPackages)) {
             return shellProbe.copy(packageName = shellPackage)
         }
 
@@ -56,8 +52,21 @@ object ForegroundPackageEvidenceResolver {
         accessibilityPackage: String,
         assistantHostPackage: String = VisualSurfacePackagePolicy.ASSISTANT_HOST_PACKAGE,
         transientPackages: Set<String> = VisualSurfacePackagePolicy.transientSystemPackages,
+    ): Boolean = needsForegroundFallback(
+        accessibilityPackage.trim(),
+        assistantHostPackage,
+        transientPackages,
+    )
+
+    private fun needsForegroundFallback(
+        packageName: String,
+        assistantHostPackage: String,
+        transientPackages: Set<String>,
     ): Boolean {
-        val clean = accessibilityPackage.trim()
-        return clean.isBlank() || clean == assistantHostPackage || clean in transientPackages
+        val clean = packageName.trim()
+        return VisualSurfacePackagePolicy.isUnresolvedPackage(clean) ||
+            clean == assistantHostPackage ||
+            clean in transientPackages ||
+            VisualSurfacePackagePolicy.isTransientSystemPackage(clean)
     }
 }
