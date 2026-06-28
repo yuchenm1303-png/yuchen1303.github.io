@@ -5,6 +5,7 @@ import android.content.Context
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
+import com.yuchen.ailedger.ui.InlineStickerAssets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +18,7 @@ class AiLedgerApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         appContext = applicationContext
+        InlineStickerAssets.warmUpAll()
         val visualDiagnostics = VisualIntelligenceDiagnosticsStore.get(applicationContext)
         applicationScope.launch {
             AgentRuntimeController.progress.collectLatest { progress ->
