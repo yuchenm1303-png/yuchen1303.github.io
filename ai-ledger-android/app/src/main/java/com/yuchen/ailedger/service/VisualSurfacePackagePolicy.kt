@@ -31,7 +31,7 @@ object VisualSurfacePackagePolicy {
     fun isTransientSystemPackage(packageName: String): Boolean {
         val cleanPackage = packageName.trim().lowercase()
         return cleanPackage in transientSystemPackages ||
-            transientSystemPackageSuffixes.any(cleanPackage::endsWith)
+            transientSystemPackageSuffixes.any { suffix -> cleanPackage.endsWith(suffix) }
     }
 
     fun requiresForegroundFallback(packageName: String): Boolean {
