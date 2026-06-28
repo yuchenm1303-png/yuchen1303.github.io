@@ -16,11 +16,27 @@ class VisualExecutionStateMachine {
     var surfaceEpoch: Long = 0L
         private set
 
+    private var pendingForeignPackage: String = ""
+    private var pendingForeignSamples: Int = 0
+
     fun beginLaunch(packageName: String): String? {
         val cleanPackage = packageName.trim()
         if (cleanPackage.isBlank()) return null
+
+        // Reopening the already verified base app is a no-op at the state layer. This prevents a
+        // redundant open_app plan from erasing a valid WorkSurface before the runner can observe it.
+        if (
+            surfaceState == VisualSurfaceState.WorkSurface &&
+            selectedTargetPackage == cleanPackage &&
+            verifiedTargetPackage == cleanPackage
+        ) {
+            clearPendingForeignEvidence()
+            return cleanPackage
+        }
+
         selectedTargetPackage = cleanPackage
         verifiedTargetPackage = ""
+        clearPendingForeignEvidence()
         transitionTo(VisualSurfaceState.Launching)
         return cleanPackage
     }
@@ -33,12 +49,22 @@ class VisualExecutionStateMachine {
     fun markTargetVerified(packageName: String): String? {
         val cleanPackage = packageName.trim()
         if (
+            cleanPackage.isNotBlank() &&
+            surfaceState == VisualSurfaceState.WorkSurface &&
+            selectedTargetPackage == cleanPackage &&
+            verifiedTargetPackage == cleanPackage
+        ) {
+            clearPendingForeignEvidence()
+            return cleanPackage
+        }
+        if (
             cleanPackage.isBlank() ||
             selectedTargetPackage.isBlank() ||
             cleanPackage != selectedTargetPackage ||
             !isHandoffState(surfaceState)
         ) return null
         verifiedTargetPackage = cleanPackage
+        clearPendingForeignEvidence()
         transitionTo(VisualSurfaceState.WorkSurface)
         return cleanPackage
     }
@@ -46,6 +72,7 @@ class VisualExecutionStateMachine {
     fun markStructuralReplan() {
         if (surfaceState != VisualSurfaceState.Replanning) routeEpoch += 1L
         verifiedTargetPackage = ""
+        clearPendingForeignEvidence()
         transitionTo(VisualSurfaceState.Replanning)
     }
 
@@ -54,40 +81,75 @@ class VisualExecutionStateMachine {
     }
 
     /**
-     * Reconciles or revokes an existing surface, but never upgrades a launch/replan from one frame.
-     * Stable verification is an explicit coordinator result, not a side effect of package equality.
+     * Missing/transient package evidence never revokes the verified base app. A different concrete
+     * app must be observed twice consecutively before the route is considered lost; this separates
+     * short-lived overlays from a real app switch without relying on app-specific package lists.
      */
     fun synchronizeWith(currentPackage: String) {
         val cleanCurrentPackage = currentPackage.trim()
         if (surfaceState == VisualSurfaceState.Replanning) return
 
-        if (
-            verifiedTargetPackage.isNotBlank() &&
-            VisualSurfacePackagePolicy.isConfidentForeignPackage(
-                cleanCurrentPackage,
-                verifiedTargetPackage,
+        if (verifiedTargetPackage.isBlank()) {
+            clearPendingForeignEvidence()
+            transitionTo(
+                if (surfaceState == VisualSurfaceState.Launching) {
+                    VisualSurfaceState.Launching
+                } else {
+                    VisualSurfaceState.Planning
+                },
             )
-        ) {
-            markStructuralReplan()
             return
         }
 
-        val nextState = when {
-            verifiedTargetPackage.isBlank() -> {
-                if (surfaceState == VisualSurfaceState.Launching) VisualSurfaceState.Launching
-                else VisualSurfaceState.Planning
+        when {
+            cleanCurrentPackage == verifiedTargetPackage -> {
+                clearPendingForeignEvidence()
+                transitionTo(VisualSurfaceState.WorkSurface)
             }
-            else -> VisualSurfaceState.WorkSurface
+            VisualSurfacePackagePolicy.requiresForegroundFallback(cleanCurrentPackage) -> {
+                clearPendingForeignEvidence()
+                transitionTo(VisualSurfaceState.WorkSurface)
+            }
+            VisualSurfacePackagePolicy.isConfidentForeignPackage(
+                cleanCurrentPackage,
+                verifiedTargetPackage,
+            ) -> {
+                if (pendingForeignPackage == cleanCurrentPackage) {
+                    pendingForeignSamples += 1
+                } else {
+                    pendingForeignPackage = cleanCurrentPackage
+                    pendingForeignSamples = 1
+                }
+                if (pendingForeignSamples >= REQUIRED_FOREIGN_SAMPLES) {
+                    markStructuralReplan()
+                } else {
+                    transitionTo(VisualSurfaceState.WorkSurface)
+                }
+            }
+            else -> {
+                clearPendingForeignEvidence()
+                transitionTo(VisualSurfaceState.WorkSurface)
+            }
         }
-        transitionTo(nextState)
     }
 
     fun isVerifiedWorkSurface(currentPackage: String): Boolean {
-        return surfaceState == VisualSurfaceState.WorkSurface &&
-            selectedTargetPackage.isNotBlank() &&
-            verifiedTargetPackage.isNotBlank() &&
-            selectedTargetPackage == verifiedTargetPackage &&
-            currentPackage.trim() == verifiedTargetPackage
+        if (
+            surfaceState != VisualSurfaceState.WorkSurface ||
+            selectedTargetPackage.isBlank() ||
+            verifiedTargetPackage.isBlank() ||
+            selectedTargetPackage != verifiedTargetPackage
+        ) return false
+
+        val current = currentPackage.trim()
+        return current == verifiedTargetPackage ||
+            VisualSurfacePackagePolicy.requiresForegroundFallback(current) ||
+            (pendingForeignPackage == current && pendingForeignSamples in 1 until REQUIRED_FOREIGN_SAMPLES)
+    }
+
+    private fun clearPendingForeignEvidence() {
+        pendingForeignPackage = ""
+        pendingForeignSamples = 0
     }
 
     private fun transitionTo(nextState: VisualSurfaceState) {
@@ -102,5 +164,6 @@ class VisualExecutionStateMachine {
 
     companion object {
         const val ASSISTANT_HOST_PACKAGE = VisualSurfacePackagePolicy.ASSISTANT_HOST_PACKAGE
+        private const val REQUIRED_FOREIGN_SAMPLES = 2
     }
 }
