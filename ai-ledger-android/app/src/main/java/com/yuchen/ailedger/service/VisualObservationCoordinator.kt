@@ -43,6 +43,12 @@ data class VisualObservationTiming(
     val openAppInitialSettleMs: Long = 260L,
     val openAppVerifyPollMs: Long = 140L,
     val openAppVerifyTimeoutMs: Long = 4_200L,
+    // 目标包刚在软截止点附近出现时，至少给第二个稳定样本和最终视觉帧留出时间。
+    val openAppEvidenceGraceMs: Long = 1_200L,
+    // 系统弹窗、启动页和短暂无包名属于交接中的临时表面，只延长本地观察，不重新启动 App。
+    val openAppTransientGraceMs: Long = 2_800L,
+    // 所有软延长都受硬上限约束，避免真正启动失败时无限等待。
+    val openAppMaxVerifyTimeoutMs: Long = 10_000L,
     val requiredStableSamples: Int = 2,
     val trustedPackageTtlMs: Long = 15_000L,
 )
@@ -52,6 +58,7 @@ data class VisualTargetPackageVerification(
     val stableSamples: Int,
     val lastSnapshot: AgentScreenSnapshot?,
     val lastObservation: ScreenObservation?,
+    val reason: String = "",
 )
 
 private data class ResolvedObservationPackage(
@@ -221,7 +228,11 @@ class VisualObservationCoordinator(
         }
 
         val requiredSamples = timing.requiredStableSamples.coerceAtLeast(2)
-        val deadline = elapsedRealtime() + timing.openAppVerifyTimeoutMs
+        val startedAt = elapsedRealtime()
+        val baseTimeout = timing.openAppVerifyTimeoutMs.coerceAtLeast(0L)
+        val hardTimeout = timing.openAppMaxVerifyTimeoutMs.coerceAtLeast(baseTimeout)
+        val hardDeadline = startedAt + hardTimeout
+        var deadline = startedAt + baseTimeout
         var stableSamples = 0
         var lastSnapshot: AgentScreenSnapshot? = null
         sleep(timing.openAppInitialSettleMs)
@@ -234,9 +245,16 @@ class VisualObservationCoordinator(
             )
             val probeSnapshot = probeObservation.toAgentScreenSnapshot()
             lastSnapshot = probeSnapshot
+            val now = elapsedRealtime()
 
             if (probeSnapshot.packageName == expectedPackage) {
                 stableSamples += 1
+                deadline = extendDeadline(
+                    currentDeadline = deadline,
+                    hardDeadline = hardDeadline,
+                    now = now,
+                    graceMs = timing.openAppEvidenceGraceMs,
+                )
                 if (stableSamples >= requiredSamples) {
                     val visualObservation = captureTrustedObservation(
                         forceVisual = true,
@@ -261,9 +279,23 @@ class VisualObservationCoordinator(
                     }
                     if (!VisualSurfacePackagePolicy.requiresForegroundFallback(visualSnapshot.packageName)) {
                         stableSamples = 0
+                    } else {
+                        deadline = extendDeadline(
+                            currentDeadline = deadline,
+                            hardDeadline = hardDeadline,
+                            now = elapsedRealtime(),
+                            graceMs = timing.openAppTransientGraceMs,
+                        )
                     }
                 }
-            } else if (!VisualSurfacePackagePolicy.requiresForegroundFallback(probeSnapshot.packageName)) {
+            } else if (VisualSurfacePackagePolicy.requiresForegroundFallback(probeSnapshot.packageName)) {
+                deadline = extendDeadline(
+                    currentDeadline = deadline,
+                    hardDeadline = hardDeadline,
+                    now = now,
+                    graceMs = timing.openAppTransientGraceMs,
+                )
+            } else {
                 stableSamples = 0
             }
             sleep(timing.openAppVerifyPollMs)
@@ -289,25 +321,36 @@ class VisualObservationCoordinator(
         )
     }
 
+    private fun extendDeadline(
+        currentDeadline: Long,
+        hardDeadline: Long,
+        now: Long,
+        graceMs: Long,
+    ): Long {
+        if (graceMs <= 0L || currentDeadline >= hardDeadline) return currentDeadline
+        return maxOf(currentDeadline, minOf(hardDeadline, now + graceMs))
+    }
+
     private fun reportPackageVerification(
         expectedPackage: String,
         result: VisualTargetPackageVerification,
         reason: String,
     ): VisualTargetPackageVerification {
+        val reported = result.copy(reason = reason)
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "open_app_verification",
             details = JSONObject().apply {
-                put("verified", result.verified)
+                put("verified", reported.verified)
                 put("reason", reason)
                 put("expectedPackage", expectedPackage)
-                put("actualPackage", result.lastSnapshot?.packageName.orEmpty())
-                put("stableSamples", result.stableSamples)
+                put("actualPackage", reported.lastSnapshot?.packageName.orEmpty())
+                put("stableSamples", reported.stableSamples)
                 put("requiredStableSamples", timing.requiredStableSamples.coerceAtLeast(2))
-                put("hasVisualFrame", result.lastSnapshot?.visual?.hasImage == true)
-                put("observationUpdatedAt", result.lastObservation?.updatedAt ?: 0L)
+                put("hasVisualFrame", reported.lastSnapshot?.visual?.hasImage == true)
+                put("observationUpdatedAt", reported.lastObservation?.updatedAt ?: 0L)
             },
         )
-        return result
+        return reported
     }
 
     private suspend fun captureOnce(
