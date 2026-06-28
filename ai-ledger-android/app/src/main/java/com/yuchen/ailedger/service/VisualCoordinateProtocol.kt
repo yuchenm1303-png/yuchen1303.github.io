@@ -77,7 +77,7 @@ internal object VisualCoordinateProtocol {
         if (!rawY.isFinite()) return invalid("invalid_execution_y")
 
         if (alreadyMaterialized) {
-            val expected = expectedFrame?.takeIf(VisualDisplayFrame::valid)
+            val expected = expectedFrame?.takeIf { it.valid }
                 ?: return invalid("missing_source_display_frame")
             if (expected != currentFrame) {
                 return VisualTapCoordinateResolution(
