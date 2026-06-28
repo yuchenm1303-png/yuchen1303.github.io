@@ -4,6 +4,8 @@ import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 fun interface VisualObservationCaptureSource {
     suspend fun capture(forceVisual: Boolean): ScreenObservation
@@ -91,11 +93,37 @@ class VisualObservationCoordinator(
             }
         }
         // 只复用本轮已经得到的观察结果，不触发额外截图或节点扫描。
-        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordObservation(
-            forceVisual = forceVisual,
-            expectedPackage = expectedPackage,
-            observation = resolved,
-        )
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.let { diagnostics ->
+            diagnostics.recordObservation(
+                forceVisual = forceVisual,
+                expectedPackage = expectedPackage,
+                observation = resolved,
+            )
+            diagnostics.recordDiagnosticEvent(
+                type = "observation_evidence",
+                details = JSONObject().apply {
+                    put("forceVisual", forceVisual)
+                    put("expectedPackage", expectedPackage)
+                    put("resolvedPackage", resolved.packageName)
+                    put("windowTitle", resolved.windowTitle)
+                    put("nodeCount", resolved.nodeCount)
+                    put("capturedNodeCount", resolved.capturedNodeCount)
+                    put("textItems", JSONArray(resolved.textItems.take(36)))
+                    put("allItems", JSONArray().apply {
+                        resolved.allItems.take(48).forEach { node -> put(node.toDiagnosticJson()) }
+                    })
+                    put("clickableItems", JSONArray().apply {
+                        resolved.clickableItems.take(24).forEach { node -> put(node.toDiagnosticJson()) }
+                    })
+                    put("inputItems", JSONArray().apply {
+                        resolved.inputItems.take(8).forEach { node -> put(node.toDiagnosticJson()) }
+                    })
+                    put("scrollableItems", JSONArray().apply {
+                        resolved.scrollableItems.take(8).forEach { node -> put(node.toDiagnosticJson()) }
+                    })
+                },
+            )
+        }
         return resolved
     }
 
@@ -183,4 +211,14 @@ class VisualObservationCoordinator(
     private suspend fun sleep(durationMs: Long) {
         if (durationMs > 0L) sleeper(durationMs)
     }
+}
+
+private fun ObservedScreenNode.toDiagnosticJson(): JSONObject = JSONObject().apply {
+    put("id", id)
+    put("text", text)
+    put("className", className)
+    put("bounds", bounds)
+    put("clickable", clickable)
+    put("editable", editable)
+    put("scrollable", scrollable)
 }
