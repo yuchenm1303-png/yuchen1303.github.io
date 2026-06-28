@@ -9,8 +9,9 @@ import kotlin.math.roundToInt
 /**
  * Performs lightweight post-action verification for structured internal-control tools.
  *
- * The verifier never exposes free-form shell to the model. It only reads Android settings or runs
- * fixed read-only shell checks after DeviceToolExecutor has executed a concrete allowlisted tool.
+ * DeepSeek has already selected the tool and calculated its canonical arguments. This verifier
+ * never reads text, targetText, reason, aliases or direction words to reconstruct intent. It only
+ * reads canonical toolArgs, Android state and fixed read-only shell checks after execution.
  */
 class DeviceControlActionVerifier(
     context: Context,
@@ -165,10 +166,9 @@ class DeviceControlActionVerifier(
     }
 
     private fun verifyAnimationScale(step: CloudAgentStep): VerificationResult {
-        val target = formatShellScale(
-            (step.argFloat("scale", "value") ?: firstDecimal(step.text ?: step.targetText ?: step.reason.orEmpty()) ?: 0.5f)
-                .coerceIn(0f, 10f),
-        )
+        val scale = step.argFloat("scale")
+            ?: return VerificationResult(false, "缺少规范 scale 参数，无法确认动画缩放结果。")
+        val target = formatShellScale(scale.coerceIn(0f, 10f))
         val diagnostic = shellBridge.runSafeDiagnostic("animation_scales")
             ?: return VerificationResult(false, "动画缩放诊断模板不可用。")
         val lines = diagnostic.output.lineSequence().map { it.trim() }.filter { it.isNotBlank() && it != "无输出" }.toList()
@@ -262,22 +262,14 @@ class DeviceControlActionVerifier(
 
     private fun expectedBrightnessPercent(step: CloudAgentStep, execution: AgentExecutionResult): Float? {
         targetPercentFromExecutionMessage(execution.message)?.let { return it }
-        val absolutePercent = step.argFloat("percent", "brightness", "value")
-        val hasRelativeOperation = step.argFloat("deltaPercent", "delta", "brightnessDelta", "changePercent", "adjustBy") != null ||
-            percentOperationDelta(step, DEFAULT_BRIGHTNESS_DELTA) != null
-        if (hasRelativeOperation) return null
-        val textPercent = firstNumber(step.text ?: step.targetText ?: step.reason.orEmpty())?.toFloat()
-        return (absolutePercent ?: textPercent)?.coerceIn(0f, 100f)
+        if (step.argFloat("deltaPercent") != null) return null
+        return step.argFloat("percent")?.coerceIn(0f, 100f)
     }
 
     private fun expectedMediaVolumePercent(step: CloudAgentStep, execution: AgentExecutionResult): Float? {
         targetPercentFromExecutionMessage(execution.message)?.let { return it }
-        val absolutePercent = step.argFloat("percent", "volume", "value")
-        val hasRelativeOperation = step.argFloat("deltaPercent", "delta", "changePercent", "adjustBy") != null ||
-            percentOperationDelta(step, DEFAULT_VOLUME_DELTA) != null
-        if (hasRelativeOperation) return null
-        val textPercent = firstNumber(step.text ?: step.targetText ?: step.reason.orEmpty())?.toFloat()
-        return (absolutePercent ?: textPercent)?.coerceIn(0f, 100f)
+        if (step.argFloat("deltaPercent") != null) return null
+        return step.argFloat("percent")?.coerceIn(0f, 100f)
     }
 
     private fun currentBrightnessPercent(): Float? {
@@ -288,66 +280,17 @@ class DeviceControlActionVerifier(
     }
 
     private fun expectedScreenTimeoutMs(step: CloudAgentStep): Int? {
-        step.argLong("timeoutMs", "screenTimeoutMs")?.let { return it.coerceIn(5_000L, 30L * 60L * 1000L).toInt() }
-        step.argLong("seconds", "second", "sec")?.let { return (it * 1000L).coerceIn(5_000L, 30L * 60L * 1000L).toInt() }
-        step.argLong("minutes", "minute", "min")?.let { return (it * 60_000L).coerceIn(5_000L, 30L * 60L * 1000L).toInt() }
-        val text = listOfNotNull(step.text, step.targetText, step.reason).joinToString(" ")
-        val number = firstNumber(text) ?: return null
-        val normalized = text.lowercase()
-        val seconds = when {
-            normalized.contains("分钟") || normalized.contains("min") -> number * 60
-            normalized.contains("秒") || normalized.contains("second") || normalized.contains("sec") -> number
-            else -> number * 60
-        }.coerceIn(5, 30 * 60)
-        return seconds * 1000
+        return step.argLong("timeoutMs")
+            ?.takeIf { it in 5_000L..30L * 60L * 1000L }
+            ?.toInt()
     }
 
     private fun desiredEnabledState(step: CloudAgentStep): Boolean? {
-        val raw = step.argString("enabled", "enable", "on", "state", "value", "mode")
-            ?: step.text
-            ?: step.targetText
-            ?: step.reason
-            ?: return null
-        val normalized = raw.lowercase().trim().replace('_', ' ').replace('-', ' ')
-        return when {
-            listOf("true", "1", "yes", "on", "enable", "enabled", "open", "开启", "打开", "启用", "开").any { normalized.contains(it) } -> true
-            listOf("false", "0", "no", "off", "disable", "disabled", "close", "关闭", "关掉", "禁用", "关").any { normalized.contains(it) } -> false
-            else -> null
-        }
+        return step.toolArgs?.opt("enabled") as? Boolean
     }
 
     private fun darkModeExpected(step: CloudAgentStep): String? {
-        val raw = step.argString("mode", "state", "value", "enabled", "on")
-            ?: step.text
-            ?: step.targetText
-            ?: step.reason
-            ?: return null
-        val normalized = raw.lowercase().trim().replace('_', ' ').replace('-', ' ')
-        if (listOf("auto", "automatic", "follow", "system", "自动", "跟随系统").any { normalized.contains(it) }) return "auto"
-        desiredEnabledState(step)?.let { return if (it) "yes" else "no" }
-        return null
-    }
-
-    private fun percentOperationDelta(step: CloudAgentStep, amount: Float): Float? {
-        val operation = step.argString("operation", "mode", "adjustment", "relative", "direction")
-            ?.lowercase()
-            ?.replace('_', ' ')
-            ?.replace('-', ' ')
-            ?.trim()
-            ?: return null
-        return when (operation) {
-            "decrease", "reduce", "lower", "down", "dim", "darker", "less", "mute", "调低", "降低", "变暗", "小一点", "减小" -> -amount
-            "increase", "raise", "higher", "up", "brighten", "brighter", "more", "调高", "提高", "变亮", "大一点", "增大" -> amount
-            else -> null
-        }
-    }
-
-    private fun firstNumber(value: String): Int? {
-        return Regex("\\d{1,4}").findAll(value).mapNotNull { it.value.toIntOrNull() }.firstOrNull()
-    }
-
-    private fun firstDecimal(value: String): Float? {
-        return Regex("\\d+(?:\\.\\d+)?").findAll(value).mapNotNull { it.value.toFloatOrNull() }.firstOrNull()
+        return step.argString("mode")?.takeIf { it in setOf("yes", "no", "auto") }
     }
 
     private fun formatTimeout(timeoutMs: Int): String {
@@ -365,8 +308,8 @@ class DeviceControlActionVerifier(
     }
 
     private fun safePackageName(step: CloudAgentStep): String? {
-        val packageName = step.packageName ?: step.argString("packageName", "package", "pkg") ?: return null
-        return packageName.takeIf { it.matches(Regex("""[A-Za-z0-9_.]+""")) && it.contains('.') }
+        val packageName = step.packageName ?: step.argString("packageName") ?: return null
+        return packageName.takeIf { DeviceControlSpecs.isSafePackageName(it) }
     }
 
     private data class VerificationResult(
@@ -375,8 +318,6 @@ class DeviceControlActionVerifier(
     )
 
     private companion object {
-        private const val DEFAULT_BRIGHTNESS_DELTA = 15f
-        private const val DEFAULT_VOLUME_DELTA = 15f
         private const val BRIGHTNESS_TOLERANCE_PERCENT = 4f
         private const val VOLUME_TOLERANCE_PERCENT = 6f
         private const val SCREEN_TIMEOUT_TOLERANCE_MS = 1_000
