@@ -125,7 +125,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         endpointLoop@ for (cleanEndpoint in endpoints) {
             for (candidate in endpointCandidates(cleanEndpoint)) {
                 try {
-                    return postChat(candidate, payload, route)
+                    val response = postChat(candidate, payload, route)
+                    AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
+                    return response
                 } catch (error: IOException) {
                     lastError = error
                     if (error is SocketTimeoutException || error.cause is SocketTimeoutException) continue@endpointLoop
@@ -155,7 +157,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         endpointLoop@ for (cleanEndpoint in endpoints) {
             for (candidate in endpointCandidates(cleanEndpoint)) {
                 try {
-                    return postStreamChat(candidate, payload, route, onDelta)
+                    val response = postStreamChat(candidate, payload, route, onDelta)
+                    AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
+                    return response
                 } catch (error: IOException) {
                     lastError = error
                     if (error is SocketTimeoutException || error.cause is SocketTimeoutException) continue@endpointLoop
