@@ -22,7 +22,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.yuchen.ailedger.model.GlassBorderStyle
+import com.yuchen.ailedger.ui.BackdropCoordinateSource
+import com.yuchen.ailedger.ui.BackdropFrameTicker
 import com.yuchen.ailedger.ui.GlassCoordinateSource
+import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
@@ -46,7 +49,7 @@ private const val EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE = 0x0400
 enum class OpenGLGlassSurfaceAnchor(val fraction: Float) {
     Top(0f),
     Center(0.44f),
-    Bottom(1f)
+    Bottom(1f),
 }
 
 val LocalOpenGLGlassSurfaceAnchor = compositionLocalOf {
@@ -60,9 +63,8 @@ val LocalOpenGLGlassViewportTopInset = compositionLocalOf {
 /**
  * 旧版 OpenGL Shell 宿主。
  *
- * 稳定 Surface、anchor 与 viewportTopInset 链保持原样；底层 Renderer 已改为
- * dirty-mask、VBO、纹理复用和局部清屏实现。旧 Shader 历史上未消费
- * glassIntensity，因此保留公开参数但不为它触发无意义重绘。
+ * 稳定 Surface、anchor 与 viewportTopInset 链保持原样。几何、采样原点和按压状态
+ * 通过 VSync 快照直达 Host，不再依赖 Compose placementVersion 逐帧重组。
  */
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -73,11 +75,13 @@ fun OpenGLGlassCardLayer(
     modifier: Modifier = Modifier,
     pressProgress: Float = 0f,
     pressCenter: Offset = Offset(0.5f, 0.5f),
-    viewportTopInsetPx: Float = 0f
+    viewportTopInsetPx: Float = 0f,
+    dynamicState: OpenGLGlassDynamicState? = null,
 ) {
     val backdrop = LocalBlurredBackdrop.current ?: return
     val border = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val backdropOrigin = LocalBackdropOrigin.current
+    val backdropTicker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
     val localViewportTopInsetPx = with(density) {
@@ -90,10 +94,9 @@ fun OpenGLGlassCardLayer(
     val blurBitmap = remember(backdrop.image) { backdrop.image.asAndroidBitmap() }
     val lensBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
     val radiusPx = with(density) { radius.dp.toPx() }.roundToInt().toFloat()
-    val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
-    val press = pressProgress.coerceIn(0f, 1f)
-    val pressX = pressCenter.x.coerceIn(0f, 1f)
-    val pressY = pressCenter.y.coerceIn(0f, 1f)
+    val staticPress = pressProgress.coerceIn(0f, 1f)
+    val staticPressX = pressCenter.x.coerceIn(0f, 1f)
+    val staticPressY = pressCenter.y.coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }
@@ -116,37 +119,38 @@ fun OpenGLGlassCardLayer(
             update = { view ->
                 view.applyGlassFoldoutClip(
                     registry = foldoutClipRegistry,
-                    coordinates = coordinateSource?.coordinates
+                    coordinates = coordinateSource?.coordinates,
+                )
+                view.bindDynamicSources(
+                    coordinateSource = coordinateSource,
+                    backdropOrigin = backdropOrigin,
+                    frameTicker = backdropTicker,
+                    dynamicState = dynamicState,
                 )
                 view.setStableSurfaceAnchor(surfaceAnchor)
                 val surfaceDirty = view.setStableSurfaceSize(
                     width = widthPx.roundToInt(),
                     height = heightPx.roundToInt(),
                     rootWidth = rootWidthPx.roundToInt(),
-                    rootHeight = rootHeightPx.roundToInt()
+                    rootHeight = rootHeightPx.roundToInt(),
                 )
-                val specDirty = view.setGlassSpec(
+                val frameDirty = view.setFrameSpec(
                     width = widthPx,
                     height = viewportHeightPx,
                     rectOffsetY = safeViewportTopInsetPx,
-                    radius = radiusPx
-                )
-                val samplingDirty = view.setSamplingSpec(
-                    originX = cardOrigin.x,
-                    originY = cardOrigin.y + safeViewportTopInsetPx,
+                    radius = radiusPx,
                     rootWidth = rootWidthPx,
-                    rootHeight = rootHeightPx
+                    rootHeight = rootHeightPx,
+                    staticPressProgress = staticPress,
+                    staticPressCenterX = staticPressX,
+                    staticPressCenterY = staticPressY,
                 )
-                val pressDirty = view.setPressSpec(press, pressX, pressY)
                 val textureDirty = view.setBackdropTextures(blurBitmap, lensBitmap)
                 val styleDirty = view.setGlassStyle(border)
-                if (
-                    surfaceDirty || specDirty || samplingDirty ||
-                    pressDirty || textureDirty || styleDirty
-                ) {
+                if (surfaceDirty || frameDirty || textureDirty || styleDirty) {
                     view.requestRenderOnNextAnimationFrame()
                 }
-            }
+            },
         )
     }
 }
@@ -161,19 +165,31 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private var lastRootHeight = 1
     private var geometryAwaitingLayout = false
     private var renderPosted = false
+    private var renderAfterLayout = false
 
     private var latestGlassWidth = 1f
     private var latestGlassHeight = 1f
     private var latestRectOffsetY = 0f
     private var latestRadius = 24f
-    private var latestOriginX = 0f
-    private var latestOriginY = 0f
     private var latestRootWidth = 1f
     private var latestRootHeight = 1f
+    private var latestStaticPressProgress = 0f
+    private var latestStaticPressCenterX = 0.5f
+    private var latestStaticPressCenterY = 0.5f
+
+    private var coordinateSource: GlassCoordinateSource? = null
+    private var backdropOrigin: BackdropCoordinateSource? = null
+    private var frameTicker: BackdropFrameTicker? = null
+    private var dynamicState: OpenGLGlassDynamicState? = null
+    private var removeCoordinateListener: (() -> Unit)? = null
+    private var removeBackdropListener: (() -> Unit)? = null
+    private var removeTickerListener: (() -> Unit)? = null
+    private var removeDynamicListener: (() -> Unit)? = null
 
     private val renderRunnable = Runnable {
         renderPosted = false
         if (!geometryAwaitingLayout && isAttachedToWindow) {
+            syncDynamicFrameToTexture()
             textureView.requestRender()
         }
     }
@@ -187,6 +203,27 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         addView(textureView, LayoutParams(1, 1))
     }
 
+    fun bindDynamicSources(
+        coordinateSource: GlassCoordinateSource?,
+        backdropOrigin: BackdropCoordinateSource?,
+        frameTicker: BackdropFrameTicker?,
+        dynamicState: OpenGLGlassDynamicState?,
+    ) {
+        if (
+            this.coordinateSource === coordinateSource &&
+            this.backdropOrigin === backdropOrigin &&
+            this.frameTicker === frameTicker &&
+            this.dynamicState === dynamicState
+        ) return
+
+        uninstallDynamicSubscriptions()
+        this.coordinateSource = coordinateSource
+        this.backdropOrigin = backdropOrigin
+        this.frameTicker = frameTicker
+        this.dynamicState = dynamicState
+        if (isAttachedToWindow) installDynamicSubscriptions()
+    }
+
     fun setStableSurfaceAnchor(anchorY: Float): Boolean {
         stableSurfaceAnchorY = anchorY.coerceIn(0f, 1f)
         return false
@@ -196,7 +233,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         width: Int,
         height: Int,
         rootWidth: Int,
-        rootHeight: Int
+        rootHeight: Int,
     ): Boolean {
         val safeWidth = width.coerceAtLeast(1)
         val safeHeight = height.coerceAtLeast(1)
@@ -209,48 +246,64 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         lastRootWidth = safeRootWidth
         lastRootHeight = safeRootHeight
 
-        val targetWidth = if (rootSizeChanged) {
-            safeWidth
-        } else {
-            max(stableSurfaceWidth, safeWidth)
-        }
-        val targetHeight = if (rootSizeChanged) {
-            safeHeight
-        } else {
-            max(stableSurfaceHeight, safeHeight)
-        }
-        val sizeChanged =
-            targetWidth != stableSurfaceWidth ||
-                targetHeight != stableSurfaceHeight
+        val targetWidth = if (rootSizeChanged) safeWidth else max(stableSurfaceWidth, safeWidth)
+        val targetHeight = if (rootSizeChanged) safeHeight else max(stableSurfaceHeight, safeHeight)
+        val sizeChanged = targetWidth != stableSurfaceWidth || targetHeight != stableSurfaceHeight
 
         stableSurfaceWidth = targetWidth
         stableSurfaceHeight = targetHeight
         PerformanceRuntimeMetrics.recordOpenGlSurface(stableSurfaceWidth, stableSurfaceHeight)
 
         val current = textureView.layoutParams as? LayoutParams
-        val layoutDirty =
-            current == null ||
-                current.width != stableSurfaceWidth ||
-                current.height != stableSurfaceHeight
-        if (layoutDirty) {
-            textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
-        }
+        val layoutDirty = current == null ||
+            current.width != stableSurfaceWidth ||
+            current.height != stableSurfaceHeight
+        if (layoutDirty) textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
 
         val dirty = sizeChanged || layoutDirty
         if (dirty) {
             geometryAwaitingLayout = true
+            renderAfterLayout = true
             requestLayout()
         }
         return dirty
     }
 
-    override fun onLayout(
-        changed: Boolean,
-        left: Int,
-        top: Int,
-        right: Int,
-        bottom: Int
-    ) {
+    fun setFrameSpec(
+        width: Float,
+        height: Float,
+        rectOffsetY: Float,
+        radius: Float,
+        rootWidth: Float,
+        rootHeight: Float,
+        staticPressProgress: Float,
+        staticPressCenterX: Float,
+        staticPressCenterY: Float,
+    ): Boolean {
+        latestGlassWidth = width.coerceAtLeast(1f)
+        latestGlassHeight = height.coerceAtLeast(1f)
+        latestRectOffsetY = rectOffsetY
+        latestRadius = radius
+        latestRootWidth = rootWidth.coerceAtLeast(1f)
+        latestRootHeight = rootHeight.coerceAtLeast(1f)
+        latestStaticPressProgress = staticPressProgress.coerceIn(0f, 1f)
+        latestStaticPressCenterX = staticPressCenterX.coerceIn(0f, 1f)
+        latestStaticPressCenterY = staticPressCenterY.coerceIn(0f, 1f)
+        return if (geometryAwaitingLayout) {
+            renderAfterLayout = true
+            false
+        } else {
+            syncDynamicFrameToTexture()
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        installDynamicSubscriptions()
+        requestRenderOnNextAnimationFrame()
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         @Suppress("UNUSED_VARIABLE")
         val preservedAnchor = stableSurfaceAnchorY
         textureView.translationY = 0f
@@ -261,80 +314,83 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
             removeCallbacks(renderRunnable)
             renderPosted = false
         }
-        val glassDirty = syncGlassSpecToTexture()
-        val samplingDirty = syncSamplingSpecToTexture()
-        // TextureView 自己会在 Surface 尺寸变化时唤醒；父布局 changed 不再重复提交同一帧。
-        if (glassDirty || samplingDirty) {
-            textureView.requestRender()
-        }
+        val frameDirty = syncDynamicFrameToTexture()
+        val shouldRender = renderAfterLayout || frameDirty
+        renderAfterLayout = false
+        if (shouldRender) textureView.requestRender()
     }
 
     override fun onDetachedFromWindow() {
         removeCallbacks(renderRunnable)
         renderPosted = false
+        uninstallDynamicSubscriptions()
         super.onDetachedFromWindow()
     }
-
-    fun setGlassSpec(
-        width: Float,
-        height: Float,
-        rectOffsetY: Float,
-        radius: Float
-    ): Boolean {
-        latestGlassWidth = width.coerceAtLeast(1f)
-        latestGlassHeight = height.coerceAtLeast(1f)
-        latestRectOffsetY = rectOffsetY
-        latestRadius = radius
-        return if (geometryAwaitingLayout) false else syncGlassSpecToTexture()
-    }
-
-    fun setSamplingSpec(
-        originX: Float,
-        originY: Float,
-        rootWidth: Float,
-        rootHeight: Float
-    ): Boolean {
-        latestOriginX = originX
-        latestOriginY = originY
-        latestRootWidth = rootWidth.coerceAtLeast(1f)
-        latestRootHeight = rootHeight.coerceAtLeast(1f)
-        return if (geometryAwaitingLayout) false else syncSamplingSpecToTexture()
-    }
-
-    fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean =
-        textureView.setPressSpec(progress, centerX, centerY)
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean =
         textureView.setBackdropTextures(blurBitmap, lensBitmap)
 
-    fun setGlassStyle(style: GlassBorderStyle): Boolean =
-        textureView.setGlassStyle(style)
+    fun setGlassStyle(style: GlassBorderStyle): Boolean = textureView.setGlassStyle(style)
 
     fun requestRenderOnNextAnimationFrame() {
-        if (geometryAwaitingLayout || renderPosted) return
+        if (geometryAwaitingLayout) {
+            renderAfterLayout = true
+            return
+        }
+        if (renderPosted) return
         renderPosted = true
         postOnAnimation(renderRunnable)
     }
 
-    private fun syncGlassSpecToTexture(): Boolean =
-        textureView.setGlassSpec(
-            latestGlassWidth,
-            latestGlassHeight,
-            latestRectOffsetY,
-            latestRadius
-        )
+    private fun installDynamicSubscriptions() {
+        if (removeCoordinateListener != null || removeBackdropListener != null || removeTickerListener != null || removeDynamicListener != null) return
+        removeCoordinateListener = coordinateSource?.addPlacementListener(::requestRenderOnNextAnimationFrame)
+        removeBackdropListener = backdropOrigin?.addPlacementListener(::requestRenderOnNextAnimationFrame)
+        removeTickerListener = frameTicker?.addFrameListener(::refreshDynamicFrameAtVsync)
+        removeDynamicListener = dynamicState?.addFrameListener(::refreshDynamicFrameAtVsync)
+    }
 
-    private fun syncSamplingSpecToTexture(): Boolean =
-        textureView.setSamplingSpec(
-            latestOriginX,
-            latestOriginY,
-            latestRootWidth,
-            latestRootHeight
+    private fun uninstallDynamicSubscriptions() {
+        removeCoordinateListener?.invoke()
+        removeBackdropListener?.invoke()
+        removeTickerListener?.invoke()
+        removeDynamicListener?.invoke()
+        removeCoordinateListener = null
+        removeBackdropListener = null
+        removeTickerListener = null
+        removeDynamicListener = null
+    }
+
+    private fun refreshDynamicFrameAtVsync() {
+        if (geometryAwaitingLayout) {
+            renderAfterLayout = true
+            return
+        }
+        if (!isAttachedToWindow) return
+        if (syncDynamicFrameToTexture()) textureView.requestRender()
+    }
+
+    private fun syncDynamicFrameToTexture(): Boolean {
+        val origin = coordinateSource?.offsetRelativeToNow(backdropOrigin) ?: Offset.Zero
+        val dynamic = dynamicState?.latestSnapshot()
+        return textureView.setFrameState(
+            width = latestGlassWidth,
+            height = latestGlassHeight,
+            rectOffsetY = latestRectOffsetY,
+            radius = latestRadius,
+            originX = origin.x,
+            originY = origin.y + latestRectOffsetY,
+            rootWidth = latestRootWidth,
+            rootHeight = latestRootHeight,
+            pressProgress = dynamic?.openGlPress ?: latestStaticPressProgress,
+            pressCenterX = dynamic?.pressCenter?.x ?: latestStaticPressCenterX,
+            pressCenterY = dynamic?.pressCenter?.y ?: latestStaticPressCenterY,
         )
+    }
 }
 
 private class OpenGLGlassCardTextureView(
-    context: Context
+    context: Context,
 ) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: CardGlassEglThread? = null
     private var latestBlurBitmap: Bitmap? = null
@@ -362,65 +418,72 @@ private class OpenGLGlassCardTextureView(
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
-    fun setGlassSpec(
+    fun setFrameState(
         width: Float,
         height: Float,
         rectOffsetY: Float,
-        radius: Float
+        radius: Float,
+        originX: Float,
+        originY: Float,
+        rootWidth: Float,
+        rootHeight: Float,
+        pressProgress: Float,
+        pressCenterX: Float,
+        pressCenterY: Float,
     ): Boolean {
         val nextWidth = width.coerceAtLeast(1f)
         val nextHeight = height.coerceAtLeast(1f)
-        val dirty =
+        val nextRootWidth = rootWidth.coerceAtLeast(1f)
+        val nextRootHeight = rootHeight.coerceAtLeast(1f)
+        val nextPress = pressProgress.coerceIn(0f, 1f)
+        val nextPressX = pressCenterX.coerceIn(0f, 1f)
+        val nextPressY = pressCenterY.coerceIn(0f, 1f)
+
+        val geometryDirty =
             abs(nextWidth - latestWidth) > GLASS_SPEC_EPSILON_PX ||
                 abs(nextHeight - latestHeight) > GLASS_SPEC_EPSILON_PX ||
                 abs(rectOffsetY - latestRectOffsetY) > GLASS_SPEC_EPSILON_PX ||
                 abs(radius - latestRadius) > GLASS_SPEC_EPSILON_PX
-        latestWidth = nextWidth
-        latestHeight = nextHeight
-        latestRectOffsetY = rectOffsetY
-        latestRadius = radius
-        if (dirty) {
-            renderThread?.setGlassSpec(nextWidth, nextHeight, rectOffsetY, radius)
-        }
-        return dirty
-    }
-
-    fun setSamplingSpec(
-        originX: Float,
-        originY: Float,
-        rootWidth: Float,
-        rootHeight: Float
-    ): Boolean {
-        val nextRootWidth = rootWidth.coerceAtLeast(1f)
-        val nextRootHeight = rootHeight.coerceAtLeast(1f)
-        val dirty =
+        val samplingDirty =
             abs(originX - latestOriginX) > GLASS_ORIGIN_EPSILON_PX ||
                 abs(originY - latestOriginY) > GLASS_ORIGIN_EPSILON_PX ||
                 abs(nextRootWidth - latestRootWidth) > GLASS_SPEC_EPSILON_PX ||
                 abs(nextRootHeight - latestRootHeight) > GLASS_SPEC_EPSILON_PX
+        val pressDirty =
+            abs(nextPress - latestPressProgress) > GLASS_PRESS_EPSILON ||
+                abs(nextPressX - latestPressCenterX) > GLASS_PRESS_CENTER_EPSILON ||
+                abs(nextPressY - latestPressCenterY) > GLASS_PRESS_CENTER_EPSILON
+        val dirty = geometryDirty || samplingDirty || pressDirty
+
+        latestWidth = nextWidth
+        latestHeight = nextHeight
+        latestRectOffsetY = rectOffsetY
+        latestRadius = radius
         latestOriginX = originX
         latestOriginY = originY
         latestRootWidth = nextRootWidth
         latestRootHeight = nextRootHeight
-        if (dirty) {
-            renderThread?.setSamplingSpec(originX, originY, nextRootWidth, nextRootHeight)
-        }
-        return dirty
-    }
+        latestPressProgress = nextPress
+        latestPressCenterX = nextPressX
+        latestPressCenterY = nextPressY
 
-    fun setPressSpec(progress: Float, centerX: Float, centerY: Float): Boolean {
-        val safeProgress = progress.coerceIn(0f, 1f)
-        val safeCenterX = centerX.coerceIn(0f, 1f)
-        val safeCenterY = centerY.coerceIn(0f, 1f)
-        val dirty =
-            abs(safeProgress - latestPressProgress) > GLASS_PRESS_EPSILON ||
-                abs(safeCenterX - latestPressCenterX) > GLASS_PRESS_CENTER_EPSILON ||
-                abs(safeCenterY - latestPressCenterY) > GLASS_PRESS_CENTER_EPSILON
-        latestPressProgress = safeProgress
-        latestPressCenterX = safeCenterX
-        latestPressCenterY = safeCenterY
         if (dirty) {
-            renderThread?.setPressSpec(safeProgress, safeCenterX, safeCenterY)
+            renderThread?.setFrameState(
+                width = nextWidth,
+                height = nextHeight,
+                rectOffsetY = rectOffsetY,
+                radius = radius,
+                originX = originX,
+                originY = originY,
+                rootWidth = nextRootWidth,
+                rootHeight = nextRootHeight,
+                pressProgress = nextPress,
+                pressCenterX = nextPressX,
+                pressCenterY = nextPressY,
+                geometryDirty = geometryDirty,
+                samplingDirty = samplingDirty,
+                pressDirty = pressDirty,
+            )
         }
         return dirty
     }
@@ -457,17 +520,30 @@ private class OpenGLGlassCardTextureView(
     override fun onSurfaceTextureAvailable(
         surfaceTexture: SurfaceTexture,
         width: Int,
-        height: Int
+        height: Int,
     ) {
         renderThread?.shutdown()
         renderThread = CardGlassEglThread(
             surface = Surface(surfaceTexture),
             width = width,
-            height = height
+            height = height,
         ).also { thread ->
-            thread.setGlassSpec(latestWidth, latestHeight, latestRectOffsetY, latestRadius)
-            thread.setSamplingSpec(latestOriginX, latestOriginY, latestRootWidth, latestRootHeight)
-            thread.setPressSpec(latestPressProgress, latestPressCenterX, latestPressCenterY)
+            thread.setFrameState(
+                width = latestWidth,
+                height = latestHeight,
+                rectOffsetY = latestRectOffsetY,
+                radius = latestRadius,
+                originX = latestOriginX,
+                originY = latestOriginY,
+                rootWidth = latestRootWidth,
+                rootHeight = latestRootHeight,
+                pressProgress = latestPressProgress,
+                pressCenterX = latestPressCenterX,
+                pressCenterY = latestPressCenterY,
+                geometryDirty = true,
+                samplingDirty = true,
+                pressDirty = true,
+            )
             thread.setGlassStyle(latestStyle)
             val blur = latestBlurBitmap
             val lens = latestLensBitmap
@@ -479,7 +555,7 @@ private class OpenGLGlassCardTextureView(
     override fun onSurfaceTextureSizeChanged(
         surfaceTexture: SurfaceTexture,
         width: Int,
-        height: Int
+        height: Int,
     ) {
         renderThread?.resize(width, height)
     }
@@ -496,7 +572,7 @@ private class OpenGLGlassCardTextureView(
 private class CardGlassEglThread(
     private val surface: Surface,
     width: Int,
-    height: Int
+    height: Int,
 ) : Thread("OpenGLGlassCardTextureThread") {
     private val renderer = LegacyOpenGLGlassRenderer()
     private val renderLock = Object()
@@ -510,17 +586,39 @@ private class CardGlassEglThread(
     private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
-    private var preservedSwap = false
     private var metricsContextActive = false
 
-    fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float) =
-        renderer.setGlassSpec(width, height, rectOffsetY, radius)
-
-    fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) =
-        renderer.setSamplingSpec(originX, originY, rootWidth, rootHeight)
-
-    fun setPressSpec(progress: Float, centerX: Float, centerY: Float) =
-        renderer.setPressSpec(progress, centerX, centerY)
+    fun setFrameState(
+        width: Float,
+        height: Float,
+        rectOffsetY: Float,
+        radius: Float,
+        originX: Float,
+        originY: Float,
+        rootWidth: Float,
+        rootHeight: Float,
+        pressProgress: Float,
+        pressCenterX: Float,
+        pressCenterY: Float,
+        geometryDirty: Boolean,
+        samplingDirty: Boolean,
+        pressDirty: Boolean,
+    ) = renderer.setFrameState(
+        width = width,
+        height = height,
+        rectOffsetY = rectOffsetY,
+        radius = radius,
+        originX = originX,
+        originY = originY,
+        rootWidth = rootWidth,
+        rootHeight = rootHeight,
+        pressProgress = pressProgress,
+        pressCenterX = pressCenterX,
+        pressCenterY = pressCenterY,
+        geometryDirty = geometryDirty,
+        samplingDirty = samplingDirty,
+        pressDirty = pressDirty,
+    )
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) =
         renderer.setBackdropTextures(blurBitmap, lensBitmap)
@@ -553,8 +651,8 @@ private class CardGlassEglThread(
     override fun run() {
         try {
             initEgl()
-            // TextureView 的透明 preserved back buffer 在聊天面板几何动画时会轮换旧像素。
-            // 旧版玻璃按需渲染，关闭局部清屏不会增加空闲负载，却能彻底消除闪烁与固定残影。
+            // 透明 TextureView 的 preserved back buffer 在聊天面板几何动画时会轮换旧像素。
+            // 旧版玻璃继续完整清屏，避免以性能优化为代价引入残影或闪烁。
             renderer.setPartialClearSupported(false)
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportWidth, viewportHeight)
@@ -591,7 +689,7 @@ private class CardGlassEglThread(
         }
 
         val preservedConfig = chooseConfig(
-            EGL14.EGL_WINDOW_BIT or EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE
+            EGL14.EGL_WINDOW_BIT or EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE,
         )
         val config = preservedConfig ?: chooseConfig(EGL14.EGL_WINDOW_BIT)
             ?: error("No EGL config found")
@@ -603,9 +701,9 @@ private class CardGlassEglThread(
             intArrayOf(
                 EGL14.EGL_CONTEXT_CLIENT_VERSION,
                 2,
-                EGL14.EGL_NONE
+                EGL14.EGL_NONE,
             ),
-            0
+            0,
         )
         check(eglContext != EGL14.EGL_NO_CONTEXT) { "Unable to create EGL context" }
 
@@ -614,26 +712,23 @@ private class CardGlassEglThread(
             config,
             surface,
             intArrayOf(EGL14.EGL_NONE),
-            0
+            0,
         )
         check(eglSurface != EGL14.EGL_NO_SURFACE) { "Unable to create EGL window surface" }
-        check(
-            EGL14.eglMakeCurrent(
-                eglDisplay,
-                eglSurface,
-                eglSurface,
-                eglContext
-            )
-        ) { "Unable to make EGL context current" }
+        check(EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)) {
+            "Unable to make EGL context current"
+        }
         metricsContextActive = true
         PerformanceRuntimeMetrics.recordOpenGlContextCreated()
 
-        preservedSwap = preservedConfig != null && EGL14.eglSurfaceAttrib(
-            eglDisplay,
-            eglSurface,
-            EGL_SWAP_BEHAVIOR_VALUE,
-            EGL_BUFFER_PRESERVED_VALUE
-        )
+        if (preservedConfig != null) {
+            EGL14.eglSurfaceAttrib(
+                eglDisplay,
+                eglSurface,
+                EGL_SWAP_BEHAVIOR_VALUE,
+                EGL_BUFFER_PRESERVED_VALUE,
+            )
+        }
     }
 
     private fun chooseConfig(surfaceType: Int): EGLConfig? {
@@ -646,7 +741,7 @@ private class CardGlassEglThread(
             EGL14.EGL_ALPHA_SIZE, 8,
             EGL14.EGL_DEPTH_SIZE, 0,
             EGL14.EGL_STENCIL_SIZE, 0,
-            EGL14.EGL_NONE
+            EGL14.EGL_NONE,
         )
         val configs = arrayOfNulls<EGLConfig>(1)
         val count = IntArray(1)
@@ -658,7 +753,7 @@ private class CardGlassEglThread(
             0,
             configs.size,
             count,
-            0
+            0,
         )
         return if (success && count[0] > 0) configs[0] else null
     }
@@ -669,7 +764,7 @@ private class CardGlassEglThread(
                 eglDisplay,
                 EGL14.EGL_NO_SURFACE,
                 EGL14.EGL_NO_SURFACE,
-                EGL14.EGL_NO_CONTEXT
+                EGL14.EGL_NO_CONTEXT,
             )
             if (eglSurface != EGL14.EGL_NO_SURFACE) {
                 EGL14.eglDestroySurface(eglDisplay, eglSurface)
@@ -700,7 +795,7 @@ private data class OpenGLGlassStyleSignature(
     val sampleRadiusScale: Float,
     val ringWidthDp: Float,
     val debugLineAlpha: Float,
-    val darkScale: Float
+    val darkScale: Float,
 )
 
 private fun GlassBorderStyle.openGlSignature(): OpenGLGlassStyleSignature =
@@ -715,5 +810,5 @@ private fun GlassBorderStyle.openGlSignature(): OpenGLGlassStyleSignature =
         sampleRadiusScale = openGlSampleRadiusScale.coerceIn(0f, 200f),
         ringWidthDp = ringWidthDp.coerceIn(0f, 300f),
         debugLineAlpha = openGlDebugLineAlpha.coerceIn(0f, 1f),
-        darkScale = openGlDarkScale.coerceIn(-10f, 10f)
+        darkScale = openGlDarkScale.coerceIn(-10f, 10f),
     )
