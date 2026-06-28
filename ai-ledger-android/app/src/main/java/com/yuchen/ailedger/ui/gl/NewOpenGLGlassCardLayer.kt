@@ -22,6 +22,7 @@ import com.yuchen.ailedger.model.legacyOpenGlReferenceStyle
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.GlassSceneGroup
 import com.yuchen.ailedger.ui.LegacyOpenGLGlassPreviewShell
+import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
@@ -46,7 +47,8 @@ fun NewOpenGLGlassCardLayer(
     modifier: Modifier = Modifier,
     pressProgress: Float = 0f,
     pressCenter: Offset = Offset(0.5f, 0.5f),
-    viewportTopInsetPx: Float = 0f
+    viewportTopInsetPx: Float = 0f,
+    dynamicState: OpenGLGlassDynamicState? = null,
 ) {
     val backdrop = LocalBlurredBackdrop.current ?: return
 
@@ -87,7 +89,8 @@ fun NewOpenGLGlassCardLayer(
                     coordinateSource = coordinateSource,
                     pressProgress = pressProgress,
                     pressCenter = pressCenter,
-                    viewportTopInsetPx = viewportTopInsetPx
+                    viewportTopInsetPx = viewportTopInsetPx,
+                    dynamicState = dynamicState,
                 ) {}
             }
         } else {
@@ -98,7 +101,8 @@ fun NewOpenGLGlassCardLayer(
                 modifier = modifier,
                 pressProgress = pressProgress,
                 pressCenter = pressCenter,
-                viewportTopInsetPx = viewportTopInsetPx
+                viewportTopInsetPx = viewportTopInsetPx,
+                dynamicState = dynamicState,
             )
         }
         return
@@ -111,6 +115,7 @@ fun NewOpenGLGlassCardLayer(
     }
     val rendererBorder = remember(border) { border.onlyWebOpenGLRendererFields() }
     val backdropOrigin = LocalBackdropOrigin.current
+    val backdropTicker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     val densityScale = density.density.coerceAtLeast(0.001f)
     val surfaceAnchor = LocalOpenGLGlassSurfaceAnchor.current.fraction
@@ -126,10 +131,9 @@ fun NewOpenGLGlassCardLayer(
 
     val intensity = border.newOpenGlGlassIntensity.takeIf { it > 0f }?.coerceIn(0.35f, 1.35f)
         ?: glassIntensity.coerceIn(0.35f, 1.35f)
-    val cardOrigin = coordinateSource?.offsetRelativeTo(backdropOrigin) ?: Offset.Zero
-    val press = pressProgress.coerceIn(0f, 1f)
-    val pressX = pressCenter.x.coerceIn(0f, 1f)
-    val rawPressY = pressCenter.y.coerceIn(0f, 1f)
+    val staticPress = pressProgress.coerceIn(0f, 1f)
+    val staticPressX = pressCenter.x.coerceIn(0f, 1f)
+    val staticPressY = pressCenter.y.coerceIn(0f, 1f)
 
     BoxWithConstraints(modifier = modifier) {
         val widthPx = with(density) { maxWidth.toPx() }.coerceAtLeast(1f)
@@ -148,8 +152,6 @@ fun NewOpenGLGlassCardLayer(
         }
         val safeViewportTopInsetPx = effectiveViewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
         val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
-        val mappedPressY = ((rawPressY * heightPx - safeViewportTopInsetPx) / viewportHeightPx)
-            .coerceIn(0f, 1f)
         val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
         val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
 
@@ -168,20 +170,25 @@ fun NewOpenGLGlassCardLayer(
                     registry = foldoutClipRegistry,
                     coordinates = coordinateSource?.coordinates
                 )
-                val specDirty = view.setGlassSpec(
-                    widthPx,
-                    viewportHeightPx,
-                    safeViewportTopInsetPx,
-                    radiusPx,
-                    intensity
+                view.bindDynamicSources(
+                    coordinateSource = coordinateSource,
+                    backdropOrigin = backdropOrigin,
+                    frameTicker = backdropTicker,
+                    dynamicState = dynamicState,
                 )
-                val samplingDirty = view.setSamplingSpec(
-                    cardOrigin.x,
-                    cardOrigin.y + safeViewportTopInsetPx,
-                    rootWidthPx,
-                    rootHeightPx
+                val frameDirty = view.setFrameSpec(
+                    width = widthPx,
+                    fullHeight = heightPx,
+                    viewportHeight = viewportHeightPx,
+                    rectOffsetY = safeViewportTopInsetPx,
+                    radius = radiusPx,
+                    baseIntensity = intensity,
+                    rootWidth = rootWidthPx,
+                    rootHeight = rootHeightPx,
+                    staticPressProgress = staticPress,
+                    staticPressCenterX = staticPressX,
+                    staticPressCenterY = staticPressY,
                 )
-                val pressDirty = view.setPressSpec(press, pressX, mappedPressY)
                 val textureDirty = view.setBackdropTextures(
                     clearBitmap = clearBitmap,
                     blurLowBitmap = blurLowBitmap,
@@ -197,7 +204,7 @@ fun NewOpenGLGlassCardLayer(
                     rootHeightPx.roundToInt()
                 )
 
-                if (surfaceDirty || specDirty || samplingDirty || pressDirty || textureDirty || blurDirty || styleDirty) {
+                if (surfaceDirty || frameDirty || textureDirty || blurDirty || styleDirty) {
                     view.requestRenderOnNextAnimationFrame()
                 }
             }
