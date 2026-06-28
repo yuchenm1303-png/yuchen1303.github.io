@@ -1,2 +1,2 @@
 Build Compose Android APK verification
-2026-06-27 视觉完成许可、坐标量化与后端回执收尾构建验证
+2026-06-28 首页帧时钟隔离与新旧 OpenGL 宿主轻量化构建验证
