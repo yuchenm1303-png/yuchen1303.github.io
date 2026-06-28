@@ -38,7 +38,10 @@ private const val EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE = 0x0400
  * 一次 EGL 唤醒。
  */
 internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
-    private val textureView = WebOpenGLGlassTextureView(context)
+    private val textureView = WebOpenGLGlassTextureView(
+        context = context,
+        onFramePresented = ::onTextureFramePresented,
+    )
 
     private var stableSurfaceWidth = 1
     private var stableSurfaceHeight = 1
@@ -75,6 +78,10 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
             syncDynamicFrameToTexture()
             textureView.requestRender()
         }
+    }
+
+    private fun onTextureFramePresented() {
+        if (isAttachedToWindow) postInvalidateOnAnimation()
     }
 
     init {
@@ -281,6 +288,7 @@ internal class WebOpenGLGlassCardHostView(context: Context) : FrameLayout(contex
 
 private class WebOpenGLGlassTextureView(
     context: Context,
+    private val onFramePresented: () -> Unit,
 ) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: WebOpenGLGlassEglThread? = null
     private var latestClearBitmap: Bitmap? = null
@@ -486,7 +494,9 @@ private class WebOpenGLGlassTextureView(
         return true
     }
 
-    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {
+        onFramePresented()
+    }
 }
 
 private class WebOpenGLGlassEglThread(
