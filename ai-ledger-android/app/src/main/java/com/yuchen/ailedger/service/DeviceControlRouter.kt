@@ -20,7 +20,9 @@ object DeviceControlRouter {
 
     fun fromDeviceControlJson(raw: JSONObject?, fallbackReason: String? = null): CloudAgentStep? {
         if (raw == null) return null
-        CloudAgentStep.fromJson(raw)?.takeIf { it.type in CloudAgentStep.deviceToolTypes }?.let { return it }
+        val parsed = CloudAgentStep.fromJson(raw)
+            ?.takeIf { it.type in CloudAgentStep.deviceToolTypes }
+        if (parsed != null && DeviceControlSpecs.validate(parsed).ok) return parsed
 
         val rawCapability = raw.deviceControlFirstNonBlank("capability", "tool", "type", "action", "name")
             ?: return null
@@ -93,12 +95,10 @@ object DeviceControlRouter {
         )
 
         when (stepType) {
-            "open_system_settings" -> {
-                merged.promoteString("page", "kind", "setting", "target") { value ->
-                    value.lowercase().replace('-', '_').replace(' ', '_')
-                }
-                merged.removeAliases("targetText")
-            }
+            "open_system_settings" -> merged.promoteString(
+                target = "page",
+                aliases = arrayOf("kind", "setting", "target"),
+            ) { value -> value.lowercase().replace('-', '_').replace(' ', '_') }
 
             "open_app",
             "force_stop_app",
@@ -109,10 +109,10 @@ object DeviceControlRouter {
 
             "open_app_settings" -> {
                 merged.canonicalizePackageAliases()
-                merged.promoteString("page", "kind", "setting", "target") { value ->
-                    value.lowercase().replace('-', '_').replace(' ', '_')
-                }
-                merged.removeAliases("targetText")
+                merged.promoteString(
+                    target = "page",
+                    aliases = arrayOf("kind", "setting", "target"),
+                ) { value -> value.lowercase().replace('-', '_').replace(' ', '_') }
             }
 
             "set_brightness" -> merged.canonicalizePercentControl(
@@ -140,6 +140,14 @@ object DeviceControlRouter {
             "set_animation_scale" -> merged.promoteValue("scale", "value")
         }
 
+        merged.removeAliases(
+            "app", "application", "package", "pkg",
+            "target", "targetText", "kind", "setting",
+            "enable", "on", "state", "value",
+            "brightness", "volume", "delta", "brightnessDelta", "volumeDelta",
+            "changePercent", "adjustBy", "operation",
+            "seconds", "second", "sec", "minutes", "minute", "min", "screenTimeoutMs",
+        )
         return merged
     }
 
@@ -153,7 +161,6 @@ object DeviceControlRouter {
 private fun JSONObject.canonicalizePackageAliases() {
     promoteValue("packageName", "package", "pkg")
     promoteValue("appName", "app", "application")
-    removeAliases("target", "targetText", "kind", "setting")
 }
 
 private fun JSONObject.canonicalizePercentControl(
@@ -179,10 +186,6 @@ private fun JSONObject.canonicalizePercentControl(
     if (!hasUsableValue("percent") && !hasUsableValue("deltaPercent")) {
         firstUsableValue(*absoluteAliases)?.let { put("percent", it) }
     }
-
-    removeAliases(*absoluteAliases)
-    removeAliases(*deltaAliases)
-    removeAliases("operation")
 }
 
 private fun JSONObject.canonicalizeTimeout() {
@@ -198,15 +201,15 @@ private fun JSONObject.canonicalizeTimeout() {
             minutes != null -> put("timeoutMs", minutes)
         }
     }
-    removeAliases("screenTimeoutMs", "seconds", "second", "sec", "minutes", "minute", "min")
 }
 
 private fun JSONObject.canonicalizeBoolean(target: String, aliases: Array<String>) {
     if (!hasUsableValue(target)) {
-        val value = (listOf(target) + aliases).firstNotNullOfOrNull(::optFlexibleBooleanCompat)
+        val value = (listOf(target) + aliases).firstNotNullOfOrNull { name ->
+            optFlexibleBooleanCompat(name)
+        }
         if (value != null) put(target, value)
     }
-    removeAliases(*aliases)
 }
 
 private fun JSONObject.canonicalizeDarkMode() {
@@ -239,19 +242,17 @@ private fun JSONObject.canonicalizeDarkMode() {
             put("mode", normalized)
         }
     }
-    removeAliases("state", "value", "enabled", "on")
 }
 
 private fun JSONObject.promoteValue(target: String, vararg aliases: String) {
     if (!hasUsableValue(target)) {
         firstUsableValue(*aliases)?.let { put(target, it) }
     }
-    removeAliases(*aliases)
 }
 
 private inline fun JSONObject.promoteString(
     target: String,
-    vararg aliases: String,
+    aliases: Array<String>,
     transform: (String) -> String,
 ) {
     val source = when {
@@ -261,7 +262,6 @@ private inline fun JSONObject.promoteString(
         }
     }
     if (!source.isNullOrBlank()) put(target, transform(source.trim()))
-    removeAliases(*aliases)
 }
 
 private fun JSONObject.firstUsableValue(vararg names: String): Any? {
