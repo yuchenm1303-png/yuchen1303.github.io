@@ -13,9 +13,13 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -161,8 +165,31 @@ private val visualHudParameterSections = listOf(
 internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
     val context = LocalContext.current
     val store = remember(context) { VisualAgentHudTuningStore.get(context.applicationContext) }
-    val tuning by store.state.collectAsState()
-    val parameters = tuning.parameters
+    val initialTuning = remember(store) { store.state.value }
+    var previewEnabled by remember(store) { mutableStateOf(initialTuning.previewEnabled) }
+    val parameterValues = remember(store) {
+        mutableStateMapOf<String, Float>().apply {
+            visualHudParameterSections.forEach { section ->
+                section.specs.forEach { spec ->
+                    put(spec.key, initialTuning.parameters.valueOf(spec.key))
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(store) {
+        store.state.collect { tuning ->
+            previewEnabled = tuning.previewEnabled
+            visualHudParameterSections.forEach { section ->
+                section.specs.forEach { spec ->
+                    val nextValue = tuning.parameters.valueOf(spec.key)
+                    if (parameterValues[spec.key] != nextValue) {
+                        parameterValues[spec.key] = nextValue
+                    }
+                }
+            }
+        }
+    }
 
     fun updatePreview(enabled: Boolean) {
         if (enabled && !AiAgentAccessibilityService.isConnected()) {
@@ -195,7 +222,7 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
             )
         }
         Switch(
-            checked = tuning.previewEnabled,
+            checked = previewEnabled,
             onCheckedChange = ::updatePreview,
         )
     }
@@ -209,11 +236,11 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
             onClick = store::resetParameters,
         )
         VisualHudActionButton(
-            title = if (tuning.previewEnabled) "关闭样本" else "打开样本",
-            subtitle = if (tuning.previewEnabled) "停止顶层预览" else "实时查看调整结果",
+            title = if (previewEnabled) "关闭样本" else "打开样本",
+            subtitle = if (previewEnabled) "停止顶层预览" else "实时查看调整结果",
             state = state,
             modifier = Modifier.weight(1f),
-            onClick = { updatePreview(!tuning.previewEnabled) },
+            onClick = { updatePreview(!previewEnabled) },
         )
     }
 
@@ -226,17 +253,30 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
             modifier = Modifier.padding(top = 4.dp)
         )
         section.specs.forEach { spec ->
-            val value = parameters.valueOf(spec.key)
-            InsetGlassParameterSlider(
-                title = spec.title,
-                description = spec.description,
-                value = value,
-                valueRange = spec.range,
-                onValueChange = { store.setParameter(spec.key, it) },
-                valueText = formatVisualHudValue(value, spec.decimals) + spec.unit,
+            VisualHudParameterSlider(
+                spec = spec,
+                values = parameterValues,
+                store = store,
             )
         }
     }
+}
+
+@Composable
+private fun VisualHudParameterSlider(
+    spec: VisualHudParameterSpec,
+    values: SnapshotStateMap<String, Float>,
+    store: VisualAgentHudTuningStore,
+) {
+    val value = values[spec.key] ?: store.state.value.parameters.valueOf(spec.key)
+    InsetGlassParameterSlider(
+        title = spec.title,
+        description = spec.description,
+        value = value,
+        valueRange = spec.range,
+        onValueChange = { store.setParameter(spec.key, it) },
+        valueText = formatVisualHudValue(value, spec.decimals) + spec.unit,
+    )
 }
 
 @Composable
