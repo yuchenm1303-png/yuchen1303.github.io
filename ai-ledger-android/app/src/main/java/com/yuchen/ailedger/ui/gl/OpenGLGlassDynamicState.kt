@@ -39,8 +39,7 @@ internal data class OpenGLGlassDynamicSnapshot(
  * Shell 动态效果的非布局状态通道。
  *
  * 热路径只更新 primitive pending 字段，不再为同一显示帧内的每次指针/动画写入创建
- * data class 副本。Choreographer 到帧时仅生成一份最终快照；Compose 图层读取
- * [snapshotState]，OpenGL Host 通过监听器直接消费同一份最终状态。
+ * data class 副本。每帧最多生成一份最终快照，并在 Compose 与 OpenGL Host 之间复用。
  */
 @Stable
 class OpenGLGlassDynamicState {
@@ -54,6 +53,8 @@ class OpenGLGlassDynamicState {
     private var pendingRimFlowDirection = committedState.value.rimFlowDirection
     private var pendingRimFlowBand = committedState.value.rimFlowBand
     private var pendingRimFlowStrength = committedState.value.rimFlowStrength
+    private var pendingSnapshot = committedState.value
+    private var pendingSnapshotDirty = false
 
     private var framePosted = false
     private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
@@ -61,8 +62,9 @@ class OpenGLGlassDynamicState {
     internal val snapshotState: State<OpenGLGlassDynamicSnapshot>
         get() = committedState
 
-    internal fun latestSnapshot(): OpenGLGlassDynamicSnapshot =
-        OpenGLGlassDynamicSnapshot(
+    internal fun latestSnapshot(): OpenGLGlassDynamicSnapshot {
+        if (!pendingSnapshotDirty) return pendingSnapshot
+        pendingSnapshot = OpenGLGlassDynamicSnapshot(
             pressValue = pendingPressValue,
             openGlPress = pendingOpenGlPress,
             pressCenter = Offset(pendingPressCenterX, pendingPressCenterY),
@@ -71,6 +73,9 @@ class OpenGLGlassDynamicState {
             rimFlowBand = pendingRimFlowBand,
             rimFlowStrength = pendingRimFlowStrength,
         )
+        pendingSnapshotDirty = false
+        return pendingSnapshot
+    }
 
     internal fun updateAnimation(pressValue: Float, openGlPress: Float) {
         val nextPressValue = pressValue.coerceIn(-0.14f, 1.08f)
@@ -78,7 +83,7 @@ class OpenGLGlassDynamicState {
         if (nextPressValue == pendingPressValue && nextOpenGlPress == pendingOpenGlPress) return
         pendingPressValue = nextPressValue
         pendingOpenGlPress = nextOpenGlPress
-        enqueueFrame()
+        markPendingChanged()
     }
 
     internal fun updatePressCenter(center: Offset) {
@@ -87,7 +92,7 @@ class OpenGLGlassDynamicState {
         if (nextX == pendingPressCenterX && nextY == pendingPressCenterY) return
         pendingPressCenterX = nextX
         pendingPressCenterY = nextY
-        enqueueFrame()
+        markPendingChanged()
     }
 
     internal fun updateRimFlow(seed: Float, direction: Float, band: Int, strength: Float) {
@@ -105,7 +110,7 @@ class OpenGLGlassDynamicState {
         pendingRimFlowDirection = nextDirection
         pendingRimFlowBand = nextBand
         pendingRimFlowStrength = nextStrength
-        enqueueFrame()
+        markPendingChanged()
     }
 
     internal fun reset() {
@@ -127,7 +132,7 @@ class OpenGLGlassDynamicState {
         pendingRimFlowDirection = 1f
         pendingRimFlowBand = 0
         pendingRimFlowStrength = 1f
-        enqueueFrame()
+        markPendingChanged()
     }
 
     internal fun addFrameListener(listener: () -> Unit): () -> Unit {
@@ -135,7 +140,8 @@ class OpenGLGlassDynamicState {
         return { frameListeners -= listener }
     }
 
-    private fun enqueueFrame() {
+    private fun markPendingChanged() {
+        pendingSnapshotDirty = true
         if (framePosted) return
         framePosted = true
         Choreographer.getInstance().postFrameCallback(frameCallback)
