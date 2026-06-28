@@ -3,6 +3,7 @@ package com.yuchen.ailedger.service
 import java.nio.file.Files
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -133,7 +134,7 @@ class VisualIntelligenceDiagnosticsReportTest {
     fun frameHashDistanceIsStableAndUnsignedSafe() {
         assertEquals(0, VisualDiagnosticFrameAnalyzer.hammingDistance("ffffffffffffffff", "ffffffffffffffff"))
         assertEquals(64, VisualDiagnosticFrameAnalyzer.hammingDistance("0000000000000000", "ffffffffffffffff"))
-        assertEquals(null, VisualDiagnosticFrameAnalyzer.hammingDistance("bad", "ffffffffffffffff"))
+        assertNull(VisualDiagnosticFrameAnalyzer.hammingDistance("bad", "ffffffffffffffff"))
     }
 
     private fun event(
