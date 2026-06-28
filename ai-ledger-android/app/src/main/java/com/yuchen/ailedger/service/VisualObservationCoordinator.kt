@@ -132,9 +132,14 @@ class VisualObservationCoordinator(
         isStopped: () -> Boolean,
     ): VisualTargetPackageVerification {
         if (expectedPackage.isBlank()) {
-            return VisualTargetPackageVerification(false, 0, null, null)
+            return reportPackageVerification(
+                expectedPackage = expectedPackage,
+                result = VisualTargetPackageVerification(false, 0, null, null),
+                reason = "expected_package_blank",
+            )
         }
 
+        val requiredSamples = timing.requiredStableSamples.coerceAtLeast(2)
         val deadline = elapsedRealtime() + timing.openAppVerifyTimeoutMs
         var stableSamples = 0
         var lastSnapshot: AgentScreenSnapshot? = null
@@ -151,7 +156,7 @@ class VisualObservationCoordinator(
 
             if (probeSnapshot.packageName == expectedPackage) {
                 stableSamples += 1
-                if (stableSamples >= timing.requiredStableSamples.coerceAtLeast(2)) {
+                if (stableSamples >= requiredSamples) {
                     val visualObservation = captureTrustedObservation(
                         forceVisual = true,
                         expectedPackage = expectedPackage,
@@ -162,11 +167,15 @@ class VisualObservationCoordinator(
                         visualSnapshot.packageName == expectedPackage &&
                         visualSnapshot.visual?.hasImage == true
                     ) {
-                        return VisualTargetPackageVerification(
-                            verified = true,
-                            stableSamples = stableSamples,
-                            lastSnapshot = visualSnapshot,
-                            lastObservation = visualObservation,
+                        return reportPackageVerification(
+                            expectedPackage = expectedPackage,
+                            result = VisualTargetPackageVerification(
+                                verified = true,
+                                stableSamples = stableSamples,
+                                lastSnapshot = visualSnapshot,
+                                lastObservation = visualObservation,
+                            ),
+                            reason = "stable_target_with_visual_frame",
                         )
                     }
                     if (!VisualSurfacePackagePolicy.requiresForegroundFallback(visualSnapshot.packageName)) {
@@ -179,12 +188,45 @@ class VisualObservationCoordinator(
             sleep(timing.openAppVerifyPollMs)
         }
 
-        return VisualTargetPackageVerification(
-            verified = false,
-            stableSamples = stableSamples,
-            lastSnapshot = lastSnapshot,
-            lastObservation = null,
+        val reason = when {
+            isStopped() -> "task_stopped"
+            lastSnapshot?.packageName == expectedPackage && stableSamples in 1 until requiredSamples ->
+                "stable_samples_incomplete"
+            VisualSurfacePackagePolicy.requiresForegroundFallback(lastSnapshot?.packageName.orEmpty()) ->
+                "transient_surface"
+            else -> "target_not_stable"
+        }
+        return reportPackageVerification(
+            expectedPackage = expectedPackage,
+            result = VisualTargetPackageVerification(
+                verified = false,
+                stableSamples = stableSamples,
+                lastSnapshot = lastSnapshot,
+                lastObservation = null,
+            ),
+            reason = reason,
         )
+    }
+
+    private fun reportPackageVerification(
+        expectedPackage: String,
+        result: VisualTargetPackageVerification,
+        reason: String,
+    ): VisualTargetPackageVerification {
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "open_app_verification",
+            details = JSONObject().apply {
+                put("verified", result.verified)
+                put("reason", reason)
+                put("expectedPackage", expectedPackage)
+                put("actualPackage", result.lastSnapshot?.packageName.orEmpty())
+                put("stableSamples", result.stableSamples)
+                put("requiredStableSamples", timing.requiredStableSamples.coerceAtLeast(2))
+                put("hasVisualFrame", result.lastSnapshot?.visual?.hasImage == true)
+                put("observationUpdatedAt", result.lastObservation?.updatedAt ?: 0L)
+            },
+        )
+        return result
     }
 
     private suspend fun captureOnce(
