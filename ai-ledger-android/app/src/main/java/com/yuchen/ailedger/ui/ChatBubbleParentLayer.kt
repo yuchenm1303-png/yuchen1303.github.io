@@ -142,7 +142,7 @@ fun ChatBubbleMaterialLayer(
     layerState: ChatBubbleLayerState,
     listState: LazyListState,
     messages: List<ChatMessage>,
-    phase: Float,
+    motionClock: AssistantHomeMotionClock,
     motionIntensity: Float,
     modifier: Modifier = Modifier
 ) {
@@ -161,7 +161,8 @@ fun ChatBubbleMaterialLayer(
         val verticalPadding = 3.dp.toPx()
         val contentWidth = (viewportWidth - horizontalPadding * 2f).coerceAtLeast(1f)
         val motion = motionIntensity.coerceIn(0f, 1f)
-        val basePhase = if (motion > 0.001f) phase else 0f
+        // 帧状态只在 DrawScope 内读取：更新时仅使 Canvas 重绘，不再重组聊天面板。
+        val basePhase = if (motion > 0.001f) motionClock.phase(7200L) else 0f
 
         visibleItems.forEach { item ->
             if (item.index !in 0 until messageCount) return@forEach
