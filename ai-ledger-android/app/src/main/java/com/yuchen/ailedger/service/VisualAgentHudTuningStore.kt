@@ -1,9 +1,15 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 /** Exact parameter set used by the approved web HUD. */
@@ -197,6 +203,11 @@ data class VisualAgentHudTuningState(
     val previewGeneration: Long = 0L,
 )
 
+private sealed interface VisualHudPersistenceRequest {
+    data class Save(val parameters: VisualAgentHudParameters) : VisualHudPersistenceRequest
+    data object Reset : VisualHudPersistenceRequest
+}
+
 class VisualAgentHudTuningStore private constructor(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val mutableState = MutableStateFlow(
@@ -206,11 +217,39 @@ class VisualAgentHudTuningStore private constructor(context: Context) {
     )
     val state: StateFlow<VisualAgentHudTuningState> = mutableState.asStateFlow()
 
+    private val persistenceRequests = Channel<VisualHudPersistenceRequest>(Channel.CONFLATED)
+    private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        persistenceScope.launch {
+            for (firstRequest in persistenceRequests) {
+                var latestRequest = firstRequest
+                while (true) {
+                    val nextRequest = withTimeoutOrNull(PERSIST_SETTLE_MS) {
+                        persistenceRequests.receive()
+                    } ?: break
+                    latestRequest = nextRequest
+                }
+                when (latestRequest) {
+                    is VisualHudPersistenceRequest.Save -> {
+                        preferences.edit()
+                            .putString(KEY_PARAMETERS, latestRequest.parameters.toJson().toString())
+                            .apply()
+                    }
+                    VisualHudPersistenceRequest.Reset -> {
+                        preferences.edit().remove(KEY_PARAMETERS).apply()
+                    }
+                }
+            }
+        }
+    }
+
     fun setParameter(key: String, value: Float) {
-        val next = mutableState.value.parameters.withValue(key, value)
-        if (next == mutableState.value.parameters) return
-        mutableState.value = mutableState.value.copy(parameters = next)
-        preferences.edit().putString(KEY_PARAMETERS, next.toJson().toString()).apply()
+        val current = mutableState.value
+        val next = current.parameters.withValue(key, value)
+        if (next == current.parameters) return
+        mutableState.value = current.copy(parameters = next)
+        persistenceRequests.trySend(VisualHudPersistenceRequest.Save(next))
     }
 
     fun setPreviewEnabled(enabled: Boolean) {
@@ -225,12 +264,13 @@ class VisualAgentHudTuningStore private constructor(context: Context) {
     fun resetParameters() {
         val defaults = VisualAgentHudParameters()
         mutableState.value = mutableState.value.copy(parameters = defaults)
-        preferences.edit().remove(KEY_PARAMETERS).apply()
+        persistenceRequests.trySend(VisualHudPersistenceRequest.Reset)
     }
 
     companion object {
         private const val PREFS_NAME = "visual_agent_hud_tuning"
         private const val KEY_PARAMETERS = "parameters_json"
+        private const val PERSIST_SETTLE_MS = 160L
         @Volatile private var instance: VisualAgentHudTuningStore? = null
 
         fun get(context: Context): VisualAgentHudTuningStore = instance ?: synchronized(this) {
