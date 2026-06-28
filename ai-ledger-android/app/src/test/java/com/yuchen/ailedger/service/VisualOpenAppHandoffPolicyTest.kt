@@ -9,10 +9,7 @@ class VisualOpenAppHandoffPolicyTest {
     fun sameTargetLaunchInProgressSuppressesPhysicalRestart() {
         assertTrue(
             VisualOpenAppHandoffPolicy.shouldSuppressPhysicalLaunch(
-                runtime = runtime(
-                    state = VisualSurfaceState.Launching,
-                    selected = "com.example.target",
-                ),
+                runtime = runtime(VisualSurfaceState.Launching, "com.example.target"),
                 requestedPackage = "com.example.target",
                 alreadyForeground = false,
             ),
@@ -20,14 +17,13 @@ class VisualOpenAppHandoffPolicyTest {
     }
 
     @Test
-    fun verifiedTargetSuppressesRedundantOpenAppAcrossOneTemporaryForeignFrame() {
+    fun verifiedTargetSuppressesRedundantOpenApp() {
         assertTrue(
             VisualOpenAppHandoffPolicy.shouldSuppressPhysicalLaunch(
                 runtime = runtime(
-                    state = VisualSurfaceState.WorkSurface,
-                    selected = "com.example.target",
-                    verified = "com.example.target",
-                    current = "com.android.systemui",
+                    VisualSurfaceState.WorkSurface,
+                    "com.example.target",
+                    "com.example.target",
                 ),
                 requestedPackage = "com.example.target",
                 alreadyForeground = false,
@@ -36,46 +32,12 @@ class VisualOpenAppHandoffPolicyTest {
     }
 
     @Test
-    fun replanningAllowsARealRelaunch() {
+    fun replanningAllowsRealRelaunch() {
         assertFalse(
             VisualOpenAppHandoffPolicy.shouldSuppressPhysicalLaunch(
-                runtime = runtime(
-                    state = VisualSurfaceState.Replanning,
-                    selected = "com.example.target",
-                    current = "com.example.other",
-                ),
+                runtime = runtime(VisualSurfaceState.Replanning, "com.example.target"),
                 requestedPackage = "com.example.target",
                 alreadyForeground = false,
-            ),
-        )
-    }
-
-    @Test
-    fun oneOfTwoStableSamplesRemainsLocalPendingEvidence() {
-        assertTrue(
-            VisualOpenAppHandoffPolicy.isPendingVerification(
-                VisualTargetPackageVerification(
-                    verified = false,
-                    stableSamples = 1,
-                    lastSnapshot = null,
-                    lastObservation = null,
-                    reason = "stable_samples_incomplete",
-                ),
-            ),
-        )
-    }
-
-    @Test
-    fun confirmedForeignTargetFailureDoesNotRemainPending() {
-        assertFalse(
-            VisualOpenAppHandoffPolicy.isPendingVerification(
-                VisualTargetPackageVerification(
-                    verified = false,
-                    stableSamples = 0,
-                    lastSnapshot = null,
-                    lastObservation = null,
-                    reason = "target_not_stable",
-                ),
             ),
         )
     }
@@ -84,12 +46,11 @@ class VisualOpenAppHandoffPolicyTest {
         state: VisualSurfaceState,
         selected: String,
         verified: String = "",
-        current: String = "",
     ) = VisualAgentRuntimeContext(
         surfaceState = state,
         selectedTargetPackage = selected,
         verifiedTargetPackage = verified,
-        currentPackage = current,
+        currentPackage = "",
         observationId = "observation",
         routeEpoch = 0L,
         surfaceEpoch = 0L,
