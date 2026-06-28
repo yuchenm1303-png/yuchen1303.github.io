@@ -452,7 +452,7 @@ private fun SettingsDashboardGrid(
         ) {
             SettingsTile(
                 "景",
-                "外观",
+                "主题",
                 "背景与主题",
                 themeLabel(state.backgroundTheme),
                 selectedPanel == SettingsPanel.Appearance,
@@ -481,7 +481,7 @@ private fun SettingsDashboardGrid(
             ) { onSelected(SettingsPanel.Assistant) }
             SettingsTile(
                 "账",
-                "数据",
+                "数据偏好",
                 "预算与账单",
                 "${state.ledgerRecords.size} 笔",
                 selectedPanel == SettingsPanel.Data,
@@ -494,7 +494,7 @@ private fun SettingsDashboardGrid(
         ) {
             SettingsTile(
                 "云",
-                "服务",
+                "账号设置",
                 "账号 / Worker",
                 serviceValue,
                 selectedPanel == SettingsPanel.Service,
@@ -502,7 +502,7 @@ private fun SettingsDashboardGrid(
             ) { onSelected(SettingsPanel.Service) }
             SettingsTile(
                 "GL",
-                "高级",
+                "系统信息",
                 "渲染边界",
                 "OpenGL 隔离",
                 selectedPanel == SettingsPanel.Advanced,
@@ -1571,12 +1571,12 @@ private fun SettingsPanel.settingsOrder(): Int = when (this) {
 }
 
 private fun panelTitle(panel: SettingsPanel): String = when (panel) {
-    SettingsPanel.Appearance -> "外观"
+    SettingsPanel.Appearance -> "主题"
     SettingsPanel.Glass -> "玻璃"
     SettingsPanel.Assistant -> "视觉智能"
-    SettingsPanel.Data -> "数据"
-    SettingsPanel.Service -> "服务"
-    SettingsPanel.Advanced -> "高级"
+    SettingsPanel.Data -> "数据偏好"
+    SettingsPanel.Service -> "账号设置"
+    SettingsPanel.Advanced -> "系统信息"
     SettingsPanel.Chat -> "聊天设置"
     SettingsPanel.Memory -> "记忆"
     SettingsPanel.Debug -> "玻璃实验室"
