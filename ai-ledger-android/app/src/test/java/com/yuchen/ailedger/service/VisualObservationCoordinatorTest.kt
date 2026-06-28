@@ -46,6 +46,33 @@ class VisualObservationCoordinatorTest {
     }
 
     @Test
+    fun expectedPackageIsNeverInventedWithoutTrustedEvidence() = runBlocking {
+        val coordinator = VisualObservationCoordinator(
+            captureSource = VisualObservationCaptureSource {
+                ScreenObservation(
+                    enabled = true,
+                    serviceConnected = true,
+                    packageName = "",
+                )
+            },
+            foregroundPackageReader = ForegroundPackageReader {
+                ForegroundPackageProbeResult(available = false)
+            },
+            overlayController = RecordingOverlayController(),
+            timing = zeroTiming(),
+            elapsedRealtime = { 0L },
+            sleeper = {},
+        )
+
+        val observation = coordinator.captureTrustedObservation(
+            forceVisual = true,
+            expectedPackage = "com.example.target",
+        )
+
+        assertEquals("", observation.packageName)
+    }
+
+    @Test
     fun usableAccessibilityPackageSkipsShellProbeAndDoesNotSuppressHud() = runBlocking {
         val overlay = RecordingOverlayController()
         var probeCount = 0
@@ -80,6 +107,90 @@ class VisualObservationCoordinatorTest {
         assertEquals(0, probeCount)
         assertEquals(0, overlay.beginCount)
         assertEquals(0, overlay.endCount)
+    }
+
+    @Test
+    fun transientOrBlankVisualCaptureInheritsRecentlyTrustedBasePackage() = runBlocking {
+        var captureIndex = 0
+        var clock = 1_000L
+        val coordinator = VisualObservationCoordinator(
+            captureSource = VisualObservationCaptureSource { forceVisual ->
+                captureIndex += 1
+                ScreenObservation(
+                    enabled = true,
+                    serviceConnected = true,
+                    packageName = if (captureIndex == 1) {
+                        "com.example.target"
+                    } else {
+                        "com.android.permissioncontroller"
+                    },
+                    visual = if (forceVisual) visualFrame() else null,
+                )
+            },
+            foregroundPackageReader = ForegroundPackageReader {
+                ForegroundPackageProbeResult(available = false)
+            },
+            overlayController = RecordingOverlayController(),
+            timing = zeroTiming().copy(trustedPackageTtlMs = 15_000L),
+            elapsedRealtime = { clock++ },
+            sleeper = {},
+        )
+
+        val trusted = coordinator.captureTrustedObservation(
+            forceVisual = false,
+            expectedPackage = "com.example.target",
+        )
+        val visual = coordinator.captureTrustedObservation(
+            forceVisual = true,
+            expectedPackage = "com.example.target",
+        )
+
+        assertEquals("com.example.target", trusted.packageName)
+        assertEquals("com.example.target", visual.packageName)
+        assertTrue(visual.visual?.hasImage == true)
+        assertTrue(visual.windowTitle.contains("trusted_base"))
+        assertTrue(visual.windowTitle.contains("permissioncontroller"))
+    }
+
+    @Test
+    fun twoStablePackageSamplesAndBlankPackageVisualFrameCompleteHandoff() = runBlocking {
+        var clock = 0L
+        var captureIndex = 0
+        val overlay = RecordingOverlayController()
+        val coordinator = VisualObservationCoordinator(
+            captureSource = VisualObservationCaptureSource { forceVisual ->
+                captureIndex += 1
+                ScreenObservation(
+                    enabled = true,
+                    serviceConnected = true,
+                    packageName = if (forceVisual) "" else "com.example.target",
+                    visual = if (forceVisual) visualFrame() else null,
+                )
+            },
+            foregroundPackageReader = ForegroundPackageReader {
+                ForegroundPackageProbeResult(available = false)
+            },
+            overlayController = overlay,
+            timing = zeroTiming().copy(
+                openAppVerifyTimeoutMs = 20L,
+                trustedPackageTtlMs = 100L,
+            ),
+            elapsedRealtime = { clock++ },
+            sleeper = {},
+        )
+
+        val verification = coordinator.awaitStableTargetPackage(
+            expectedPackage = "com.example.target",
+            isStopped = { false },
+        )
+
+        assertTrue(verification.verified)
+        assertEquals(2, verification.stableSamples)
+        assertEquals("com.example.target", verification.lastSnapshot?.packageName)
+        assertEquals("com.example.target", verification.lastObservation?.packageName)
+        assertTrue(verification.lastObservation?.visual?.hasImage == true)
+        assertEquals(1, overlay.beginCount)
+        assertEquals(1, overlay.endCount)
     }
 
     @Test
@@ -192,6 +303,7 @@ class VisualObservationCoordinatorTest {
         openAppVerifyPollMs = 0L,
         openAppVerifyTimeoutMs = 0L,
         requiredStableSamples = 2,
+        trustedPackageTtlMs = 0L,
     )
 
     private fun visualFrame() = ScreenVisualObservation(
