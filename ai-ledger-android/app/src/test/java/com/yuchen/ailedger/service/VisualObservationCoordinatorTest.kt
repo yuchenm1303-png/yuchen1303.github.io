@@ -190,7 +190,10 @@ class VisualObservationCoordinatorTest {
         assertEquals("com.example.target", verification.lastSnapshot?.packageName)
         assertEquals("com.example.target", verification.lastObservation?.packageName)
         assertTrue(verification.lastObservation?.visual?.hasImage == true)
-        assertEquals("stable_target_with_visual_frame", verification.reason)
+        assertEquals(
+            VisualTargetPackageVerificationReason.StableTargetWithVisualFrame,
+            verification.reason,
+        )
         assertEquals(1, overlay.beginCount)
         assertEquals(1, overlay.endCount)
     }
@@ -270,7 +273,10 @@ class VisualObservationCoordinatorTest {
 
         assertTrue(verification.verified)
         assertEquals(2, verification.stableSamples)
-        assertEquals("stable_target_with_visual_frame", verification.reason)
+        assertEquals(
+            VisualTargetPackageVerificationReason.StableTargetWithVisualFrame,
+            verification.reason,
+        )
         assertEquals(1, overlay.beginCount)
         assertEquals(1, overlay.endCount)
     }
@@ -313,7 +319,14 @@ class VisualObservationCoordinatorTest {
         assertEquals(0, verification.stableSamples)
         assertEquals(0, visualCaptureCount)
         assertEquals("com.example.other", verification.lastSnapshot?.packageName)
-        assertEquals("target_not_stable", verification.reason)
+        assertEquals(VisualTargetPackageVerificationReason.TargetNotStable, verification.reason)
+    }
+
+    @Test
+    fun pendingReasonsAreTypedInsteadOfStringMatched() {
+        assertTrue(VisualTargetPackageVerificationReason.StableSamplesIncomplete.pending)
+        assertTrue(VisualTargetPackageVerificationReason.TransientSurface.pending)
+        assertFalse(VisualTargetPackageVerificationReason.TargetNotStable.pending)
     }
 
     @Test
