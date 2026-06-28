@@ -68,7 +68,7 @@ class VisualSemanticProgressTrackerTest {
     }
 
     @Test
-    fun foreignPackageRemainsARequiredStructuralReplan() {
+    fun oneForeignPackageFrameCannotBypassExecutionStateMachineThreshold() {
         val tracker = VisualSemanticProgressTracker()
         val result = tracker.evaluate(
             semanticStep(
@@ -81,6 +81,29 @@ class VisualSemanticProgressTrackerTest {
             snapshot("com.example.app", listOf("入口")),
             snapshot("com.unrelated.app", listOf("无关页面")),
             "com.example.app",
+        )
+
+        assertEquals(VisualSemanticProgressStatus.Advanced, result.status)
+        assertFalse(result.structuralRegression)
+        assertFalse(result.requiresReplan)
+        assertFalse(result.toFeedbackLine(CloudAgentStep(type = "tap_xy")).contains("failureClass=structural_route"))
+    }
+
+    @Test
+    fun stateMachineConfirmedForeignTransitionRequiresStructuralReplan() {
+        val tracker = VisualSemanticProgressTracker()
+        val result = tracker.evaluate(
+            semanticStep(
+                type = "tap_xy",
+                purpose = "打开目标详情",
+                milestone = "details",
+                expected = listOf("详情"),
+                hypothesis = "detail",
+            ),
+            snapshot("com.example.app", listOf("入口")),
+            snapshot("com.unrelated.app", listOf("无关页面")),
+            "com.example.app",
+            structuralRegressionConfirmed = true,
         )
 
         assertEquals(VisualSemanticProgressStatus.Regressed, result.status)
