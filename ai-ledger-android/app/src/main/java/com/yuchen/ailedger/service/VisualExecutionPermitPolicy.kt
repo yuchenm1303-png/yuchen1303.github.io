@@ -27,18 +27,34 @@ internal object VisualExecutionPermitPolicy {
     )
 
     fun validateTap(step: CloudAgentStep): VisualExecutionPermitValidation {
-        if (step.type != TAP_ACTION_TYPE) {
-            return VisualExecutionPermitValidation(false, "wrong_action_type")
-        }
-        val actionX = step.x?.takeIf(Float::isFinite)?.toDouble()
-            ?: return VisualExecutionPermitValidation(false, "missing_action_x")
-        val actionY = step.y?.takeIf(Float::isFinite)?.toDouble()
-            ?: return VisualExecutionPermitValidation(false, "missing_action_y")
-        if (actionX !in 0.0..1.0 || actionY !in 0.0..1.0) {
-            return VisualExecutionPermitValidation(false, "coordinate_not_normalized")
+        fun finish(result: VisualExecutionPermitValidation): VisualExecutionPermitValidation {
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                type = "tap_permit_validation",
+                details = JSONObject().apply {
+                    put("valid", result.valid)
+                    put("reason", result.reason)
+                    put("stepType", step.type)
+                    put("x", step.x ?: JSONObject.NULL)
+                    put("y", step.y ?: JSONObject.NULL)
+                    put("targetText", step.targetText ?: JSONObject.NULL)
+                    put("toolArgs", step.toolArgs ?: JSONObject.NULL)
+                },
+            )
+            return result
         }
 
-        val args = step.toolArgs ?: return VisualExecutionPermitValidation(false, "missing_permit_args")
+        if (step.type != TAP_ACTION_TYPE) {
+            return finish(VisualExecutionPermitValidation(false, "wrong_action_type"))
+        }
+        val actionX = step.x?.takeIf(Float::isFinite)?.toDouble()
+            ?: return finish(VisualExecutionPermitValidation(false, "missing_action_x"))
+        val actionY = step.y?.takeIf(Float::isFinite)?.toDouble()
+            ?: return finish(VisualExecutionPermitValidation(false, "missing_action_y"))
+        if (actionX !in 0.0..1.0 || actionY !in 0.0..1.0) {
+            return finish(VisualExecutionPermitValidation(false, "coordinate_not_normalized"))
+        }
+
+        val args = step.toolArgs ?: return finish(VisualExecutionPermitValidation(false, "missing_permit_args"))
         val permitId = args.cleanString("executionPermitId")
         val permitKind = args.cleanString("executionPermitKind")
         val permitObservationId = args.cleanString("executionPermitObservationId")
@@ -51,29 +67,29 @@ internal object VisualExecutionPermitPolicy {
         val permitY = args.finiteDouble("executionPermitY")
 
         if (permitKind !in acceptedTapPermitKinds) {
-            return VisualExecutionPermitValidation(false, "unsupported_permit_kind")
+            return finish(VisualExecutionPermitValidation(false, "unsupported_permit_kind"))
         }
         if (permitActionType != TAP_ACTION_TYPE) {
-            return VisualExecutionPermitValidation(false, "permit_action_mismatch")
+            return finish(VisualExecutionPermitValidation(false, "permit_action_mismatch"))
         }
         if (
             permitObservationId.isBlank() || responseObservationId.isBlank() ||
             permitObservationId != responseObservationId
         ) {
-            return VisualExecutionPermitValidation(false, "permit_observation_mismatch")
+            return finish(VisualExecutionPermitValidation(false, "permit_observation_mismatch"))
         }
         if (
             permitSessionId.isBlank() || responseSessionId.isBlank() ||
             permitSessionId != responseSessionId
         ) {
-            return VisualExecutionPermitValidation(false, "permit_session_mismatch")
+            return finish(VisualExecutionPermitValidation(false, "permit_session_mismatch"))
         }
         if (
             permitX == null || permitY == null ||
             abs(permitX - actionX) > COORDINATE_EPSILON ||
             abs(permitY - actionY) > COORDINATE_EPSILON
         ) {
-            return VisualExecutionPermitValidation(false, "permit_coordinate_mismatch")
+            return finish(VisualExecutionPermitValidation(false, "permit_coordinate_mismatch"))
         }
 
         // Hash the backend's already quantized six-decimal values. The Float action coordinates are
@@ -86,9 +102,9 @@ internal object VisualExecutionPermitPolicy {
             kind = permitKind,
         )
         if (permitHash != expectedHash || permitId != "permit_$expectedHash") {
-            return VisualExecutionPermitValidation(false, "permit_hash_mismatch")
+            return finish(VisualExecutionPermitValidation(false, "permit_hash_mismatch"))
         }
-        return VisualExecutionPermitValidation(true, "verified")
+        return finish(VisualExecutionPermitValidation(true, "verified"))
     }
 
     internal fun tapPermitHash(
