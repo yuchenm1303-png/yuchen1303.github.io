@@ -19,8 +19,9 @@ internal object VisualLoopSupport {
     const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
 
     /**
-     * Converts a cloud-verified normalized coordinate to physical screen pixels.
-     * Android never interprets target text or changes the GUI model's chosen point.
+     * Converts a cloud-verified normalized coordinate to the last-addressable physical pixel in the
+     * exact full-display frame captured for the model. Android never interprets target text or moves
+     * the GUI model's chosen point to an arbitrary safety margin.
      */
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         if (step.type != "tap_xy") {
@@ -71,46 +72,60 @@ internal object VisualLoopSupport {
         val modelX = surfaceAwareStep.x ?: return surfaceAwareStep
         val modelY = surfaceAwareStep.y ?: return surfaceAwareStep
         val visual = snapshot.visual
-        val materialized = if (visual == null) {
+        val frame = visual?.let {
+            VisualDisplayFrame(
+                width = it.displayWidth.takeIf { value -> value > 0 } ?: it.width,
+                height = it.displayHeight.takeIf { value -> value > 0 } ?: it.height,
+            )
+        }?.takeIf(VisualDisplayFrame::valid)
+
+        val materialized = if (frame == null) {
             surfaceAwareStep.withTapExecutionTrace(
                 modelX = modelX,
                 modelY = modelY,
                 modelPixelX = null,
                 modelPixelY = null,
-                materializedX = modelX,
-                materializedY = modelY,
+                materializedX = null,
+                materializedY = null,
                 displayWidth = null,
                 displayHeight = null,
-                coordinateProtocol = "unresolved",
+                imageWidth = visual?.width,
+                imageHeight = visual?.height,
+                pixelMappingProtocol = "unresolved",
+                coordinateSpace = "normalized_screen",
             )
         } else {
-            val width = visual.displayWidth.takeIf { it > 0 } ?: visual.width.takeIf { it > 0 }
-            val height = visual.displayHeight.takeIf { it > 0 } ?: visual.height.takeIf { it > 0 }
-            if (width == null || height == null) {
+            val resolution = VisualCoordinateProtocol.materializeNormalized(modelX, modelY, frame)
+            val point = resolution.point
+            if (!resolution.valid || point == null) {
                 surfaceAwareStep.withTapExecutionTrace(
                     modelX = modelX,
                     modelY = modelY,
                     modelPixelX = null,
                     modelPixelY = null,
-                    materializedX = modelX,
-                    materializedY = modelY,
-                    displayWidth = null,
-                    displayHeight = null,
-                    coordinateProtocol = "unresolved",
+                    materializedX = null,
+                    materializedY = null,
+                    displayWidth = frame.width,
+                    displayHeight = frame.height,
+                    imageWidth = visual?.width,
+                    imageHeight = visual?.height,
+                    pixelMappingProtocol = "invalid:${resolution.reason}",
+                    coordinateSpace = VisualCoordinateProtocol.coordinateSpace,
                 )
             } else {
-                val pixelX = (modelX * width).coerceIn(0f, width.toFloat())
-                val pixelY = (modelY * height).coerceIn(0f, height.toFloat())
-                surfaceAwareStep.copy(x = pixelX, y = pixelY).withTapExecutionTrace(
+                surfaceAwareStep.copy(x = point.x, y = point.y).withTapExecutionTrace(
                     modelX = modelX,
                     modelY = modelY,
-                    modelPixelX = pixelX,
-                    modelPixelY = pixelY,
-                    materializedX = pixelX,
-                    materializedY = pixelY,
-                    displayWidth = width,
-                    displayHeight = height,
-                    coordinateProtocol = VisualAgentProtocol.coordinateProtocol,
+                    modelPixelX = point.x,
+                    modelPixelY = point.y,
+                    materializedX = point.x,
+                    materializedY = point.y,
+                    displayWidth = frame.width,
+                    displayHeight = frame.height,
+                    imageWidth = visual?.width,
+                    imageHeight = visual?.height,
+                    pixelMappingProtocol = VisualCoordinateProtocol.pixelMappingProtocol,
+                    coordinateSpace = VisualCoordinateProtocol.coordinateSpace,
                 )
             }
         }
@@ -155,14 +170,19 @@ internal object VisualLoopSupport {
         modelY: Float,
         modelPixelX: Float?,
         modelPixelY: Float?,
-        materializedX: Float,
-        materializedY: Float,
+        materializedX: Float?,
+        materializedY: Float?,
         displayWidth: Int?,
         displayHeight: Int?,
-        coordinateProtocol: String,
+        imageWidth: Int?,
+        imageHeight: Int?,
+        pixelMappingProtocol: String,
+        coordinateSpace: String,
     ): CloudAgentStep = withExecutionTraceFields(
         linkedMapOf(
-            TRACE_COORDINATE_PROTOCOL to coordinateProtocol,
+            TRACE_COORDINATE_PROTOCOL to VisualAgentProtocol.coordinateProtocol,
+            TRACE_PIXEL_MAPPING_PROTOCOL to pixelMappingProtocol,
+            TRACE_COORDINATE_SPACE to coordinateSpace,
             TRACE_MODEL_X to modelX,
             TRACE_MODEL_Y to modelY,
             TRACE_MODEL_PIXEL_X to modelPixelX,
@@ -171,6 +191,8 @@ internal object VisualLoopSupport {
             TRACE_MATERIALIZED_Y to materializedY,
             TRACE_DISPLAY_WIDTH to displayWidth,
             TRACE_DISPLAY_HEIGHT to displayHeight,
+            TRACE_IMAGE_WIDTH to imageWidth,
+            TRACE_IMAGE_HEIGHT to imageHeight,
             TRACE_GROUNDING_APPLIED to false,
         ),
     )
@@ -296,16 +318,26 @@ internal object VisualLoopSupport {
         val modelY = args?.optNullableTraceFloat(TRACE_MODEL_Y)
         val modelPixelX = args?.optNullableTraceFloat(TRACE_MODEL_PIXEL_X)
         val modelPixelY = args?.optNullableTraceFloat(TRACE_MODEL_PIXEL_Y)
-        val materializedX = args?.optNullableTraceFloat(TRACE_MATERIALIZED_X) ?: step.x
-        val materializedY = args?.optNullableTraceFloat(TRACE_MATERIALIZED_Y) ?: step.y
+        val materializedX = args?.optNullableTraceFloat(TRACE_MATERIALIZED_X)
+        val materializedY = args?.optNullableTraceFloat(TRACE_MATERIALIZED_Y)
+        val displayWidth = args?.optInt(TRACE_DISPLAY_WIDTH)?.takeIf { it > 0 }
+        val displayHeight = args?.optInt(TRACE_DISPLAY_HEIGHT)?.takeIf { it > 0 }
+        val imageWidth = args?.optInt(TRACE_IMAGE_WIDTH)?.takeIf { it > 0 }
+        val imageHeight = args?.optInt(TRACE_IMAGE_HEIGHT)?.takeIf { it > 0 }
         val boundaryAdjusted = result.message.contains("边界保护")
         val protocol = args?.optString(TRACE_COORDINATE_PROTOCOL).orEmpty().ifBlank { "unknown" }
+        val mapping = args?.optString(TRACE_PIXEL_MAPPING_PROTOCOL).orEmpty().ifBlank { "unknown" }
+        val coordinateSpace = args?.optString(TRACE_COORDINATE_SPACE).orEmpty().ifBlank { "unknown" }
         val permitKind = args?.optString("executionPermitKind").orEmpty()
 
         return buildList {
             surfaceMode?.let { add("surface=$it") }
             add("protocol=$protocol")
+            add("mapping=$mapping")
+            add("space=$coordinateSpace")
             permitKind.takeIf(String::isNotBlank)?.let { add("permit=$it") }
+            if (displayWidth != null && displayHeight != null) add("sourceFrame=${displayWidth}x$displayHeight")
+            if (imageWidth != null && imageHeight != null) add("modelImage=${imageWidth}x$imageHeight")
             if (modelX != null && modelY != null) add("modelNorm=${formatTraceCoordinate(modelX)},${formatTraceCoordinate(modelY)}")
             if (modelPixelX != null && modelPixelY != null) add("modelPx=${formatTraceCoordinate(modelPixelX)},${formatTraceCoordinate(modelPixelY)}")
             if (materializedX != null && materializedY != null) {
@@ -366,6 +398,8 @@ internal object VisualLoopSupport {
     private const val HUD_POINTER_LEAD_MS = 240L
     private const val TRACE_SURFACE_MODE = "__androidVisualSurfaceMode"
     private const val TRACE_COORDINATE_PROTOCOL = "__androidCoordinateProtocol"
+    private const val TRACE_PIXEL_MAPPING_PROTOCOL = "__androidPixelMappingProtocol"
+    private const val TRACE_COORDINATE_SPACE = "__androidCoordinateSpace"
     private const val TRACE_MODEL_X = "__androidModelX"
     private const val TRACE_MODEL_Y = "__androidModelY"
     private const val TRACE_MODEL_PIXEL_X = "__androidModelPixelX"
@@ -374,6 +408,8 @@ internal object VisualLoopSupport {
     private const val TRACE_MATERIALIZED_Y = "__androidMaterializedY"
     private const val TRACE_DISPLAY_WIDTH = "__androidDisplayWidth"
     private const val TRACE_DISPLAY_HEIGHT = "__androidDisplayHeight"
+    private const val TRACE_IMAGE_WIDTH = "__androidImageWidth"
+    private const val TRACE_IMAGE_HEIGHT = "__androidImageHeight"
     private const val TRACE_GROUNDING_APPLIED = "__androidGroundingApplied"
     private const val TRACE_PERMIT_REJECTED = "__androidExecutionPermitRejected"
     private const val TRACE_PERMIT_REJECT_REASON = "__androidExecutionPermitRejectReason"
