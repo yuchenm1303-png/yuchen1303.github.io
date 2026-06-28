@@ -3,6 +3,41 @@ package com.yuchen.ailedger.service
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal val DeviceControlEnvelopeKeys: Set<String> = setOf(
+    "tool",
+    "capability",
+    "type",
+    "action",
+    "name",
+    "args",
+    "arguments",
+    "params",
+    "deviceControlAction",
+    "device_control_action",
+    "agentStep",
+    "step",
+    "kind",
+    "target",
+    "targetText",
+    "text",
+    "title",
+    "label",
+    "reason",
+    "rationale",
+    "risk",
+    "riskLevel",
+    "requiresConfirmation",
+    "confirm",
+    "expectedEvidence",
+    "failureEvidence",
+    "successEvidence",
+    "evidence",
+    "observationId",
+    "expectedActionObservationId",
+    "actionObservationId",
+    "appName",
+)
+
 enum class DeviceControlPermission {
     None,
     WriteSettings,
@@ -282,6 +317,11 @@ object DeviceControlSpecs {
         val spec = byStepType[step.type]
             ?: return DeviceControlValidation.invalid("unsupported_device_tool:${step.type}")
         val args = step.toolArgs ?: JSONObject()
+
+        // Some cloud plan envelopes are parsed into CloudAgentStep before the dedicated router runs.
+        // Remove protocol-only metadata in-place at the shared execution gate. This never infers or
+        // converts an argument; all unknown executable fields remain and are still rejected below.
+        DeviceControlEnvelopeKeys.forEach { args.remove(it) }
 
         val unknownArgs = args.keys().asSequence().filterNot { it in spec.allowedArgNames }.toList()
         if (unknownArgs.isNotEmpty()) {
