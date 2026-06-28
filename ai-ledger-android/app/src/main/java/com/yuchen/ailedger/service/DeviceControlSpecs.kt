@@ -36,6 +36,7 @@ internal val DeviceControlEnvelopeKeys: Set<String> = setOf(
     "expectedActionObservationId",
     "actionObservationId",
     "appName",
+    "__androidVisualSurfaceMode",
 )
 
 enum class DeviceControlPermission {
