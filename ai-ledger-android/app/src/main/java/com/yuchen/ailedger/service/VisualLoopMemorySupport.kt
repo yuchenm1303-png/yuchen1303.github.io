@@ -1,5 +1,8 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONArray
+import org.json.JSONObject
+
 internal object VisualLoopMemorySupport {
     private const val RUNTIME_PREFIX = "visual_runtime_context:v2|"
     private const val LEGACY_RUNTIME_PREFIX = "visual_runtime_context:v1|"
@@ -20,6 +23,19 @@ internal object VisualLoopMemorySupport {
                 append("|observationId=").append(runtime.observationId)
                 append("|routeEpoch=").append(runtime.routeEpoch)
                 append("|surfaceEpoch=").append(runtime.surfaceEpoch)
+            },
+        )
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "runtime_context",
+            details = JSONObject().apply {
+                put("surfaceState", runtime.surfaceState.wireValue)
+                put("selectedTargetPackage", runtime.selectedTargetPackage)
+                put("verifiedTargetPackage", runtime.verifiedTargetPackage)
+                put("currentPackage", runtime.currentPackage)
+                put("guiPlusEligible", runtime.guiPlusEligible)
+                put("observationId", runtime.observationId)
+                put("routeEpoch", runtime.routeEpoch)
+                put("surfaceEpoch", runtime.surfaceEpoch)
             },
         )
     }
@@ -43,11 +59,39 @@ internal object VisualLoopMemorySupport {
                 append("|localSemanticDecision=false")
             },
         )
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "task_memory",
+            details = JSONObject().apply {
+                put("progressStatus", memory.progressStatus)
+                put("currentSurface", memory.currentPage?.toJson() ?: JSONObject.NULL)
+                put("lastConfirmedSurface", memory.lastConfirmedPage?.toJson() ?: JSONObject.NULL)
+                put("replanRequested", memory.replanRequested)
+                put("recoveryMode", memory.recoveryMode)
+                put("remainingExplorationBudget", memory.remainingExplorationBudget)
+                put("completedMilestoneIds", JSONArray(memory.completedMilestoneIds))
+                put("failedHypotheses", JSONArray().apply {
+                    memory.failedHypotheses.forEach { put(it.toJson()) }
+                })
+                put("blockedActions", JSONArray().apply {
+                    memory.blockedActions.forEach { put(it.toJson()) }
+                })
+                put("confirmedFacts", JSONArray(memory.confirmedFacts))
+                put("taskContract", memory.taskContract?.toJson() ?: JSONObject.NULL)
+                put("legacyMode", memory.legacyMode)
+            },
+        )
     }
 
     fun updateLastHistory(history: MutableList<VisualAgentHistoryItem>, result: String) {
         if (history.isEmpty()) return
         history[history.lastIndex] = history.last().copy(executionResult = result.take(240))
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "visual_history_update",
+            details = JSONObject().apply {
+                put("historySize", history.size)
+                put("executionResult", result.take(1_200))
+            },
+        )
     }
 
     fun rememberTurn(
@@ -61,5 +105,51 @@ internal object VisualLoopMemorySupport {
         if (output.isBlank()) return
         history += VisualAgentHistoryItem(visual.copy(base64Jpeg = ""), output, result)
         while (history.size > VisualLoopSupport.RECOVERY_HISTORY_ITEMS) history.removeAt(0)
+
+        val step = plan.step
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "model_response",
+            details = JSONObject().apply {
+                put("observationPackage", snapshot.packageName)
+                put("rawModelOutput", output.take(12_000))
+                put("parsedStep", JSONObject().apply {
+                    put("type", step.type)
+                    put("targetNodeId", step.targetNodeId ?: JSONObject.NULL)
+                    put("targetText", step.targetText ?: JSONObject.NULL)
+                    put("text", if (step.type == "input_text") "[输入内容已隐藏]" else step.text ?: JSONObject.NULL)
+                    put("direction", step.direction ?: JSONObject.NULL)
+                    put("reason", step.reason ?: JSONObject.NULL)
+                    put("appName", step.appName ?: JSONObject.NULL)
+                    put("packageName", step.packageName ?: JSONObject.NULL)
+                    put("x", step.x ?: JSONObject.NULL)
+                    put("y", step.y ?: JSONObject.NULL)
+                    put("riskLevel", step.riskLevel)
+                    put("requiresConfirmation", step.requiresConfirmation)
+                    put("purpose", step.purpose ?: JSONObject.NULL)
+                    put("milestoneId", step.milestoneId ?: JSONObject.NULL)
+                    put("expectedEvidence", JSONArray(step.expectedEvidence))
+                    put("failureEvidence", JSONArray(step.failureEvidence))
+                    put("exploratory", step.exploratory)
+                    put("reversible", step.reversible)
+                    put("confidence", step.confidence ?: JSONObject.NULL)
+                    put("hypothesisId", step.hypothesisId)
+                    put("toolArgs", if (step.type == "input_text") "[输入参数已隐藏]" else step.toolArgs ?: JSONObject.NULL)
+                })
+                put("agentState", plan.state?.let { state ->
+                    JSONObject().apply {
+                        put("isComplete", state.isComplete)
+                        put("expectedProgress", state.expectedProgress)
+                        put("isWrong", state.isWrong)
+                        put("confidence", state.confidence)
+                        put("reason", state.reason)
+                        put("nextHint", state.nextHint)
+                    }
+                } ?: JSONObject.NULL)
+                put("taskContract", plan.taskContract?.toJson() ?: JSONObject.NULL)
+                put("stopConditions", JSONArray(plan.stopConditions.toList()))
+                put("executionResult", result.take(1_200))
+                put("historySizeAfterAppend", history.size)
+            },
+        )
     }
 }
