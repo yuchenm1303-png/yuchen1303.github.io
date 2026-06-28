@@ -4,10 +4,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
- * 旧版页面固定坐标入口，仅保留兼容调用。
+ * Assistant 页面同窗口覆盖层兼容入口。
  *
- * 标题控件已经迁入聊天 Shell 内部，由 AgentChatMemoryTitleControls 统一绘制；
- * 此处必须保持为空，避免在模型卡区域再次生成独立浮层。
+ * App.kt 仍会在 Assistant 页面根 Box 中调用本函数。这里不再绘制任何固定坐标按钮，
+ * 只承载记忆面板的全页覆盖层；传入的旧固定 offset modifier 必须忽略。
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
-internal fun AgentChatHeaderControlCluster(modifier: Modifier = Modifier) = Unit
+internal fun AgentChatHeaderControlCluster(modifier: Modifier = Modifier) {
+    MemoryQuickPanelSameWindowOverlayHost()
+}
