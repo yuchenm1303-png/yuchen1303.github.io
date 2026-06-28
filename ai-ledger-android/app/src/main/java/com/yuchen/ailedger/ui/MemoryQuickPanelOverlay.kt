@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -89,12 +90,12 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-private val MemoryOverlayNoFontPadding = PlatformTextStyle(includeFontPadding = false)
-private val MemoryPanelDesiredWidth = 286.dp
-private val MemoryPanelDesiredHeight = 258.dp
-private val MemoryPanelMinimumHeight = 204.dp
-private val MemoryPanelTailHeight = 12.dp
-private val MemoryPanelTailHalfWidth = 15.dp
+private val MemoryNoFontPadding = PlatformTextStyle(includeFontPadding = false)
+private val MemoryPanelWidth = 286.dp
+private val MemoryPanelHeight = 258.dp
+private val MemoryPanelMinHeight = 204.dp
+private val MemoryTailHeight = 12.dp
+private val MemoryTailHalfWidth = 15.dp
 
 @Stable
 private object MemoryQuickOverlayState {
@@ -124,7 +125,6 @@ private object MemoryQuickOverlayState {
 
 @Immutable
 private data class MemoryPreviewUiItem(
-    val id: String,
     val title: String,
     val status: String,
     val content: String,
@@ -132,12 +132,6 @@ private data class MemoryPreviewUiItem(
     val active: Boolean,
 )
 
-/**
- * 聊天玻璃标题栏中的记忆按钮。
- *
- * 这里只记录真实窗口坐标并切换展开状态。面板始终由 Assistant 根节点在同一个
- * Compose 窗口中绘制，不创建 Popup / Dialog，也不进入 OpenGL registry。
- */
 @Composable
 internal fun MemoryQuickPanelButtonHost(modifier: Modifier = Modifier) {
     Box(
@@ -149,19 +143,13 @@ internal fun MemoryQuickPanelButtonHost(modifier: Modifier = Modifier) {
             },
         contentAlignment = Alignment.Center,
     ) {
-        MemoryOverlayFolderButton(
+        MemoryFolderButton(
             expanded = MemoryQuickOverlayState.expanded,
             onClick = MemoryQuickOverlayState::toggle,
         )
     }
 }
 
-/**
- * Assistant 页面同窗口中的真实记忆快捷面板。
- *
- * 数据直接来自 SupabaseAuthRepository、AssistantMemoryRepository 和
- * AssistantCustomInstructionsRepository；只有展开时才订阅这些 StateFlow。
- */
 @Composable
 internal fun MemoryQuickPanelSameWindowOverlayHost() {
     if (!MemoryQuickOverlayState.expanded) return
@@ -170,97 +158,74 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
     val assistantViewModel: AssistantViewModel = viewModel()
     val authRepository = remember(context) { SupabaseAuthRepository.get(context) }
     val memoryRepository = remember(context) { AssistantMemoryRepository.get(context) }
-    val customInstructionsRepository = remember(context) {
-        AssistantCustomInstructionsRepository.get(context)
-    }
+    val customRepository = remember(context) { AssistantCustomInstructionsRepository.get(context) }
     val accountState by authRepository.state.collectAsState()
     val memoryState by memoryRepository.state.collectAsState()
-    val customInstructionsState by customInstructionsRepository.state.collectAsState()
-    val previewItems = remember(memoryState.memories, customInstructionsState) {
-        buildMemoryPreviewItems(memoryState, customInstructionsState)
+    val customState by customRepository.state.collectAsState()
+    val previewItems = remember(memoryState.memories, memoryState.memoryEnabled, customState) {
+        buildPreviewItems(memoryState, customState)
     }
 
     val density = LocalDensity.current
-    val openScaleX = remember { Animatable(0.42f) }
-    val openScaleY = remember { Animatable(0.12f) }
-    val openAlpha = remember { Animatable(0f) }
-    val openLift = remember { Animatable(18f) }
+    val revealX = remember { Animatable(0.42f) }
+    val revealY = remember { Animatable(0.12f) }
+    val revealAlpha = remember { Animatable(0f) }
+    val revealLift = remember { Animatable(18f) }
     val panelPress = remember { Animatable(0f) }
-    val panelPressScope = rememberCoroutineScope()
+    val pressScope = rememberCoroutineScope()
     var rootBounds by remember { mutableStateOf(Rect.Zero) }
 
     LaunchedEffect(Unit) {
         coroutineScope {
-            launch {
-                openScaleX.animateTo(
-                    1f,
-                    spring(dampingRatio = 0.50f, stiffness = Spring.StiffnessMediumLow),
-                )
-            }
-            launch {
-                openScaleY.animateTo(
-                    1f,
-                    spring(dampingRatio = 0.56f, stiffness = Spring.StiffnessMediumLow),
-                )
-            }
-            launch { openAlpha.animateTo(1f, tween(92, easing = FastOutSlowInEasing)) }
-            launch {
-                openLift.animateTo(
-                    0f,
-                    spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow),
-                )
-            }
+            launch { revealX.animateTo(1f, spring(0.50f, Spring.StiffnessMediumLow)) }
+            launch { revealY.animateTo(1f, spring(0.56f, Spring.StiffnessMediumLow)) }
+            launch { revealAlpha.animateTo(1f, tween(92, easing = FastOutSlowInEasing)) }
+            launch { revealLift.animateTo(0f, spring(0.52f, Spring.StiffnessMediumLow)) }
         }
     }
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .onGloballyPositioned { coordinates ->
-                rootBounds = coordinates.boundsInWindow()
-            },
+            .onGloballyPositioned { rootBounds = it.boundsInWindow() },
     ) {
-        val safeInset = 10.dp
-        val gap = 7.dp
-        val safePx = with(density) { safeInset.roundToPx() }
-        val gapPx = with(density) { gap.roundToPx() }
-        val desiredWidthPx = with(density) { MemoryPanelDesiredWidth.roundToPx() }
-        val maxPanelWidthPx = (constraints.maxWidth - safePx * 2).coerceAtLeast(1)
-        val panelWidthPx = desiredWidthPx.coerceAtMost(maxPanelWidthPx)
+        val safePx = with(density) { 10.dp.roundToPx() }
+        val gapPx = with(density) { 7.dp.roundToPx() }
+        val desiredWidthPx = with(density) { MemoryPanelWidth.roundToPx() }
+        val panelWidthPx = desiredWidthPx.coerceAtMost((constraints.maxWidth - safePx * 2).coerceAtLeast(1))
         val panelWidth = with(density) { panelWidthPx.toDp() }
 
         val anchor = MemoryQuickOverlayState.anchorBounds
-        val localAnchorLeft = anchor.left - rootBounds.left
         val localAnchorTop = anchor.top - rootBounds.top
-        val localAnchorRight = anchor.right - rootBounds.left
-        val anchorCenterX = ((localAnchorLeft + localAnchorRight) * 0.5f).roundToInt()
-
-        val desiredPanelHeightPx = with(density) { MemoryPanelDesiredHeight.roundToPx() }
-        val minimumPanelHeightPx = with(density) { MemoryPanelMinimumHeight.roundToPx() }
+        val localAnchorCenterX = ((anchor.left + anchor.right) * 0.5f - rootBounds.left).roundToInt()
+        val desiredHeightPx = with(density) { MemoryPanelHeight.roundToPx() }
+        val minHeightPx = with(density) { MemoryPanelMinHeight.roundToPx() }
         val availableAbovePx = (localAnchorTop.roundToInt() - gapPx - safePx).coerceAtLeast(1)
-        val panelHeightPx = desiredPanelHeightPx
+        val panelHeightPx = desiredHeightPx
             .coerceAtMost(availableAbovePx)
-            .coerceAtLeast(minOf(minimumPanelHeightPx, availableAbovePx))
+            .coerceAtLeast(minOf(minHeightPx, availableAbovePx))
         val panelHeight = with(density) { panelHeightPx.toDp() }
-        val compact = panelHeightPx < desiredPanelHeightPx - with(density) { 20.dp.roundToPx() }
+        val compact = panelHeightPx < desiredHeightPx - with(density) { 20.dp.roundToPx() }
 
-        val desiredX = anchorCenterX - (panelWidthPx * 0.72f).roundToInt()
-        val maxX = (constraints.maxWidth - panelWidthPx - safePx).coerceAtLeast(safePx)
-        val panelX = desiredX.coerceIn(safePx, maxX)
+        val desiredX = localAnchorCenterX - (panelWidthPx * 0.72f).roundToInt()
+        val panelX = desiredX.coerceIn(
+            safePx,
+            (constraints.maxWidth - panelWidthPx - safePx).coerceAtLeast(safePx),
+        )
         val panelY = (localAnchorTop.roundToInt() - gapPx - panelHeightPx).coerceAtLeast(safePx)
-        val tailFraction = ((anchorCenterX - panelX).toFloat() / panelWidthPx.coerceAtLeast(1))
+        val tailFraction = ((localAnchorCenterX - panelX).toFloat() / panelWidthPx.coerceAtLeast(1))
             .coerceIn(0.16f, 0.84f)
         val panelShape = remember(panelWidthPx, panelHeightPx, tailFraction) {
-            MemoryUnifiedBubbleShape(
+            UnifiedMemoryShape(
                 cornerRadius = 25.dp,
-                tailHeight = MemoryPanelTailHeight,
-                tailHalfWidth = MemoryPanelTailHalfWidth,
+                tailHeight = MemoryTailHeight,
+                tailHalfWidth = MemoryTailHalfWidth,
                 tailCenterFraction = tailFraction,
             )
         }
 
         Box(
-            modifier = Modifier
+            Modifier
                 .fillMaxSize()
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -278,10 +243,11 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
                     val press = panelPress.value
                     val compression = press.coerceAtLeast(0f)
                     val rebound = (-press).coerceAtLeast(0f)
-                    alpha = openAlpha.value
-                    scaleX = openScaleX.value * (1f + compression * 0.020f - rebound * 0.010f)
-                    scaleY = openScaleY.value * (1f - compression * 0.034f + rebound * 0.020f)
-                    translationY = openLift.value.dp.toPx() + compression * 3.2.dp.toPx() - rebound * 1.4.dp.toPx()
+                    alpha = revealAlpha.value
+                    scaleX = revealX.value * (1f + compression * 0.020f - rebound * 0.010f)
+                    scaleY = revealY.value * (1f - compression * 0.034f + rebound * 0.020f)
+                    translationY = revealLift.value.dp.toPx() +
+                        compression * 3.2.dp.toPx() - rebound * 1.4.dp.toPx()
                     transformOrigin = TransformOrigin(tailFraction, 1f)
                 }
                 .shadow(
@@ -295,45 +261,21 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
                 .pointerInput(panelShape) {
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
-                        panelPressScope.launch {
+                        pressScope.launch {
                             panelPress.stop()
                             if (panelPress.value < 0.18f) panelPress.snapTo(0.18f)
-                            panelPress.animateTo(
-                                1f,
-                                tween(145, easing = FastOutSlowInEasing),
-                            )
-                            panelPress.animateTo(
-                                0.82f,
-                                spring(
-                                    dampingRatio = 0.64f,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                            )
+                            panelPress.animateTo(1f, tween(145, easing = FastOutSlowInEasing))
+                            panelPress.animateTo(0.82f, spring(0.64f, Spring.StiffnessMediumLow))
                         }
                         while (true) {
                             val event = awaitPointerEvent()
                             if (event.changes.none { it.pressed }) break
                         }
-                        panelPressScope.launch {
+                        pressScope.launch {
                             panelPress.stop()
-                            panelPress.animateTo(
-                                -0.18f,
-                                tween(120, easing = FastOutSlowInEasing),
-                            )
-                            panelPress.animateTo(
-                                0.055f,
-                                spring(
-                                    dampingRatio = 0.44f,
-                                    stiffness = Spring.StiffnessMediumLow,
-                                ),
-                            )
-                            panelPress.animateTo(
-                                0f,
-                                spring(
-                                    dampingRatio = 0.72f,
-                                    stiffness = Spring.StiffnessLow,
-                                ),
-                            )
+                            panelPress.animateTo(-0.18f, tween(120, easing = FastOutSlowInEasing))
+                            panelPress.animateTo(0.055f, spring(0.44f, Spring.StiffnessMediumLow))
+                            panelPress.animateTo(0f, spring(0.72f, Spring.StiffnessLow))
                         }
                     }
                 },
@@ -348,10 +290,10 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
                     role = GlassRole.Floating,
                     onClick = {},
                 ) {
-                    MemoryUnifiedPanelContent(
+                    MemoryPanelContent(
                         accountState = accountState,
                         memoryState = memoryState,
-                        customInstructionsState = customInstructionsState,
+                        customState = customState,
                         previewItems = previewItems,
                         compact = compact,
                         onLogin = {
@@ -364,7 +306,7 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
                         },
                         onRefresh = {
                             memoryRepository.refresh()
-                            customInstructionsRepository.refresh()
+                            customRepository.refresh()
                         },
                     )
                 }
@@ -374,34 +316,31 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
 }
 
 @Composable
-private fun MemoryOverlayFolderButton(
-    expanded: Boolean,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
+private fun MemoryFolderButton(expanded: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     val active by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(150),
-        label = "memory-overlay-active",
+        label = "memory-folder-active",
     )
-    val pressProgress by animateFloatAsState(
+    val press by animateFloatAsState(
         targetValue = when {
             pressed -> 1f
             expanded -> 0.34f
             else -> 0f
         },
-        animationSpec = spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMedium),
-        label = "memory-overlay-press",
+        animationSpec = spring(0.70f, Spring.StiffnessMedium),
+        label = "memory-folder-press",
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
-                scaleX = 1f - pressProgress * 0.055f
-                scaleY = 1f + pressProgress * 0.045f
-                translationY = pressProgress * 0.72.dp.toPx()
+                scaleX = 1f - press * 0.055f
+                scaleY = 1f + press * 0.045f
+                translationY = press * 0.72.dp.toPx()
             }
             .clip(RoundedCornerShape(999.dp))
             .background(
@@ -414,12 +353,12 @@ private fun MemoryOverlayFolderButton(
                 ),
             )
             .border(
-                width = 0.7.dp,
-                color = Color.White.copy(alpha = 0.09f + active * 0.045f),
-                shape = RoundedCornerShape(999.dp),
+                0.7.dp,
+                Color.White.copy(alpha = 0.09f + active * 0.045f),
+                RoundedCornerShape(999.dp),
             )
             .clickable(
-                interactionSource = interactionSource,
+                interactionSource = interaction,
                 indication = null,
                 role = Role.Button,
                 onClick = onClick,
@@ -429,10 +368,7 @@ private fun MemoryOverlayFolderButton(
         Canvas(Modifier.fillMaxSize()) {
             drawRoundRect(
                 brush = Brush.linearGradient(
-                    colors = listOf(
-                        Color.White.copy(alpha = 0.095f - pressProgress * 0.035f),
-                        Color.Transparent,
-                    ),
+                    listOf(Color.White.copy(alpha = 0.095f - press * 0.035f), Color.Transparent),
                     start = Offset.Zero,
                     end = Offset(size.width, size.height),
                 ),
@@ -440,33 +376,28 @@ private fun MemoryOverlayFolderButton(
                 cornerRadius = CornerRadius(size.height / 2f),
             )
         }
-        MemoryFolderGlyph(
-            modifier = Modifier.size(13.dp),
-            active = active,
-        )
+        MemoryFolderGlyph(Modifier.size(13.dp), active)
     }
 }
 
 @Composable
-private fun MemoryUnifiedPanelContent(
+private fun MemoryPanelContent(
     accountState: SupabaseAccountState,
     memoryState: AssistantMemoryState,
-    customInstructionsState: AssistantCustomInstructionsState,
+    customState: AssistantCustomInstructionsState,
     previewItems: List<MemoryPreviewUiItem>,
     compact: Boolean,
     onLogin: () -> Unit,
     onOpenManager: () -> Unit,
     onRefresh: () -> Unit,
 ) {
-    val savedCount = memoryState.memories.size +
-        if (customInstructionsState.content.isNotBlank()) 1 else 0
-    val activeCount = memoryState.activeCount +
-        if (customInstructionsState.effectiveText() != null) 1 else 0
-    val busy = accountState.loading || memoryState.loading || customInstructionsState.loading
+    val savedCount = memoryState.memories.size + if (customState.content.isNotBlank()) 1 else 0
+    val activeCount = memoryState.activeCount + if (customState.effectiveText() != null) 1 else 0
+    val busy = accountState.loading || memoryState.loading || customState.loading
     val cloudError = accountState.isLoggedIn && (
-        memoryState.error || customInstructionsState.error ||
+        memoryState.error || customState.error ||
             (!memoryState.loading && !memoryState.cloudReady) ||
-            (!customInstructionsState.loading && !customInstructionsState.cloudReady)
+            (!customState.loading && !customState.cloudReady)
         )
 
     Column(
@@ -476,61 +407,43 @@ private fun MemoryUnifiedPanelContent(
                 start = if (compact) 11.dp else 13.dp,
                 top = if (compact) 9.dp else 11.dp,
                 end = if (compact) 11.dp else 13.dp,
-                bottom = MemoryPanelTailHeight + if (compact) 8.dp else 10.dp,
+                bottom = MemoryTailHeight + if (compact) 8.dp else 10.dp,
             ),
         verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
     ) {
-        MemoryPanelHeader(
-            accountState = accountState,
-            activeCount = activeCount,
-            savedCount = savedCount,
-            busy = busy,
-            cloudError = cloudError,
-            compact = compact,
-        )
+        MemoryPanelHeader(accountState, activeCount, savedCount, busy, cloudError, compact)
         MemoryHairline()
 
         when {
-            accountState.loading -> MemoryStatusCard(
-                title = "正在检查登录状态",
-                description = "正在恢复本机保存的账号会话。",
-                accent = Color(0xFF8DFFF4),
-                compact = compact,
+            accountState.loading -> StatusBody(
+                "正在检查登录状态",
+                "正在恢复本机保存的账号会话。",
+                Color(0xFF8DFFF4),
+                compact,
             )
-
-            !accountState.isLoggedIn -> MemoryLoginState(
-                compact = compact,
-                onLogin = onLogin,
+            !accountState.isLoggedIn -> LoginBody(compact, onLogin)
+            busy -> StatusBody(
+                "正在同步真实记忆",
+                "正在读取该账号的自定义指令和长期记忆。",
+                Color(0xFF8DFFF4),
+                compact,
             )
-
-            busy -> MemoryStatusCard(
-                title = "正在同步真实记忆",
-                description = "正在读取该账号的自定义指令和长期记忆。",
-                accent = Color(0xFF8DFFF4),
-                compact = compact,
-            )
-
-            cloudError -> MemoryErrorState(
-                message = listOf(memoryState.message, customInstructionsState.message)
-                    .firstOrNull { it.isNotBlank() && it.contains("失败") || it.contains("尚未") }
+            cloudError -> ErrorBody(
+                message = listOf(memoryState.message, customState.message)
+                    .firstOrNull {
+                        it.isNotBlank() && (it.contains("失败") || it.contains("尚未"))
+                    }
                     ?: "云端记忆暂时无法读取，请稍后重试。",
                 compact = compact,
                 onRefresh = onRefresh,
             )
-
-            previewItems.isEmpty() -> MemoryEmptyState(
-                compact = compact,
-                onOpenManager = onOpenManager,
-            )
-
+            previewItems.isEmpty() -> EmptyBody(compact, onOpenManager)
             else -> {
-                previewItems.take(if (compact) 2 else 3).forEach { item ->
-                    MemoryPreviewCard(item = item, compact = compact)
-                }
+                val shown = previewItems.take(if (compact) 2 else 3)
+                shown.forEach { MemoryPreviewCard(it, compact) }
                 Spacer(Modifier.weight(1f))
-                MemoryPanelFooter(
-                    hiddenCount = (savedCount - previewItems.take(if (compact) 2 else 3).size)
-                        .coerceAtLeast(0),
+                MemoryFooter(
+                    hiddenCount = (savedCount - shown.size).coerceAtLeast(0),
                     memoryEnabled = memoryState.memoryEnabled,
                     compact = compact,
                     onOpenManager = onOpenManager,
@@ -569,10 +482,7 @@ private fun MemoryPanelHeader(
         else -> "本轮生效 $activeCount 项 · 已保存 $savedCount 项"
     }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
                 .size(if (compact) 30.dp else 34.dp)
@@ -594,30 +504,27 @@ private fun MemoryPanelHeader(
             contentAlignment = Alignment.Center,
         ) {
             MemoryFolderGlyph(
-                modifier = Modifier.size(if (compact) 15.dp else 17.dp),
-                active = if (accountState.isLoggedIn) 1f else 0.35f,
+                Modifier.size(if (compact) 15.dp else 17.dp),
+                if (accountState.isLoggedIn) 1f else 0.35f,
             )
         }
         Spacer(Modifier.width(if (compact) 8.dp else 10.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(1.dp),
-        ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(
-                text = "记忆",
+                "记忆",
                 color = Color.White.copy(alpha = 0.96f),
                 fontSize = if (compact) 15.sp else 17.sp,
                 lineHeight = if (compact) 18.sp else 20.sp,
                 fontWeight = FontWeight.Black,
-                style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+                style = TextStyle(platformStyle = MemoryNoFontPadding),
             )
             Text(
-                text = subtitle,
+                subtitle,
                 color = Color.White.copy(alpha = 0.40f),
                 fontSize = if (compact) 8.sp else 9.sp,
                 lineHeight = if (compact) 10.sp else 12.sp,
                 fontWeight = FontWeight.Bold,
-                style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+                style = TextStyle(platformStyle = MemoryNoFontPadding),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -638,12 +545,12 @@ private fun MemoryPanelHeader(
                     .background(statusColor),
             )
             Text(
-                text = statusText,
+                statusText,
                 color = Color.White.copy(alpha = 0.74f),
                 fontSize = if (compact) 8.sp else 8.5.sp,
                 lineHeight = 10.sp,
                 fontWeight = FontWeight.ExtraBold,
-                style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+                style = TextStyle(platformStyle = MemoryNoFontPadding),
             )
         }
     }
@@ -682,71 +589,46 @@ private fun MemoryPreviewCard(item: MemoryPreviewUiItem, compact: Boolean) {
                 .background(item.accent.copy(alpha = if (item.active) 0.95f else 0.42f)),
         )
         Spacer(Modifier.width(if (compact) 7.dp else 9.dp))
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                text = item.title,
+                item.title,
                 color = item.accent.copy(alpha = if (item.active) 0.94f else 0.58f),
                 fontSize = if (compact) 9.5.sp else 10.5.sp,
                 lineHeight = if (compact) 12.sp else 13.sp,
                 fontWeight = FontWeight.Black,
-                style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+                style = TextStyle(platformStyle = MemoryNoFontPadding),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = item.content,
+                item.content,
                 color = Color.White.copy(alpha = if (item.active) 0.64f else 0.38f),
                 fontSize = if (compact) 8.sp else 9.sp,
                 lineHeight = if (compact) 10.sp else 12.sp,
                 fontWeight = FontWeight.Medium,
-                style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+                style = TextStyle(platformStyle = MemoryNoFontPadding),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(7.dp))
         Text(
-            text = item.status,
+            item.status,
             color = Color.White.copy(alpha = if (item.active) 0.34f else 0.24f),
             fontSize = if (compact) 7.sp else 7.5.sp,
             lineHeight = 9.sp,
             fontWeight = FontWeight.ExtraBold,
-            style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+            style = TextStyle(platformStyle = MemoryNoFontPadding),
             maxLines = 1,
         )
     }
 }
 
 @Composable
-private fun MemoryLoginState(compact: Boolean, onLogin: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
-            .clip(RoundedCornerShape(if (compact) 17.dp else 20.dp))
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Color.White.copy(alpha = 0.060f),
-                        Color(0xFF8DFFF4).copy(alpha = 0.028f),
-                        Color(0xFF9B73FF).copy(alpha = 0.035f),
-                    ),
-                ),
-            )
-            .border(
-                0.7.dp,
-                Color.White.copy(alpha = 0.075f),
-                RoundedCornerShape(if (compact) 17.dp else 20.dp),
-            )
-            .padding(horizontal = 14.dp, vertical = if (compact) 10.dp else 13.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
+private fun ColumnScope.LoginBody(compact: Boolean, onLogin: () -> Unit) {
+    MemoryMessageSurface(compact) {
         Text(
-            text = "登录后解锁真实记忆",
+            "登录后解锁真实记忆",
             color = Color.White.copy(alpha = 0.88f),
             fontSize = if (compact) 13.sp else 15.sp,
             fontWeight = FontWeight.Black,
@@ -754,7 +636,7 @@ private fun MemoryLoginState(compact: Boolean, onLogin: () -> Unit) {
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "同步自定义指令、个人偏好和长期项目背景。",
+            "同步自定义指令、个人偏好和长期项目背景。",
             color = Color.White.copy(alpha = 0.44f),
             fontSize = if (compact) 8.5.sp else 9.5.sp,
             lineHeight = if (compact) 11.sp else 13.sp,
@@ -763,35 +645,22 @@ private fun MemoryLoginState(compact: Boolean, onLogin: () -> Unit) {
             maxLines = 2,
         )
         Spacer(Modifier.height(if (compact) 8.dp else 10.dp))
-        MemorySmallActionButton(
-            text = "立即登录",
-            accent = Color(0xFF8DFFF4),
-            onClick = onLogin,
-        )
+        MemoryActionButton("立即登录", Color(0xFF8DFFF4), onLogin)
     }
 }
 
 @Composable
-private fun MemoryEmptyState(compact: Boolean, onOpenManager: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
-            .clip(RoundedCornerShape(if (compact) 17.dp else 20.dp))
-            .background(Color.White.copy(alpha = 0.045f))
-            .padding(horizontal = 14.dp, vertical = if (compact) 9.dp else 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
+private fun ColumnScope.EmptyBody(compact: Boolean, onOpenManager: () -> Unit) {
+    MemoryMessageSurface(compact) {
         Text(
-            text = "还没有保存记忆",
+            "还没有保存记忆",
             color = Color.White.copy(alpha = 0.82f),
             fontSize = if (compact) 13.sp else 14.sp,
             fontWeight = FontWeight.Black,
         )
         Spacer(Modifier.height(3.dp))
         Text(
-            text = "在完整管理中添加偏好、个人信息或项目背景。",
+            "在完整管理中添加偏好、个人信息或项目背景。",
             color = Color.White.copy(alpha = 0.40f),
             fontSize = if (compact) 8.5.sp else 9.5.sp,
             lineHeight = if (compact) 11.sp else 13.sp,
@@ -800,44 +669,26 @@ private fun MemoryEmptyState(compact: Boolean, onOpenManager: () -> Unit) {
             maxLines = 2,
         )
         Spacer(Modifier.height(if (compact) 7.dp else 9.dp))
-        MemorySmallActionButton(
-            text = "去添加",
-            accent = Color(0xFFC6AEFF),
-            onClick = onOpenManager,
-        )
+        MemoryActionButton("去添加", Color(0xFFC6AEFF), onOpenManager)
     }
 }
 
 @Composable
-private fun MemoryErrorState(
+private fun ColumnScope.ErrorBody(
     message: String,
     compact: Boolean,
     onRefresh: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
-            .clip(RoundedCornerShape(if (compact) 17.dp else 20.dp))
-            .background(Color(0xFFFFC178).copy(alpha = 0.040f))
-            .border(
-                0.7.dp,
-                Color(0xFFFFC178).copy(alpha = 0.10f),
-                RoundedCornerShape(if (compact) 17.dp else 20.dp),
-            )
-            .padding(horizontal = 14.dp, vertical = if (compact) 9.dp else 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
+    MemoryMessageSurface(compact, Color(0xFFFFC178)) {
         Text(
-            text = "记忆同步暂时受限",
+            "记忆同步暂时受限",
             color = Color(0xFFFFD69E).copy(alpha = 0.88f),
             fontSize = if (compact) 13.sp else 14.sp,
             fontWeight = FontWeight.Black,
         )
         Spacer(Modifier.height(3.dp))
         Text(
-            text = message,
+            message,
             color = Color.White.copy(alpha = 0.40f),
             fontSize = if (compact) 8.sp else 9.sp,
             lineHeight = if (compact) 10.sp else 12.sp,
@@ -847,45 +698,27 @@ private fun MemoryErrorState(
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(if (compact) 7.dp else 9.dp))
-        MemorySmallActionButton(
-            text = "重新同步",
-            accent = Color(0xFFFFC178),
-            onClick = onRefresh,
-        )
+        MemoryActionButton("重新同步", Color(0xFFFFC178), onRefresh)
     }
 }
 
 @Composable
-private fun MemoryStatusCard(
+private fun ColumnScope.StatusBody(
     title: String,
     description: String,
     accent: Color,
     compact: Boolean,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
-            .clip(RoundedCornerShape(if (compact) 17.dp else 20.dp))
-            .background(accent.copy(alpha = 0.035f))
-            .border(
-                0.7.dp,
-                accent.copy(alpha = 0.085f),
-                RoundedCornerShape(if (compact) 17.dp else 20.dp),
-            )
-            .padding(horizontal = 14.dp, vertical = if (compact) 10.dp else 13.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
+    MemoryMessageSurface(compact, accent) {
         Text(
-            text = title,
+            title,
             color = Color.White.copy(alpha = 0.84f),
             fontSize = if (compact) 13.sp else 14.sp,
             fontWeight = FontWeight.Black,
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = description,
+            description,
             color = Color.White.copy(alpha = 0.40f),
             fontSize = if (compact) 8.5.sp else 9.5.sp,
             lineHeight = if (compact) 11.sp else 13.sp,
@@ -897,18 +730,47 @@ private fun MemoryStatusCard(
 }
 
 @Composable
-private fun MemoryPanelFooter(
+private fun ColumnScope.MemoryMessageSurface(
+    compact: Boolean,
+    accent: Color = Color(0xFF8DFFF4),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .weight(1f)
+            .clip(RoundedCornerShape(if (compact) 17.dp else 20.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.055f),
+                        accent.copy(alpha = 0.032f),
+                        Color(0xFF9B73FF).copy(alpha = 0.026f),
+                    ),
+                ),
+            )
+            .border(
+                0.7.dp,
+                accent.copy(alpha = 0.095f),
+                RoundedCornerShape(if (compact) 17.dp else 20.dp),
+            )
+            .padding(horizontal = 14.dp, vertical = if (compact) 9.dp else 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        content = content,
+    )
+}
+
+@Composable
+private fun MemoryFooter(
     hiddenCount: Int,
     memoryEnabled: Boolean,
     compact: Boolean,
     onOpenManager: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
-            text = when {
+            when {
                 hiddenCount > 0 -> "另有 $hiddenCount 项未展开"
                 memoryEnabled -> "长期记忆已开启"
                 else -> "长期记忆当前关闭"
@@ -917,37 +779,29 @@ private fun MemoryPanelFooter(
             fontSize = if (compact) 7.5.sp else 8.sp,
             lineHeight = 10.sp,
             fontWeight = FontWeight.Bold,
-            style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+            style = TextStyle(platformStyle = MemoryNoFontPadding),
         )
         Spacer(Modifier.weight(1f))
-        MemorySmallActionButton(
-            text = "完整管理",
-            accent = Color(0xFFC6AEFF),
-            onClick = onOpenManager,
-        )
+        MemoryActionButton("完整管理", Color(0xFFC6AEFF), onOpenManager)
     }
 }
 
 @Composable
-private fun MemorySmallActionButton(
-    text: String,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
+private fun MemoryActionButton(text: String, accent: Color, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.94f else 1f,
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium),
-        label = "memory-small-action-scale",
+        animationSpec = spring(0.62f, Spring.StiffnessMedium),
+        label = "memory-action-scale",
     )
     Text(
-        text = text,
+        text,
         color = Color.White.copy(alpha = 0.84f),
         fontSize = 8.5.sp,
         lineHeight = 10.sp,
         fontWeight = FontWeight.Black,
-        style = TextStyle(platformStyle = MemoryOverlayNoFontPadding),
+        style = TextStyle(platformStyle = MemoryNoFontPadding),
         modifier = Modifier
             .graphicsLayer {
                 scaleX = scale
@@ -964,11 +818,7 @@ private fun MemorySmallActionButton(
                 ),
             )
             .border(0.7.dp, accent.copy(alpha = 0.14f), RoundedCornerShape(999.dp))
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick,
-            )
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 11.dp, vertical = 6.dp),
     )
 }
@@ -976,7 +826,7 @@ private fun MemorySmallActionButton(
 @Composable
 private fun MemoryHairline() {
     Box(
-        modifier = Modifier
+        Modifier
             .fillMaxWidth()
             .height(1.dp)
             .background(
@@ -997,28 +847,18 @@ private fun MemoryFolderGlyph(modifier: Modifier, active: Float) {
     Canvas(modifier) {
         val tab = Path().apply {
             moveTo(size.width * 0.14f, size.height * 0.40f)
-            quadraticBezierTo(
-                size.width * 0.14f,
-                size.height * 0.22f,
-                size.width * 0.30f,
-                size.height * 0.22f,
-            )
+            quadraticBezierTo(size.width * 0.14f, size.height * 0.22f, size.width * 0.30f, size.height * 0.22f)
             lineTo(size.width * 0.48f, size.height * 0.22f)
             lineTo(size.width * 0.59f, size.height * 0.34f)
             lineTo(size.width * 0.82f, size.height * 0.34f)
-            quadraticBezierTo(
-                size.width * 0.88f,
-                size.height * 0.34f,
-                size.width * 0.88f,
-                size.height * 0.42f,
-            )
+            quadraticBezierTo(size.width * 0.88f, size.height * 0.34f, size.width * 0.88f, size.height * 0.42f)
             lineTo(size.width * 0.88f, size.height * 0.47f)
             lineTo(size.width * 0.14f, size.height * 0.47f)
             close()
         }
         drawPath(
-            path = tab,
-            brush = Brush.horizontalGradient(
+            tab,
+            Brush.horizontalGradient(
                 listOf(
                     Color(0xFFF3F8FF).copy(alpha = 0.82f),
                     Color(0xFF8DFFF4).copy(alpha = 0.72f + active * 0.20f),
@@ -1039,45 +879,33 @@ private fun MemoryFolderGlyph(modifier: Modifier, active: Float) {
     }
 }
 
-private fun buildMemoryPreviewItems(
+private fun buildPreviewItems(
     memoryState: AssistantMemoryState,
-    customInstructionsState: AssistantCustomInstructionsState,
+    customState: AssistantCustomInstructionsState,
 ): List<MemoryPreviewUiItem> {
-    val customItem = customInstructionsState.content
-        .trim()
-        .takeIf { it.isNotBlank() }
-        ?.let { content ->
-            MemoryPreviewUiItem(
-                id = "custom-instructions",
-                title = "自定义指令",
-                status = if (customInstructionsState.enabled && customInstructionsState.cloudReady) {
-                    "生效中"
-                } else {
-                    "已停用"
-                },
-                content = content.lineSequence().firstOrNull().orEmpty().trim(),
-                accent = Color(0xFFC6A5FF),
-                active = customInstructionsState.enabled && customInstructionsState.cloudReady,
-            )
-        }
-
-    val memoryItems = memoryState.memories
-        .asSequence()
+    val customItem = customState.content.trim().takeIf { it.isNotBlank() }?.let { content ->
+        MemoryPreviewUiItem(
+            title = "自定义指令",
+            status = if (customState.enabled && customState.cloudReady) "生效中" else "已停用",
+            content = content.lineSequence().firstOrNull().orEmpty().trim(),
+            accent = Color(0xFFC6A5FF),
+            active = customState.enabled && customState.cloudReady,
+        )
+    }
+    val memories = memoryState.memories
         .sortedWith(
             compareByDescending<AssistantMemoryItem> { it.pinned }
                 .thenByDescending { it.priority }
                 .thenByDescending { it.updatedAt },
         )
-        .map { item -> item.toPreviewUiItem(memoryState.memoryEnabled) }
-        .toList()
-
+        .map { it.toPreviewItem(memoryState.memoryEnabled) }
     return buildList {
         customItem?.let(::add)
-        addAll(memoryItems)
+        addAll(memories)
     }
 }
 
-private fun AssistantMemoryItem.toPreviewUiItem(memoryEnabled: Boolean): MemoryPreviewUiItem {
+private fun AssistantMemoryItem.toPreviewItem(memoryEnabled: Boolean): MemoryPreviewUiItem {
     val accent = when (category) {
         "profile" -> Color(0xFFFFD07F)
         "preference" -> Color(0xFF8DFFF4)
@@ -1085,13 +913,11 @@ private fun AssistantMemoryItem.toPreviewUiItem(memoryEnabled: Boolean): MemoryP
         "rule" -> Color(0xFFC6A5FF)
         else -> Color(0xFFE3EBFF)
     }
-    val title = buildString {
-        if (pinned) append("置顶 · ")
-        append(memoryCategoryLabel(category))
-    }
     return MemoryPreviewUiItem(
-        id = id,
-        title = title,
+        title = buildString {
+            if (pinned) append("置顶 · ")
+            append(memoryCategoryLabel(category))
+        },
         status = if (!enabled) "已停用" else memoryPriorityLabel(priority),
         content = content.lineSequence().firstOrNull().orEmpty().trim(),
         accent = accent,
@@ -1099,7 +925,7 @@ private fun AssistantMemoryItem.toPreviewUiItem(memoryEnabled: Boolean): MemoryP
     )
 }
 
-private class MemoryUnifiedBubbleShape(
+private class UnifiedMemoryShape(
     private val cornerRadius: Dp,
     private val tailHeight: Dp,
     private val tailHalfWidth: Dp,
@@ -1112,10 +938,8 @@ private class MemoryUnifiedBubbleShape(
     ): Outline {
         val radius = with(density) { cornerRadius.toPx() }
             .coerceAtMost(minOf(size.width, size.height) * 0.30f)
-        val tailH = with(density) { tailHeight.toPx() }
-            .coerceIn(0f, size.height * 0.22f)
-        val halfTail = with(density) { tailHalfWidth.toPx() }
-            .coerceAtMost(size.width * 0.16f)
+        val tailH = with(density) { tailHeight.toPx() }.coerceIn(0f, size.height * 0.22f)
+        val halfTail = with(density) { tailHalfWidth.toPx() }.coerceAtMost(size.width * 0.16f)
         val bodyBottom = (size.height - tailH).coerceAtLeast(radius * 2f)
         val tailCenter = (size.width * tailCenterFraction.coerceIn(0.16f, 0.84f))
             .coerceIn(radius + halfTail, size.width - radius - halfTail)
