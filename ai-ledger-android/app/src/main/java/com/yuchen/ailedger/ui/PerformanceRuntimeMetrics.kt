@@ -25,6 +25,12 @@ internal object PerformanceRuntimeMetrics {
     private val openGlContextsAlive = AtomicInteger(0)
     private val openGlPeakContextsAlive = AtomicInteger(0)
     private val openGlContextsCreated = AtomicLong(0L)
+    private val legacyGeometryCacheFrames = AtomicLong(0L)
+    private val legacyGeometryCacheRebuilds = AtomicLong(0L)
+    private val legacyGeometryCacheFallbacks = AtomicLong(0L)
+    private val legacyGeometryCachePixels = AtomicLong(0L)
+    private val legacyGeometryCachePeakPixels = AtomicLong(0L)
+    private val openGlFullClearPixels = AtomicLong(0L)
 
     fun recordAssistantClockStart() {
         if (!StartupMetrics.isEnabled) return
@@ -77,6 +83,31 @@ internal object PerformanceRuntimeMetrics {
         updatePeak(openGlPeakSurfacePixels, pixels)
     }
 
+    fun recordLegacyGeometryCacheFrame() {
+        if (!StartupMetrics.isEnabled) return
+        legacyGeometryCacheFrames.incrementAndGet()
+    }
+
+    fun recordLegacyGeometryCacheRebuild(width: Int, height: Int) {
+        if (!StartupMetrics.isEnabled) return
+        legacyGeometryCacheRebuilds.incrementAndGet()
+        val pixels = width.coerceAtLeast(0).toLong() * height.coerceAtLeast(0).toLong()
+        legacyGeometryCachePixels.set(pixels)
+        updatePeak(legacyGeometryCachePeakPixels, pixels)
+    }
+
+    fun recordLegacyGeometryCacheFallback() {
+        if (!StartupMetrics.isEnabled) return
+        legacyGeometryCacheFallbacks.incrementAndGet()
+    }
+
+    fun recordOpenGlFullClear(width: Int, height: Int) {
+        if (!StartupMetrics.isEnabled) return
+        openGlFullClearPixels.addAndGet(
+            width.coerceAtLeast(0).toLong() * height.coerceAtLeast(0).toLong()
+        )
+    }
+
     fun recordOpenGlContextCreated() {
         if (!StartupMetrics.isEnabled) return
         openGlContextsCreated.incrementAndGet()
@@ -107,7 +138,13 @@ internal object PerformanceRuntimeMetrics {
         openGlPeakSurfacePixels = openGlPeakSurfacePixels.get(),
         openGlContextsAlive = openGlContextsAlive.get(),
         openGlPeakContextsAlive = openGlPeakContextsAlive.get(),
-        openGlContextsCreated = openGlContextsCreated.get()
+        openGlContextsCreated = openGlContextsCreated.get(),
+        legacyGeometryCacheFrames = legacyGeometryCacheFrames.get(),
+        legacyGeometryCacheRebuilds = legacyGeometryCacheRebuilds.get(),
+        legacyGeometryCacheFallbacks = legacyGeometryCacheFallbacks.get(),
+        legacyGeometryCachePixels = legacyGeometryCachePixels.get(),
+        legacyGeometryCachePeakPixels = legacyGeometryCachePeakPixels.get(),
+        openGlFullClearPixels = openGlFullClearPixels.get(),
     )
 
     fun reset() {
@@ -122,6 +159,12 @@ internal object PerformanceRuntimeMetrics {
         openGlTextureUploadBytes.set(0L)
         openGlSurfacePixels.set(0L)
         openGlPeakSurfacePixels.set(0L)
+        legacyGeometryCacheFrames.set(0L)
+        legacyGeometryCacheRebuilds.set(0L)
+        legacyGeometryCacheFallbacks.set(0L)
+        legacyGeometryCachePixels.set(0L)
+        legacyGeometryCachePeakPixels.set(0L)
+        openGlFullClearPixels.set(0L)
         val aliveContexts = openGlContextsAlive.get()
         openGlPeakContextsAlive.set(aliveContexts)
         openGlContextsCreated.set(0L)
@@ -156,7 +199,13 @@ internal data class PerformanceRuntimeSnapshot(
     val openGlPeakSurfacePixels: Long,
     val openGlContextsAlive: Int,
     val openGlPeakContextsAlive: Int,
-    val openGlContextsCreated: Long
+    val openGlContextsCreated: Long,
+    val legacyGeometryCacheFrames: Long,
+    val legacyGeometryCacheRebuilds: Long,
+    val legacyGeometryCacheFallbacks: Long,
+    val legacyGeometryCachePixels: Long,
+    val legacyGeometryCachePeakPixels: Long,
+    val openGlFullClearPixels: Long,
 ) {
     fun assistantLabel(): String =
         "助手时钟 $assistantClockStarts/$assistantClockStops · tick $assistantClockTicks · 重组 $assistantCompositions/$messageBubbleCompositions"
@@ -165,10 +214,16 @@ internal data class PerformanceRuntimeSnapshot(
         val uploadMiB = openGlTextureUploadBytes / (1024f * 1024f)
         val surfaceKpx = openGlSurfacePixels / 1000f
         val peakSurfaceKpx = openGlPeakSurfacePixels / 1000f
+        val cacheKpx = legacyGeometryCachePixels / 1000f
+        val peakCacheKpx = legacyGeometryCachePeakPixels / 1000f
+        val fullClearMpx = openGlFullClearPixels / 1_000_000f
         return buildString {
             append("OpenGL 请求/帧 $openGlRenderRequests/$openGlFrames")
             append(" · 上传 $openGlTextureUploads 次 ${formatOneDecimal(uploadMiB)} MiB")
             append(" · Surface ${formatOneDecimal(surfaceKpx)}/${formatOneDecimal(peakSurfaceKpx)} Kpx")
+            append(" · 几何缓存 $legacyGeometryCacheFrames/$legacyGeometryCacheRebuilds/$legacyGeometryCacheFallbacks")
+            append(" ${formatOneDecimal(cacheKpx)}/${formatOneDecimal(peakCacheKpx)} Kpx")
+            append(" · 全清 ${formatOneDecimal(fullClearMpx)} Mpx")
             append(" · Context $openGlContextsAlive/$openGlPeakContextsAlive/$openGlContextsCreated")
         }
     }
