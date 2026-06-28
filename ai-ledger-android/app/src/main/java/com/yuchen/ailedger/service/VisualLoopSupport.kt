@@ -53,7 +53,7 @@ internal object VisualLoopSupport {
                     type = "wait",
                     x = null,
                     y = null,
-                    durationMs = MISSING_PERMIT_REOBSERVE_MS,
+                    durationMs = REOBSERVE_WAIT_MS,
                     targetText = "重新观察",
                     reason = "Verified GUI execution permit is invalid (${permit.reason}); the coordinate was not executed.",
                 )
@@ -69,70 +69,131 @@ internal object VisualLoopSupport {
             return rejected
         }
 
-        val modelX = surfaceAwareStep.x ?: return surfaceAwareStep
-        val modelY = surfaceAwareStep.y ?: return surfaceAwareStep
+        val modelX = surfaceAwareStep.x ?: return rejectCoordinateMaterialization(
+            step = surfaceAwareStep,
+            snapshot = snapshot,
+            modelX = null,
+            modelY = surfaceAwareStep.y,
+            reason = "missing_model_x",
+        )
+        val modelY = surfaceAwareStep.y ?: return rejectCoordinateMaterialization(
+            step = surfaceAwareStep,
+            snapshot = snapshot,
+            modelX = modelX,
+            modelY = null,
+            reason = "missing_model_y",
+        )
         val visual = snapshot.visual
-        val frame = visual?.let {
-            VisualDisplayFrame(
-                width = it.displayWidth.takeIf { value -> value > 0 } ?: it.width,
-                height = it.displayHeight.takeIf { value -> value > 0 } ?: it.height,
+        if (visual?.hasImage != true) {
+            return rejectCoordinateMaterialization(
+                step = surfaceAwareStep,
+                snapshot = snapshot,
+                modelX = modelX,
+                modelY = modelY,
+                reason = "missing_visual_frame",
             )
-        }?.takeIf(VisualDisplayFrame::valid)
+        }
+        if (visual.displayWidth <= 0 || visual.displayHeight <= 0) {
+            return rejectCoordinateMaterialization(
+                step = surfaceAwareStep,
+                snapshot = snapshot,
+                modelX = modelX,
+                modelY = modelY,
+                reason = "missing_source_display_frame",
+            )
+        }
 
-        val materialized = if (frame == null) {
-            surfaceAwareStep.withTapExecutionTrace(
+        val frame = VisualDisplayFrame(
+            width = visual.displayWidth,
+            height = visual.displayHeight,
+        )
+        val resolution = VisualCoordinateProtocol.materializeNormalized(modelX, modelY, frame)
+        val point = resolution.point
+        if (!resolution.valid || point == null) {
+            return rejectCoordinateMaterialization(
+                step = surfaceAwareStep,
+                snapshot = snapshot,
+                modelX = modelX,
+                modelY = modelY,
+                reason = "coordinate_materialization_${resolution.reason}",
+            )
+        }
+
+        val materialized = surfaceAwareStep.copy(x = point.x, y = point.y).withTapExecutionTrace(
+            modelX = modelX,
+            modelY = modelY,
+            modelPixelX = point.x,
+            modelPixelY = point.y,
+            materializedX = point.x,
+            materializedY = point.y,
+            displayWidth = frame.width,
+            displayHeight = frame.height,
+            imageWidth = visual.width,
+            imageHeight = visual.height,
+            pixelMappingProtocol = VisualCoordinateProtocol.pixelMappingProtocol,
+            coordinateSpace = VisualCoordinateProtocol.coordinateSpace,
+        )
+        recordPlannedAction(materialized, snapshot, "tap_materialized")
+        VisualAgentHudRuntime.notePlannedStep(materialized)
+        awaitHudPointerLead()
+        return materialized
+    }
+
+    private fun rejectCoordinateMaterialization(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        modelX: Float?,
+        modelY: Float?,
+        reason: String,
+    ): CloudAgentStep {
+        val visual = snapshot.visual
+        val rejected = step
+            .withTapExecutionTrace(
                 modelX = modelX,
                 modelY = modelY,
                 modelPixelX = null,
                 modelPixelY = null,
                 materializedX = null,
                 materializedY = null,
-                displayWidth = null,
-                displayHeight = null,
+                displayWidth = visual?.displayWidth?.takeIf { it > 0 },
+                displayHeight = visual?.displayHeight?.takeIf { it > 0 },
                 imageWidth = visual?.width,
                 imageHeight = visual?.height,
-                pixelMappingProtocol = "unresolved",
+                pixelMappingProtocol = "rejected:$reason",
                 coordinateSpace = "normalized_screen",
             )
-        } else {
-            val resolution = VisualCoordinateProtocol.materializeNormalized(modelX, modelY, frame)
-            val point = resolution.point
-            if (!resolution.valid || point == null) {
-                surfaceAwareStep.withTapExecutionTrace(
-                    modelX = modelX,
-                    modelY = modelY,
-                    modelPixelX = null,
-                    modelPixelY = null,
-                    materializedX = null,
-                    materializedY = null,
-                    displayWidth = frame.width,
-                    displayHeight = frame.height,
-                    imageWidth = visual?.width,
-                    imageHeight = visual?.height,
-                    pixelMappingProtocol = "invalid:${resolution.reason}",
-                    coordinateSpace = VisualCoordinateProtocol.coordinateSpace,
-                )
-            } else {
-                surfaceAwareStep.copy(x = point.x, y = point.y).withTapExecutionTrace(
-                    modelX = modelX,
-                    modelY = modelY,
-                    modelPixelX = point.x,
-                    modelPixelY = point.y,
-                    materializedX = point.x,
-                    materializedY = point.y,
-                    displayWidth = frame.width,
-                    displayHeight = frame.height,
-                    imageWidth = visual?.width,
-                    imageHeight = visual?.height,
-                    pixelMappingProtocol = VisualCoordinateProtocol.pixelMappingProtocol,
-                    coordinateSpace = VisualCoordinateProtocol.coordinateSpace,
-                )
-            }
-        }
-        recordPlannedAction(materialized, snapshot, "tap_materialized")
-        VisualAgentHudRuntime.notePlannedStep(materialized)
-        awaitHudPointerLead()
-        return materialized
+            .withExecutionTraceFields(
+                linkedMapOf(
+                    TRACE_COORDINATE_MATERIALIZATION_REJECTED to true,
+                    TRACE_COORDINATE_MATERIALIZATION_REJECT_REASON to reason,
+                    TRACE_REJECTED_ACTION to "tap_xy",
+                ),
+            )
+            .copy(
+                type = "wait",
+                x = null,
+                y = null,
+                durationMs = REOBSERVE_WAIT_MS,
+                targetText = "重新观察",
+                reason = "Verified visual coordinate could not be bound to its source display frame ($reason); a fresh visual observation is required.",
+            )
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "tap_coordinate_materialization_rejected",
+            details = JSONObject().apply {
+                put("originalType", "tap_xy")
+                put("reason", reason)
+                put("packageName", snapshot.packageName)
+                put("surfaceMode", surfaceEvidenceMode(snapshot))
+                put("modelX", modelX ?: JSONObject.NULL)
+                put("modelY", modelY ?: JSONObject.NULL)
+                put("imageWidth", visual?.width ?: JSONObject.NULL)
+                put("imageHeight", visual?.height ?: JSONObject.NULL)
+                put("displayWidth", visual?.displayWidth ?: JSONObject.NULL)
+                put("displayHeight", visual?.displayHeight ?: JSONObject.NULL)
+            },
+        )
+        recordPlannedAction(rejected, snapshot, "tap_materialization_rejected")
+        return rejected
     }
 
     private fun recordPlannedAction(
@@ -166,8 +227,8 @@ internal object VisualLoopSupport {
     }
 
     private fun CloudAgentStep.withTapExecutionTrace(
-        modelX: Float,
-        modelY: Float,
+        modelX: Float?,
+        modelY: Float?,
         modelPixelX: Float?,
         modelPixelY: Float?,
         materializedX: Float?,
@@ -394,7 +455,7 @@ internal object VisualLoopSupport {
     }
 
     private val EXECUTED_POINT_PATTERN = Regex("实际落点\\s+(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
-    private const val MISSING_PERMIT_REOBSERVE_MS = 220L
+    private const val REOBSERVE_WAIT_MS = 220L
     private const val HUD_POINTER_LEAD_MS = 240L
     private const val TRACE_SURFACE_MODE = "__androidVisualSurfaceMode"
     private const val TRACE_COORDINATE_PROTOCOL = "__androidCoordinateProtocol"
@@ -413,5 +474,7 @@ internal object VisualLoopSupport {
     private const val TRACE_GROUNDING_APPLIED = "__androidGroundingApplied"
     private const val TRACE_PERMIT_REJECTED = "__androidExecutionPermitRejected"
     private const val TRACE_PERMIT_REJECT_REASON = "__androidExecutionPermitRejectReason"
+    private const val TRACE_COORDINATE_MATERIALIZATION_REJECTED = "__androidCoordinateMaterializationRejected"
+    private const val TRACE_COORDINATE_MATERIALIZATION_REJECT_REASON = "__androidCoordinateMaterializationRejectReason"
     private const val TRACE_REJECTED_ACTION = "__androidRejectedAction"
 }
