@@ -70,6 +70,10 @@ class VisualExecutionSessionState(
         stateMachine.synchronizeWith(snapshot?.packageName.orEmpty())
     }
 
+    fun requiresForeignConfirmation(snapshot: AgentScreenSnapshot): Boolean {
+        return stateMachine.requiresForeignConfirmation(snapshot.packageName)
+    }
+
     fun isVerifiedWorkSurface(snapshot: AgentScreenSnapshot): Boolean {
         return stateMachine.isVerifiedWorkSurface(snapshot.packageName)
     }
