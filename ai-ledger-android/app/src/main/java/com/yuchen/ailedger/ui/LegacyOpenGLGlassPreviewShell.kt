@@ -31,7 +31,6 @@ fun LegacyOpenGLGlassPreviewShell(
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f,
     dynamicState: OpenGLGlassDynamicState? = null,
-    clipOpenGlHost: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val ownedCoordinates = remember { GlassCoordinateSource() }
@@ -49,43 +48,23 @@ fun LegacyOpenGLGlassPreviewShell(
     val previewShape = remember(radius) { RoundedCornerShape(radius.dp) }
 
     CompositionLocalProvider(LocalGlassBackdrop provides optimizedBackdrop) {
-        val placementModifier = modifier.onPlaced { coordinates.coordinates = it }
-        if (clipOpenGlHost) {
-            Box(
-                modifier = placementModifier
-                    // 聊天大 Shell 保持原有 Compose 最终轮廓裁剪。
-                    .clip(previewShape)
-            ) {
-                OpenGLGlassCardLayer(
-                    radius = radius,
-                    glassIntensity = glassIntensity,
-                    coordinateSource = coordinates,
-                    modifier = Modifier.matchParentSize(),
-                    pressProgress = pressProgress,
-                    pressCenter = pressCenter,
-                    viewportTopInsetPx = viewportTopInsetPx,
-                    dynamicState = dynamicState,
-                )
-                content()
-            }
-        } else {
-            Box(modifier = placementModifier) {
-                // 设置页短 Shell 不把 TextureView 放入 Compose clip 的离屏 RenderNode。
-                // 圆角和透明区仍由原 Shader 输出，内容层继续保持相同轮廓裁剪。
-                OpenGLGlassCardLayer(
-                    radius = radius,
-                    glassIntensity = glassIntensity,
-                    coordinateSource = coordinates,
-                    modifier = Modifier.matchParentSize(),
-                    pressProgress = pressProgress,
-                    pressCenter = pressCenter,
-                    viewportTopInsetPx = viewportTopInsetPx,
-                    dynamicState = dynamicState,
-                )
-                Box(Modifier.matchParentSize().clip(previewShape)) {
-                    content()
-                }
-            }
+        Box(
+            modifier = modifier
+                // 旧 Shader 的抗锯齿带位于几何边界外侧，统一由 Compose 裁剪最终轮廓。
+                .clip(previewShape)
+                .onPlaced { coordinates.coordinates = it }
+        ) {
+            OpenGLGlassCardLayer(
+                radius = radius,
+                glassIntensity = glassIntensity,
+                coordinateSource = coordinates,
+                modifier = Modifier.matchParentSize(),
+                pressProgress = pressProgress,
+                pressCenter = pressCenter,
+                viewportTopInsetPx = viewportTopInsetPx,
+                dynamicState = dynamicState,
+            )
+            content()
         }
     }
 }
