@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
  * 聊天大玻璃内部的唯一标题控件行。
  *
  * Agent、浮窗沿用既有实现；记忆入口作为同一 Row 的普通 Compose 子节点追加，
- * 因而三者共享聊天 Shell 的位移与形变，但记忆按钮和弹层不参与 OpenGL 绘制链。
+ * 因而三者共享聊天 Shell 的位移与形变，但记忆面板不创建额外窗口。
  */
 @Composable
 internal fun AgentChatMemoryTitleControls(modifier: Modifier = Modifier) {
@@ -22,6 +22,6 @@ internal fun AgentChatMemoryTitleControls(modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         AgentChatGlassTitleControls()
-        MemoryQuickPanelDialogHost()
+        MemoryQuickPanelButtonHost()
     }
 }
