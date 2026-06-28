@@ -173,6 +173,7 @@ class VisualObservationCoordinatorTest {
             overlayController = overlay,
             timing = zeroTiming().copy(
                 openAppVerifyTimeoutMs = 20L,
+                openAppMaxVerifyTimeoutMs = 20L,
                 trustedPackageTtlMs = 100L,
             ),
             elapsedRealtime = { clock++ },
@@ -189,6 +190,7 @@ class VisualObservationCoordinatorTest {
         assertEquals("com.example.target", verification.lastSnapshot?.packageName)
         assertEquals("com.example.target", verification.lastObservation?.packageName)
         assertTrue(verification.lastObservation?.visual?.hasImage == true)
+        assertEquals("stable_target_with_visual_frame", verification.reason)
         assertEquals(1, overlay.beginCount)
         assertEquals(1, overlay.endCount)
     }
@@ -210,7 +212,10 @@ class VisualObservationCoordinatorTest {
                 ForegroundPackageProbeResult(available = false)
             },
             overlayController = overlay,
-            timing = zeroTiming().copy(openAppVerifyTimeoutMs = 20L),
+            timing = zeroTiming().copy(
+                openAppVerifyTimeoutMs = 20L,
+                openAppMaxVerifyTimeoutMs = 20L,
+            ),
             elapsedRealtime = { clock++ },
             sleeper = {},
         )
@@ -224,6 +229,48 @@ class VisualObservationCoordinatorTest {
         assertEquals(2, verification.stableSamples)
         assertEquals("com.example.target", verification.lastSnapshot?.packageName)
         assertTrue(verification.lastObservation?.visual?.hasImage == true)
+        assertEquals(1, overlay.beginCount)
+        assertEquals(1, overlay.endCount)
+    }
+
+    @Test
+    fun lateFirstTargetSampleGetsEvidenceGraceAndCompletesHandoff() = runBlocking {
+        var clock = 0L
+        var captureIndex = 0
+        val overlay = RecordingOverlayController()
+        val coordinator = VisualObservationCoordinator(
+            captureSource = VisualObservationCaptureSource { forceVisual ->
+                captureIndex += 1
+                ScreenObservation(
+                    enabled = true,
+                    serviceConnected = true,
+                    packageName = if (!forceVisual && captureIndex == 1) "" else "com.example.target",
+                    visual = if (forceVisual) visualFrame() else null,
+                )
+            },
+            foregroundPackageReader = ForegroundPackageReader {
+                ForegroundPackageProbeResult(available = false)
+            },
+            overlayController = overlay,
+            timing = zeroTiming().copy(
+                openAppVerifyPollMs = 1L,
+                openAppVerifyTimeoutMs = 2L,
+                openAppEvidenceGraceMs = 3L,
+                openAppMaxVerifyTimeoutMs = 6L,
+                trustedPackageTtlMs = 100L,
+            ),
+            elapsedRealtime = { clock },
+            sleeper = { clock += it },
+        )
+
+        val verification = coordinator.awaitStableTargetPackage(
+            expectedPackage = "com.example.target",
+            isStopped = { false },
+        )
+
+        assertTrue(verification.verified)
+        assertEquals(2, verification.stableSamples)
+        assertEquals("stable_target_with_visual_frame", verification.reason)
         assertEquals(1, overlay.beginCount)
         assertEquals(1, overlay.endCount)
     }
@@ -248,7 +295,11 @@ class VisualObservationCoordinatorTest {
                 ForegroundPackageProbeResult(available = false)
             },
             overlayController = RecordingOverlayController(),
-            timing = zeroTiming().copy(openAppVerifyTimeoutMs = 7L),
+            timing = zeroTiming().copy(
+                openAppVerifyTimeoutMs = 7L,
+                openAppEvidenceGraceMs = 2L,
+                openAppMaxVerifyTimeoutMs = 7L,
+            ),
             elapsedRealtime = { clock++ },
             sleeper = {},
         )
@@ -262,6 +313,7 @@ class VisualObservationCoordinatorTest {
         assertEquals(0, verification.stableSamples)
         assertEquals(0, visualCaptureCount)
         assertEquals("com.example.other", verification.lastSnapshot?.packageName)
+        assertEquals("target_not_stable", verification.reason)
     }
 
     @Test
@@ -302,6 +354,9 @@ class VisualObservationCoordinatorTest {
         openAppInitialSettleMs = 0L,
         openAppVerifyPollMs = 0L,
         openAppVerifyTimeoutMs = 0L,
+        openAppEvidenceGraceMs = 0L,
+        openAppTransientGraceMs = 0L,
+        openAppMaxVerifyTimeoutMs = 0L,
         requiredStableSamples = 2,
         trustedPackageTtlMs = 0L,
     )
