@@ -156,7 +156,10 @@ fun OpenGLGlassCardLayer(
 }
 
 private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
-    private val textureView = OpenGLGlassCardTextureView(context)
+    private val textureView = OpenGLGlassCardTextureView(
+        context = context,
+        onFramePresented = ::onTextureFramePresented,
+    )
 
     private var stableSurfaceWidth = 1
     private var stableSurfaceHeight = 1
@@ -192,6 +195,10 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
             syncDynamicFrameToTexture()
             textureView.requestRender()
         }
+    }
+
+    private fun onTextureFramePresented() {
+        if (isAttachedToWindow) postInvalidateOnAnimation()
     }
 
     init {
@@ -391,6 +398,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
 private class OpenGLGlassCardTextureView(
     context: Context,
+    private val onFramePresented: () -> Unit,
 ) : TextureView(context), TextureView.SurfaceTextureListener {
     private var renderThread: CardGlassEglThread? = null
     private var latestBlurBitmap: Bitmap? = null
@@ -566,7 +574,9 @@ private class OpenGLGlassCardTextureView(
         return true
     }
 
-    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {
+        onFramePresented()
+    }
 }
 
 private class CardGlassEglThread(
