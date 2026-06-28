@@ -27,6 +27,7 @@ import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import com.yuchen.ailedger.ui.LocalGlassFoldoutClipRegistry
+import com.yuchen.ailedger.ui.PerformanceRuntimeMetrics
 import com.yuchen.ailedger.ui.applyGlassFoldoutClip
 import kotlin.math.abs
 import kotlin.math.max
@@ -224,6 +225,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
         stableSurfaceWidth = targetWidth
         stableSurfaceHeight = targetHeight
+        PerformanceRuntimeMetrics.recordOpenGlSurface(stableSurfaceWidth, stableSurfaceHeight)
 
         val current = textureView.layoutParams as? LayoutParams
         val layoutDirty =
@@ -261,7 +263,8 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         }
         val glassDirty = syncGlassSpecToTexture()
         val samplingDirty = syncSamplingSpecToTexture()
-        if (changed || glassDirty || samplingDirty) {
+        // TextureView 自己会在 Surface 尺寸变化时唤醒；父布局 changed 不再重复提交同一帧。
+        if (glassDirty || samplingDirty) {
             textureView.requestRender()
         }
     }
@@ -423,10 +426,18 @@ private class OpenGLGlassCardTextureView(
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap): Boolean {
-        val dirty = blurBitmap !== latestBlurBitmap || lensBitmap !== latestLensBitmap
+        val blurChanged = blurBitmap !== latestBlurBitmap
+        val lensChanged = lensBitmap !== latestLensBitmap
+        val dirty = blurChanged || lensChanged
         latestBlurBitmap = blurBitmap
         latestLensBitmap = lensBitmap
-        if (dirty) renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
+        if (dirty) {
+            if (blurChanged) PerformanceRuntimeMetrics.recordOpenGlTextureUpload(blurBitmap.width, blurBitmap.height)
+            if (lensChanged && lensBitmap !== blurBitmap) {
+                PerformanceRuntimeMetrics.recordOpenGlTextureUpload(lensBitmap.width, lensBitmap.height)
+            }
+            renderThread?.setBackdropTextures(blurBitmap, lensBitmap)
+        }
         return dirty
     }
 
@@ -500,6 +511,7 @@ private class CardGlassEglThread(
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var preservedSwap = false
+    private var metricsContextActive = false
 
     fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float) =
         renderer.setGlassSpec(width, height, rectOffsetY, radius)
@@ -517,7 +529,10 @@ private class CardGlassEglThread(
 
     fun requestRender() {
         synchronized(renderLock) {
-            pendingRender = true
+            if (running && !pendingRender) {
+                pendingRender = true
+                PerformanceRuntimeMetrics.recordOpenGlRenderRequest()
+            }
             renderLock.notifyAll()
         }
     }
@@ -525,13 +540,14 @@ private class CardGlassEglThread(
     fun resize(width: Int, height: Int) {
         viewportWidth = max(width, 1)
         viewportHeight = max(height, 1)
+        PerformanceRuntimeMetrics.recordOpenGlSurface(viewportWidth, viewportHeight)
         sizeDirty = true
         requestRender()
     }
 
     fun shutdown() {
         running = false
-        requestRender()
+        synchronized(renderLock) { renderLock.notifyAll() }
     }
 
     override fun run() {
@@ -542,6 +558,7 @@ private class CardGlassEglThread(
             renderer.setPartialClearSupported(false)
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportWidth, viewportHeight)
+            PerformanceRuntimeMetrics.recordOpenGlSurface(viewportWidth, viewportHeight)
             sizeDirty = false
             while (running) {
                 synchronized(renderLock) {
@@ -554,7 +571,9 @@ private class CardGlassEglThread(
                     sizeDirty = false
                 }
                 renderer.onDrawFrame()
-                EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+                if (EGL14.eglSwapBuffers(eglDisplay, eglSurface)) {
+                    PerformanceRuntimeMetrics.recordOpenGlFrame()
+                }
             }
         } finally {
             runCatching { renderer.onRelease() }
@@ -606,6 +625,8 @@ private class CardGlassEglThread(
                 eglContext
             )
         ) { "Unable to make EGL context current" }
+        metricsContextActive = true
+        PerformanceRuntimeMetrics.recordOpenGlContextCreated()
 
         preservedSwap = preservedConfig != null && EGL14.eglSurfaceAttrib(
             eglDisplay,
@@ -657,6 +678,10 @@ private class CardGlassEglThread(
                 EGL14.eglDestroyContext(eglDisplay, eglContext)
             }
             EGL14.eglTerminate(eglDisplay)
+        }
+        if (metricsContextActive) {
+            metricsContextActive = false
+            PerformanceRuntimeMetrics.recordOpenGlContextReleased()
         }
         eglDisplay = EGL14.EGL_NO_DISPLAY
         eglSurface = EGL14.EGL_NO_SURFACE
