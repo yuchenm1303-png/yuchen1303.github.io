@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,7 +59,6 @@ import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
@@ -110,17 +110,18 @@ private val memoryPreviewItemsV2 = listOf(
 /**
  * 聊天标题栏中的记忆快捷入口。
  *
- * 按钮和弹层都只使用普通 Compose 绘制；弹层明确退出页面父级批绘制后使用
- * GlassRole.Floating，绝不进入聊天 Shell 的 OpenGL registry 或几何同步链。
+ * 这里不再订阅完整 AssistantHomeUiState，避免每次流式文本更新都重组标题控件。
+ * Popup 内主动断开主窗口的背景采样，仅保留普通 Compose 玻璃自身绘制，避免跨窗口
+ * 坐标参与背景采样导致点击后崩溃。
  */
 @Composable
 internal fun MemoryQuickPanelV2Host(modifier: Modifier = Modifier) {
     val assistantViewModel: AssistantViewModel = viewModel()
-    val state = assistantViewModel.uiState
+    val parentBackdrop = LocalGlassBackdrop.current
+    val panelQuality = parentBackdrop?.quality ?: RenderQuality.Balanced
+
     MemoryQuickPanelV2Host(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
+        quality = panelQuality,
         onOpenManager = { assistantViewModel.selectTab(AppTab.Settings) },
         modifier = modifier,
     )
@@ -129,8 +130,6 @@ internal fun MemoryQuickPanelV2Host(modifier: Modifier = Modifier) {
 @Composable
 private fun MemoryQuickPanelV2Host(
     quality: RenderQuality,
-    glassIntensity: Float,
-    motionIntensity: Float,
     onOpenManager: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -171,6 +170,7 @@ private fun MemoryQuickPanelV2Host(
                     tailFraction = MEMORY_PANEL_V2_TAIL_FRACTION,
                 )
             }
+
             Popup(
                 popupPositionProvider = positionProvider,
                 onDismissRequest = { expanded = false },
@@ -180,43 +180,44 @@ private fun MemoryQuickPanelV2Host(
                     dismissOnClickOutside = true,
                 ),
             ) {
-                AnimatedVisibility(
-                    visibleState = visibility,
-                    enter = fadeIn(tween(120)) +
-                        slideInVertically(
-                            animationSpec = spring(
-                                dampingRatio = 0.78f,
-                                stiffness = Spring.StiffnessMediumLow,
-                            ),
-                            initialOffsetY = { 7 },
-                        ) +
-                        scaleIn(
-                            initialScale = 0.86f,
-                            transformOrigin = TransformOrigin(MEMORY_PANEL_V2_TAIL_FRACTION, 1f),
-                            animationSpec = spring(
-                                dampingRatio = 0.72f,
-                                stiffness = Spring.StiffnessMediumLow,
-                            ),
-                        ),
-                    exit = fadeOut(tween(95)) +
-                        slideOutVertically(tween(110)) { 5 } +
-                        scaleOut(
-                            targetScale = 0.95f,
-                            transformOrigin = TransformOrigin(MEMORY_PANEL_V2_TAIL_FRACTION, 1f),
-                            animationSpec = tween(110),
-                        ),
-                ) {
+                // Popup 是独立 Android 窗口，不能继承主页背景采样坐标。
+                CompositionLocalProvider(LocalGlassBackdrop provides null) {
                     GlassSceneScope(group = GlassSceneGroup.Unassigned) {
-                        MemoryQuickPanelV2(
-                            quality = quality,
-                            glassIntensity = glassIntensity,
-                            motionIntensity = motionIntensity,
-                            compact = compact,
-                            onOpenManager = {
-                                expanded = false
-                                onOpenManager()
-                            },
-                        )
+                        AnimatedVisibility(
+                            visibleState = visibility,
+                            enter = fadeIn(tween(105)) +
+                                slideInVertically(
+                                    animationSpec = spring(
+                                        dampingRatio = 0.82f,
+                                        stiffness = Spring.StiffnessMediumLow,
+                                    ),
+                                    initialOffsetY = { 6 },
+                                ) +
+                                scaleIn(
+                                    initialScale = 0.90f,
+                                    transformOrigin = TransformOrigin(MEMORY_PANEL_V2_TAIL_FRACTION, 1f),
+                                    animationSpec = spring(
+                                        dampingRatio = 0.78f,
+                                        stiffness = Spring.StiffnessMediumLow,
+                                    ),
+                                ),
+                            exit = fadeOut(tween(85)) +
+                                slideOutVertically(tween(95)) { 4 } +
+                                scaleOut(
+                                    targetScale = 0.97f,
+                                    transformOrigin = TransformOrigin(MEMORY_PANEL_V2_TAIL_FRACTION, 1f),
+                                    animationSpec = tween(95),
+                                ),
+                        ) {
+                            MemoryQuickPanelV2(
+                                quality = quality,
+                                compact = compact,
+                                onOpenManager = {
+                                    expanded = false
+                                    onOpenManager()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -233,40 +234,26 @@ private fun MemoryFolderCapsuleButtonV2(
     val pressed by interactionSource.collectIsPressedAsState()
     val active by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
-        animationSpec = tween(180),
+        animationSpec = tween(150),
         label = "memory-v2-active",
     )
-    val scaleX by animateFloatAsState(
+    val pressProgress by animateFloatAsState(
         targetValue = when {
-            pressed -> 0.925f
-            expanded -> 0.975f
-            else -> 1f
+            pressed -> 1f
+            expanded -> 0.34f
+            else -> 0f
         },
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium),
-        label = "memory-v2-press-x",
-    )
-    val scaleY by animateFloatAsState(
-        targetValue = when {
-            pressed -> 1.075f
-            expanded -> 1.025f
-            else -> 1f
-        },
-        animationSpec = spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium),
-        label = "memory-v2-press-y",
-    )
-    val translationY by animateFloatAsState(
-        targetValue = if (pressed) 0.75f else if (expanded) 0.35f else 0f,
-        animationSpec = spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMedium),
-        label = "memory-v2-press-y-offset",
+        animationSpec = spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessMedium),
+        label = "memory-v2-press",
     )
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
-                this.scaleX = scaleX
-                this.scaleY = scaleY
-                this.translationY = translationY.dp.toPx()
+                scaleX = 1f - pressProgress * 0.055f
+                scaleY = 1f + pressProgress * 0.045f
+                translationY = pressProgress * 0.72.dp.toPx()
             }
             .clip(RoundedCornerShape(999.dp))
             .background(
@@ -295,7 +282,7 @@ private fun MemoryFolderCapsuleButtonV2(
             drawRoundRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = if (pressed) 0.045f else 0.105f),
+                        Color.White.copy(alpha = 0.095f - pressProgress * 0.035f),
                         Color.Transparent,
                     ),
                     start = Offset.Zero,
@@ -304,19 +291,9 @@ private fun MemoryFolderCapsuleButtonV2(
                 size = Size(size.width, size.height * 0.55f),
                 cornerRadius = CornerRadius(size.height / 2f),
             )
-            drawLine(
-                color = Color(0xFF25335A).copy(alpha = 0.28f),
-                start = Offset(size.width * 0.20f, size.height - 1.1f),
-                end = Offset(size.width * 0.80f, size.height - 1.1f),
-                strokeWidth = 0.65.dp.toPx(),
-            )
         }
         MemoryFolderGlyphV2(
-            modifier = Modifier
-                .size(13.dp)
-                .graphicsLayer {
-                    this.translationY = if (pressed) 0.35.dp.toPx() else 0f
-                },
+            modifier = Modifier.size(13.dp),
             active = active,
         )
     }
@@ -375,8 +352,6 @@ private fun MemoryFolderGlyphV2(
 @Composable
 private fun MemoryQuickPanelV2(
     quality: RenderQuality,
-    glassIntensity: Float,
-    motionIntensity: Float,
     compact: Boolean,
     onOpenManager: () -> Unit,
 ) {
@@ -391,8 +366,8 @@ private fun MemoryQuickPanelV2(
     ) {
         GlassPanel(
             quality = quality,
-            glassIntensity = glassIntensity * 1.02f,
-            motionIntensity = motionIntensity,
+            glassIntensity = 1f,
+            motionIntensity = 0f,
             radius = if (compact) 21 else 24,
             modifier = Modifier.fillMaxWidth(),
             role = GlassRole.Floating,
