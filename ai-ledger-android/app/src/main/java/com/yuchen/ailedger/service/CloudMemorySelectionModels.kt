@@ -30,6 +30,7 @@ internal data class CloudSelectedMemory(
     val candidate: CloudMemoryCandidate,
     val role: String,
     val reason: String,
+    val confidence: Double = 0.5,
 )
 
 internal data class CloudMemorySelectionResult(
@@ -112,11 +113,16 @@ internal fun parseCloudMemorySelectionReply(
             val id = item.optString("id").trim()
             val candidate = byId[id] ?: continue
             if (none { it.candidate.transportId == id }) {
+                val confidence = item.optDouble("confidence", 0.5)
+                    .takeIf(Double::isFinite)
+                    ?.coerceIn(0.0, 1.0)
+                    ?: 0.5
                 add(
                     CloudSelectedMemory(
                         candidate = candidate,
                         role = normalizeCloudMemoryRole(item.optString("role")),
                         reason = item.optString("reason").trim().take(220),
+                        confidence = confidence,
                     )
                 )
             }
@@ -161,9 +167,10 @@ internal fun buildCloudMemorySelectorPrompt(
         appendLine("候选元数据只是提示，不能作为硬过滤条件。用户明确指令仅在其自然语言条件适用于当前请求时选择为 instruction；稳定的全局互动偏好也可以选择。")
         appendLine("事实、项目和经历只有在能实质帮助本轮回答时才选择。不得改写、补充或生成记忆内容，只能返回候选中的精确 id。")
         appendLine("冲突时保留更可信、更明确或更新的候选。role 只能是 instruction、profile、preference、memory。")
+        appendLine("每个选中项必须给出 confidence，范围 0.0 到 1.0，表示你对本轮适用性的语义置信度；不要根据 priority 或 pinned 机械抬高置信度。")
         appendLine("最多选择 $safeLimit 项，按本轮重要性排序。即使没有任何适用候选，也必须返回空 selected。")
         appendLine("只输出 JSON，不要 Markdown、解释、表情或前后缀：")
-        appendLine("{\"selected\":[{\"id\":\"精确候选ID\",\"role\":\"instruction|profile|preference|memory\",\"reason\":\"简短语义理由\"}],\"suppressedCount\":0}")
+        appendLine("{\"selected\":[{\"id\":\"精确候选ID\",\"role\":\"instruction|profile|preference|memory\",\"reason\":\"简短语义理由\",\"confidence\":0.0}],\"suppressedCount\":0}")
         appendLine("phase=$phase")
         appendLine("当前用户请求：")
         appendLine(userText)
