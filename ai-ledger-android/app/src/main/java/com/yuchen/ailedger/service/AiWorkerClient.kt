@@ -24,7 +24,6 @@ private const val DEFAULT_READ_TIMEOUT_MS = 45_000
 private const val QWEN_VISION_ROUTE_ID = "qwen_vision"
 private const val CHAT_CLIENT_NAME = "android-compose"
 private const val CHAT_PROTOCOL_VERSION = 6
-private val embeddedCommandRegex = Regex("""\[\[AI_LEDGER_COMMAND:(\{.*?\})]]""", setOf(RegexOption.DOT_MATCHES_ALL))
 
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
@@ -273,7 +272,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         val explicitAgentGoal = resolveExplicitAgentGoal(latestUserText)
         val agentModeEnabled = !hasImage && latestUserText.isNotBlank() && AgentRuntimeController.isEnabled()
         val shouldStartAgent = !hasImage && latestUserText.isNotBlank() && (explicitAgentGoal != null || agentModeEnabled)
-        val allowModelCommands = !hasImage && !shouldStartAgent
+        val allowModelCommands = false
         val requestText = explicitAgentGoal ?: latestUserText
         val resolvedId = if (hasImage) QWEN_VISION_ROUTE_ID else route.resolved.id
         val searchEnabled = onlineEnabled && !hasImage && !shouldStartAgent
@@ -283,8 +282,6 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             shouldStartAgent -> "agent_start"
             else -> "chat"
         }
-        val normalChatCapabilities = DeviceControlRouter.normalChatSupportedCapabilities()
-        val normalChatStepTypes = DeviceControlRouter.normalChatSupportedStepTypes()
         val appContext = AiLedgerApplication.contextOrNull()
         val memorySnapshot = if (!shouldStartAgent) {
             appContext
@@ -376,22 +373,24 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 put("agentStartRequested", shouldStartAgent)
                 put("returnNaturalReply", true)
                 put("requireConfirmationForActions", true)
-                put("supportedAgentActions", JSONArray(listOf("observe_screen", "run_agent_task", "run_device_control")))
-                put("supportedDeviceControlActions", JSONArray(normalChatCapabilities))
-                put("supportedDeviceToolSteps", JSONArray(normalChatStepTypes))
+                put(
+                    "supportedAgentActions",
+                    JSONArray(if (shouldStartAgent) listOf("run_agent_task") else emptyList<String>())
+                )
+                put("supportedDeviceControlActions", JSONArray())
+                put("supportedDeviceToolSteps", JSONArray())
                 put("supportedMobileActions", JSONArray(listOf("set_alarm", "navigate")))
                 put("supportedPreferenceUpdates", JSONArray(listOf("navigation_address")))
                 put("navigationAddressSlots", JSONArray(listOf("home", "school", "company", "dorm")))
-                put("fallbackTransport", "embedded_marker")
-                put("embeddedMarker", "[[AI_LEDGER_COMMAND:{...}]]")
+                put("fallbackTransport", "structured_response_only")
             })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
                 put("includeStructuredData", true)
                 put("includeMobileAction", true)
                 put("includePreferenceUpdate", true)
-                put("includeAgentAction", true)
-                put("includeEmbeddedCommandMarker", true)
+                put("includeAgentAction", shouldStartAgent)
+                put("includeEmbeddedCommandMarker", false)
                 put("allowModelCommands", allowModelCommands)
             })
             put("accessPolicy", "cn_gateway_primary")
@@ -420,17 +419,12 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     private fun commandProtocolSystemPrompt(): String = """
         你正在服务一个 Android Compose AI 助手。正常问题直接中文回答。
         只有用户明确要求操作手机、系统设置或应用时，才返回结构化手机动作；普通问答、代码、数学和项目讨论不得返回动作。
-        commandProtocol.allowModelCommands=true 仅表示本次请求允许返回动作，不代表用户一定在请求设备控制。
-        可由内部控制完成的任务，优先返回 agentAction.capability=run_device_control，并附带 deviceControlAction；不要让视觉智能去点击系统设置页。
-        普通聊天只允许以下低风险内部能力：${DeviceControlRouter.normalChatSupportedCapabilities().joinToString(", ")}。
-        禁止在普通聊天中返回卸载、清除数据、停用应用、强制停止应用、修改动画比例、支付、验证码、密码、授权或自由 shell 动作。
-        deviceControlAction 示例：{"capability":"network.wifi.set","arguments":{"enabled":true},"riskLevel":"medium","requiresConfirmation":false}
-        如果请求里 agentStartRequested=true 或 intent=agent_start，直接返回 agentAction.capability=run_agent_task，goal 使用请求里的 agentGoal/message。
-        内部控制标记示例：[[AI_LEDGER_COMMAND:{"agentAction":{"capability":"run_device_control","title":"打开 Wi-Fi","goal":"打开 Wi-Fi","deviceControlAction":{"capability":"network.wifi.set","arguments":{"enabled":true},"riskLevel":"medium","requiresConfirmation":false},"reason":"Wi-Fi 开关属于内部设备控制"}}]]
-        标记格式示例：[[AI_LEDGER_COMMAND:{"agentAction":{"capability":"run_agent_task","title":"手机智能体任务","goal":"用户目标","requiresConfirmation":false,"reason":"用户要求手机操作"}}]]
-        For supported internal device-control requests, the embedded AI_LEDGER_COMMAND marker is mandatory.
-        Do not claim that an action succeeded unless the same response includes a valid structured action for Android to execute and verify.
-        If you cannot produce a valid supported command, explain that you cannot execute it instead of claiming success.
+        commandProtocol.allowModelCommands=false；普通聊天不得在自然语言中返回机器命令。
+        本次普通聊天不允许在自然语言回复里嵌入机器命令标记。
+        普通问答、问候、解释、代码、数学、项目讨论、翻译和写作都只能自然回复，不得返回任何手机动作。
+        普通聊天的内部控制由独立 DeepSeek 原生工具规划器处理；本聊天回复不得自行返回 run_device_control。
+        Android 本地会再次校验工具、参数、权限和高风险确认；模型不得声称动作已经成功，除非本地执行器返回成功。
+        如果请求里 agentStartRequested=true 或 intent=agent_start，后端可以返回 agentAction.capability=run_agent_task，goal 使用请求里的 agentGoal/message。
     """.trimIndent()
 
     private fun endpointCandidates(cleanEndpoint: String): List<String> {
@@ -651,12 +645,11 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         replyOverride: String? = null,
     ): AiChatResponse {
         val rawReply = (replyOverride?.takeIf { it.isNotBlank() } ?: extractReply(data, body)).trim()
-        val embeddedCommand = extractEmbeddedCommandJson(rawReply) ?: extractEmbeddedCommandJson(body)
-        val displayReply = stripEmbeddedCommandMarker(rawReply).trim()
-        val parsedMobileAction = parseCloudMobileAction(data) ?: parseCloudMobileAction(embeddedCommand)
-        val parsedPreferenceUpdate = parseCloudPreferenceUpdate(data) ?: parseCloudPreferenceUpdate(embeddedCommand)
-        val parsedAgentAction = parseCloudAgentAction(data) ?: parseCloudAgentAction(embeddedCommand) ?: payloadToAgentAction(payload)
-        if (displayReply.isBlank() && embeddedCommand == null && parsedMobileAction == null && parsedPreferenceUpdate == null && parsedAgentAction == null) {
+        val displayReply = rawReply.trim()
+        val parsedMobileAction = parseCloudMobileAction(data)
+        val parsedPreferenceUpdate = parseCloudPreferenceUpdate(data)
+        val parsedAgentAction = parseCloudAgentActionForPayload(data, payload) ?: payloadToAgentAction(payload)
+        if (displayReply.isBlank() && parsedMobileAction == null && parsedPreferenceUpdate == null && parsedAgentAction == null) {
             throw IOException("云端没有返回有效回复")
         }
         val rawModel = data?.optString("model").notBlankOrNull()
@@ -696,6 +689,12 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             ?: payload.optString("message").notBlankOrNull()
             ?: return null
         return CloudAgentAction("run_agent_task", "手机智能体任务", goal, false, "首页 Agent 开关已开启")
+    }
+
+    private fun parseCloudAgentActionForPayload(data: JSONObject?, payload: JSONObject): CloudAgentAction? {
+        val action = parseCloudAgentAction(data) ?: return null
+        val explicitAgentStart = payload.optBoolean("agentStartRequested", false) || payload.optString("intent") == "agent_start"
+        return action.takeIf { explicitAgentStart && it.capability == "run_agent_task" }
     }
 
     private fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
@@ -883,12 +882,6 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             deviceStep,
         )
     }
-
-    private fun extractEmbeddedCommandJson(text: String): JSONObject? {
-        return embeddedCommandRegex.find(text)?.groupValues?.getOrNull(1)?.toJsonOrNull()
-    }
-
-    private fun stripEmbeddedCommandMarker(text: String): String = embeddedCommandRegex.replace(text, "").trim()
 
     private fun structuredTypeLabel(type: String): String = when (type.lowercase()) {
         "stock" -> "股票行情"

@@ -268,6 +268,25 @@ class AssistantViewModel(
         return buildAgentRunMessage(id, goal, result)
     }
 
+    private suspend fun buildNormalChatDeviceToolMessageOrNull(id: String, goal: String): ChatMessage? {
+        val result = AgentOrchestrator(aiWorkerClient, getApplication<Application>()).run(
+            goal = goal,
+            modelPreference = ChatModel.DeepSeekV4,
+            maxSteps = 2,
+            executionMode = AgentExecutionMode.NormalChatDeviceTool
+        )
+        if (!result.handled) return null
+        return buildAgentRunMessage(id, goal, result)
+    }
+
+    private fun shouldProbeNormalChatDeviceTool(goal: String, hasImageRequest: Boolean): Boolean {
+        if (goal.isBlank() || hasImageRequest || AgentRuntimeController.isEnabled()) return false
+        val clean = goal.trim()
+        return !listOf("/agent", "agent:", "agent：", "Agent:", "Agent：").any { prefix ->
+            clean.startsWith(prefix, ignoreCase = true)
+        }
+    }
+
     private fun shouldOpenAccessibilityGuide(result: AgentTaskRunResult): Boolean {
         if (result.completed) return false
         val text = result.message.lowercase()
@@ -689,6 +708,28 @@ class AssistantViewModel(
                 }
             }
 
+            val latestUserMessage = requestMessages.lastOrNull { it.role == MessageRole.User }
+            val latestGoal = latestUserMessage?.text?.trim().orEmpty()
+            val hasImageRequest = latestUserMessage?.attachments?.any { it.base64Data.isNotBlank() } == true
+            if (shouldProbeNormalChatDeviceTool(latestGoal, hasImageRequest)) {
+                val internalToolMessage = try {
+                    withContext(Dispatchers.IO) {
+                        buildNormalChatDeviceToolMessageOrNull(pendingMessage.id, latestGoal)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Throwable) {
+                    null
+                }
+                if (internalToolMessage != null && activePendingMessageId == pendingMessage.id) {
+                    replaceMessage(pendingMessage.id, internalToolMessage)
+                    activeSendJob = null
+                    activePendingMessageId = null
+                    uiState = uiState.copy(isSending = false)
+                    return@launch
+                }
+            }
+
             val streamSmootherJob = launch {
                 while (!streamClosed) {
                     delay(STREAM_FLUSH_INTERVAL_MS)
@@ -711,10 +752,6 @@ class AssistantViewModel(
                     response.preferenceUpdate?.let { applyCloudPreferenceUpdate(it) }
                     val cloudAgentAction = response.agentAction
                     val cloudCommand = response.mobileAction?.toMobileCommand()
-                    val latestGoal = requestMessages.lastOrNull { it.role == MessageRole.User }
-                        ?.text
-                        ?.trim()
-                        .orEmpty()
                     val stickerData = response.structuredData?.takeIf { it.isChatStickerDataCard() }
                     val regularStructuredData = response.structuredData?.takeUnless { it.isChatStickerDataCard() }
                     val visibleResponse = response.copy(structuredData = regularStructuredData)

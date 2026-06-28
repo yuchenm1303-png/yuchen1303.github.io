@@ -75,4 +75,17 @@ class DeviceControlSpecsTest {
 
         assertTrue(result.ok)
     }
+
+    @Test
+    fun routerPreservesBrightnessAliasesForValidation() {
+        val step = DeviceControlRouter.fromDeviceControlJson(
+            JSONObject()
+                .put("capability", "system.brightness.set")
+                .put("brightness", 40)
+        )
+
+        assertEquals("set_brightness", step?.type)
+        assertEquals(40, step?.toolArgs?.optInt("brightness"))
+        assertTrue(DeviceControlSpecs.validate(step!!).ok)
+    }
 }

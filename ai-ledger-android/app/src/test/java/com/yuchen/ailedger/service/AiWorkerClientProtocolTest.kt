@@ -64,7 +64,7 @@ class AiWorkerClientProtocolTest {
     }
 
     @Test
-    fun ordinaryChatExplicitlyAllowsLowRiskStructuredCommandsOnly() {
+    fun ordinaryChatUsesStructuredFieldsWithoutEmbeddedModelCommands() {
         val payload = client.buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -76,14 +76,58 @@ class AiWorkerClientProtocolTest {
         )
 
         assertEquals("chat", payload.getString("intent"))
-        assertTrue(payload.getBoolean("allowModelCommands"))
+        assertFalse(payload.getBoolean("allowModelCommands"))
         val protocol = payload.getJSONObject("commandProtocol")
-        assertTrue(protocol.getBoolean("allowModelCommands"))
+        assertFalse(protocol.getBoolean("allowModelCommands"))
         assertTrue(protocol.getBoolean("structuredCommandsOnly"))
         assertEquals("structured_low_risk_only", protocol.getString("deviceControlMode"))
+        assertEquals("structured_response_only", protocol.getString("fallbackTransport"))
+        assertEquals(0, protocol.getJSONArray("supportedAgentActions").length())
 
-        val capabilities = protocol.getJSONArray("supportedDeviceControlActions").toString()
-        assertTrue(capabilities.contains("network.wifi.set"))
+        val responseFormat = payload.getJSONObject("responseFormat")
+        assertFalse(responseFormat.getBoolean("includeAgentAction"))
+        assertFalse(responseFormat.getBoolean("includeEmbeddedCommandMarker"))
+
+        val capabilities = protocol.getJSONArray("supportedDeviceControlActions")
+        assertEquals(0, capabilities.length())
+        assertEquals(0, protocol.getJSONArray("supportedDeviceToolSteps").length())
+    }
+
+    @Test
+    fun agentStartStillAllowsOnlyRunAgentTaskStructuredAction() {
+        val payload = client.buildChatPayloadForTest(
+            messages = listOf(
+                ChatMessage(
+                    id = "u1",
+                    text = "/agent 打开微信",
+                    role = MessageRole.User,
+                ),
+            ),
+        )
+
+        assertEquals("agent_start", payload.getString("intent"))
+        val protocol = payload.getJSONObject("commandProtocol")
+        val actions = protocol.getJSONArray("supportedAgentActions").toString()
+        assertTrue(actions.contains("run_agent_task"))
+        assertFalse(actions.contains("run_device_control"))
+        assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
+    }
+
+    @Test
+    fun normalChatDoesNotAdvertiseDestructiveDeviceControls() {
+        val payload = client.buildChatPayloadForTest(
+            messages = listOf(
+                ChatMessage(
+                    id = "u1",
+                    text = "你好",
+                    role = MessageRole.User,
+                ),
+            ),
+        )
+
+        val capabilities = payload.getJSONObject("commandProtocol")
+            .getJSONArray("supportedDeviceControlActions")
+            .toString()
         assertFalse(capabilities.contains("app.uninstall"))
         assertFalse(capabilities.contains("app.clear_data"))
         assertFalse(capabilities.contains("app.force_stop"))

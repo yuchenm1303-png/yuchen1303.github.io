@@ -32,7 +32,22 @@ object DeviceControlRouter {
         copyIfPresent(raw, merged, "appName", "app", "application", "packageName", "package", "pkg")
         copyIfPresent(raw, merged, "target", "targetText", "page", "kind", "setting")
         copyIfPresent(raw, merged, "enabled", "enable", "on", "state", "mode", "value")
-        copyIfPresent(raw, merged, "percent", "brightness", "volume", "deltaPercent", "scale")
+        copyIfPresent(
+            raw,
+            merged,
+            "percent",
+            "brightness",
+            "volume",
+            "value",
+            "deltaPercent",
+            "delta",
+            "brightnessDelta",
+            "volumeDelta",
+            "changePercent",
+            "adjustBy",
+            "operation",
+            "scale",
+        )
         copyIfPresent(raw, merged, "seconds", "minutes", "timeoutMs")
 
         val risk = raw.deviceControlFirstNonBlank("riskLevel", "risk")
