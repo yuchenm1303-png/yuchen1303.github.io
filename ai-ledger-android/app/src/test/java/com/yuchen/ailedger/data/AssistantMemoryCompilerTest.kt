@@ -1,8 +1,14 @@
 package com.yuchen.ailedger.data
 
+import com.yuchen.ailedger.service.CLOUD_MEMORY_CUSTOM_ORIGIN_ID
+import com.yuchen.ailedger.service.CloudMemoryCandidate
+import com.yuchen.ailedger.service.CloudMemorySelectionResult
+import com.yuchen.ailedger.service.CloudSelectedMemory
+import com.yuchen.ailedger.service.buildCloudMemoryBatches
+import com.yuchen.ailedger.service.buildCloudMemoryCandidates
+import com.yuchen.ailedger.service.parseCloudMemorySelectionReply
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -10,302 +16,103 @@ class AssistantMemoryCompilerTest {
     private val nowMillis = 1_800_000_000_000L
 
     @Test
-    fun englishVocabularyQuestionActivatesExampleSentenceSkill() {
-        val learningRule = AssistantMemoryItem(
-            id = "english-rule",
-            content = "以后你要尽力帮助我学习英语，我问的单词都要结合例句通俗解释。",
-            category = "preference",
-            scope = "auto",
-            priority = 2,
-            enabled = true,
-            updatedAt = "2026-06-28T12:00:00Z",
+    fun activeMemoriesEnterCloudCorpusWithoutLocalTopicFiltering() {
+        val memories = listOf(
+            memory("english", "问英语单词时结合例句解释。", "english"),
+            memory("travel", "用户准备去温州旅行。", "travel"),
         )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "brokered 是什么意思",
-            customInstructions = null,
-            memoryState = readyState(learningRule),
-            nowMillis = nowMillis,
-        )
-
-        assertEquals(AssistantMemoryIntent.ENGLISH_VOCABULARY, compilation.intent)
-        assertTrue(compilation.personaInstructions.orEmpty().contains("至少2个自然英文例句"))
-        assertTrue(compilation.personaInstructions.orEmpty().contains("不要只给定义"))
-        assertTrue(compilation.selectedMemoryIds.contains("english-rule"))
+        val candidates = buildCloudMemoryCandidates(null, readyState(memories), nowMillis)
+        assertEquals(setOf("english", "travel"), candidates.map { it.originId }.toSet())
     }
 
     @Test
-    fun englishSkillDoesNotPolluteUnrelatedAndroidQuestion() {
-        val learningRule = AssistantMemoryItem(
-            id = "english-rule",
-            content = "以后我问英语单词时都要给例句和翻译。",
-            category = "skill",
-            scope = "english",
-            priority = 3,
-        )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "这个 Compose 重组问题怎么优化",
-            customInstructions = null,
-            memoryState = readyState(learningRule),
-            nowMillis = nowMillis,
-        )
-
-        assertEquals(AssistantMemoryIntent.ANDROID_DEVELOPMENT, compilation.intent)
-        assertFalse(compilation.personaInstructions.orEmpty().contains("至少2个自然英文例句"))
-        assertFalse(compilation.selectedMemoryIds.contains("english-rule"))
+    fun objectiveStateFilteringAndBatchingPreserveEligibleItems() {
+        val active = (1..80).map { memory("m$it", "内容$it", "auto") }
+        val disabled = memory("off", "停用内容", "auto").copy(enabled = false)
+        val candidates = buildCloudMemoryCandidates(null, readyState(active + disabled), nowMillis)
+        val flattened = buildCloudMemoryBatches(candidates).flatten()
+        assertEquals(active.map { it.id }, flattened.map { it.originId })
     }
 
     @Test
-    fun scopedAndroidProjectConstraintIsPromotedForAndroidQuestion() {
-        val androidProject = AssistantMemoryItem(
-            id = "android-project",
-            content = "AI Ledger 使用 Kotlin Compose，核心界面必须直接修改正式源码。",
-            category = "project",
-            scope = "android",
-            priority = 2,
+    fun parserOnlyAcceptsExactCandidateIds() {
+        val first = candidate("first", "第一条")
+        val second = candidate("second", "第二条")
+        val result = parseCloudMemorySelectionReply(
+            """{"selected":[{"id":"first#1","role":"instruction","reason":"适用"},{"id":"unknown#1","role":"profile"}],"suppressedCount":1}""",
+            listOf(first, second),
         )
-        val travelMemory = AssistantMemoryItem(
-            id = "travel",
-            content = "用户计划去温州自驾旅行。",
-            category = "project",
-            scope = "travel",
-            priority = 3,
-            pinned = true,
-        )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "检查一下 Android Compose 首页代码",
-            customInstructions = null,
-            memoryState = readyState(androidProject, travelMemory),
-            nowMillis = nowMillis,
-        )
-
-        assertTrue(compilation.selectedMemoryIds.contains("android-project"))
-        assertFalse(compilation.selectedMemoryIds.contains("travel"))
-        assertTrue(
-            compilation.personaInstructions
-                .orEmpty()
-                .contains("核心界面必须直接修改正式源码")
-        )
+        assertEquals("selected", result.status)
+        assertEquals(listOf("first"), result.selections.map { it.candidate.originId })
+        assertEquals("instruction", result.selections.single().role)
     }
 
     @Test
-    fun scopedCustomInstructionDoesNotPolluteUnrelatedQuestion() {
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "检查 Compose 首页重组范围",
-            customInstructions = "学习英语时必须给出两个例句和中文翻译。",
-            memoryState = readyState(),
-            nowMillis = nowMillis,
+    fun cloudInstructionBuildsPersonaAndUsageId() {
+        val selected = CloudSelectedMemory(
+            candidate("english-rule", "问英语单词时必须给出自然例句和中文翻译。"),
+            role = "instruction",
+            reason = "当前请求适用",
         )
-
-        assertEquals(AssistantMemoryIntent.ANDROID_DEVELOPMENT, compilation.intent)
-        assertFalse(compilation.personaInstructions.orEmpty().contains("两个例句"))
+        val compilation = AssistantMemoryCompiler.composeCloudCompilation(
+            CloudMemorySelectionResult("selected", listOf(selected))
+        )
+        assertEquals(AssistantMemoryIntent.CLOUD_ORCHESTRATED, compilation.intent)
+        assertTrue(compilation.personaInstructions.orEmpty().contains("自然例句"))
+        assertEquals(listOf("english-rule"), compilation.selectedMemoryIds)
     }
 
     @Test
-    fun unrelatedAutoMemoryDoesNotLeakEvenWhenPinnedAndHighPriority() {
-        val unrelated = AssistantMemoryItem(
-            id = "club-plan",
-            content = "用户下个月要参加社团活动。",
-            category = "episode",
-            scope = "auto",
-            priority = 3,
-            pinned = true,
-            updatedAt = "2026-06-28T12:00:00Z",
+    fun selectorFailureHasNoLocalFallbackAndCustomInstructionIsNotUsageId() {
+        val failed = AssistantMemoryCompiler.composeCloudCompilation(
+            CloudMemorySelectionResult("unavailable", errorCode = "cloud_selector_timeout")
         )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "检查 Android Compose 的重组问题",
-            customInstructions = null,
-            memoryState = readyState(unrelated),
-            nowMillis = nowMillis,
-        )
+        assertFalse(failed.hasAnyContext)
+        assertTrue(failed.selectedMemoryIds.isEmpty())
 
-        assertEquals(AssistantMemoryIntent.ANDROID_DEVELOPMENT, compilation.intent)
-        assertFalse(compilation.selectedMemoryIds.contains("club-plan"))
-        assertNull(compilation.memorySnapshot)
+        val custom = CloudSelectedMemory(
+            CloudMemoryCandidate(
+                "$CLOUD_MEMORY_CUSTOM_ORIGIN_ID#1",
+                CLOUD_MEMORY_CUSTOM_ORIGIN_ID,
+                "回答保持自然。",
+                "explicit_instruction",
+                "user_defined",
+                "user_explicit",
+                3,
+                true,
+                true,
+            ),
+            "instruction",
+            "全局要求",
+        )
+        val customCompilation = AssistantMemoryCompiler.composeCloudCompilation(
+            CloudMemorySelectionResult("selected", listOf(custom))
+        )
+        assertTrue(customCompilation.hasAnyContext)
+        assertTrue(customCompilation.selectedMemoryIds.isEmpty())
     }
 
-    @Test
-    fun autoMemoryWithRealTokenOverlapCanStillBeRetrieved() {
-        val petMemory = AssistantMemoryItem(
-            id = "pet",
-            content = "用户养了一只叫豆包的猫。",
-            category = "other",
-            scope = "auto",
-            priority = 1,
-        )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "豆包最近怎么样",
-            customInstructions = null,
-            memoryState = readyState(petMemory),
-            nowMillis = nowMillis,
-        )
+    private fun readyState(items: List<AssistantMemoryItem>) = AssistantMemoryState(
+        cloudReady = true,
+        memoryEnabled = true,
+        memories = items,
+    )
 
-        assertEquals(AssistantMemoryIntent.GENERAL, compilation.intent)
-        assertTrue(compilation.selectedMemoryIds.contains("pet"))
-    }
+    private fun memory(id: String, content: String, scope: String) = AssistantMemoryItem(
+        id = id,
+        content = content,
+        scope = scope,
+    )
 
-    @Test
-    fun androidTechnicalTermMeaningQuestionStaysInAndroidScope() {
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "ViewModel 是什么意思",
-            customInstructions = null,
-            memoryState = readyState(),
-            nowMillis = nowMillis,
-        )
-
-        assertEquals(AssistantMemoryIntent.ANDROID_DEVELOPMENT, compilation.intent)
-        assertFalse(compilation.personaInstructions.orEmpty().contains("至少2个自然英文例句"))
-    }
-
-    @Test
-    fun functionLimitQuestionIsClassifiedAsMathematics() {
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "这个函数的极限怎么求",
-            customInstructions = null,
-            memoryState = readyState(),
-            nowMillis = nowMillis,
-        )
-
-        assertEquals(AssistantMemoryIntent.MATHEMATICS, compilation.intent)
-    }
-
-    @Test
-    fun functionImplementationQuestionIsClassifiedAsProgramming() {
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "这个函数应该怎么写和调用",
-            customInstructions = null,
-            memoryState = readyState(),
-            nowMillis = nowMillis,
-        )
-
-        assertEquals(AssistantMemoryIntent.PROGRAMMING, compilation.intent)
-    }
-
-    @Test
-    fun explicitReplacementSuppressesTargetEvenWhenReplacementHasLowerPriority() {
-        val oldPreference = AssistantMemoryItem(
-            id = "old-preference",
-            content = "用户常用旧版回答模板。",
-            category = "preference",
-            scope = "global",
-            priority = 3,
-        )
-        val replacement = AssistantMemoryItem(
-            id = "new-preference",
-            content = "用户现在更喜欢直接给结论。",
-            category = "preference",
-            scope = "global",
-            priority = 1,
-            supersedesId = "old-preference",
-        )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "帮我回答这个问题",
-            customInstructions = null,
-            memoryState = readyState(oldPreference, replacement),
-            nowMillis = nowMillis,
-        )
-
-        assertFalse(compilation.selectedMemoryIds.contains("old-preference"))
-        assertTrue(compilation.selectedMemoryIds.contains("new-preference"))
-        assertEquals(1, compilation.suppressedConflictCount)
-    }
-
-    @Test
-    fun duplicateContentIsOnlyInjectedOnce() {
-        val first = AssistantMemoryItem(
-            id = "first",
-            content = "回答尽量简洁。",
-            category = "preference",
-            scope = "global",
-            priority = 2,
-        )
-        val duplicate = first.copy(id = "duplicate", priority = 1)
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "解释一下这个问题",
-            customInstructions = null,
-            memoryState = readyState(first, duplicate),
-            nowMillis = nowMillis,
-        )
-
-        assertEquals(1, compilation.selectedMemoryIds.size)
-        assertTrue(compilation.selectedMemoryIds.contains("first"))
-    }
-
-    @Test
-    fun expiredAndDisabledMemoriesAreExcluded() {
-        val expired = AssistantMemoryItem(
-            id = "expired",
-            content = "下周要参加考试。",
-            category = "episode",
-            scope = "general",
-            validUntil = "2026-01-01T00:00:00Z",
-        )
-        val disabled = AssistantMemoryItem(
-            id = "disabled",
-            content = "回答必须使用列表。",
-            category = "rule",
-            scope = "global",
-            enabled = false,
-        )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "我最近有什么安排",
-            customInstructions = null,
-            memoryState = readyState(expired, disabled),
-            nowMillis = nowMillis,
-        )
-
-        assertNull(compilation.memorySnapshot)
-        assertNull(compilation.personaInstructions)
-        assertTrue(compilation.selectedMemoryIds.isEmpty())
-    }
-
-    @Test
-    fun higherPriorityConflictingProfileFactWins() {
-        val oldName = AssistantMemoryItem(
-            id = "old-name",
-            content = "用户名字是小明。",
-            category = "profile",
-            priority = 1,
-            updatedAt = "2026-01-01T00:00:00Z",
-        )
-        val currentName = AssistantMemoryItem(
-            id = "current-name",
-            content = "用户名字是邹羽宸。",
-            category = "profile",
-            priority = 3,
-            updatedAt = "2026-06-28T00:00:00Z",
-        )
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "你知道我的名字吗",
-            customInstructions = null,
-            memoryState = readyState(oldName, currentName),
-            nowMillis = nowMillis,
-        )
-
-        val profile = compilation.memorySnapshot?.optString("profileSummary").orEmpty()
-        assertTrue(profile.contains("邹羽宸"))
-        assertFalse(profile.contains("小明"))
-        assertEquals(1, compilation.suppressedConflictCount)
-    }
-
-    @Test
-    fun customInstructionsArePromotedWithoutBecomingBackgroundMemory() {
-        val compilation = AssistantMemoryCompiler.compile(
-            userText = "帮我润色这段报告",
-            customInstructions = "写作时保持学术语气，但不要堆砌术语。",
-            memoryState = readyState(),
-            nowMillis = nowMillis,
-        )
-
-        assertTrue(compilation.personaInstructions.orEmpty().contains("保持学术语气"))
-        assertNull(compilation.memorySnapshot)
-        assertTrue(compilation.hasAnyContext)
-    }
-
-    private fun readyState(vararg items: AssistantMemoryItem): AssistantMemoryState {
-        return AssistantMemoryState(
-            cloudReady = true,
-            memoryEnabled = true,
-            memories = items.toList(),
-        )
-    }
+    private fun candidate(id: String, content: String) = CloudMemoryCandidate(
+        "$id#1",
+        id,
+        content,
+        "other",
+        "auto",
+        "manual",
+        1,
+        false,
+        false,
+    )
 }
