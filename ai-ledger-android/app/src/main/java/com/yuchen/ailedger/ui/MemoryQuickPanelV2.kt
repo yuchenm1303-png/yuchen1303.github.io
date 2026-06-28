@@ -315,7 +315,7 @@ private fun MemoryFolderCapsuleButtonV2(
             modifier = Modifier
                 .size(13.dp)
                 .graphicsLayer {
-                    translationY = if (pressed) 0.35.dp.toPx() else 0f
+                    this.translationY = if (pressed) 0.35.dp.toPx() else 0f
                 },
             active = active,
         )
