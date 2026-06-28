@@ -9,17 +9,23 @@ import org.json.JSONObject
 
 private const val MEMORY_SELECTOR_CLIENT = "android-compose-cloud-memory"
 private const val MEMORY_SELECTOR_MODEL = "deepseek_v4"
-private const val MEMORY_SELECTOR_CONNECT_TIMEOUT_MS = 12_000
-private const val MEMORY_SELECTOR_READ_TIMEOUT_MS = 32_000
+private const val MEMORY_SELECTOR_CONNECT_TIMEOUT_MS = 10_000
+private const val MEMORY_SELECTOR_READ_TIMEOUT_MS = 18_000
 
 internal object CloudMemorySelectionTransport {
     fun select(
         userText: String,
         candidates: List<CloudMemoryCandidate>,
         phase: String,
+        selectionLimit: Int,
     ): CloudMemorySelectionResult {
         if (candidates.isEmpty()) return CloudMemorySelectionResult("empty")
-        val prompt = buildCloudMemorySelectorPrompt(userText, candidates, phase)
+        val prompt = buildCloudMemorySelectorPrompt(
+            userText = userText,
+            candidates = candidates,
+            phase = phase,
+            selectionLimit = selectionLimit,
+        )
         val payload = buildPayload(prompt)
         var lastError: IOException? = null
         endpointCandidates().forEach { endpoint ->
@@ -30,7 +36,7 @@ internal object CloudMemorySelectionTransport {
                     .ifBlank { response.optString("answer") }
                     .ifBlank { response.optString("text") }
                 if (reply.isBlank()) throw IOException("cloud_selector_empty_reply")
-                return parseCloudMemorySelectionReply(reply, candidates)
+                return parseCloudMemorySelectionReply(reply, candidates, selectionLimit)
             } catch (error: IOException) {
                 lastError = error
             }
@@ -42,27 +48,53 @@ internal object CloudMemorySelectionTransport {
         put("action", "chat")
         put("intent", "memory_select")
         put("message", prompt)
+        put("prompt", prompt)
+        put("text", prompt)
+        put("content", prompt)
         put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
         put("modelPreference", MEMORY_SELECTOR_MODEL)
         put("aiModelPreference", MEMORY_SELECTOR_MODEL)
+        put("requestedModelPreference", MEMORY_SELECTOR_MODEL)
         put("model", MEMORY_SELECTOR_MODEL)
+        put("modelId", MEMORY_SELECTOR_MODEL)
+        put("originalModelPreference", MEMORY_SELECTOR_MODEL)
         put("autoRequested", false)
         put("onlineEnabled", false)
         put("searchEnabled", false)
+        put("forceWebSearch", false)
         put("webSearchMode", "off")
+        put("searchMode", "off")
         put("allowModelCommands", false)
         put("memoryEnabled", false)
         put("memorySchema", CLOUD_MEMORY_SCHEMA)
         put("chatExpressionPreferences", JSONObject()
+            .put("schema", "ai_ledger_chat_expression_preferences_v1")
             .put("inlineStickerFrequency", 0)
             .put("inlineStickerIntensity", 0)
             .put("inlineStickerMaxPerReply", 0)
             .put("inlineStickerRepeatCount", 1))
-        put("normalChatDeviceToolProbe", JSONObject().put("enabled", false))
+        put("normalChatDeviceToolProbe", JSONObject()
+            .put("enabled", false)
+            .put("supportedDeviceToolSteps", JSONArray())
+            .put("installedApps", JSONArray()))
+        put("commandProtocol", JSONObject()
+            .put("enabled", false)
+            .put("allowModelCommands", false)
+            .put("supportedAgentActions", JSONArray())
+            .put("supportedDeviceToolSteps", JSONArray()))
+        put("responseFormat", JSONObject()
+            .put("includeSources", false)
+            .put("includeStructuredData", false)
+            .put("includeMobileAction", false)
+            .put("includePreferenceUpdate", false)
+            .put("includeAgentAction", false)
+            .put("includeEmbeddedCommandMarker", false)
+            .put("allowModelCommands", false))
         put("client", MEMORY_SELECTOR_CLIENT)
         put("clientId", clientId())
         put("deviceId", clientId())
-        put("clientVersion", "compose-cloud-memory-selector-v1")
+        put("clientVersion", "compose-cloud-memory-selector-v2")
+        put("now", System.currentTimeMillis())
     }
 
     private fun post(endpoint: String, payload: JSONObject): JSONObject {
