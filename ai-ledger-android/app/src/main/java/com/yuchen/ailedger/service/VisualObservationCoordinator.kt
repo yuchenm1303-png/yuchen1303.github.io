@@ -287,7 +287,7 @@ class VisualObservationCoordinator(
 
             when {
                 probeSnapshot.packageName == expectedPackage && probeResolution.countsTowardStableTarget -> {
-                    stableSamples += 1
+                    stableSamples = (stableSamples + 1).coerceAtMost(requiredSamples)
                     deadline = extendDeadline(
                         currentDeadline = deadline,
                         hardDeadline = hardDeadline,
@@ -319,15 +319,31 @@ class VisualObservationCoordinator(
                                 reason = VisualTargetPackageVerificationReason.StableTargetWithVisualFrame,
                             )
                         }
-                        if (!VisualSurfacePackagePolicy.requiresForegroundFallback(visualSnapshot.packageName)) {
-                            stableSamples = 0
-                        } else {
-                            deadline = extendDeadline(
-                                currentDeadline = deadline,
-                                hardDeadline = hardDeadline,
-                                now = elapsedRealtime(),
-                                graceMs = timing.openAppTransientGraceMs,
-                            )
+                        when {
+                            visualSnapshot.packageName == expectedPackage -> {
+                                val graceMs = if (
+                                    visualResolution.evidenceStrength == VisualPackageEvidenceStrength.Inherited
+                                ) {
+                                    timing.openAppTransientGraceMs
+                                } else {
+                                    timing.openAppEvidenceGraceMs
+                                }
+                                deadline = extendDeadline(
+                                    currentDeadline = deadline,
+                                    hardDeadline = hardDeadline,
+                                    now = elapsedRealtime(),
+                                    graceMs = graceMs,
+                                )
+                            }
+                            VisualSurfacePackagePolicy.requiresForegroundFallback(visualSnapshot.packageName) -> {
+                                deadline = extendDeadline(
+                                    currentDeadline = deadline,
+                                    hardDeadline = hardDeadline,
+                                    now = elapsedRealtime(),
+                                    graceMs = timing.openAppTransientGraceMs,
+                                )
+                            }
+                            else -> stableSamples = 0
                         }
                     }
                 }
