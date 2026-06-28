@@ -177,6 +177,8 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
         onDispose { store.setPreviewEnabled(false) }
     }
 
+    VisualIntelligenceDiagnosticsSettingsContent(state)
+
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
