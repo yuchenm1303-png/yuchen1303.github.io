@@ -7,6 +7,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
+import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +28,7 @@ const val ASSISTANT_MEMORY_SNAPSHOT_MAX_ITEMS = 48
 const val ASSISTANT_MEMORY_SNAPSHOT_MAX_LENGTH = 10_000
 
 private const val MEMORY_TABLE = "assistant_memories"
+private const val MEMORY_USAGE_RPC = "record_assistant_memory_usage"
 private const val MEMORY_CONNECT_TIMEOUT_MS = 12_000
 private const val MEMORY_READ_TIMEOUT_MS = 18_000
 private const val MEMORY_PREFS = "assistant_memory_preferences"
@@ -37,19 +39,58 @@ private val ALLOWED_MEMORY_CATEGORIES = setOf(
     "preference",
     "project",
     "rule",
+    "skill",
+    "episode",
+    "reflection",
     "other",
-    "manual"
+    "manual",
+)
+
+private val ALLOWED_MEMORY_SCOPES = setOf(
+    "auto",
+    "global",
+    "general",
+    "english",
+    "android",
+    "coding",
+    "math",
+    "writing",
+    "finance",
+    "travel",
+)
+
+private val ALLOWED_MEMORY_SOURCE_TYPES = setOf(
+    "manual",
+    "conversation",
+    "system_inferred",
+    "reflection",
+    "migration",
+)
+
+private val ALLOWED_MEMORY_STATUS = setOf(
+    "active",
+    "archived",
+    "superseded",
 )
 
 data class AssistantMemoryItem(
     val id: String,
     val content: String,
     val category: String = "other",
+    val scope: String = "auto",
     val priority: Int = 1,
     val pinned: Boolean = false,
     val enabled: Boolean = true,
+    val confidence: Double = 1.0,
+    val sourceType: String = "manual",
+    val validFrom: String = "",
+    val validUntil: String = "",
+    val supersedesId: String = "",
+    val status: String = "active",
+    val lastUsedAt: String = "",
+    val useCount: Long = 0L,
     val createdAt: String = "",
-    val updatedAt: String = ""
+    val updatedAt: String = "",
 )
 
 data class AssistantMemoryState(
@@ -61,22 +102,22 @@ data class AssistantMemoryState(
     val memoryEnabled: Boolean = false,
     val memories: List<AssistantMemoryItem> = emptyList(),
     val message: String = "登录后可使用长期记忆。",
-    val error: Boolean = false
+    val error: Boolean = false,
 ) {
     val enabledItemCount: Int
-        get() = memories.count { it.enabled }
+        get() = memories.count { it.enabled && it.status == "active" }
 
     val activeCount: Int
-        get() = if (memoryEnabled && cloudReady) enabledItemCount else 0
+        get() = if (memoryEnabled && cloudReady) memories.count { it.isActiveAt() } else 0
 
     val canManage: Boolean
         get() = accountUserId != null && cloudReady && !loading && !saving
 
-    fun snapshotText(): String? {
+    fun snapshotText(nowMillis: Long = System.currentTimeMillis()): String? {
         if (!memoryEnabled || !cloudReady) return null
         val ordered = memories
             .asSequence()
-            .filter { it.enabled && it.content.isNotBlank() }
+            .filter { it.isActiveAt(nowMillis) }
             .distinctBy { it.content.trim() }
             .sortedWith(
                 compareByDescending<AssistantMemoryItem> { it.pinned }
@@ -95,6 +136,8 @@ data class AssistantMemoryState(
                 if (item.pinned) add("置顶")
                 add(memoryPriorityLabel(item.priority))
                 add(memoryCategoryLabel(item.category))
+                val scopeLabel = memoryScopeLabel(item.scope)
+                if (item.scope != "auto") add(scopeLabel)
             }.joinToString("·")
             val line = "- [$tags] ${item.content.trim()}"
             val remaining = ASSISTANT_MEMORY_SNAPSHOT_MAX_LENGTH - builder.length - 1
@@ -162,11 +205,11 @@ class AssistantMemoryRepository private constructor(context: Context) {
         _state.value = _state.value.copy(
             memoryEnabled = enabled,
             message = if (enabled) {
-                "长期记忆已开启，当前有 ${_state.value.enabledItemCount} 条可加入模型快照。"
+                "长期记忆已开启，系统会按当前问题动态检索相关内容。"
             } else {
                 "长期记忆已关闭，聊天请求不会携带记忆。"
             },
-            error = false
+            error = false,
         )
     }
 
@@ -174,7 +217,12 @@ class AssistantMemoryRepository private constructor(context: Context) {
         content: String,
         category: String = "other",
         priority: Int = 1,
-        pinned: Boolean = false
+        pinned: Boolean = false,
+        scope: String = "auto",
+        validUntil: String = "",
+        sourceType: String = "manual",
+        confidence: Double = 1.0,
+        supersedesId: String = "",
     ) {
         val clean = normalizeMemoryContent(content) ?: return
         runMutation("正在保存记忆…") { session ->
@@ -182,14 +230,19 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 session = session,
                 content = clean,
                 category = normalizeMemoryCategory(category),
+                scope = normalizeMemoryScope(scope),
                 priority = normalizeMemoryPriority(priority),
-                pinned = pinned
+                pinned = pinned,
+                validUntil = normalizeMemoryTimestamp(validUntil),
+                sourceType = normalizeMemorySourceType(sourceType),
+                confidence = normalizeMemoryConfidence(confidence),
+                supersedesId = supersedesId.trim(),
             )
             _state.value = _state.value.copy(
                 saving = false,
                 memories = listOf(item) + _state.value.memories.filterNot { it.id == item.id },
-                message = "记忆已保存。",
-                error = false
+                message = "记忆已保存，后续会按场景和相关性动态检索。",
+                error = false,
             )
         }
     }
@@ -199,7 +252,9 @@ class AssistantMemoryRepository private constructor(context: Context) {
         content: String,
         category: String,
         priority: Int,
-        pinned: Boolean
+        pinned: Boolean,
+        scope: String = "auto",
+        validUntil: String = "",
     ) {
         val cleanId = id.trim()
         val clean = normalizeMemoryContent(content) ?: return
@@ -210,14 +265,16 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 id = cleanId,
                 content = clean,
                 category = normalizeMemoryCategory(category),
+                scope = normalizeMemoryScope(scope),
                 priority = normalizeMemoryPriority(priority),
-                pinned = pinned
+                pinned = pinned,
+                validUntil = normalizeMemoryTimestamp(validUntil),
             )
             _state.value = _state.value.copy(
                 saving = false,
                 memories = _state.value.memories.map { if (it.id == cleanId) item else it },
                 message = "记忆已更新。",
-                error = false
+                error = false,
             )
         }
     }
@@ -231,7 +288,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 saving = false,
                 memories = _state.value.memories.map { if (it.id == cleanId) item else it },
                 message = if (enabled) "这条记忆已启用。" else "这条记忆已停用。",
-                error = false
+                error = false,
             )
         }
     }
@@ -245,7 +302,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 saving = false,
                 memories = _state.value.memories.filterNot { it.id == cleanId },
                 message = "记忆已删除。",
-                error = false
+                error = false,
             )
         }
     }
@@ -257,9 +314,27 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 saving = false,
                 memories = emptyList(),
                 message = "该账号的长期记忆已全部清除。",
-                error = false
+                error = false,
             )
         }
+    }
+
+    fun compileForRequest(userText: String): AssistantMemoryCompilation {
+        val customInstructions = AssistantCustomInstructionsRepository
+            .get(appContext)
+            .state
+            .value
+            .effectiveText()
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = userText,
+            customInstructions = customInstructions,
+            memoryState = state.value,
+        )
+        AssistantMemoryRuntime.record(compilation)
+        if (compilation.selectedMemoryIds.isNotEmpty()) {
+            markMemoriesUsed(compilation.selectedMemoryIds)
+        }
+        return compilation
     }
 
     fun currentSnapshotText(): String? {
@@ -284,6 +359,31 @@ class AssistantMemoryRepository private constructor(context: Context) {
         }.trim()
     }
 
+    private fun markMemoriesUsed(ids: List<String>) {
+        val cleanIds = ids.map(String::trim).filter(String::isNotBlank).distinct().take(24)
+        if (cleanIds.isEmpty()) return
+        scope.launch {
+            val session = currentSession?.takeIf { it.isUsable } ?: return@launch
+            runCatching { client.recordUsage(session, cleanIds) }
+                .onSuccess {
+                    val now = Instant.now().toString()
+                    val idSet = cleanIds.toHashSet()
+                    _state.value = _state.value.copy(
+                        memories = _state.value.memories.map { item ->
+                            if (item.id in idSet) {
+                                item.copy(
+                                    lastUsedAt = now,
+                                    useCount = item.useCount + 1L,
+                                )
+                            } else {
+                                item
+                            }
+                        }
+                    )
+                }
+        }
+    }
+
     private suspend fun loadForSessionLocked(session: SupabaseUserSession) {
         val enabled = preferences.getBoolean(memoryEnabledKey(session.userId), false)
         _state.value = AssistantMemoryState(
@@ -291,7 +391,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
             accountUserId = session.userId,
             accountEmail = session.email,
             memoryEnabled = enabled,
-            message = "正在加载该账号的长期记忆…"
+            message = "正在加载该账号的长期记忆…",
         )
         try {
             val memories = client.list(session)
@@ -304,8 +404,8 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 message = if (memories.isEmpty()) {
                     "还没有保存长期记忆。"
                 } else {
-                    "已同步 ${memories.size} 条长期记忆。"
-                }
+                    "已同步 ${memories.size} 条长期记忆；聊天时会按当前问题动态检索。"
+                },
             )
         } catch (error: Throwable) {
             _state.value = AssistantMemoryState(
@@ -315,14 +415,14 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 memoryEnabled = false,
                 memories = emptyList(),
                 message = error.friendlyMemoryMessage(),
-                error = true
+                error = true,
             )
         }
     }
 
     private fun runMutation(
         loadingMessage: String,
-        block: suspend (SupabaseUserSession) -> Unit
+        block: suspend (SupabaseUserSession) -> Unit,
     ) {
         if (_state.value.saving || !_state.value.canManage) return
         scope.launch {
@@ -335,14 +435,14 @@ class AssistantMemoryRepository private constructor(context: Context) {
                         memoryEnabled = false,
                         memories = emptyList(),
                         message = "登录状态已失效，请重新登录。",
-                        error = true
+                        error = true,
                     )
                     return@withLock
                 }
                 _state.value = _state.value.copy(
                     saving = true,
                     message = loadingMessage,
-                    error = false
+                    error = false,
                 )
                 try {
                     block(session)
@@ -350,7 +450,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     _state.value = _state.value.copy(
                         saving = false,
                         message = error.friendlyMemoryMessage(),
-                        error = true
+                        error = true,
                     )
                 }
             }
@@ -362,7 +462,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
         if (clean.isBlank()) {
             _state.value = _state.value.copy(
                 message = "记忆内容不能为空。",
-                error = true
+                error = true,
             )
             return null
         }
@@ -385,13 +485,13 @@ class AssistantMemoryRepository private constructor(context: Context) {
 
 private class SupabaseMemoryClient(
     private val supabaseUrl: String = SupabaseAuthClient.DEFAULT_SUPABASE_URL,
-    private val publishableKey: String = SupabaseAuthClient.DEFAULT_SUPABASE_PUBLISHABLE_KEY
+    private val publishableKey: String = SupabaseAuthClient.DEFAULT_SUPABASE_PUBLISHABLE_KEY,
 ) {
     fun list(session: SupabaseUserSession): List<AssistantMemoryItem> {
         val response = request(
             session = session,
-            path = "/rest/v1/$MEMORY_TABLE?select=id,content,category,priority,pinned,enabled,created_at,updated_at&user_id=eq.${session.userId.urlEncode()}&order=pinned.desc,priority.desc,updated_at.desc&limit=$ASSISTANT_MEMORY_MAX_STORED_ITEMS",
-            method = "GET"
+            path = "/rest/v1/$MEMORY_TABLE?select=id,content,category,scope,priority,pinned,enabled,confidence,source_type,valid_from,valid_until,supersedes_id,status,last_used_at,use_count,created_at,updated_at&user_id=eq.${session.userId.urlEncode()}&status=eq.active&order=pinned.desc,priority.desc,updated_at.desc&limit=$ASSISTANT_MEMORY_MAX_STORED_ITEMS",
+            method = "GET",
         )
         val array = JSONArray(response)
         return buildList {
@@ -405,17 +505,28 @@ private class SupabaseMemoryClient(
         session: SupabaseUserSession,
         content: String,
         category: String,
+        scope: String,
         priority: Int,
-        pinned: Boolean
+        pinned: Boolean,
+        validUntil: String,
+        sourceType: String,
+        confidence: Double,
+        supersedesId: String,
     ): AssistantMemoryItem {
         val body = JSONObject()
             .put("id", UUID.randomUUID().toString())
             .put("user_id", session.userId)
             .put("content", content)
             .put("category", category)
+            .put("scope", scope)
             .put("priority", priority)
             .put("pinned", pinned)
             .put("enabled", true)
+            .put("confidence", confidence)
+            .put("source_type", sourceType)
+            .put("status", "active")
+        if (validUntil.isNotBlank()) body.put("valid_until", validUntil)
+        if (supersedesId.isNotBlank()) body.put("supersedes_id", supersedesId)
         return requestRepresentation(session, "/rest/v1/$MEMORY_TABLE", "POST", body)
     }
 
@@ -424,8 +535,10 @@ private class SupabaseMemoryClient(
         id: String,
         content: String,
         category: String,
+        scope: String,
         priority: Int,
-        pinned: Boolean
+        pinned: Boolean,
+        validUntil: String,
     ): AssistantMemoryItem {
         return requestRepresentation(
             session = session,
@@ -434,21 +547,23 @@ private class SupabaseMemoryClient(
             body = JSONObject()
                 .put("content", content)
                 .put("category", category)
+                .put("scope", scope)
                 .put("priority", priority)
                 .put("pinned", pinned)
+                .put("valid_until", validUntil.takeIf(String::isNotBlank) ?: JSONObject.NULL),
         )
     }
 
     fun updateEnabled(
         session: SupabaseUserSession,
         id: String,
-        enabled: Boolean
+        enabled: Boolean,
     ): AssistantMemoryItem {
         return requestRepresentation(
             session = session,
             path = itemPath(session, id),
             method = "PATCH",
-            body = JSONObject().put("enabled", enabled)
+            body = JSONObject().put("enabled", enabled),
         )
     }
 
@@ -460,7 +575,16 @@ private class SupabaseMemoryClient(
         request(
             session = session,
             path = "/rest/v1/$MEMORY_TABLE?user_id=eq.${session.userId.urlEncode()}",
-            method = "DELETE"
+            method = "DELETE",
+        )
+    }
+
+    fun recordUsage(session: SupabaseUserSession, ids: List<String>) {
+        request(
+            session = session,
+            path = "/rest/v1/rpc/$MEMORY_USAGE_RPC",
+            method = "POST",
+            body = JSONObject().put("memory_ids", JSONArray(ids)),
         )
     }
 
@@ -472,14 +596,14 @@ private class SupabaseMemoryClient(
         session: SupabaseUserSession,
         path: String,
         method: String,
-        body: JSONObject
+        body: JSONObject,
     ): AssistantMemoryItem {
         val response = request(
             session = session,
             path = path,
             method = method,
             body = body,
-            preferRepresentation = true
+            preferRepresentation = true,
         )
         return JSONArray(response).optJSONObject(0)?.toMemoryItemOrNull()
             ?: throw IOException("云端没有返回有效的记忆数据。")
@@ -490,7 +614,7 @@ private class SupabaseMemoryClient(
         path: String,
         method: String,
         body: JSONObject? = null,
-        preferRepresentation: Boolean = false
+        preferRepresentation: Boolean = false,
     ): String {
         val base = supabaseUrl.trim().trimEnd('/')
         if (base.isBlank() || publishableKey.isBlank()) {
@@ -544,10 +668,16 @@ private class SupabaseMemoryClient(
                 message.contains(MEMORY_TABLE, true) &&
                 message.contains("schema cache", true) ->
                 "Supabase 记忆表尚未建立，请执行个性化升级 SQL。"
-            code == "42703" || message.contains("priority", true) &&
-                message.contains("does not exist", true) ||
-                message.contains("pinned", true) && message.contains("does not exist", true) ->
-                "Supabase 记忆表还是旧结构，请执行个性化升级 SQL。"
+            code == "42703" || listOf(
+                "scope",
+                "confidence",
+                "source_type",
+                "valid_until",
+                "last_used_at",
+                "use_count",
+                "status",
+            ).any { column -> message.contains(column, true) && message.contains("does not exist", true) } ->
+                "Supabase 记忆表还是旧结构，请执行记忆系统 V3 升级 SQL。"
             status == 401 -> "登录状态已失效，请重新登录。"
             status == 403 || message.contains("row-level security", true) ||
                 message.contains("policy", true) ->
@@ -566,11 +696,20 @@ private fun JSONObject.toMemoryItemOrNull(): AssistantMemoryItem? {
         id = id,
         content = content,
         category = normalizeMemoryCategory(optString("category")),
+        scope = normalizeMemoryScope(optString("scope")),
         priority = normalizeMemoryPriority(optInt("priority", 1)),
         pinned = optBoolean("pinned", false),
         enabled = if (has("enabled")) optBoolean("enabled", true) else true,
+        confidence = normalizeMemoryConfidence(optDouble("confidence", 1.0)),
+        sourceType = normalizeMemorySourceType(optString("source_type")),
+        validFrom = optString("valid_from"),
+        validUntil = optString("valid_until"),
+        supersedesId = optString("supersedes_id"),
+        status = normalizeMemoryStatus(optString("status")),
+        lastUsedAt = optString("last_used_at"),
+        useCount = optLong("use_count", 0L).coerceAtLeast(0L),
         createdAt = optString("created_at"),
-        updatedAt = optString("updated_at")
+        updatedAt = optString("updated_at"),
     )
 }
 
@@ -597,14 +736,55 @@ internal fun normalizeMemoryCategory(value: String): String {
     }
 }
 
+internal fun normalizeMemoryScope(value: String): String {
+    val clean = value.trim().lowercase().replace('-', '_')
+    return clean.takeIf { it in ALLOWED_MEMORY_SCOPES } ?: "auto"
+}
+
 internal fun normalizeMemoryPriority(value: Int): Int = value.coerceIn(0, 3)
+
+internal fun normalizeMemoryConfidence(value: Double): Double {
+    return if (value.isFinite()) value.coerceIn(0.0, 1.0) else 1.0
+}
+
+internal fun normalizeMemorySourceType(value: String): String {
+    val clean = value.trim().lowercase()
+    return clean.takeIf { it in ALLOWED_MEMORY_SOURCE_TYPES } ?: "manual"
+}
+
+internal fun normalizeMemoryStatus(value: String): String {
+    val clean = value.trim().lowercase()
+    return clean.takeIf { it in ALLOWED_MEMORY_STATUS } ?: "active"
+}
+
+internal fun normalizeMemoryTimestamp(value: String): String {
+    val clean = value.trim()
+    if (clean.isBlank()) return ""
+    return runCatching { Instant.parse(clean).toString() }.getOrDefault(clean.take(64))
+}
 
 fun memoryCategoryLabel(category: String): String = when (normalizeMemoryCategory(category)) {
     "profile" -> "个人信息"
     "preference" -> "偏好"
     "project" -> "项目"
     "rule" -> "长期规则"
+    "skill" -> "场景技能"
+    "episode" -> "经历"
+    "reflection" -> "归纳"
     else -> "其他"
+}
+
+fun memoryScopeLabel(scope: String): String = when (normalizeMemoryScope(scope)) {
+    "global" -> "全局"
+    "general" -> "通用"
+    "english" -> "英语"
+    "android" -> "Android"
+    "coding" -> "编程"
+    "math" -> "数学"
+    "writing" -> "写作"
+    "finance" -> "金融"
+    "travel" -> "旅行"
+    else -> "自动识别"
 }
 
 fun memoryPriorityLabel(priority: Int): String = when (normalizeMemoryPriority(priority)) {
