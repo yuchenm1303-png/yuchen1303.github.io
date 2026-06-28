@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -154,6 +155,15 @@ fun CachedAppTabHost(
                         .fillMaxSize()
                         .zIndex(if (active) 1f else -1f)
                         .graphicsLayer {
+                            // 设置页的 Shell OpenGL 在背景纹理就绪后才挂载 TextureView。
+                            // 页面淡入若使用默认离屏合成，首帧可能停留在缓存层中，直到离场
+                            // 动画再次更新父层才短暂出现。ModulateAlpha 保留原淡入/缩放，
+                            // 同时让晚挂载的 TextureView 直接参与窗口合成。
+                            compositingStrategy = if (tab == AppTab.Settings) {
+                                CompositingStrategy.ModulateAlpha
+                            } else {
+                                CompositingStrategy.Auto
+                            }
                             this.alpha = alpha
                             translationY = pageOffsetDp.dp.toPx() * (1f - alpha)
                             scaleX = pageScale
