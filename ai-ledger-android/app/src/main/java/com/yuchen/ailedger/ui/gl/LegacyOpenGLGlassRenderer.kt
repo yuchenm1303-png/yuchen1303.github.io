@@ -4,7 +4,6 @@ import android.graphics.Bitmap
 import android.opengl.GLES20
 import android.opengl.GLUtils
 import com.yuchen.ailedger.model.GlassBorderStyle
-import com.yuchen.ailedger.ui.PerformanceRuntimeMetrics
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.ceil
@@ -19,12 +18,9 @@ private const val DIRTY_GEOMETRY = 1 shl 1
 private const val DIRTY_SAMPLING = 1 shl 2
 private const val DIRTY_PRESS = 1 shl 3
 private const val DIRTY_STYLE = 1 shl 4
-private const val DIRTY_CACHE_GEOMETRY_STYLE = 1 shl 5
 private const val DIRTY_ALL =
-    DIRTY_SURFACE or DIRTY_GEOMETRY or DIRTY_SAMPLING or DIRTY_PRESS or
-        DIRTY_STYLE or DIRTY_CACHE_GEOMETRY_STYLE
-private const val DIRTY_CACHE_GEOMETRY =
-    DIRTY_SURFACE or DIRTY_GEOMETRY or DIRTY_CACHE_GEOMETRY_STYLE
+    DIRTY_SURFACE or DIRTY_GEOMETRY or DIRTY_SAMPLING or DIRTY_PRESS or DIRTY_STYLE
+private const val DIRTY_CACHE_GEOMETRY = DIRTY_SURFACE or DIRTY_GEOMETRY or DIRTY_STYLE
 
 private const val GEOMETRY_WIDTH = 0
 private const val GEOMETRY_HEIGHT = 1
@@ -56,42 +52,30 @@ private const val STYLE_DEBUG_ALPHA = 9
 private const val STYLE_DARK_SCALE = 10
 private const val STYLE_SIZE = 11
 
-private class MutableLegacyGlassScissorRect {
-    var left: Int = 0
-    var top: Int = 0
-    var right: Int = 0
-    var bottom: Int = 0
-
+private data class LegacyGlassScissorRect(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+) {
     val width: Int get() = (right - left).coerceAtLeast(0)
     val height: Int get() = (bottom - top).coerceAtLeast(0)
 
-    fun set(left: Int, top: Int, right: Int, bottom: Int) {
-        this.left = left
-        this.top = top
-        this.right = right
-        this.bottom = bottom
-    }
-
-    fun copyFrom(other: MutableLegacyGlassScissorRect) {
-        set(other.left, other.top, other.right, other.bottom)
-    }
-
-    fun unionFrom(first: MutableLegacyGlassScissorRect, second: MutableLegacyGlassScissorRect) {
-        set(
-            left = min(first.left, second.left),
-            top = min(first.top, second.top),
-            right = max(first.right, second.right),
-            bottom = max(first.bottom, second.bottom),
+    fun union(other: LegacyGlassScissorRect): LegacyGlassScissorRect =
+        LegacyGlassScissorRect(
+            left = min(left, other.left),
+            top = min(top, other.top),
+            right = max(right, other.right),
+            bottom = max(bottom, other.bottom),
         )
-    }
 }
 
 /**
  * 旧版 OpenGL 玻璃 Renderer。
  *
- * Host 的完整帧状态在一次锁内写入；圆角 SDF/厚度梯度缓存只受尺寸、圆角和环宽
- * 影响，材质亮度、折射、按压与采样原点不会误触发几何重建。原始 Shader 始终保留
- * 为精确回退路径。
+ * 原始 Shader 始终保留为精确回退路径。支持可渲染 half-float FBO 的设备会缓存
+ * 圆角 SDF、四点厚度梯度和内部距离；平移、背景采样与按压帧只执行材质合成。
+ * 几何正在变化的帧仍直接使用原 Shader，避免 FBO 重建反而增加拉伸负担。
  */
 internal class LegacyOpenGLGlassRenderer {
     private val textureLock = Any()
@@ -138,11 +122,7 @@ internal class LegacyOpenGLGlassRenderer {
     private var drawRectOffsetY = 0f
     private var partialClearSupported = false
     private var forceFullClear = true
-
-    private val currentGlassScissor = MutableLegacyGlassScissorRect()
-    private val previousGlassScissor = MutableLegacyGlassScissorRect()
-    private val dirtyGlassScissor = MutableLegacyGlassScissorRect()
-    private var hasPreviousGlassScissor = false
+    private var previousGlassScissor: LegacyGlassScissorRect? = null
 
     private var program = 0
     private var quadBufferId = 0
@@ -170,104 +150,33 @@ internal class LegacyOpenGLGlassRenderer {
         partialClearSupported = supported
     }
 
-    fun setFrameState(
-        width: Float,
-        height: Float,
-        rectOffsetY: Float,
-        radius: Float,
-        originX: Float,
-        originY: Float,
-        rootWidth: Float,
-        rootHeight: Float,
-        pressProgress: Float,
-        pressCenterX: Float,
-        pressCenterY: Float,
-        geometryDirty: Boolean,
-        samplingDirty: Boolean,
-        pressDirty: Boolean,
-    ) {
-        if (!geometryDirty && !samplingDirty && !pressDirty) return
+    fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float) {
         synchronized(specLock) {
-            var dirtyMask = 0
-            if (geometryDirty) {
-                geometryState[GEOMETRY_WIDTH] = width.coerceAtLeast(1f)
-                geometryState[GEOMETRY_HEIGHT] = height.coerceAtLeast(1f)
-                geometryState[GEOMETRY_OFFSET_Y] = rectOffsetY
-                geometryState[GEOMETRY_RADIUS] = radius
-                dirtyMask = dirtyMask or DIRTY_GEOMETRY
-            }
-            if (samplingDirty) {
-                samplingState[SAMPLING_ORIGIN_X] = originX
-                samplingState[SAMPLING_ORIGIN_Y] = originY
-                samplingState[SAMPLING_ROOT_WIDTH] = rootWidth.coerceAtLeast(1f)
-                samplingState[SAMPLING_ROOT_HEIGHT] = rootHeight.coerceAtLeast(1f)
-                dirtyMask = dirtyMask or DIRTY_SAMPLING
-            }
-            if (pressDirty) {
-                pressState[PRESS_PROGRESS] = pressProgress.coerceIn(0f, 1f)
-                pressState[PRESS_CENTER_X] = pressCenterX.coerceIn(0f, 1f)
-                pressState[PRESS_CENTER_Y] = pressCenterY.coerceIn(0f, 1f)
-                dirtyMask = dirtyMask or DIRTY_PRESS
-            }
-            pendingDirtyMask = pendingDirtyMask or dirtyMask
+            geometryState[GEOMETRY_WIDTH] = width.coerceAtLeast(1f)
+            geometryState[GEOMETRY_HEIGHT] = height.coerceAtLeast(1f)
+            geometryState[GEOMETRY_OFFSET_Y] = rectOffsetY
+            geometryState[GEOMETRY_RADIUS] = radius
+            pendingDirtyMask = pendingDirtyMask or DIRTY_GEOMETRY
         }
     }
 
-    fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float) {
-        setFrameState(
-            width = width,
-            height = height,
-            rectOffsetY = rectOffsetY,
-            radius = radius,
-            originX = 0f,
-            originY = 0f,
-            rootWidth = 1f,
-            rootHeight = 1f,
-            pressProgress = 0f,
-            pressCenterX = 0.5f,
-            pressCenterY = 0.5f,
-            geometryDirty = true,
-            samplingDirty = false,
-            pressDirty = false,
-        )
-    }
-
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) {
-        setFrameState(
-            width = 1f,
-            height = 1f,
-            rectOffsetY = 0f,
-            radius = 0f,
-            originX = originX,
-            originY = originY,
-            rootWidth = rootWidth,
-            rootHeight = rootHeight,
-            pressProgress = 0f,
-            pressCenterX = 0.5f,
-            pressCenterY = 0.5f,
-            geometryDirty = false,
-            samplingDirty = true,
-            pressDirty = false,
-        )
+        synchronized(specLock) {
+            samplingState[SAMPLING_ORIGIN_X] = originX
+            samplingState[SAMPLING_ORIGIN_Y] = originY
+            samplingState[SAMPLING_ROOT_WIDTH] = rootWidth.coerceAtLeast(1f)
+            samplingState[SAMPLING_ROOT_HEIGHT] = rootHeight.coerceAtLeast(1f)
+            pendingDirtyMask = pendingDirtyMask or DIRTY_SAMPLING
+        }
     }
 
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float) {
-        setFrameState(
-            width = 1f,
-            height = 1f,
-            rectOffsetY = 0f,
-            radius = 0f,
-            originX = 0f,
-            originY = 0f,
-            rootWidth = 1f,
-            rootHeight = 1f,
-            pressProgress = progress,
-            pressCenterX = centerX,
-            pressCenterY = centerY,
-            geometryDirty = false,
-            samplingDirty = false,
-            pressDirty = true,
-        )
+        synchronized(specLock) {
+            pressState[PRESS_PROGRESS] = progress.coerceIn(0f, 1f)
+            pressState[PRESS_CENTER_X] = centerX.coerceIn(0f, 1f)
+            pressState[PRESS_CENTER_Y] = centerY.coerceIn(0f, 1f)
+            pendingDirtyMask = pendingDirtyMask or DIRTY_PRESS
+        }
     }
 
     fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) {
@@ -280,13 +189,8 @@ internal class LegacyOpenGLGlassRenderer {
 
     fun setGlassStyle(style: GlassBorderStyle) {
         synchronized(specLock) {
-            val previousRingWidth = styleState[STYLE_RING_WIDTH]
             applyStyleValues(style)
-            var dirty = DIRTY_STYLE
-            if (previousRingWidth != styleState[STYLE_RING_WIDTH]) {
-                dirty = dirty or DIRTY_CACHE_GEOMETRY_STYLE
-            }
-            pendingDirtyMask = pendingDirtyMask or dirty
+            pendingDirtyMask = pendingDirtyMask or DIRTY_STYLE
         }
     }
 
@@ -343,7 +247,7 @@ internal class LegacyOpenGLGlassRenderer {
         GLES20.glClearColor(0f, 0f, 0f, 0f)
         geometryCache.onSurfaceCreated()
         forceFullClear = true
-        hasPreviousGlassScissor = false
+        previousGlassScissor = null
         synchronized(specLock) {
             pendingDirtyMask = pendingDirtyMask or DIRTY_ALL
         }
@@ -355,7 +259,7 @@ internal class LegacyOpenGLGlassRenderer {
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
         geometryCache.onSurfaceChanged(viewportWidth, viewportHeight)
         forceFullClear = true
-        hasPreviousGlassScissor = false
+        previousGlassScissor = null
         synchronized(specLock) {
             pendingDirtyMask = pendingDirtyMask or DIRTY_SURFACE
         }
@@ -410,35 +314,38 @@ internal class LegacyOpenGLGlassRenderer {
         }
         if (dirtyMask and DIRTY_STYLE != 0) uploadStyleUniforms()
 
-        val hasCurrentScissor = calculateGlassScissor()
-        clearDirtyRegion(hasCurrentScissor)
-        if (!hasCurrentScissor) {
-            hasPreviousGlassScissor = false
+        val currentScissor = calculateGlassScissor()
+        clearDirtyRegion(currentScissor)
+        if (currentScissor == null) {
+            previousGlassScissor = null
             GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
             return
         }
 
         val geometryInvalidated = dirtyMask and DIRTY_CACHE_GEOMETRY != 0
         if (geometryInvalidated) geometryCache.invalidate()
-        val cacheFrame = createCacheFrame(currentGlassScissor)
+        val cacheFrame = createCacheFrame(currentScissor)
         val cached = geometryCache.drawFrame(
             frame = cacheFrame,
             quadBufferId = quadBufferId,
             geometryInvalidatedThisFrame = geometryInvalidated,
         )
-        if (!cached) {
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-            GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
-            GLES20.glUseProgram(program)
-            bindDirectQuad()
-            bindTexture(GLES20.GL_TEXTURE0, blurTextureId)
-            bindTexture(GLES20.GL_TEXTURE1, effectiveLensTextureId())
-            applyScissor(currentGlassScissor)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        if (cached) {
+            previousGlassScissor = currentScissor
+            return
         }
-        previousGlassScissor.copyFrom(currentGlassScissor)
-        hasPreviousGlassScissor = true
+
+        // 缓存不可用、几何正在变化或运行时回退时，完整恢复原始直绘状态。
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
+        GLES20.glUseProgram(program)
+        bindDirectQuad()
+        bindTexture(GLES20.GL_TEXTURE0, blurTextureId)
+        bindTexture(GLES20.GL_TEXTURE1, effectiveLensTextureId())
+        applyScissor(currentScissor)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        previousGlassScissor = currentScissor
     }
 
     fun onRelease() {
@@ -460,10 +367,10 @@ internal class LegacyOpenGLGlassRenderer {
             pendingLensBitmap = null
             textureSetPending = false
         }
-        hasPreviousGlassScissor = false
+        previousGlassScissor = null
     }
 
-    private fun createCacheFrame(scissor: MutableLegacyGlassScissorRect): LegacyOpenGLGlassCacheFrame =
+    private fun createCacheFrame(scissor: LegacyGlassScissorRect): LegacyOpenGLGlassCacheFrame =
         LegacyOpenGLGlassCacheFrame(
             viewportWidth = viewportWidth,
             viewportHeight = viewportHeight,
@@ -539,7 +446,7 @@ internal class LegacyOpenGLGlassRenderer {
         styleState[STYLE_DARK_SCALE] = style.openGlDarkScale.coerceIn(-10f, 10f)
     }
 
-    private fun calculateGlassScissor(): Boolean {
+    private fun calculateGlassScissor(): LegacyGlassScissorRect? {
         val left = 0
         val top = (
             floor(drawRectOffsetY.toDouble()).toInt() - LEGACY_GLASS_SCISSOR_PADDING_PX
@@ -550,31 +457,30 @@ internal class LegacyOpenGLGlassRenderer {
         val bottom = ceil(
             (drawRectOffsetY + drawCardHeight + LEGACY_GLASS_SCISSOR_PADDING_PX).toDouble(),
         ).toInt().coerceIn(0, viewportHeight)
-        if (right <= left || bottom <= top) return false
-        currentGlassScissor.set(left, top, right, bottom)
-        return true
+        return if (right > left && bottom > top) {
+            LegacyGlassScissorRect(left, top, right, bottom)
+        } else {
+            null
+        }
     }
 
-    private fun clearDirtyRegion(hasCurrent: Boolean) {
+    private fun clearDirtyRegion(current: LegacyGlassScissorRect?) {
         if (!partialClearSupported || forceFullClear) {
             GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-            PerformanceRuntimeMetrics.recordOpenGlFullClear(viewportWidth, viewportHeight)
             forceFullClear = false
             return
         }
-        when {
-            !hasPreviousGlassScissor && hasCurrent -> dirtyGlassScissor.copyFrom(currentGlassScissor)
-            hasPreviousGlassScissor && !hasCurrent -> dirtyGlassScissor.copyFrom(previousGlassScissor)
-            hasPreviousGlassScissor && hasCurrent ->
-                dirtyGlassScissor.unionFrom(previousGlassScissor, currentGlassScissor)
-            else -> return
-        }
-        applyScissor(dirtyGlassScissor)
+        val dirty = when {
+            previousGlassScissor == null -> current
+            current == null -> previousGlassScissor
+            else -> previousGlassScissor!!.union(current)
+        } ?: return
+        applyScissor(dirty)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
     }
 
-    private fun applyScissor(rect: MutableLegacyGlassScissorRect) {
+    private fun applyScissor(rect: LegacyGlassScissorRect) {
         GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
         GLES20.glScissor(
             rect.left,
