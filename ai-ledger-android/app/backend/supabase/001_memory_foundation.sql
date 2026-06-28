@@ -167,14 +167,17 @@ create index if not exists assistant_memory_feedback_memory_idx
 create index if not exists assistant_memory_session_expiry_idx
   on public.assistant_memory_session_state (expires_at);
 
+drop trigger if exists assistant_memory_items_set_updated_at on public.assistant_memory_items_v4;
 create trigger assistant_memory_items_set_updated_at
 before update on public.assistant_memory_items_v4
 for each row execute function public.assistant_memory_set_updated_at();
 
+drop trigger if exists assistant_memory_embeddings_set_updated_at on public.assistant_memory_embeddings;
 create trigger assistant_memory_embeddings_set_updated_at
 before update on public.assistant_memory_embeddings
 for each row execute function public.assistant_memory_set_updated_at();
 
+drop trigger if exists assistant_memory_session_state_set_updated_at on public.assistant_memory_session_state;
 create trigger assistant_memory_session_state_set_updated_at
 before update on public.assistant_memory_session_state
 for each row execute function public.assistant_memory_set_updated_at();
