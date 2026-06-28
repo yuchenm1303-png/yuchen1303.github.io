@@ -270,9 +270,22 @@ class VisualLoopRunner(
 
         if (executable.type == "open_app") {
             val expectedPackage = executable.packageName.orEmpty()
+            val suppressPhysicalLaunch = VisualOpenAppHandoffPolicy.shouldSuppressPhysicalLaunch(
+                runtime = turn.runtime,
+                requestedPackage = expectedPackage,
+                alreadyForeground = prepared.alreadyForeground,
+            )
             session.execution.beginLaunch(expectedPackage)
-            if (prepared.alreadyForeground) {
-                val result = AgentExecutionResult(true, "Target package is already foreground: $expectedPackage", true)
+            if (suppressPhysicalLaunch) {
+                val result = AgentExecutionResult(
+                    true,
+                    VisualOpenAppHandoffPolicy.suppressionMessage(
+                        runtime = turn.runtime,
+                        requestedPackage = expectedPackage,
+                        alreadyForeground = prepared.alreadyForeground,
+                    ),
+                    true,
+                )
                 recordResult(session, turn.snapshot.currentApp, executable, result)
                 session.state.executedActions += 1
                 session.state.lastAction = VisualActionValidator.actionSignature(executable)
@@ -399,11 +412,14 @@ class VisualLoopRunner(
             releaseExecutionLease()
             val after = afterObservation.toAgentScreenSnapshot()
             session.execution.synchronizeWith(after)
+            val structuralRegressionConfirmed =
+                session.execution.surfaceState == VisualSurfaceState.Replanning
             val progress = session.semantic.evaluate(
                 step = executable,
                 before = turn.snapshot,
                 after = after,
                 verifiedTargetPackage = turn.runtime.verifiedTargetPackage,
+                structuralRegressionConfirmed = structuralRegressionConfirmed,
             )
             val feedback = progress.toFeedbackLine(executable)
             VisualLoopSupport.appendRecent(session.recentActions, feedback)
@@ -418,7 +434,6 @@ class VisualLoopRunner(
                 )
             }
             if (progress.structuralRegression) {
-                session.execution.markStructuralReplan()
                 session.prefetchedObservation = null
             }
             if (progress.requiresReplan) {
@@ -708,11 +723,15 @@ class VisualLoopRunner(
             }
         } else {
             val actual = verification.lastSnapshot?.packageName.orEmpty()
-            val pending = VisualSurfacePackagePolicy.requiresForegroundFallback(actual)
+            val pending = VisualOpenAppHandoffPolicy.isPendingVerification(verification) ||
+                VisualSurfacePackagePolicy.requiresForegroundFallback(actual)
+            val reason = verification.reason.ifBlank {
+                if (pending) "transient_surface" else "target_not_stable"
+            }
             val feedback = if (pending) {
-                "open_app_package_verification_pending:expected=$expectedPackage|actual=${actual.take(100)}|reason=transient_surface"
+                "open_app_package_verification_pending:expected=$expectedPackage|actual=${actual.take(100)}|stableSamples=${verification.stableSamples}|reason=$reason"
             } else {
-                "open_app_package_verification_failed:expected=$expectedPackage|actual=${actual.take(100)}|failureClass=structural_route|reason=target_not_stable"
+                "open_app_package_verification_failed:expected=$expectedPackage|actual=${actual.take(100)}|failureClass=structural_route|stableSamples=${verification.stableSamples}|reason=$reason"
             }
             VisualLoopSupport.appendRecent(session.recentActions, feedback)
             VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
