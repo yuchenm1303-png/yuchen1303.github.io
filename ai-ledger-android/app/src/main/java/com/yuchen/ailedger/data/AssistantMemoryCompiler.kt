@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.data
 
 import java.time.Instant
-import java.time.temporal.ChronoUnit
 import kotlin.math.ln
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -57,25 +56,25 @@ data class AssistantMemoryCompilation(
             .put("memoryIntent", intent.id)
     }
 
-    fun diagnosticsJson(): JSONObject {
-        return JSONObject()
-            .put("schema", schema)
-            .put("intent", intent.id)
-            .put("activeScopes", JSONArray(activeScopes.toList()))
-            .put("selectedMemoryIds", JSONArray(selectedMemoryIds))
-            .put("suppressedConflictCount", suppressedConflictCount)
-            .put("sources", JSONArray().apply {
-                sources.forEach { source ->
-                    put(JSONObject()
+    fun diagnosticsJson(): JSONObject = JSONObject()
+        .put("schema", schema)
+        .put("intent", intent.id)
+        .put("activeScopes", JSONArray(activeScopes.toList()))
+        .put("selectedMemoryIds", JSONArray(selectedMemoryIds))
+        .put("suppressedConflictCount", suppressedConflictCount)
+        .put("sources", JSONArray().apply {
+            sources.forEach { source ->
+                put(
+                    JSONObject()
                         .put("id", source.id)
                         .put("category", source.category)
                         .put("scope", source.scope)
                         .put("role", source.role)
                         .put("score", source.score)
-                        .put("reason", source.reason))
-                }
-            })
-    }
+                        .put("reason", source.reason)
+                )
+            }
+        })
 }
 
 data class AssistantMemoryRuntimeState(
@@ -102,17 +101,15 @@ object AssistantMemoryCompiler {
         memoryState: AssistantMemoryState,
         nowMillis: Long = System.currentTimeMillis(),
     ): AssistantMemoryCompilation {
-        val cleanPrompt = userText.trim()
-        val intent = classifyIntent(cleanPrompt)
+        val prompt = userText.trim()
+        val intent = classifyIntent(prompt)
         val activeScopes = linkedSetOf("global", intent.scope, "general")
-        val promptTokens = tokenize(cleanPrompt)
+        val promptTokens = tokenize(prompt)
 
         val ranked = if (memoryState.memoryEnabled && memoryState.cloudReady) {
-            memoryState.memories
-                .asSequence()
+            memoryState.memories.asSequence()
                 .filter { it.isActiveAt(nowMillis) }
-                .map { item -> rank(item, intent, activeScopes, promptTokens, nowMillis) }
-                .filter { it.score > Int.MIN_VALUE / 2 }
+                .map { rank(it, intent, activeScopes, promptTokens, nowMillis) }
                 .sortedWith(
                     compareByDescending<RankedMemory> { it.score }
                         .thenByDescending { it.item.updatedAt }
@@ -124,12 +121,8 @@ object AssistantMemoryCompiler {
 
         val conflictResolution = suppressConflicts(ranked)
         val selected = conflictResolution.selected
-        val customSegments = selectCustomInstructionSegments(
-            customInstructions = customInstructions,
-            intent = intent,
-            promptTokens = promptTokens,
-        )
-        val hasEnglishLearningPreference = hasEnglishLearningPreference(customInstructions, selected)
+        val customSegments = selectCustomInstructionSegments(customInstructions, intent, promptTokens)
+        val hasEnglishPreference = hasEnglishLearningPreference(customInstructions, selected)
 
         val activeRules = selected
             .filter { rankedItem ->
@@ -142,21 +135,21 @@ object AssistantMemoryCompiler {
             customSegments = customSegments,
             activeRules = activeRules,
             intent = intent,
-            hasEnglishLearningPreference = hasEnglishLearningPreference,
+            hasEnglishLearningPreference = hasEnglishPreference,
         )
 
         val activeRuleIds = activeRules.mapTo(hashSetOf()) { it.item.id }
-        val profileItems = selected
+        val profiles = selected
             .filter { it.item.category == "profile" && it.item.id !in activeRuleIds }
             .take(6)
-        val preferenceItems = selected
+        val preferences = selected
             .filter {
                 it.item.id !in activeRuleIds &&
                     it.item.category == "preference" &&
                     it.score >= preferenceThreshold(intent)
             }
             .take(MEMORY_PREFERENCE_LIMIT)
-        val relevantItems = selected
+        val relevant = selected
             .filter {
                 it.item.id !in activeRuleIds &&
                     it.item.category !in setOf("profile", "preference") &&
@@ -164,33 +157,21 @@ object AssistantMemoryCompiler {
             }
             .take(MEMORY_RELEVANT_LIMIT)
 
-        val memorySnapshot = buildMemorySnapshot(
-            intent = intent,
-            activeScopes = activeScopes,
-            profiles = profileItems,
-            preferences = preferenceItems,
-            relevant = relevantItems,
-        )
-
-        val sourceRows = buildList {
+        val memorySnapshot = buildMemorySnapshot(intent, activeScopes, profiles, preferences, relevant)
+        val sources = buildList {
             activeRules.forEach { add(it.toSource("instruction")) }
-            profileItems.forEach { add(it.toSource("profile")) }
-            preferenceItems.forEach { add(it.toSource("preference")) }
-            relevantItems.forEach { add(it.toSource("memory")) }
+            profiles.forEach { add(it.toSource("profile")) }
+            preferences.forEach { add(it.toSource("preference")) }
+            relevant.forEach { add(it.toSource("memory")) }
         }.distinctBy { it.id }
-
-        val selectedIds = sourceRows
-            .map { it.id }
-            .filterNot { it.startsWith("custom:") || it.startsWith("skill:") }
-            .distinct()
 
         return AssistantMemoryCompilation(
             intent = intent,
             activeScopes = activeScopes,
             personaInstructions = personaInstructions,
             memorySnapshot = memorySnapshot,
-            selectedMemoryIds = selectedIds,
-            sources = sourceRows,
+            selectedMemoryIds = sources.map { it.id }.distinct(),
+            sources = sources,
             suppressedConflictCount = conflictResolution.suppressedCount,
         )
     }
@@ -199,20 +180,22 @@ object AssistantMemoryCompiler {
         val clean = text.trim().lowercase()
         if (clean.isBlank()) return AssistantMemoryIntent.GENERAL
 
-        val latinTokens = LATIN_WORD_REGEX.findAll(clean).map { it.value }.toList()
-        val vocabularyQuestion = latinTokens.isNotEmpty() && (
+        val hasLatinWord = LATIN_WORD_REGEX.containsMatchIn(clean)
+        val vocabularyQuestion = hasLatinWord && (
             ENGLISH_VOCABULARY_SIGNAL.any(clean::contains) ||
                 clean.matches(Regex("^[a-z][a-z' -]{1,50}[？?]?$", RegexOption.IGNORE_CASE))
             )
-        if (vocabularyQuestion) return AssistantMemoryIntent.ENGLISH_VOCABULARY
-        if (ENGLISH_LEARNING_SIGNAL.any(clean::contains)) return AssistantMemoryIntent.ENGLISH_LEARNING
-        if (ANDROID_SIGNAL.any(clean::contains)) return AssistantMemoryIntent.ANDROID_DEVELOPMENT
-        if (PROGRAMMING_SIGNAL.any(clean::contains)) return AssistantMemoryIntent.PROGRAMMING
-        if (MATH_SIGNAL.any(clean::contains) || FORMULA_SIGNAL.containsMatchIn(clean)) return AssistantMemoryIntent.MATHEMATICS
-        if (WRITING_SIGNAL.any(clean::contains)) return AssistantMemoryIntent.ACADEMIC_WRITING
-        if (FINANCE_SIGNAL.any(clean::contains)) return AssistantMemoryIntent.FINANCE
-        if (TRAVEL_SIGNAL.any(clean::contains)) return AssistantMemoryIntent.TRAVEL
-        return AssistantMemoryIntent.GENERAL
+        return when {
+            vocabularyQuestion -> AssistantMemoryIntent.ENGLISH_VOCABULARY
+            ENGLISH_LEARNING_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.ENGLISH_LEARNING
+            ANDROID_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.ANDROID_DEVELOPMENT
+            PROGRAMMING_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.PROGRAMMING
+            MATH_SIGNAL.any(clean::contains) || FORMULA_SIGNAL.containsMatchIn(clean) -> AssistantMemoryIntent.MATHEMATICS
+            WRITING_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.ACADEMIC_WRITING
+            FINANCE_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.FINANCE
+            TRAVEL_SIGNAL.any(clean::contains) -> AssistantMemoryIntent.TRAVEL
+            else -> AssistantMemoryIntent.GENERAL
+        }
     }
 
     private fun rank(
@@ -223,9 +206,8 @@ object AssistantMemoryCompiler {
         nowMillis: Long,
     ): RankedMemory {
         val scope = effectiveScope(item)
-        val contentTokens = tokenize(item.content)
-        val overlap = promptTokens.intersect(contentTokens).size
-        val scopeMatches = scope in activeScopes || scope == "auto"
+        val overlap = promptTokens.intersect(tokenize(item.content)).size
+        val scopeMatches = scope == "auto" || scope in activeScopes
         val ruleLike = isInstructionLike(item)
 
         var score = item.priority * 13
@@ -235,22 +217,23 @@ object AssistantMemoryCompiler {
         score += recencyBonus(item.updatedAt, nowMillis)
         score += minOf(5, ln(item.useCount.toDouble() + 1.0).toInt())
 
-        when {
-            scope == "global" -> score += 10
-            scopeMatches -> score += 28
-            ruleLike -> score -= 30
-            item.category == "project" -> score -= 14
-            else -> score -= 5
+        score += when {
+            scope == "global" -> 10
+            scopeMatches -> 28
+            ruleLike -> -30
+            item.category == "project" -> -14
+            else -> -5
         }
-
         score += when (item.category) {
             "rule", "skill" -> if (scopeMatches || scope == "global") 18 else -8
             "profile" -> 8
             "preference" -> 7
-            "project" -> if (intent in setOf(AssistantMemoryIntent.ANDROID_DEVELOPMENT, AssistantMemoryIntent.PROGRAMMING)) 10 else 0
+            "project" -> if (intent in setOf(
+                    AssistantMemoryIntent.ANDROID_DEVELOPMENT,
+                    AssistantMemoryIntent.PROGRAMMING,
+                )) 10 else 0
             else -> 2
         }
-
         if (ruleLike && scopeMatches) score += 12
         if (intent == AssistantMemoryIntent.ENGLISH_VOCABULARY && containsEnglishLearningSignal(item.content)) score += 36
         if (intent == AssistantMemoryIntent.ANDROID_DEVELOPMENT && containsAndroidSignal(item.content)) score += 24
@@ -272,14 +255,13 @@ object AssistantMemoryCompiler {
         val selected = mutableListOf<RankedMemory>()
         val occupiedSlots = hashSetOf<String>()
         var suppressed = 0
-
-        for (candidate in ranked) {
+        ranked.forEach { candidate ->
             val slot = semanticSlot(candidate.item)
             if (slot != null && !occupiedSlots.add(slot)) {
                 suppressed += 1
-                continue
+            } else {
+                selected += candidate
             }
-            selected += candidate
         }
         return ConflictResolution(selected, suppressed)
     }
@@ -291,28 +273,26 @@ object AssistantMemoryCompiler {
         hasEnglishLearningPreference: Boolean,
     ): String? {
         val candidates = mutableListOf<String>()
-
         if (intent == AssistantMemoryIntent.ENGLISH_VOCABULARY && hasEnglishLearningPreference) {
             candidates += ENGLISH_VOCABULARY_SKILL
         } else if (intent == AssistantMemoryIntent.ENGLISH_LEARNING && hasEnglishLearningPreference) {
             candidates += ENGLISH_LEARNING_SKILL
         }
-
-        customSegments.forEach { candidates += it }
-        activeRules.forEach { candidates += normalizeInstructionText(it.item.content) }
+        candidates += customSegments
+        candidates += activeRules.map { normalizeInstructionText(it.item.content) }
 
         val unique = candidates
             .map { it.trim().trimStart('-', '•', ' ') }
             .filter { it.isNotBlank() }
-            .distinctBy { canonicalText(it) }
+            .distinctBy(::canonicalText)
         if (unique.isEmpty()) return null
 
-        val prefix = "当前问题命中了以下用户明确要求。只要不与系统安全、事实准确性或工具协议冲突，就必须执行："
-        val builder = StringBuilder(prefix)
-        for (instruction in unique) {
+        val builder = StringBuilder(
+            "当前问题命中了以下用户明确要求。只要不与系统安全、事实准确性或工具协议冲突，就必须执行："
+        )
+        unique.forEach { instruction ->
             val line = "\n- $instruction"
-            if (builder.length + line.length > PERSONA_INSTRUCTION_BUDGET) break
-            builder.append(line)
+            if (builder.length + line.length <= PERSONA_INSTRUCTION_BUDGET) builder.append(line)
         }
         return builder.toString().take(PERSONA_INSTRUCTION_BUDGET)
     }
@@ -324,14 +304,11 @@ object AssistantMemoryCompiler {
     ): List<String> {
         val source = customInstructions.orEmpty().trim()
         if (source.isBlank()) return emptyList()
-
-        return source
-            .split(Regex("\n+|(?<=[。！？；;])"))
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
+        return source.split(Regex("\n+|(?<=[。！？；;])"))
+            .map(String::trim)
+            .filter(String::isNotBlank)
             .map { segment ->
-                val tokens = tokenize(segment)
-                val overlap = tokens.intersect(promptTokens).size
+                val overlap = tokenize(segment).intersect(promptTokens).size
                 val scope = inferScope(segment)
                 var score = overlap * 8
                 if (scope == "global" || scope == intent.scope || scope == "auto") score += 16
@@ -352,16 +329,15 @@ object AssistantMemoryCompiler {
         relevant: List<RankedMemory>,
     ): JSONObject? {
         if (profiles.isEmpty() && preferences.isEmpty() && relevant.isEmpty()) return null
-
         val profileSummary = buildString {
             profiles.forEach { ranked ->
                 val next = ranked.item.content.trim()
-                if (isNotEmpty()) append('；')
-                if (length + next.length > PROFILE_SUMMARY_BUDGET) return@forEach
-                append(next)
+                val separator = if (isEmpty()) "" else "；"
+                if (length + separator.length + next.length <= PROFILE_SUMMARY_BUDGET) {
+                    append(separator).append(next)
+                }
             }
         }
-
         return JSONObject()
             .put("schema", "ai_ledger_memory_snapshot_v3")
             .put("intent", intent.id)
@@ -376,8 +352,8 @@ object AssistantMemoryCompiler {
         customInstructions: String?,
         selected: List<RankedMemory>,
     ): Boolean {
-        if (containsEnglishLearningSignal(customInstructions.orEmpty())) return true
-        return selected.any { containsEnglishLearningSignal(it.item.content) }
+        return containsEnglishLearningSignal(customInstructions.orEmpty()) ||
+            selected.any { containsEnglishLearningSignal(it.item.content) }
     }
 
     private fun instructionScopeMatches(scope: String, activeScopes: Set<String>, pinned: Boolean): Boolean {
@@ -393,14 +369,8 @@ object AssistantMemoryCompiler {
         return INSTRUCTION_SIGNAL.any(clean::contains)
     }
 
-    private fun normalizeInstructionText(text: String): String {
-        val clean = text.trim().replace(Regex("\s+"), " ")
-        return when {
-            containsEnglishLearningSignal(clean) -> clean
-            clean.startsWith("用户") -> clean
-            else -> clean
-        }
-    }
+    private fun normalizeInstructionText(text: String): String =
+        text.trim().replace(Regex("\\s+"), " ")
 
     private fun effectiveScope(item: AssistantMemoryItem): String {
         val explicit = normalizeMemoryScope(item.scope)
@@ -450,17 +420,17 @@ object AssistantMemoryCompiler {
         val clean = text.lowercase()
         val tokens = linkedSetOf<String>()
         LATIN_WORD_REGEX.findAll(clean).forEach { match ->
-            val token = match.value.trim(''')
+            val token = match.value.trim('\'')
             if (token.length >= 2 && token !in TOKEN_STOP_WORDS) tokens += token
         }
-        val chineseRuns = CHINESE_RUN_REGEX.findAll(clean).map { it.value }.toList()
-        for (run in chineseRuns) {
+        CHINESE_RUN_REGEX.findAll(clean).map { it.value }.forEach { run ->
             if (run.length <= 4 && run !in TOKEN_STOP_WORDS) tokens += run
-            for (size in listOf(2, 3)) {
-                if (run.length < size) continue
-                for (index in 0..run.length - size) {
-                    val token = run.substring(index, index + size)
-                    if (token !in TOKEN_STOP_WORDS) tokens += token
+            listOf(2, 3).forEach { size ->
+                if (run.length >= size) {
+                    for (index in 0..run.length - size) {
+                        val token = run.substring(index, index + size)
+                        if (token !in TOKEN_STOP_WORDS) tokens += token
+                    }
                 }
             }
         }
@@ -478,28 +448,23 @@ object AssistantMemoryCompiler {
         }
     }
 
-    private fun preferenceThreshold(intent: AssistantMemoryIntent): Int {
-        return if (intent == AssistantMemoryIntent.GENERAL) 16 else 20
-    }
+    private fun preferenceThreshold(intent: AssistantMemoryIntent): Int =
+        if (intent == AssistantMemoryIntent.GENERAL) 16 else 20
 
-    private fun relevantThreshold(intent: AssistantMemoryIntent): Int {
-        return if (intent == AssistantMemoryIntent.GENERAL) 24 else 18
-    }
+    private fun relevantThreshold(intent: AssistantMemoryIntent): Int =
+        if (intent == AssistantMemoryIntent.GENERAL) 24 else 18
 
-    private fun canonicalText(value: String): String {
-        return value.lowercase().replace(Regex("[\\s，。！？、；：,.!?;:'\"()（）【】\\[\\]_-]+"), "")
-    }
+    private fun canonicalText(value: String): String =
+        value.lowercase().replace(Regex("[\\s，。！？、；：,.!?;:'\"()（）【】\\[\\]_-]+"), "")
 
-    private fun RankedMemory.toSource(role: String): AssistantMemorySource {
-        return AssistantMemorySource(
-            id = item.id,
-            category = item.category,
-            scope = scope,
-            role = role,
-            score = score,
-            reason = reason,
-        )
-    }
+    private fun RankedMemory.toSource(role: String): AssistantMemorySource = AssistantMemorySource(
+        id = item.id,
+        category = item.category,
+        scope = scope,
+        role = role,
+        score = score,
+        reason = reason,
+    )
 
     private data class RankedMemory(
         val item: AssistantMemoryItem,
@@ -567,7 +532,8 @@ internal fun parseIsoInstantMillis(value: String): Long? {
     if (clean.isBlank()) return null
     return runCatching { Instant.parse(clean).toEpochMilli() }
         .recoverCatching {
-            Instant.parse(clean.replace(" ", "T").let { if (it.endsWith("Z")) it else "${it}Z" }).toEpochMilli()
+            val normalized = clean.replace(" ", "T").let { if (it.endsWith("Z")) it else "${it}Z" }
+            Instant.parse(normalized).toEpochMilli()
         }
         .getOrNull()
 }
