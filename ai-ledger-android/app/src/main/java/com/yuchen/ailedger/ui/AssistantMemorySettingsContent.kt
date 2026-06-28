@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -30,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -46,24 +48,45 @@ import com.yuchen.ailedger.data.AssistantCustomInstructionsRepository
 import com.yuchen.ailedger.data.AssistantCustomInstructionsState
 import com.yuchen.ailedger.data.AssistantMemoryItem
 import com.yuchen.ailedger.data.AssistantMemoryRepository
+import com.yuchen.ailedger.data.AssistantMemoryRuntime
+import com.yuchen.ailedger.data.AssistantMemoryRuntimeState
 import com.yuchen.ailedger.data.AssistantMemoryState
+import com.yuchen.ailedger.data.AssistantMemorySource
 import com.yuchen.ailedger.data.memoryCategoryLabel
 import com.yuchen.ailedger.data.memoryPriorityLabel
+import com.yuchen.ailedger.data.memoryScopeLabel
 import com.yuchen.ailedger.model.AssistantUiState
 
 private const val MEMORY_PAGE_SIZE = 20
+
 private val MEMORY_CATEGORIES = listOf(
     "profile" to "个人信息",
     "preference" to "偏好",
     "project" to "项目",
     "rule" to "长期规则",
-    "other" to "其他"
+    "skill" to "场景技能",
+    "episode" to "经历",
+    "reflection" to "归纳",
+    "other" to "其他",
 )
+
+private val MEMORY_SCOPES = listOf(
+    "auto" to "自动识别",
+    "global" to "全局",
+    "english" to "英语",
+    "android" to "Android",
+    "coding" to "编程",
+    "math" to "数学",
+    "writing" to "写作",
+    "finance" to "金融",
+    "travel" to "旅行",
+)
+
 private val MEMORY_PRIORITIES = listOf(
     0 to "低",
     1 to "普通",
     2 to "重要",
-    3 to "核心"
+    3 to "核心",
 )
 
 @Composable
@@ -73,6 +96,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
     val customRepository = remember(context) { AssistantCustomInstructionsRepository.get(context) }
     val memoryState by memoryRepository.state.collectAsState()
     val customState by customRepository.state.collectAsState()
+    val runtimeState by AssistantMemoryRuntime.state.collectAsState()
     val accountUserId = memoryState.accountUserId ?: customState.accountUserId
 
     var customDraft by rememberSaveable(accountUserId) { mutableStateOf("") }
@@ -82,6 +106,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
     var editingId by rememberSaveable(accountUserId) { mutableStateOf<String?>(null) }
     var memoryDraft by rememberSaveable(accountUserId) { mutableStateOf("") }
     var categoryDraft by rememberSaveable(accountUserId) { mutableStateOf("preference") }
+    var scopeDraft by rememberSaveable(accountUserId) { mutableStateOf("auto") }
     var priorityDraft by rememberSaveable(accountUserId) { mutableIntStateOf(1) }
     var pinnedDraft by rememberSaveable(accountUserId) { mutableStateOf(false) }
     var pendingDeleteId by rememberSaveable(accountUserId) { mutableStateOf<String?>(null) }
@@ -98,6 +123,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
         editingId = null
         memoryDraft = ""
         categoryDraft = "preference"
+        scopeDraft = "auto"
         priorityDraft = 1
         pinnedDraft = false
         pendingDeleteId = null
@@ -105,23 +131,26 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
         visibleMemoryCount = MEMORY_PAGE_SIZE
     }
 
-    PersonalizationStatusMetrics(customState, memoryState)
+    PersonalizationStatusMetrics(customState, memoryState, runtimeState)
 
     if (accountUserId == null) {
         MemoryCenteredCard(
             icon = "锁",
             title = "登录后使用个性化与长期记忆",
-            description = "自定义指令和长期记忆都会与 Supabase 账号绑定并按用户隔离。请先在“服务”页面完成登录。"
+            description = "自定义指令、场景技能和长期记忆都会与 Supabase 账号绑定，并严格按用户隔离。",
         )
         return
     }
 
-    SectionInlineTitle("自定义指令", "适合放几千字的稳定规则，优先级高于普通记忆。")
+    SectionInlineTitle(
+        title = "自定义指令",
+        subtitle = "账号级明确要求。系统会按当前问题筛选相关段落，并以高优先级加入模型提示词。",
+    )
     when {
         customState.loading -> MemoryCenteredCard(
             icon = "令",
             title = "正在同步自定义指令",
-            description = customState.accountEmail.orEmpty()
+            description = customState.accountEmail.orEmpty(),
         )
         !customState.cloudReady -> PersonalizationUnavailableCard(
             title = "自定义指令云端表尚未就绪",
@@ -129,7 +158,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
             state = state,
             buttonTitle = "重新检查",
             buttonSubtitle = "读取 assistant_custom_instructions 表",
-            onRefresh = customRepository::refresh
+            onRefresh = customRepository::refresh,
         )
         else -> CustomInstructionsCard(
             state = state,
@@ -159,45 +188,58 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                 } else {
                     clearCustomConfirmation = true
                 }
-            }
+            },
         )
     }
 
-    SectionInlineTitle("长期记忆", "适合姓名、偏好、项目背景和长期规则，可逐条控制。")
+    SectionInlineTitle(
+        title = "智能检索",
+        subtitle = "每次发送前识别当前场景，只选取真正相关的规则、偏好和事实。",
+    )
+    MemoryRetrievalCard(
+        runtimeState = runtimeState,
+        memories = memoryState.memories,
+    )
+
+    SectionInlineTitle(
+        title = "长期记忆",
+        subtitle = "事实、偏好、项目、经历和技能分层保存；不再把所有条目机械地塞给模型。",
+    )
     when {
         memoryState.loading -> MemoryCenteredCard(
             icon = "忆",
             title = "正在同步长期记忆",
-            description = memoryState.accountEmail.orEmpty()
+            description = memoryState.accountEmail.orEmpty(),
         )
         !memoryState.cloudReady -> PersonalizationUnavailableCard(
             title = "长期记忆云端表尚未就绪",
             message = memoryState.message,
             state = state,
             buttonTitle = "重新检查",
-            buttonSubtitle = "读取 assistant_memories 表",
-            onRefresh = memoryRepository::refresh
+            buttonSubtitle = "读取 assistant_memories V3 表",
+            onRefresh = memoryRepository::refresh,
         )
         else -> {
             MemoryMasterCard(
                 memoryState = memoryState,
-                onEnabledChange = memoryRepository::setMemoryEnabled
+                onEnabledChange = memoryRepository::setMemoryEnabled,
             )
 
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
             ) {
                 MemoryGlassAction(
                     title = "添加记忆",
-                    subtitle = "单条最多 $ASSISTANT_MEMORY_MAX_CONTENT_LENGTH 字",
+                    subtitle = "支持类型、作用域和优先级",
                     state = state,
                     enabled = !memoryState.saving,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 ) {
                     editingId = null
                     memoryDraft = ""
                     categoryDraft = "preference"
+                    scopeDraft = "auto"
                     priorityDraft = 1
                     pinnedDraft = false
                     editorVisible = true
@@ -210,7 +252,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                     state = state,
                     enabled = !memoryState.saving && !memoryState.loading,
                     modifier = Modifier.weight(1f),
-                    onClick = memoryRepository::refresh
+                    onClick = memoryRepository::refresh,
                 )
             }
 
@@ -218,12 +260,14 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                 MemoryEditorCard(
                     value = memoryDraft,
                     category = categoryDraft,
+                    scope = scopeDraft,
                     priority = priorityDraft,
                     pinned = pinnedDraft,
                     editing = editingId != null,
                     saving = memoryState.saving,
                     onValueChange = { memoryDraft = it.take(ASSISTANT_MEMORY_MAX_CONTENT_LENGTH) },
                     onCategoryChange = { categoryDraft = it },
+                    onScopeChange = { scopeDraft = it },
                     onPriorityChange = { priorityDraft = it },
                     onPinnedChange = { pinnedDraft = it },
                     onCancel = {
@@ -237,16 +281,18 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                             memoryRepository.addMemory(
                                 content = memoryDraft,
                                 category = categoryDraft,
+                                scope = scopeDraft,
                                 priority = priorityDraft,
-                                pinned = pinnedDraft
+                                pinned = pinnedDraft,
                             )
                         } else {
                             memoryRepository.updateMemory(
                                 id = id,
                                 content = memoryDraft,
                                 category = categoryDraft,
+                                scope = scopeDraft,
                                 priority = priorityDraft,
-                                pinned = pinnedDraft
+                                pinned = pinnedDraft,
                             )
                         }
                         if (memoryDraft.trim().isNotBlank()) {
@@ -254,7 +300,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                             editingId = null
                             memoryDraft = ""
                         }
-                    }
+                    },
                 )
             }
 
@@ -262,14 +308,14 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                 "已保存的记忆",
                 color = Color.White.copy(alpha = 0.82f),
                 fontSize = 15.sp,
-                fontWeight = FontWeight.Black
+                fontWeight = FontWeight.Black,
             )
 
             if (memoryState.memories.isEmpty()) {
                 MemoryCenteredCard(
                     icon = "忆",
                     title = "还没有长期记忆",
-                    description = "可以保存称呼、偏好、项目背景或长期规则。高优先级和置顶内容会优先进入模型快照。"
+                    description = "事实放进个人信息，回答方式放进偏好，必须执行的场景流程建议保存为场景技能。",
                 )
             } else {
                 memoryState.memories.take(visibleMemoryCount).forEach { item ->
@@ -282,6 +328,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                             editingId = item.id
                             memoryDraft = item.content
                             categoryDraft = item.category
+                            scopeDraft = item.scope
                             priorityDraft = item.priority
                             pinnedDraft = item.pinned
                             editorVisible = true
@@ -298,7 +345,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                                 clearAllConfirmation = false
                             }
                         },
-                        onCancelDelete = { pendingDeleteId = null }
+                        onCancelDelete = { pendingDeleteId = null },
                     )
                 }
 
@@ -308,7 +355,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                         subtitle = "还剩 ${memoryState.memories.size - visibleMemoryCount} 条",
                         state = state,
                         enabled = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         visibleMemoryCount = (visibleMemoryCount + MEMORY_PAGE_SIZE)
                             .coerceAtMost(memoryState.memories.size)
@@ -320,7 +367,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                     subtitle = if (clearAllConfirmation) "再次点击将永久删除" else "只清除当前登录账号",
                     state = state,
                     enabled = !memoryState.saving,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     if (clearAllConfirmation) {
                         memoryRepository.clearAll()
@@ -341,31 +388,183 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
 @Composable
 private fun PersonalizationStatusMetrics(
     customState: AssistantCustomInstructionsState,
-    memoryState: AssistantMemoryState
+    memoryState: AssistantMemoryState,
+    runtimeState: AssistantMemoryRuntimeState,
 ) {
     Row(
         Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         MemoryMetric(
-            label = "自定义指令",
+            label = "明确指令",
             value = when {
                 customState.accountUserId == null -> "需要登录"
                 !customState.cloudReady -> "未配置"
                 customState.enabled -> "已启用"
                 else -> "已关闭"
             },
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
         MemoryMetric(
-            label = "已保存",
-            value = "${memoryState.memories.size} 条",
-            modifier = Modifier.weight(1f)
-        )
-        MemoryMetric(
-            label = "当前生效",
+            label = "可检索",
             value = "${memoryState.activeCount} 条",
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
+        )
+        MemoryMetric(
+            label = "上一轮命中",
+            value = runtimeState.compilation?.sources?.size?.let { "$it 条" } ?: "暂无",
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+@Composable
+private fun MemoryRetrievalCard(
+    runtimeState: AssistantMemoryRuntimeState,
+    memories: List<AssistantMemoryItem>,
+) {
+    val compilation = runtimeState.compilation
+    val itemById = remember(memories) { memories.associateBy { it.id } }
+    MemorySurface {
+        if (compilation == null) {
+            Text(
+                "发送一条普通聊天后，这里会显示识别到的场景、实际命中的记忆以及被压制的冲突。",
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            return@MemorySurface
+        }
+
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    intentLabel(compilation.intent.id),
+                    color = Color.White.copy(alpha = 0.91f),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    "作用域：${compilation.activeScopes.joinToString(" · ") { memoryScopeLabel(it) }}",
+                    color = Color.White.copy(alpha = 0.40f),
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            RetrievalStatusChip(
+                text = if (compilation.sources.isEmpty()) "未命中" else "命中 ${compilation.sources.size}",
+                active = compilation.sources.isNotEmpty(),
+            )
+        }
+
+        if (compilation.sources.isNotEmpty()) {
+            compilation.sources.take(6).forEach { source ->
+                RetrievalSourceRow(
+                    source = source,
+                    content = itemById[source.id]?.content,
+                )
+            }
+        }
+
+        if (compilation.suppressedConflictCount > 0) {
+            Text(
+                "已自动压制 ${compilation.suppressedConflictCount} 条冲突或被替代的旧记忆。",
+                color = Color(0xFFFFD27A).copy(alpha = 0.74f),
+                fontSize = 9.5.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RetrievalSourceRow(source: AssistantMemorySource, content: String?) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(15.dp))
+            .background(Color.White.copy(alpha = 0.045f))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            Modifier
+                .padding(top = 4.dp)
+                .size(6.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(sourceRoleColor(source.role)),
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    sourceRoleLabel(source.role),
+                    color = sourceRoleColor(source.role).copy(alpha = 0.82f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    memoryScopeLabel(source.scope),
+                    color = Color.White.copy(alpha = 0.34f),
+                    fontSize = 8.5.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "相关度 ${source.score}",
+                    color = Color.White.copy(alpha = 0.28f),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                content ?: "已应用系统场景技能或自定义指令",
+                color = Color.White.copy(alpha = 0.68f),
+                fontSize = 10.5.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun RetrievalStatusChip(text: String, active: Boolean) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(
+                if (active) {
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF71EADD).copy(alpha = 0.18f),
+                            Color(0xFFA37BFF).copy(alpha = 0.16f),
+                        )
+                    )
+                } else {
+                    Brush.horizontalGradient(
+                        listOf(Color.White.copy(alpha = 0.06f), Color.White.copy(alpha = 0.035f))
+                    )
+                }
+            )
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+    ) {
+        Text(
+            text,
+            color = Color.White.copy(alpha = if (active) 0.85f else 0.44f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
         )
     }
 }
@@ -380,28 +579,21 @@ private fun CustomInstructionsCard(
     onEnabledChange: (Boolean) -> Unit,
     onSave: () -> Unit,
     onRefresh: () -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
 ) {
     val dirty = draft != customState.content
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(Color.White.copy(alpha = 0.065f))
-            .padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
-    ) {
+    MemorySurface {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
-                    "大段自定义指令",
+                    "账号级自定义指令",
                     color = Color.White.copy(alpha = 0.92f),
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
                 )
                 Text(
                     customState.accountEmail.orEmpty(),
@@ -409,63 +601,38 @@ private fun CustomInstructionsCard(
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Switch(
                 checked = customState.enabled,
                 onCheckedChange = onEnabledChange,
-                enabled = !customState.saving && draft.trim().isNotBlank()
+                enabled = !customState.saving && draft.trim().isNotBlank(),
             )
         }
 
         Text(
-            "这里适合放回答风格、固定工作流程、项目保护规则和长期协作要求。它的优先级高于普通记忆，但不能覆盖系统安全与工具协议。",
+            "这里适合放稳定的协作方式。系统不会每次机械注入全文，而会提取与当前问题相关的段落。",
             color = Color.White.copy(alpha = 0.42f),
             fontSize = 10.5.sp,
             lineHeight = 15.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
         )
 
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(230.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Black.copy(alpha = 0.13f))
-                .padding(12.dp)
-        ) {
-            BasicTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                enabled = !customState.saving,
-                textStyle = TextStyle(
-                    color = Color.White.copy(alpha = 0.92f),
-                    fontSize = 12.5.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Medium
-                ),
-                cursorBrush = SolidColor(Color(0xFF8DF9EA)),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                modifier = Modifier.fillMaxSize()
-            )
-            if (draft.isBlank()) {
-                Text(
-                    "例如：\n回答使用中文，先给结论，再解释关键原因。\n处理 Android 项目时必须保护指定架构，不使用临时补丁。\n遇到不确定信息要明确说明，不要编造。",
-                    color = Color.White.copy(alpha = 0.30f),
-                    fontSize = 11.5.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
+        MemoryTextEditor(
+            value = draft,
+            onValueChange = onDraftChange,
+            enabled = !customState.saving,
+            height = 220,
+            placeholder = "例如：处理英文单词时，必须给出通俗释义、两个英文例句及翻译，并补充常见搭配。",
+        )
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "${draft.length}/$ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH",
                 color = Color.White.copy(alpha = 0.34f),
                 fontSize = 10.5.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.weight(1f))
             Text(
@@ -477,13 +644,13 @@ private fun CustomInstructionsCard(
                 },
                 color = if (dirty) Color(0xFFFFD27A).copy(alpha = 0.82f) else Color.White.copy(alpha = 0.38f),
                 fontSize = 10.5.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
         }
 
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             MemoryGlassAction(
                 title = if (customState.saving) "保存中" else "保存指令",
@@ -491,7 +658,7 @@ private fun CustomInstructionsCard(
                 state = state,
                 enabled = !customState.saving && draft.trim().isNotBlank(),
                 modifier = Modifier.weight(1f),
-                onClick = onSave
+                onClick = onSave,
             )
             MemoryGlassAction(
                 title = "刷新",
@@ -499,7 +666,7 @@ private fun CustomInstructionsCard(
                 state = state,
                 enabled = !customState.saving,
                 modifier = Modifier.weight(1f),
-                onClick = onRefresh
+                onClick = onRefresh,
             )
         }
 
@@ -509,7 +676,7 @@ private fun CustomInstructionsCard(
             state = state,
             enabled = !customState.saving && customState.content.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
-            onClick = onClear
+            onClick = onClear,
         )
 
         PersonalizationMessage(customState.message, customState.error)
@@ -519,27 +686,20 @@ private fun CustomInstructionsCard(
 @Composable
 private fun MemoryMasterCard(
     memoryState: AssistantMemoryState,
-    onEnabledChange: (Boolean) -> Unit
+    onEnabledChange: (Boolean) -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.065f))
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    MemorySurface {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     "长期记忆总开关",
                     color = Color.White.copy(alpha = 0.92f),
                     fontSize = 16.sp,
-                    fontWeight = FontWeight.Black
+                    fontWeight = FontWeight.Black,
                 )
                 Text(
                     memoryState.accountEmail.orEmpty(),
@@ -547,31 +707,26 @@ private fun MemoryMasterCard(
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Switch(
                 checked = memoryState.memoryEnabled,
                 onCheckedChange = onEnabledChange,
-                enabled = !memoryState.saving
+                enabled = !memoryState.saving,
             )
         }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(Color.White.copy(alpha = 0.08f))
-        )
+        MemoryHairline()
         Text(
             if (memoryState.memoryEnabled) {
-                "当前 ${memoryState.activeCount} 条记忆会按置顶、优先级和更新时间排序，裁剪后发送给 Qwen、DeepSeek 与识图模型。"
+                "当前有 ${memoryState.activeCount} 条可检索记忆。每轮只发送与问题相关的少量内容，规则和技能会提升为高优先级指令。"
             } else {
-                "记忆仍保存在账号中，但关闭期间当前生效为 0 条，不会发送给聊天模型。"
+                "记忆仍保存在账号中，但关闭期间不会检索或发送给聊天模型。"
             },
             color = Color.White.copy(alpha = 0.42f),
             fontSize = 10.5.sp,
             lineHeight = 15.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
         )
     }
 }
@@ -580,98 +735,104 @@ private fun MemoryMasterCard(
 private fun MemoryEditorCard(
     value: String,
     category: String,
+    scope: String,
     priority: Int,
     pinned: Boolean,
     editing: Boolean,
     saving: Boolean,
     onValueChange: (String) -> Unit,
     onCategoryChange: (String) -> Unit,
+    onScopeChange: (String) -> Unit,
     onPriorityChange: (Int) -> Unit,
     onPinnedChange: (Boolean) -> Unit,
     onCancel: () -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.065f))
-            .padding(13.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
+    MemorySurface {
         Text(
             if (editing) "编辑记忆" else "添加记忆",
             color = Color.White.copy(alpha = 0.88f),
             fontSize = 15.sp,
-            fontWeight = FontWeight.Black
+            fontWeight = FontWeight.Black,
         )
 
-        Text("分类", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+        EditorLabel("类型")
         SelectionChipRows(
             items = MEMORY_CATEGORIES,
             selected = category,
             enabled = !saving,
             label = { it.second },
             key = { it.first },
-            onSelected = { onCategoryChange(it.first) }
+            onSelected = { onCategoryChange(it.first) },
         )
 
-        Text("优先级", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+        EditorLabel("作用域")
+        SelectionChipRows(
+            items = MEMORY_SCOPES,
+            selected = scope,
+            enabled = !saving,
+            label = { it.second },
+            key = { it.first },
+            onSelected = { onScopeChange(it.first) },
+        )
+        Text(
+            if (scope == "auto") {
+                "系统会根据内容自动判断英语、Android、数学等场景。"
+            } else {
+                "只有当前问题命中“${memoryScopeLabel(scope)}”场景时才会优先检索。"
+            },
+            color = Color.White.copy(alpha = 0.34f),
+            fontSize = 9.5.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Bold,
+        )
+
+        EditorLabel("优先级")
         SelectionChipRows(
             items = MEMORY_PRIORITIES,
             selected = priority,
             enabled = !saving,
             label = { it.second },
             key = { it.first },
-            onSelected = { onPriorityChange(it.first) }
+            onSelected = { onPriorityChange(it.first) },
         )
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("置顶记忆", color = Color.White.copy(alpha = 0.78f), fontSize = 12.5.sp, fontWeight = FontWeight.ExtraBold)
-                Text("置顶内容会优先进入有限的记忆快照", color = Color.White.copy(alpha = 0.36f), fontSize = 9.5.sp)
+                Text(
+                    "置顶记忆",
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    "置顶会提高检索权重，但仍受作用域和冲突规则约束",
+                    color = Color.White.copy(alpha = 0.36f),
+                    fontSize = 9.5.sp,
+                )
             }
             Switch(checked = pinned, onCheckedChange = onPinnedChange, enabled = !saving)
         }
 
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(150.dp)
-                .clip(RoundedCornerShape(17.dp))
-                .background(Color.Black.copy(alpha = 0.12f))
-                .padding(12.dp)
-        ) {
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                enabled = !saving,
-                textStyle = TextStyle(
-                    color = Color.White.copy(alpha = 0.92f),
-                    fontSize = 12.5.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Medium
-                ),
-                cursorBrush = SolidColor(Color(0xFF8DF9EA)),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                modifier = Modifier.fillMaxSize()
-            )
-            if (value.isBlank()) {
-                Text(
-                    "一条记忆尽量只表达一件稳定的事情，例如：用户名字是邹羽宸。",
-                    color = Color.White.copy(alpha = 0.30f),
-                    fontSize = 11.5.sp,
-                    lineHeight = 18.sp
-                )
-            }
-        }
+        MemoryTextEditor(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = !saving,
+            height = 150,
+            placeholder = when (category) {
+                "skill" -> "例如：询问英文单词时，必须给出两个例句、中文翻译和常见搭配。"
+                "rule" -> "例如：处理项目代码时，不使用临时补丁或绕路方案。"
+                "profile" -> "例如：用户名字是邹羽宸。"
+                else -> "一条记忆尽量只表达一件稳定的事情。"
+            },
+        )
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "${value.length}/$ASSISTANT_MEMORY_MAX_CONTENT_LENGTH",
                 color = Color.White.copy(alpha = 0.34f),
                 fontSize = 10.5.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.weight(1f))
             MemoryTextAction("取消", enabled = !saving, onClick = onCancel)
@@ -680,49 +841,8 @@ private fun MemoryEditorCard(
                 text = if (saving) "保存中" else "保存",
                 enabled = !saving && value.trim().isNotBlank(),
                 emphasized = true,
-                onClick = onSave
+                onClick = onSave,
             )
-        }
-    }
-}
-
-@Composable
-private fun <T, K> SelectionChipRows(
-    items: List<T>,
-    selected: K,
-    enabled: Boolean,
-    label: (T) -> String,
-    key: (T) -> K,
-    onSelected: (T) -> Unit
-) {
-    items.chunked(3).forEach { rowItems ->
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            rowItems.forEach { item ->
-                val active = key(item) == selected
-                val interactionSource = remember { MutableInteractionSource() }
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(36.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color.White.copy(alpha = if (active) 0.13f else 0.055f))
-                        .clickable(
-                            enabled = enabled,
-                            interactionSource = interactionSource,
-                            indication = null
-                        ) { onSelected(item) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        label(item),
-                        color = Color.White.copy(alpha = if (active) 0.94f else 0.52f),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1
-                    )
-                }
-            }
-            repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
         }
     }
 }
@@ -735,7 +855,7 @@ private fun MemoryItemCard(
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onCancelDelete: () -> Unit
+    onCancelDelete: () -> Unit,
 ) {
     Column(
         Modifier
@@ -743,12 +863,12 @@ private fun MemoryItemCard(
             .clip(RoundedCornerShape(19.dp))
             .background(Color.White.copy(alpha = if (item.enabled) 0.060f else 0.038f))
             .padding(horizontal = 13.dp, vertical = 11.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
+        verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(11.dp)
+            horizontalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
@@ -756,11 +876,15 @@ private fun MemoryItemCard(
                         if (item.pinned) append("置顶 · ")
                         append(memoryCategoryLabel(item.category))
                         append(" · ")
+                        append(memoryScopeLabel(item.scope))
+                        append(" · ")
                         append(memoryPriorityLabel(item.priority))
                     },
-                    color = Color(0xFF8DF9EA).copy(alpha = if (item.enabled) 0.70f else 0.34f),
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    color = categoryAccent(item.category).copy(alpha = if (item.enabled) 0.76f else 0.34f),
+                    fontSize = 10.2.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     item.content,
@@ -768,33 +892,34 @@ private fun MemoryItemCard(
                     fontSize = 12.5.sp,
                     lineHeight = 18.sp,
                     fontWeight = FontWeight.Medium,
-                    maxLines = 12,
-                    overflow = TextOverflow.Ellipsis
+                    maxLines = 10,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Switch(
                 checked = item.enabled,
                 onCheckedChange = onToggle,
-                enabled = !saving
+                enabled = !saving,
             )
         }
+
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                if (confirmDelete) {
-                    "确认删除这条记忆？"
-                } else if (item.enabled) {
-                    "会按优先级加入模型记忆快照"
-                } else {
-                    "已停用，不发送给模型"
+                when {
+                    confirmDelete -> "确认删除这条记忆？"
+                    !item.enabled -> "已停用，不参与检索"
+                    item.useCount > 0L -> "已命中 ${item.useCount} 次"
+                    item.category == "skill" || item.category == "rule" -> "命中场景时会提升为高优先级指令"
+                    else -> "会根据当前问题动态计算相关度"
                 },
                 color = if (confirmDelete) {
                     Color(0xFFFFB4B4).copy(alpha = 0.82f)
                 } else {
                     Color.White.copy(alpha = 0.34f)
                 },
-                fontSize = 10.5.sp,
+                fontSize = 10.2.sp,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             if (confirmDelete) {
                 MemoryTextAction("取消", enabled = !saving, onClick = onCancelDelete)
@@ -810,36 +935,113 @@ private fun MemoryItemCard(
 }
 
 @Composable
+private fun <T, K> SelectionChipRows(
+    items: List<T>,
+    selected: K,
+    enabled: Boolean,
+    label: (T) -> String,
+    key: (T) -> K,
+    onSelected: (T) -> Unit,
+) {
+    items.chunked(3).forEach { rowItems ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            rowItems.forEach { item ->
+                val active = key(item) == selected
+                val interactionSource = remember { MutableInteractionSource() }
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.White.copy(alpha = if (active) 0.13f else 0.055f))
+                        .clickable(
+                            enabled = enabled,
+                            interactionSource = interactionSource,
+                            indication = null,
+                        ) { onSelected(item) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        label(item),
+                        color = Color.White.copy(alpha = if (active) 0.94f else 0.52f),
+                        fontSize = 10.2.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+@Composable
+private fun MemoryTextEditor(
+    value: String,
+    onValueChange: (String) -> Unit,
+    enabled: Boolean,
+    height: Int,
+    placeholder: String,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(height.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.Black.copy(alpha = 0.13f))
+            .padding(12.dp),
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            textStyle = TextStyle(
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium,
+            ),
+            cursorBrush = SolidColor(Color(0xFF8DF9EA)),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+            modifier = Modifier.fillMaxSize(),
+        )
+        if (value.isBlank()) {
+            Text(
+                placeholder,
+                color = Color.White.copy(alpha = 0.30f),
+                fontSize = 11.5.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@Composable
 private fun PersonalizationUnavailableCard(
     title: String,
     message: String,
     state: AssistantUiState,
     buttonTitle: String,
     buttonSubtitle: String,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
 ) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(Color.White.copy(alpha = 0.060f))
-            .padding(15.dp),
-        verticalArrangement = Arrangement.spacedBy(11.dp)
-    ) {
+    MemorySurface {
         Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 16.sp, fontWeight = FontWeight.Black)
         Text(
             message,
             color = Color.White.copy(alpha = 0.50f),
             fontSize = 11.sp,
             lineHeight = 16.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
         )
         Text(
-            "普通聊天不会因此崩溃；完成 Supabase 个性化升级 SQL 后，点击重新检查即可接通。",
+            "普通聊天不会因此崩溃；执行记忆系统 V3 SQL 后点击重新检查即可接通。",
             color = Color.White.copy(alpha = 0.36f),
             fontSize = 10.5.sp,
             lineHeight = 15.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
         )
         MemoryGlassAction(
             title = buttonTitle,
@@ -847,9 +1049,29 @@ private fun PersonalizationUnavailableCard(
             state = state,
             enabled = true,
             modifier = Modifier.fillMaxWidth(),
-            onClick = onRefresh
+            onClick = onRefresh,
         )
     }
+}
+
+@Composable
+private fun MemorySurface(content: @Composable Column.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.070f),
+                        Color.White.copy(alpha = 0.045f),
+                    )
+                )
+            )
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        content = content,
+    )
 }
 
 @Composable
@@ -861,7 +1083,7 @@ private fun SectionInlineTitle(title: String, subtitle: String) {
             color = Color.White.copy(alpha = 0.40f),
             fontSize = 10.5.sp,
             lineHeight = 15.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
         )
     }
 }
@@ -874,16 +1096,22 @@ private fun MemoryMetric(label: String, value: String, modifier: Modifier = Modi
             .clip(RoundedCornerShape(18.dp))
             .background(Color.White.copy(alpha = 0.070f))
             .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, color = Color.White.copy(alpha = 0.50f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(
+            label,
+            color = Color.White.copy(alpha = 0.50f),
+            fontSize = 10.5.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
         Text(
             value,
             color = Color.White.copy(alpha = 0.92f),
             fontSize = 14.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
@@ -897,25 +1125,31 @@ private fun MemoryCenteredCard(icon: String, title: String, description: String)
             .background(Color.White.copy(alpha = 0.048f))
             .padding(horizontal = 18.dp, vertical = 22.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
             Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(17.dp))
                 .background(Color.White.copy(alpha = 0.065f)),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Text(icon, color = Color.White.copy(alpha = 0.66f), fontSize = 18.sp, fontWeight = FontWeight.Black)
         }
-        Text(title, color = Color.White.copy(alpha = 0.82f), fontSize = 15.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+        Text(
+            title,
+            color = Color.White.copy(alpha = 0.82f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black,
+            textAlign = TextAlign.Center,
+        )
         Text(
             description,
             color = Color.White.copy(alpha = 0.42f),
             fontSize = 10.5.sp,
             lineHeight = 15.sp,
             fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -927,7 +1161,7 @@ private fun MemoryGlassAction(
     state: AssistantUiState,
     enabled: Boolean,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     PressableGlass(
         quality = state.quality,
@@ -936,11 +1170,11 @@ private fun MemoryGlassAction(
         radius = 22,
         modifier = modifier.height(58.dp),
         role = GlassRole.Chip,
-        onClick = { if (enabled) onClick() }
+        onClick = { if (enabled) onClick() },
     ) {
         Column(
             Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 title,
@@ -948,7 +1182,7 @@ private fun MemoryGlassAction(
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 subtitle,
@@ -956,7 +1190,7 @@ private fun MemoryGlassAction(
                 fontSize = 10.5.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -968,7 +1202,7 @@ private fun MemoryTextAction(
     enabled: Boolean,
     emphasized: Boolean = false,
     destructive: Boolean = false,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     Text(
@@ -985,8 +1219,28 @@ private fun MemoryTextAction(
             enabled = enabled,
             interactionSource = interactionSource,
             indication = null,
-            onClick = onClick
-        )
+            onClick = onClick,
+        ),
+    )
+}
+
+@Composable
+private fun MemoryHairline() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(Color.White.copy(alpha = 0.08f))
+    )
+}
+
+@Composable
+private fun EditorLabel(text: String) {
+    Text(
+        text,
+        color = Color.White.copy(alpha = 0.48f),
+        fontSize = 10.5.sp,
+        fontWeight = FontWeight.Bold,
     )
 }
 
@@ -997,6 +1251,42 @@ private fun PersonalizationMessage(message: String, error: Boolean) {
         color = if (error) Color(0xFFFFB4B4).copy(alpha = 0.88f) else Color.White.copy(alpha = 0.44f),
         fontSize = 10.5.sp,
         lineHeight = 15.sp,
-        fontWeight = FontWeight.Bold
+        fontWeight = FontWeight.Bold,
     )
+}
+
+private fun intentLabel(intent: String): String = when (intent) {
+    "english_vocabulary" -> "英语词汇学习"
+    "english_learning" -> "英语学习"
+    "android_development" -> "Android 开发"
+    "programming" -> "编程"
+    "mathematics" -> "数学"
+    "academic_writing" -> "学术写作"
+    "finance" -> "金融"
+    "travel" -> "旅行"
+    else -> "通用对话"
+}
+
+private fun sourceRoleLabel(role: String): String = when (role) {
+    "instruction" -> "必须执行"
+    "profile" -> "个人事实"
+    "preference" -> "回答偏好"
+    else -> "相关记忆"
+}
+
+private fun sourceRoleColor(role: String): Color = when (role) {
+    "instruction" -> Color(0xFFC09BFF)
+    "profile" -> Color(0xFFFFD07A)
+    "preference" -> Color(0xFF83F2E5)
+    else -> Color(0xFF83C8FF)
+}
+
+private fun categoryAccent(category: String): Color = when (category) {
+    "skill", "rule" -> Color(0xFFC09BFF)
+    "profile" -> Color(0xFFFFD07A)
+    "preference" -> Color(0xFF83F2E5)
+    "project" -> Color(0xFF83C8FF)
+    "episode" -> Color(0xFFFFA9CA)
+    "reflection" -> Color(0xFFA7B4FF)
+    else -> Color(0xFFB8C6E8)
 }
