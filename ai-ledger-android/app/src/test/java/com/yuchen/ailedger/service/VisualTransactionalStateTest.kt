@@ -24,7 +24,6 @@ class VisualTransactionalStateTest {
                 ),
             contract = completedContract(),
         )
-
         assertNull(VisualTaskContract.fromJson(root))
     }
 
@@ -43,13 +42,9 @@ class VisualTransactionalStateTest {
             "debug",
             JSONObject().put(
                 "guiCompactAction",
-                JSONObject()
-                    .put("a", "tap_xy")
-                    .put("x", 0.2)
-                    .put("y", 0.3),
+                JSONObject().put("a", "tap_xy").put("x", 0.2).put("y", 0.3),
             ),
         )
-
         assertNull(VisualTaskContract.fromJson(root))
     }
 
@@ -68,7 +63,6 @@ class VisualTransactionalStateTest {
                 ),
             ),
         )
-
         assertFalse(decision.accepted)
         assertEquals("ordered_milestones_required", decision.code)
     }
@@ -76,14 +70,8 @@ class VisualTransactionalStateTest {
     @Test
     fun workSurfaceWithoutContractBecomesRetryableProtocolFailure() {
         val error = assertProtocolFailure("visual_protocol_task_contract_required") {
-            VisualTaskContract.fromJson(
-                workSurfaceResponse(
-                    step = validStep("tap_xy"),
-                    contract = null,
-                ),
-            )
+            VisualTaskContract.fromJson(workSurfaceResponse(validStep("tap_xy"), null))
         }
-
         assertTrue(error.retryable)
         assertTrue(error.backendMessage.contains(VisualTaskContractProtocol.PROMPT_LINE))
     }
@@ -93,24 +81,19 @@ class VisualTransactionalStateTest {
         val error = assertProtocolFailure("visual_protocol_action_purpose_required") {
             VisualTaskContract.fromJson(
                 workSurfaceResponse(
-                    step = JSONObject().put("type", "tap_xy").put("x", 0.2).put("y", 0.3),
-                    contract = validContract(),
+                    JSONObject().put("type", "tap_xy").put("x", 0.2).put("y", 0.3),
+                    validContract(),
                 ),
             )
         }
-
         assertTrue(error.retryable)
     }
 
     @Test
     fun structuredMultiMilestoneContractRemainsAccepted() {
-        val root = workSurfaceResponse(
-            step = validStep("tap_xy"),
-            contract = validContract(),
+        val contract = VisualTaskContract.fromJson(
+            workSurfaceResponse(validStep("tap_xy"), validContract()),
         )
-
-        val contract = VisualTaskContract.fromJson(root)
-
         assertEquals("return_home", contract?.currentMilestoneId)
         assertEquals(4, contract?.milestones?.size)
         assertEquals(
@@ -126,9 +109,7 @@ class VisualTransactionalStateTest {
             milestones = listOf(previous.milestones[1], previous.milestones[3]),
             currentMilestoneId = "return_home",
         )
-
         val decision = VisualTaskContractProtocol.validateTransition(previous, incoming)
-
         assertFalse(decision.accepted)
         assertEquals("contract_history_rewritten", decision.code)
     }
@@ -136,10 +117,13 @@ class VisualTransactionalStateTest {
     @Test
     fun sameRevisionCannotRollbackCompletedMilestones() {
         val previous = contractModel()
-        val incoming = previous.copy(completedMilestoneIds = listOf("open_detail"))
-
+        val incoming = previous.copy(
+            completedMilestoneIds = listOf("open_detail"),
+            milestones = previous.milestones.map { milestone ->
+                milestone.copy(completed = milestone.id == "open_detail")
+            },
+        )
         val decision = VisualTaskContractProtocol.validateTransition(previous, incoming)
-
         assertFalse(decision.accepted)
         assertEquals("completed_milestone_rollback", decision.code)
     }
@@ -153,9 +137,7 @@ class VisualTransactionalStateTest {
             "back:ok:target=back",
             "finish_verification_pending:observationId=observation-2",
         )
-
         val filtered = VisualLoopSupport.discardRolledBackCompletionCandidates(actions)
-
         assertFalse(filtered.contains("finish_verification_pending:observationId=observation-1"))
         assertTrue(filtered.contains("finish_permit_rejected:reason=not_confirmed"))
         assertTrue(filtered.contains("finish_verification_pending:observationId=observation-2"))
@@ -166,9 +148,8 @@ class VisualTransactionalStateTest {
         val summary = VisualLoopSupport.resultSummary(
             step = CloudAgentStep(type = "back", targetText = "back"),
             signature = "back|back",
-            result = AgentExecutionResult(ok = true, message = "gesture dispatched", shouldContinue = true),
+            result = AgentExecutionResult(true, "gesture dispatched", true),
         )
-
         assertTrue(summary.contains("executionAccepted=true"))
         assertTrue(summary.contains("gestureDispatched=true"))
         assertTrue(summary.contains("semanticOutcome=gui_plus_pending_judgement"))
@@ -192,7 +173,6 @@ class VisualTransactionalStateTest {
     private fun validContract(): JSONObject = contractModel().toJson()
 
     private fun completedContract(): JSONObject = contractModel().copy(
-        currentMilestoneId = "return_home",
         completedMilestoneIds = listOf("open_detail", "verify_mode_a", "verify_mode_b", "return_home"),
         milestones = contractModel().milestones.map { it.copy(completed = true) },
     ).toJson()
@@ -201,10 +181,10 @@ class VisualTransactionalStateTest {
         originalGoal = "complete an ordered visual task and verify the final page",
         currentMilestoneId = "return_home",
         milestones = listOf(
-            milestone("open_detail", completed = true),
-            milestone("verify_mode_a", completed = true),
-            milestone("verify_mode_b", completed = true),
-            milestone("return_home", completed = false),
+            milestone("open_detail", true),
+            milestone("verify_mode_a", true),
+            milestone("verify_mode_b", true),
+            milestone("return_home", false),
         ),
         completedMilestoneIds = listOf("open_detail", "verify_mode_a", "verify_mode_b"),
         taskRevision = 1,
