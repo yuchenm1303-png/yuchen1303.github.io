@@ -161,6 +161,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     private var lastRootHeight = 1
     private var geometryAwaitingLayout = false
     private var renderPosted = false
+    private var forceRenderPosted = false
     private var renderAfterLayout = false
 
     private var latestGlassWidth = 1f
@@ -184,9 +185,11 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private val renderRunnable = Runnable {
         renderPosted = false
+        val forceRender = forceRenderPosted
+        forceRenderPosted = false
         if (!geometryAwaitingLayout && isAttachedToWindow) {
-            syncDynamicFrameToTexture()
-            textureView.requestRender()
+            val frameDirty = syncDynamicFrameToTexture()
+            if (forceRender || frameDirty) textureView.requestRender()
         }
     }
 
@@ -276,15 +279,34 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         staticPressCenterX: Float,
         staticPressCenterY: Float,
     ): Boolean {
-        latestGlassWidth = width.coerceAtLeast(1f)
-        latestGlassHeight = height.coerceAtLeast(1f)
+        val nextWidth = width.coerceAtLeast(1f)
+        val nextHeight = height.coerceAtLeast(1f)
+        val nextRootWidth = rootWidth.coerceAtLeast(1f)
+        val nextRootHeight = rootHeight.coerceAtLeast(1f)
+        val nextPress = staticPressProgress.coerceIn(0f, 1f)
+        val nextPressX = staticPressCenterX.coerceIn(0f, 1f)
+        val nextPressY = staticPressCenterY.coerceIn(0f, 1f)
+        val specDirty =
+            abs(nextWidth - latestGlassWidth) > GLASS_SPEC_EPSILON_PX ||
+                abs(nextHeight - latestGlassHeight) > GLASS_SPEC_EPSILON_PX ||
+                abs(rectOffsetY - latestRectOffsetY) > GLASS_SPEC_EPSILON_PX ||
+                abs(radius - latestRadius) > GLASS_SPEC_EPSILON_PX ||
+                abs(nextRootWidth - latestRootWidth) > GLASS_SPEC_EPSILON_PX ||
+                abs(nextRootHeight - latestRootHeight) > GLASS_SPEC_EPSILON_PX ||
+                abs(nextPress - latestStaticPressProgress) > GLASS_PRESS_EPSILON ||
+                abs(nextPressX - latestStaticPressCenterX) > GLASS_PRESS_CENTER_EPSILON ||
+                abs(nextPressY - latestStaticPressCenterY) > GLASS_PRESS_CENTER_EPSILON
+        if (!specDirty) return false
+
+        latestGlassWidth = nextWidth
+        latestGlassHeight = nextHeight
         latestRectOffsetY = rectOffsetY
         latestRadius = radius
-        latestRootWidth = rootWidth.coerceAtLeast(1f)
-        latestRootHeight = rootHeight.coerceAtLeast(1f)
-        latestStaticPressProgress = staticPressProgress.coerceIn(0f, 1f)
-        latestStaticPressCenterX = staticPressCenterX.coerceIn(0f, 1f)
-        latestStaticPressCenterY = staticPressCenterY.coerceIn(0f, 1f)
+        latestRootWidth = nextRootWidth
+        latestRootHeight = nextRootHeight
+        latestStaticPressProgress = nextPress
+        latestStaticPressCenterX = nextPressX
+        latestStaticPressCenterY = nextPressY
         return if (geometryAwaitingLayout) {
             renderAfterLayout = true
             false
@@ -310,12 +332,14 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         textureView.layout(0, 0, stableSurfaceWidth, stableSurfaceHeight)
         geometryAwaitingLayout = false
 
+        val forceRender = forceRenderPosted
+        forceRenderPosted = false
         if (renderPosted) {
             removeCallbacks(renderRunnable)
             renderPosted = false
         }
         val frameDirty = syncDynamicFrameToTexture()
-        val shouldRender = changed || hostGeometryDirty || renderAfterLayout || frameDirty
+        val shouldRender = changed || hostGeometryDirty || renderAfterLayout || forceRender || frameDirty
         renderAfterLayout = false
         if (shouldRender) textureView.requestRender()
     }
@@ -323,6 +347,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     override fun onDetachedFromWindow() {
         removeCallbacks(renderRunnable)
         renderPosted = false
+        forceRenderPosted = false
         uninstallDynamicSubscriptions()
         super.onDetachedFromWindow()
     }
@@ -333,6 +358,15 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     fun setGlassStyle(style: GlassBorderStyle): Boolean = textureView.setGlassStyle(style)
 
     fun requestRenderOnNextAnimationFrame() {
+        scheduleRenderOnNextAnimationFrame(force = true)
+    }
+
+    private fun requestDynamicRenderOnNextAnimationFrame() {
+        scheduleRenderOnNextAnimationFrame(force = false)
+    }
+
+    private fun scheduleRenderOnNextAnimationFrame(force: Boolean) {
+        if (force) forceRenderPosted = true
         if (geometryAwaitingLayout) {
             renderAfterLayout = true
             return
@@ -385,8 +419,8 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
     private fun installDynamicSubscriptions() {
         if (removeCoordinateListener != null || removeBackdropListener != null || removeTickerListener != null || removeDynamicListener != null) return
-        removeCoordinateListener = coordinateSource?.addPlacementListener(::requestRenderOnNextAnimationFrame)
-        removeBackdropListener = backdropOrigin?.addPlacementListener(::requestRenderOnNextAnimationFrame)
+        removeCoordinateListener = coordinateSource?.addPlacementListener(::requestDynamicRenderOnNextAnimationFrame)
+        removeBackdropListener = backdropOrigin?.addPlacementListener(::requestDynamicRenderOnNextAnimationFrame)
         removeTickerListener = frameTicker?.addFrameListener(::refreshDynamicFrameAtVsync)
         removeDynamicListener = dynamicState?.addFrameListener(::refreshDynamicFrameAtVsync)
     }
@@ -448,7 +482,6 @@ private class OpenGLGlassCardTextureView(
     private var latestPressCenterX = 0.5f
     private var latestPressCenterY = 0.5f
     private var latestStyle = GlassBorderStyle()
-    private var latestStyleSignature = latestStyle.openGlSignature()
 
     init {
         isOpaque = false
@@ -546,12 +579,10 @@ private class OpenGLGlassCardTextureView(
     }
 
     fun setGlassStyle(style: GlassBorderStyle): Boolean {
-        val nextSignature = style.openGlSignature()
-        val dirty = nextSignature != latestStyleSignature
+        if (latestStyle.hasSameLegacyOpenGlSignature(style)) return false
         latestStyle = style
-        latestStyleSignature = nextSignature
-        if (dirty) renderThread?.setGlassStyle(style)
-        return dirty
+        renderThread?.setGlassStyle(style)
+        return true
     }
 
     fun requestRender() {
@@ -668,17 +699,19 @@ private class CardGlassEglThread(
 
     fun requestRender() {
         synchronized(renderLock) {
-            if (running && !pendingRender) {
-                pendingRender = true
-                PerformanceRuntimeMetrics.recordOpenGlRenderRequest()
-            }
+            if (!running || pendingRender) return
+            pendingRender = true
+            PerformanceRuntimeMetrics.recordOpenGlRenderRequest()
             renderLock.notifyAll()
         }
     }
 
     fun resize(width: Int, height: Int) {
-        viewportWidth = max(width, 1)
-        viewportHeight = max(height, 1)
+        val safeWidth = max(width, 1)
+        val safeHeight = max(height, 1)
+        if (safeWidth == viewportWidth && safeHeight == viewportHeight) return
+        viewportWidth = safeWidth
+        viewportHeight = safeHeight
         PerformanceRuntimeMetrics.recordOpenGlSurface(viewportWidth, viewportHeight)
         sizeDirty = true
         requestRender()
@@ -814,31 +847,15 @@ private class CardGlassEglThread(
     }
 }
 
-private data class OpenGLGlassStyleSignature(
-    val visibility: Float,
-    val maxAlpha: Float,
-    val edgeBrightness: Float,
-    val pullScale: Float,
-    val edgePullDp: Float,
-    val compressionScale: Float,
-    val cornerScale: Float,
-    val sampleRadiusScale: Float,
-    val ringWidthDp: Float,
-    val debugLineAlpha: Float,
-    val darkScale: Float,
-)
-
-private fun GlassBorderStyle.openGlSignature(): OpenGLGlassStyleSignature =
-    OpenGLGlassStyleSignature(
-        visibility = openGlVisibility.coerceIn(0f, 20f),
-        maxAlpha = openGlMaxAlpha.coerceIn(0f, 1f),
-        edgeBrightness = edgeBrightness.coerceIn(-5f, 5f),
-        pullScale = openGlPullScale.coerceIn(-300f, 300f),
-        edgePullDp = edgePullDp.coerceIn(-600f, 600f),
-        compressionScale = openGlCompressionScale.coerceIn(-10f, 10f),
-        cornerScale = openGlCornerScale.coerceIn(0f, 200f),
-        sampleRadiusScale = openGlSampleRadiusScale.coerceIn(0f, 200f),
-        ringWidthDp = ringWidthDp.coerceIn(0f, 300f),
-        debugLineAlpha = openGlDebugLineAlpha.coerceIn(0f, 1f),
-        darkScale = openGlDarkScale.coerceIn(-10f, 10f),
-    )
+private fun GlassBorderStyle.hasSameLegacyOpenGlSignature(other: GlassBorderStyle): Boolean =
+    openGlVisibility.coerceIn(0f, 20f) == other.openGlVisibility.coerceIn(0f, 20f) &&
+        openGlMaxAlpha.coerceIn(0f, 1f) == other.openGlMaxAlpha.coerceIn(0f, 1f) &&
+        edgeBrightness.coerceIn(-5f, 5f) == other.edgeBrightness.coerceIn(-5f, 5f) &&
+        openGlPullScale.coerceIn(-300f, 300f) == other.openGlPullScale.coerceIn(-300f, 300f) &&
+        edgePullDp.coerceIn(-600f, 600f) == other.edgePullDp.coerceIn(-600f, 600f) &&
+        openGlCompressionScale.coerceIn(-10f, 10f) == other.openGlCompressionScale.coerceIn(-10f, 10f) &&
+        openGlCornerScale.coerceIn(0f, 200f) == other.openGlCornerScale.coerceIn(0f, 200f) &&
+        openGlSampleRadiusScale.coerceIn(0f, 200f) == other.openGlSampleRadiusScale.coerceIn(0f, 200f) &&
+        ringWidthDp.coerceIn(0f, 300f) == other.ringWidthDp.coerceIn(0f, 300f) &&
+        openGlDebugLineAlpha.coerceIn(0f, 1f) == other.openGlDebugLineAlpha.coerceIn(0f, 1f) &&
+        openGlDarkScale.coerceIn(-10f, 10f) == other.openGlDarkScale.coerceIn(-10f, 10f)
