@@ -64,9 +64,9 @@ internal object AgentOverlayLaunchPolicy {
         val appContext = context.applicationContext
         if (isManualEnabled() && canDrawOverlays(appContext)) {
             startService(appContext)
-        } else {
-            stopService(appContext)
         }
+        // 关闭动作只由 disableManually() 执行。空闲进度同步不再反复调用 stopService，
+        // 避免每次进程冷启动和状态更新都产生无意义的 Binder/ServiceManager 往返。
     }
 
     private fun startService(context: Context) {
