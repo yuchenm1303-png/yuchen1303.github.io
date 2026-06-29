@@ -5,6 +5,8 @@ import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.ui.InlineStickerDisplaySettings
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -41,5 +43,71 @@ class AiWorkerClientTest {
         assertEquals(50, InlineStickerDisplaySettings.DefaultIntensity)
         assertEquals(0, InlineStickerDisplaySettings.DefaultMaxPerReply)
         assertEquals(1, InlineStickerDisplaySettings.DefaultRepeatCount)
+    }
+
+    @Test
+    fun appAndUserCredentialsUseSeparateHeaders() {
+        val client = AiWorkerClient(
+            AiWorkerConfig(
+                clientId = "test-device",
+                clientAuthToken = "app-token",
+                userAccessTokenProvider = { "header.payload.signature" },
+            )
+        )
+
+        val headers = client.buildRequestHeadersForTest()
+
+        assertEquals("app-token", headers["X-AI-Ledger-Token"])
+        assertEquals("Bearer header.payload.signature", headers["Authorization"])
+        assertFalse(headers["Authorization"] == "Bearer app-token")
+    }
+
+    @Test
+    fun loggedOutRequestKeepsAppCredentialWithoutAuthorization() {
+        val client = AiWorkerClient(
+            AiWorkerConfig(
+                clientId = "test-device",
+                clientAuthToken = "app-token",
+                userAccessTokenProvider = { null },
+            )
+        )
+
+        val headers = client.buildRequestHeadersForTest()
+
+        assertEquals("app-token", headers["X-AI-Ledger-Token"])
+        assertNull(headers["Authorization"])
+    }
+
+    @Test
+    fun duplicateAppTokenIsNeverReusedAsUserBearer() {
+        val client = AiWorkerClient(
+            AiWorkerConfig(
+                clientId = "test-device",
+                clientAuthToken = "same-token",
+                userAccessTokenProvider = { "same-token" },
+            )
+        )
+
+        val headers = client.buildRequestHeadersForTest()
+
+        assertEquals("same-token", headers["X-AI-Ledger-Token"])
+        assertNull(headers["Authorization"])
+    }
+
+    @Test
+    fun streamingRequestKeepsIdentityAndSseHeader() {
+        val client = AiWorkerClient(
+            AiWorkerConfig(
+                clientId = "test-device",
+                clientAuthToken = "app-token",
+                userAccessTokenProvider = { "header.payload.signature" },
+            )
+        )
+
+        val headers = client.buildRequestHeadersForTest(stream = true)
+
+        assertEquals("sse", headers["X-AI-Ledger-Stream"])
+        assertEquals("app-token", headers["X-AI-Ledger-Token"])
+        assertEquals("Bearer header.payload.signature", headers["Authorization"])
     }
 }
