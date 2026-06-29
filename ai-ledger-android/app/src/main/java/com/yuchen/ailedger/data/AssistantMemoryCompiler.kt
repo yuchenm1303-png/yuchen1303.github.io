@@ -32,7 +32,8 @@ data class AssistantMemorySource(
  * 2. 不在本地做关键词、类别、作用域、冲突或相关性判断；
  * 3. cloudReady 只描述管理页库存是否同步完成，不能替云端账号设置做决定；
  * 4. 只有已从云端完整加载且明确关闭记忆时，本地才发送关闭状态；
- * 5. 账号设置暂时未加载或记忆列表同步失败时，继续把决策交给后端。
+ * 5. 账号/JWT 状态暂时未加载时仍发送 auto，由后端认证结果决定是否可用；
+ * 6. 这样匿名、令牌缺失、设置关闭和检索失败都能返回可诊断的真实状态。
  */
 data class AssistantMemoryCompilation(
     val schema: String = "ai_ledger_cloud_memory_request_v3",
@@ -91,7 +92,7 @@ object AssistantMemoryRuntime {
 
     /**
      * 本地请求契约不能冒充云端命中结果。
-     * 在云端真实诊断接入前，设置页保持“尚无真实命中结果”。
+     * 设置页逐轮诊断只展示后端真实响应，因此这里不写入伪命中记录。
      */
     fun record(@Suppress("UNUSED_PARAMETER") compilation: AssistantMemoryCompilation) {
         mutableState.value = AssistantMemoryRuntimeState(
@@ -108,7 +109,7 @@ object AssistantMemoryCompiler {
      * 2. 不构建候选、快照或 selectedMemoryIds；
      * 3. 不按关键词、类别、作用域或正文判断；
      * 4. 不调用第二个模型；
-     * 5. 不把本地库存同步状态当作云端记忆开关。
+     * 5. 不把本地库存同步状态或临时未知身份当作云端记忆开关。
      *
      * 账号权限、真实开关、召回、冲突处理和重排全部由云端 Memory Service 负责。
      */
@@ -124,7 +125,10 @@ object AssistantMemoryCompiler {
         // 只有账号已知、完整云端状态已加载且 memoryEnabled=false，才视为用户明确关闭。
         val locallyConfirmedDisabled =
             accountKnown && memoryState.cloudReady && !memoryState.memoryEnabled
-        val memoryRequested = requestHasText && accountKnown && !locallyConfirmedDisabled
+
+        // 身份未知不等于匿名：请求头中的 JWT 与管理页状态可能尚未同步。
+        // 普通文本请求统一发送 auto，由后端认证与账号设置返回最终状态及诊断。
+        val memoryRequested = requestHasText && !locallyConfirmedDisabled
         val instructions = customInstructions
             ?.trim()
             ?.takeIf { requestHasText && it.isNotBlank() }
@@ -138,8 +142,8 @@ object AssistantMemoryCompiler {
             suppressedConflictCount = 0,
             selectionStatus = when {
                 !requestHasText -> "empty"
-                !accountKnown -> "disabled_anonymous"
                 locallyConfirmedDisabled -> "disabled_by_user"
+                !accountKnown -> "backend_identity_pending"
                 else -> "backend_cloud_requested"
             },
             selectionOwner = "backend_cloud_v4",
