@@ -76,7 +76,8 @@ data class CloudAgentPlan(
 
         fun fromJson(root: JSONObject?): CloudAgentPlan? {
             val parsedPrimary = CloudAgentStep.fromJson(root) ?: return null
-            val primary = repairMisclassifiedMobileUseTerminate(root, parsedPrimary)
+            val visuallyAuthoritativePrimary = restoreGuiPlusVisualTap(root, parsedPrimary)
+            val primary = repairMisclassifiedMobileUseTerminate(root, visuallyAuthoritativePrimary)
             val parsedSteps = extractBatchSteps(root)
                 .filterNot { it.type == "need_user_help" || it.type == "finish" }
                 .distinctBy { it.batchKey() }
@@ -88,6 +89,125 @@ data class CloudAgentPlan(
                 stopConditions = extractStopConditions(root),
                 rawModelOutput = extractRawModelOutput(root),
                 taskContract = VisualTaskContract.fromJson(root),
+            )
+        }
+
+        /**
+         * GUI Plus is the sole visual grounding authority. Older backend builds may run a second
+         * verifier and replace the original tap with wait/reobserve. When the response still carries
+         * the original compact GUI Plus action, restore that exact observation-bound coordinate.
+         *
+         * This is protocol normalization, not local visual inference: Android never invents, moves or
+         * re-labels the point. Missing binding or malformed coordinates remain non-executable.
+         */
+        private fun restoreGuiPlusVisualTap(
+            root: JSONObject?,
+            step: CloudAgentStep,
+        ): CloudAgentStep {
+            if (root == null || step.type != "wait") return step
+            val rejectedType = step.argString("rejectedActionType").orEmpty()
+                .trim().lowercase().replace('-', '_')
+            val verifierReplacement = rejectedType == "tap_xy" ||
+                step.reason.orEmpty().contains("grounding verifier did not confirm", ignoreCase = true)
+            if (!verifierReplacement) return step
+
+            val compact = extractGuiCompactAction(root) ?: return step
+            val compactType = compact.firstNonBlank("a", "action", "type")
+                .orEmpty().trim().lowercase().replace('-', '_')
+            if (compactType !in setOf("tap_xy", "tap", "click", "press", "point")) return step
+
+            val x = compact.optNullableFloat("x")?.takeIf { it.isFinite() && it in 0f..1f }
+            val y = compact.optNullableFloat("y")?.takeIf { it.isFinite() && it in 0f..1f }
+            val responseSessionId = step.argString("responseSessionId").orEmpty().trim()
+            val responseObservationId = step.argString("responseObservationId").orEmpty().trim()
+            if (x == null || y == null || responseSessionId.isBlank() || responseObservationId.isBlank()) {
+                VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                    type = "gui_plus_visual_tap_restore_rejected",
+                    details = JSONObject().apply {
+                        put("reason", "missing_coordinate_or_response_binding")
+                        put("hasX", x != null)
+                        put("hasY", y != null)
+                        put("hasResponseSessionId", responseSessionId.isNotBlank())
+                        put("hasResponseObservationId", responseObservationId.isNotBlank())
+                        put("secondaryVerifierVerdict", step.argString("guiVerifierVerdict").orEmpty())
+                    },
+                )
+                return step
+            }
+
+            val args = step.toolArgs.deepCopy()
+            args.put("responseSessionId", responseSessionId)
+            args.put("responseObservationId", responseObservationId)
+            args.put("visualDecisionOwner", "gui_plus")
+            args.put("visualCoordinateAuthority", "gui_plus_original_action")
+            args.put("secondaryTapVerifierAdvisoryOnly", true)
+            args.put("restoredRejectedActionType", "tap_xy")
+
+            val intent = compact.optJSONObject("actionIntent")
+            val semanticContainers = listOfNotNull(intent, compact)
+            val semanticFieldNames = setOf(
+                "purpose", "milestoneId", "milestone", "expectedEvidence", "successEvidence",
+                "failureEvidence", "wrongEvidence", "exploratory", "reversible", "confidence", "hypothesisId",
+            )
+            val hasSemanticContract = semanticContainers.any { container -> semanticFieldNames.any(container::has) }
+            val expectedEvidence = semanticContainers
+                .flatMap { it.stringList("expectedEvidence", "successEvidence", "expected") }
+                .distinct().take(16)
+            val failureEvidence = semanticContainers
+                .flatMap { it.stringList("failureEvidence", "wrongEvidence", "negativeEvidence") }
+                .distinct().take(16)
+            val riskLevel = compact.firstNonBlank("r", "risk", "riskLevel")
+                ?.lowercase()?.replace('-', '_')
+                ?: step.riskLevel
+            val requiresConfirmation = compact.optFlexibleBoolean("q")
+                ?: compact.optFlexibleBoolean("confirm")
+                ?: compact.optFlexibleBoolean("requiresConfirmation")
+                ?: step.requiresConfirmation
+
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                type = "gui_plus_visual_tap_restored",
+                details = JSONObject().apply {
+                    put("x", x)
+                    put("y", y)
+                    put("targetText", compact.firstNonBlank("t", "targetText", "target").orEmpty())
+                    put("responseSessionId", responseSessionId)
+                    put("responseObservationId", responseObservationId)
+                    put("secondaryVerifierVerdict", step.argString("guiVerifierVerdict").orEmpty())
+                    put("secondaryVerifierConfidence", step.argFloat("guiVerifierConfidence") ?: JSONObject.NULL)
+                },
+            )
+            return step.copy(
+                type = "tap_xy",
+                targetNodeId = null,
+                targetText = compact.firstNonBlank("t", "targetText", "target") ?: step.targetText,
+                reason = compact.firstNonBlank("e", "reason", "rationale") ?: step.reason,
+                riskLevel = riskLevel,
+                requiresConfirmation = requiresConfirmation,
+                x = x,
+                y = y,
+                durationMs = null,
+                toolArgs = args,
+                purpose = semanticContainers.firstNotNullOfOrNull {
+                    it.firstNonBlank("purpose", "subgoal", "actionPurpose")
+                } ?: step.purpose,
+                milestoneId = semanticContainers.firstNotNullOfOrNull {
+                    it.firstNonBlank("milestoneId", "milestone", "currentMilestoneId")
+                } ?: step.milestoneId,
+                expectedEvidence = expectedEvidence.ifEmpty { step.expectedEvidence },
+                failureEvidence = failureEvidence.ifEmpty { step.failureEvidence },
+                exploratory = semanticContainers.firstNotNullOfOrNull {
+                    it.optFlexibleBooleanOrNull("exploratory")
+                } ?: step.exploratory,
+                reversible = semanticContainers.firstNotNullOfOrNull {
+                    it.optFlexibleBooleanOrNull("reversible")
+                } ?: step.reversible,
+                confidence = semanticContainers.firstNotNullOfOrNull {
+                    it.optNullableFloat("confidence")
+                } ?: compact.optNullableFloat("c") ?: step.confidence,
+                hypothesisId = semanticContainers.firstNotNullOfOrNull {
+                    it.firstNonBlank("hypothesisId", "hypothesis", "intentId")
+                } ?: step.hypothesisId,
+                legacyIntent = if (hasSemanticContract) false else step.legacyIntent,
             )
         }
 
@@ -119,14 +239,7 @@ data class CloudAgentPlan(
                 )
             }
 
-            val args = JSONObject()
-            step.toolArgs?.let { source ->
-                val keys = source.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    args.put(key, source.opt(key))
-                }
-            }
+            val args = step.toolArgs.deepCopy()
             val candidateId = completionCandidateId(sessionId, observationId)
             args.put("responseSessionId", sessionId)
             args.put("responseObservationId", observationId)
@@ -156,14 +269,18 @@ data class CloudAgentPlan(
             )
         }
 
-        private fun extractGuiCompactRaw(root: JSONObject): String = listOfNotNull(
+        private fun extractGuiCompactAction(root: JSONObject): JSONObject? = listOfNotNull(
             root.optJSONObject("debug")?.optJSONObject("guiCompactAction"),
             root.optJSONObject("guiCompactAction"),
             root.optJSONObject("data")?.optJSONObject("debug")?.optJSONObject("guiCompactAction"),
             root.optJSONObject("result")?.optJSONObject("debug")?.optJSONObject("guiCompactAction"),
-        ).firstNotNullOfOrNull { it.firstNonBlank("raw", "rawModelOutput", "guiPlusRawOutput") }
-            ?.take(6000)
-            .orEmpty()
+        ).firstOrNull()
+
+        private fun extractGuiCompactRaw(root: JSONObject): String =
+            extractGuiCompactAction(root)
+                ?.firstNonBlank("raw", "rawModelOutput", "guiPlusRawOutput")
+                ?.take(6000)
+                .orEmpty()
 
         private fun String.hasOfficialMobileUseTerminateCall(): Boolean =
             MOBILE_USE_NAME_PATTERN.containsMatchIn(this) && TERMINATE_ACTION_PATTERN.containsMatchIn(this)
@@ -487,6 +604,12 @@ private fun JSONObject.optStringSet(name: String): Set<String> {
         else -> emptySet()
     }
 }
+
+private fun JSONObject.deepCopy(): JSONObject =
+    runCatching { JSONObject(toString()) }.getOrDefault(JSONObject())
+
+private fun JSONObject?.deepCopy(): JSONObject =
+    this?.let { runCatching { JSONObject(it.toString()) }.getOrDefault(JSONObject()) } ?: JSONObject()
 
 private fun JSONObject.mergedToolArgs(): JSONObject {
     val source = optJSONObject("args") ?: optJSONObject("arguments") ?: JSONObject()
