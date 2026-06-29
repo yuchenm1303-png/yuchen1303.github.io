@@ -49,7 +49,7 @@ internal object VisualUserTaskUpdateRuntime {
         sourceReason: String,
         prompt: String,
     ): VisualUserTaskUpdate? {
-        val currentTaskId = AgentRuntimeController.currentTaskId()
+        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
         if (currentTaskId <= 0L) return null
         val classified = VisualUserTaskUpdateClassifier.classify(
             rawReply = rawReply.orEmpty(),
@@ -67,10 +67,10 @@ internal object VisualUserTaskUpdateRuntime {
     }
 
     fun updatesAfter(lastAppliedRevision: Int): List<VisualUserTaskUpdate> {
-        val currentTaskId = AgentRuntimeController.currentTaskId()
+        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
         if (currentTaskId <= 0L) return emptyList()
         return synchronized(lock) {
-            alignTaskLocked(currentTaskId)
+            if (taskId != currentTaskId) return@synchronized emptyList()
             updates.filter { it.revision > lastAppliedRevision }
         }
     }
