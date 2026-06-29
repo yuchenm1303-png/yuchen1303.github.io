@@ -724,6 +724,11 @@ private fun AiWorkerClient.postVisualAgentStep(
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", VISUAL_AGENT_SESSION_PROTOCOL)
         setRequestProperty("X-Agent-Session-Id", agentSessionId.take(120))
+        AiWorkerRequestIdentity.applyTo(
+            connection = this,
+            appClientToken = AiWorkerRequestIdentity.defaultAppClientToken(),
+            mode = AiWorkerIdentityMode.AppOnly,
+        )
     }
     return try {
         val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
