@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -85,6 +86,9 @@ private val MirrorPanelFill = Color.White.copy(alpha = 0.035f)
 private val MirrorPanelBorder = Color.White.copy(alpha = 0.085f)
 private val MirrorPillShape = RoundedCornerShape(999.dp)
 private val MirrorOrderShape = RoundedCornerShape(15.dp)
+private val MirrorCrosshairShape = RoundedCornerShape(10.dp)
+private val MirrorCrosshairFill = Color(0xEE0B1025)
+private val MirrorCrosshairBorder = MirrorAqua.copy(alpha = 0.28f)
 private val MirrorTimePattern = Regex("""(\d{1,2}):(\d{2})(?::(\d{2}))?""")
 private val MirrorDatePattern = Regex("""(\d{4}-\d{2}-\d{2})""")
 
@@ -376,97 +380,218 @@ private fun MirrorCaption(items: List<String>) {
 @Composable
 private fun MirrorTimeShareChart(stock: StockDetailUiState, isFiveDay: Boolean, modifier: Modifier) {
     val positioned = remember(stock.minutePoints, isFiveDay) { mirrorPositionMinutePoints(stock.minutePoints, isFiveDay) }
-    Canvas(modifier) {
-        val width = size.width
-        val height = size.height
-        val volumeHeight = height * 0.24f
-        val gap = 8.dp.toPx()
-        val chartHeight = (height - volumeHeight - gap).coerceAtLeast(1f)
-        val volumeTop = chartHeight + gap
-        mirrorDrawGrid(this, width, chartHeight, if (isFiveDay) 4 else 2)
-        if (isFiveDay) {
-            repeat(4) { index ->
-                val x = width * (index + 1) / 5f
-                drawLine(Color.White.copy(alpha = 0.10f), Offset(x, 0f), Offset(x, height), 1.dp.toPx())
+    val minutePoints = positioned.map { it.point }
+    val previousClose = stock.quote.previousClose.takeIf { it > 0f }
+        ?: positioned.firstOrNull()?.point?.price
+        ?: 0f
+    var selectedIndex by remember(stock.quote.code, isFiveDay) { mutableIntStateOf(-1) }
+    var chartWidthPx by remember(stock.quote.code, isFiveDay) { mutableFloatStateOf(1f) }
+    val selected = positioned.getOrNull(selectedIndex)
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { chartWidthPx = it.width.toFloat().coerceAtLeast(1f) }
+            .pointerInput(positioned, chartWidthPx) {
+                detectTapGestures(
+                    onTap = { position ->
+                        val index = mirrorNearestMinuteIndex(positioned, position.x, chartWidthPx)
+                        selectedIndex = if (selectedIndex == index) -1 else index
+                    },
+                    onDoubleTap = { selectedIndex = -1 }
+                )
             }
-        } else {
-            val openX = width * 0.14f
-            val closeX = width * 0.95f
-            val lunchX = width * (0.14f + (0.95f - 0.14f) * 0.5f)
-            drawRect(Color.White.copy(alpha = 0.045f), topLeft = Offset.Zero, size = Size(openX, chartHeight))
-            drawRect(MirrorAqua.copy(alpha = 0.045f), topLeft = Offset(closeX, 0f), size = Size(width - closeX, chartHeight))
-            listOf(openX, lunchX, closeX).forEach { x ->
-                drawLine(Color.White.copy(alpha = 0.13f), Offset(x, 0f), Offset(x, height), 1.dp.toPx())
+            .pointerInput(positioned, chartWidthPx) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { position ->
+                        selectedIndex = mirrorNearestMinuteIndex(positioned, position.x, chartWidthPx)
+                    },
+                    onDrag = { change, _ ->
+                        selectedIndex = mirrorNearestMinuteIndex(positioned, change.position.x, chartWidthPx)
+                    }
+                )
+            }
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val width = size.width
+            val height = size.height
+            val volumeHeight = height * 0.24f
+            val gap = 8.dp.toPx()
+            val chartHeight = (height - volumeHeight - gap).coerceAtLeast(1f)
+            val volumeTop = chartHeight + gap
+            mirrorDrawGrid(this, width, chartHeight, if (isFiveDay) 4 else 2)
+            if (isFiveDay) {
+                repeat(4) { index ->
+                    val x = width * (index + 1) / 5f
+                    drawLine(Color.White.copy(alpha = 0.10f), Offset(x, 0f), Offset(x, height), 1.dp.toPx())
+                }
+            } else {
+                val openX = width * 0.14f
+                val closeX = width * 0.95f
+                val lunchX = width * (0.14f + (0.95f - 0.14f) * 0.5f)
+                drawRect(Color.White.copy(alpha = 0.045f), topLeft = Offset.Zero, size = Size(openX, chartHeight))
+                drawRect(MirrorAqua.copy(alpha = 0.045f), topLeft = Offset(closeX, 0f), size = Size(width - closeX, chartHeight))
+                listOf(openX, lunchX, closeX).forEach { x ->
+                    drawLine(Color.White.copy(alpha = 0.13f), Offset(x, 0f), Offset(x, height), 1.dp.toPx())
+                }
+            }
+            drawRect(color = Color.White.copy(alpha = 0.13f), topLeft = Offset(0f, volumeTop), size = Size(width, volumeHeight), style = Stroke(width = 1.dp.toPx()))
+            if (positioned.size < 2) {
+                mirrorDrawText(if (isFiveDay) "暂无真实五日分时数据" else "暂无真实分时数据", width / 2f, chartHeight / 2f, 12.sp.toPx(), Color.White.copy(alpha = 0.42f), Paint.Align.CENTER)
+                return@Canvas
+            }
+            val values = buildList {
+                minutePoints.forEach { point ->
+                    add(point.price)
+                    if (mirrorPhase(point) == "continuous") add(point.average)
+                }
+            }
+            val rawMin = values.minOrNull() ?: return@Canvas
+            val rawMax = values.maxOrNull() ?: return@Canvas
+            val minValue: Float
+            val maxValue: Float
+            if (isFiveDay) {
+                val padding = max(max((rawMax - rawMin) * 0.08f, rawMax * 0.002f), 0.01f)
+                minValue = rawMin - padding
+                maxValue = rawMax + padding
+            } else {
+                val limitRatio = if (stock.quote.name.contains("ST", true)) 0.05f else 0.10f
+                val observed = values.maxOf { abs(it - previousClose) }
+                val half = max(max(previousClose * limitRatio, observed), 0.01f)
+                minValue = previousClose - half
+                maxValue = previousClose + half
+            }
+            val range = (maxValue - minValue).coerceAtLeast(0.0001f)
+            fun xFor(item: MirrorPositionedMinute) = item.xFraction * width
+            fun yFor(value: Float) = chartHeight - (value - minValue) / range * chartHeight
+            if (!isFiveDay) {
+                mirrorDashedLine(Offset(0f, yFor(previousClose)), Offset(width, yFor(previousClose)), Color.White.copy(alpha = 0.22f), 5.dp.toPx(), 5.dp.toPx())
+                mirrorNumber(stock.quote.price)?.let { latest ->
+                    mirrorDashedLine(Offset(width * 0.14f, yFor(latest)), Offset(width, yFor(latest)), MirrorYellow.copy(alpha = 0.55f), 3.dp.toPx(), 4.dp.toPx())
+                }
+            }
+            val maxVolume = minutePoints.maxOfOrNull { it.volume.takeIf { value -> value > 0f } ?: it.volumeRatio }?.coerceAtLeast(1f) ?: 1f
+            positioned.forEach { item ->
+                val volume = item.point.volume.takeIf { it > 0f } ?: item.point.volumeRatio
+                val top = height - volume / maxVolume * volumeHeight * 0.88f
+                drawLine(
+                    if (item.point.price >= previousClose) MirrorRise.copy(alpha = 0.42f) else MirrorFall.copy(alpha = 0.42f),
+                    Offset(xFor(item), height),
+                    Offset(xFor(item), max(volumeTop, top)),
+                    1.dp.toPx()
+                )
+            }
+            if (!isFiveDay) mirrorDrawAuctionVolumes(this, positioned, width, height, volumeTop, volumeHeight)
+            mirrorDrawMinutePath(
+                points = positioned,
+                xFor = ::xFor,
+                yFor = { yFor(it.average) },
+                color = MirrorYellow.copy(alpha = 0.90f),
+                strokeWidth = 1.0.dp.toPx(),
+                include = { mirrorPhase(it) == "continuous" }
+            )
+            mirrorDrawMinutePath(positioned, ::xFor, { yFor(it.price) }, if (stock.quote.isRising) MirrorRise else MirrorFall, 1.5.dp.toPx())
+            if (!isFiveDay) {
+                val limitRatio = if (stock.quote.name.contains("ST", true)) 0.05f else 0.10f
+                mirrorDrawText(mirrorPrice(previousClose * (1f + limitRatio)), width * 0.14f + 5.dp.toPx(), 4.dp.toPx(), 8.sp.toPx(), MirrorRise)
+                mirrorDrawText(mirrorPrice(previousClose), width * 0.14f + 5.dp.toPx(), yFor(previousClose) - 10.dp.toPx(), 8.sp.toPx(), Color.White.copy(alpha = 0.54f))
+                mirrorDrawText(mirrorPrice(previousClose * (1f - limitRatio)), width * 0.14f + 5.dp.toPx(), chartHeight - 12.dp.toPx(), 8.sp.toPx(), MirrorFall)
+                mirrorDrawText(String.format(Locale.US, "+%.2f%%", limitRatio * 100f), width - 4.dp.toPx(), 4.dp.toPx(), 8.sp.toPx(), MirrorRise, Paint.Align.RIGHT)
+                mirrorDrawText("0.00%", width - 4.dp.toPx(), yFor(previousClose) - 10.dp.toPx(), 8.sp.toPx(), Color.White.copy(alpha = 0.54f), Paint.Align.RIGHT)
+                mirrorDrawText(String.format(Locale.US, "-%.2f%%", limitRatio * 100f), width - 4.dp.toPx(), chartHeight - 12.dp.toPx(), 8.sp.toPx(), MirrorFall, Paint.Align.RIGHT)
+            }
+            selected?.let { item ->
+                val x = xFor(item)
+                val y = yFor(item.point.price).coerceIn(0f, chartHeight)
+                val lineColor = MirrorAqua.copy(alpha = 0.72f)
+                drawLine(lineColor, Offset(x, 0f), Offset(x, height), 0.8.dp.toPx())
+                drawLine(lineColor, Offset(0f, y), Offset(width, y), 0.8.dp.toPx())
+                drawCircle(Color.White.copy(alpha = 0.95f), 2.2.dp.toPx(), Offset(x, y))
+                drawCircle(MirrorAqua, 1.2.dp.toPx(), Offset(x, y))
+
+                val labelHeight = 16.dp.toPx()
+                val priceWidth = 46.dp.toPx()
+                val priceTop = (y - labelHeight / 2f).coerceIn(0f, chartHeight - labelHeight)
+                drawRect(MirrorCrosshairFill, Offset(width - priceWidth, priceTop), Size(priceWidth, labelHeight))
+                mirrorDrawText(mirrorPrice(item.point.price), width - 4.dp.toPx(), priceTop + 1.dp.toPx(), 7.4.sp.toPx(), Color.White, Paint.Align.RIGHT)
+
+                val timeText = if (isFiveDay && item.parts.date.isNotBlank()) "${item.parts.date.takeLast(5)} ${item.parts.label}" else item.parts.label
+                val timeWidth = if (isFiveDay) 72.dp.toPx() else 46.dp.toPx()
+                val timeLeft = (x - timeWidth / 2f).coerceIn(0f, width - timeWidth)
+                val timeTop = height - labelHeight
+                drawRect(MirrorCrosshairFill, Offset(timeLeft, timeTop), Size(timeWidth, labelHeight))
+                mirrorDrawText(timeText, timeLeft + timeWidth / 2f, timeTop + 1.dp.toPx(), 7.1.sp.toPx(), Color.White, Paint.Align.CENTER)
             }
         }
-        drawRect(color = Color.White.copy(alpha = 0.13f), topLeft = Offset(0f, volumeTop), size = Size(width, volumeHeight), style = Stroke(width = 1.dp.toPx()))
-        if (positioned.size < 2) {
-            mirrorDrawText(if (isFiveDay) "暂无真实五日分时数据" else "暂无真实分时数据", width / 2f, chartHeight / 2f, 12.sp.toPx(), Color.White.copy(alpha = 0.42f), Paint.Align.CENTER)
-            return@Canvas
-        }
-        val points = positioned.map { it.point }
-        val previousClose = stock.quote.previousClose.takeIf { it > 0f } ?: points.first().price
-        val values = buildList {
-            points.forEach { point ->
-                add(point.price)
-                if (mirrorPhase(point) == "continuous") add(point.average)
-            }
-        }
-        val rawMin = values.minOrNull() ?: return@Canvas
-        val rawMax = values.maxOrNull() ?: return@Canvas
-        val minValue: Float
-        val maxValue: Float
-        if (isFiveDay) {
-            val padding = max(max((rawMax - rawMin) * 0.08f, rawMax * 0.002f), 0.01f)
-            minValue = rawMin - padding
-            maxValue = rawMax + padding
-        } else {
-            val limitRatio = if (stock.quote.name.contains("ST", true)) 0.05f else 0.10f
-            val observed = values.maxOf { abs(it - previousClose) }
-            val half = max(max(previousClose * limitRatio, observed), 0.01f)
-            minValue = previousClose - half
-            maxValue = previousClose + half
-        }
-        val range = (maxValue - minValue).coerceAtLeast(0.0001f)
-        fun xFor(item: MirrorPositionedMinute) = item.xFraction * width
-        fun yFor(value: Float) = chartHeight - (value - minValue) / range * chartHeight
-        if (!isFiveDay) {
-            mirrorDashedLine(Offset(0f, yFor(previousClose)), Offset(width, yFor(previousClose)), Color.White.copy(alpha = 0.22f), 5.dp.toPx(), 5.dp.toPx())
-            mirrorNumber(stock.quote.price)?.let { latest ->
-                mirrorDashedLine(Offset(width * 0.14f, yFor(latest)), Offset(width, yFor(latest)), MirrorYellow.copy(alpha = 0.55f), 3.dp.toPx(), 4.dp.toPx())
-            }
-        }
-        val maxVolume = points.maxOfOrNull { it.volume.takeIf { value -> value > 0f } ?: it.volumeRatio }?.coerceAtLeast(1f) ?: 1f
-        positioned.forEach { item ->
-            val volume = item.point.volume.takeIf { it > 0f } ?: item.point.volumeRatio
-            val top = height - volume / maxVolume * volumeHeight * 0.88f
-            drawLine(
-                if (item.point.price >= previousClose) MirrorRise.copy(alpha = 0.42f) else MirrorFall.copy(alpha = 0.42f),
-                Offset(xFor(item), height),
-                Offset(xFor(item), max(volumeTop, top)),
-                1.dp.toPx()
+
+        selected?.let { item ->
+            MirrorMinuteCrosshairCard(
+                item = item,
+                previousClose = previousClose,
+                modifier = Modifier
+                    .align(if (item.xFraction > 0.56f) Alignment.TopStart else Alignment.TopEnd)
+                    .padding(6.dp)
             )
         }
-        if (!isFiveDay) mirrorDrawAuctionVolumes(this, positioned, width, height, volumeTop, volumeHeight)
-        mirrorDrawMinutePath(
-            points = positioned,
-            xFor = ::xFor,
-            yFor = { yFor(it.average) },
-            color = MirrorYellow.copy(alpha = 0.90f),
-            strokeWidth = 1.0.dp.toPx(),
-            include = { mirrorPhase(it) == "continuous" }
+    }
+}
+
+@Composable
+private fun MirrorMinuteCrosshairCard(
+    item: MirrorPositionedMinute,
+    previousClose: Float,
+    modifier: Modifier
+) {
+    val point = item.point
+    val phase = mirrorPhase(point)
+    val tone = when {
+        point.price > previousClose -> MirrorRise
+        point.price < previousClose -> MirrorFall
+        else -> Color.White
+    }
+    Column(
+        modifier = modifier
+            .width(138.dp)
+            .background(MirrorCrosshairFill, MirrorCrosshairShape)
+            .border(1.dp, MirrorCrosshairBorder, MirrorCrosshairShape)
+            .padding(horizontal = 7.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            text = listOf(item.parts.date.takeIf { it.isNotBlank() }, item.parts.label).filterNotNull().joinToString(" "),
+            color = MirrorAqua,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1
         )
-        mirrorDrawMinutePath(positioned, ::xFor, { yFor(it.price) }, if (stock.quote.isRising) MirrorRise else MirrorFall, 1.5.dp.toPx())
-        if (!isFiveDay) {
-            val limitRatio = if (stock.quote.name.contains("ST", true)) 0.05f else 0.10f
-            mirrorDrawText(mirrorPrice(previousClose * (1f + limitRatio)), width * 0.14f + 5.dp.toPx(), 4.dp.toPx(), 8.sp.toPx(), MirrorRise)
-            mirrorDrawText(mirrorPrice(previousClose), width * 0.14f + 5.dp.toPx(), yFor(previousClose) - 10.dp.toPx(), 8.sp.toPx(), Color.White.copy(alpha = 0.54f))
-            mirrorDrawText(mirrorPrice(previousClose * (1f - limitRatio)), width * 0.14f + 5.dp.toPx(), chartHeight - 12.dp.toPx(), 8.sp.toPx(), MirrorFall)
-            mirrorDrawText(String.format(Locale.US, "+%.2f%%", limitRatio * 100f), width - 4.dp.toPx(), 4.dp.toPx(), 8.sp.toPx(), MirrorRise, Paint.Align.RIGHT)
-            mirrorDrawText("0.00%", width - 4.dp.toPx(), yFor(previousClose) - 10.dp.toPx(), 8.sp.toPx(), Color.White.copy(alpha = 0.54f), Paint.Align.RIGHT)
-            mirrorDrawText(String.format(Locale.US, "-%.2f%%", limitRatio * 100f), width - 4.dp.toPx(), chartHeight - 12.dp.toPx(), 8.sp.toPx(), MirrorFall, Paint.Align.RIGHT)
+        Text("价格 ${mirrorPrice(point.price)}", color = tone, fontSize = 8.sp, fontWeight = FontWeight.Black)
+        Text("均价 ${mirrorPrice(point.average)}", color = MirrorYellow, fontSize = 7.5.sp, fontWeight = FontWeight.Bold)
+        Text("成交量 ${mirrorFormatVolume(point.volume)}", color = Color.White.copy(alpha = 0.78f), fontSize = 7.2.sp)
+        Text("量比 ${mirrorPrice(point.volumeRatio)}", color = MirrorBlue, fontSize = 7.2.sp)
+        if (phase != "continuous") {
+            Text(
+                text = if (phase == "open") "开盘集合竞价" else "收盘集合竞价",
+                color = MirrorPink,
+                fontSize = 7.2.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text("匹配 ${mirrorFormatVolume(point.matchedVolume)}", color = Color.White.copy(alpha = 0.72f), fontSize = 7.sp)
+            Text("未匹配 ${mirrorFormatVolume(point.unmatchedVolume)}", color = Color.White.copy(alpha = 0.72f), fontSize = 7.sp)
         }
     }
+}
+
+private fun mirrorNearestMinuteIndex(points: List<MirrorPositionedMinute>, x: Float, width: Float): Int {
+    if (points.isEmpty()) return -1
+    val target = (x / width.coerceAtLeast(1f)).coerceIn(0f, 1f)
+    var low = 0
+    var high = points.lastIndex
+    while (low <= high) {
+        val middle = (low + high) ushr 1
+        if (points[middle].xFraction < target) low = middle + 1 else high = middle - 1
+    }
+    val right = low.coerceIn(0, points.lastIndex)
+    val left = (right - 1).coerceIn(0, points.lastIndex)
+    return if (abs(points[left].xFraction - target) <= abs(points[right].xFraction - target)) left else right
 }
 
 private fun mirrorPositionMinutePoints(points: List<StockMinutePoint>, isFiveDay: Boolean): List<MirrorPositionedMinute> {
@@ -765,23 +890,30 @@ private fun MirrorKLineTerminal(
     val start = (end - count).coerceAtLeast(0)
     val window = MirrorKWindow(start, end, if (candles.isEmpty()) emptyList() else candles.subList(start, end))
     val selected = candles.getOrNull(selectedIndex)
+    val selectedVisible = selectedIndex in start until end
     val ma20 = remember(candles) { mirrorMovingAverage(candles.map { it.close }, 20) }
     val ma30 = remember(candles) { mirrorMovingAverage(candles.map { it.close }, 30) }
     val vma5 = remember(candles) { mirrorMovingAverage(candles.map { it.volume }, 5) }
     val vma10 = remember(candles) { mirrorMovingAverage(candles.map { it.volume }, 10) }
     val snapshotLabel = mirrorIndicatorLabel(indicator)
+
+    fun globalIndexForX(x: Float): Int? {
+        if (count <= 0) return null
+        val local = ((x / widthPx.coerceAtLeast(1f)) * count).toInt().coerceIn(0, count - 1)
+        return start + local
+    }
+
     Column(Modifier.fillMaxWidth().weight(1f)) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
                 .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-                .pointerInput(ui.stock.quote.code, ui.selectedTab, start, count) {
+                .pointerInput(ui.stock.quote.code, ui.selectedTab, start, count, widthPx) {
                     detectTapGestures(
                         onTap = { offset ->
-                            if (count > 0) {
-                                val local = ((offset.x / widthPx) * count).toInt().coerceIn(0, count - 1)
-                                selectedIndex = start + local
+                            globalIndexForX(offset.x)?.let { index ->
+                                selectedIndex = if (selectedIndex == index) -1 else index
                             }
                         },
                         onDoubleTap = {
@@ -789,6 +921,12 @@ private fun MirrorKLineTerminal(
                             pan = 0f
                             selectedIndex = -1
                         }
+                    )
+                }
+                .pointerInput(ui.stock.quote.code, ui.selectedTab, start, count, widthPx) {
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { offset -> globalIndexForX(offset.x)?.let { selectedIndex = it } },
+                        onDrag = { change, _ -> globalIndexForX(change.position.x)?.let { selectedIndex = it } }
                     )
                 }
                 .transformable(state = transformState, lockRotationOnZoomPan = true)
@@ -802,9 +940,9 @@ private fun MirrorKLineTerminal(
                 modifier = Modifier.fillMaxSize()
             )
             Text(
-                text = selected?.let {
-                    "${it.date}  开${mirrorPrice(it.open)} 高${mirrorPrice(it.high)} 低${mirrorPrice(it.low)} 收${mirrorPrice(it.close)} 涨跌${it.changePercent} 振幅${it.amplitude} 换手${it.turnoverRate} 量${mirrorFormatVolume(it.volume)} 额${mirrorFormatMoney(it.amount)}"
-                } ?: "${window.visible.size}根 · 滚轮/双指缩放 · 拖拽平移 · 点击查看完整OHLC与量价数据",
+                text = selected?.takeIf { selectedVisible }?.let {
+                    "${it.date}  开${mirrorPrice(it.open)} 高${mirrorPrice(it.high)} 低${mirrorPrice(it.low)} 收${mirrorPrice(it.close)}"
+                } ?: "${window.visible.size}根 · 双指缩放 · 拖拽平移 · 点击或长按查看数据",
                 color = Color.White.copy(alpha = 0.90f),
                 fontSize = 8.sp,
                 lineHeight = 11.sp,
@@ -835,6 +973,15 @@ private fun MirrorKLineTerminal(
                     }
                 }
             }
+            selected?.takeIf { selectedVisible }?.let { candle ->
+                val localIndex = selectedIndex - start
+                MirrorKCrosshairCard(
+                    candle = candle,
+                    modifier = Modifier
+                        .align(if (localIndex > count / 2) Alignment.TopStart else Alignment.TopEnd)
+                        .padding(start = 6.dp, end = 6.dp, top = 25.dp)
+                )
+            }
         }
         Row(Modifier.fillMaxWidth().height(18.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(mirrorDateLabel(window.visible.firstOrNull()?.date), color = Color.White.copy(alpha = 0.38f), fontSize = 7.sp)
@@ -848,6 +995,27 @@ private fun MirrorKLineTerminal(
                 "$snapshotLabel · 缩放${String.format(Locale.US, "%.2f", zoom)}x"
             )
         )
+    }
+}
+
+@Composable
+private fun MirrorKCrosshairCard(candle: StockKLinePoint, modifier: Modifier) {
+    val tone = if (candle.close >= candle.open) MirrorRise else MirrorFall
+    Column(
+        modifier = modifier
+            .width(158.dp)
+            .background(MirrorCrosshairFill, MirrorCrosshairShape)
+            .border(1.dp, MirrorCrosshairBorder, MirrorCrosshairShape)
+            .padding(horizontal = 7.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(candle.date, color = MirrorAqua, fontSize = 8.sp, fontWeight = FontWeight.Black)
+        Text("开 ${mirrorPrice(candle.open)}   高 ${mirrorPrice(candle.high)}", color = Color.White.copy(alpha = 0.82f), fontSize = 7.3.sp)
+        Text("低 ${mirrorPrice(candle.low)}   收 ${mirrorPrice(candle.close)}", color = tone, fontSize = 7.3.sp, fontWeight = FontWeight.Bold)
+        Text("涨跌 ${candle.changePercent}   振幅 ${candle.amplitude}", color = Color.White.copy(alpha = 0.76f), fontSize = 7.sp)
+        Text("成交量 ${mirrorFormatVolume(candle.volume)}", color = MirrorYellow, fontSize = 7.sp)
+        Text("成交额 ${mirrorFormatMoney(candle.amount)}", color = MirrorBlue, fontSize = 7.sp)
+        Text("换手 ${candle.turnoverRate}", color = MirrorPink, fontSize = 7.sp)
     }
 }
 
@@ -955,9 +1123,24 @@ private fun MirrorKLineCanvas(
         if (selectedLocal in visible.indices) {
             val candle = visible[selectedLocal]
             val x = xFor(selectedLocal)
-            val y = yFor(candle.close)
-            drawLine(MirrorAqua.copy(alpha = 0.58f), Offset(x, 0f), Offset(x, height - 2f), 1.dp.toPx())
-            drawLine(MirrorAqua.copy(alpha = 0.38f), Offset(0f, y), Offset(width, y), 1.dp.toPx())
+            val y = yFor(candle.close).coerceIn(0f, layout.mainHeight)
+            val lineColor = MirrorAqua.copy(alpha = 0.72f)
+            drawLine(lineColor, Offset(x, 0f), Offset(x, height - 2f), 0.8.dp.toPx())
+            drawLine(lineColor, Offset(0f, y), Offset(width, y), 0.8.dp.toPx())
+            drawCircle(Color.White.copy(alpha = 0.95f), 2.2.dp.toPx(), Offset(x, y))
+            drawCircle(MirrorAqua, 1.2.dp.toPx(), Offset(x, y))
+
+            val labelHeight = 16.dp.toPx()
+            val priceWidth = 46.dp.toPx()
+            val priceTop = (y - labelHeight / 2f).coerceIn(0f, layout.mainHeight - labelHeight)
+            drawRect(MirrorCrosshairFill, Offset(width - priceWidth, priceTop), Size(priceWidth, labelHeight))
+            mirrorDrawText(mirrorPrice(candle.close), width - 4.dp.toPx(), priceTop + 1.dp.toPx(), 7.4.sp.toPx(), Color.White, Paint.Align.RIGHT)
+
+            val dateWidth = 54.dp.toPx()
+            val dateLeft = (x - dateWidth / 2f).coerceIn(0f, width - dateWidth)
+            val dateTop = height - labelHeight
+            drawRect(MirrorCrosshairFill, Offset(dateLeft, dateTop), Size(dateWidth, labelHeight))
+            mirrorDrawText(mirrorDateLabel(candle.date), dateLeft + dateWidth / 2f, dateTop + 1.dp.toPx(), 7.1.sp.toPx(), Color.White, Paint.Align.CENTER)
         }
         mirrorDrawText(mirrorPrice(top), width - 4.dp.toPx(), 3.dp.toPx(), 8.sp.toPx(), Color.White.copy(alpha = 0.48f), Paint.Align.RIGHT)
         mirrorDrawText(mirrorPrice((top + bottom) / 2f), width - 4.dp.toPx(), layout.mainHeight / 2f, 8.sp.toPx(), Color.White.copy(alpha = 0.48f), Paint.Align.RIGHT)
