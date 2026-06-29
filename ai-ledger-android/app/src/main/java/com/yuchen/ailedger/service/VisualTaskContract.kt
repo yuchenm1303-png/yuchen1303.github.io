@@ -210,16 +210,20 @@ data class VisualTaskMemory(
     val userUpdateHistory: List<VisualUserTaskUpdate> = emptyList(),
 ) {
     fun toJson(): JSONObject {
-        val runtimeUpdates = VisualUserTaskUpdateRuntime.updatesAfter(taskRevision)
+        val appliedRevision = maxOf(taskRevision, taskContract?.taskRevision ?: 0)
+        val runtimeUpdates = VisualUserTaskUpdateRuntime.updatesAfter(appliedRevision)
         val effectiveHistory = (userUpdateHistory + runtimeUpdates)
             .distinctBy { it.revision }
             .sortedBy { it.revision }
             .takeLast(8)
         val effectiveLatest = effectiveHistory.lastOrNull() ?: latestUserUpdate
-        val effectiveRevision = maxOf(taskRevision, effectiveLatest?.revision ?: 0)
+        val effectiveRevision = maxOf(appliedRevision, effectiveLatest?.revision ?: 0)
         val runtimeInvalidation = runtimeUpdates.any { it.invalidatesCurrentMilestone }
         val effectiveInvalidation = currentMilestoneInvalidated || runtimeInvalidation
-        val effectivePending = taskRevisionPending || runtimeUpdates.isNotEmpty()
+        val hasUndispatchedRuntimeUpdate = runtimeUpdates.any {
+            it.revision > VisualUserTaskUpdateRuntime.latestDispatchedRevision()
+        }
+        val effectivePending = taskRevisionPending || hasUndispatchedRuntimeUpdate
         val effectiveReplan = replanRequested || effectivePending
         val effectiveProgress = if (effectivePending && progressStatus == "unknown") {
             "user_update_pending_replan"
@@ -227,7 +231,7 @@ data class VisualTaskMemory(
             progressStatus
         }
         val effectiveFailedHypotheses = if (effectiveInvalidation) emptyList() else failedHypotheses
-        val effectiveBlockedActions = if (effectivePending) emptyList() else blockedActions
+        val effectiveBlockedActions = if (runtimeUpdates.isNotEmpty() || effectivePending) emptyList() else blockedActions
         val effectiveContract = taskContract?.copy(taskRevision = maxOf(taskContract.taskRevision, effectiveRevision))
 
         return JSONObject().apply {
