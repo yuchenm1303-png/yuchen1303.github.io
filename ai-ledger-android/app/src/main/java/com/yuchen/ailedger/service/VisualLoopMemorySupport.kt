@@ -58,6 +58,10 @@ internal object VisualLoopMemorySupport {
                 append("|failedHypothesisCount=").append(memory.failedHypotheses.size)
                 append("|blockedActionCount=").append(memory.blockedActions.size)
                 append("|explorationBudgetRemaining=").append(memory.remainingExplorationBudget)
+                append("|taskRevision=").append(memory.taskRevision)
+                append("|taskRevisionPending=").append(memory.taskRevisionPending)
+                append("|currentMilestoneInvalidated=").append(memory.currentMilestoneInvalidated)
+                append("|latestUserUpdateKind=").append(memory.latestUserUpdate?.kind?.wireValue.orEmpty())
                 append("|replanRequested=").append(memory.replanRequested)
                 append("|recoveryMode=").append(memory.recoveryMode)
                 append("|semanticDecisionOwner=gui_plus")
@@ -84,6 +88,11 @@ internal object VisualLoopMemorySupport {
                 put("confirmedFacts", JSONArray(memory.confirmedFacts))
                 put("taskContract", memory.taskContract?.toJson() ?: JSONObject.NULL)
                 put("legacyMode", memory.legacyMode)
+                put("taskRevision", memory.taskRevision)
+                put("taskRevisionPending", memory.taskRevisionPending)
+                put("currentMilestoneInvalidated", memory.currentMilestoneInvalidated)
+                put("latestUserUpdateRevision", memory.latestUserUpdate?.revision ?: 0)
+                put("latestUserUpdateKind", memory.latestUserUpdate?.kind?.wireValue.orEmpty())
             },
         )
     }
