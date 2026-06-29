@@ -23,9 +23,10 @@ class AssistantMemoryCompilerTest {
 
         assertTrue(compilation.memoryRequested)
         assertTrue(compilation.hasAnyContext)
+        assertEquals("auto", compilation.requestMode)
         assertEquals("backend_cloud_requested", compilation.selectionStatus)
         assertEquals("backend_cloud_v4", compilation.selectionOwner)
-        assertEquals("ai_ledger_cloud_memory_request_v2", compilation.schema)
+        assertEquals("ai_ledger_cloud_memory_request_v3", compilation.schema)
         assertTrue(compilation.selectedMemoryIds.isEmpty())
         assertTrue(compilation.sources.isEmpty())
         assertNull(compilation.memorySnapshot)
@@ -47,6 +48,7 @@ class AssistantMemoryCompilerTest {
 
         listOf(identityQuestion, englishQuestion, projectQuestion).forEach { compilation ->
             assertTrue(compilation.memoryRequested)
+            assertEquals("auto", compilation.requestMode)
             assertEquals("backend_cloud_requested", compilation.selectionStatus)
             assertTrue(compilation.selectedMemoryIds.isEmpty())
             assertTrue(compilation.sources.isEmpty())
@@ -68,6 +70,7 @@ class AssistantMemoryCompilerTest {
 
         assertFalse(compilation.memoryRequested)
         assertFalse(compilation.hasAnyContext)
+        assertEquals("off", compilation.requestMode)
         assertEquals("disabled_by_user", compilation.selectionStatus)
         assertEquals("回答保持简洁。", compilation.personaConfigJson()?.optString("customInstructions"))
     }
@@ -82,7 +85,44 @@ class AssistantMemoryCompilerTest {
 
         assertFalse(compilation.memoryRequested)
         assertFalse(compilation.hasAnyContext)
+        assertEquals("off", compilation.requestMode)
         assertEquals("disabled_anonymous", compilation.selectionStatus)
+    }
+
+    @Test
+    fun cloudInventoryUnavailableStillDelegatesDecisionToBackend() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "继续上次的项目",
+            customInstructions = null,
+            memoryState = AssistantMemoryState(
+                accountUserId = "user-test",
+                cloudReady = false,
+                memoryEnabled = false,
+                loading = true,
+            ),
+        )
+
+        assertTrue(compilation.memoryRequested)
+        assertEquals("auto", compilation.requestMode)
+        assertEquals("backend_cloud_requested", compilation.selectionStatus)
+        assertEquals(setOf("backend_cloud_v4"), compilation.activeScopes)
+    }
+
+    @Test
+    fun cloudInventoryFailureDoesNotBecomeAConfirmedUserOptOut() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "你还记得我的偏好吗",
+            customInstructions = null,
+            memoryState = AssistantMemoryState(
+                accountUserId = "user-test",
+                cloudReady = false,
+                memoryEnabled = false,
+                error = true,
+            ),
+        )
+
+        assertTrue(compilation.memoryRequested)
+        assertEquals("backend_cloud_requested", compilation.selectionStatus)
     }
 
     @Test
