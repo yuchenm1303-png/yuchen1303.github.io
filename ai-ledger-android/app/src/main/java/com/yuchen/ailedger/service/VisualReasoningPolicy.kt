@@ -13,6 +13,8 @@ enum class VisualReasoningTrigger(val wireValue: String) {
     RepeatedNoProgress("repeated_no_progress"),
     FirstNoProgress("first_no_progress"),
     RepeatedAction("repeated_action"),
+    RouteCycle("route_cycle"),
+    ProvisionalStateRollback("provisional_state_rollback"),
     SemanticAmbiguity("semantic_ambiguity"),
     SemanticRegression("semantic_regression"),
     EntityConflict("entity_conflict"),
@@ -33,6 +35,8 @@ data class VisualReasoningContext(
     val triggers: List<VisualReasoningTrigger> = emptyList(),
     val noProgressCount: Int = 0,
     val sameActionCount: Int = 0,
+    val routeCycleLength: Int = 0,
+    val provisionalRollbackCount: Int = 0,
     val executionFailureCount: Int = 0,
     val failedHypothesisCount: Int = 0,
     val blockedActionCount: Int = 0,
@@ -48,11 +52,13 @@ data class VisualReasoningContext(
         get() = depth == VisualReasoningDepth.Deep
 
     fun toJson(): JSONObject = JSONObject().apply {
-        put("schema", "visual_reasoning_context_v2_execution_watchdog")
+        put("schema", "visual_reasoning_context_v3_transaction_watchdog")
         put("depth", depth.wireValue)
         put("triggers", JSONArray(triggers.map { it.wireValue }))
         put("noProgressCount", noProgressCount)
         put("sameActionCount", sameActionCount)
+        put("routeCycleLength", routeCycleLength)
+        put("provisionalRollbackCount", provisionalRollbackCount)
         put("executionFailureCount", executionFailureCount)
         put("failedHypothesisCount", failedHypothesisCount)
         put("blockedActionCount", blockedActionCount)
@@ -66,6 +72,7 @@ data class VisualReasoningContext(
         put("deepThinkingRequested", deepThinkingRequested)
         put("semanticDecisionOwner", "gui_plus")
         put("localProgressClassification", false)
+        put("transactionalState", true)
     }
 
     fun toPromptLine(): String = buildString {
@@ -79,6 +86,8 @@ data class VisualReasoningContext(
         })
         append("|noProgressCount=").append(noProgressCount)
         append("|sameActionCount=").append(sameActionCount)
+        append("|routeCycleLength=").append(routeCycleLength)
+        append("|provisionalRollbackCount=").append(provisionalRollbackCount)
         append("|executionFailureCount=").append(executionFailureCount)
         append("|failedHypothesisCount=0")
         append("|suppressedActionCount=0")
@@ -92,10 +101,11 @@ data class VisualReasoningContext(
         append("|semanticDecisionOwner=gui_plus")
         append("|localSemanticDecision=false")
         append("|localProgressClassification=false")
+        append("|transactionalState=true")
     }.take(VisualLoopSupport.MAX_RECENT_ACTION_CHARS)
 
     companion object {
-        const val PROMPT_PREFIX = "visual_reasoning_context:v2|"
+        const val PROMPT_PREFIX = "visual_reasoning_context:v3|"
     }
 }
 
@@ -139,10 +149,10 @@ internal object VisualReasoningRuntime {
 /**
  * Adaptive execution watchdog.
  *
- * It reacts only to mechanical loop evidence: repeated identical actions, explicit re-observation,
- * execution failures, route/package conflicts, completion handshakes and authoritative user updates.
- * Frame differences, accessibility-tree differences, milestone budgets and local hypotheses never
- * classify progress or influence reasoning depth.
+ * It reacts only to mechanical loop and transaction evidence: repeated actions, repeated route
+ * sequences, explicit re-observation, execution failures, route/package conflicts, completion
+ * candidate rollback and authoritative user updates. Frame differences, accessibility-tree
+ * differences and local page semantics never classify progress.
  */
 internal object VisualReasoningPolicy {
     const val DEEP_REPLAN_PREFIX = "visual_replan_requested:reason=adaptive_reasoning_depth|"
@@ -158,7 +168,9 @@ internal object VisualReasoningPolicy {
         val noProgressCount = consecutiveReobserveOrFailureCount(events, activeActions)
         val executionFailureCount = consecutiveFailureCount(events, activeActions)
         val sameActionCount = consecutiveSameExecutedActionCount(events)
-        val completionCandidate = activeActions.any { it.isCompletionCandidateEvidence() }
+        val routeCycleLength = repeatedRouteCycleLength(events)
+        val completionCandidate = activeActions.hasLiveCompletionCandidate()
+        val provisionalRollbackCount = activeActions.provisionalRollbackCount()
         val routeConflict = activeActions.any { it.isRouteConstraintConflictEvidence() } ||
             runtimeState?.surfaceState == "replanning"
         val entityConflict = activeActions.any { it.isEntityConflictEvidence() } ||
@@ -183,6 +195,8 @@ internal object VisualReasoningPolicy {
             noProgressCount == 1 -> triggerSet += VisualReasoningTrigger.FirstNoProgress
         }
         if (sameActionCount >= 2) triggerSet += VisualReasoningTrigger.RepeatedAction
+        if (routeCycleLength > 0) triggerSet += VisualReasoningTrigger.RouteCycle
+        if (provisionalRollbackCount > 0) triggerSet += VisualReasoningTrigger.ProvisionalStateRollback
         if (entityConflict) triggerSet += VisualReasoningTrigger.EntityConflict
         if (routeConflict) triggerSet += VisualReasoningTrigger.RouteConstraintConflict
         if (userCorrection) triggerSet += VisualReasoningTrigger.UserCorrection
@@ -193,6 +207,8 @@ internal object VisualReasoningPolicy {
 
         val hardDeep = noProgressCount >= 2 ||
             sameActionCount >= 2 ||
+            routeCycleLength > 0 ||
+            provisionalRollbackCount > 0 ||
             entityConflict ||
             routeConflict ||
             userCorrection ||
@@ -208,7 +224,8 @@ internal object VisualReasoningPolicy {
             else -> VisualReasoningDepth.Fast
         }
         val pressure = when {
-            noProgressCount >= 2 || sameActionCount >= 2 || executionFailureCount >= 2 -> "high"
+            routeCycleLength > 0 || provisionalRollbackCount > 0 ||
+                noProgressCount >= 2 || sameActionCount >= 2 || executionFailureCount >= 2 -> "high"
             noProgressCount == 1 || executionFailureCount == 1 -> "medium"
             else -> "low"
         }
@@ -217,6 +234,8 @@ internal object VisualReasoningPolicy {
             triggers = triggerSet.toList(),
             noProgressCount = noProgressCount,
             sameActionCount = sameActionCount,
+            routeCycleLength = routeCycleLength,
+            provisionalRollbackCount = provisionalRollbackCount,
             executionFailureCount = executionFailureCount,
             failedHypothesisCount = 0,
             blockedActionCount = 0,
@@ -249,6 +268,9 @@ internal object VisualReasoningPolicy {
             append("|replanRequired=true")
             append("|routeRefreshRequested=false")
             append("|completionEvidenceStrict=").append(context.completionEvidenceStrict)
+            append("|discardProvisionalState=").append(context.provisionalRollbackCount > 0)
+            append("|avoidRepeatedRoute=").append(context.routeCycleLength > 0)
+            append("|routeCycleLength=").append(context.routeCycleLength)
             append("|decisionOwner=gui_plus")
             append("|localProgressClassification=false")
         }.take(VisualLoopSupport.MAX_RECENT_ACTION_CHARS)
@@ -258,7 +280,8 @@ internal object VisualReasoningPolicy {
         .map(String::trim)
         .filter(String::isNotBlank)
         .filterNot { it.startsWith(VisualReasoningContext.PROMPT_PREFIX) }
-        .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX) }
+        .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V2) }
+        .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V1) }
         .filterNot { it.startsWith(DEEP_REPLAN_PREFIX) }
         .toList()
         .takeLast(MAX_ACTIVE_ACTIONS)
@@ -278,9 +301,30 @@ internal object VisualReasoningPolicy {
         )
     }
 
+    private fun List<String>.hasLiveCompletionCandidate(): Boolean {
+        val pending = indexOfLast { it.isCompletionCandidateEvidence() }
+        if (pending < 0) return false
+        val rollback = indexOfLast { it.isCompletionRollbackEvidence() }
+        return pending > rollback
+    }
+
+    private fun List<String>.provisionalRollbackCount(): Int {
+        val latestPending = indexOfLast { it.isCompletionCandidateEvidence() }
+        return countIndexed { index, line ->
+            line.isCompletionRollbackEvidence() && index > latestPending
+        }
+    }
+
     private fun String.isCompletionCandidateEvidence(): Boolean =
         contains("finish_verification_pending", ignoreCase = true) ||
             contains("completionCandidate=true", ignoreCase = true)
+
+    private fun String.isCompletionRollbackEvidence(): Boolean {
+        val value = lowercase()
+        return value.startsWith("finish_candidate_rejected:") ||
+            value.startsWith("finish_permit_rejected:") ||
+            value.startsWith("completion_candidate_rolled_back:")
+    }
 
     private fun String.isRouteConstraintConflictEvidence(): Boolean {
         val value = lowercase()
@@ -347,6 +391,30 @@ internal object VisualReasoningPolicy {
         return events.asReversed().takeWhile { it.signature == latest }.count()
     }
 
+    /**
+     * Detects a repeated mechanical route without interpreting screen content. It catches either an
+     * exact repeated suffix (A-B-C / A-B-C) or a return to the same action after at least two distinct
+     * intervening successful actions (A-B-C-D-A). This is a loop signal only; GUI Plus decides why.
+     */
+    private fun repeatedRouteCycleLength(events: List<ExecutionEvent>): Int {
+        val successful = events.filter { it.outcome == ExecutionOutcome.Success && !it.reobserve }
+        if (successful.size < MIN_ROUTE_CYCLE_EVENTS) return 0
+        val signatures = successful.map { it.signature }
+        val maxExact = minOf(MAX_ROUTE_CYCLE_LENGTH, signatures.size / 2)
+        for (length in 2..maxExact) {
+            val previous = signatures.subList(signatures.size - length * 2, signatures.size - length)
+            val latest = signatures.subList(signatures.size - length, signatures.size)
+            if (previous == latest && latest.distinct().size >= 2) return length
+        }
+        val latest = signatures.last()
+        val previousIndex = signatures.dropLast(1).indexOfLast { it == latest }
+        if (previousIndex < 0) return 0
+        val distance = signatures.lastIndex - previousIndex
+        if (distance !in 3..MAX_ROUTE_CYCLE_DISTANCE) return 0
+        val intervening = signatures.subList(previousIndex + 1, signatures.lastIndex)
+        return if (intervening.distinct().size >= 2) distance else 0
+    }
+
     private fun String.isUnpairedFailureFeedback(): Boolean {
         val value = lowercase()
         return value.startsWith("visual_action_retry:") ||
@@ -368,7 +436,11 @@ internal object VisualReasoningPolicy {
         val packageConflict: Boolean,
     )
 
-    private const val LEGACY_PROMPT_PREFIX = "visual_reasoning_context:v1|"
+    private const val LEGACY_PROMPT_PREFIX_V2 = "visual_reasoning_context:v2|"
+    private const val LEGACY_PROMPT_PREFIX_V1 = "visual_reasoning_context:v1|"
     private const val REOBSERVE_SIGNATURE = "wait|重新观察"
-    private const val MAX_ACTIVE_ACTIONS = 24
+    private const val MIN_ROUTE_CYCLE_EVENTS = 4
+    private const val MAX_ROUTE_CYCLE_LENGTH = 6
+    private const val MAX_ROUTE_CYCLE_DISTANCE = 8
+    private const val MAX_ACTIVE_ACTIONS = 30
 }
