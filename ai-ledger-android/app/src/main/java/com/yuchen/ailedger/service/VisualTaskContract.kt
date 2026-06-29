@@ -220,10 +220,7 @@ data class VisualTaskMemory(
         val effectiveRevision = maxOf(appliedRevision, effectiveLatest?.revision ?: 0)
         val runtimeInvalidation = runtimeUpdates.any { it.invalidatesCurrentMilestone }
         val effectiveInvalidation = currentMilestoneInvalidated || runtimeInvalidation
-        val hasUndispatchedRuntimeUpdate = runtimeUpdates.any {
-            it.revision > VisualUserTaskUpdateRuntime.latestDispatchedRevision()
-        }
-        val effectivePending = taskRevisionPending || hasUndispatchedRuntimeUpdate
+        val effectivePending = taskRevisionPending || VisualUserTaskUpdateRuntime.isRevisionPending(effectiveRevision)
         val effectiveReplan = replanRequested || effectivePending
         val effectiveProgress = if (effectivePending && progressStatus == "unknown") {
             "user_update_pending_replan"
