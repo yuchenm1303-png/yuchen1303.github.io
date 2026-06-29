@@ -6,10 +6,12 @@ import org.json.JSONObject
 internal object VisualLoopMemorySupport {
     private const val RUNTIME_PREFIX = "visual_runtime_context:v2|"
     private const val LEGACY_RUNTIME_PREFIX = "visual_runtime_context:v1|"
-    private const val LEDGER_PREFIX = "visual_execution_ledger:v3|"
-    private const val LEGACY_LEDGER_PREFIX = "visual_execution_ledger:v2|"
+    private const val LEDGER_PREFIX = "visual_execution_ledger:v4|"
+    private const val LEGACY_LEDGER_PREFIX_V3 = "visual_execution_ledger:v3|"
+    private const val LEGACY_LEDGER_PREFIX_V2 = "visual_execution_ledger:v2|"
     private const val LEGACY_MEMORY_PREFIX = "visual_task_memory:v1|"
-    private const val LEGACY_REASONING_PREFIX = "visual_reasoning_context:v1|"
+    private const val LEGACY_REASONING_PREFIX_V2 = "visual_reasoning_context:v2|"
+    private const val LEGACY_REASONING_PREFIX_V1 = "visual_reasoning_context:v1|"
 
     fun replaceRuntimeLine(actions: MutableList<String>, runtime: VisualAgentRuntimeContext) {
         actions.removeAll { it.startsWith(RUNTIME_PREFIX) || it.startsWith(LEGACY_RUNTIME_PREFIX) }
@@ -43,18 +45,21 @@ internal object VisualLoopMemorySupport {
     }
 
     /**
-     * Exposes protocol ownership, cloud-declared task state and objective execution bookkeeping only.
-     * No page progress, visual meaning, failed hypothesis or action block is invented on Android.
+     * Exposes protocol ownership, committed cloud task state and objective execution bookkeeping only.
+     * Provisional completion, local page progress and local visual hypotheses never become committed
+     * memory.
      */
     fun replaceMemoryLine(actions: MutableList<String>, memory: VisualTaskMemory) {
         val reasoning = VisualReasoningPolicy.evaluate(memory, actions)
         VisualReasoningRuntime.update(reasoning)
         actions.removeAll {
             it.startsWith(LEDGER_PREFIX) ||
-                it.startsWith(LEGACY_LEDGER_PREFIX) ||
+                it.startsWith(LEGACY_LEDGER_PREFIX_V3) ||
+                it.startsWith(LEGACY_LEDGER_PREFIX_V2) ||
                 it.startsWith(LEGACY_MEMORY_PREFIX) ||
                 it.startsWith(VisualReasoningContext.PROMPT_PREFIX) ||
-                it.startsWith(LEGACY_REASONING_PREFIX) ||
+                it.startsWith(LEGACY_REASONING_PREFIX_V2) ||
+                it.startsWith(LEGACY_REASONING_PREFIX_V1) ||
                 it.startsWith(VisualReasoningPolicy.DEEP_REPLAN_PREFIX)
         }
         VisualLoopSupport.appendRecent(
@@ -63,7 +68,7 @@ internal object VisualLoopMemorySupport {
                 append(LEDGER_PREFIX)
                 append("executionStatus=").append(memory.progressStatus.take(80))
                 append("|currentMilestoneId=").append(memory.currentMilestoneId.take(80))
-                append("|completedMilestoneCount=").append(memory.completedMilestoneIds.size)
+                append("|committedMilestoneCount=").append(memory.completedMilestoneIds.size)
                 append("|currentFrameId=").append(memory.currentPage?.id.orEmpty().take(100))
                 append("|lastVerifiedFrameId=").append(memory.lastConfirmedPage?.id.orEmpty().take(100))
                 append("|taskRevision=").append(memory.taskRevision)
@@ -71,9 +76,13 @@ internal object VisualLoopMemorySupport {
                 append("|currentMilestoneInvalidated=").append(memory.currentMilestoneInvalidated)
                 append("|latestUserUpdateKind=").append(memory.latestUserUpdate?.kind?.wireValue.orEmpty())
                 append("|reasoningDepth=").append(reasoning.depth.wireValue)
+                append("|routeCycleLength=").append(reasoning.routeCycleLength)
+                append("|provisionalRollbackCount=").append(reasoning.provisionalRollbackCount)
                 append("|replanRequested=").append(memory.replanRequested)
                 append("|recoveryMode=").append(memory.recoveryMode)
                 append("|executionLedgerOnly=true")
+                append("|transactionalState=true")
+                append("|provisionalStateCommitted=false")
                 append("|semanticDecisionOwner=gui_plus")
                 append("|localSemanticDecision=false")
                 append("|localProgressClassification=false")
@@ -91,7 +100,7 @@ internal object VisualLoopMemorySupport {
                 put("replanRequested", memory.replanRequested)
                 put("recoveryMode", memory.recoveryMode)
                 put("remainingCloudExplorationBudget", memory.remainingExplorationBudget)
-                put("completedMilestoneIds", JSONArray(memory.completedMilestoneIds))
+                put("committedMilestoneIds", JSONArray(memory.completedMilestoneIds))
                 put("confirmedProtocolFacts", JSONArray(memory.confirmedFacts))
                 put("taskContract", memory.taskContract?.toJson() ?: JSONObject.NULL)
                 put("legacyMode", memory.legacyMode)
@@ -101,6 +110,8 @@ internal object VisualLoopMemorySupport {
                 put("latestUserUpdateRevision", memory.latestUserUpdate?.revision ?: 0)
                 put("latestUserUpdateKind", memory.latestUserUpdate?.kind?.wireValue.orEmpty())
                 put("reasoningContext", reasoning.toJson())
+                put("transactionalState", true)
+                put("provisionalStateCommitted", false)
                 put("semanticDecisionOwner", "gui_plus")
                 put("localProgressClassification", false)
             },
@@ -174,7 +185,7 @@ internal object VisualLoopMemorySupport {
                         put("nextHint", state.nextHint)
                     }
                 } ?: JSONObject.NULL)
-                put("taskContract", plan.taskContract?.toJson() ?: JSONObject.NULL)
+                put("committedTaskContract", plan.taskContract?.toJson() ?: JSONObject.NULL)
                 put("stopConditions", JSONArray(plan.stopConditions.toList()))
                 put("executionResult", result.take(1_200))
                 put("historySizeAfterAppend", history.size)
