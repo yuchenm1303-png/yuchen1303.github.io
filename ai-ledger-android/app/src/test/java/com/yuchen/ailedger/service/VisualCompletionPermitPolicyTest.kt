@@ -45,7 +45,7 @@ class VisualCompletionPermitPolicyTest {
             step = candidateStep(),
             expectedSessionId = SESSION_ID,
             expectedObservationId = CANDIDATE_OBSERVATION_ID,
-            currentTaskRevision = 3,
+            candidateTaskRevision = 3,
         ).value!!
 
         val result = VisualCompletionPermitPolicy.permit(
