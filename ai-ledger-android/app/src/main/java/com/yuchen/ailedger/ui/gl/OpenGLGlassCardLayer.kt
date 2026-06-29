@@ -42,10 +42,6 @@ private const val GLASS_PRESS_EPSILON = 0.003f
 private const val GLASS_PRESS_CENTER_EPSILON = 0.002f
 private const val GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y = 0.44f
 
-private const val EGL_SWAP_BEHAVIOR_VALUE = 0x3093
-private const val EGL_BUFFER_PRESERVED_VALUE = 0x3094
-private const val EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE = 0x0400
-
 enum class OpenGLGlassSurfaceAnchor(val fraction: Float) {
     Top(0f),
     Center(0.44f),
@@ -252,7 +248,6 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
         stableSurfaceWidth = targetWidth
         stableSurfaceHeight = targetHeight
-        PerformanceRuntimeMetrics.recordOpenGlSurface(stableSurfaceWidth, stableSurfaceHeight)
 
         val current = textureView.layoutParams as? LayoutParams
         val layoutDirty = current == null ||
@@ -262,6 +257,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
 
         val dirty = sizeChanged || layoutDirty
         if (dirty) {
+            PerformanceRuntimeMetrics.recordOpenGlSurface(stableSurfaceWidth, stableSurfaceHeight)
             geometryAwaitingLayout = true
             renderAfterLayout = true
             requestLayout()
@@ -696,8 +692,7 @@ private class CardGlassEglThread(
     override fun run() {
         try {
             initEgl()
-            // 透明 TextureView 的 preserved back buffer 在聊天面板几何动画时会轮换旧像素。
-            // 旧版玻璃继续完整清屏，避免以性能优化为代价引入残影或闪烁。
+            // 透明 TextureView 在聊天面板几何动画时必须完整清屏，避免旧像素残留或闪烁。
             renderer.setPartialClearSupported(false)
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportWidth, viewportHeight)
@@ -733,10 +728,9 @@ private class CardGlassEglThread(
             "Unable to initialize EGL"
         }
 
-        val preservedConfig = chooseConfig(
-            EGL14.EGL_WINDOW_BIT or EGL_SWAP_BEHAVIOR_PRESERVED_BIT_VALUE,
-        )
-        val config = preservedConfig ?: chooseConfig(EGL14.EGL_WINDOW_BIT)
+        // 旧版 Renderer 每次提交前都会完整清屏，因此 preserved swap buffer 不会提供任何
+        // 可复用像素，反而可能增加驱动侧后缓冲保留和显存带宽开销。
+        val config = chooseConfig(EGL14.EGL_WINDOW_BIT)
             ?: error("No EGL config found")
 
         eglContext = EGL14.eglCreateContext(
@@ -765,15 +759,6 @@ private class CardGlassEglThread(
         }
         metricsContextActive = true
         PerformanceRuntimeMetrics.recordOpenGlContextCreated()
-
-        if (preservedConfig != null) {
-            EGL14.eglSurfaceAttrib(
-                eglDisplay,
-                eglSurface,
-                EGL_SWAP_BEHAVIOR_VALUE,
-                EGL_BUFFER_PRESERVED_VALUE,
-            )
-        }
     }
 
     private fun chooseConfig(surfaceType: Int): EGLConfig? {
