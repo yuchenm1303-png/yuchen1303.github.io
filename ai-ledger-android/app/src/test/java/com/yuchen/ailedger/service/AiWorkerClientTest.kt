@@ -110,4 +110,16 @@ class AiWorkerClientTest {
         assertEquals("app-token", headers["X-AI-Ledger-Token"])
         assertEquals("Bearer header.payload.signature", headers["Authorization"])
     }
+
+    @Test
+    fun appOnlyModeNeverDependsOnLoginOrSendsUserBearer() {
+        val headers = AiWorkerRequestIdentity.headers(
+            appClientToken = "app-token",
+            userAccessTokenProvider = { "header.payload.signature" },
+            mode = AiWorkerIdentityMode.AppOnly,
+        )
+
+        assertEquals("app-token", headers["X-AI-Ledger-Token"])
+        assertNull(headers["Authorization"])
+    }
 }
