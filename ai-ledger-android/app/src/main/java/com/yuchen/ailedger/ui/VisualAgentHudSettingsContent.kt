@@ -19,9 +19,12 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -166,6 +169,19 @@ private val visualHudParameterSections = listOf(
     ),
 )
 
+internal object VisualAgentHudSettingsNavigation {
+    var pageVisible by mutableStateOf(false)
+        private set
+
+    fun open() {
+        pageVisible = true
+    }
+
+    fun close() {
+        pageVisible = false
+    }
+}
+
 @Composable
 internal fun VisualAgentHudSettingsPage(
     state: AssistantUiState,
@@ -259,6 +275,9 @@ internal fun VisualAgentHudSettingsPage(
 internal fun VisualAgentHudSettingsContent(
     @Suppress("UNUSED_PARAMETER") state: AssistantUiState,
 ) {
+    LaunchedEffect(Unit) {
+        VisualAgentHudSettingsNavigation.open()
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -267,13 +286,13 @@ internal fun VisualAgentHudSettingsContent(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            "视觉智能已使用独立详情页",
+            "正在打开视觉智能详情页",
             color = Color.White.copy(alpha = 0.88f),
             fontSize = 15.sp,
             fontWeight = FontWeight.Black,
         )
         Text(
-            "返回设置入口后重新进入即可打开完整参数页。",
+            "参数列表将使用可见区域懒加载。",
             color = Color.White.copy(alpha = 0.48f),
             fontSize = 11.sp,
             lineHeight = 16.sp,
