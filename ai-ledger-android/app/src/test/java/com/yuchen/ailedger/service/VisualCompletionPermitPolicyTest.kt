@@ -40,6 +40,27 @@ class VisualCompletionPermitPolicyTest {
     }
 
     @Test
+    fun userRevisionInvalidatesOlderCompletionCandidate() {
+        val candidate = VisualCompletionPermitPolicy.candidate(
+            step = candidateStep(),
+            expectedSessionId = SESSION_ID,
+            expectedObservationId = CANDIDATE_OBSERVATION_ID,
+            currentTaskRevision = 3,
+        ).value!!
+
+        val result = VisualCompletionPermitPolicy.permit(
+            step = permitStep(),
+            expectedSessionId = SESSION_ID,
+            expectedObservationId = PERMIT_OBSERVATION_ID,
+            expectedCandidate = candidate,
+            currentTaskRevision = 4,
+        )
+
+        assertFalse(result.valid)
+        assertEquals("completion_candidate_invalidated_by_user_revision", result.reason)
+    }
+
+    @Test
     fun lowConfidenceCompletionIsRejected() {
         val candidate = VisualCompletionCandidate(CANDIDATE_ID, SESSION_ID, CANDIDATE_OBSERVATION_ID)
         val args = JSONObject(permitStep().toolArgs.toString()).apply {
