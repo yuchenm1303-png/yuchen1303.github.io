@@ -97,6 +97,7 @@ internal class LegacyOpenGLGlassRenderer {
     private val textureLock = Any()
     private val specLock = Any()
     private val geometryCache = LegacyOpenGLGlassGeometryCache()
+    private val cacheFrame = LegacyOpenGLGlassCacheFrame()
 
     private var pendingBlurBitmap: Bitmap? = null
     private var pendingLensBitmap: Bitmap? = null
@@ -420,7 +421,7 @@ internal class LegacyOpenGLGlassRenderer {
 
         val geometryInvalidated = dirtyMask and DIRTY_CACHE_GEOMETRY != 0
         if (geometryInvalidated) geometryCache.invalidate()
-        val cacheFrame = createCacheFrame(currentGlassScissor)
+        updateCacheFrame(currentGlassScissor)
         val cached = geometryCache.drawFrame(
             frame = cacheFrame,
             quadBufferId = quadBufferId,
@@ -463,40 +464,39 @@ internal class LegacyOpenGLGlassRenderer {
         hasPreviousGlassScissor = false
     }
 
-    private fun createCacheFrame(scissor: MutableLegacyGlassScissorRect): LegacyOpenGLGlassCacheFrame =
-        LegacyOpenGLGlassCacheFrame(
-            viewportWidth = viewportWidth,
-            viewportHeight = viewportHeight,
-            rectWidth = drawCardWidth,
-            rectHeight = drawCardHeight,
-            rectOffsetY = drawRectOffsetY,
-            radius = clampedRadius(),
-            originX = samplingSnapshot[SAMPLING_ORIGIN_X],
-            originY = samplingSnapshot[SAMPLING_ORIGIN_Y],
-            rootWidth = samplingSnapshot[SAMPLING_ROOT_WIDTH],
-            rootHeight = samplingSnapshot[SAMPLING_ROOT_HEIGHT],
-            pressProgress = pressSnapshot[PRESS_PROGRESS],
-            pressCenterX = pressSnapshot[PRESS_CENTER_X],
-            pressCenterY = pressSnapshot[PRESS_CENTER_Y],
-            materialVisibility = styleSnapshot[STYLE_VISIBILITY],
-            materialMaxAlpha = styleSnapshot[STYLE_MAX_ALPHA],
-            materialEdgeBrightness = styleSnapshot[STYLE_EDGE_BRIGHTNESS],
-            refractionPullScale = styleSnapshot[STYLE_PULL_SCALE],
-            refractionEdgePullDp = styleSnapshot[STYLE_EDGE_PULL_DP],
-            refractionCompressionScale = styleSnapshot[STYLE_COMPRESSION_SCALE],
-            refractionCornerScale = styleSnapshot[STYLE_CORNER_SCALE],
-            opticsSampleRadius = styleSnapshot[STYLE_SAMPLE_RADIUS],
-            opticsRingWidth = styleSnapshot[STYLE_RING_WIDTH],
-            opticsDebugAlpha = styleSnapshot[STYLE_DEBUG_ALPHA],
-            opticsDarkScale = styleSnapshot[STYLE_DARK_SCALE],
-            texturesReady = texturesReady,
-            blurTextureId = blurTextureId,
-            lensTextureId = effectiveLensTextureId(),
-            scissorLeft = scissor.left,
-            scissorTop = scissor.top,
-            scissorRight = scissor.right,
-            scissorBottom = scissor.bottom,
-        )
+    private fun updateCacheFrame(scissor: MutableLegacyGlassScissorRect) {
+        cacheFrame.viewportWidth = viewportWidth
+        cacheFrame.viewportHeight = viewportHeight
+        cacheFrame.rectWidth = drawCardWidth
+        cacheFrame.rectHeight = drawCardHeight
+        cacheFrame.rectOffsetY = drawRectOffsetY
+        cacheFrame.radius = clampedRadius()
+        cacheFrame.originX = samplingSnapshot[SAMPLING_ORIGIN_X]
+        cacheFrame.originY = samplingSnapshot[SAMPLING_ORIGIN_Y]
+        cacheFrame.rootWidth = samplingSnapshot[SAMPLING_ROOT_WIDTH]
+        cacheFrame.rootHeight = samplingSnapshot[SAMPLING_ROOT_HEIGHT]
+        cacheFrame.pressProgress = pressSnapshot[PRESS_PROGRESS]
+        cacheFrame.pressCenterX = pressSnapshot[PRESS_CENTER_X]
+        cacheFrame.pressCenterY = pressSnapshot[PRESS_CENTER_Y]
+        cacheFrame.materialVisibility = styleSnapshot[STYLE_VISIBILITY]
+        cacheFrame.materialMaxAlpha = styleSnapshot[STYLE_MAX_ALPHA]
+        cacheFrame.materialEdgeBrightness = styleSnapshot[STYLE_EDGE_BRIGHTNESS]
+        cacheFrame.refractionPullScale = styleSnapshot[STYLE_PULL_SCALE]
+        cacheFrame.refractionEdgePullDp = styleSnapshot[STYLE_EDGE_PULL_DP]
+        cacheFrame.refractionCompressionScale = styleSnapshot[STYLE_COMPRESSION_SCALE]
+        cacheFrame.refractionCornerScale = styleSnapshot[STYLE_CORNER_SCALE]
+        cacheFrame.opticsSampleRadius = styleSnapshot[STYLE_SAMPLE_RADIUS]
+        cacheFrame.opticsRingWidth = styleSnapshot[STYLE_RING_WIDTH]
+        cacheFrame.opticsDebugAlpha = styleSnapshot[STYLE_DEBUG_ALPHA]
+        cacheFrame.opticsDarkScale = styleSnapshot[STYLE_DARK_SCALE]
+        cacheFrame.texturesReady = texturesReady
+        cacheFrame.blurTextureId = blurTextureId
+        cacheFrame.lensTextureId = effectiveLensTextureId()
+        cacheFrame.scissorLeft = scissor.left
+        cacheFrame.scissorTop = scissor.top
+        cacheFrame.scissorRight = scissor.right
+        cacheFrame.scissorBottom = scissor.bottom
+    }
 
     private fun clampedRadius(): Float =
         geometrySnapshot[GEOMETRY_RADIUS].coerceIn(2f, max(drawCardWidth, drawCardHeight))
