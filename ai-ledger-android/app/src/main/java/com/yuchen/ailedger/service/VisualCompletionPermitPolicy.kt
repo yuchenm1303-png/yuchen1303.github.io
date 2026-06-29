@@ -30,9 +30,9 @@ internal data class VisualCompletionValidation<T>(
  * Protocol-only verification for GUI Plus completion candidates and independent completion permits.
  * It never reads page text, target labels, app names or user-goal keywords.
  *
- * A user task revision is a hard completion barrier: a candidate captured before the newest user
- * reply can never be upgraded into a permit, even if the backend verifier still returns a stale
- * confirmation for the former goal.
+ * A user task revision is a hard completion barrier: a candidate is bound to the newest revision
+ * actually dispatched with its model request, not to a newer reply that may arrive while that request
+ * is in flight. A permit is rejected whenever the live task revision has advanced since the candidate.
  */
 internal object VisualCompletionPermitPolicy {
     private const val ACTION_TYPE = "finish"
@@ -44,7 +44,7 @@ internal object VisualCompletionPermitPolicy {
         step: CloudAgentStep,
         expectedSessionId: String,
         expectedObservationId: String,
-        currentTaskRevision: Int = VisualUserTaskUpdateRuntime.currentRevision(),
+        candidateTaskRevision: Int = VisualUserTaskUpdateRuntime.latestDispatchedRevision(),
     ): VisualCompletionValidation<VisualCompletionCandidate> {
         fun finish(result: VisualCompletionValidation<VisualCompletionCandidate>) = report(
             stage = "candidate",
@@ -52,7 +52,7 @@ internal object VisualCompletionPermitPolicy {
             step = step,
             expectedSessionId = expectedSessionId,
             expectedObservationId = expectedObservationId,
-            currentTaskRevision = currentTaskRevision,
+            currentTaskRevision = candidateTaskRevision,
         )
         if (step.type != ACTION_TYPE) return finish(invalid("wrong_action_type"))
         val args = step.toolArgs ?: return finish(invalid("missing_completion_candidate_args"))
@@ -80,7 +80,7 @@ internal object VisualCompletionPermitPolicy {
                     id = candidateId,
                     sessionId = sessionId,
                     observationId = observationId,
-                    taskRevision = currentTaskRevision.coerceAtLeast(0),
+                    taskRevision = candidateTaskRevision.coerceAtLeast(0),
                 ),
             ),
         )
