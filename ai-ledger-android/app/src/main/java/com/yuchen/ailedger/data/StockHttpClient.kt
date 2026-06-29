@@ -22,7 +22,7 @@ import okhttp3.Request
  *
  * 所有股票接口复用连接池、singleflight 和极短响应微缓存。传输层超时、限流或服务端错误后，
  * 会对同一接口族进行短暂冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个
- * Render 实例。HTTP 404/405 不进入冷却，旧服务的正式兼容 fallback 仍可正常工作。
+ * Render 实例。市场首页拥有独立冷启动恢复流程，不进入通用失败冷却。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -44,7 +44,7 @@ internal object StockHttpClient {
         .dispatcher(dispatcher)
         .connectionPool(ConnectionPool(6, 5, TimeUnit.MINUTES))
         .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(12, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
         .writeTimeout(5, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
@@ -114,7 +114,10 @@ internal object StockHttpClient {
         } catch (error: Throwable) {
             val elapsedMs = elapsedMs(startedAtNs)
             val normalized = normalizeTransportError(error, effectiveTimeoutMs, elapsedMs)
-            if (isTransportFailure(error) || isRetryableServiceFailure(error)) {
+            if (
+                shouldRememberTransportFailure(url) &&
+                (isTransportFailure(error) || isRetryableServiceFailure(error))
+            ) {
                 rememberTransportFailure(url, normalized)
             }
             owned.completeExceptionally(normalized)
@@ -128,7 +131,7 @@ internal object StockHttpClient {
         val routeCapMs = when {
             "/api/stock/a-share/realtime" in url -> 2_300
             "/api/stock/a-share/quotes" in url -> 3_200
-            "/api/stock/a-share/market/home" in url -> 4_500
+            "/api/stock/a-share/market/home" in url -> 18_000
             "/api/stock/a-share/kline" in url -> 6_500
             "/api/stock/a-share/stock/full" in url -> 8_000
             "/api/stock/a-share/detail" in url && "mode=full" in url -> 8_000
@@ -137,6 +140,10 @@ internal object StockHttpClient {
             else -> 6_500
         }
         return requestedTimeoutMs.coerceAtMost(routeCapMs).coerceAtLeast(MIN_REQUEST_TIMEOUT_MS)
+    }
+
+    private fun shouldRememberTransportFailure(url: String): Boolean {
+        return "/api/stock/a-share/market/home" !in url
     }
 
     private fun normalizeTransportError(
