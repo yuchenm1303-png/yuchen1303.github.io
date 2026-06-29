@@ -131,10 +131,29 @@ class AssistantMemoryCompilerTest {
     }
 
     @Test
+    fun customInstructionsRemainEnabledWhenLongTermMemoryIsOff() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "解释一下这个概念",
+            customInstructions = "回答保持简洁。",
+            memoryState = AssistantMemoryState(
+                accountUserId = "user-test",
+                cloudReady = true,
+                memoryEnabled = false,
+            ),
+            nowMillis = nowMillis,
+        )
+
+        assertFalse(compilation.memoryRequested)
+        assertFalse(compilation.hasAnyContext)
+        assertEquals("disabled_by_user", compilation.selectionStatus)
+        assertEquals("回答保持简洁。", compilation.personaConfigJson()?.optString("customInstructions"))
+    }
+
+    @Test
     fun anonymousChatDoesNotRequestUserMemory() {
         val compilation = AssistantMemoryCompiler.compile(
             userText = "你好",
-            customInstructions = "回答时保持通俗。",
+            customInstructions = null,
             memoryState = AssistantMemoryState(),
             nowMillis = nowMillis,
         )
