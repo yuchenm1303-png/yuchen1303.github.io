@@ -23,6 +23,21 @@ class VisualReasoningMechanicalRegressionTest {
     }
 
     @Test
+    fun legacyTapAtCoordinateSignatureAlsoIgnoresPointDrift() {
+        val context = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf(
+                "tap@81.941,191.629:ok:target=back",
+                "tap@97.840,180.833:ok:target=back",
+            ),
+        )
+
+        assertEquals(2, context.sameActionCount)
+        assertEquals(VisualReasoningDepth.Deep, context.depth)
+        assertTrue(VisualReasoningTrigger.RepeatedAction in context.triggers)
+    }
+
+    @Test
     fun repeatedProtocolFailuresAccumulateAndTriggerDeepWatchdog() {
         val context = VisualReasoningPolicy.evaluate(
             baseMemory(),
