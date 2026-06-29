@@ -37,6 +37,61 @@ data class VisualUserTaskUpdate(
     }
 }
 
+internal object VisualUserTaskUpdateRuntime {
+    private const val MAX_UPDATES = 12
+    private val lock = Any()
+    private var taskId: Long = 0L
+    private var revision: Int = 0
+    private val updates = ArrayDeque<VisualUserTaskUpdate>()
+
+    fun record(
+        rawReply: String?,
+        sourceReason: String,
+        prompt: String,
+    ): VisualUserTaskUpdate? {
+        val currentTaskId = AgentRuntimeController.currentTaskId()
+        if (currentTaskId <= 0L) return null
+        val classified = VisualUserTaskUpdateClassifier.classify(
+            rawReply = rawReply.orEmpty(),
+            sourceReason = sourceReason,
+            prompt = prompt,
+        ) ?: return null
+        return synchronized(lock) {
+            alignTaskLocked(currentTaskId)
+            val applied = classified.copy(revision = revision + 1)
+            revision = applied.revision
+            updates.addLast(applied)
+            while (updates.size > MAX_UPDATES) updates.removeFirst()
+            applied
+        }
+    }
+
+    fun updatesAfter(lastAppliedRevision: Int): List<VisualUserTaskUpdate> {
+        val currentTaskId = AgentRuntimeController.currentTaskId()
+        if (currentTaskId <= 0L) return emptyList()
+        return synchronized(lock) {
+            alignTaskLocked(currentTaskId)
+            updates.filter { it.revision > lastAppliedRevision }
+        }
+    }
+
+    internal fun resetForTests() {
+        synchronized(lock) {
+            taskId = 0L
+            revision = 0
+            updates.clear()
+        }
+    }
+
+    private fun alignTaskLocked(currentTaskId: Long) {
+        if (taskId != currentTaskId) {
+            taskId = currentTaskId
+            revision = 0
+            updates.clear()
+        }
+    }
+}
+
 internal object VisualUserTaskUpdateClassifier {
     fun classify(
         rawReply: String,
