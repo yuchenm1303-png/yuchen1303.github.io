@@ -46,6 +46,7 @@ internal object VisualLoopMemorySupport {
      */
     fun replaceMemoryLine(actions: MutableList<String>, memory: VisualTaskMemory) {
         val reasoning = VisualReasoningPolicy.evaluate(memory, actions)
+        VisualReasoningRuntime.update(reasoning)
         actions.removeAll {
             it.startsWith(LEDGER_PREFIX) ||
                 it.startsWith(LEGACY_MEMORY_PREFIX) ||
