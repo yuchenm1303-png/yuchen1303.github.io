@@ -50,11 +50,11 @@ internal object StartupPerformanceGate {
     }
 
     fun markOpenGlFirstFrameReady() {
+        // recordOpenGlFrame() 可在后续按需渲染继续调用；首帧完成后只做一次极轻量读取。
+        if (openGlFirstFrameReady.isCompleted) return
         openGlFirstFrameLatch.countDown()
-        if (!openGlFirstFrameReady.isCompleted) {
-            StartupMetrics.markOnce("OpenGL真实首帧完成")
-            openGlFirstFrameReady.complete(Unit)
-        }
+        StartupMetrics.markOnce("OpenGL真实首帧完成")
+        openGlFirstFrameReady.complete(Unit)
     }
 
     /**
