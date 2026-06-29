@@ -45,28 +45,6 @@ internal object VisualTaskContractProtocol {
             expectedEvidence = step.expectedEvidence,
             contract = contract,
         ).takeUnless { it.accepted }?.let { return it }
-
-        val current = contract.currentMilestone()
-            ?: return reject("current_milestone_missing", "The current milestone is absent from the ordered contract.")
-        val completed = contract.completedMilestoneIds.toSet() + contract.milestones.filter { it.completed }.map { it.id }
-        if (step.type != "finish" && current.id in completed) {
-            return reject(
-                code = "current_milestone_already_completed",
-                message = "A non-finish action cannot remain bound to an already completed current milestone.",
-            )
-        }
-        if (step.type == "finish") {
-            val unfinishedBeforeCurrent = contract.milestones
-                .takeWhile { it.id != current.id }
-                .any { it.id !in completed }
-            if (unfinishedBeforeCurrent) {
-                return reject(
-                    code = "finish_has_unfinished_prior_milestone",
-                    message = "A completion candidate cannot skip an earlier ordered milestone.",
-                )
-            }
-        }
-
         validateTransition(committedContract, plan.taskContract).takeUnless { it.accepted }?.let { return it }
         return Decision.Accepted
     }
@@ -88,12 +66,27 @@ internal object VisualTaskContractProtocol {
         if (ids.any(String::isBlank) || ids.distinct().size != ids.size) {
             return reject("milestone_ids_invalid", "Task-contract milestone IDs must be non-empty and unique.")
         }
-        if (contract.currentMilestoneId !in ids) {
+        val currentIndex = ids.indexOf(contract.currentMilestoneId)
+        if (currentIndex < 0) {
             return reject("current_milestone_missing", "currentMilestoneId must reference an ordered milestone.")
         }
-        val completed = contract.completedMilestoneIds.toSet()
+        val completed = contract.completedMilestoneIds.toSet() +
+            contract.milestones.filter { it.completed }.map { it.id }
         if (!ids.containsAll(completed)) {
             return reject("completed_milestone_unknown", "completedMilestoneIds must be a subset of milestone IDs.")
+        }
+        if (contract.currentMilestoneId in completed) {
+            return reject(
+                "current_milestone_already_completed",
+                "currentMilestoneId must point to the next unfinished milestone, never an already completed one.",
+            )
+        }
+        val unfinishedPrior = ids.take(currentIndex).firstOrNull { it !in completed }
+        if (unfinishedPrior != null) {
+            return reject(
+                "current_milestone_skips_unfinished_prior",
+                "An ordered task contract cannot advance past an unfinished prior milestone.",
+            )
         }
         if (contract.milestones.any { it.title.isBlank() && it.purpose.isBlank() }) {
             return reject("milestone_description_required", "Every milestone must have a title or purpose supplied by GUI Plus.")
