@@ -40,6 +40,18 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.14.3"
+      - name: Verify Worker App token
+        env:
+          AI_LEDGER_CLIENT_TOKEN: ${{ secrets.AI_LEDGER_CLIENT_TOKEN }}
+        run: |
+          if [ -z "${AI_LEDGER_CLIENT_TOKEN}" ]; then
+            echo "::error::缺少 GitHub Actions Secret：AI_LEDGER_CLIENT_TOKEN"
+            exit 1
+          fi
+          if [ "${#AI_LEDGER_CLIENT_TOKEN}" -lt 32 ]; then
+            echo "::error::AI_LEDGER_CLIENT_TOKEN 长度异常，请确认复制的是完整随机令牌"
+            exit 1
+          fi
       - name: Test and build debug APK
         working-directory: ai-ledger-android
         env:
@@ -82,6 +94,18 @@ jobs:
         with:
           gradle-version: "8.14.3"
           cache-read-only: true
+      - name: Verify Worker App token
+        env:
+          AI_LEDGER_CLIENT_TOKEN: ${{ secrets.AI_LEDGER_CLIENT_TOKEN }}
+        run: |
+          if [ -z "${AI_LEDGER_CLIENT_TOKEN}" ]; then
+            echo "::error::缺少 GitHub Actions Secret：AI_LEDGER_CLIENT_TOKEN"
+            exit 1
+          fi
+          if [ "${#AI_LEDGER_CLIENT_TOKEN}" -lt 32 ]; then
+            echo "::error::AI_LEDGER_CLIENT_TOKEN 长度异常，请确认复制的是完整随机令牌"
+            exit 1
+          fi
       - name: Build performance APK
         working-directory: ai-ledger-android
         env:
