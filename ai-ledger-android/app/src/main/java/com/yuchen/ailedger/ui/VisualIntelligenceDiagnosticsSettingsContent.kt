@@ -74,154 +74,158 @@ internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiStat
         }
     }
 
-    DiagnosticSectionHeader()
-    DiagnosticOverviewCard(
-        enabled = diagnostics.enabled,
-        taskCount = diagnostics.sessions.size,
-        observationCount = diagnostics.sessions.sumOf { it.observationCount },
-        frameCount = diagnostics.sessions.sumOf { it.frameCount },
-        onEnabledChange = store::setEnabled,
-    )
-
-    if (diagnostics.sessions.isEmpty()) {
-        DiagnosticEmptyState()
-    } else {
-        Text(
-            "最近任务",
-            color = Color.White.copy(alpha = 0.78f),
-            fontSize = 13.5.sp,
-            fontWeight = FontWeight.Black,
-        )
-        diagnostics.sessions.take(6).forEach { session ->
-            DiagnosticSessionRow(
-                session = session,
-                selected = session.taskId == selectedTaskId,
-                onClick = {
-                    if (selectedTaskId != session.taskId) {
-                        selectedTaskId = session.taskId
-                        loadedTaskId = 0L
-                        detailText = ""
-                    }
-                },
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(18.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            DiagnosticSectionHeader()
+            DiagnosticOverviewCard(
+                enabled = diagnostics.enabled,
+                taskCount = diagnostics.sessions.size,
+                observationCount = diagnostics.sessions.sumOf { it.observationCount },
+                frameCount = diagnostics.sessions.sumOf { it.frameCount },
+                onEnabledChange = store::setEnabled,
             )
         }
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            DiagnosticActionButton(
-                title = "复制诊断文本",
-                subtitle = "已脱敏",
-                state = state,
-                modifier = Modifier.weight(1f),
-                enabled = selectedTaskId > 0L,
-            ) {
-                scope.launch {
-                    val text = store.readSessionText(selectedTaskId)
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                    clipboard?.setPrimaryClip(ClipData.newPlainText("视觉智能诊断", text))
-                    Toast.makeText(context, "诊断文本已复制", Toast.LENGTH_SHORT).show()
-                }
-            }
-            DiagnosticActionButton(
-                title = "导出诊断包",
-                subtitle = "ZIP · 可保存到下载",
-                state = state,
-                modifier = Modifier.weight(1f),
-                enabled = selectedTaskId > 0L,
-            ) {
-                scope.launch {
-                    val file = store.exportSession(selectedTaskId)
-                    if (file == null) {
-                        Toast.makeText(context, "诊断包生成失败", Toast.LENGTH_SHORT).show()
-                        return@launch
-                    }
-                    val uri = FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        file,
+        if (diagnostics.sessions.isEmpty()) {
+            DiagnosticEmptyState()
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                DiagnosticSectionTitle("最近任务")
+                diagnostics.sessions.take(6).forEach { session ->
+                    DiagnosticSessionRow(
+                        session = session,
+                        selected = session.taskId == selectedTaskId,
+                        onClick = {
+                            if (selectedTaskId != session.taskId) {
+                                selectedTaskId = session.taskId
+                                loadedTaskId = 0L
+                                detailText = ""
+                            }
+                        },
                     )
-                    val intent = Intent(Intent.ACTION_SEND).apply {
-                        type = "application/zip"
-                        putExtra(Intent.EXTRA_STREAM, uri)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    context.startActivity(Intent.createChooser(intent, "导出视觉智能诊断包"))
                 }
             }
-        }
 
-        DiagnosticActionButton(
-            title = "清空诊断记录",
-            subtitle = "删除本机诊断文本与截图",
-            state = state,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = diagnostics.sessions.isNotEmpty(),
-        ) {
-            store.clearAll()
-            selectedTaskId = 0L
-            loadedTaskId = 0L
-            detailText = ""
-            Toast.makeText(context, "诊断记录已清空", Toast.LENGTH_SHORT).show()
-        }
-
-        DiagnosticActionButton(
-            title = when {
-                loadingDetail -> "正在加载诊断预览"
-                loadedTaskId == selectedTaskId && detailText.isNotBlank() -> "刷新诊断预览"
-                else -> "加载诊断预览"
-            },
-            subtitle = "仅在需要时读取，页面打开不再自动构建报告",
-            state = state,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = selectedTaskId > 0L && !loadingDetail,
-        ) {
-            scope.launch {
-                loadingDetail = true
-                val taskId = selectedTaskId
-                runCatching { store.readSessionText(taskId) }
-                    .onSuccess { text ->
-                        if (selectedTaskId == taskId) {
-                            detailText = text.takeLast(DiagnosticPreviewMaxChars)
-                            loadedTaskId = taskId
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                DiagnosticSectionTitle("诊断操作")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    DiagnosticActionButton(
+                        title = "复制诊断文本",
+                        subtitle = "已脱敏",
+                        state = state,
+                        modifier = Modifier.weight(1f),
+                        enabled = selectedTaskId > 0L,
+                    ) {
+                        scope.launch {
+                            val text = store.readSessionText(selectedTaskId)
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                            clipboard?.setPrimaryClip(ClipData.newPlainText("视觉智能诊断", text))
+                            Toast.makeText(context, "诊断文本已复制", Toast.LENGTH_SHORT).show()
                         }
                     }
-                    .onFailure {
-                        if (selectedTaskId == taskId) {
-                            detailText = "诊断预览读取失败"
-                            loadedTaskId = taskId
+                    DiagnosticActionButton(
+                        title = "导出诊断包",
+                        subtitle = "ZIP · 可保存到下载",
+                        state = state,
+                        modifier = Modifier.weight(1f),
+                        enabled = selectedTaskId > 0L,
+                    ) {
+                        scope.launch {
+                            val file = store.exportSession(selectedTaskId)
+                            if (file == null) {
+                                Toast.makeText(context, "诊断包生成失败", Toast.LENGTH_SHORT).show()
+                                return@launch
+                            }
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file,
+                            )
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "application/zip"
+                                putExtra(Intent.EXTRA_STREAM, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "导出视觉智能诊断包"))
                         }
                     }
-                loadingDetail = false
+                }
+
+                DiagnosticActionButton(
+                    title = "清空诊断记录",
+                    subtitle = "删除本机诊断文本与截图",
+                    state = state,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = diagnostics.sessions.isNotEmpty(),
+                ) {
+                    store.clearAll()
+                    selectedTaskId = 0L
+                    loadedTaskId = 0L
+                    detailText = ""
+                    Toast.makeText(context, "诊断记录已清空", Toast.LENGTH_SHORT).show()
+                }
+
+                DiagnosticActionButton(
+                    title = when {
+                        loadingDetail -> "正在加载诊断预览"
+                        loadedTaskId == selectedTaskId && detailText.isNotBlank() -> "刷新诊断预览"
+                        else -> "加载诊断预览"
+                    },
+                    subtitle = "仅在需要时读取，页面打开不再自动构建报告",
+                    state = state,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = selectedTaskId > 0L && !loadingDetail,
+                ) {
+                    scope.launch {
+                        loadingDetail = true
+                        val taskId = selectedTaskId
+                        runCatching { store.readSessionText(taskId) }
+                            .onSuccess { text ->
+                                if (selectedTaskId == taskId) {
+                                    detailText = text.takeLast(DiagnosticPreviewMaxChars)
+                                    loadedTaskId = taskId
+                                }
+                            }
+                            .onFailure {
+                                if (selectedTaskId == taskId) {
+                                    detailText = "诊断预览读取失败"
+                                    loadedTaskId = taskId
+                                }
+                            }
+                        loadingDetail = false
+                    }
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                DiagnosticSectionTitle("诊断预览")
+                Text(
+                    when {
+                        loadingDetail -> "正在读取诊断记录…"
+                        loadedTaskId != selectedTaskId -> "默认不读取完整诊断报告，点击“加载诊断预览”后显示。"
+                        detailText.isBlank() -> "暂无可显示内容"
+                        else -> detailText
+                    },
+                    color = Color.White.copy(alpha = 0.58f),
+                    fontSize = 9.5.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 30,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color.Black.copy(alpha = 0.16f))
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                )
             }
         }
-
-        Text(
-            "诊断预览",
-            color = Color.White.copy(alpha = 0.78f),
-            fontSize = 13.5.sp,
-            fontWeight = FontWeight.Black,
-        )
-        Text(
-            when {
-                loadingDetail -> "正在读取诊断记录…"
-                loadedTaskId != selectedTaskId -> "默认不读取完整诊断报告，点击“加载诊断预览”后显示。"
-                detailText.isBlank() -> "暂无可显示内容"
-                else -> detailText
-            },
-            color = Color.White.copy(alpha = 0.58f),
-            fontSize = 9.5.sp,
-            lineHeight = 14.sp,
-            fontWeight = FontWeight.Medium,
-            maxLines = 30,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.Black.copy(alpha = 0.16f))
-                .padding(horizontal = 12.dp, vertical = 11.dp),
-        )
     }
 }
 
@@ -258,6 +262,18 @@ private fun DiagnosticSectionHeader() {
 }
 
 @Composable
+private fun DiagnosticSectionTitle(title: String) {
+    Text(
+        title,
+        color = Color.White.copy(alpha = 0.82f),
+        fontSize = 14.sp,
+        lineHeight = 18.sp,
+        fontWeight = FontWeight.Black,
+        modifier = Modifier.padding(horizontal = 2.dp),
+    )
+}
+
+@Composable
 private fun DiagnosticOverviewCard(
     enabled: Boolean,
     taskCount: Int,
@@ -270,15 +286,15 @@ private fun DiagnosticOverviewCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(Color.White.copy(alpha = 0.058f))
-            .padding(horizontal = 14.dp, vertical = 13.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+            .padding(horizontal = 15.dp, vertical = 15.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     "采集真实决策链",
                     color = Color.White.copy(alpha = 0.92f),
@@ -325,7 +341,9 @@ private fun DiagnosticOverviewCard(
         )
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             DiagnosticMetric("任务", taskCount.toString(), Modifier.weight(1f))
@@ -344,9 +362,9 @@ private fun DiagnosticMetric(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Text(
             label,
@@ -372,7 +390,7 @@ private fun DiagnosticMetricDivider() {
     Box(
         Modifier
             .width(1.dp)
-            .height(34.dp)
+            .height(36.dp)
             .background(Color.White.copy(alpha = 0.08f))
     )
 }
@@ -384,13 +402,13 @@ private fun DiagnosticEmptyState() {
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(Color.White.copy(alpha = 0.042f))
-            .padding(horizontal = 14.dp, vertical = 13.dp),
+            .padding(horizontal = 15.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(13.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(42.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(DiagnosticAccent.copy(alpha = 0.075f)),
             contentAlignment = Alignment.Center,
@@ -402,7 +420,7 @@ private fun DiagnosticEmptyState() {
                 fontWeight = FontWeight.Black,
             )
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 "暂无诊断记录",
                 color = Color.White.copy(alpha = 0.82f),
@@ -436,13 +454,17 @@ private fun DiagnosticSessionRow(
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(20.dp))
             .background(Color.White.copy(alpha = if (selected) 0.095f else 0.048f))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             Text(
                 session.goal.ifBlank { "手机智能体任务" },
                 color = Color.White.copy(alpha = if (selected) 0.94f else 0.78f),
@@ -452,7 +474,13 @@ private fun DiagnosticSessionRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Text(time, color = Color.White.copy(alpha = 0.38f), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
+            Text(
+                time,
+                color = Color.White.copy(alpha = 0.38f),
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+            )
         }
         Text(
             "${session.status} · ${session.eventCount} 条事件 · ${session.frameCount} 张图 · ID ${session.taskId}",
@@ -490,29 +518,38 @@ private fun DiagnosticActionButton(
         quality = state.quality,
         glassIntensity = state.glassIntensity * if (enabled) 0.90f else 0.62f,
         motionIntensity = state.motionIntensity,
-        radius = 20,
-        modifier = modifier.height(58.dp),
+        radius = 22,
+        modifier = modifier.height(64.dp),
         role = GlassRole.Chip,
         onClick = { if (enabled) onClick() },
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(58.dp)
-                .padding(horizontal = 12.dp, vertical = 9.dp),
+                .height(64.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            Column(verticalArrangement = Arrangement.SpaceBetween) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
                 Text(
                     title,
                     color = Color.White.copy(alpha = if (enabled) 0.90f else 0.38f),
                     fontSize = 13.sp,
+                    lineHeight = 17.sp,
                     fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     subtitle,
                     color = Color.White.copy(alpha = if (enabled) 0.46f else 0.24f),
                     fontSize = 9.5.sp,
+                    lineHeight = 13.sp,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
