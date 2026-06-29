@@ -346,7 +346,7 @@ internal object VisualLoopSupport {
             add(signature)
             add(status)
             target?.let { add("target=${it.take(56)}") }
-            executionTrace?.let { add("executionTrace=${it.take(360)}") }
+            executionTrace?.let { add("executionTrace=${it.take(MAX_EXECUTION_TRACE_CHARS)}") }
             add("result=${result.message.take(80)}")
         }.joinToString(":").take(MAX_RECENT_ACTION_CHARS)
         val diagnosticSummary = if (step.type == "input_text") {
@@ -405,13 +405,13 @@ internal object VisualLoopSupport {
             add("mapping=$mapping")
             add("space=$coordinateSpace")
             if (displayWidth != null && displayHeight != null) add("sourceFrame=${displayWidth}x$displayHeight")
+            actualPoint?.let { add("executedPx=${formatTraceCoordinate(it.first)},${formatTraceCoordinate(it.second)}") }
             if (imageWidth != null && imageHeight != null) add("modelImage=${imageWidth}x$imageHeight")
             if (modelX != null && modelY != null) add("modelNorm=${formatTraceCoordinate(modelX)},${formatTraceCoordinate(modelY)}")
             if (modelPixelX != null && modelPixelY != null) add("modelPx=${formatTraceCoordinate(modelPixelX)},${formatTraceCoordinate(modelPixelY)}")
             if (materializedX != null && materializedY != null) {
                 add("materializedPx=${formatTraceCoordinate(materializedX)},${formatTraceCoordinate(materializedY)}")
             }
-            actualPoint?.let { add("executedPx=${formatTraceCoordinate(it.first)},${formatTraceCoordinate(it.second)}") }
             add("secondaryVerifierRequired=false")
             add("groundingApplied=false")
             add("boundaryAdjusted=$boundaryAdjusted")
@@ -487,6 +487,7 @@ internal object VisualLoopSupport {
     }
 
     private val EXECUTED_POINT_PATTERN = Regex("实际落点\\s+(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
+    private const val MAX_EXECUTION_TRACE_CHARS = 640
     private const val REOBSERVE_WAIT_MS = 220L
     private const val HUD_POINTER_LEAD_MS = 240L
     private const val TRACE_SURFACE_MODE = "__androidVisualSurfaceMode"
