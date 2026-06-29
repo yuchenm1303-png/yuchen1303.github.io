@@ -128,10 +128,12 @@ internal object StockHttpClient {
     }
 
     private fun effectiveTimeoutMs(url: String, requestedTimeoutMs: Int): Int {
+        if ("/api/stock/a-share/market/home" in url) {
+            return MARKET_HOME_TIMEOUT_MS
+        }
         val routeCapMs = when {
             "/api/stock/a-share/realtime" in url -> 2_300
             "/api/stock/a-share/quotes" in url -> 3_200
-            "/api/stock/a-share/market/home" in url -> 18_000
             "/api/stock/a-share/kline" in url -> 6_500
             "/api/stock/a-share/stock/full" in url -> 8_000
             "/api/stock/a-share/detail" in url && "mode=full" in url -> 8_000
@@ -242,6 +244,7 @@ internal object StockHttpClient {
 
     private const val DEFAULT_MICRO_CACHE_MS = 220L
     private const val MIN_REQUEST_TIMEOUT_MS = 700
+    private const val MARKET_HOME_TIMEOUT_MS = 18_000
     private const val SHARED_WAIT_GRACE_MS = 250L
     private const val TRANSPORT_FAILURE_COOLDOWN_MS = 2_500L
     private const val MAX_RECENT_RESPONSES = 64
