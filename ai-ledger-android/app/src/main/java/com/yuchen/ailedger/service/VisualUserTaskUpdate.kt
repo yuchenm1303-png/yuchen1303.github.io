@@ -58,6 +58,16 @@ internal object VisualUserTaskUpdateRuntime {
         ) ?: return null
         return synchronized(lock) {
             alignTaskLocked(currentTaskId)
+            val previous = updates.lastOrNull()
+            if (
+                previous != null &&
+                previous.kind == classified.kind &&
+                previous.content == classified.content &&
+                previous.sourceReason == classified.sourceReason &&
+                previous.replyToPrompt == classified.replyToPrompt
+            ) {
+                return@synchronized previous
+            }
             val applied = classified.copy(revision = revision + 1)
             revision = applied.revision
             updates.addLast(applied)
@@ -100,10 +110,10 @@ internal object VisualUserTaskUpdateClassifier {
     ): VisualUserTaskUpdate? {
         val raw = rawReply.trim()
         if (raw.isBlank()) return null
-        if (raw == VisualLoopSupport.PRIVATE_COMPLETION_TOKEN) {
+        if (raw == VisualLoopSupport.PRIVATE_COMPLETION_TOKEN || raw == SAFE_MANUAL_COMPLETION_TEXT) {
             return VisualUserTaskUpdate(
                 kind = VisualUserTaskUpdateKind.ManualStepCompleted,
-                content = "[用户已完成手动步骤]",
+                content = SAFE_MANUAL_COMPLETION_TEXT,
                 sourceReason = sourceReason.take(MAX_REASON_CHARS),
                 replyToPrompt = prompt.take(MAX_PROMPT_CHARS),
                 manualStepCompleted = true,
@@ -157,6 +167,7 @@ internal object VisualUserTaskUpdateClassifier {
     )
     private val CORRECTION_PREFIXES = listOf("不是", "不对", "错了", "应该", "应当")
     private val CORRECTION_MARKERS = listOf("我说的是", "不是这个", "理解错了", "目标不对")
+    private const val SAFE_MANUAL_COMPLETION_TEXT = "[用户已完成手动步骤]"
     private const val MAX_REASON_CHARS = 120
     private const val MAX_PROMPT_CHARS = 320
 }
