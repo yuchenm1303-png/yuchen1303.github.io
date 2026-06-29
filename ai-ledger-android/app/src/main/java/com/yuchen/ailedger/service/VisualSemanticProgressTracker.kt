@@ -1,15 +1,16 @@
 package com.yuchen.ailedger.service
 
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Structural execution ledger for the GUI Plus loop.
+ * Objective execution ledger for the GUI Plus loop.
  *
- * Android never invents page meaning or task evidence. It preserves cloud-declared milestones,
- * authoritative user updates and action hypotheses, then attaches only objective execution facts.
+ * Android owns protocol integrity, package ownership, execution results and authoritative user task
+ * revisions. It never infers page meaning, visual progress, success evidence or failed hypotheses.
+ * GUI Plus receives the fresh screenshots and exclusively decides all visual semantics.
  */
 enum class VisualSemanticProgressStatus(val wireValue: String) {
+    Observed("observed"),
     Advanced("advanced"),
     Stalled("stalled"),
     Regressed("regressed"),
@@ -20,6 +21,7 @@ data class VisualSemanticProgressResult(
     val status: VisualSemanticProgressStatus,
     val actionSignature: String,
     val milestoneId: String,
+    /** Objective frame-byte/structure difference only; never interpreted as progress. */
     val pageChanged: Boolean,
     val packageChanged: Boolean,
     val expectedEvidenceMatched: List<String>,
@@ -43,12 +45,11 @@ data class VisualSemanticProgressResult(
         }
         return buildString {
             append(prefix)
-            append("|screenChanged=").append(pageChanged)
+            append("|executionObserved=true")
+            append("|frameChanged=").append(pageChanged)
             append("|packageChanged=").append(packageChanged)
             append("|structuralRegression=").append(structuralRegression)
             append("|milestone=").append(milestoneId.take(80))
-            append("|failedHypothesisCount=").append(failedHypothesisCount)
-            append("|explorationBudgetRemaining=").append(explorationBudgetRemaining)
             append("|semanticDecisionOwner=gui_plus")
             append("|localSemanticDecision=false")
             append("|requiresStrategyChange=").append(requiresStrategyChange)
@@ -77,8 +78,6 @@ class VisualSemanticProgressTracker(
     private var structuralReplanRequested: Boolean = false
     private var remainingExplorationBudget: Int = legacyExplorationBudgetPerMilestone.coerceAtLeast(1)
     private val confirmedFacts = linkedSetOf<String>()
-    private val failedHypotheses = linkedMapOf<String, VisualFailedHypothesis>()
-    private val blockedActions = linkedMapOf<String, VisualBlockedAction>()
     private var taskRevision: Int = 0
     private var taskRevisionPending: Boolean = false
     private var currentMilestoneInvalidated: Boolean = false
@@ -115,6 +114,8 @@ class VisualSemanticProgressTracker(
                 put("taskRevision", taskRevision)
                 put("contractTaskRevision", normalized.taskRevision)
                 put("taskRevisionPending", taskRevisionPending)
+                put("semanticDecisionOwner", "gui_plus")
+                put("localProgressClassification", false)
                 put("taskContract", normalized.toJson())
             },
         )
@@ -133,7 +134,7 @@ class VisualSemanticProgressTracker(
 
     fun onVerifiedSurface(snapshot: AgentScreenSnapshot) {
         syncRuntimeUserUpdates()
-        currentPage = structuralPage(snapshot)
+        currentPage = structuralFrame(snapshot)
         lastConfirmedPage = currentPage
         structuralReplanRequested = taskRevisionPending
         lastProgressStatus = if (taskRevisionPending) "user_update_pending_replan" else "surface_verified"
@@ -142,9 +143,10 @@ class VisualSemanticProgressTracker(
             type = "surface_verified",
             details = JSONObject().apply {
                 put("packageName", snapshot.packageName)
-                put("surfaceId", currentPage?.id.orEmpty())
+                put("frameId", currentPage?.id.orEmpty())
                 put("hasVisualFrame", snapshot.visual?.hasImage == true)
                 put("taskRevisionPending", taskRevisionPending)
+                put("semanticDecisionOwner", "gui_plus")
             },
         )
     }
@@ -153,41 +155,27 @@ class VisualSemanticProgressTracker(
         syncRuntimeUserUpdates()
         structuralReplanRequested = taskRevisionPending
         lastProgressStatus = if (taskRevisionPending) "user_update_pending_replan" else "user_takeover_reset"
-        blockedActions.clear()
         snapshot?.let {
-            currentPage = structuralPage(it)
+            currentPage = structuralFrame(it)
             lastConfirmedPage = currentPage
         }
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "user_takeover_memory_reset",
             details = JSONObject().apply {
                 put("packageName", snapshot?.packageName.orEmpty())
-                put("surfaceId", currentPage?.id.orEmpty())
-                put("blockedActionsCleared", true)
+                put("frameId", currentPage?.id.orEmpty())
                 put("taskRevision", taskRevision)
                 put("taskRevisionPending", taskRevisionPending)
+                put("localSemanticStateCleared", true)
             },
         )
     }
 
-    /** Only an exact cloud-declared hypothesis on the same structural page can be blocked. */
-    fun blockedHypothesisReason(step: CloudAgentStep, snapshot: AgentScreenSnapshot): String? {
-        syncRuntimeUserUpdates()
-        if (taskRevisionPending) return null
-        val intent = step.actionIntent
-        if (!intent.hasSemanticContract) return null
-        val hypothesisId = intent.hypothesisId.trim()
-        if (hypothesisId.isBlank()) return null
-        val milestoneId = intent.milestoneId.ifBlank { currentMilestoneId }
-        val pageId = structuralPage(snapshot).id
-        val cluster = VisualActionValidator.actionClusterSignature(step)
-        return blockedActions.values.firstOrNull {
-            it.milestoneId == milestoneId &&
-                it.pageStateId == pageId &&
-                it.actionCluster == cluster &&
-                it.hypothesisId == hypothesisId
-        }?.reason
-    }
+    /** GUI Plus actions are never blocked by a locally inferred page/hypothesis rule. */
+    fun blockedHypothesisReason(
+        @Suppress("UNUSED_PARAMETER") step: CloudAgentStep,
+        @Suppress("UNUSED_PARAMETER") snapshot: AgentScreenSnapshot,
+    ): String? = null
 
     fun evaluate(
         step: CloudAgentStep,
@@ -199,77 +187,51 @@ class VisualSemanticProgressTracker(
         syncRuntimeUserUpdates()
         val beforeFingerprint = VisualActionValidator.snapshotFingerprint(before)
         val afterFingerprint = VisualActionValidator.snapshotFingerprint(after)
-        val pageChanged = beforeFingerprint != afterFingerprint
+        val frameChanged = beforeFingerprint != afterFingerprint
         val packageChanged = before.packageName != after.packageName
         val structuralRegression = structuralRegressionConfirmed && verifiedTargetPackage.isNotBlank()
         val stepMilestoneId = step.milestoneId?.trim().orEmpty()
         if (stepMilestoneId.isNotBlank()) currentMilestoneId = stepMilestoneId.take(100)
 
-        val status = when {
-            structuralRegression -> VisualSemanticProgressStatus.Regressed
-            pageChanged -> VisualSemanticProgressStatus.Advanced
-            else -> VisualSemanticProgressStatus.Stalled
-        }
-        currentPage = structuralPage(after)
+        currentPage = structuralFrame(after)
         if (!structuralRegression) lastConfirmedPage = currentPage
-
-        val failure = if (structuralRegression || !pageChanged) {
-            recordObjectiveFailure(
-                step = step,
-                page = structuralPage(before),
-                reason = if (structuralRegression) "verified_work_surface_lost" else "screen_structure_unchanged",
-            )
-        } else null
-        if (pageChanged) {
-            addConfirmedFact(
-                "screen_transition:${structuralPage(before).id}->${currentPage?.id.orEmpty()}:action=${VisualActionValidator.actionSignature(step).take(120)}",
-            )
-        }
-
-        val repeatedFailure = (failure?.count ?: 0) >= BLOCK_AFTER_FAILURE_COUNT
-        val budgetExhausted = remainingExplorationBudget <= 0
-        val requiresStrategyChange = structuralRegression || repeatedFailure || budgetExhausted || taskRevisionPending
-        val requiresReplan = requiresStrategyChange
+        val requiresReplan = structuralRegression || taskRevisionPending
         structuralReplanRequested = requiresReplan
         lastProgressStatus = when {
             taskRevisionPending -> "user_update_pending_replan"
             structuralRegression -> "structural_regression"
-            pageChanged -> "screen_changed_unjudged"
-            repeatedFailure -> "repeated_hypothesis_failure"
-            budgetExhausted -> "exploration_budget_exhausted"
-            else -> "screen_unchanged_unjudged"
+            else -> "execution_observed"
         }
-
         val reason = when {
-            taskRevisionPending -> "A newer authoritative user task revision is pending; the previous semantic route is invalid."
-            structuralRegression -> "The Android-verified target package was lost after consecutive foreign-package evidence."
-            pageChanged -> "The observed screen structure changed. GUI Plus exclusively decides whether this is task progress."
-            repeatedFailure -> "The same GUI Plus hypothesis produced the same unchanged structural outcome repeatedly on this page; choose a different hypothesis."
-            budgetExhausted -> "The cloud-declared milestone exploration budget is exhausted; GUI Plus must replan instead of widening exploration."
-            else -> "The observed screen structure remained stable. GUI Plus exclusively decides the next action."
+            taskRevisionPending ->
+                "A newer authoritative user task revision is pending; GUI Plus must plan from the fresh screenshot."
+            structuralRegression ->
+                "The Android-verified target package was lost after consecutive foreign-package evidence."
+            else ->
+                "Android recorded the execution and fresh frame only. GUI Plus exclusively decides visual progress and page meaning."
         }
         val memory = memorySnapshot()
         val result = VisualSemanticProgressResult(
-            status = status,
+            status = if (structuralRegression) VisualSemanticProgressStatus.Regressed else VisualSemanticProgressStatus.Observed,
             actionSignature = VisualActionValidator.actionSignature(step),
             milestoneId = currentMilestoneId,
-            pageChanged = pageChanged,
+            pageChanged = frameChanged,
             packageChanged = packageChanged,
             expectedEvidenceMatched = emptyList(),
             failureEvidenceMatched = emptyList(),
             newEvidence = emptyList(),
-            failedHypothesisCount = memory.failedHypotheses.size,
+            failedHypothesisCount = 0,
             explorationBudgetRemaining = memory.remainingExplorationBudget,
-            requiresStrategyChange = requiresStrategyChange,
+            requiresStrategyChange = requiresReplan,
             requiresReplan = requiresReplan,
-            reobserveRecommended = !pageChanged && !repeatedFailure && !budgetExhausted,
+            reobserveRecommended = false,
             shouldPauseForUser = false,
             structuralRegression = structuralRegression,
             reason = reason,
             taskMemory = memory,
         )
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
-            type = "semantic_progress",
+            type = "execution_observation_ledger",
             details = JSONObject().apply {
                 put("stepType", step.type)
                 put("actionSignature", result.actionSignature)
@@ -279,19 +241,17 @@ class VisualSemanticProgressTracker(
                 put("verifiedTargetPackage", verifiedTargetPackage)
                 put("beforeFingerprint", beforeFingerprint)
                 put("afterFingerprint", afterFingerprint)
-                put("pageChanged", pageChanged)
+                put("frameChanged", frameChanged)
+                put("frameChangeInterpretedAsProgress", false)
                 put("packageChanged", packageChanged)
                 put("structuralRegressionConfirmed", structuralRegressionConfirmed)
                 put("structuralRegression", structuralRegression)
-                put("failedHypothesis", failure?.toJson() ?: JSONObject.NULL)
-                put("failedHypothesisCount", result.failedHypothesisCount)
-                put("blockedActions", JSONArray().apply { memory.blockedActions.forEach { put(it.toJson()) } })
-                put("explorationBudgetRemaining", result.explorationBudgetRemaining)
-                put("requiresStrategyChange", result.requiresStrategyChange)
-                put("requiresReplan", result.requiresReplan)
+                put("failedHypothesisCount", 0)
+                put("blockedActionCount", 0)
+                put("requiresReplan", requiresReplan)
                 put("taskRevision", taskRevision)
                 put("taskRevisionPending", taskRevisionPending)
-                put("reason", reason)
+                put("semanticDecisionOwner", "gui_plus")
                 put("beforeHasVisual", before.visual?.hasImage == true)
                 put("afterHasVisual", after.visual?.hasImage == true)
             },
@@ -302,7 +262,7 @@ class VisualSemanticProgressTracker(
     fun memorySnapshot(snapshot: AgentScreenSnapshot? = null): VisualTaskMemory {
         syncRuntimeUserUpdates()
         consumeAcceptedRevisionIfPossible()
-        snapshot?.let { currentPage = structuralPage(it) }
+        snapshot?.let { currentPage = structuralFrame(it) }
         val contract = taskContract
         val neutralBudget = if (contract == null) {
             remainingExplorationBudget.coerceAtLeast(1)
@@ -316,8 +276,8 @@ class VisualSemanticProgressTracker(
             completedMilestoneIds = completedMilestoneIds.toList().takeLast(MAX_MEMORY_ITEMS),
             currentPage = currentPage,
             confirmedFacts = confirmedFacts.toList().takeLast(MAX_MEMORY_ITEMS),
-            failedHypotheses = failedHypotheses.values.toList().takeLast(MAX_MEMORY_ITEMS),
-            blockedActions = blockedActions.values.toList().takeLast(MAX_MEMORY_ITEMS),
+            failedHypotheses = emptyList(),
+            blockedActions = emptyList(),
             remainingExplorationBudget = neutralBudget,
             lastConfirmedPage = lastConfirmedPage,
             progressStatus = lastProgressStatus,
@@ -349,9 +309,7 @@ class VisualSemanticProgressTracker(
         currentMilestoneInvalidated = currentMilestoneInvalidated || update.invalidatesCurrentMilestone
         structuralReplanRequested = true
         lastProgressStatus = "user_update_${update.kind.wireValue}_pending"
-        blockedActions.clear()
         if (update.invalidatesCurrentMilestone) {
-            failedHypotheses.clear()
             remainingExplorationBudget = taskContract?.explorationBudgetPerMilestone
                 ?.coerceIn(1, 4)
                 ?: defaultExplorationBudgetPerMilestone.coerceAtLeast(1)
@@ -388,47 +346,6 @@ class VisualSemanticProgressTracker(
                 put("stepMilestoneId", step?.milestoneId.orEmpty())
             },
         )
-    }
-
-    private fun recordObjectiveFailure(
-        step: CloudAgentStep,
-        page: VisualPageState,
-        reason: String,
-    ): VisualFailedHypothesis? {
-        if (taskRevisionPending) return null
-        val intent = step.actionIntent
-        if (!intent.hasSemanticContract) return null
-        val hypothesisId = intent.hypothesisId.trim()
-        if (hypothesisId.isBlank()) return null
-        val milestoneId = intent.milestoneId.ifBlank { currentMilestoneId }.take(100)
-        val actionSignature = VisualActionValidator.actionSignature(step)
-        val actionCluster = VisualActionValidator.actionClusterSignature(step)
-        val key = listOf(milestoneId, page.id, hypothesisId, actionCluster).joinToString("|")
-        val previous = failedHypotheses[key]
-        val updated = VisualFailedHypothesis(
-            hypothesisId = hypothesisId.take(120),
-            milestoneId = milestoneId,
-            pageStateId = page.id,
-            actionSignature = actionSignature.take(240),
-            actionCluster = actionCluster.take(240),
-            purpose = intent.purpose.take(240),
-            failureReason = reason.take(240),
-            count = (previous?.count ?: 0) + 1,
-        )
-        failedHypotheses[key] = updated
-        trimMap(failedHypotheses)
-        if (intent.exploratory) remainingExplorationBudget = (remainingExplorationBudget - 1).coerceAtLeast(0)
-        if (updated.count >= BLOCK_AFTER_FAILURE_COUNT) {
-            blockedActions[key] = VisualBlockedAction(
-                milestoneId = milestoneId,
-                pageStateId = page.id,
-                actionCluster = actionCluster.take(240),
-                hypothesisId = hypothesisId.take(120),
-                reason = "Repeated objective failure for the same GUI Plus hypothesis on the same structural page; replan with a different hypothesis.",
-            )
-            trimMap(blockedActions)
-        }
-        return updated
     }
 
     private fun mergeTaskContracts(
@@ -479,14 +396,10 @@ class VisualSemanticProgressTracker(
         while (confirmedFacts.size > MAX_MEMORY_ITEMS) confirmedFacts.remove(confirmedFacts.first())
     }
 
-    private fun <T> trimMap(map: LinkedHashMap<String, T>) {
-        while (map.size > MAX_MEMORY_ITEMS) map.remove(map.keys.first())
-    }
-
-    private fun structuralPage(snapshot: AgentScreenSnapshot): VisualPageState {
+    private fun structuralFrame(snapshot: AgentScreenSnapshot): VisualPageState {
         val fingerprint = VisualActionValidator.completionFingerprint(snapshot)
         return VisualPageState(
-            id = "surface-${Integer.toHexString(fingerprint.hashCode())}",
+            id = "frame-${Integer.toHexString(fingerprint.hashCode())}",
             packageName = snapshot.packageName.take(120),
             summary = "",
         )
@@ -496,6 +409,5 @@ class VisualSemanticProgressTracker(
         private const val DEFAULT_MILESTONE_ID = "work_surface"
         private const val MAX_MEMORY_ITEMS = 24
         private const val MAX_USER_UPDATES = 8
-        private const val BLOCK_AFTER_FAILURE_COUNT = 2
     }
 }
