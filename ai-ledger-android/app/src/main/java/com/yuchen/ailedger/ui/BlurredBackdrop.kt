@@ -3,8 +3,11 @@ package com.yuchen.ailedger.ui
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -38,12 +41,17 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val MAX_BACKDROP_BLUR_AMOUNT = 4f
 private const val FULL_BACKDROP_BLUR_LEVEL_COUNT = 3
 private const val BACKDROP_TEXTURE_DIMENSION_BUCKET = 8
+
+private const val OPENGL_BACKDROP_PHASE_EMPTY = 0
+private const val OPENGL_BACKDROP_PHASE_CRITICAL = 1
+private const val OPENGL_BACKDROP_PHASE_COMPLETE = 2
 
 data class BlurredBackdropBitmap(
     val image: ImageBitmap,
@@ -91,6 +99,71 @@ internal class BackdropPixelScratch(pixelCount: Int) {
 }
 
 val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
+
+/**
+ * Only the single Shell OpenGL host observes this bridge. Ordinary Card/Chip/Floating/Nav/Flex
+ * components continue to read LocalBlurredBackdrop and therefore never see a partial pyramid.
+ *
+ * The critical phase contains the exact clear lens and exact medium blur used by the legacy Shell.
+ * Low/high temporarily alias medium only inside the OpenGL bridge because that renderer never samples
+ * those slots. Phase ordering prevents a delayed critical callback from overwriting the complete set.
+ */
+internal object OpenGlStartupBackdropBridge {
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var activeTextureKey: String? = null
+    private var publishedPhase = OPENGL_BACKDROP_PHASE_EMPTY
+
+    var backdrop by mutableStateOf<BlurredBackdropBitmap?>(null)
+        private set
+
+    fun activate(textureKey: String) = onMain {
+        if (activeTextureKey != textureKey) {
+            activeTextureKey = textureKey
+            publishedPhase = OPENGL_BACKDROP_PHASE_EMPTY
+            backdrop = null
+        }
+    }
+
+    fun publishCritical(textureKey: String, value: BlurredBackdropBitmap) {
+        publish(textureKey, value, OPENGL_BACKDROP_PHASE_CRITICAL)
+    }
+
+    fun publishComplete(textureKey: String, value: BlurredBackdropBitmap) {
+        publish(textureKey, value, OPENGL_BACKDROP_PHASE_COMPLETE)
+    }
+
+    fun updateBlurAmount(textureKey: String, amount: Float) = onMain {
+        if (activeTextureKey == textureKey) {
+            val current = backdrop ?: return@onMain
+            val safeAmount = amount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT)
+            if (current.blurAmount != safeAmount) backdrop = current.copy(blurAmount = safeAmount)
+        }
+    }
+
+    fun clear(textureKey: String) = onMain {
+        if (activeTextureKey == textureKey) {
+            activeTextureKey = null
+            publishedPhase = OPENGL_BACKDROP_PHASE_EMPTY
+            backdrop = null
+        }
+    }
+
+    private fun publish(textureKey: String, value: BlurredBackdropBitmap, phase: Int) = onMain {
+        if (activeTextureKey == textureKey && phase >= publishedPhase) {
+            publishedPhase = phase
+            backdrop = value
+        }
+    }
+
+    private inline fun onMain(crossinline block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post { block() }
+        }
+    }
+}
 
 /**
  * CPU 模糊、磁盘解码与缓存写入共用单个后台优先级线程，避免与 Compose、RenderThread 和
@@ -341,22 +414,44 @@ fun rememberBlurredBackdropBitmap(
         }
     }
     val textureKey = "v6|$width×$height|$textureParamsKey|levels:$FULL_BACKDROP_BLUR_LEVEL_COUNT|$sourceKey"
+    val blurAmount = params.radius.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT)
     var textures by remember(textureKey) {
         mutableStateOf(BlurredBackdropMemoryCache.get(textureKey))
+    }
+
+    DisposableEffect(textureKey) {
+        OpenGlStartupBackdropBridge.activate(textureKey)
+        onDispose { OpenGlStartupBackdropBridge.clear(textureKey) }
+    }
+
+    LaunchedEffect(textureKey, blurAmount) {
+        OpenGlStartupBackdropBridge.updateBlurAmount(textureKey, blurAmount)
     }
 
     LaunchedEffect(textureKey) {
         BlurredBackdropMemoryCache.get(textureKey)?.let { cached ->
             textures = cached
+            OpenGlStartupBackdropBridge.publishComplete(textureKey, cached.withBlurAmount(blurAmount))
+            StartupPerformanceGate.markBackdropWorkFinished(success = true)
+            return@LaunchedEffect
+        }
+
+        // Warm process launches should not wait behind the cold-start gate when a complete disk cache
+        // already exists. The decode still runs on the same background-priority texture thread.
+        val diskCached = withContext(BackdropBuildRuntime.dispatcher) {
+            BackdropDiskCache.load(context, textureKey)
+        }
+        if (diskCached != null) {
+            BlurredBackdropMemoryCache.put(textureKey, diskCached)
+            textures = diskCached
+            OpenGlStartupBackdropBridge.publishComplete(textureKey, diskCached.withBlurAmount(blurAmount))
             StartupPerformanceGate.markBackdropWorkFinished(success = true)
             return@LaunchedEffect
         }
 
         StartupPerformanceGate.awaitInitialTextureBuildWindow()
         val result = BackdropBuildRegistry.request(textureKey) {
-            BackdropDiskCache.load(context, textureKey)?.let { cached ->
-                BackdropBuildResult(cached, shouldPersist = false)
-            } ?: runCatching {
+            runCatching {
                 val preset = if (useDefaultWallpaper) decodePresetNightSkyBitmap(context) else null
                 buildBackdropTextureSet(
                     fullWidth = width,
@@ -365,7 +460,13 @@ fun rememberBlurredBackdropBitmap(
                     params = params.quantizedForTextures(),
                     customBackgroundPath = sourcePath,
                     presetBitmap = preset,
-                    blurLevelCount = FULL_BACKDROP_BLUR_LEVEL_COUNT
+                    blurLevelCount = FULL_BACKDROP_BLUR_LEVEL_COUNT,
+                    onCriticalReady = { critical ->
+                        OpenGlStartupBackdropBridge.publishCritical(
+                            textureKey,
+                            critical.withBlurAmount(blurAmount)
+                        )
+                    }
                 )
             }.getOrNull()?.let { built ->
                 BackdropBuildResult(built, shouldPersist = true)
@@ -375,6 +476,10 @@ fun rememberBlurredBackdropBitmap(
         if (result != null) {
             BlurredBackdropMemoryCache.put(textureKey, result.textures)
             textures = result.textures
+            OpenGlStartupBackdropBridge.publishComplete(
+                textureKey,
+                result.textures.withBlurAmount(blurAmount)
+            )
             StartupPerformanceGate.markBackdropWorkFinished(success = true)
             if (result.shouldPersist) {
                 BackdropDiskCache.persistAsync(context, textureKey, result.textures)
@@ -384,8 +489,8 @@ fun rememberBlurredBackdropBitmap(
         }
     }
 
-    return remember(textures, params.radius) {
-        textures?.withBlurAmount(params.radius)
+    return remember(textures, blurAmount) {
+        textures?.withBlurAmount(blurAmount)
     }
 }
 
