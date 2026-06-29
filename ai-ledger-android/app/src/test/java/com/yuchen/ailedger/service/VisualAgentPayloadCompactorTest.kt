@@ -1,12 +1,13 @@
 package com.yuchen.ailedger.service
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualAgentPayloadCompactorTest {
     @Test
-    fun compactorRemovesOnlyLegacyAliasesAndKeepsCriticalProtocol() {
+    fun compactorKeepsOneCanonicalCopyOfVisualState() {
         val snapshot = testSnapshot()
         val runtime = VisualAgentRuntimeContext(
             surfaceState = VisualSurfaceState.WorkSurface,
@@ -30,18 +31,21 @@ class VisualAgentPayloadCompactorTest {
 
         payload.compactVisualAgentPayloadForTransport()
 
+        assertEquals("android_visual_agent_v15_unified_execution_permit", payload.getString("agentSessionProtocol"))
+        assertEquals("gui_plus_dialogue_v2_bound_turns", payload.getString("interactionProtocol"))
         assertTrue(payload.has("recentAgentActions"))
         assertTrue(payload.has("lastToolResponse"))
+        assertTrue(payload.has("executionFeedback"))
         assertTrue(payload.has("agentSessionId"))
         assertTrue(payload.has("deviceId"))
         assertTrue(payload.has("goal"))
-        assertTrue(payload.has("agentGoal"))
         assertTrue(payload.has("hasScreenshot"))
         assertTrue(payload.has("runtimeExecutionContext"))
         assertTrue(payload.has("expectedActionObservationId"))
         assertTrue(payload.has("observationId"))
         assertTrue(payload.has("agentMemory"))
 
+        assertFalse(payload.has("agentGoal"))
         assertFalse(payload.has("recentActions"))
         assertFalse(payload.has("toolResponse"))
         assertFalse(payload.has("sessionId"))
@@ -49,12 +53,16 @@ class VisualAgentPayloadCompactorTest {
         assertFalse(payload.has("message"))
         assertFalse(payload.has("hasImage"))
         assertFalse(payload.has("hasImages"))
+        assertFalse(payload.has("taskContract"))
 
         val memory = payload.getJSONObject("agentMemory")
-        assertTrue(memory.has("executionFeedback"))
-        assertTrue(memory.has("lastToolResponse"))
+        assertEquals("gui_plus_dialogue_v2_bound_turns", memory.getString("interactionProtocol"))
         assertTrue(memory.has("recentActions"))
+        assertTrue(memory.has("taskMemory"))
         assertTrue(memory.has("loopSignals"))
+        assertFalse(memory.has("executionFeedback"))
+        assertFalse(memory.has("lastToolResponse"))
+        assertFalse(memory.has("taskContract"))
         assertFalse(memory.has("runtimeExecutionContext"))
         assertFalse(memory.has("surfaceContext"))
         assertFalse(memory.has("deviceProfile"))
