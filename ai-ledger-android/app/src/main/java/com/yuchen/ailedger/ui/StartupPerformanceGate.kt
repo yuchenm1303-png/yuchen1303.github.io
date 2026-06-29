@@ -63,6 +63,7 @@ internal object StartupPerformanceGate {
      * shader compilation and the first texture upload. The timeout protects non-UI/background starts.
      */
     fun awaitOpenGlFirstFrameBeforePyramidCompletion() {
+        StartupMetrics.markOnce("OpenGL关键纹理完成")
         if (openGlFirstFrameReady.isCompleted) return
         if (Looper.myLooper() == Looper.getMainLooper()) return
         runCatching {
