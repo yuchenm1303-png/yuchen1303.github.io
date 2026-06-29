@@ -136,6 +136,7 @@ class VisualExecutionPermitPolicyTest {
             canonicalX = x,
             canonicalY = y,
         )
+        assertEquals("89e9abcea78137f88bc00916", hash)
         val step = baseStep.copy(
             toolArgs = JSONObject().apply {
                 put("responseObservationId", observationId)
