@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 import re
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -20,7 +21,7 @@ legacy = market_home.legacy
 
 DISCUSSION_LIST_PATH = "/api/stock/a-share/discussions"
 DISCUSSION_DETAIL_PATH = "/api/stock/a-share/discussion/detail"
-DISCUSSION_CACHE_VERSION = "v1-eastmoney-guba-readonly"
+DISCUSSION_CACHE_VERSION = "v2-eastmoney-guba-comment-compat"
 DISCUSSION_LIST_FRESH_SECONDS = 45.0
 DISCUSSION_DETAIL_FRESH_SECONDS = 120.0
 DISCUSSION_STALE_SECONDS = 6 * 60 * 60.0
@@ -46,6 +47,66 @@ _SCRIPT_RE = re.compile(r"<(script|style)\b[^>]*>.*?</\1\s*>", re.I | re.S)
 _SPACE_RE = re.compile(r"[\t\r\f\v ]+")
 _BLANK_RE = re.compile(r"\n{3,}")
 _DIV_TOKEN_RE = re.compile(r"<div\b[^>]*>|</div\s*>", re.I)
+_COMMENT_CONTAINER_KEYS = {
+    "comments",
+    "commentlist",
+    "comment_list",
+    "replylist",
+    "reply_list",
+    "replydata",
+    "reply_data",
+    "replies",
+    "replys",
+}
+_COMMENT_CONTENT_KEYS = (
+    "content",
+    "commentContent",
+    "comment_content",
+    "replyContent",
+    "reply_content",
+    "replyText",
+    "reply_text",
+    "replyTitle",
+    "reply_title",
+    "text",
+)
+_COMMENT_AUTHOR_KEYS = (
+    "author",
+    "userName",
+    "user_name",
+    "nickname",
+    "nickName",
+    "replyUser",
+    "reply_user",
+    "reuserName",
+    "reuser_name",
+)
+_COMMENT_ID_KEYS = (
+    "commentId",
+    "comment_id",
+    "replyId",
+    "reply_id",
+    "id",
+)
+_COMMENT_TIME_KEYS = (
+    "publishedAt",
+    "published_at",
+    "publishTime",
+    "publish_time",
+    "replyTime",
+    "reply_time",
+    "createTime",
+    "create_time",
+    "time",
+)
+_COMMENT_LIKE_KEYS = (
+    "likeCount",
+    "like_count",
+    "likeNum",
+    "like_num",
+    "agreeCount",
+    "agree_count",
+)
 
 
 def _lock_for(key: str) -> Lock:
@@ -85,6 +146,28 @@ def _count_value(value: Any) -> int:
 def _class_tokens(opening_tag: str) -> set[str]:
     match = re.search(r'class\s*=\s*["\']([^"\']*)["\']', opening_tag, re.I)
     return set(match.group(1).split()) if match else set()
+
+
+def _balanced_tag_blocks(source: str, tag_name: str, class_token: str) -> list[str]:
+    tag = re.escape(tag_name)
+    token_re = re.compile(rf"<{tag}\b[^>]*>|</{tag}\s*>", re.I)
+    blocks: list[str] = []
+    for opening in re.finditer(rf"<{tag}\b[^>]*>", source, re.I):
+        opening_tag = opening.group(0)
+        if class_token not in _class_tokens(opening_tag):
+            continue
+        depth = 1
+        end = opening.end()
+        for token in token_re.finditer(source, opening.end()):
+            if not token.group(0).lower().startswith("</"):
+                depth += 1
+            else:
+                depth -= 1
+            if depth == 0:
+                end = token.start()
+                break
+        blocks.append(source[opening.end():end])
+    return blocks
 
 
 def _balanced_div_blocks(source: str, class_token: str) -> list[str]:
@@ -300,11 +383,10 @@ def _extract_like_count(source: str) -> int:
 
 def _parse_nested_replies(block: str) -> list[dict[str, Any]]:
     replies: list[dict[str, Any]] = []
-    for item in re.findall(
-        r'<li\b[^>]*class=["\'][^"\']*\breply_item_l2\b[^"\']*["\'][^>]*>(.*?)</li\s*>',
-        block,
-        re.I | re.S,
-    ):
+    reply_blocks = _balanced_tag_blocks(block, "li", "reply_item_l2")
+    if not reply_blocks:
+        reply_blocks = _balanced_tag_blocks(block, "div", "reply_item_l2")
+    for item in reply_blocks:
         content = _first_class_text(item, ("reply_title_span", "reply_title"), 2000)
         if not content:
             continue
@@ -319,22 +401,40 @@ def _parse_nested_replies(block: str) -> list[dict[str, Any]]:
     return replies[:20]
 
 
-def _parse_comments(source: str) -> list[dict[str, Any]]:
+def _comment_html_blocks(source: str) -> list[str]:
+    blocks: list[str] = []
+    seen: set[str] = set()
+    for token in ("reply_item", "reply-item", "comment_item", "comment-item", "reply_item_l1"):
+        for tag_name in ("div", "li"):
+            for block in _balanced_tag_blocks(source, tag_name, token):
+                signature = block[:240]
+                if signature in seen:
+                    continue
+                seen.add(signature)
+                blocks.append(block)
+    return blocks
+
+
+def _parse_html_comments(source: str) -> list[dict[str, Any]]:
     comments: list[dict[str, Any]] = []
-    for index, block in enumerate(_balanced_div_blocks(source, "reply_item"), start=1):
+    for index, block in enumerate(_comment_html_blocks(source), start=1):
         title_block = _first_balanced_div(block, "reply_title")
         content = _clean_text(title_block, 4000)
         if not content:
-            content = _first_class_text(block, ("reply_title",), 4000)
+            content = _first_class_text(
+                block,
+                ("reply_title_span", "reply_title", "comment-content", "comment_content"),
+                4000,
+            )
         if not content:
             continue
         author = _first_class_text(
             block,
-            ("reuser_name", "reply_user", "reuser", "user_name"),
+            ("reuser_name", "reuser_nick", "reply_user", "reuser", "user_name", "nickname"),
             100,
         ) or "股吧用户"
         id_match = re.search(
-            r'(?:data-(?:id|replyid)|id)\s*=\s*["\']([^"\']+)["\']',
+            r'(?:data-(?:id|replyid|commentid)|id)\s*=\s*["\']([^"\']+)["\']',
             block,
             re.I,
         )
@@ -351,6 +451,173 @@ def _parse_comments(source: str) -> list[dict[str, Any]]:
             }
         )
     return comments
+
+
+def _first_mapping_value(item: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = item.get(key)
+        if value is not None and str(value).strip() not in {"", "null", "None"}:
+            return value
+    return None
+
+
+def _json_reply(item: dict[str, Any], fallback_id: str) -> dict[str, Any] | None:
+    content_value = _first_mapping_value(item, _COMMENT_CONTENT_KEYS)
+    content = _clean_text(content_value, 4000)
+    if not content:
+        return None
+    author = _clean_text(_first_mapping_value(item, _COMMENT_AUTHOR_KEYS), 100) or "股吧用户"
+    published_at = _clean_text(_first_mapping_value(item, _COMMENT_TIME_KEYS), 80)
+    like_count = _count_value(_first_mapping_value(item, _COMMENT_LIKE_KEYS))
+    comment_id = _clean_text(_first_mapping_value(item, _COMMENT_ID_KEYS), 100) or fallback_id
+    nested: list[dict[str, Any]] = []
+    for key, value in item.items():
+        if key.lower() not in _COMMENT_CONTAINER_KEYS or not isinstance(value, list):
+            continue
+        for nested_index, nested_item in enumerate(value, start=1):
+            if not isinstance(nested_item, dict):
+                continue
+            reply = _json_reply(nested_item, f"{comment_id}-reply-{nested_index}")
+            if reply is not None:
+                nested.append(
+                    {
+                        "author": reply["author"],
+                        "content": reply["content"],
+                        "publishedAt": reply["publishedAt"],
+                        "likeCount": reply["likeCount"],
+                    }
+                )
+    return {
+        "commentId": comment_id,
+        "author": author,
+        "content": content,
+        "publishedAt": published_at,
+        "likeCount": like_count,
+        "replyCount": len(nested),
+        "replies": nested[:20],
+    }
+
+
+def _collect_json_comments(value: Any) -> list[dict[str, Any]]:
+    comments: list[dict[str, Any]] = []
+
+    def walk(node: Any, container_hint: bool = False) -> None:
+        if isinstance(node, list):
+            for item in node:
+                if container_hint and isinstance(item, dict):
+                    comment = _json_reply(item, f"json-comment-{len(comments) + 1}")
+                    if comment is not None:
+                        comments.append(comment)
+                        continue
+                walk(item, container_hint)
+            return
+        if not isinstance(node, dict):
+            return
+        for key, child in node.items():
+            normalized = key.lower()
+            walk(child, normalized in _COMMENT_CONTAINER_KEYS)
+
+    walk(value)
+    deduplicated: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in comments:
+        signature = f"{item['commentId']}|{item['author']}|{item['content']}"
+        if signature in seen:
+            continue
+        seen.add(signature)
+        deduplicated.append(item)
+    return deduplicated
+
+
+def _balanced_json_fragment(source: str, start: int) -> str:
+    if start < 0 or start >= len(source) or source[start] not in "[{":
+        return ""
+    opening = source[start]
+    closing = "]" if opening == "[" else "}"
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(source)):
+        char = source[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == opening:
+            depth += 1
+        elif char == closing:
+            depth -= 1
+            if depth == 0:
+                return source[start:index + 1]
+    return ""
+
+
+def _embedded_json_values(source: str) -> list[Any]:
+    values: list[Any] = []
+    scripts = re.findall(r"<script\b[^>]*>(.*?)</script\s*>", source, re.I | re.S)
+    for script in scripts:
+        decoded = html.unescape(script).strip()
+        candidates: list[str] = []
+        if decoded.startswith(("{", "[")):
+            candidates.append(decoded.rstrip(";"))
+        assignment = re.search(
+            r"(?:window\.)?(?:__INITIAL_STATE__|__NEXT_DATA__|pageData|replyData|commentData)\s*=\s*",
+            decoded,
+            re.I,
+        )
+        if assignment:
+            start = next(
+                (position for position in range(assignment.end(), len(decoded)) if decoded[position] in "[{"),
+                -1,
+            )
+            fragment = _balanced_json_fragment(decoded, start)
+            if fragment:
+                candidates.append(fragment)
+        for candidate in candidates:
+            try:
+                values.append(json.loads(candidate))
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+
+    for key in _COMMENT_CONTAINER_KEYS:
+        pattern = re.compile(rf'["\']{re.escape(key)}["\']\s*:\s*', re.I)
+        for match in pattern.finditer(source):
+            start = next(
+                (position for position in range(match.end(), min(len(source), match.end() + 32)) if source[position] in "[{"),
+                -1,
+            )
+            fragment = _balanced_json_fragment(source, start)
+            if not fragment:
+                continue
+            try:
+                values.append({key: json.loads(fragment)})
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+    return values
+
+
+def _parse_embedded_json_comments(source: str) -> list[dict[str, Any]]:
+    for value in _embedded_json_values(source):
+        comments = _collect_json_comments(value)
+        if comments:
+            return comments
+    return []
+
+
+def _parse_comments(source: str) -> tuple[list[dict[str, Any]], str]:
+    html_comments = _parse_html_comments(source)
+    if html_comments:
+        return html_comments, "server_html"
+    json_comments = _parse_embedded_json_comments(source)
+    if json_comments:
+        return json_comments, "embedded_json"
+    return [], "unavailable"
 
 
 def _cache_payload(
@@ -427,7 +694,7 @@ def _build_discussion_detail(
     source = _get_html(source_url, timeout=9.0)
     title = _extract_title(source)
     body = _extract_body(source)
-    comments = _parse_comments(source)
+    comments, comment_parser = _parse_comments(source)
     if not title and not body:
         raise ValueError("股吧帖子正文未返回可识别内容")
     author_block = _first_balanced_div(source, "author-info") or source
@@ -448,13 +715,14 @@ def _build_discussion_detail(
         },
         "comments": comments,
         "commentCountParsed": len(comments),
+        "commentParser": comment_parser,
         "sourcePageUrl": source_url,
         "dataSourceLabel": "东方财富股吧帖子与公开评论 · 只读",
         "updatedAt": datetime.now(timezone.utc).isoformat(),
         "cacheHit": False,
         "cacheAgeMs": 0,
         "totalLatencyMs": int((monotonic() - started_at) * 1000),
-        "warnings": [] if comments else ["帖子正文可用，但公开评论当前未在页面中返回"],
+        "warnings": [] if comments else ["帖子正文可用，但公开评论未出现在服务端HTML或内嵌JSON中"],
     }
 
 
@@ -530,7 +798,7 @@ def a_share_discussion_detail(
         return result
     except HTTPException:
         raise
-    except (httpx.HTTPError, ValueError, TypeError) as exc:
+    except (httpx.HTTPError, ValueError, TypeError, json.JSONDecodeError) as exc:
         raise HTTPException(
             status_code=502,
             detail=f"股吧帖子暂不可用：{exc.__class__.__name__}: {exc}",
