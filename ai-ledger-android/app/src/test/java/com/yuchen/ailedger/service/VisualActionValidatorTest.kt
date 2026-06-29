@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -30,12 +31,15 @@ class VisualActionValidatorTest {
             inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息")),
         )
         val result = VisualActionValidator.validate(
-            CloudAgentStep(
-                type = "input_text",
-                text = "测试",
-                inputMode = "focused_direct",
-                requiresInputNode = false,
-                expectsFocusedInput = true,
+            bound(
+                CloudAgentStep(
+                    type = "input_text",
+                    text = "测试",
+                    inputMode = "focused_direct",
+                    requiresInputNode = false,
+                    expectsFocusedInput = true,
+                ),
+                snapshot,
             ),
             snapshot,
             verifiedRuntimeContext(snapshot),
@@ -50,11 +54,14 @@ class VisualActionValidatorTest {
             inputNodes = listOf(inputNode("search", "搜索")),
         )
         val uniqueResult = VisualActionValidator.validate(
-            CloudAgentStep(
-                type = "input_text",
-                text = "测试",
-                inputMode = "focused_direct",
-                requiresInputNode = false,
+            bound(
+                CloudAgentStep(
+                    type = "input_text",
+                    text = "测试",
+                    inputMode = "focused_direct",
+                    requiresInputNode = false,
+                ),
+                uniqueSnapshot,
             ),
             uniqueSnapshot,
             verifiedRuntimeContext(uniqueSnapshot),
@@ -66,12 +73,15 @@ class VisualActionValidatorTest {
             inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息")),
         )
         val matchedResult = VisualActionValidator.validate(
-            CloudAgentStep(
-                type = "input_text",
-                text = "测试",
-                targetNodeId = "message",
-                inputMode = "focused_direct",
-                requiresInputNode = false,
+            bound(
+                CloudAgentStep(
+                    type = "input_text",
+                    text = "测试",
+                    targetNodeId = "message",
+                    inputMode = "focused_direct",
+                    requiresInputNode = false,
+                ),
+                matchedSnapshot,
             ),
             matchedSnapshot,
             verifiedRuntimeContext(matchedSnapshot),
@@ -86,7 +96,10 @@ class VisualActionValidatorTest {
             inputNodes = listOf(inputNode("search", "搜索"), inputNode("message", "消息")),
         )
         val result = VisualActionValidator.validate(
-            CloudAgentStep(type = "input_text", text = "测试", requiresInputNode = true),
+            bound(
+                CloudAgentStep(type = "input_text", text = "测试", requiresInputNode = true),
+                snapshot,
+            ),
             snapshot,
             verifiedRuntimeContext(snapshot),
         )
@@ -117,7 +130,7 @@ class VisualActionValidatorTest {
         val result = VisualActionValidator.validate(
             CloudAgentStep(
                 type = "set_brightness",
-                toolArgs = org.json.JSONObject().put("percent", 40),
+                toolArgs = JSONObject().put("percent", 40),
             ),
             snapshot(),
             VisualAgentRuntimeContext(
@@ -144,7 +157,54 @@ class VisualActionValidatorTest {
     }
 
     @Test
-    fun snapshotFingerprintDetectsNoProgress() {
+    fun acceptsExactObservationBoundVisualCoordinateWithoutSemanticInspection() {
+        val snapshot = snapshot(currentApp = TARGET_PACKAGE, texts = listOf("日K", "分时"))
+        val result = VisualActionValidator.validate(
+            bound(CloudAgentStep(type = "tap_xy", x = 0.21f, y = 0.30f), snapshot),
+            snapshot,
+            verifiedRuntimeContext(snapshot),
+        )
+
+        assertTrue(result.ok)
+    }
+
+    @Test
+    fun rejectsStaleVisualCoordinateFromOlderObservation() {
+        val snapshot = snapshot(currentApp = TARGET_PACKAGE)
+        val result = VisualActionValidator.validate(
+            CloudAgentStep(
+                type = "tap_xy",
+                x = 0.21f,
+                y = 0.30f,
+                toolArgs = JSONObject()
+                    .put("responseSessionId", "agent-session-test")
+                    .put("responseObservationId", "older-observation"),
+            ),
+            snapshot,
+            verifiedRuntimeContext(snapshot),
+        )
+
+        assertFalse(result.ok)
+        assertTrue(result.message.contains("visualResponseObservationMismatch=true"))
+        assertEquals(VisualFailureClass.VisualLocal, result.failureClass)
+    }
+
+    @Test
+    fun rejectsUnboundVisualActionButDoesNotAskNodesToJudgeIt() {
+        val snapshot = snapshot(currentApp = TARGET_PACKAGE, texts = listOf("分时"))
+        val result = VisualActionValidator.validate(
+            CloudAgentStep(type = "tap_xy", x = 0.21f, y = 0.30f),
+            snapshot,
+            verifiedRuntimeContext(snapshot),
+        )
+
+        assertFalse(result.ok)
+        assertTrue(result.message.contains("visualResponseBindingMissing=true"))
+        assertEquals(VisualFailureClass.VisualLocal, result.failureClass)
+    }
+
+    @Test
+    fun snapshotFingerprintDetectsFrameDifferenceOnly() {
         val before = snapshot(texts = listOf("A"), nodeCount = 1)
         val after = snapshot(texts = listOf("A"), nodeCount = 1)
         assertEquals(
@@ -154,7 +214,7 @@ class VisualActionValidatorTest {
     }
 
     @Test
-    fun sparseVisualFingerprintDetectsCanvasOrWebViewProgress() {
+    fun sparseVisualFingerprintDetectsCanvasOrWebViewFrameDifference() {
         val before = snapshot(nodeCount = 0, visualBase64 = "QUFBQUFBQUFB")
         val after = snapshot(nodeCount = 0, visualBase64 = "QkJCQkJCQkJC")
         assertNotEquals(
@@ -184,7 +244,7 @@ class VisualActionValidatorTest {
     }
 
     @Test
-    fun completionFingerprintChangesWithSemanticScreenContent() {
+    fun completionFingerprintChangesWithReportedScreenContent() {
         val profile = snapshot(
             currentApp = "com.tencent.mobileqq",
             texts = listOf("个人主页", "编辑资料"),
@@ -202,7 +262,7 @@ class VisualActionValidatorTest {
     }
 
     @Test
-    fun tapClusterSignatureGroupsNearbyRepeatedTaps() {
+    fun legacyTapClusterHelperStillGroupsNearbyCoordinatesWithoutBlockingThem() {
         assertEquals(
             VisualActionValidator.actionClusterSignature(CloudAgentStep(type = "tap_xy", x = 1140f, y = 207f)),
             VisualActionValidator.actionClusterSignature(CloudAgentStep(type = "tap_xy", x = 1149f, y = 183f)),
@@ -220,7 +280,7 @@ class VisualActionValidatorTest {
     }
 
     @Test
-    fun AndroidDoesNotInferConfirmationFromRiskWordsOrLabels() {
+    fun androidDoesNotInferConfirmationFromRiskWordsOrLabels() {
         assertFalse(
             AgentSafetyPolicy.requiresConfirmation(
                 "search for the definition of password",
@@ -234,6 +294,12 @@ class VisualActionValidatorTest {
             ),
         )
     }
+
+    private fun bound(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep =
+        step.copy(toolArgs = JSONObject().apply {
+            put("responseSessionId", "agent-session-test")
+            put("responseObservationId", verifiedRuntimeContext(snapshot).observationId)
+        })
 
     private fun verifiedRuntimeContext(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext {
         return VisualAgentRuntimeContext(
