@@ -157,7 +157,7 @@ class VisualIntelligenceUpgradeTest {
     }
 
     @Test
-    fun repeatedCloudHypothesisFailureBecomesStructuredBlock() {
+    fun repeatedCloudHypothesisMetadataNeverCreatesLocalBlock() {
         val tracker = VisualSemanticProgressTracker(originalGoal = "完成测试任务")
         tracker.updateTaskContract(
             VisualTaskContract(
@@ -178,23 +178,23 @@ class VisualIntelligenceUpgradeTest {
         val page = snapshot("page-a")
 
         val first = tracker.evaluate(step, page, page, "com.example.app")
-        assertEquals(1, first.failedHypothesisCount)
-        assertEquals(1, first.explorationBudgetRemaining)
+        assertEquals(0, first.failedHypothesisCount)
+        assertEquals(2, first.explorationBudgetRemaining)
         assertFalse(first.requiresReplan)
         assertNull(tracker.blockedHypothesisReason(step, page))
 
         val second = tracker.evaluate(step, page, page, "com.example.app")
-        assertEquals(1, second.failedHypothesisCount)
-        assertEquals(0, second.explorationBudgetRemaining)
-        assertTrue(second.requiresStrategyChange)
-        assertTrue(second.requiresReplan)
-        assertNotNull(tracker.blockedHypothesisReason(step, page))
-        assertEquals(2, second.taskMemory.failedHypotheses.single().count)
-        assertEquals(1, second.taskMemory.blockedActions.size)
+        assertEquals(0, second.failedHypothesisCount)
+        assertEquals(2, second.explorationBudgetRemaining)
+        assertFalse(second.requiresStrategyChange)
+        assertFalse(second.requiresReplan)
+        assertNull(tracker.blockedHypothesisReason(step, page))
+        assertTrue(second.taskMemory.failedHypotheses.isEmpty())
+        assertTrue(second.taskMemory.blockedActions.isEmpty())
     }
 
     @Test
-    fun nonExploratoryFailureDoesNotConsumeExplorationBudget() {
+    fun nonExploratoryFrameStabilityDoesNotCreateLocalFailure() {
         val tracker = VisualSemanticProgressTracker(originalGoal = "完成测试任务")
         tracker.updateTaskContract(
             VisualTaskContract(
@@ -217,7 +217,9 @@ class VisualIntelligenceUpgradeTest {
         val result = tracker.evaluate(step, page, page, "com.example.app")
 
         assertEquals(3, result.explorationBudgetRemaining)
-        assertEquals(1, result.failedHypothesisCount)
+        assertEquals(0, result.failedHypothesisCount)
+        assertFalse(result.requiresReplan)
+        assertTrue(result.taskMemory.failedHypotheses.isEmpty())
     }
 
     @Test
