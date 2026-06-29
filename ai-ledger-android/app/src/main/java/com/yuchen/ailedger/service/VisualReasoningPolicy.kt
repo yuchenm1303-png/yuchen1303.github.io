@@ -153,7 +153,7 @@ internal object VisualReasoningPolicy {
         recentActions: List<String> = emptyList(),
     ): VisualReasoningContext {
         val activeActions = activeObjectiveWindow(recentActions)
-        val events = activeActions.mapNotNull(String::toExecutionEventOrNull)
+        val events = activeActions.mapNotNull { it.toExecutionEventOrNull() }
         val runtimeState = activeActions.latestRuntimeState()
         val noProgressCount = consecutiveReobserveOrFailureCount(events, activeActions)
         val executionFailureCount = consecutiveFailureCount(events, activeActions)
@@ -260,8 +260,8 @@ internal object VisualReasoningPolicy {
         .filterNot { it.startsWith(VisualReasoningContext.PROMPT_PREFIX) }
         .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX) }
         .filterNot { it.startsWith(DEEP_REPLAN_PREFIX) }
-        .takeLast(MAX_ACTIVE_ACTIONS)
         .toList()
+        .takeLast(MAX_ACTIVE_ACTIONS)
 
     private fun List<String>.latestRuntimeState(): RuntimeState? {
         val line = asReversed().firstOrNull { it.startsWith(RUNTIME_PREFIX) } ?: return null
