@@ -9,7 +9,7 @@ import org.junit.Test
 
 class VisualSemanticProgressTrackerTest {
     @Test
-    fun localExpectedEvidenceDoesNotBecomeAndroidSemanticDecision() {
+    fun frameChangeIsRecordedButNeverClassifiedAsProgress() {
         val tracker = VisualSemanticProgressTracker(originalGoal = "进入联系人")
         val result = tracker.evaluate(
             semanticStep(
@@ -24,16 +24,19 @@ class VisualSemanticProgressTrackerTest {
             "com.tencent.mobileqq",
         )
 
-        assertEquals(VisualSemanticProgressStatus.Advanced, result.status)
+        assertEquals(VisualSemanticProgressStatus.Observed, result.status)
+        assertTrue(result.pageChanged)
         assertTrue(result.expectedEvidenceMatched.isEmpty())
         assertTrue(result.failureEvidenceMatched.isEmpty())
         assertTrue(result.newEvidence.isEmpty())
+        assertEquals(0, result.failedHypothesisCount)
         assertFalse(result.requiresReplan)
+        assertFalse(result.reobserveRecommended)
         assertTrue(result.reason.contains("GUI Plus exclusively decides"))
     }
 
     @Test
-    fun unchangedScreenDoesNotCreateBlockedHypothesis() {
+    fun unchangedFrameCreatesNoFailureHypothesisOrLocalRetry() {
         val tracker = VisualSemanticProgressTracker()
         val screen = snapshot("com.example.app", listOf("列表", "入口"))
         val step = semanticStep(
@@ -45,31 +48,56 @@ class VisualSemanticProgressTrackerTest {
         )
 
         val result = tracker.evaluate(step, screen, screen, "com.example.app")
+        val memory = tracker.memorySnapshot(screen)
 
-        assertEquals(VisualSemanticProgressStatus.Stalled, result.status)
+        assertEquals(VisualSemanticProgressStatus.Observed, result.status)
+        assertFalse(result.pageChanged)
         assertNull(tracker.blockedHypothesisReason(step.copy(x = 0.53f), screen))
-        assertEquals(1, result.failedHypothesisCount)
+        assertEquals(0, result.failedHypothesisCount)
+        assertTrue(memory.failedHypotheses.isEmpty())
+        assertTrue(memory.blockedActions.isEmpty())
         assertFalse(result.requiresReplan)
-        assertTrue(result.reobserveRecommended)
+        assertFalse(result.reobserveRecommended)
         assertFalse(result.shouldPauseForUser)
     }
 
     @Test
-    fun exploratoryActionIsNeverRejectedByLocalSemanticRules() {
-        val tracker = VisualSemanticProgressTracker()
-        val step = CloudAgentStep(
-            type = "swipe",
-            direction = "up",
-            exploratory = true,
-            expectedEvidence = emptyList(),
-            legacyIntent = false,
+    fun dynamicFramesNeverConsumeCloudExplorationBudget() {
+        val tracker = VisualSemanticProgressTracker(originalGoal = "查看行情")
+        tracker.updateTaskContract(
+            VisualTaskContract(
+                originalGoal = "查看行情",
+                currentMilestoneId = "chart",
+                milestones = listOf(VisualTaskMilestone(id = "chart")),
+                explorationBudgetPerMilestone = 3,
+            ),
+        )
+        val step = semanticStep(
+            type = "wait",
+            purpose = "观察日K",
+            milestone = "chart",
+            expected = emptyList(),
+            hypothesis = "chart-refresh",
         )
 
-        assertNull(tracker.blockedHypothesisReason(step, snapshot("com.example.app", listOf("列表"))))
+        repeat(5) { index ->
+            tracker.evaluate(
+                step,
+                snapshot("com.hexin.plat.android", listOf("09:${30 + index}", "日K")),
+                snapshot("com.hexin.plat.android", listOf("09:${31 + index}", "日K")),
+                "com.hexin.plat.android",
+            )
+        }
+
+        val memory = tracker.memorySnapshot()
+        assertEquals(3, memory.remainingExplorationBudget)
+        assertTrue(memory.failedHypotheses.isEmpty())
+        assertTrue(memory.blockedActions.isEmpty())
+        assertFalse(memory.replanRequested)
     }
 
     @Test
-    fun oneForeignPackageFrameCannotBypassExecutionStateMachineThreshold() {
+    fun oneForeignPackageFrameDoesNotBecomeLocalSemanticRegression() {
         val tracker = VisualSemanticProgressTracker()
         val result = tracker.evaluate(
             semanticStep(
@@ -84,14 +112,15 @@ class VisualSemanticProgressTrackerTest {
             "com.example.app",
         )
 
-        assertEquals(VisualSemanticProgressStatus.Advanced, result.status)
+        assertEquals(VisualSemanticProgressStatus.Observed, result.status)
+        assertTrue(result.packageChanged)
         assertFalse(result.structuralRegression)
         assertFalse(result.requiresReplan)
         assertFalse(result.toFeedbackLine(CloudAgentStep(type = "tap_xy")).contains("failureClass=structural_route"))
     }
 
     @Test
-    fun stateMachineConfirmedForeignTransitionRequiresStructuralReplan() {
+    fun stateMachineConfirmedForeignTransitionStillRequiresStructuralReplan() {
         val tracker = VisualSemanticProgressTracker()
         val result = tracker.evaluate(
             semanticStep(
@@ -144,8 +173,7 @@ class VisualSemanticProgressTrackerTest {
         assertEquals("orders", memory.currentMilestoneId)
         assertTrue(memory.confirmedFacts.any { it.startsWith("verified_surface:") })
         assertFalse(memory.confirmedFacts.any { it.contains("全部订单") })
-        assertEquals(1, memory.failedHypotheses.size)
-        assertEquals("screen_structure_unchanged", memory.failedHypotheses.single().failureReason)
+        assertTrue(memory.failedHypotheses.isEmpty())
         assertTrue(memory.blockedActions.isEmpty())
         assertTrue(result.expectedEvidenceMatched.isEmpty())
         assertTrue(result.failureEvidenceMatched.isEmpty())
@@ -156,17 +184,20 @@ class VisualSemanticProgressTrackerTest {
     }
 
     @Test
-    fun objectiveFeedbackExplicitlyNamesGuiPlusAsSemanticOwner() {
+    fun feedbackReportsFrameChangeAsTelemetryNotProgress() {
         val tracker = VisualSemanticProgressTracker()
-        val before = snapshot("com.example.app", listOf("列表"))
-        val after = snapshot("com.example.app", listOf("详情"))
-        val step = CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f)
+        val before = snapshot("com.example.app", listOf("09:30", "日K"))
+        val after = snapshot("com.example.app", listOf("09:31", "日K"))
+        val step = CloudAgentStep(type = "wait", targetText = "观察")
 
         val feedback = tracker.evaluate(step, before, after, "com.example.app").toFeedbackLine(step)
 
         assertTrue(feedback.startsWith("visual_execution_observed:"))
+        assertTrue(feedback.contains("executionObserved=true"))
+        assertTrue(feedback.contains("frameChanged=true"))
         assertTrue(feedback.contains("semanticDecisionOwner=gui_plus"))
         assertTrue(feedback.contains("localSemanticDecision=false"))
+        assertFalse(feedback.contains("screenChanged="))
         assertFalse(feedback.contains("expectedMatched="))
         assertFalse(feedback.contains("newEvidence="))
     }
