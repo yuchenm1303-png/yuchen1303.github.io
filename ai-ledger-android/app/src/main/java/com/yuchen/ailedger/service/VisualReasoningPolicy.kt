@@ -68,13 +68,18 @@ data class VisualReasoningContext(
     fun toPromptLine(): String = buildString {
         append(PROMPT_PREFIX)
         append("depth=").append(depth.wireValue)
-        // Hyphenated metadata cannot be mistaken for legacy no_progress execution evidence.
-        append("|triggers=").append(triggers.joinToString(",") { it.wireValue.replace('_', '-') })
+        // Prompt metadata avoids legacy feedback keywords such as no_progress and blocked.
+        append("|triggers=").append(triggers.joinToString(",") { trigger ->
+            when (trigger) {
+                VisualReasoningTrigger.BlockedAction -> "action-suppressed"
+                else -> trigger.wireValue.replace('_', '-')
+            }
+        })
         append("|noProgressCount=").append(noProgressCount)
         append("|sameActionCount=").append(sameActionCount)
         append("|executionFailureCount=").append(executionFailureCount)
         append("|failedHypothesisCount=").append(failedHypothesisCount)
-        append("|blockedActionCount=").append(blockedActionCount)
+        append("|suppressedActionCount=").append(blockedActionCount)
         append("|explorationPressureLevel=").append(explorationPressureLevel)
         append("|historyItems=").append(historyItems)
         append("|selfCheckPasses=").append(selfCheckPasses)
