@@ -72,6 +72,19 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
+    fun verifiedPackageConflictUsesDeepReasoningWithoutReadingPageText() {
+        val context = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf(
+                "visual_runtime_context:v2|state=work_surface|verifiedTargetPackage=com.target.app|currentPackage=com.other.app|guiPlusEligible=false",
+            ),
+        )
+
+        assertEquals(VisualReasoningDepth.Deep, context.depth)
+        assertTrue(VisualReasoningTrigger.EntityConflict in context.triggers)
+    }
+
+    @Test
     fun userCorrectionUsesDeepButSupplementUsesNormal() {
         val correction = VisualReasoningPolicy.evaluate(
             baseMemory().copy(
@@ -168,6 +181,7 @@ class VisualReasoningPolicyTest {
 
     @Test
     fun taskMemoryJsonCarriesAdaptiveReasoningContext() {
+        VisualReasoningRuntime.resetForTests()
         val json = baseMemory().copy(
             progressStatus = "ambiguous",
         ).toJson()
