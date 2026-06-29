@@ -63,6 +63,13 @@ data class VisualTaskContract(
     companion object {
         const val DEFAULT_EXPLORATION_BUDGET = 2
 
+        /**
+         * Accepts only stable cloud task contracts.
+         *
+         * A finish response is merely a provisional completion candidate until Android verifies a
+         * fresh completion permit. Likewise, a backend verifier-rewritten wait does not describe the
+         * action Android actually executes. Neither response may mutate committed task state.
+         */
         fun fromJson(root: JSONObject?): VisualTaskContract? {
             root?.let { response ->
                 VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
@@ -72,6 +79,19 @@ data class VisualTaskContract(
             }
             if (root == null) return null
             if (VisualUserTaskUpdateRuntime.hasUndispatchedRevision()) return null
+            val rejection = root.taskContractRejectionReason()
+            if (rejection != null) {
+                VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                    type = "task_contract_transaction_rejected",
+                    details = JSONObject().apply {
+                        put("reason", rejection)
+                        put("committedStateChanged", false)
+                        put("completionCandidateProvisional", rejection == "provisional_completion_candidate")
+                        put("visualDecisionOwner", "gui_plus")
+                    },
+                )
+                return null
+            }
             val containers = listOfNotNull(
                 root.optJSONObject("taskContract"),
                 root.optJSONObject("visualTaskContract"),
@@ -98,7 +118,7 @@ data class VisualTaskContract(
                 ?: item.optFlexibleInt("userTaskRevision")
                 ?: item.optFlexibleInt("revision")
                 ?: 0
-            return VisualTaskContract(
+            val contract = VisualTaskContract(
                 originalGoal = item.firstNonBlank("originalGoal", "goal", "sourceGoal").orEmpty().take(240),
                 currentMilestoneId = currentId.take(100),
                 milestones = milestones,
@@ -108,7 +128,59 @@ data class VisualTaskContract(
                 legacyMode = item.flexibleBoolean("legacyMode") ?: false,
                 taskRevision = revision.coerceAtLeast(0),
             )
+            if (contract.isSyntheticSingleGoalActionContract()) {
+                VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                    type = "task_contract_transaction_rejected",
+                    details = JSONObject().apply {
+                        put("reason", "synthetic_single_goal_action_contract")
+                        put("currentMilestoneId", contract.currentMilestoneId)
+                        put("milestoneCount", contract.milestones.size)
+                        put("committedStateChanged", false)
+                    },
+                )
+                return null
+            }
+            return contract
         }
+
+        private fun VisualTaskContract.isSyntheticSingleGoalActionContract(): Boolean {
+            if (currentMilestoneId != "goal") return false
+            if (milestones.size > 1) return false
+            val only = milestones.singleOrNull()
+            return only == null || only.id == "goal"
+        }
+
+        private fun JSONObject.taskContractRejectionReason(): String? {
+            val step = visualAgentStepObject() ?: return null
+            val type = step.firstNonBlank("type", "action", "tool", "name")
+                .orEmpty().trim().lowercase().replace('-', '_')
+            val args = step.optJSONObject("args")
+                ?: step.optJSONObject("arguments")
+                ?: JSONObject()
+            if (type == "finish" || args.flexibleBoolean("completionCandidate") == true) {
+                return "provisional_completion_candidate"
+            }
+            val rejectedType = args.firstNonBlank("rejectedActionType", "restoredRejectedActionType")
+                .orEmpty().trim().lowercase().replace('-', '_')
+            val compact = optJSONObject("debug")?.optJSONObject("guiCompactAction")
+                ?: optJSONObject("guiCompactAction")
+                ?: optJSONObject("data")?.optJSONObject("debug")?.optJSONObject("guiCompactAction")
+                ?: optJSONObject("result")?.optJSONObject("debug")?.optJSONObject("guiCompactAction")
+            val compactType = compact?.firstNonBlank("a", "action", "type")
+                .orEmpty().trim().lowercase().replace('-', '_')
+            if (type == "wait" && rejectedType == "tap_xy" && compactType in setOf("tap_xy", "tap", "click", "press", "point")) {
+                return "backend_action_rewrite_not_executed"
+            }
+            return null
+        }
+
+        private fun JSONObject.visualAgentStepObject(): JSONObject? =
+            optJSONObject("agentStep")
+                ?: optJSONObject("step")
+                ?: optJSONObject("agentAction")?.optJSONObject("step")
+                ?: optJSONObject("data")?.optJSONObject("agentStep")
+                ?: optJSONObject("data")?.optJSONObject("step")
+                ?: optJSONObject("result")?.optJSONObject("agentStep")
     }
 }
 
@@ -252,7 +324,7 @@ data class VisualTaskMemory(
             )
 
         return JSONObject().apply {
-            put("schema", "visual_task_memory_v4_visual_authority")
+            put("schema", "visual_task_memory_v5_transactional_visual_authority")
             put("originalGoal", originalGoal)
             put("currentMilestoneId", currentMilestoneId)
             put("completedMilestoneIds", JSONArray(completedMilestoneIds))
@@ -280,6 +352,8 @@ data class VisualTaskMemory(
             put("localSemanticDecision", false)
             put("localProgressClassification", false)
             put("executionLedgerOnly", true)
+            put("transactionalCompletion", true)
+            put("provisionalStateCommitted", false)
         }
     }
 }
