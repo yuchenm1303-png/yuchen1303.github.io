@@ -196,8 +196,6 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
         if (!state.hostCoordinateSource.isAttached()) return@Canvas
 
         val backdrop = cachedBackdrop
-        if (backdrop != null) frameTicker?.frameNanos
-
         val radiusPx = BatchInsetRadius.dp.toPx()
         val insetPx = (1.5f + BatchInsetDepth * 6f).dp.toPx()
         val innerStrokeWidthPx = (1.2f + BatchInsetDepth * 3f).dp.toPx()
@@ -212,23 +210,27 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
             Offset.Unspecified
         }
 
+        val hasHostVisibleSlot = slots.any { slot ->
+            slot.coordinates.isAttached && slot.rect.isNearViewport(
+                viewportWidth = size.width,
+                viewportHeight = size.height,
+                margin = preloadMarginPx,
+            )
+        }
+        if (!hasHostVisibleSlot) return@Canvas
+        if (backdrop != null) frameTicker?.frameNanos
+
         slots.forEach { slot ->
             if (!slot.coordinates.isAttached) return@forEach
             val rect = slot.rect
-            val foldoutClip = foldoutClipRegistry.resolveLocalClip(
-                descendant = slot.coordinates,
-                hostRootOffset = hostRootOffset,
-                viewport = viewport
-            ) ?: return@forEach
-            if (rect.intersectionOrNull(foldoutClip) == null) return@forEach
+            if (!rect.isNearViewport(size.width, size.height, preloadMarginPx)) return@forEach
 
             val sampleOffset = if (hostSampleOffset.hasFiniteCoordinates()) {
                 hostSampleOffset + rect.topLeft
             } else {
                 Offset.Unspecified
             }
-
-            val visible = if (backdrop != null) {
+            val visibleInBackdrop = if (backdrop != null) {
                 isSlotNearViewport(
                     sampleOffset = sampleOffset,
                     slotSize = rect.size,
@@ -237,12 +239,16 @@ private fun BoxScope.InsetGlassSliderBatchChrome(
                     margin = preloadMarginPx
                 )
             } else {
-                rect.right >= -preloadMarginPx &&
-                    rect.bottom >= -preloadMarginPx &&
-                    rect.left <= size.width + preloadMarginPx &&
-                    rect.top <= size.height + preloadMarginPx
+                true
             }
-            if (!visible) return@forEach
+            if (!visibleInBackdrop) return@forEach
+
+            val foldoutClip = foldoutClipRegistry.resolveLocalClip(
+                descendant = slot.coordinates,
+                hostRootOffset = hostRootOffset,
+                viewport = viewport
+            ) ?: return@forEach
+            if (rect.intersectionOrNull(foldoutClip) == null) return@forEach
 
             val cache = ensureBatchSlotCache(
                 cache = slot.cache,
@@ -396,6 +402,15 @@ private fun batchGeometrySignature(
     result = result * 31L + outerStroke.toBits()
     return result
 }
+
+private fun Rect.isNearViewport(
+    viewportWidth: Float,
+    viewportHeight: Float,
+    margin: Float,
+): Boolean = right >= -margin &&
+    bottom >= -margin &&
+    left <= viewportWidth + margin &&
+    top <= viewportHeight + margin
 
 private fun Offset.hasFiniteCoordinates(): Boolean = x.isFinite() && y.isFinite()
 
