@@ -76,8 +76,38 @@ internal object VisualActionValidator {
         if (step.type == "input_text" && step.text.isNullOrBlank()) {
             return VisualActionValidation(false, "Input text is empty.")
         }
+        validateObservationBinding(step, runtime)?.let { return it }
         VisualUserTaskUpdateRuntime.markDispatchedPlanValidated()
         return VisualActionValidation(true)
+    }
+
+    /**
+     * Thin anti-replay boundary only. It proves that a GUI Plus action belongs to the exact screenshot
+     * request currently being handled; it never inspects nodes, labels, pixels or page meaning.
+     */
+    private fun validateObservationBinding(
+        step: CloudAgentStep,
+        runtime: VisualAgentRuntimeContext?,
+    ): VisualActionValidation? {
+        val context = runtime?.takeIf { it.guiPlusEligible } ?: return null
+        if (step.type !in OBSERVATION_BOUND_ACTIONS) return null
+        val responseObservationId = step.argString("responseObservationId").orEmpty().trim()
+        val responseSessionId = step.argString("responseSessionId").orEmpty().trim()
+        if (responseObservationId.isBlank() || responseSessionId.isBlank()) {
+            return VisualActionValidation(
+                ok = false,
+                message = "visualResponseBindingMissing=true; GUI Plus work-surface actions require responseSessionId and responseObservationId.",
+                failureClass = VisualFailureClass.VisualLocal,
+            )
+        }
+        if (responseObservationId != context.observationId.trim()) {
+            return VisualActionValidation(
+                ok = false,
+                message = "visualResponseObservationMismatch=true; expectedObservationId=${context.observationId.take(120)}; responseObservationId=${responseObservationId.take(120)}.",
+                failureClass = VisualFailureClass.VisualLocal,
+            )
+        }
+        return null
     }
 
     fun actionSignature(step: CloudAgentStep): String = listOfNotNull(
@@ -94,8 +124,8 @@ internal object VisualActionValidator {
     ).joinToString("|")
 
     /**
-     * Coarse physical-coordinate cluster used only when semantic purpose/hypothesis is unavailable.
-     * Nearby taps share one cluster so a failed action cannot evade blocking by moving a few pixels.
+     * Legacy diagnostic helper retained for compatibility. It is no longer used to block or re-ground
+     * GUI Plus actions.
      */
     fun actionClusterSignature(step: CloudAgentStep): String {
         if (step.type != "tap_xy") return actionSignature(step)
@@ -104,6 +134,7 @@ internal object VisualActionValidator {
         return "tap_xy|${(x / LEGACY_TAP_CLUSTER_PX).roundToInt()}|${(y / LEGACY_TAP_CLUSTER_PX).roundToInt()}"
     }
 
+    /** Objective frame fingerprint for diagnostics/anti-replay only, never task-progress semantics. */
     fun snapshotFingerprint(snapshot: AgentScreenSnapshot): String {
         val text = snapshot.texts.take(16).joinToString("|") { it.take(40) }
         val nodes = snapshot.clickableNodes.take(16).joinToString("|") { "${it.text.take(24)}#${it.bounds}" }
@@ -157,6 +188,10 @@ internal object VisualActionValidator {
         "android 当前动作协议不支持 long_press",
         "android 当前不支持 mobile_use key",
         "android 当前不支持 system_button",
+    )
+    private val OBSERVATION_BOUND_ACTIONS = setOf(
+        "tap_xy", "tap_node", "input_text", "scroll", "swipe", "back", "home", "recents",
+        "notifications", "quick_settings", "wait",
     )
     private val PRE_WORK_SURFACE_ACTIONS = CloudAgentStep.deviceToolTypes + "need_user_help"
     private const val LEGACY_TAP_CLUSTER_PX = 160f
