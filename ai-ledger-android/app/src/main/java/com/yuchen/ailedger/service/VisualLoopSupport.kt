@@ -19,9 +19,9 @@ internal object VisualLoopSupport {
     const val PRIVATE_COMPLETION_TOKEN = "__user_completed_private_step__"
 
     /**
-     * Converts a cloud-verified normalized coordinate to the last-addressable physical pixel in the
-     * exact full-display frame captured for the model. Android never interprets target text or moves
-     * the GUI model's chosen point to an arbitrary safety margin.
+     * Converts the exact normalized point selected by GUI Plus into the last-addressable physical
+     * pixel of the full-display screenshot sent to the model. Android validates only coordinate/frame
+     * integrity here; it never re-grounds, moves or semantically vetoes the visual model's point.
      */
     fun materializeTap(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
         if (step.type != "tap_xy") {
@@ -33,42 +33,14 @@ internal object VisualLoopSupport {
             return traced
         }
 
-        // Validate the original cloud response before Android adds local trace metadata. This keeps
-        // missing/invalid permit diagnostics precise without weakening the execution guard.
-        val permit = VisualExecutionPermitPolicy.validateTap(step)
-        val surfaceAwareStep = step.withExecutionTraceField(
-            TRACE_SURFACE_MODE,
-            surfaceEvidenceMode(snapshot),
+        val surfaceAwareStep = step.withExecutionTraceFields(
+            linkedMapOf(
+                TRACE_SURFACE_MODE to surfaceEvidenceMode(snapshot),
+                TRACE_VISUAL_AUTHORITY to step.argString("visualCoordinateAuthority")
+                    .orEmpty().ifBlank { "gui_plus_screenshot" },
+                TRACE_SECONDARY_VERIFIER_REQUIRED to false,
+            ),
         )
-        if (!permit.valid) {
-            val rejected = surfaceAwareStep
-                .withExecutionTraceFields(
-                    linkedMapOf(
-                        TRACE_PERMIT_REJECTED to true,
-                        TRACE_PERMIT_REJECT_REASON to permit.reason,
-                        TRACE_REJECTED_ACTION to "tap_xy",
-                    ),
-                )
-                .copy(
-                    type = "wait",
-                    x = null,
-                    y = null,
-                    durationMs = REOBSERVE_WAIT_MS,
-                    targetText = "重新观察",
-                    reason = "Verified GUI execution permit is invalid (${permit.reason}); the coordinate was not executed.",
-                )
-            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
-                type = "tap_permit_rejected",
-                details = JSONObject().apply {
-                    put("originalType", step.type)
-                    put("reason", permit.reason)
-                    put("surfaceMode", surfaceEvidenceMode(snapshot))
-                    put("packageName", snapshot.packageName)
-                },
-            )
-            return rejected
-        }
-
         val modelX = surfaceAwareStep.x ?: return rejectCoordinateMaterialization(
             step = surfaceAwareStep,
             snapshot = snapshot,
@@ -83,6 +55,25 @@ internal object VisualLoopSupport {
             modelY = null,
             reason = "missing_model_y",
         )
+        if (!modelX.isFinite() || modelX !in 0f..1f) {
+            return rejectCoordinateMaterialization(
+                step = surfaceAwareStep,
+                snapshot = snapshot,
+                modelX = modelX,
+                modelY = modelY,
+                reason = "model_x_not_normalized",
+            )
+        }
+        if (!modelY.isFinite() || modelY !in 0f..1f) {
+            return rejectCoordinateMaterialization(
+                step = surfaceAwareStep,
+                snapshot = snapshot,
+                modelX = modelX,
+                modelY = modelY,
+                reason = "model_y_not_normalized",
+            )
+        }
+
         val visual = snapshot.visual
         if (visual?.hasImage != true) {
             return rejectCoordinateMaterialization(
@@ -133,7 +124,23 @@ internal object VisualLoopSupport {
             pixelMappingProtocol = VisualCoordinateProtocol.pixelMappingProtocol,
             coordinateSpace = VisualCoordinateProtocol.coordinateSpace,
         )
-        recordPlannedAction(materialized, snapshot, "tap_materialized")
+        recordPlannedAction(materialized, snapshot, "gui_plus_tap_materialized")
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "gui_plus_visual_coordinate_materialized",
+            details = JSONObject().apply {
+                put("packageName", snapshot.packageName)
+                put("modelX", modelX)
+                put("modelY", modelY)
+                put("physicalX", point.x)
+                put("physicalY", point.y)
+                put("displayWidth", frame.width)
+                put("displayHeight", frame.height)
+                put("visualDecisionOwner", "gui_plus")
+                put("secondaryTapVerifierRequired", false)
+                put("responseSessionId", step.argString("responseSessionId").orEmpty())
+                put("responseObservationId", step.argString("responseObservationId").orEmpty())
+            },
+        )
         VisualAgentHudRuntime.notePlannedStep(materialized)
         awaitHudPointerLead()
         return materialized
@@ -175,7 +182,7 @@ internal object VisualLoopSupport {
                 y = null,
                 durationMs = REOBSERVE_WAIT_MS,
                 targetText = "重新观察",
-                reason = "Verified visual coordinate could not be bound to its source display frame ($reason); a fresh visual observation is required.",
+                reason = "GUI Plus visual coordinate could not be bound to its source display frame ($reason); a fresh screenshot is required.",
             )
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "tap_coordinate_materialization_rejected",
@@ -281,9 +288,9 @@ internal object VisualLoopSupport {
             snapshot.allNodes.any { it.clickable || it.editable || it.scrollable }
         val hasVisualEvidence = snapshot.visual?.hasImage == true
         return when {
-            hasVisualEvidence && hasNodeEvidence -> "hybrid"
+            hasVisualEvidence && hasNodeEvidence -> "visual_with_optional_nodes"
             hasVisualEvidence -> "visual_only"
-            hasNodeEvidence -> "node_grounded"
+            hasNodeEvidence -> "node_execution_only"
             else -> "package_only"
         }
     }
@@ -389,14 +396,14 @@ internal object VisualLoopSupport {
         val protocol = args?.optString(TRACE_COORDINATE_PROTOCOL).orEmpty().ifBlank { "unknown" }
         val mapping = args?.optString(TRACE_PIXEL_MAPPING_PROTOCOL).orEmpty().ifBlank { "unknown" }
         val coordinateSpace = args?.optString(TRACE_COORDINATE_SPACE).orEmpty().ifBlank { "unknown" }
-        val permitKind = args?.optString("executionPermitKind").orEmpty()
+        val visualAuthority = args?.optString(TRACE_VISUAL_AUTHORITY).orEmpty().ifBlank { "gui_plus_screenshot" }
 
         return buildList {
             surfaceMode?.let { add("surface=$it") }
+            add("authority=$visualAuthority")
             add("protocol=$protocol")
             add("mapping=$mapping")
             add("space=$coordinateSpace")
-            permitKind.takeIf(String::isNotBlank)?.let { add("permit=$it") }
             if (displayWidth != null && displayHeight != null) add("sourceFrame=${displayWidth}x$displayHeight")
             if (imageWidth != null && imageHeight != null) add("modelImage=${imageWidth}x$imageHeight")
             if (modelX != null && modelY != null) add("modelNorm=${formatTraceCoordinate(modelX)},${formatTraceCoordinate(modelY)}")
@@ -405,6 +412,7 @@ internal object VisualLoopSupport {
                 add("materializedPx=${formatTraceCoordinate(materializedX)},${formatTraceCoordinate(materializedY)}")
             }
             actualPoint?.let { add("executedPx=${formatTraceCoordinate(it.first)},${formatTraceCoordinate(it.second)}") }
+            add("secondaryVerifierRequired=false")
             add("groundingApplied=false")
             add("boundaryAdjusted=$boundaryAdjusted")
         }.joinToString(",")
@@ -482,6 +490,8 @@ internal object VisualLoopSupport {
     private const val REOBSERVE_WAIT_MS = 220L
     private const val HUD_POINTER_LEAD_MS = 240L
     private const val TRACE_SURFACE_MODE = "__androidVisualSurfaceMode"
+    private const val TRACE_VISUAL_AUTHORITY = "__androidVisualAuthority"
+    private const val TRACE_SECONDARY_VERIFIER_REQUIRED = "__androidSecondaryVerifierRequired"
     private const val TRACE_COORDINATE_PROTOCOL = "__androidCoordinateProtocol"
     private const val TRACE_PIXEL_MAPPING_PROTOCOL = "__androidPixelMappingProtocol"
     private const val TRACE_COORDINATE_SPACE = "__androidCoordinateSpace"
@@ -496,8 +506,6 @@ internal object VisualLoopSupport {
     private const val TRACE_IMAGE_WIDTH = "__androidImageWidth"
     private const val TRACE_IMAGE_HEIGHT = "__androidImageHeight"
     private const val TRACE_GROUNDING_APPLIED = "__androidGroundingApplied"
-    private const val TRACE_PERMIT_REJECTED = "__androidExecutionPermitRejected"
-    private const val TRACE_PERMIT_REJECT_REASON = "__androidExecutionPermitRejectReason"
     private const val TRACE_COORDINATE_MATERIALIZATION_REJECTED = "__androidCoordinateMaterializationRejected"
     private const val TRACE_COORDINATE_MATERIALIZATION_REJECT_REASON = "__androidCoordinateMaterializationRejectReason"
     private const val TRACE_REJECTED_ACTION = "__androidRejectedAction"
