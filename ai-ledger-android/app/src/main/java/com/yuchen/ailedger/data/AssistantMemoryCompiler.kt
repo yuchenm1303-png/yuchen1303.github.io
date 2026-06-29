@@ -42,9 +42,9 @@ data class AssistantMemoryCompilation(
     val errorCode: String = "",
     val memoryRequested: Boolean = false,
 ) {
-    /** 只代表长期记忆请求，不受自定义指令是否存在影响。 */
+    /** memorySnapshot 保留空值仅用于协议兼容，Android 不再生成该字段。 */
     val hasAnyContext: Boolean
-        get() = memoryRequested
+        get() = memoryRequested || memorySnapshot != null
 
     fun personaConfigJson(): JSONObject? {
         val instructions = personaInstructions?.trim().orEmpty()
