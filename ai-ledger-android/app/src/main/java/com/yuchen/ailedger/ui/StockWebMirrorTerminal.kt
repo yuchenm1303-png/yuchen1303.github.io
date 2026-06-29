@@ -1,6 +1,9 @@
 package com.yuchen.ailedger.ui
 
 import android.graphics.Paint
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +37,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -42,6 +47,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -611,6 +617,36 @@ private fun DrawScope.mirrorDrawMinutePath(
 private fun MirrorOrderPanel(ui: StockMarketUiState, modifier: Modifier) {
     val quote = ui.stock.quote
     val previousClose = quote.previousClose
+    val ticks = ui.stock.tradeTicks.takeLast(120)
+    val tickScrollState = rememberScrollState()
+    val tickBounce = remember(quote.code) { Animatable(0f) }
+    var followLatest by remember(quote.code) { mutableStateOf(true) }
+    var previousLatestKey by remember(quote.code) { mutableStateOf<String?>(null) }
+    val latestTickKey = ticks.lastOrNull()?.let(::mirrorTickKey)
+    val isAtLatest = tickScrollState.maxValue == 0 ||
+        tickScrollState.value >= (tickScrollState.maxValue - 12).coerceAtLeast(0)
+
+    LaunchedEffect(tickScrollState.isScrollInProgress, isAtLatest) {
+        if (tickScrollState.isScrollInProgress) followLatest = isAtLatest
+    }
+    LaunchedEffect(latestTickKey, ticks.size, followLatest) {
+        val previous = previousLatestKey
+        previousLatestKey = latestTickKey
+        if (latestTickKey == null || !followLatest) return@LaunchedEffect
+        withFrameNanos { }
+        tickScrollState.animateScrollTo(tickScrollState.maxValue)
+        if (previous != null && previous != latestTickKey) {
+            tickBounce.snapTo(-10f)
+            tickBounce.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = 0.52f,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
+
     Column(
         modifier = modifier
             .background(MirrorPanelFill, MirrorOrderShape)
@@ -644,20 +680,36 @@ private fun MirrorOrderPanel(ui: StockMarketUiState, modifier: Modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("逐笔成交", color = Color.White.copy(alpha = 0.92f), fontSize = 10.sp, fontWeight = FontWeight.Black)
             Spacer(Modifier.weight(1f))
-            Text("明细", color = MirrorAqua, fontSize = 7.sp, fontWeight = FontWeight.Black)
+            Text(
+                text = if (followLatest) "跟随" else "回到最新",
+                color = if (followLatest) MirrorAqua.copy(alpha = 0.72f) else MirrorYellow,
+                fontSize = 7.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.clickable(enabled = !followLatest) { followLatest = true }
+            )
         }
-        Column(Modifier.fillMaxWidth().weight(0.62f), verticalArrangement = Arrangement.SpaceEvenly) {
-            val ticks = ui.stock.tradeTicks.takeLast(8)
-            if (ticks.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("真实逐笔\n暂不可用", color = Color.White.copy(alpha = 0.38f), fontSize = 8.sp, textAlign = TextAlign.Center)
-                }
-            } else {
+        if (ticks.isEmpty()) {
+            Box(Modifier.fillMaxWidth().weight(0.62f), contentAlignment = Alignment.Center) {
+                Text("真实逐笔\n暂不可用", color = Color.White.copy(alpha = 0.38f), fontSize = 8.sp, textAlign = TextAlign.Center)
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(0.62f)
+                    .graphicsLayer { translationY = tickBounce.value }
+                    .verticalScroll(tickScrollState)
+                    .padding(vertical = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
                 ticks.forEach { MirrorTickRow(it, previousClose) }
             }
         }
     }
 }
+
+private fun mirrorTickKey(tick: StockTradeTick): String =
+    "${tick.time}|${tick.price}|${tick.volume}|${tick.direction}"
 
 @Composable
 private fun MirrorDepthRow(level: StockOrderLevel, previousClose: Float) {
