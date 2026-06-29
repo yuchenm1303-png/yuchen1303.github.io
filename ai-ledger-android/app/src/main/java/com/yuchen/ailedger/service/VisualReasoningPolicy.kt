@@ -52,7 +52,7 @@ data class VisualReasoningContext(
         get() = depth == VisualReasoningDepth.Deep
 
     fun toJson(): JSONObject = JSONObject().apply {
-        put("schema", "visual_reasoning_context_v4_structured_watchdog")
+        put("schema", "visual_reasoning_context_v3_transaction_watchdog")
         put("depth", depth.wireValue)
         put("triggers", JSONArray(triggers.map { it.wireValue }))
         put("noProgressCount", noProgressCount)
@@ -98,6 +98,13 @@ data class VisualReasoningContext(
         append("|freshObservationRequired=").append(freshObservationRequired)
         append("|completionEvidenceStrict=").append(completionEvidenceStrict)
         append("|directExecutionAllowed=").append(directExecutionAllowed)
+        append("|taskContractProtocolVersion=v2")
+        append("|fullOrderedContractRequired=true")
+        append("|minimumMilestones=2")
+        append("|actionIntentRequired=true")
+        append("|currentMilestoneBindingRequired=true")
+        append("|singleGoalContractForbidden=true")
+        append("|completionCommitOwner=android_fresh_screen_ack")
         append("|semanticDecisionOwner=gui_plus")
         append("|localSemanticDecision=false")
         append("|localProgressClassification=false")
@@ -105,7 +112,7 @@ data class VisualReasoningContext(
     }.take(VisualLoopSupport.MAX_RECENT_ACTION_CHARS)
 
     companion object {
-        const val PROMPT_PREFIX = "visual_reasoning_context:v4|"
+        const val PROMPT_PREFIX = "visual_reasoning_context:v3|"
     }
 }
 
@@ -277,7 +284,7 @@ internal object VisualReasoningPolicy {
         .map(String::trim)
         .filter(String::isNotBlank)
         .filterNot { it.startsWith(VisualReasoningContext.PROMPT_PREFIX) }
-        .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V3) }
+        .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V4) }
         .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V2) }
         .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V1) }
         .filterNot { it.startsWith(DEEP_REPLAN_PREFIX) }
@@ -492,7 +499,7 @@ internal object VisualReasoningPolicy {
         "(?:x|y|x2|y2|px|py|modelx|modely|physicalx|physicaly|materializedx|materializedy)\\s*=\\s*-?\\d+(?:\\.\\d+)?")
     private val LEGACY_ACTION_AT_COORDINATE_PATTERN = Regex(
         "([a-z_]+)@-?\\d+(?:\\.\\d+)?\\s*[,;:]\\s*-?\\d+(?:\\.\\d+)?")
-    private const val LEGACY_PROMPT_PREFIX_V3 = "visual_reasoning_context:v3|"
+    private const val LEGACY_PROMPT_PREFIX_V4 = "visual_reasoning_context:v4|"
     private const val LEGACY_PROMPT_PREFIX_V2 = "visual_reasoning_context:v2|"
     private const val LEGACY_PROMPT_PREFIX_V1 = "visual_reasoning_context:v1|"
     private const val REOBSERVE_ROUTE_KEY = "wait|重新观察"
