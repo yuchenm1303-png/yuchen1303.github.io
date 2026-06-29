@@ -32,9 +32,11 @@ class AiWorkerClientTest {
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-command-chat-v7-memory-retrieval",
+            "compose-native-command-chat-v8-memory-diagnostics",
             payload.getString("clientVersion"),
         )
+        assertTrue(payload.getString("requestId").isNotBlank())
+        assertTrue(payload.has("memoryMode"))
     }
 
     @Test
