@@ -18,12 +18,12 @@ private const val CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS = 8_000
 private const val CANCELLABLE_VISUAL_READ_TIMEOUT_MS = 25_000
 private const val CANCELLABLE_VISUAL_CALL_TIMEOUT_MS = 35_000L
 private const val CANCELLABLE_VISUAL_STOP_POLL_MS = 50L
-private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v14_task_contract_harness"
+private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v15_unified_execution_permit"
 
 /**
  * Runs one visual planning request on Dispatchers.IO while keeping the active connection reachable
  * from the task-stop watcher. Disconnecting the HttpURLConnection unblocks upload/read immediately;
- * normal requests keep the same payload, headers and timeout policy as the legacy synchronous path.
+ * normal requests keep the same payload, headers and timeout policy as the synchronous path.
  */
 internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
     goal: String,
@@ -108,7 +108,7 @@ private fun postCancellableVisualAgentStep(
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v14-task-contract")
+        setRequestProperty("X-Client", "android-compose-visual-agent-v15-unified-permit")
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", CANCELLABLE_VISUAL_SESSION_PROTOCOL)
