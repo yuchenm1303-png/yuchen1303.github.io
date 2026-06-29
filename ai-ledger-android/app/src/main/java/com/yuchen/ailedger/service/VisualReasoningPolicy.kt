@@ -137,21 +137,21 @@ internal object VisualReasoningPolicy {
     ): VisualReasoningContext {
         val activeActions = activeObjectiveWindow(recentActions)
         val runtimeState = activeActions.latestRuntimeState()
-        val noProgressCount = activeActions.count(String::isNoProgressEvidence)
-        val executionFailureCount = activeActions.count(String::isExecutionFailureEvidence)
+        val noProgressCount = activeActions.count { it.isNoProgressEvidence() }
+        val executionFailureCount = activeActions.count { it.isExecutionFailureEvidence() }
         val sameActionCount = consecutiveSameExecutedActionCount(activeActions)
         val failedHypothesisCount = memory.failedHypotheses.size
         val blockedActionCount = memory.blockedActions.size
         val repeatedHypothesisFailure = memory.failedHypotheses.any { it.count >= 2 }
-        val completionCandidate = activeActions.any(String::isCompletionCandidateEvidence)
+        val completionCandidate = activeActions.any { it.isCompletionCandidateEvidence() }
         val semanticAmbiguity = memory.progressStatus.contains("ambiguous", ignoreCase = true) ||
             activeActions.any { it.contains("semanticStatus=ambiguous", ignoreCase = true) }
         val semanticRegression = memory.progressStatus.contains("regression", ignoreCase = true) ||
             memory.progressStatus.contains("regressed", ignoreCase = true) ||
-            activeActions.any(String::isSemanticRegressionEvidence)
-        val routeConflict = activeActions.any(String::isRouteConstraintConflictEvidence) ||
+            activeActions.any { it.isSemanticRegressionEvidence() }
+        val routeConflict = activeActions.any { it.isRouteConstraintConflictEvidence() } ||
             runtimeState?.surfaceState == "replanning"
-        val entityConflict = activeActions.any(String::isEntityConflictEvidence) ||
+        val entityConflict = activeActions.any { it.isEntityConflictEvidence() } ||
             runtimeState?.packageConflict == true
         val conflictingEvidence = activeActions.hasConflictingEvidence()
         val latestUpdateKind = memory.latestUserUpdate?.kind
@@ -266,7 +266,7 @@ internal object VisualReasoningPolicy {
             .filterNot { it.startsWith(VisualReasoningContext.PROMPT_PREFIX) }
             .filterNot { it.startsWith(DEEP_REPLAN_PREFIX) }
             .toList()
-        val lastReset = filtered.indexOfLast(String::isConfirmedProgressReset)
+        val lastReset = filtered.indexOfLast { it.isConfirmedProgressReset() }
         return (if (lastReset >= 0) filtered.drop(lastReset + 1) else filtered)
             .takeLast(MAX_ACTIVE_ACTIONS)
     }
@@ -357,7 +357,7 @@ internal object VisualReasoningPolicy {
     }
 
     private fun consecutiveSameExecutedActionCount(actions: List<String>): Int {
-        val signatures = actions.mapNotNull(String::executedActionSignatureOrNull)
+        val signatures = actions.mapNotNull { it.executedActionSignatureOrNull() }
         val latest = signatures.lastOrNull() ?: return 0
         return signatures.asReversed().takeWhile { it == latest }.count()
     }
