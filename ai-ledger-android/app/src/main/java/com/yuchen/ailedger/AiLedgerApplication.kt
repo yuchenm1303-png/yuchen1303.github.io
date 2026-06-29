@@ -46,13 +46,16 @@ class AiLedgerApplication : Application() {
             }
         }
 
-        // 股票代理使用 Render 免费实例，长时间空闲后可能休眠。必须等首屏与 OpenGL 初始化完成，
-        // 再用独立 IO 任务无阻塞预热，避免网络唤醒与首屏渲染争抢资源。
+        // 股票代理使用 Render 免费实例，长时间空闲后可能休眠。只有 Compose 前台首屏真正稳定后
+        // 才允许无阻塞预热；后台组件或无障碍空闲态拉起进程时不产生股票网络请求。
         applicationScope.launch(Dispatchers.IO) {
-            withTimeoutOrNull(5_000L) {
+            val foregroundReady = withTimeoutOrNull(15_000L) {
                 StartupPerformanceGate.awaitDeferredBusinessWindow()
+                true
+            } == true
+            if (foregroundReady) {
+                StockMarketDataRepository.prewarmMarketHome()
             }
-            StockMarketDataRepository.prewarmMarketHome()
         }
     }
 
