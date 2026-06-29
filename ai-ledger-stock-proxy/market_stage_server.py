@@ -15,7 +15,9 @@ app = home.app
 INDICES_PATH = "/api/stock/a-share/market/indices"
 BREADTH_PATH = "/api/stock/a-share/market/breadth"
 DISCOVERY_PATH = "/api/stock/a-share/market/discovery"
-STAGE_VERSION = "v1-priority-stages"
+STAGE_VERSION = "v2-priority-stages"
+BREADTH_REFRESH_SECONDS = 10.0
+DISCOVERY_REFRESH_SECONDS = 22.0
 
 
 def _remove_get_routes(paths: set[str]) -> None:
@@ -38,6 +40,46 @@ def _module_cache_age_ms(module: dict[str, Any] | None) -> int:
         return max(int(float((module or {}).get("cacheAgeMs") or 0)), 0)
     except (TypeError, ValueError):
         return 0
+
+
+def _cache_is_fresh(
+    kind: str,
+    query: str,
+    mode: str,
+    max_age_seconds: float,
+) -> bool:
+    return legacy._cache_get(
+        legacy._cache_key(kind, query, mode),
+        max_age_seconds,
+    ) is not None
+
+
+def _breadth_refresh_due() -> bool:
+    return not _cache_is_fresh(
+        "market",
+        "breadth",
+        "v1",
+        BREADTH_REFRESH_SECONDS,
+    )
+
+
+def _discovery_refresh_due() -> bool:
+    if not _cache_is_fresh(
+        "sectors",
+        "industry",
+        "20",
+        DISCOVERY_REFRESH_SECONDS,
+    ):
+        return True
+    return any(
+        not _cache_is_fresh(
+            "ranking",
+            query,
+            "20",
+            DISCOVERY_REFRESH_SECONDS,
+        )
+        for query, _, _ in home._RANKING_SPECS.values()
+    )
 
 
 def _stage_payload(
@@ -125,10 +167,16 @@ def _cached_discovery_modules() -> dict[str, dict[str, Any]]:
     return modules
 
 
-def _ensure_background_refresh(modules: dict[str, dict[str, Any]]) -> bool:
-    if all(_module_is_real(module) for module in modules.values()):
-        return False
-    return home._start_market_home_background_refresh()
+def _start_background_if_due(refresh_due: bool) -> tuple[bool, str]:
+    if not refresh_due:
+        return False, "market_stage: deferred_modules_fresh"
+    started = home._start_market_home_background_refresh()
+    return (
+        started,
+        "market_stage: background_refresh_started"
+        if started
+        else "market_stage: background_refresh_reused_or_cooling",
+    )
 
 
 _remove_get_routes({INDICES_PATH, BREADTH_PATH, DISCOVERY_PATH})
@@ -138,16 +186,14 @@ _remove_get_routes({INDICES_PATH, BREADTH_PATH, DISCOVERY_PATH})
 def a_share_market_indices(response: Response) -> dict[str, Any]:
     started_at = monotonic()
     modules = {"indices": _cached_indices()}
-    background_started = home._start_market_home_background_refresh()
+    _, refresh_warning = _start_background_if_due(
+        _breadth_refresh_due() or _discovery_refresh_due()
+    )
     payload = _stage_payload(
         "indices",
         modules,
         started_at,
-        [
-            "market_stage: full_background_refresh_started"
-            if background_started
-            else "market_stage: full_background_refresh_reused"
-        ],
+        [refresh_warning],
     )
     response.headers["X-Market-Stage"] = "indices"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
@@ -163,16 +209,12 @@ def a_share_market_breadth(response: Response) -> dict[str, Any]:
         "marketBreadth": breadth,
         "sentiment": home._sentiment_from_breadth(breadth),
     }
-    background_started = _ensure_background_refresh(modules)
+    _, refresh_warning = _start_background_if_due(_breadth_refresh_due())
     payload = _stage_payload(
         "breadth",
         modules,
         started_at,
-        [
-            "market_stage: background_refresh_started"
-            if background_started
-            else "market_stage: background_refresh_reused_or_ready"
-        ],
+        [refresh_warning],
     )
     response.headers["X-Market-Stage"] = "breadth"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
@@ -184,21 +226,12 @@ def a_share_market_breadth(response: Response) -> dict[str, Any]:
 def a_share_market_discovery(response: Response) -> dict[str, Any]:
     started_at = monotonic()
     modules = _cached_discovery_modules()
-    refreshable = {
-        name: module
-        for name, module in modules.items()
-        if name in home._REFRESHABLE_MODULES
-    }
-    background_started = _ensure_background_refresh(refreshable)
+    _, refresh_warning = _start_background_if_due(_discovery_refresh_due())
     payload = _stage_payload(
         "discovery",
         modules,
         started_at,
-        [
-            "market_stage: background_refresh_started"
-            if background_started
-            else "market_stage: background_refresh_reused_or_ready"
-        ],
+        [refresh_warning],
     )
     response.headers["X-Market-Stage"] = "discovery"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
