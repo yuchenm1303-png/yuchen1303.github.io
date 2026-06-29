@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.data
 
+import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.StockIndexSnapshot
 import com.yuchen.ailedger.model.StockInformationItem
 import com.yuchen.ailedger.model.StockMarketBoard
@@ -11,6 +12,7 @@ import com.yuchen.ailedger.model.StockModuleStatus
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockSectorSnapshot
 import com.yuchen.ailedger.model.StockSlowDataSnapshot
+import java.io.File
 import java.net.URLEncoder
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,15 +20,42 @@ import org.json.JSONObject
 class StockMarketDataRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
-    fun loadMarketHome(): Result<StockMarketHomeSnapshot> = runCatching {
-        val root = JSONObject(
-            httpGet(
+    private data class CachedMarketHome(
+        val body: String,
+        val ageMs: Long
+    )
+
+    fun loadMarketHome(coldStartWait: Boolean = false): Result<StockMarketHomeSnapshot> = runCatching {
+        val timeoutMs = if (coldStartWait) {
+            MARKET_COLD_START_TIMEOUT_MS
+        } else {
+            MARKET_FAST_TIMEOUT_MS
+        }
+        try {
+            val body = httpGet(
                 "${baseUrl()}/api/stock/a-share/market/home",
-                MARKET_TIMEOUT_MS,
+                timeoutMs,
                 MARKET_MICRO_CACHE_MS
             )
-        )
-        parseMarketHome(root)
+            val snapshot = parseMarketHome(JSONObject(body))
+            if (snapshot.hasUsableMarketData()) {
+                writeMarketHomeCache(body)
+            }
+            snapshot
+        } catch (networkError: Throwable) {
+            val cached = readMarketHomeCache()
+            if (cached == null) throw networkError
+            val snapshot = runCatching {
+                parseMarketHome(JSONObject(cached.body))
+            }.getOrElse {
+                deleteMarketHomeCache()
+                throw networkError
+            }
+            snapshot.copy(
+                warnings = snapshot.warnings +
+                    "$ANDROID_CACHE_FALLBACK_MARKER ageMs=${cached.ageMs} reason=${networkError.message.orEmpty().take(120)}"
+            )
+        }
     }
 
     fun loadSlowStock(query: String): Result<StockSlowDataSnapshot> = runCatching {
@@ -424,6 +453,47 @@ class StockMarketDataRepository(
         return null
     }
 
+    private fun StockMarketHomeSnapshot.hasUsableMarketData(): Boolean {
+        return indices.isNotEmpty() ||
+            boards.isNotEmpty() ||
+            sectors.isNotEmpty() ||
+            marketBreadth.meta.hasRealData
+    }
+
+    private fun writeMarketHomeCache(body: String) {
+        val file = marketHomeCacheFile() ?: return
+        runCatching {
+            file.parentFile?.mkdirs()
+            val temporary = File(file.parentFile, "${file.name}.tmp")
+            temporary.writeText(body)
+            if (!temporary.renameTo(file)) {
+                file.writeText(body)
+                temporary.delete()
+            }
+        }
+    }
+
+    private fun readMarketHomeCache(): CachedMarketHome? {
+        val file = marketHomeCacheFile() ?: return null
+        if (!file.isFile || file.length() <= 2L) return null
+        val ageMs = (System.currentTimeMillis() - file.lastModified()).coerceAtLeast(0L)
+        if (ageMs > MARKET_CACHE_MAX_AGE_MS) {
+            file.delete()
+            return null
+        }
+        val body = runCatching { file.readText() }.getOrNull()?.takeIf(String::isNotBlank) ?: return null
+        return CachedMarketHome(body = body, ageMs = ageMs)
+    }
+
+    private fun deleteMarketHomeCache() {
+        runCatching { marketHomeCacheFile()?.delete() }
+    }
+
+    private fun marketHomeCacheFile(): File? {
+        val context = AiLedgerApplication.contextOrNull() ?: return null
+        return File(context.filesDir, MARKET_CACHE_FILE_NAME)
+    }
+
     private fun encode(value: String): String = URLEncoder.encode(value, "UTF-8")
 
     private fun baseUrl(): String {
@@ -444,9 +514,14 @@ class StockMarketDataRepository(
     )
 
     companion object {
-        private const val MARKET_TIMEOUT_MS = 18_000
+        const val ANDROID_CACHE_FALLBACK_MARKER = "android_market_cache:fallback"
+
+        private const val MARKET_FAST_TIMEOUT_MS = 4_500
+        private const val MARKET_COLD_START_TIMEOUT_MS = 18_000
         private const val SLOW_TIMEOUT_MS = 12_000
         private const val MARKET_MICRO_CACHE_MS = 900L
         private const val SLOW_MICRO_CACHE_MS = 2_000L
+        private const val MARKET_CACHE_FILE_NAME = "stock_market_home_cache_v1.json"
+        private const val MARKET_CACHE_MAX_AGE_MS = 4L * 24L * 60L * 60L * 1_000L
     }
 }
