@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.data
 
 import com.yuchen.ailedger.service.CLOUD_MEMORY_CUSTOM_ORIGIN_ID
-import com.yuchen.ailedger.service.CloudMemorySelectionClient
 import com.yuchen.ailedger.service.CloudMemorySelectionResult
 import com.yuchen.ailedger.service.CloudSelectedMemory
 import java.time.Instant
@@ -42,9 +41,10 @@ data class AssistantMemoryCompilation(
     val selectionStatus: String = "empty",
     val selectionOwner: String = "cloud_model",
     val errorCode: String = "",
+    val memoryRequested: Boolean = false,
 ) {
     val hasAnyContext: Boolean
-        get() = !personaInstructions.isNullOrBlank() || memorySnapshot != null
+        get() = memoryRequested || !personaInstructions.isNullOrBlank() || memorySnapshot != null
 
     fun personaConfigJson(): JSONObject? {
         val instructions = personaInstructions?.trim().orEmpty()
@@ -62,6 +62,7 @@ data class AssistantMemoryCompilation(
         .put("selectionOwner", selectionOwner)
         .put("selectionStatus", selectionStatus)
         .put("errorCode", errorCode)
+        .put("memoryRequested", memoryRequested)
         .put("activeScopes", JSONArray(activeScopes.toList()))
         .put("selectedMemoryIds", JSONArray(selectedMemoryIds))
         .put("suppressedConflictCount", suppressedConflictCount)
@@ -97,19 +98,39 @@ object AssistantMemoryRuntime {
 }
 
 object AssistantMemoryCompiler {
+    /**
+     * 普通聊天只声明“是否请求云端记忆”。真正的候选召回、冲突处理和重排
+     * 全部由后端 V4 Memory Service 完成，Android 不再做本地候选筛选或额外模型调用。
+     */
     fun compile(
         userText: String,
         customInstructions: String?,
         memoryState: AssistantMemoryState,
         nowMillis: Long = System.currentTimeMillis(),
     ): AssistantMemoryCompilation {
-        val result = CloudMemorySelectionClient.select(
-            userText = userText,
-            customInstructions = customInstructions,
-            memoryState = memoryState,
-            nowMillis = nowMillis,
+        val requestHasText = userText.trim().isNotBlank()
+        val accountReady = memoryState.accountUserId != null && memoryState.cloudReady
+        val memoryRequested = requestHasText && accountReady && memoryState.memoryEnabled
+        val instructions = customInstructions
+            ?.trim()
+            ?.takeIf { memoryRequested && it.isNotBlank() }
+
+        return AssistantMemoryCompilation(
+            activeScopes = if (memoryRequested) setOf("backend_cloud_v4") else emptySet(),
+            personaInstructions = instructions,
+            memorySnapshot = null,
+            selectedMemoryIds = emptyList(),
+            sources = emptyList(),
+            selectionStatus = when {
+                memoryRequested -> "backend_cloud_delegated"
+                memoryState.accountUserId == null -> "disabled_anonymous"
+                !memoryState.memoryEnabled -> "disabled_by_user"
+                !memoryState.cloudReady -> "disabled_account_unavailable"
+                else -> "empty"
+            },
+            selectionOwner = "backend_cloud_v4",
+            memoryRequested = memoryRequested,
         )
-        return composeCloudCompilation(result)
     }
 
     internal fun composeCloudCompilation(
@@ -168,6 +189,7 @@ object AssistantMemoryCompiler {
             sources = sources,
             suppressedConflictCount = result.suppressedCount,
             selectionStatus = if (usedSelections.isEmpty()) "empty" else "selected",
+            memoryRequested = usedSelections.isNotEmpty(),
         )
     }
 
