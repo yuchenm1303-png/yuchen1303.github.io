@@ -42,6 +42,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -114,6 +115,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     var diagnostics by remember { mutableStateOf(PerformanceDiagnosticsState()) }
     var attachmentSourceMenuVisible by remember { mutableStateOf(false) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    var settingsPageGeneration by remember { mutableStateOf(0) }
     val effectiveMotionIntensity = if (diagnostics.continuousAnimationsOff) 0f else state.motionIntensity
 
     // Insets 的像素值在输入法动画期间每帧变化。只在协程中观察像素，Compose 根节点
@@ -136,6 +138,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             if (dockCollapsedByIme != nextCollapsed) dockCollapsedByIme = nextCollapsed
             if (imeHidden != nextHidden) imeHidden = nextHidden
             previousImeBottomPx = imeBottomPx
+        }
+    }
+
+    LaunchedEffect(state.currentTab) {
+        if (state.currentTab != AppTab.Settings && VisualAgentHudSettingsNavigation.pageVisible) {
+            VisualAgentHudSettingsNavigation.close()
+            settingsPageGeneration += 1
         }
     }
 
@@ -445,21 +454,33 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                     }
                                     AppTab.Settings -> {
                                         val settingsState = rememberMotionState(state, effectiveMotionIntensity)
-                                        SettingsPolishedScreen(
-                                            state = settingsState,
-                                            aiEndpoint = viewModel.aiEndpoint,
-                                            onQualityChange = viewModel::selectQuality,
-                                            onPreviewConversationChange = viewModel::setShowPreviewConversation,
-                                            onGlassPresetChange = viewModel::setGlassPreset,
-                                            onBackgroundThemeChange = viewModel::setBackgroundTheme,
-                                            onGlassIntensityChange = viewModel::setGlassIntensity,
-                                            onMotionIntensityChange = viewModel::setMotionIntensity,
-                                            onRainbowPrismChange = viewModel::setRainbowPrismStyle,
-                                            onBackdropChange = viewModel::setBackdropDebugParams,
-                                            onBorderChange = viewModel::setGlassBorderStyle,
-                                            onUploadBackgroundClick = onPickBackground,
-                                            onClearCustomBackgroundClick = viewModel::clearCustomBackground
-                                        )
+                                        if (VisualAgentHudSettingsNavigation.pageVisible) {
+                                            VisualAgentHudSettingsPage(
+                                                state = settingsState,
+                                                onBack = {
+                                                    VisualAgentHudSettingsNavigation.close()
+                                                    settingsPageGeneration += 1
+                                                },
+                                            )
+                                        } else {
+                                            key(settingsPageGeneration) {
+                                                SettingsPolishedScreen(
+                                                    state = settingsState,
+                                                    aiEndpoint = viewModel.aiEndpoint,
+                                                    onQualityChange = viewModel::selectQuality,
+                                                    onPreviewConversationChange = viewModel::setShowPreviewConversation,
+                                                    onGlassPresetChange = viewModel::setGlassPreset,
+                                                    onBackgroundThemeChange = viewModel::setBackgroundTheme,
+                                                    onGlassIntensityChange = viewModel::setGlassIntensity,
+                                                    onMotionIntensityChange = viewModel::setMotionIntensity,
+                                                    onRainbowPrismChange = viewModel::setRainbowPrismStyle,
+                                                    onBackdropChange = viewModel::setBackdropDebugParams,
+                                                    onBorderChange = viewModel::setGlassBorderStyle,
+                                                    onUploadBackgroundClick = onPickBackground,
+                                                    onClearCustomBackgroundClick = viewModel::clearCustomBackground
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
