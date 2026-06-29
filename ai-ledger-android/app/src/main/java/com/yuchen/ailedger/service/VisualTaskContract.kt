@@ -54,7 +54,10 @@ data class VisualTaskContract(
     companion object {
         const val DEFAULT_EXPLORATION_BUDGET = 2
 
-        fun fromJson(root: JSONObject?): VisualTaskContract? {
+        fun fromJson(
+            root: JSONObject?,
+            committedContract: VisualTaskContract? = VisualCommittedTaskContractRuntime.currentOrNull(),
+        ): VisualTaskContract? {
             root?.let { VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent("model_response", it) }
             root ?: return null
             if (VisualUserTaskUpdateRuntime.hasUndispatchedRevision()) return null
@@ -81,10 +84,19 @@ data class VisualTaskContract(
                 root.optJSONObject("agentMemory")?.optJSONObject("taskContract"),
             ).firstOrNull()
             if (item == null) {
-                if (workSurface && type != "open_app") root.failProtocol(
-                    "task_contract_required",
-                    "GUI Plus must return the full ordered task contract before any work-surface action.",
-                )
+                if (workSurface && type != "open_app") {
+                    val committed = committedContract ?: root.failProtocol(
+                        "task_contract_required",
+                        "GUI Plus must establish the full ordered task contract before the first work-surface action.",
+                    )
+                    val contractDecision = VisualTaskContractProtocol.validateContract(committed)
+                    if (!contractDecision.accepted) {
+                        root.recordContractRejection(contractDecision.code)
+                        root.failProtocol(contractDecision.code, contractDecision.message)
+                    }
+                    root.validateActionIntent(step, args, intent, committed)
+                    root.recordContractReuse(committed)
+                }
                 return null
             }
 
@@ -112,19 +124,28 @@ data class VisualTaskContract(
                 return null
             }
             if (workSurface && type != "open_app") {
-                VisualTaskContractProtocol.validateActionIntent(
-                    actionType = type,
-                    purpose = step?.firstNonBlank("purpose") ?: intent.firstNonBlank("purpose")
-                        ?: args.firstNonBlank("purpose") ?: "",
-                    milestoneId = step?.firstNonBlank("milestoneId") ?: intent.firstNonBlank("milestoneId")
-                        ?: args.firstNonBlank("milestoneId") ?: "",
-                    expectedEvidence = (step?.stringList("expectedEvidence") ?: emptyList())
-                        .ifEmpty { intent.stringList("expectedEvidence") }
-                        .ifEmpty { args.stringList("expectedEvidence") },
-                    contract = contract,
-                ).requireAccepted(root)
+                root.validateActionIntent(step, args, intent, contract)
             }
             return contract
+        }
+
+        private fun JSONObject.validateActionIntent(
+            step: JSONObject?,
+            args: JSONObject,
+            intent: JSONObject,
+            contract: VisualTaskContract,
+        ) {
+            VisualTaskContractProtocol.validateActionIntent(
+                actionType = step?.firstNonBlank("type", "action", "tool", "name").normalizeWire(),
+                purpose = step?.firstNonBlank("purpose") ?: intent.firstNonBlank("purpose")
+                    ?: args.firstNonBlank("purpose") ?: "",
+                milestoneId = step?.firstNonBlank("milestoneId") ?: intent.firstNonBlank("milestoneId")
+                    ?: args.firstNonBlank("milestoneId") ?: "",
+                expectedEvidence = (step?.stringList("expectedEvidence") ?: emptyList())
+                    .ifEmpty { intent.stringList("expectedEvidence") }
+                    .ifEmpty { args.stringList("expectedEvidence") },
+                contract = contract,
+            ).requireAccepted(this)
         }
 
         private fun VisualTaskContractProtocol.Decision.requireAccepted(root: JSONObject) {
@@ -156,6 +177,21 @@ data class VisualTaskContract(
                     put("reason", reason); put("committedStateChanged", false)
                     put("completionCandidateProvisional", reason == "provisional_completion_candidate")
                     put("visualDecisionOwner", "gui_plus"); put("responseObservationId", responseObservationId())
+                },
+            )
+        }
+
+        private fun JSONObject.recordContractReuse(contract: VisualTaskContract) {
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                "task_contract_reused",
+                JSONObject().apply {
+                    put("taskRevision", contract.taskRevision)
+                    put("currentMilestoneId", contract.currentMilestoneId)
+                    put("milestoneCount", contract.milestones.size)
+                    put("responseObservationId", responseObservationId())
+                    put("incomingContractPresent", false)
+                    put("semanticDecisionOwner", "gui_plus")
+                    put("localSemanticDecision", false)
                 },
             )
         }
