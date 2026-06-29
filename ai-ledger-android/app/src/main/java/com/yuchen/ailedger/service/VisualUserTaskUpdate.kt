@@ -72,16 +72,13 @@ internal object VisualUserTaskUpdateRuntime {
         ) ?: return null
         return synchronized(lock) {
             alignTaskLocked(currentTaskId)
-            val previous = updates.lastOrNull()
-            if (
-                previous != null &&
+            val existing = updates.lastOrNull { previous ->
                 previous.kind == classified.kind &&
-                previous.content == classified.content &&
-                previous.sourceReason == classified.sourceReason &&
-                previous.replyToPrompt == classified.replyToPrompt
-            ) {
-                return@synchronized previous
+                    previous.content == classified.content &&
+                    previous.sourceReason == classified.sourceReason &&
+                    previous.replyToPrompt == classified.replyToPrompt
             }
+            if (existing != null) return@synchronized existing
             val applied = classified.copy(revision = revision + 1)
             revision = applied.revision
             updates.addLast(applied)
