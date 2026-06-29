@@ -52,7 +52,7 @@ data class VisualReasoningContext(
         get() = depth == VisualReasoningDepth.Deep
 
     fun toJson(): JSONObject = JSONObject().apply {
-        put("schema", "visual_reasoning_context_v3_transaction_watchdog")
+        put("schema", "visual_reasoning_context_v4_structured_watchdog")
         put("depth", depth.wireValue)
         put("triggers", JSONArray(triggers.map { it.wireValue }))
         put("noProgressCount", noProgressCount)
@@ -105,7 +105,7 @@ data class VisualReasoningContext(
     }.take(VisualLoopSupport.MAX_RECENT_ACTION_CHARS)
 
     companion object {
-        const val PROMPT_PREFIX = "visual_reasoning_context:v3|"
+        const val PROMPT_PREFIX = "visual_reasoning_context:v4|"
     }
 }
 
@@ -149,10 +149,9 @@ internal object VisualReasoningRuntime {
 /**
  * Adaptive execution watchdog.
  *
- * It reacts only to mechanical loop and transaction evidence: repeated actions, repeated route
- * sequences, explicit re-observation, execution failures, route/package conflicts, completion
- * candidate rollback and authoritative user updates. Frame differences, accessibility-tree
- * differences and local page semantics never classify progress.
+ * It reacts only to mechanical execution and transaction evidence. It never interprets screenshot
+ * pixels, page text, app-specific labels or user intent. Coordinates are stripped only for action
+ * identity, so the same mechanical target cannot evade the watchdog through small point drift.
  */
 internal object VisualReasoningPolicy {
     const val DEEP_REPLAN_PREFIX = "visual_replan_requested:reason=adaptive_reasoning_depth|"
@@ -215,9 +214,7 @@ internal object VisualReasoningPolicy {
             completionCandidate ||
             recovery ||
             executionFailureCount >= 2
-        val normal = noProgressCount == 1 ||
-            userSupplement ||
-            executionFailureCount == 1
+        val normal = noProgressCount == 1 || userSupplement || executionFailureCount == 1
         val depth = when {
             hardDeep -> VisualReasoningDepth.Deep
             normal -> VisualReasoningDepth.Normal
@@ -269,7 +266,7 @@ internal object VisualReasoningPolicy {
             append("|routeRefreshRequested=false")
             append("|completionEvidenceStrict=").append(context.completionEvidenceStrict)
             append("|discardProvisionalState=").append(context.provisionalRollbackCount > 0)
-            append("|avoidRepeatedRoute=").append(context.routeCycleLength > 0)
+            append("|avoidRepeatedRoute=").append(context.routeCycleLength > 0 || context.sameActionCount >= 2)
             append("|routeCycleLength=").append(context.routeCycleLength)
             append("|decisionOwner=gui_plus")
             append("|localProgressClassification=false")
@@ -280,6 +277,7 @@ internal object VisualReasoningPolicy {
         .map(String::trim)
         .filter(String::isNotBlank)
         .filterNot { it.startsWith(VisualReasoningContext.PROMPT_PREFIX) }
+        .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V3) }
         .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V2) }
         .filterNot { it.startsWith(LEGACY_PROMPT_PREFIX_V1) }
         .filterNot { it.startsWith(DEEP_REPLAN_PREFIX) }
@@ -359,37 +357,45 @@ internal object VisualReasoningPolicy {
         }
         val signature = clean.substringBefore(markerAndOutcome.first).trim().take(180)
         if (signature.isBlank()) return null
+        val routeKey = signature.toRouteKey()
         return ExecutionEvent(
             signature = signature,
-            routeKey = signature.toRouteKey(),
+            routeKey = routeKey,
             outcome = markerAndOutcome.second,
-            reobserve = signature.equals(REOBSERVE_SIGNATURE, ignoreCase = true) ||
-                signature.startsWith("wait|重新观察|", ignoreCase = true),
+            reobserve = routeKey == REOBSERVE_ROUTE_KEY,
         )
     }
 
+    /**
+     * Produces a mechanical identity only. Numeric coordinates and coordinate key/value fields are
+     * removed, while action type and model-supplied target label remain untouched apart from casing
+     * and whitespace normalization. No page vocabulary or app-specific keyword is consulted.
+     */
     private fun String.toRouteKey(): String {
-        val semanticParts = split('|')
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .filterNot { part -> ROUTE_NUMBER_PATTERN.matches(part) }
-        return if (semanticParts.size >= 2) semanticParts.take(6).joinToString("|") else this
+        val parts = split('|').mapNotNull { rawPart ->
+            val part = rawPart.trim().lowercase().replace(WHITESPACE_PATTERN, " ")
+            when {
+                part.isBlank() -> null
+                ROUTE_NUMBER_PATTERN.matches(part) -> null
+                ROUTE_COORDINATE_PAIR_PATTERN.matches(part) -> null
+                ROUTE_COORDINATE_FIELD_PATTERN.matches(part) -> null
+                LEGACY_ACTION_AT_COORDINATE_PATTERN.matches(part) ->
+                    LEGACY_ACTION_AT_COORDINATE_PATTERN.matchEntire(part)?.groupValues?.getOrNull(1)
+                else -> part
+            }
+        }
+        return parts.take(6).joinToString("|").ifBlank { lowercase().trim() }
     }
 
     private fun consecutiveReobserveOrFailureCount(
         events: List<ExecutionEvent>,
         actions: List<String>,
     ): Int {
-        var count = 0
+        var eventCount = 0
         for (event in events.asReversed()) {
-            if (event.reobserve || event.outcome == ExecutionOutcome.Failure) {
-                count += 1
-            } else {
-                break
-            }
+            if (event.reobserve || event.outcome == ExecutionOutcome.Failure) eventCount += 1 else break
         }
-        if (count > 0) return count
-        return if (actions.asReversed().take(4).any { it.isUnpairedFailureFeedback() }) 1 else 0
+        return maxOf(eventCount, actions.trailingUnpairedFailureCount())
     }
 
     private fun consecutiveFailureCount(
@@ -397,20 +403,14 @@ internal object VisualReasoningPolicy {
         actions: List<String>,
     ): Int {
         val eventCount = events.asReversed().takeWhile { it.outcome == ExecutionOutcome.Failure }.count()
-        if (eventCount > 0) return eventCount
-        return if (actions.asReversed().take(4).any { it.isUnpairedFailureFeedback() }) 1 else 0
+        return maxOf(eventCount, actions.trailingUnpairedFailureCount())
     }
 
     private fun consecutiveSameExecutedActionCount(events: List<ExecutionEvent>): Int {
-        val latest = events.lastOrNull()?.signature ?: return 0
-        return events.asReversed().takeWhile { it.signature == latest }.count()
+        val latestRoute = events.lastOrNull()?.routeKey ?: return 0
+        return events.asReversed().takeWhile { it.routeKey == latestRoute }.count()
     }
 
-    /**
-     * Detects a repeated mechanical route without interpreting screen content. It catches either an
-     * exact repeated suffix (A-B-C / A-B-C) or a return to the same semantic action label after at
-     * least two distinct intervening successful actions (A-B-C-D-A). GUI Plus decides why it happened.
-     */
     private fun repeatedRouteCycleLength(events: List<ExecutionEvent>): Int {
         val successful = events.filter { it.outcome == ExecutionOutcome.Success && !it.reobserve }
         if (successful.size < MIN_ROUTE_CYCLE_EVENTS) return 0
@@ -430,11 +430,43 @@ internal object VisualReasoningPolicy {
         return if (intervening.distinct().size >= 2) distance else 0
     }
 
+    private fun List<String>.trailingUnpairedFailureCount(): Int {
+        var count = 0
+        for (line in asReversed()) {
+            if (line.isMechanicalTelemetry()) continue
+            val event = line.toExecutionEventOrNull()
+            if (event != null) {
+                if (event.outcome == ExecutionOutcome.Failure) {
+                    count += 1
+                    continue
+                }
+                break
+            }
+            if (line.isUnpairedFailureFeedback()) {
+                count += 1
+                continue
+            }
+            if (count > 0) break
+        }
+        return count
+    }
+
+    private fun String.isMechanicalTelemetry(): Boolean {
+        val value = lowercase()
+        return value.startsWith(RUNTIME_PREFIX) ||
+            value.startsWith("visual_execution_observed:") ||
+            value.startsWith("task_contract_transaction_rejected:") ||
+            value.startsWith("visual_reasoning_context:") ||
+            value.startsWith(DEEP_REPLAN_PREFIX)
+    }
+
     private fun String.isUnpairedFailureFeedback(): Boolean {
         val value = lowercase()
         return value.startsWith("visual_action_retry:") ||
             value.startsWith("visual_action_stale:") ||
             value.startsWith("visual_local_retry:") ||
+            value.startsWith("visual_protocol_failure:") ||
+            (value.startsWith("visual_route_retry:") && value.contains("code=visual_protocol_")) ||
             value.contains("semanticstatus=execution_failed")
     }
 
@@ -452,10 +484,18 @@ internal object VisualReasoningPolicy {
         val packageConflict: Boolean,
     )
 
+    private val WHITESPACE_PATTERN = Regex("\\s+")
     private val ROUTE_NUMBER_PATTERN = Regex("-?\\d+(?:\\.\\d+)?")
+    private val ROUTE_COORDINATE_PAIR_PATTERN = Regex(
+        "[\\[(]?\\s*-?\\d+(?:\\.\\d+)?\\s*[,;:/]\\s*-?\\d+(?:\\.\\d+)?\\s*[\\])]?")
+    private val ROUTE_COORDINATE_FIELD_PATTERN = Regex(
+        "(?:x|y|x2|y2|px|py|modelx|modely|physicalx|physicaly|materializedx|materializedy)\\s*=\\s*-?\\d+(?:\\.\\d+)?")
+    private val LEGACY_ACTION_AT_COORDINATE_PATTERN = Regex(
+        "([a-z_]+)@-?\\d+(?:\\.\\d+)?\\s*[,;:]\\s*-?\\d+(?:\\.\\d+)?")
+    private const val LEGACY_PROMPT_PREFIX_V3 = "visual_reasoning_context:v3|"
     private const val LEGACY_PROMPT_PREFIX_V2 = "visual_reasoning_context:v2|"
     private const val LEGACY_PROMPT_PREFIX_V1 = "visual_reasoning_context:v1|"
-    private const val REOBSERVE_SIGNATURE = "wait|重新观察"
+    private const val REOBSERVE_ROUTE_KEY = "wait|重新观察"
     private const val MIN_ROUTE_CYCLE_EVENTS = 4
     private const val MAX_ROUTE_CYCLE_LENGTH = 6
     private const val MAX_ROUTE_CYCLE_DISTANCE = 8
