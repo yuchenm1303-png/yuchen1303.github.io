@@ -171,21 +171,19 @@ class VisualActionValidatorTest {
     @Test
     fun rejectsStaleVisualCoordinateFromOlderObservation() {
         val snapshot = snapshot(currentApp = TARGET_PACKAGE)
+        val current = bound(CloudAgentStep(type = "tap_xy", x = 0.21f, y = 0.30f), snapshot)
+        val staleArgs = JSONObject(current.toolArgs.toString()).apply {
+            put("responseObservationId", "older-observation")
+            put("executionPermitObservationId", "older-observation")
+        }
         val result = VisualActionValidator.validate(
-            CloudAgentStep(
-                type = "tap_xy",
-                x = 0.21f,
-                y = 0.30f,
-                toolArgs = JSONObject()
-                    .put("responseSessionId", "agent-session-test")
-                    .put("responseObservationId", "older-observation"),
-            ),
+            current.copy(toolArgs = staleArgs),
             snapshot,
             verifiedRuntimeContext(snapshot),
         )
 
         assertFalse(result.ok)
-        assertTrue(result.message.contains("visualResponseObservationMismatch=true"))
+        assertTrue(result.message.contains("reason=permit_observation_mismatch"))
         assertEquals(VisualFailureClass.VisualLocal, result.failureClass)
     }
 
@@ -199,7 +197,7 @@ class VisualActionValidatorTest {
         )
 
         assertFalse(result.ok)
-        assertTrue(result.message.contains("visualResponseBindingMissing=true"))
+        assertTrue(result.message.contains("reason=missing_permit_args"))
         assertEquals(VisualFailureClass.VisualLocal, result.failureClass)
     }
 
@@ -295,11 +293,34 @@ class VisualActionValidatorTest {
         )
     }
 
-    private fun bound(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep =
-        step.copy(toolArgs = JSONObject().apply {
-            put("responseSessionId", "agent-session-test")
-            put("responseObservationId", verifiedRuntimeContext(snapshot).observationId)
+    private fun bound(step: CloudAgentStep, snapshot: AgentScreenSnapshot): CloudAgentStep {
+        val runtime = verifiedRuntimeContext(snapshot)
+        val sessionId = "agent-session-test"
+        val kind = "gui_transaction_validated"
+        val hash = VisualActionValidator.executionPermitHash(
+            sessionId = sessionId,
+            observationId = runtime.observationId,
+            packageName = snapshot.packageName,
+            kind = kind,
+            step = step,
+            canonicalX = step.x?.toDouble(),
+            canonicalY = step.y?.toDouble(),
+        )
+        return step.copy(toolArgs = JSONObject().apply {
+            put("responseSessionId", sessionId)
+            put("responseObservationId", runtime.observationId)
+            put("executionPermitVersion", "visual_execution_permit_v2")
+            put("executionPermitId", "permit_$hash")
+            put("executionPermitKind", kind)
+            put("executionPermitObservationId", runtime.observationId)
+            put("executionPermitSessionId", sessionId)
+            put("executionPermitPackageName", snapshot.packageName)
+            put("executionPermitActionType", step.type)
+            step.x?.let { put("executionPermitX", it) }
+            step.y?.let { put("executionPermitY", it) }
+            put("executionPermitActionHash", hash)
         })
+    }
 
     private fun verifiedRuntimeContext(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext {
         return VisualAgentRuntimeContext(
