@@ -32,6 +32,14 @@ test("account memory settings and V4 management RPCs are declared", () => {
   assert.match(sql, /to_regclass\('public\.assistant_memories'\)/);
 });
 
+test("archived V4 memories stay editable without reactivation", () => {
+  const sql = read("backend/supabase/003_memory_v4_archived_edit.sql");
+  assert.match(sql, /status in \('active', 'archived'\)/);
+  assert.match(sql, /if v_old\.status = 'archived' then/);
+  assert.match(sql, /where id = v_old\.id and user_id = v_user_id and status = 'archived'/);
+  assert.match(sql, /'updated', v_source_event_id/);
+});
+
 test("custom instructions do not turn cloud memory on", () => {
   const compiler = read("src/main/java/com/yuchen/ailedger/data/AssistantMemoryCompiler.kt");
   assert.match(compiler, /get\(\) = memoryRequested \|\| memorySnapshot != null/);
