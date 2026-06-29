@@ -44,7 +44,7 @@ internal object StockHttpClient {
         .dispatcher(dispatcher)
         .connectionPool(ConnectionPool(6, 5, TimeUnit.MINUTES))
         .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(75, TimeUnit.SECONDS)
         .writeTimeout(5, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
@@ -244,7 +244,7 @@ internal object StockHttpClient {
 
     private const val DEFAULT_MICRO_CACHE_MS = 220L
     private const val MIN_REQUEST_TIMEOUT_MS = 700
-    private const val MARKET_HOME_TIMEOUT_MS = 18_000
+    private const val MARKET_HOME_TIMEOUT_MS = 70_000
     private const val SHARED_WAIT_GRACE_MS = 250L
     private const val TRANSPORT_FAILURE_COOLDOWN_MS = 2_500L
     private const val MAX_RECENT_RESPONSES = 64
