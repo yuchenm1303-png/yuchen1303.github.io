@@ -87,6 +87,7 @@ class VisualSemanticProgressTracker(
 
     fun updateTaskContract(contract: VisualTaskContract?, fallbackGoal: String = originalGoal) {
         if (contract == null) return
+        syncRuntimeUserUpdates()
         val previousContract = taskContract
         val previousMilestoneId = currentMilestoneId
         val normalized = mergeTaskContracts(previousContract, contract, fallbackGoal)
@@ -120,57 +121,18 @@ class VisualSemanticProgressTracker(
     }
 
     fun applyUserUpdate(update: VisualUserTaskUpdate): VisualUserTaskUpdate {
-        val applied = update.copy(revision = taskRevision + 1)
-        taskRevision = applied.revision
-        latestUserUpdate = applied
-        userUpdateHistory += applied
-        while (userUpdateHistory.size > MAX_USER_UPDATES) userUpdateHistory.removeAt(0)
-        taskRevisionPending = true
-        currentMilestoneInvalidated = applied.invalidatesCurrentMilestone
-        structuralReplanRequested = true
-        lastProgressStatus = "user_update_${applied.kind.wireValue}_pending"
-        blockedActions.clear()
-        if (applied.invalidatesCurrentMilestone) {
-            failedHypotheses.clear()
-            remainingExplorationBudget = taskContract?.explorationBudgetPerMilestone
-                ?.coerceIn(1, 4)
-                ?: defaultExplorationBudgetPerMilestone.coerceAtLeast(1)
-        }
-        addConfirmedFact("user_task_update:revision=${applied.revision}:kind=${applied.kind.wireValue}")
-        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
-            type = "user_task_update",
-            details = JSONObject().apply {
-                put("revision", applied.revision)
-                put("kind", applied.kind.wireValue)
-                put("sourceReason", applied.sourceReason)
-                put("invalidatesCurrentMilestone", applied.invalidatesCurrentMilestone)
-                put("invalidatesVisualHistory", applied.invalidatesVisualHistory)
-                put("manualStepCompleted", applied.manualStepCompleted)
-                put("contentStoredInTaskMemory", true)
-            },
-        )
-        return applied
+        val nextRevision = update.revision.takeIf { it > taskRevision } ?: (taskRevision + 1)
+        return applyUserUpdateInternal(update.copy(revision = nextRevision))
     }
 
     fun acknowledgeUserUpdatePlan(step: CloudAgentStep) {
-        if (!taskRevisionPending) return
-        taskRevisionPending = false
-        currentMilestoneInvalidated = false
-        structuralReplanRequested = false
-        lastProgressStatus = "user_update_consumed_by_plan"
-        step.milestoneId?.trim()?.takeIf(String::isNotBlank)?.let { currentMilestoneId = it.take(100) }
-        taskContract = taskContract?.copy(taskRevision = maxOf(taskContract?.taskRevision ?: 0, taskRevision))
-        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
-            type = "user_task_update_consumed",
-            details = JSONObject().apply {
-                put("taskRevision", taskRevision)
-                put("stepType", step.type)
-                put("stepMilestoneId", step.milestoneId.orEmpty())
-            },
-        )
+        VisualUserTaskUpdateRuntime.markDispatchedPlanValidated()
+        syncRuntimeUserUpdates()
+        consumeAcceptedRevisionIfPossible(step)
     }
 
     fun onVerifiedSurface(snapshot: AgentScreenSnapshot) {
+        syncRuntimeUserUpdates()
         currentPage = structuralPage(snapshot)
         lastConfirmedPage = currentPage
         structuralReplanRequested = taskRevisionPending
@@ -188,8 +150,9 @@ class VisualSemanticProgressTracker(
     }
 
     fun resetAfterUserTakeover(snapshot: AgentScreenSnapshot? = null) {
-        structuralReplanRequested = false
-        lastProgressStatus = "user_takeover_reset"
+        syncRuntimeUserUpdates()
+        structuralReplanRequested = taskRevisionPending
+        lastProgressStatus = if (taskRevisionPending) "user_update_pending_replan" else "user_takeover_reset"
         blockedActions.clear()
         snapshot?.let {
             currentPage = structuralPage(it)
@@ -201,12 +164,16 @@ class VisualSemanticProgressTracker(
                 put("packageName", snapshot?.packageName.orEmpty())
                 put("surfaceId", currentPage?.id.orEmpty())
                 put("blockedActionsCleared", true)
+                put("taskRevision", taskRevision)
+                put("taskRevisionPending", taskRevisionPending)
             },
         )
     }
 
     /** Only an exact cloud-declared hypothesis on the same structural page can be blocked. */
     fun blockedHypothesisReason(step: CloudAgentStep, snapshot: AgentScreenSnapshot): String? {
+        syncRuntimeUserUpdates()
+        if (taskRevisionPending) return null
         val intent = step.actionIntent
         if (!intent.hasSemanticContract) return null
         val hypothesisId = intent.hypothesisId.trim()
@@ -229,6 +196,7 @@ class VisualSemanticProgressTracker(
         verifiedTargetPackage: String,
         structuralRegressionConfirmed: Boolean = false,
     ): VisualSemanticProgressResult {
+        syncRuntimeUserUpdates()
         val beforeFingerprint = VisualActionValidator.snapshotFingerprint(before)
         val afterFingerprint = VisualActionValidator.snapshotFingerprint(after)
         val pageChanged = beforeFingerprint != afterFingerprint
@@ -260,10 +228,11 @@ class VisualSemanticProgressTracker(
 
         val repeatedFailure = (failure?.count ?: 0) >= BLOCK_AFTER_FAILURE_COUNT
         val budgetExhausted = remainingExplorationBudget <= 0
-        val requiresStrategyChange = structuralRegression || repeatedFailure || budgetExhausted
+        val requiresStrategyChange = structuralRegression || repeatedFailure || budgetExhausted || taskRevisionPending
         val requiresReplan = requiresStrategyChange
         structuralReplanRequested = requiresReplan
         lastProgressStatus = when {
+            taskRevisionPending -> "user_update_pending_replan"
             structuralRegression -> "structural_regression"
             pageChanged -> "screen_changed_unjudged"
             repeatedFailure -> "repeated_hypothesis_failure"
@@ -272,6 +241,7 @@ class VisualSemanticProgressTracker(
         }
 
         val reason = when {
+            taskRevisionPending -> "A newer authoritative user task revision is pending; the previous semantic route is invalid."
             structuralRegression -> "The Android-verified target package was lost after consecutive foreign-package evidence."
             pageChanged -> "The observed screen structure changed. GUI Plus exclusively decides whether this is task progress."
             repeatedFailure -> "The same GUI Plus hypothesis produced the same unchanged structural outcome repeatedly on this page; choose a different hypothesis."
@@ -319,6 +289,8 @@ class VisualSemanticProgressTracker(
                 put("explorationBudgetRemaining", result.explorationBudgetRemaining)
                 put("requiresStrategyChange", result.requiresStrategyChange)
                 put("requiresReplan", result.requiresReplan)
+                put("taskRevision", taskRevision)
+                put("taskRevisionPending", taskRevisionPending)
                 put("reason", reason)
                 put("beforeHasVisual", before.visual?.hasImage == true)
                 put("afterHasVisual", after.visual?.hasImage == true)
@@ -328,6 +300,8 @@ class VisualSemanticProgressTracker(
     }
 
     fun memorySnapshot(snapshot: AgentScreenSnapshot? = null): VisualTaskMemory {
+        syncRuntimeUserUpdates()
+        consumeAcceptedRevisionIfPossible()
         snapshot?.let { currentPage = structuralPage(it) }
         val contract = taskContract
         val neutralBudget = if (contract == null) {
@@ -350,7 +324,7 @@ class VisualSemanticProgressTracker(
             replanRequested = replan,
             recoveryMode = replan,
             legacyMode = contract == null,
-            taskContract = contract,
+            taskContract = contract?.copy(taskRevision = maxOf(contract.taskRevision, taskRevision)),
             taskRevision = taskRevision,
             taskRevisionPending = taskRevisionPending,
             currentMilestoneInvalidated = currentMilestoneInvalidated,
@@ -359,11 +333,69 @@ class VisualSemanticProgressTracker(
         )
     }
 
+    private fun syncRuntimeUserUpdates() {
+        VisualUserTaskUpdateRuntime.updatesAfter(taskRevision)
+            .sortedBy { it.revision }
+            .forEach(::applyUserUpdateInternal)
+    }
+
+    private fun applyUserUpdateInternal(update: VisualUserTaskUpdate): VisualUserTaskUpdate {
+        if (update.revision <= taskRevision) return latestUserUpdate ?: update
+        taskRevision = update.revision
+        latestUserUpdate = update
+        userUpdateHistory += update
+        while (userUpdateHistory.size > MAX_USER_UPDATES) userUpdateHistory.removeAt(0)
+        taskRevisionPending = true
+        currentMilestoneInvalidated = currentMilestoneInvalidated || update.invalidatesCurrentMilestone
+        structuralReplanRequested = true
+        lastProgressStatus = "user_update_${update.kind.wireValue}_pending"
+        blockedActions.clear()
+        if (update.invalidatesCurrentMilestone) {
+            failedHypotheses.clear()
+            remainingExplorationBudget = taskContract?.explorationBudgetPerMilestone
+                ?.coerceIn(1, 4)
+                ?: defaultExplorationBudgetPerMilestone.coerceAtLeast(1)
+        }
+        addConfirmedFact("user_task_update:revision=${update.revision}:kind=${update.kind.wireValue}")
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "user_task_update",
+            details = JSONObject().apply {
+                put("revision", update.revision)
+                put("kind", update.kind.wireValue)
+                put("sourceReason", update.sourceReason)
+                put("invalidatesCurrentMilestone", update.invalidatesCurrentMilestone)
+                put("invalidatesVisualHistory", update.invalidatesVisualHistory)
+                put("manualStepCompleted", update.manualStepCompleted)
+                put("contentStoredInTaskMemory", true)
+            },
+        )
+        return update
+    }
+
+    private fun consumeAcceptedRevisionIfPossible(step: CloudAgentStep? = null) {
+        if (!taskRevisionPending || VisualUserTaskUpdateRuntime.isRevisionPending(taskRevision)) return
+        taskRevisionPending = false
+        currentMilestoneInvalidated = false
+        structuralReplanRequested = false
+        lastProgressStatus = "user_update_consumed_by_plan"
+        step?.milestoneId?.trim()?.takeIf(String::isNotBlank)?.let { currentMilestoneId = it.take(100) }
+        taskContract = taskContract?.copy(taskRevision = maxOf(taskContract?.taskRevision ?: 0, taskRevision))
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "user_task_update_consumed",
+            details = JSONObject().apply {
+                put("taskRevision", taskRevision)
+                put("stepType", step?.type.orEmpty())
+                put("stepMilestoneId", step?.milestoneId.orEmpty())
+            },
+        )
+    }
+
     private fun recordObjectiveFailure(
         step: CloudAgentStep,
         page: VisualPageState,
         reason: String,
     ): VisualFailedHypothesis? {
+        if (taskRevisionPending) return null
         val intent = step.actionIntent
         if (!intent.hasSemanticContract) return null
         val hypothesisId = intent.hypothesisId.trim()
