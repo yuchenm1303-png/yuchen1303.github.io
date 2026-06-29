@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.data
 
+import android.content.Context
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatMessage
@@ -10,6 +11,12 @@ import com.yuchen.ailedger.model.ToolDestination
 import com.yuchen.ailedger.model.ToolEntry
 import com.yuchen.ailedger.model.latestOpenGlDefaultBorderStyle
 import com.yuchen.ailedger.service.NotificationChatStore
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private val WELCOME_MESSAGE_TEXTS = listOf(
     "你好，我是你的 AI 助手[[AI_LEDGER_INLINE_STICKER:soft_smile]]。你可以直接告诉我需要处理的事情。",
@@ -30,15 +37,34 @@ class ProductionAssistantRepository : AssistantRepository {
         val restoredMessages = context
             ?.let { NotificationChatStore.load(it).messages }
             .orEmpty()
-        context?.let {
-            val ledgerStore = LedgerStore(it)
-            LedgerStateBridge.update(ledgerStore.loadRecords(), ledgerStore.loadBudget())
-        }
+        context?.let(LedgerStartupRestore::schedule)
         return AssistantUiState(
             glassBorderStyle = latestOpenGlDefaultBorderStyle(),
             messages = restoredMessages.ifEmpty { listOf(createWelcomeMessage()) },
             tools = defaultToolEntries()
         )
+    }
+}
+
+/**
+ * 账本并不参与首页首帧。历史 JSON 解析和 SharedPreferences 首次装载放到 IO，完成后再在
+ * 主线程一次性发布到 Compose bridge，避免 ViewModel 构造期间阻塞首次组合。
+ */
+private object LedgerStartupRestore {
+    private val started = AtomicBoolean(false)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun schedule(context: Context) {
+        if (!started.compareAndSet(false, true)) return
+        val appContext = context.applicationContext
+        scope.launch {
+            val store = LedgerStore(appContext)
+            val records = store.loadRecords()
+            val budget = store.loadBudget()
+            withContext(Dispatchers.Main.immediate) {
+                LedgerStateBridge.update(records, budget)
+            }
+        }
     }
 }
 
