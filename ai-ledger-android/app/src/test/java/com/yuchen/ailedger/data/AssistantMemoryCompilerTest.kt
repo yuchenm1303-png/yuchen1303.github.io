@@ -10,6 +10,7 @@ import com.yuchen.ailedger.service.buildCloudMemorySelectorPrompt
 import com.yuchen.ailedger.service.parseCloudMemorySelectionReply
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -112,7 +113,39 @@ class AssistantMemoryCompilerTest {
         assertTrue(customCompilation.selectedMemoryIds.isEmpty())
     }
 
+    @Test
+    fun normalChatDelegatesMemorySelectionToBackendWithoutLocalSnapshot() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "catalog 是什么意思",
+            customInstructions = "回答时保持通俗。",
+            memoryState = readyState(listOf(memory("english", "结合例句解释英语单词。", "english"))),
+            nowMillis = nowMillis,
+        )
+
+        assertTrue(compilation.memoryRequested)
+        assertTrue(compilation.hasAnyContext)
+        assertEquals("backend_cloud_delegated", compilation.selectionStatus)
+        assertEquals("backend_cloud_v4", compilation.selectionOwner)
+        assertTrue(compilation.selectedMemoryIds.isEmpty())
+        assertNull(compilation.memorySnapshot)
+    }
+
+    @Test
+    fun anonymousChatDoesNotRequestUserMemory() {
+        val compilation = AssistantMemoryCompiler.compile(
+            userText = "你好",
+            customInstructions = "回答时保持通俗。",
+            memoryState = AssistantMemoryState(),
+            nowMillis = nowMillis,
+        )
+
+        assertFalse(compilation.memoryRequested)
+        assertFalse(compilation.hasAnyContext)
+        assertEquals("disabled_anonymous", compilation.selectionStatus)
+    }
+
     private fun readyState(items: List<AssistantMemoryItem>) = AssistantMemoryState(
+        accountUserId = "user-test",
         cloudReady = true,
         memoryEnabled = true,
         memories = items,
