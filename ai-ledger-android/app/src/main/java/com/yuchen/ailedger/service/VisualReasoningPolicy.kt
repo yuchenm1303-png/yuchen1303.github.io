@@ -294,11 +294,13 @@ internal object VisualReasoningPolicy {
 
     private fun String.isConfirmedProgressReset(): Boolean {
         val value = lowercase()
+        val verifierReobserve = value.contains("visual_execution_observed:action=wait|重新观察")
         return value.contains("open_app_package_verified") ||
             value.contains("visual_screen_changed") ||
             (value.contains("visual_execution_observed") &&
                 value.contains("screenchanged=true") &&
-                !value.contains("replanrequired=true"))
+                !value.contains("replanrequired=true") &&
+                !verifierReobserve)
     }
 
     private fun String.isNoProgressEvidence(): Boolean {
@@ -308,6 +310,7 @@ internal object VisualReasoningPolicy {
             value.contains("screen_unchanged_unjudged") ||
             value.contains("no_progress") ||
             value.contains("no progress") ||
+            value.contains("visual_execution_observed:action=wait|重新观察") ||
             (value.contains("visual_execution_observed") && value.contains("screenchanged=false"))
     }
 
