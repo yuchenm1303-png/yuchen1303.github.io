@@ -9,7 +9,20 @@ import org.junit.Test
 
 class VisualTaskContractReuseTest {
     @Test
-    fun laterWorkSurfaceActionReusesCommittedContract() {
+    fun unifiedPermitCanAuthorizeFirstWorkSurfaceActionWithoutRepeatedContract() {
+        val parsed = VisualTaskContract.fromJson(
+            root = workSurfaceActionRoot(
+                milestoneId = "",
+                includeUnifiedPermit = true,
+            ),
+            committedContract = null,
+        )
+
+        assertNull(parsed)
+    }
+
+    @Test
+    fun laterLegacyWorkSurfaceActionReusesCommittedContract() {
         val parsed = VisualTaskContract.fromJson(
             root = workSurfaceActionRoot(milestoneId = "m1"),
             committedContract = committedContract(),
@@ -19,7 +32,7 @@ class VisualTaskContractReuseTest {
     }
 
     @Test
-    fun firstWorkSurfaceActionStillRequiresInitialContract() {
+    fun firstLegacyWorkSurfaceActionStillRequiresInitialContract() {
         val error = captureProtocolFailure {
             VisualTaskContract.fromJson(
                 root = workSurfaceActionRoot(milestoneId = "m1"),
@@ -32,7 +45,7 @@ class VisualTaskContractReuseTest {
     }
 
     @Test
-    fun reusedContractStillRejectsWrongMilestoneBinding() {
+    fun reusedLegacyContractStillRejectsWrongMilestoneBinding() {
         val error = captureProtocolFailure {
             VisualTaskContract.fromJson(
                 root = workSurfaceActionRoot(milestoneId = "m2"),
@@ -53,16 +66,24 @@ class VisualTaskContractReuseTest {
         }
     }
 
-    private fun workSurfaceActionRoot(milestoneId: String): JSONObject = JSONObject().apply {
+    private fun workSurfaceActionRoot(
+        milestoneId: String,
+        includeUnifiedPermit: Boolean = false,
+    ): JSONObject = JSONObject().apply {
         put("surfaceState", "work_surface")
         put("agentStep", JSONObject().apply {
             put("type", "tap_xy")
             put("purpose", "进入行情页面")
-            put("milestoneId", milestoneId)
+            if (milestoneId.isNotBlank()) put("milestoneId", milestoneId)
             put("expectedEvidence", JSONArray().put("行情页面可见"))
             put("args", JSONObject().apply {
                 put("responseSessionId", "visual-session-test")
                 put("responseObservationId", "observation-test")
+                if (includeUnifiedPermit) {
+                    put("executionPermitVersion", "visual_execution_permit_v2")
+                    put("executionPermitId", "permit_test")
+                    put("executionPermitKind", "independent_gui_visual_grounding")
+                }
             })
         })
     }
