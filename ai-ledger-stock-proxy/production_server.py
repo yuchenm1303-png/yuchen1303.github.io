@@ -21,8 +21,9 @@ app = stock_server.app
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.production")
 _PROCESS_STARTED_AT = monotonic()
 _PROCESS_STARTED_ISO = datetime.now(timezone.utc).isoformat()
-_SERVICE_VERSION = "0.9.1-live-trade-ticks"
+_SERVICE_VERSION = "0.9.2-refresh-coordination"
 _HOT_TICK_INTERVAL_SECONDS = 0.9
+_HOT_TICK_MIN_AGE_SECONDS = 0.72
 _HOT_SYMBOL_TTL_SECONDS = 30.0
 _hot_tick_task: asyncio.Task[None] | None = None
 _hot_tick_semaphore = asyncio.Semaphore(4)
@@ -47,8 +48,22 @@ def _safe_runtime_diagnostics() -> dict[str, Any]:
         return {"status": "unavailable", "error": f"{type(exc).__name__}: {exc}"}
 
 
+def _should_refresh_hot_ticks(code: str, now: float | None = None) -> bool:
+    key = f"ticks:{code}"
+    if key in stock_server.runtime.inflight:
+        return False
+    entry = stock_server.runtime.cache.get(key)
+    if entry is None:
+        return True
+    age_seconds = max((now if now is not None else monotonic()) - entry.stored_at, 0.0)
+    return age_seconds >= _HOT_TICK_MIN_AGE_SECONDS
+
+
 async def _refresh_hot_trade_ticks(code: str) -> None:
     async with _hot_tick_semaphore:
+        now = monotonic()
+        if not _should_refresh_hot_ticks(code, now):
+            return
         security = {
             "code": code,
             "name": code,
@@ -64,11 +79,14 @@ async def _hot_trade_tick_loop() -> None:
         try:
             await asyncio.sleep(backoff)
             now = monotonic()
-            active_codes = [
+            expired_codes = [
                 code
                 for code, last_seen in stock_server.runtime.hot_symbols.items()
-                if now - last_seen <= _HOT_SYMBOL_TTL_SECONDS
+                if now - last_seen > _HOT_SYMBOL_TTL_SECONDS
             ]
+            for code in expired_codes:
+                stock_server.runtime.hot_symbols.pop(code, None)
+            active_codes = list(stock_server.runtime.hot_symbols)
             if not active_codes:
                 backoff = _HOT_TICK_INTERVAL_SECONDS
                 continue
@@ -143,6 +161,7 @@ def health() -> dict[str, Any]:
             "hotTradeTickWorker": {
                 "running": _hot_tick_task is not None and not _hot_tick_task.done(),
                 "intervalMs": int(_HOT_TICK_INTERVAL_SECONDS * 1000),
+                "minRefreshAgeMs": int(_HOT_TICK_MIN_AGE_SECONDS * 1000),
                 "activeSymbolTtlMs": int(_HOT_SYMBOL_TTL_SECONDS * 1000),
             },
         },
