@@ -8,11 +8,18 @@ import java.net.HttpURLConnection
 private const val MAX_APP_CLIENT_TOKEN_CHARS = 4_096
 private const val MAX_USER_ACCESS_TOKEN_CHARS = 8_192
 
+internal enum class AiWorkerIdentityMode {
+    AppOnly,
+    AppAndOptionalUser,
+}
+
 /**
  * Worker 请求身份的唯一组装入口。
  *
  * X-AI-Ledger-Token 只证明请求来自受支持的 App；
  * Authorization Bearer 只承载当前 Supabase 登录用户的访问令牌。
+ * 基础能力和视觉循环使用 AppOnly，不依赖登录；
+ * 普通聊天使用 AppAndOptionalUser，登录时才获得云端记忆能力。
  */
 internal object AiWorkerRequestIdentity {
     fun defaultAppClientToken(): String? = normalize(
@@ -24,10 +31,15 @@ internal object AiWorkerRequestIdentity {
         appClientToken: String?,
         userAccessTokenProvider: (() -> String?)? = null,
         stream: Boolean = false,
+        mode: AiWorkerIdentityMode = AiWorkerIdentityMode.AppAndOptionalUser,
     ): Map<String, String> {
         val appToken = normalize(appClientToken, MAX_APP_CLIENT_TOKEN_CHARS)
-        val userToken = resolveUserAccessToken(userAccessTokenProvider)
-            ?.takeUnless { token -> appToken != null && token == appToken }
+        val userToken = if (mode == AiWorkerIdentityMode.AppAndOptionalUser) {
+            resolveUserAccessToken(userAccessTokenProvider)
+                ?.takeUnless { token -> appToken != null && token == appToken }
+        } else {
+            null
+        }
 
         return buildMap {
             if (stream) put("X-AI-Ledger-Stream", "sse")
@@ -41,12 +53,18 @@ internal object AiWorkerRequestIdentity {
         appClientToken: String?,
         userAccessTokenProvider: (() -> String?)? = null,
         stream: Boolean = false,
+        mode: AiWorkerIdentityMode = AiWorkerIdentityMode.AppAndOptionalUser,
     ) {
         headers(
             appClientToken = appClientToken,
             userAccessTokenProvider = userAccessTokenProvider,
             stream = stream,
+            mode = mode,
         ).forEach(connection::setRequestProperty)
+    }
+
+    fun hasUsableUserSession(userAccessTokenProvider: (() -> String?)? = null): Boolean {
+        return resolveUserAccessToken(userAccessTokenProvider) != null
     }
 
     private fun resolveUserAccessToken(provider: (() -> String?)?): String? {
