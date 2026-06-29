@@ -1,25 +1,20 @@
 package com.yuchen.ailedger.data
 
-import com.yuchen.ailedger.service.CLOUD_MEMORY_CUSTOM_ORIGIN_ID
-import com.yuchen.ailedger.service.CloudMemorySelectionResult
-import com.yuchen.ailedger.service.CloudSelectedMemory
 import java.time.Instant
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
-private const val CLOUD_PERSONA_BUDGET = 780
-private const val CLOUD_PROFILE_BUDGET = 580
-private const val CLOUD_PREFERENCE_LIMIT = 10
-private const val CLOUD_RELEVANT_LIMIT = 12
-
 enum class AssistantMemoryIntent(val id: String, val scope: String) {
     CLOUD_ORCHESTRATED("cloud_orchestrated", "cloud"),
 }
 
+/**
+ * 仅用于兼容当前设置页的数据结构。
+ * Android 不创建该列表；真实命中项必须在第二阶段由云端响应回传。
+ */
 data class AssistantMemorySource(
     val id: String,
     val category: String,
@@ -29,26 +24,27 @@ data class AssistantMemorySource(
     val reason: String,
 )
 
+/**
+ * Android 端只负责声明用户是否请求云端记忆，以及传递独立的自定义指令。
+ * 这里绝不携带本地候选、记忆正文、选中 ID、语义分类或关键词判断结果。
+ */
 data class AssistantMemoryCompilation(
-    val schema: String = "ai_ledger_cloud_memory_context_v1",
+    val schema: String = "ai_ledger_cloud_memory_request_v2",
     val intent: AssistantMemoryIntent = AssistantMemoryIntent.CLOUD_ORCHESTRATED,
-    val activeScopes: Set<String> = setOf("cloud_model"),
+    val activeScopes: Set<String> = emptySet(),
     val personaInstructions: String? = null,
     val memorySnapshot: JSONObject? = null,
     val selectedMemoryIds: List<String> = emptyList(),
     val sources: List<AssistantMemorySource> = emptyList(),
     val suppressedConflictCount: Int = 0,
     val selectionStatus: String = "empty",
-    val selectionOwner: String = "cloud_model",
+    val selectionOwner: String = "backend_cloud_v4",
     val errorCode: String = "",
     val memoryRequested: Boolean = false,
 ) {
-    /**
-     * 该属性只控制后端长期记忆召回开关。自定义指令即使独立存在，也会通过
-     * personaConfigJson() 发送，但绝不能把 memoryEnabled 错误打开。
-     */
+    /** 只代表长期记忆请求，不受自定义指令是否存在影响。 */
     val hasAnyContext: Boolean
-        get() = memoryRequested || memorySnapshot != null
+        get() = memoryRequested
 
     fun personaConfigJson(): JSONObject? {
         val instructions = personaInstructions?.trim().orEmpty()
@@ -60,28 +56,17 @@ data class AssistantMemoryCompilation(
             .put("memorySelectionOwner", selectionOwner)
     }
 
+    /**
+     * 这是纯传输诊断，不含任何本地语义结论。
+     * 真正的候选数、命中项、Gate、重排与 usage 状态必须由云端返回。
+     */
     fun diagnosticsJson(): JSONObject = JSONObject()
         .put("schema", schema)
         .put("intent", intent.id)
         .put("selectionOwner", selectionOwner)
         .put("selectionStatus", selectionStatus)
-        .put("errorCode", errorCode)
         .put("memoryRequested", memoryRequested)
         .put("activeScopes", JSONArray(activeScopes.toList()))
-        .put("selectedMemoryIds", JSONArray(selectedMemoryIds))
-        .put("suppressedConflictCount", suppressedConflictCount)
-        .put("sources", JSONArray().apply {
-            sources.forEach { source ->
-                put(JSONObject().apply {
-                    put("id", source.id)
-                    put("category", source.category)
-                    put("scope", source.scope)
-                    put("role", source.role)
-                    put("score", source.score)
-                    put("reason", source.reason)
-                })
-            }
-        })
 }
 
 data class AssistantMemoryRuntimeState(
@@ -103,15 +88,19 @@ object AssistantMemoryRuntime {
 
 object AssistantMemoryCompiler {
     /**
-     * 普通聊天只声明“是否请求云端记忆”。真正的候选召回、冲突处理和重排
-     * 全部由后端 V4 Memory Service 完成，Android 不再做本地候选筛选或额外模型调用。
-     * 自定义指令是独立能力，不受长期记忆总开关或 V4 表加载状态影响。
+     * 纯协议编译：
+     * 1. 不读取 memoryState.memories；
+     * 2. 不构建候选或快照；
+     * 3. 不按关键词、类别、作用域或正文判断；
+     * 4. 不调用第二个模型；
+     * 5. 不产生本地 selectedMemoryIds。
+     *
+     * 账号权限、记忆召回、冲突处理和重排全部由云端 Memory Service 负责。
      */
     fun compile(
         userText: String,
         customInstructions: String?,
         memoryState: AssistantMemoryState,
-        nowMillis: Long = System.currentTimeMillis(),
     ): AssistantMemoryCompilation {
         val requestHasText = userText.trim().isNotBlank()
         val accountReady = memoryState.accountUserId != null && memoryState.cloudReady
@@ -126,8 +115,9 @@ object AssistantMemoryCompiler {
             memorySnapshot = null,
             selectedMemoryIds = emptyList(),
             sources = emptyList(),
+            suppressedConflictCount = 0,
             selectionStatus = when {
-                memoryRequested -> "backend_cloud_delegated"
+                memoryRequested -> "backend_cloud_requested"
                 memoryState.accountUserId == null -> "disabled_anonymous"
                 !memoryState.memoryEnabled -> "disabled_by_user"
                 !memoryState.cloudReady -> "disabled_account_unavailable"
@@ -137,158 +127,6 @@ object AssistantMemoryCompiler {
             memoryRequested = memoryRequested,
         )
     }
-
-    internal fun composeCloudCompilation(
-        result: CloudMemorySelectionResult,
-    ): AssistantMemoryCompilation {
-        if (!result.successful || result.selections.isEmpty()) {
-            return AssistantMemoryCompilation(
-                selectionStatus = result.status,
-                errorCode = result.errorCode,
-                suppressedConflictCount = result.suppressedCount,
-            )
-        }
-
-        val instructionBlock = composeInstructionBlock(
-            result.selections.filter { it.role == "instruction" }
-        )
-        val profileBlock = composeProfileBlock(
-            result.selections.filter { it.role == "profile" }
-        )
-        val preferenceBlock = composeListBlock(
-            selections = result.selections.filter { it.role == "preference" },
-            itemLimit = CLOUD_PREFERENCE_LIMIT,
-            itemChars = 180,
-        )
-        val memoryBlock = composeListBlock(
-            selections = result.selections.filter { it.role == "memory" },
-            itemLimit = CLOUD_RELEVANT_LIMIT,
-            itemChars = 220,
-        )
-        val usedSelections = (
-            instructionBlock.used +
-                profileBlock.used +
-                preferenceBlock.used +
-                memoryBlock.used
-            ).distinctBy { it.candidate.transportId }
-
-        val memorySnapshot = buildCloudMemorySnapshot(
-            profileSummary = profileBlock.text.orEmpty(),
-            preferences = preferenceBlock.items,
-            memories = memoryBlock.items,
-        )
-        val sources = usedSelections
-            .map { it.toMemorySource() }
-            .distinctBy { "${it.id}:${it.role}" }
-        val selectedIds = usedSelections
-            .asSequence()
-            .map { it.candidate.originId }
-            .filter { it.isNotBlank() && it != CLOUD_MEMORY_CUSTOM_ORIGIN_ID }
-            .distinct()
-            .toList()
-
-        return AssistantMemoryCompilation(
-            personaInstructions = instructionBlock.text,
-            memorySnapshot = memorySnapshot,
-            selectedMemoryIds = selectedIds,
-            sources = sources,
-            suppressedConflictCount = result.suppressedCount,
-            selectionStatus = if (usedSelections.isEmpty()) "empty" else "selected",
-            memoryRequested = usedSelections.isNotEmpty(),
-        )
-    }
-
-    private fun composeInstructionBlock(
-        selections: List<CloudSelectedMemory>,
-    ): TextComposition {
-        if (selections.isEmpty()) return TextComposition()
-        val builder = StringBuilder(
-            "以下是云端模型根据当前请求选出的用户明确长期指令。只要不与系统安全、事实准确性或工具协议冲突，就必须按其适用条件执行："
-        )
-        val used = mutableListOf<CloudSelectedMemory>()
-        selections.distinctBy { it.candidate.content.trim() }.forEach { selection ->
-            val content = selection.candidate.content.trim()
-            if (content.isBlank()) return@forEach
-            val prefix = "\n- "
-            val remaining = CLOUD_PERSONA_BUDGET - builder.length - prefix.length
-            if (remaining <= 0) return@forEach
-            builder.append(prefix).append(content.take(remaining))
-            used += selection
-        }
-        return TextComposition(
-            text = builder.toString().takeIf { used.isNotEmpty() },
-            used = used,
-        )
-    }
-
-    private fun composeProfileBlock(
-        selections: List<CloudSelectedMemory>,
-    ): TextComposition {
-        val builder = StringBuilder()
-        val used = mutableListOf<CloudSelectedMemory>()
-        selections.distinctBy { it.candidate.content.trim() }.forEach { selection ->
-            val content = selection.candidate.content.trim()
-            if (content.isBlank()) return@forEach
-            val separator = if (builder.isEmpty()) "" else "；"
-            val remaining = CLOUD_PROFILE_BUDGET - builder.length - separator.length
-            if (remaining <= 0) return@forEach
-            builder.append(separator).append(content.take(remaining))
-            used += selection
-        }
-        return TextComposition(builder.toString().takeIf(String::isNotBlank), used)
-    }
-
-    private fun composeListBlock(
-        selections: List<CloudSelectedMemory>,
-        itemLimit: Int,
-        itemChars: Int,
-    ): ListComposition {
-        val used = mutableListOf<CloudSelectedMemory>()
-        val items = mutableListOf<String>()
-        selections.forEach { selection ->
-            val text = selection.candidate.content.trim().take(itemChars)
-            if (text.isBlank() || text in items || items.size >= itemLimit) return@forEach
-            items += text
-            used += selection
-        }
-        return ListComposition(items, used)
-    }
-
-    private fun buildCloudMemorySnapshot(
-        profileSummary: String,
-        preferences: List<String>,
-        memories: List<String>,
-    ): JSONObject? {
-        if (profileSummary.isBlank() && preferences.isEmpty() && memories.isEmpty()) return null
-        return JSONObject()
-            .put("schema", "ai_ledger_cloud_memory_snapshot_v1")
-            .put("intent", AssistantMemoryIntent.CLOUD_ORCHESTRATED.id)
-            .put("activeScopes", JSONArray(listOf("cloud_model")))
-            .put("profileSummary", profileSummary)
-            .put("preferences", JSONArray(preferences))
-            .put("relevantMemories", JSONArray(memories))
-            .put("sessionSummary", "")
-            .put("selectionOwner", "cloud_model")
-    }
-
-    private fun CloudSelectedMemory.toMemorySource(): AssistantMemorySource = AssistantMemorySource(
-        id = candidate.originId,
-        category = candidate.category,
-        scope = candidate.scope,
-        role = role,
-        score = (confidence.coerceIn(0.0, 1.0) * 100.0).roundToInt(),
-        reason = reason.ifBlank { "cloud_semantic_selection" },
-    )
-
-    private data class TextComposition(
-        val text: String? = null,
-        val used: List<CloudSelectedMemory> = emptyList(),
-    )
-
-    private data class ListComposition(
-        val items: List<String>,
-        val used: List<CloudSelectedMemory>,
-    )
 }
 
 internal fun parseIsoInstantMillis(value: String): Long? {
