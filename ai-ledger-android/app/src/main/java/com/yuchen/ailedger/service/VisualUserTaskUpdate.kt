@@ -65,7 +65,7 @@ internal object VisualUserTaskUpdateRuntime {
         sourceReason: String,
         prompt: String,
     ): VisualUserTaskUpdate? {
-        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+        val currentTaskId = currentTaskIdOrZero()
         if (currentTaskId <= 0L) return null
         val classified = VisualUserTaskUpdateClassifier.classify(
             rawReply = rawReply.orEmpty(),
@@ -90,7 +90,7 @@ internal object VisualUserTaskUpdateRuntime {
     }
 
     fun updatesAfter(lastAppliedRevision: Int): List<VisualUserTaskUpdate> {
-        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+        val currentTaskId = currentTaskIdOrZero()
         if (currentTaskId <= 0L) return emptyList()
         return synchronized(lock) {
             if (taskId != currentTaskId) return@synchronized emptyList()
@@ -99,7 +99,7 @@ internal object VisualUserTaskUpdateRuntime {
     }
 
     fun takeUndispatchedPromptLines(): List<String> {
-        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+        val currentTaskId = currentTaskIdOrZero()
         if (currentTaskId <= 0L) return emptyList()
         return synchronized(lock) {
             if (taskId != currentTaskId) return@synchronized emptyList()
@@ -111,14 +111,20 @@ internal object VisualUserTaskUpdateRuntime {
     }
 
     fun currentRevision(): Int {
-        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+        val currentTaskId = currentTaskIdOrZero()
         if (currentTaskId <= 0L) return 0
         return synchronized(lock) {
             if (taskId == currentTaskId) revision else 0
         }
     }
 
-    fun latestDispatchedRevision(): Int = synchronized(lock) { dispatchedRevision }
+    fun latestDispatchedRevision(): Int {
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return 0
+        return synchronized(lock) {
+            if (taskId == currentTaskId) dispatchedRevision else 0
+        }
+    }
 
     internal fun resetForTests() {
         synchronized(lock) {
@@ -128,6 +134,9 @@ internal object VisualUserTaskUpdateRuntime {
             updates.clear()
         }
     }
+
+    private fun currentTaskIdOrZero(): Long =
+        runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
 
     private fun alignTaskLocked(currentTaskId: Long) {
         if (taskId != currentTaskId) {
