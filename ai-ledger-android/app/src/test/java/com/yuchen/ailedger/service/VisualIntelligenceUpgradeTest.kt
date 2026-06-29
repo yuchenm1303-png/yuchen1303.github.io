@@ -141,17 +141,35 @@ class VisualIntelligenceUpgradeTest {
     }
 
     @Test
-    fun taskContractParsesRevisionEcho() {
+    fun completeTaskContractParsesRevisionEcho() {
         val root = JSONObject().put(
             "taskContract",
-            JSONObject()
-                .put("originalGoal", "测试任务")
-                .put("currentMilestoneId", "m2")
-                .put("taskRevision", 4),
+            VisualTaskContract(
+                originalGoal = "测试任务",
+                currentMilestoneId = "m2",
+                milestones = listOf(
+                    VisualTaskMilestone(
+                        id = "m1",
+                        title = "第一步",
+                        purpose = "完成第一步",
+                        successEvidence = listOf("第一步证据可见"),
+                        completed = true,
+                    ),
+                    VisualTaskMilestone(
+                        id = "m2",
+                        title = "第二步",
+                        purpose = "完成第二步",
+                        successEvidence = listOf("第二步证据可见"),
+                    ),
+                ),
+                completedMilestoneIds = listOf("m1"),
+                taskRevision = 4,
+            ).toJson(),
         )
 
         val contract = VisualTaskContract.fromJson(root)
 
+        assertNotNull(contract)
         assertEquals(4, contract!!.taskRevision)
         assertEquals("m2", contract.currentMilestoneId)
     }
@@ -223,21 +241,44 @@ class VisualIntelligenceUpgradeTest {
     }
 
     @Test
-    fun laterContractCannotEraseCompletedMilestonesOrOriginalGoal() {
+    fun laterSameRevisionContractCannotEraseCommittedHistory() {
         val tracker = VisualSemanticProgressTracker(originalGoal = "原始任务")
         tracker.updateTaskContract(
             VisualTaskContract(
                 originalGoal = "原始任务",
-                currentMilestoneId = "m1",
-                milestones = listOf(VisualTaskMilestone(id = "m1", title = "第一步", completed = true)),
+                currentMilestoneId = "m2",
+                milestones = listOf(
+                    VisualTaskMilestone(
+                        id = "m1",
+                        title = "第一步",
+                        purpose = "完成第一步",
+                        successEvidence = listOf("第一步证据可见"),
+                        completed = true,
+                    ),
+                    VisualTaskMilestone(
+                        id = "m2",
+                        title = "第二步",
+                        purpose = "完成第二步",
+                        successEvidence = listOf("第二步证据可见"),
+                    ),
+                ),
                 completedMilestoneIds = listOf("m1"),
+                taskRevision = 1,
             ),
         )
         tracker.updateTaskContract(
             VisualTaskContract(
                 originalGoal = "漂移后的任务",
-                currentMilestoneId = "m2",
-                milestones = listOf(VisualTaskMilestone(id = "m2", title = "第二步")),
+                currentMilestoneId = "m3",
+                milestones = listOf(
+                    VisualTaskMilestone(
+                        id = "m3",
+                        title = "第三步",
+                        purpose = "跳过历史直接执行第三步",
+                        successEvidence = listOf("第三步证据可见"),
+                    ),
+                ),
+                taskRevision = 1,
             ),
         )
 
@@ -246,7 +287,9 @@ class VisualIntelligenceUpgradeTest {
         assertTrue("m1" in memory.completedMilestoneIds)
         assertTrue(memory.taskContract!!.milestones.any { it.id == "m1" && it.completed })
         assertTrue(memory.taskContract!!.milestones.any { it.id == "m2" })
+        assertFalse(memory.taskContract!!.milestones.any { it.id == "m3" })
         assertEquals("m2", memory.currentMilestoneId)
+        assertTrue(memory.replanRequested)
     }
 
     private fun workSurfaceRuntime() = VisualAgentRuntimeContext(
