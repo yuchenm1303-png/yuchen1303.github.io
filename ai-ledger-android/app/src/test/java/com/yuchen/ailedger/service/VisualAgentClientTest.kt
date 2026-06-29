@@ -285,17 +285,47 @@ class VisualAgentClientTest {
                 "scroll" -> CloudAgentStep(type = type, direction = "up")
                 else -> CloudAgentStep(type = type)
             }
-            val step = baseStep.copy(
-                toolArgs = org.json.JSONObject()
-                    .put("responseSessionId", "visual-session-test")
-                    .put("responseObservationId", verified.observationId),
-            )
+            val step = permitted(baseStep, snapshot, verified)
             assertTrue(
                 "$type should validate",
                 VisualActionValidator.validate(step, snapshot, verified).ok,
             )
         }
         assertEquals(CloudAgentStep.supportedTypes, VisualAgentProtocol.supportedStepTypes)
+    }
+
+    private fun permitted(
+        step: CloudAgentStep,
+        snapshot: AgentScreenSnapshot,
+        runtime: VisualAgentRuntimeContext,
+    ): CloudAgentStep {
+        val sessionId = "visual-session-test"
+        val kind = "gui_transaction_validated"
+        val hash = VisualActionValidator.executionPermitHash(
+            sessionId = sessionId,
+            observationId = runtime.observationId,
+            packageName = snapshot.packageName,
+            kind = kind,
+            step = step,
+            canonicalX = step.x?.toDouble(),
+            canonicalY = step.y?.toDouble(),
+        )
+        return step.copy(
+            toolArgs = org.json.JSONObject().apply {
+                put("responseSessionId", sessionId)
+                put("responseObservationId", runtime.observationId)
+                put("executionPermitVersion", "visual_execution_permit_v2")
+                put("executionPermitId", "permit_$hash")
+                put("executionPermitKind", kind)
+                put("executionPermitObservationId", runtime.observationId)
+                put("executionPermitSessionId", sessionId)
+                put("executionPermitPackageName", snapshot.packageName)
+                put("executionPermitActionType", step.type)
+                step.x?.let { put("executionPermitX", it) }
+                step.y?.let { put("executionPermitY", it) }
+                put("executionPermitActionHash", hash)
+            },
+        )
     }
 
     private fun history(label: String) = VisualAgentHistoryItem(
