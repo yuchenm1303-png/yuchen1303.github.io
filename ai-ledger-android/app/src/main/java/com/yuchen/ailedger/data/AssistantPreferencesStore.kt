@@ -76,6 +76,7 @@ class AssistantPreferencesStore(private val context: Context) {
         val customBackgroundPath = stringPreferencesKey("custom_background_path")
         val glassIntensity = floatPreferencesKey("glass_intensity")
         val motionIntensity = floatPreferencesKey("motion_intensity")
+        val rainbowProfileV2 = booleanPreferencesKey("rainbow_profile_v2")
         val rainbowOverall = floatPreferencesKey("rainbow_overall")
         val rainbowEdgeHighlight = floatPreferencesKey("rainbow_edge_highlight")
         val rainbowSweepMin = floatPreferencesKey("rainbow_sweep_min")
@@ -93,13 +94,22 @@ class AssistantPreferencesStore(private val context: Context) {
         .map { preferences ->
             val customPath = preferences[Keys.customBackgroundPath]?.takeIf { it.isNotBlank() }
             val preset = RainbowPrismStyle()
+            val rainbowProfileV2 = preferences[Keys.rainbowProfileV2] == true
             val legacySweep = preferences[Keys.legacyRainbowDiagonalSweep]
-            val rawMin = preferences[Keys.rainbowSweepMin]
-                ?: legacySweep?.let { (it * 0.50f).coerceIn(0f, 2f) }
-                ?: preset.sweepMin
-            val rawMax = preferences[Keys.rainbowSweepMax]
-                ?: legacySweep?.let { it.coerceIn(0f, 2f) }
-                ?: preset.sweepMax
+            val rawMin = if (rainbowProfileV2) {
+                preferences[Keys.rainbowSweepMin]
+                    ?: legacySweep?.let { (it * 0.50f).coerceIn(0f, 2f) }
+                    ?: preset.sweepMin
+            } else {
+                preset.sweepMin
+            }
+            val rawMax = if (rainbowProfileV2) {
+                preferences[Keys.rainbowSweepMax]
+                    ?: legacySweep?.let { it.coerceIn(0f, 2f) }
+                    ?: preset.sweepMax
+            } else {
+                preset.sweepMax
+            }
             val sweepMin = minOf(rawMin, rawMax).coerceIn(0f, 2f)
             val sweepMax = maxOf(rawMin, rawMax).coerceIn(0f, 2f)
             val persisted = AssistantPreferences(
@@ -114,9 +124,17 @@ class AssistantPreferencesStore(private val context: Context) {
                 glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
                 motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
                 rainbowPrismStyle = RainbowPrismStyle(
-                    overall = (preferences[Keys.rainbowOverall] ?: preset.overall).coerceIn(0f, 2f),
-                    edgeHighlight = (preferences[Keys.rainbowEdgeHighlight] ?: preset.edgeHighlight)
-                        .coerceIn(0f, 2f),
+                    overall = if (rainbowProfileV2) {
+                        (preferences[Keys.rainbowOverall] ?: preset.overall).coerceIn(0f, 2f)
+                    } else {
+                        preset.overall
+                    },
+                    edgeHighlight = if (rainbowProfileV2) {
+                        (preferences[Keys.rainbowEdgeHighlight] ?: preset.edgeHighlight)
+                            .coerceIn(0f, 2f)
+                    } else {
+                        preset.edgeHighlight
+                    },
                     sweepMin = sweepMin,
                     sweepMax = sweepMax,
                     rainbowHalo = (preferences[Keys.rainbowHalo] ?: preset.rainbowHalo)
@@ -245,6 +263,7 @@ class AssistantPreferencesStore(private val context: Context) {
         sliderWriterScope.launch {
             consumeSettledValues(rainbowPrismWrites) { style ->
                 context.assistantPreferencesDataStore.edit {
+                    it[Keys.rainbowProfileV2] = true
                     it[Keys.rainbowOverall] = style.overall
                     it[Keys.rainbowEdgeHighlight] = style.edgeHighlight
                     it[Keys.rainbowSweepMin] = style.sweepMin
