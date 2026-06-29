@@ -150,7 +150,8 @@ class OpenGLGlassDynamicState {
     private val frameCallback = Choreographer.FrameCallback {
         framePosted = false
         val next = latestSnapshot()
-        if (committedState.value != next) committedState.value = next
+        if (committedState.value == next) return@FrameCallback
+        committedState.value = next
         for (listener in frameListeners) listener()
     }
 }
