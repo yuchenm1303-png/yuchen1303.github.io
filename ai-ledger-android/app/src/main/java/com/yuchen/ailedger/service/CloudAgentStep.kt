@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -74,7 +75,8 @@ data class CloudAgentPlan(
         const val MAX_BATCH_STEPS = 3
 
         fun fromJson(root: JSONObject?): CloudAgentPlan? {
-            val primary = CloudAgentStep.fromJson(root) ?: return null
+            val parsedPrimary = CloudAgentStep.fromJson(root) ?: return null
+            val primary = repairMisclassifiedMobileUseTerminate(root, parsedPrimary)
             val parsedSteps = extractBatchSteps(root)
                 .filterNot { it.type == "need_user_help" || it.type == "finish" }
                 .distinctBy { it.batchKey() }
@@ -89,12 +91,99 @@ data class CloudAgentPlan(
             )
         }
 
+        private fun repairMisclassifiedMobileUseTerminate(
+            root: JSONObject?,
+            step: CloudAgentStep,
+        ): CloudAgentStep {
+            if (root == null || step.type != "need_user_help") return step
+            val raw = extractGuiCompactRaw(root)
+            if (!raw.hasOfficialMobileUseTerminateCall()) return step
+
+            val sessionId = step.argString("responseSessionId").orEmpty().trim()
+            val observationId = step.argString("responseObservationId").orEmpty().trim()
+            if (sessionId.isBlank() || observationId.isBlank()) {
+                VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                    type = "mobile_use_protocol_repair_rejected",
+                    details = JSONObject().apply {
+                        put("reason", "missing_response_binding")
+                        put("parsedStepType", step.type)
+                        put("hasResponseSessionId", sessionId.isNotBlank())
+                        put("hasResponseObservationId", observationId.isNotBlank())
+                    },
+                )
+                return step.copy(
+                    type = "wait",
+                    durationMs = 220L,
+                    targetText = "重新观察",
+                    reason = "mobile_use terminate was misclassified, but the response binding was incomplete; re-observe instead of pausing the user.",
+                )
+            }
+
+            val args = JSONObject()
+            step.toolArgs?.let { source ->
+                val keys = source.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    args.put(key, source.opt(key))
+                }
+            }
+            val candidateId = completionCandidateId(sessionId, observationId)
+            args.put("responseSessionId", sessionId)
+            args.put("responseObservationId", observationId)
+            args.put("completionCandidate", true)
+            args.put("completionCandidateId", candidateId)
+            args.put("completionCandidateSessionId", sessionId)
+            args.put("completionCandidateObservationId", observationId)
+            args.put("mobileUseProtocolRepair", "terminate_to_finish_candidate")
+            args.put("mobileUseOriginalAction", "terminate")
+
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                type = "mobile_use_protocol_repair",
+                details = JSONObject().apply {
+                    put("originalStepType", step.type)
+                    put("repairedStepType", "finish")
+                    put("sourceAction", "terminate")
+                    put("candidateId", candidateId)
+                    put("responseSessionId", sessionId)
+                    put("responseObservationId", observationId)
+                    put("completionPermitRequired", true)
+                },
+            )
+            return step.copy(
+                type = "finish",
+                requiresConfirmation = false,
+                toolArgs = args,
+            )
+        }
+
+        private fun extractGuiCompactRaw(root: JSONObject): String = listOfNotNull(
+            root.optJSONObject("debug")?.optJSONObject("guiCompactAction"),
+            root.optJSONObject("guiCompactAction"),
+            root.optJSONObject("data")?.optJSONObject("debug")?.optJSONObject("guiCompactAction"),
+            root.optJSONObject("result")?.optJSONObject("debug")?.optJSONObject("guiCompactAction"),
+        ).firstNotNullOfOrNull { it.firstNonBlank("raw", "rawModelOutput", "guiPlusRawOutput") }
+            ?.take(6000)
+            .orEmpty()
+
+        private fun String.hasOfficialMobileUseTerminateCall(): Boolean =
+            MOBILE_USE_NAME_PATTERN.containsMatchIn(this) && TERMINATE_ACTION_PATTERN.containsMatchIn(this)
+
+        private fun completionCandidateId(sessionId: String, observationId: String): String {
+            val canonical = "$sessionId|$observationId|mobile_use|terminate"
+            val hash = MessageDigest.getInstance("SHA-256")
+                .digest(canonical.toByteArray(Charsets.UTF_8))
+                .joinToString("") { byte -> "%02x".format(byte) }
+                .take(24)
+            return "completion_candidate_$hash"
+        }
+
         private fun extractRawModelOutput(root: JSONObject?): String {
             if (root == null) return ""
-            return listOfNotNull(root, root.optJSONObject("debug"), root.optJSONObject("data"), root.optJSONObject("result"))
+            val direct = listOfNotNull(root, root.optJSONObject("debug"), root.optJSONObject("data"), root.optJSONObject("result"))
                 .firstNotNullOfOrNull { container ->
                     container.firstNonBlank("rawModelOutput", "guiPlusRawOutput", "rawOutput", "raw")
                 }?.take(6000).orEmpty()
+            return direct.ifBlank { extractGuiCompactRaw(root) }
         }
 
         private fun extractBatchSteps(root: JSONObject?): List<CloudAgentStep> {
@@ -119,6 +208,15 @@ data class CloudAgentPlan(
                 for (index in 0 until length()) optJSONObject(index)?.let(CloudAgentStep::fromJson)?.let(::add)
             }
         }
+
+        private val MOBILE_USE_NAME_PATTERN = Regex(
+            "[\\\"']name[\\\"']\\s*:\\s*[\\\"']mobile_use[\\\"']",
+            RegexOption.IGNORE_CASE,
+        )
+        private val TERMINATE_ACTION_PATTERN = Regex(
+            "[\\\"']action[\\\"']\\s*:\\s*[\\\"']terminate[\\\"']",
+            RegexOption.IGNORE_CASE,
+        )
     }
 }
 
