@@ -1,39 +1,43 @@
 package com.yuchen.ailedger.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.AgentAccessibilityGuideActivity
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.VisualAgentHudTuningStore
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.collect
 
 private data class VisualHudParameterSpec(
     val key: String,
@@ -163,34 +167,19 @@ private val visualHudParameterSections = listOf(
 )
 
 @Composable
-internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
+internal fun VisualAgentHudSettingsPage(
+    state: AssistantUiState,
+    onBack: () -> Unit,
+) {
     val context = LocalContext.current
     val store = remember(context) { VisualAgentHudTuningStore.get(context.applicationContext) }
-    val initialTuning = remember(store) { store.state.value }
-    var previewEnabled by remember(store) { mutableStateOf(initialTuning.previewEnabled) }
-    val parameterValues = remember(store) {
-        mutableStateMapOf<String, Float>().apply {
-            visualHudParameterSections.forEach { section ->
-                section.specs.forEach { spec ->
-                    put(spec.key, initialTuning.parameters.valueOf(spec.key))
-                }
-            }
-        }
-    }
+    val previewEnabled by remember(store) {
+        store.state.map { it.previewEnabled }.distinctUntilChanged()
+    }.collectAsState(initial = store.state.value.previewEnabled)
+    val listState = rememberLazyListState()
 
-    LaunchedEffect(store) {
-        store.state.collect { tuning ->
-            previewEnabled = tuning.previewEnabled
-            visualHudParameterSections.forEach { section ->
-                section.specs.forEach { spec ->
-                    val nextValue = tuning.parameters.valueOf(spec.key)
-                    if (parameterValues[spec.key] != nextValue) {
-                        parameterValues[spec.key] = nextValue
-                    }
-                }
-            }
-        }
-    }
+    SyncGlassBackdropToScroll(listState)
+    BackHandler(onBack = onBack)
 
     fun updatePreview(enabled: Boolean) {
         if (enabled && !AiAgentAccessibilityService.isConnected()) {
@@ -205,71 +194,182 @@ internal fun VisualAgentHudSettingsContent(state: AssistantUiState) {
         onDispose { store.setPreviewEnabled(false) }
     }
 
-    VisualIntelligenceDiagnosticsSettingsContent(state)
-
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "样本预览",
-                color = Color.White,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.ExtraBold
-            )
-            Text(
-                "由无障碍服务在整机顶层显示真实 HUD，无需额外开启悬浮窗权限。",
-                color = Color.White.copy(alpha = 0.56f),
-                fontSize = 12.sp,
-                lineHeight = 17.sp
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 14.dp, top = 16.dp, end = 14.dp, bottom = 132.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        item(key = "visual-hud-page-header", contentType = "header") {
+            VisualHudPageHeader(state = state, onBack = onBack)
+        }
+        item(key = "visual-hud-diagnostics", contentType = "diagnostics") {
+            VisualIntelligenceDiagnosticsSettingsContent(state)
+        }
+        item(key = "visual-hud-preview", contentType = "preview") {
+            VisualHudPreviewControl(
+                previewEnabled = previewEnabled,
+                onPreviewChange = ::updatePreview,
             )
         }
-        Switch(
-            checked = previewEnabled,
-            onCheckedChange = ::updatePreview,
-        )
-    }
+        item(key = "visual-hud-actions", contentType = "actions") {
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                VisualHudActionButton(
+                    title = "恢复默认参数",
+                    subtitle = "光标 36.1 px · 信息栏 420 / 0.65",
+                    state = state,
+                    modifier = Modifier.weight(1f),
+                    onClick = store::resetParameters,
+                )
+                VisualHudActionButton(
+                    title = if (previewEnabled) "关闭样本" else "打开样本",
+                    subtitle = if (previewEnabled) "停止顶层预览" else "实时查看调整结果",
+                    state = state,
+                    modifier = Modifier.weight(1f),
+                    onClick = { updatePreview(!previewEnabled) },
+                )
+            }
+        }
 
-    Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-        VisualHudActionButton(
-            title = "恢复默认参数",
-            subtitle = "光标 36.1 px · 信息栏 420 / 0.65",
-            state = state,
-            modifier = Modifier.weight(1f),
-            onClick = store::resetParameters,
-        )
-        VisualHudActionButton(
-            title = if (previewEnabled) "关闭样本" else "打开样本",
-            subtitle = if (previewEnabled) "停止顶层预览" else "实时查看调整结果",
-            state = state,
-            modifier = Modifier.weight(1f),
-            onClick = { updatePreview(!previewEnabled) },
-        )
+        visualHudParameterSections.forEachIndexed { index, section ->
+            item(
+                key = "visual-hud-section-$index",
+                contentType = "section-header",
+            ) {
+                Text(
+                    section.title,
+                    color = Color.White.copy(alpha = 0.84f),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            items(
+                items = section.specs,
+                key = { it.key },
+                contentType = { "visual-hud-slider" },
+            ) { spec ->
+                VisualHudParameterSlider(spec = spec, store = store)
+            }
+        }
     }
+}
 
-    visualHudParameterSections.forEach { section ->
+@Composable
+internal fun VisualAgentHudSettingsContent(
+    @Suppress("UNUSED_PARAMETER") state: AssistantUiState,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         Text(
-            section.title,
-            color = Color.White.copy(alpha = 0.84f),
+            "视觉智能已使用独立详情页",
+            color = Color.White.copy(alpha = 0.88f),
             fontSize = 15.sp,
             fontWeight = FontWeight.Black,
-            modifier = Modifier.padding(top = 4.dp)
         )
-        section.specs.forEach { spec ->
-            VisualHudParameterSlider(
-                spec = spec,
-                values = parameterValues,
-                store = store,
+        Text(
+            "返回设置入口后重新进入即可打开完整参数页。",
+            color = Color.White.copy(alpha = 0.48f),
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+        )
+    }
+}
+
+@Composable
+private fun VisualHudPageHeader(
+    state: AssistantUiState,
+    onBack: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity,
+            radius = 18,
+            modifier = Modifier.size(44.dp),
+            role = GlassRole.Chip,
+            onClick = onBack,
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "‹",
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = 30.sp,
+                    lineHeight = 30.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                "视觉智能",
+                color = Color.White,
+                fontSize = 27.sp,
+                lineHeight = 31.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+            )
+            Text(
+                "边缘光效、鼠标光标与运行 HUD 的全部参数",
+                color = Color.White.copy(alpha = 0.50f),
+                fontSize = 11.5.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
 }
 
 @Composable
+private fun VisualHudPreviewControl(
+    previewEnabled: Boolean,
+    onPreviewChange: (Boolean) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                "样本预览",
+                color = Color.White,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Text(
+                "由无障碍服务在整机顶层显示真实 HUD，无需额外开启悬浮窗权限。",
+                color = Color.White.copy(alpha = 0.56f),
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+            )
+        }
+        Switch(
+            checked = previewEnabled,
+            onCheckedChange = onPreviewChange,
+        )
+    }
+}
+
+@Composable
 private fun VisualHudParameterSlider(
     spec: VisualHudParameterSpec,
-    values: SnapshotStateMap<String, Float>,
     store: VisualAgentHudTuningStore,
 ) {
-    val value = values[spec.key] ?: store.state.value.parameters.valueOf(spec.key)
+    val value by remember(store, spec.key) {
+        store.state
+            .map { it.parameters.valueOf(spec.key) }
+            .distinctUntilChanged()
+    }.collectAsState(initial = store.state.value.parameters.valueOf(spec.key))
+
     InsetGlassParameterSlider(
         title = spec.title,
         description = spec.description,
