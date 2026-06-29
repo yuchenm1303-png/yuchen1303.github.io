@@ -7,21 +7,17 @@ import org.junit.Test
 
 class VisualObservationProtocolTest {
     @Test
-    fun dynamicTextDoesNotInvalidateStableInteractionSurface() {
+    fun dynamicTextAndNodeChangesCannotVetoVisualNavigation() {
         val observed = snapshot(
             nodes = listOf(
                 node("n1", "余额 100.00", "[0,0][300,80]", clickable = true),
                 node("n2", "转账", "[0,100][300,180]", clickable = true),
-                node("n3", "明细", "[0,200][300,280]", clickable = true),
-                node("n4", "账户", "[0,300][300,380]", clickable = true),
             ),
         )
         val current = snapshot(
             nodes = listOf(
-                node("n1", "余额 102.35", "[2,1][302,81]", clickable = true),
-                node("n2", "转账", "[1,101][301,181]", clickable = true),
-                node("n3", "明细", "[0,201][300,281]", clickable = true),
-                node("n4", "账户", "[1,301][301,381]", clickable = true),
+                node("n9", "确认", "[80,700][220,780]", clickable = true),
+                node("n10", "输入框", "[40,500][400,620]", editable = true),
             ),
         )
 
@@ -32,40 +28,11 @@ class VisualObservationProtocolTest {
         )
 
         assertTrue(result.fresh)
-        assertTrue(result.surfaceSimilarity >= 0.58f)
+        assertEquals("visual_action_package_verified", result.reason)
     }
 
     @Test
-    fun samePackageWithDifferentInteractionSurfaceIsRejectedForNonVisualAction() {
-        val observed = snapshot(
-            nodes = listOf(
-                node("n1", "首页", "[0,0][300,80]", clickable = true),
-                node("n2", "搜索", "[0,100][300,180]", clickable = true),
-                node("n3", "消息", "[0,200][300,280]", clickable = true),
-                node("n4", "我的", "[0,300][300,380]", clickable = true),
-            ),
-        )
-        val current = snapshot(
-            nodes = listOf(
-                node("n1", "确认", "[80,700][220,780]", clickable = true),
-                node("n2", "取消", "[240,700][380,780]", clickable = true),
-                node("n3", "输入框", "[40,500][400,620]", editable = true),
-                node("n4", "列表", "[0,900][480,1500]", scrollable = true),
-            ),
-        )
-
-        val result = VisualObservationProtocol.evaluateActionContextFreshness(
-            step = CloudAgentStep(type = "back"),
-            observedSnapshot = observed,
-            currentSnapshot = current,
-        )
-
-        assertFalse(result.fresh)
-        assertEquals("interaction_surface_changed", result.reason)
-    }
-
-    @Test
-    fun disappearingSemanticTargetIsRejectedBeforeNodeExecution() {
+    fun disappearingSemanticTargetIsRejectedOnlyForExplicitNodeExecution() {
         val observed = snapshot(
             nodes = listOf(
                 node("n1", "提交", "[100,300][300,400]", clickable = true),
@@ -90,7 +57,7 @@ class VisualObservationProtocolTest {
     }
 
     @Test
-    fun visualCoordinateIgnoresNodeReplacementAtTheSamePoint() {
+    fun visualCoordinateIgnoresAccessibilityReplacementAtTheSamePoint() {
         val observed = snapshot(
             nodes = listOf(node("n1", "播放", "[0,0][200,200]", clickable = true)),
         )
@@ -99,13 +66,13 @@ class VisualObservationProtocolTest {
         )
 
         val result = VisualObservationProtocol.evaluateActionContextFreshness(
-            step = CloudAgentStep(type = "tap_xy", x = 50f, y = 50f),
+            step = CloudAgentStep(type = "tap_xy", x = 0.5f, y = 0.5f),
             observedSnapshot = observed,
             currentSnapshot = current,
         )
 
         assertTrue(result.fresh)
-        assertEquals("visual_coordinate_package_verified", result.reason)
+        assertEquals("visual_action_package_verified", result.reason)
     }
 
     @Test
@@ -123,43 +90,60 @@ class VisualObservationProtocolTest {
         )
 
         val result = VisualObservationProtocol.evaluateActionContextFreshness(
-            step = CloudAgentStep(type = "tap_xy", x = 314.311f, y = 2607.234f),
+            step = CloudAgentStep(type = "tap_xy", x = 0.25f, y = 0.96f),
             observedSnapshot = observed,
             currentSnapshot = current,
         )
 
         assertTrue(result.fresh)
-        assertEquals("visual_coordinate_package_verified", result.reason)
+        assertEquals("visual_action_package_verified", result.reason)
     }
 
     @Test
-    fun visualCoordinateDoesNotUseInteractionSurfaceSimilarityAsAVeto() {
+    fun visualSwipeDoesNotUseInteractionSurfaceSimilarityAsVeto() {
         val observed = snapshot(
             nodes = listOf(
                 node("n1", "首页", "[0,0][300,80]", clickable = true),
                 node("n2", "行情", "[0,2500][300,2700]", clickable = true),
-                node("n3", "资讯", "[300,2500][600,2700]", clickable = true),
-                node("n4", "我的", "[600,2500][900,2700]", clickable = true),
             ),
         )
         val current = snapshot(
-            nodes = listOf(
-                node("root", "首页", "[0,0][1224,2700]", className = "android.view.View"),
-            ),
+            nodes = listOf(node("root", "详情", "[0,0][1224,2700]", className = "android.view.View")),
         )
 
         val result = VisualObservationProtocol.evaluateActionContextFreshness(
-            step = CloudAgentStep(type = "tap_xy", x = 314.311f, y = 2607.234f),
+            step = CloudAgentStep(type = "swipe", direction = "up"),
             observedSnapshot = observed,
             currentSnapshot = current,
         )
 
         assertTrue(result.fresh)
-        assertEquals("visual_coordinate_package_verified", result.reason)
+        assertEquals("visual_action_package_verified", result.reason)
     }
 
     @Test
-    fun stableLabelAndBoundsTolerateAccessibilityClassWrapperChange() {
+    fun focusedDirectInputDoesNotRequireAccessibilityTarget() {
+        val observed = snapshot(nodes = emptyList())
+        val current = snapshot(nodes = listOf(node("root", "页面", "[0,0][1224,2700]")))
+
+        val result = VisualObservationProtocol.evaluateActionContextFreshness(
+            step = CloudAgentStep(
+                type = "input_text",
+                text = "贵州茅台",
+                inputMode = "focused_direct",
+                requiresInputNode = false,
+                useFocusedInput = true,
+            ),
+            observedSnapshot = observed,
+            currentSnapshot = current,
+        )
+
+        assertTrue(result.fresh)
+        assertEquals("visual_action_package_verified", result.reason)
+    }
+
+    @Test
+    fun stableLabelAndBoundsKeepExplicitNodeActionFresh() {
         val observed = snapshot(
             nodes = listOf(
                 node(
@@ -190,6 +174,7 @@ class VisualObservationProtocolTest {
         )
 
         assertTrue(result.fresh)
+        assertEquals("node_target_verified", result.reason)
     }
 
     @Test
@@ -208,36 +193,27 @@ class VisualObservationProtocolTest {
     }
 
     @Test
-    fun visualOnlySurfaceKeepsPackageVerifiedFallbackWithoutExtraScreenshot() {
-        val observed = snapshot()
-        val current = snapshot()
+    fun compatibilityFreshnessChecksPackageOnly() {
+        val observed = snapshot(nodes = listOf(node("a", "首页", "[0,0][100,100]", clickable = true)))
+        val current = snapshot(nodes = listOf(node("b", "完全不同", "[500,900][900,1200]", clickable = true)))
 
-        val result = VisualObservationProtocol.evaluateActionContextFreshness(
-            step = CloudAgentStep(type = "swipe", direction = "up"),
-            observedSnapshot = observed,
-            currentSnapshot = current,
-        )
-
-        assertTrue(result.fresh)
-        assertEquals("visual_only_package_verified", result.reason)
+        assertTrue(VisualObservationProtocol.isActionContextFresh(observed, current))
     }
 
     private fun snapshot(
         packageName: String = "com.example.target",
         nodes: List<AgentScreenNode> = emptyList(),
-    ): AgentScreenSnapshot {
-        return AgentScreenSnapshot(
-            currentApp = packageName,
-            packageName = packageName,
-            nodeCount = nodes.size,
-            capturedNodeCount = nodes.size,
-            texts = nodes.mapNotNull { it.text.takeIf(String::isNotBlank) },
-            allNodes = nodes,
-            clickableNodes = nodes.filter(AgentScreenNode::clickable),
-            inputNodes = nodes.filter(AgentScreenNode::editable),
-            scrollableNodes = nodes.filter(AgentScreenNode::scrollable),
-        )
-    }
+    ): AgentScreenSnapshot = AgentScreenSnapshot(
+        currentApp = packageName,
+        packageName = packageName,
+        nodeCount = nodes.size,
+        capturedNodeCount = nodes.size,
+        texts = nodes.mapNotNull { it.text.takeIf(String::isNotBlank) },
+        allNodes = nodes,
+        clickableNodes = nodes.filter(AgentScreenNode::clickable),
+        inputNodes = nodes.filter(AgentScreenNode::editable),
+        scrollableNodes = nodes.filter(AgentScreenNode::scrollable),
+    )
 
     private fun node(
         id: String,
@@ -247,19 +223,17 @@ class VisualObservationProtocolTest {
         editable: Boolean = false,
         scrollable: Boolean = false,
         className: String? = null,
-    ): AgentScreenNode {
-        return AgentScreenNode(
-            id = id,
-            text = text,
-            className = className ?: when {
-                editable -> "android.widget.EditText"
-                scrollable -> "android.widget.ScrollView"
-                else -> "android.widget.Button"
-            },
-            bounds = bounds,
-            clickable = clickable,
-            editable = editable,
-            scrollable = scrollable,
-        )
-    }
+    ): AgentScreenNode = AgentScreenNode(
+        id = id,
+        text = text,
+        className = className ?: when {
+            editable -> "android.widget.EditText"
+            scrollable -> "android.widget.ScrollView"
+            else -> "android.widget.Button"
+        },
+        bounds = bounds,
+        clickable = clickable,
+        editable = editable,
+        scrollable = scrollable,
+    )
 }
