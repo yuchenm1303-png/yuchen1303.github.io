@@ -177,28 +177,27 @@ class VisualObservationCoordinator(
             )
         }
 
-        val evidence = if (expectedPackage.isNotBlank()) {
-            val shellProbe = withContext(Dispatchers.IO) { foregroundPackageReader.probe() }
-            ForegroundPackageEvidenceResolver.resolve(
-                accessibilityPackage = rawPackage,
-                shellProbe = shellProbe,
-            )
-        } else {
-            null
-        }
-        val probedPackage = evidence?.packageName.orEmpty().trim()
+        // 当无障碍暂时拿不到真实包名时，在本次任务观察内做一次机械前台包探测。
+        // expectedPackage 为空也必须探测，才能在首轮规划前知道目标 App 是否已经在前台。
+        // 这里不订阅窗口事件、不扫描额外节点，也不解释应用或页面语义。
+        val shellProbe = withContext(Dispatchers.IO) { foregroundPackageReader.probe() }
+        val evidence = ForegroundPackageEvidenceResolver.resolve(
+            accessibilityPackage = rawPackage,
+            shellProbe = shellProbe,
+        )
+        val probedPackage = evidence.packageName.trim()
         if (!VisualSurfacePackagePolicy.requiresForegroundFallback(probedPackage)) {
             rememberTrustedPackage(probedPackage)
             return ResolvedObservationPackage(
                 observation = observation.copy(
                     packageName = probedPackage,
                     windowTitle = observation.windowTitle.withPackageEvidence(
-                        "foreground=${evidence?.source?.wireValue.orEmpty()}",
+                        "foreground=${evidence.source.wireValue}",
                         rawPackage.takeIf(String::isNotBlank)?.let { "overlay=$it" }.orEmpty(),
                     ),
                 ),
                 rawPackage = rawPackage,
-                source = evidence?.source?.wireValue.orEmpty().ifBlank { "foreground_probe" },
+                source = evidence.source.wireValue.ifBlank { "foreground_probe" },
                 evidenceStrength = VisualPackageEvidenceStrength.Direct,
                 overlayPackage = rawPackage.takeIf(String::isNotBlank).orEmpty(),
             )
