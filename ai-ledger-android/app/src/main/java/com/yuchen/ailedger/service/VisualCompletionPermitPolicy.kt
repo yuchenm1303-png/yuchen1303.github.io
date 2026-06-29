@@ -5,14 +5,18 @@ import org.json.JSONObject
 
 internal data class VisualCompletionCandidate(
     val id: String,
+    /** Upstream GUI Plus protocol session used by candidate/permit hashes. */
     val sessionId: String,
     val observationId: String,
     val taskRevision: Int = 0,
+    /** Android-owned visual task session; never replaced by an upstream provider session. */
+    val ownerSessionId: String = sessionId,
 )
 
 internal data class VisualCompletionPermit(
     val id: String,
     val kind: String,
+    /** Upstream GUI Plus protocol session used by the signed permit. */
     val sessionId: String,
     val observationId: String,
     val actionHash: String,
@@ -29,6 +33,14 @@ internal data class VisualCompletionValidation<T>(
 /**
  * Protocol-only verification for GUI Plus completion candidates and independent completion permits.
  * It never reads page text, target labels, app names or user-goal keywords.
+ *
+ * Completion has two deliberately separate session scopes:
+ * - ownerSessionId: Android's local visual-task ownership boundary.
+ * - sessionId: the upstream GUI Plus protocol session used by candidate and permit hashes.
+ *
+ * The two IDs are not required to be textually equal. They must each remain stable inside their own
+ * scope. This prevents a provider session such as `agent_*` from being confused with Android's
+ * `visual-session-*`, while preserving strict local task ownership and upstream hash integrity.
  *
  * A user task revision is a hard completion barrier: a candidate is bound to the newest revision
  * actually dispatched with its model request, not to a newer reply that may arrive while that request
@@ -55,21 +67,23 @@ internal object VisualCompletionPermitPolicy {
             currentTaskRevision = candidateTaskRevision,
         )
         if (step.type != ACTION_TYPE) return finish(invalid("wrong_action_type"))
+        val localOwnerSessionId = expectedSessionId.trim()
+        if (localOwnerSessionId.isBlank()) return finish(invalid("completion_owner_session_missing"))
         val args = step.toolArgs ?: return finish(invalid("missing_completion_candidate_args"))
         if (!args.optBoolean("completionCandidate", false)) {
             return finish(invalid("completion_candidate_marker_missing"))
         }
 
         val candidateId = args.cleanString("completionCandidateId")
-        val sessionId = args.cleanString("completionCandidateSessionId")
+        val protocolSessionId = args.cleanString("completionCandidateSessionId")
         val observationId = args.cleanString("completionCandidateObservationId")
         val responseSessionId = args.cleanString("responseSessionId")
         val responseObservationId = args.cleanString("responseObservationId")
         if (candidateId.isBlank()) return finish(invalid("completion_candidate_id_missing"))
         if (
-            sessionId != expectedSessionId.trim() ||
-            responseSessionId != expectedSessionId.trim()
-        ) return finish(invalid("completion_candidate_session_mismatch"))
+            protocolSessionId.isBlank() || responseSessionId.isBlank() ||
+            protocolSessionId != responseSessionId
+        ) return finish(invalid("completion_candidate_protocol_session_mismatch"))
         if (
             observationId != expectedObservationId.trim() ||
             responseObservationId != expectedObservationId.trim()
@@ -78,9 +92,10 @@ internal object VisualCompletionPermitPolicy {
             valid(
                 VisualCompletionCandidate(
                     id = candidateId,
-                    sessionId = sessionId,
+                    sessionId = protocolSessionId,
                     observationId = observationId,
                     taskRevision = candidateTaskRevision.coerceAtLeast(0),
+                    ownerSessionId = localOwnerSessionId,
                 ),
             ),
         )
@@ -102,6 +117,9 @@ internal object VisualCompletionPermitPolicy {
             currentTaskRevision = currentTaskRevision,
         )
         if (step.type != ACTION_TYPE) return finish(invalid("wrong_action_type"))
+        if (expectedCandidate.ownerSessionId != expectedSessionId.trim()) {
+            return finish(invalid("completion_candidate_owner_session_mismatch"))
+        }
         if (currentTaskRevision > expectedCandidate.taskRevision) {
             return finish(invalid("completion_candidate_invalidated_by_user_revision"))
         }
@@ -122,17 +140,17 @@ internal object VisualCompletionPermitPolicy {
         if (permitKind != PERMIT_KIND) return finish(invalid("completion_permit_kind_invalid"))
         if (permitActionType != ACTION_TYPE) return finish(invalid("completion_permit_action_mismatch"))
         if (
-            permitSessionId != expectedSessionId.trim() ||
-            responseSessionId != expectedSessionId.trim()
-        ) return finish(invalid("completion_permit_session_mismatch"))
+            permitSessionId.isBlank() || responseSessionId.isBlank() ||
+            permitSessionId != expectedCandidate.sessionId ||
+            responseSessionId != expectedCandidate.sessionId
+        ) return finish(invalid("completion_permit_protocol_session_mismatch"))
         if (
             permitObservationId != expectedObservationId.trim() ||
             responseObservationId != expectedObservationId.trim()
         ) return finish(invalid("completion_permit_observation_mismatch"))
         if (
             candidateId != expectedCandidate.id ||
-            candidateObservationId != expectedCandidate.observationId ||
-            expectedCandidate.sessionId != expectedSessionId.trim()
+            candidateObservationId != expectedCandidate.observationId
         ) return finish(invalid("completion_candidate_binding_mismatch"))
         if (candidateObservationId == permitObservationId) {
             return finish(invalid("completion_permit_requires_fresh_observation"))
@@ -201,7 +219,7 @@ internal object VisualCompletionPermitPolicy {
                 put("valid", validation.valid)
                 put("reason", validation.reason)
                 put("stepType", step.type)
-                put("expectedSessionId", expectedSessionId.take(180))
+                put("expectedOwnerSessionId", expectedSessionId.take(180))
                 put("expectedObservationId", expectedObservationId.take(180))
                 put("currentTaskRevision", currentTaskRevision)
                 put("toolArgs", step.toolArgs ?: JSONObject.NULL)
