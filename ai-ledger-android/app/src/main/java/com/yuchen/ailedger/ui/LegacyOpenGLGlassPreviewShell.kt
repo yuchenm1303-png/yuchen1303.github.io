@@ -15,18 +15,21 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassCardLayer
 import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
 
 /**
- * 旧版 OpenGL 的统一宿主结构。
- * 实验室原版样本和设置页顶部状态卡片必须共同经过这里，避免参数一致但
- * 纹理采样、裁剪或几何链不同，产生不同光学外观。
+ * 旧版 OpenGL Shell 的生产宿主。
+ *
+ * 这里只负责旧 Renderer 所需的背景覆盖、最终轮廓裁剪和单个 OpenGL Host。外层已经
+ * 持有坐标源时可关闭本层 placement 上报，避免同一个 Shell 在相邻两层重复执行
+ * onPlaced；独立预览仍可由宿主自己维护坐标。
  */
 @Composable
-fun LegacyOpenGLGlassPreviewShell(
+fun LegacyOpenGLShellHost(
     quality: RenderQuality,
     glassIntensity: Float = 1f,
     motionIntensity: Float = 1f,
     radius: Int,
     modifier: Modifier = Modifier,
     coordinateSource: GlassCoordinateSource? = null,
+    manageCoordinatePlacement: Boolean = coordinateSource == null,
     pressProgress: Float = 0f,
     pressCenter: Offset = Offset(0.5f, 0.5f),
     viewportTopInsetPx: Float = 0f,
@@ -46,7 +49,12 @@ fun LegacyOpenGLGlassPreviewShell(
         )
     }
     val startupBackdrop = OpenGlStartupBackdropBridge.backdrop ?: LocalBlurredBackdrop.current
-    val previewShape = remember(radius) { RoundedCornerShape(radius.dp) }
+    val shellShape = remember(radius) { RoundedCornerShape(radius.dp) }
+    val placementModifier = if (manageCoordinatePlacement) {
+        Modifier.onPlaced { coordinates.coordinates = it }
+    } else {
+        Modifier
+    }
 
     CompositionLocalProvider(
         LocalGlassBackdrop provides optimizedBackdrop,
@@ -56,8 +64,8 @@ fun LegacyOpenGLGlassPreviewShell(
         Box(
             modifier = modifier
                 // 旧 Shader 的抗锯齿带位于几何边界外侧，统一由 Compose 裁剪最终轮廓。
-                .clip(previewShape)
-                .onPlaced { coordinates.coordinates = it }
+                .clip(shellShape)
+                .then(placementModifier)
         ) {
             OpenGLGlassCardLayer(
                 radius = radius,
@@ -72,4 +80,38 @@ fun LegacyOpenGLGlassPreviewShell(
             content()
         }
     }
+}
+
+/**
+ * 旧预览入口保留给现有实验室调用。生产页面应使用 [LegacyOpenGLShellHost]，避免把
+ * “Preview” 命名继续扩散到聊天和设置页的正式渲染链。
+ */
+@Composable
+fun LegacyOpenGLGlassPreviewShell(
+    quality: RenderQuality,
+    glassIntensity: Float = 1f,
+    motionIntensity: Float = 1f,
+    radius: Int,
+    modifier: Modifier = Modifier,
+    coordinateSource: GlassCoordinateSource? = null,
+    pressProgress: Float = 0f,
+    pressCenter: Offset = Offset(0.5f, 0.5f),
+    viewportTopInsetPx: Float = 0f,
+    dynamicState: OpenGLGlassDynamicState? = null,
+    content: @Composable () -> Unit
+) {
+    LegacyOpenGLShellHost(
+        quality = quality,
+        glassIntensity = glassIntensity,
+        motionIntensity = motionIntensity,
+        radius = radius,
+        modifier = modifier,
+        coordinateSource = coordinateSource,
+        manageCoordinatePlacement = true,
+        pressProgress = pressProgress,
+        pressCenter = pressCenter,
+        viewportTopInsetPx = viewportTopInsetPx,
+        dynamicState = dynamicState,
+        content = content,
+    )
 }
