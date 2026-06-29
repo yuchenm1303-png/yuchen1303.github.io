@@ -25,8 +25,10 @@ private const val MAX_BLUR_SOURCE_SCALE = 0.72f
 /**
  * 构建清晰镜片纹理和完整的低 / 中 / 高三档模糊金字塔。
  *
- * 三档始终一次性生成，避免普通 Compose 玻璃在亮底区域自适应切换到高档时拿到中档别名。
- * 背景变化时仍只执行一次，随后沿用现有内存与磁盘缓存，不增加滚动期计算。
+ * medium 是首页旧版 OpenGL Shell 唯一需要的模糊采样器，因此优先精确生成并通过
+ * onCriticalReady 发布；普通 Compose 玻璃仍等待 low / medium / high 全部完成后才启用。
+ * medium 发布后暂停剩余 CPU pass，直到 OpenGL 首帧完成或安全超时，避免首次 EGL、
+ * Shader 编译和纹理上传与 low/high 模糊争抢资源。最终三档像素算法和参数保持不变。
  */
 @Suppress("UNUSED_PARAMETER")
 internal fun buildBackdropTextureSet(
@@ -36,7 +38,8 @@ internal fun buildBackdropTextureSet(
     params: BackdropDebugParams,
     customBackgroundPath: String?,
     presetBitmap: Bitmap?,
-    blurLevelCount: Int = 3
+    blurLevelCount: Int = 3,
+    onCriticalReady: ((BackdropTextureSet) -> Unit)? = null
 ): BackdropTextureSet {
     val useDefaultWallpaper = customBackgroundPath == null
     val useThemePreset = customBackgroundPath == BUILTIN_THEME_BACKGROUND_PATH
@@ -64,14 +67,8 @@ internal fun buildBackdropTextureSet(
 
     val iterations = params.iterations.roundToInt().coerceIn(1, 12)
     val scratch = BackdropPixelScratch(blurWidth * blurHeight)
-    val low = buildTunedBlurLevel(
-        source = blurSource,
-        radius = 1,
-        iterations = iterations,
-        params = params,
-        scratch = scratch
-    )
-    Thread.yield()
+
+    // OpenGL 关键路径：先生成与旧流程完全相同的 medium 纹理和亮度表。
     val medium = buildTunedBlurLevel(
         source = blurSource,
         radius = 2,
@@ -83,6 +80,31 @@ internal fun buildBackdropTextureSet(
         source = medium,
         fullWidthPx = fullWidth,
         fullHeightPx = fullHeight
+    )
+    val clearImage = clearSource.asImageBitmap()
+    val mediumImage = medium.asImageBitmap()
+    onCriticalReady?.invoke(
+        BackdropTextureSet(
+            clearImage = clearImage,
+            blurLowImage = mediumImage,
+            blurMediumImage = mediumImage,
+            blurHighImage = mediumImage,
+            luminanceMap = luminanceMap,
+            fullWidthPx = fullWidth,
+            fullHeightPx = fullHeight,
+            blurScale = effectiveScale
+        )
+    )
+
+    StartupPerformanceGate.awaitOpenGlFirstFrameBeforePyramidCompletion()
+
+    // 完整金字塔：输出算法与原顺序无关，每一级都从同一个 blurSource 独立计算。
+    val low = buildTunedBlurLevel(
+        source = blurSource,
+        radius = 1,
+        iterations = iterations,
+        params = params,
+        scratch = scratch
     )
     Thread.yield()
     val high = buildTunedBlurLevel(
@@ -96,9 +118,9 @@ internal fun buildBackdropTextureSet(
     if (!blurSource.isRecycled) blurSource.recycle()
 
     return BackdropTextureSet(
-        clearImage = clearSource.asImageBitmap(),
+        clearImage = clearImage,
         blurLowImage = low.asImageBitmap(),
-        blurMediumImage = medium.asImageBitmap(),
+        blurMediumImage = mediumImage,
         blurHighImage = high.asImageBitmap(),
         luminanceMap = luminanceMap,
         fullWidthPx = fullWidth,
