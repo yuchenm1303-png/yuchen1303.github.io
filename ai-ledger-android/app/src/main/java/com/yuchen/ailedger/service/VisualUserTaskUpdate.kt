@@ -110,6 +110,14 @@ internal object VisualUserTaskUpdateRuntime {
         }
     }
 
+    fun currentRevision(): Int {
+        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+        if (currentTaskId <= 0L) return 0
+        return synchronized(lock) {
+            if (taskId == currentTaskId) revision else 0
+        }
+    }
+
     fun latestDispatchedRevision(): Int = synchronized(lock) { dispatchedRevision }
 
     internal fun resetForTests() {
