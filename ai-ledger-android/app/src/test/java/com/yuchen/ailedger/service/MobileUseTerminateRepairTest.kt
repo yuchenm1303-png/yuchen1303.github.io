@@ -20,7 +20,7 @@ class MobileUseTerminateRepairTest {
                     .put(
                         "args",
                         JSONObject()
-                            .put("responseSessionId", SESSION_ID)
+                            .put("responseSessionId", PROTOCOL_SESSION_ID)
                             .put("responseObservationId", OBSERVATION_ID),
                     ),
             )
@@ -39,18 +39,20 @@ class MobileUseTerminateRepairTest {
 
         assertEquals("finish", step.type)
         assertTrue(step.toolArgs!!.getBoolean("completionCandidate"))
-        assertEquals(SESSION_ID, step.toolArgs!!.getString("completionCandidateSessionId"))
+        assertEquals(PROTOCOL_SESSION_ID, step.toolArgs!!.getString("completionCandidateSessionId"))
         assertEquals(OBSERVATION_ID, step.toolArgs!!.getString("completionCandidateObservationId"))
         assertEquals("terminate", step.toolArgs!!.getString("mobileUseOriginalAction"))
         assertTrue(plan.rawModelOutput.contains("\"action\":\"terminate\""))
 
         val candidate = VisualCompletionPermitPolicy.candidate(
             step = step,
-            expectedSessionId = SESSION_ID,
+            expectedSessionId = OWNER_SESSION_ID,
             expectedObservationId = OBSERVATION_ID,
             candidateTaskRevision = 0,
         )
         assertTrue(candidate.valid)
+        assertEquals(PROTOCOL_SESSION_ID, candidate.value?.sessionId)
+        assertEquals(OWNER_SESSION_ID, candidate.value?.ownerSessionId)
     }
 
     @Test
@@ -66,7 +68,7 @@ class MobileUseTerminateRepairTest {
                     .put(
                         "args",
                         JSONObject()
-                            .put("responseSessionId", SESSION_ID)
+                            .put("responseSessionId", PROTOCOL_SESSION_ID)
                             .put("responseObservationId", OBSERVATION_ID),
                     ),
             )
@@ -85,7 +87,8 @@ class MobileUseTerminateRepairTest {
     }
 
     companion object {
-        private const val SESSION_ID = "agent-session-test"
+        private const val OWNER_SESSION_ID = "visual-session-test"
+        private const val PROTOCOL_SESSION_ID = "agent-session-test"
         private const val OBSERVATION_ID = "observation-test"
     }
 }
