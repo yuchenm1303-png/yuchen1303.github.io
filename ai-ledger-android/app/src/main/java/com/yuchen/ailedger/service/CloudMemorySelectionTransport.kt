@@ -109,6 +109,10 @@ internal object CloudMemorySelectionTransport {
             setRequestProperty("X-Client", MEMORY_SELECTOR_CLIENT)
             setRequestProperty("X-Client-Id", clientId())
             setRequestProperty("X-Device-Id", clientId())
+            AiWorkerRequestIdentity.applyTo(
+                connection = this,
+                appClientToken = AiWorkerRequestIdentity.defaultAppClientToken(),
+            )
         }
         return try {
             connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
