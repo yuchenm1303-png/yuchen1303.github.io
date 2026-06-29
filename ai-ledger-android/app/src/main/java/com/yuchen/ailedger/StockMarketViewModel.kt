@@ -201,16 +201,11 @@ class StockMarketViewModel(
             refreshHome()
             return
         }
-        val code = activeCode()
         loadRealtimeSnapshot(
             openDetail = true,
-            forcedQuery = code,
+            forcedQuery = activeCode(),
             replaceContent = false
         )
-        if (!isMinuteTab(state.selectedTab)) {
-            loadKLineForTab(state.selectedTab, code, force = true)
-        }
-        loadSlowDetail(code)
     }
 
     fun selectTab(tab: String) {
