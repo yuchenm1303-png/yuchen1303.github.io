@@ -7,7 +7,7 @@ import org.junit.Test
 
 class VisualReasoningPolicyTest {
     @Test
-    fun cleanGroundedPathUsesFastReasoning() {
+    fun cleanExecutionPathUsesFastReasoning() {
         val context = VisualReasoningPolicy.evaluate(baseMemory())
 
         assertEquals(VisualReasoningDepth.Fast, context.depth)
@@ -18,57 +18,87 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
-    fun firstNoProgressUsesNormalReasoning() {
+    fun firstExplicitReobserveUsesNormalReasoning() {
         val context = VisualReasoningPolicy.evaluate(
             baseMemory(),
-            listOf(
-                "tap_xy|0.4|0.6:ok:result=已点击",
-                "visual_execution_observed:action=tap_xy|screenChanged=false|replanRequired=false|reason=screen_unchanged_unjudged",
-            ),
+            listOf("wait|重新观察:ok:target=重新观察:result=等待 220ms"),
         )
 
         assertEquals(VisualReasoningDepth.Normal, context.depth)
         assertEquals(1, context.noProgressCount)
+        assertEquals(1, context.sameActionCount)
         assertEquals(1, context.selfCheckPasses)
         assertTrue(VisualReasoningTrigger.FirstNoProgress in context.triggers)
     }
 
     @Test
-    fun repeatedNoProgressAndSameActionUseDeepReasoning() {
+    fun repeatedReobserveUsesDeepReasoning() {
         val context = VisualReasoningPolicy.evaluate(
             baseMemory(),
             listOf(
-                "tap_xy|0.4|0.6:ok:result=已点击",
-                "visual_execution_observed:action=tap_xy|screenChanged=false|replanRequired=false|reason=screen_unchanged_unjudged",
-                "tap_xy|0.4|0.6:ok:result=已点击",
-                "visual_execution_observed:action=tap_xy|screenChanged=false|replanRequired=true|reason=repeated_hypothesis_failure",
+                "wait|重新观察:ok:target=重新观察:result=等待 220ms",
+                "visual_execution_observed:action=wait|重新观察|frameChanged=true|replanRequired=false",
+                "wait|重新观察:ok:target=重新观察:result=等待 220ms",
+                "visual_execution_observed:action=wait|重新观察|frameChanged=false|replanRequired=false",
             ),
         )
 
         assertEquals(VisualReasoningDepth.Deep, context.depth)
         assertEquals(2, context.noProgressCount)
         assertEquals(2, context.sameActionCount)
-        assertEquals(2, context.selfCheckPasses)
-        assertFalse(context.directExecutionAllowed)
         assertTrue(VisualReasoningTrigger.RepeatedNoProgress in context.triggers)
+        assertTrue(VisualReasoningTrigger.RepeatedAction in context.triggers)
     }
 
     @Test
-    fun confirmedScreenProgressClearsOldDeepPressure() {
-        val actions = mutableListOf(
-            "tap_xy|0.4|0.6:ok:result=已点击",
-            "visual_execution_observed:action=tap_xy|screenChanged=false|replanRequired=false|reason=screen_unchanged_unjudged",
-            "tap_xy|0.4|0.6:ok:result=已点击",
-            "visual_execution_observed:action=tap_xy|screenChanged=false|replanRequired=true|reason=repeated_hypothesis_failure",
+    fun repeatedIdenticalSuccessfulActionTriggersLoopWatchdog() {
+        val context = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf(
+                "tap_xy|切换分时|0.21|0.30:ok:target=分时:result=已点击",
+                "visual_execution_observed:action=tap_xy|切换分时|frameChanged=true|replanRequired=false",
+                "tap_xy|切换分时|0.21|0.30:ok:target=分时:result=已点击",
+                "visual_execution_observed:action=tap_xy|切换分时|frameChanged=true|replanRequired=false",
+            ),
         )
-        assertEquals(VisualReasoningDepth.Deep, VisualReasoningPolicy.evaluate(baseMemory(), actions).depth)
 
-        actions += "visual_execution_observed:action=tap_xy|screenChanged=true|replanRequired=false|reason=screen_changed_unjudged"
+        assertEquals(VisualReasoningDepth.Deep, context.depth)
+        assertEquals(0, context.noProgressCount)
+        assertEquals(2, context.sameActionCount)
+        assertTrue(VisualReasoningTrigger.RepeatedAction in context.triggers)
+    }
+
+    @Test
+    fun aDifferentSuccessfulActionClearsOldMechanicalPressure() {
+        val actions = listOf(
+            "wait|重新观察:ok:target=重新观察:result=等待 220ms",
+            "wait|重新观察:ok:target=重新观察:result=等待 220ms",
+            "back:ok:target=返回:result=已返回",
+            "visual_execution_observed:action=back|frameChanged=false|replanRequired=false",
+        )
+
         val context = VisualReasoningPolicy.evaluate(baseMemory(), actions)
 
         assertEquals(VisualReasoningDepth.Fast, context.depth)
         assertEquals(0, context.noProgressCount)
-        assertEquals(0, context.sameActionCount)
+        assertEquals(1, context.sameActionCount)
+    }
+
+    @Test
+    fun frameDifferenceTelemetryNeverChangesReasoningDepth() {
+        val changed = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf("visual_execution_observed:action=wait|观察|frameChanged=true|replanRequired=false"),
+        )
+        val unchanged = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf("visual_execution_observed:action=wait|观察|frameChanged=false|replanRequired=false"),
+        )
+
+        assertEquals(VisualReasoningDepth.Fast, changed.depth)
+        assertEquals(VisualReasoningDepth.Fast, unchanged.depth)
+        assertEquals(0, changed.noProgressCount)
+        assertEquals(0, unchanged.noProgressCount)
     }
 
     @Test
@@ -118,20 +148,53 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
-    fun completionCandidateAndBudgetExhaustionRequireDeepReasoning() {
+    fun completionCandidateRequiresDeepButLocalBudgetDoesNot() {
         val completion = VisualReasoningPolicy.evaluate(
             baseMemory(),
             listOf("finish_verification_pending:observationId=observation-2"),
         )
-        val exhausted = VisualReasoningPolicy.evaluate(
+        val localBudgetOnly = VisualReasoningPolicy.evaluate(
             baseMemory().copy(remainingExplorationBudget = 0),
         )
 
         assertEquals(VisualReasoningDepth.Deep, completion.depth)
         assertTrue(completion.completionEvidenceStrict)
         assertTrue(completion.freshObservationRequired)
-        assertEquals(VisualReasoningDepth.Deep, exhausted.depth)
-        assertTrue(VisualReasoningTrigger.ExplorationBudgetPressure in exhausted.triggers)
+        assertEquals(VisualReasoningDepth.Fast, localBudgetOnly.depth)
+        assertFalse(VisualReasoningTrigger.ExplorationBudgetPressure in localBudgetOnly.triggers)
+    }
+
+    @Test
+    fun localFailedHypothesesAndBlockedActionsDoNotControlReasoning() {
+        val memory = baseMemory().copy(
+            failedHypotheses = listOf(
+                VisualFailedHypothesis(
+                    hypothesisId = "old-local-hypothesis",
+                    milestoneId = "m1",
+                    pageStateId = "old-frame",
+                    actionSignature = "tap_xy",
+                    actionCluster = "tap",
+                    purpose = "旧本地判断",
+                    failureReason = "screen_structure_unchanged",
+                    count = 3,
+                ),
+            ),
+            blockedActions = listOf(
+                VisualBlockedAction(
+                    milestoneId = "m1",
+                    pageStateId = "old-frame",
+                    actionCluster = "tap",
+                    hypothesisId = "old-local-hypothesis",
+                    reason = "legacy local block",
+                ),
+            ),
+        )
+
+        val context = VisualReasoningPolicy.evaluate(memory)
+
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertEquals(0, context.failedHypothesisCount)
+        assertEquals(0, context.blockedActionCount)
     }
 
     @Test
@@ -157,22 +220,22 @@ class VisualReasoningPolicyTest {
         assertFalse(promptLine.contains(secretReply))
         assertFalse(replanLine.contains(secretReply))
         assertTrue(promptLine.startsWith(VisualReasoningContext.PROMPT_PREFIX))
+        assertTrue(promptLine.contains("localProgressClassification=false"))
         assertTrue(replanLine.startsWith(VisualReasoningPolicy.DEEP_REPLAN_PREFIX))
     }
 
     @Test
-    fun loopMemoryReplacesDeepSignalAfterProgress() {
+    fun loopMemoryReplacesDeepSignalAfterDifferentSuccessfulAction() {
         val actions = mutableListOf(
-            "tap_xy|0.4|0.6:ok:result=已点击",
-            "visual_execution_observed:action=tap_xy|screenChanged=false|replanRequired=false|reason=screen_unchanged_unjudged",
-            "tap_xy|0.4|0.6:ok:result=已点击",
-            "visual_execution_observed:action=tap_xy|screenChanged=false|replanRequired=true|reason=repeated_hypothesis_failure",
+            "wait|重新观察:ok:target=重新观察:result=等待 220ms",
+            "wait|重新观察:ok:target=重新观察:result=等待 220ms",
         )
         VisualLoopMemorySupport.replaceMemoryLine(actions, baseMemory())
         assertTrue(actions.any { it.startsWith(VisualReasoningPolicy.DEEP_REPLAN_PREFIX) })
         assertTrue(actions.any { it.startsWith(VisualReasoningContext.PROMPT_PREFIX) && it.contains("depth=deep") })
 
-        actions += "visual_execution_observed:action=tap_xy|screenChanged=true|replanRequired=false|reason=screen_changed_unjudged"
+        actions += "back:ok:target=返回:result=已返回"
+        actions += "visual_execution_observed:action=back|frameChanged=false|replanRequired=false"
         VisualLoopMemorySupport.replaceMemoryLine(actions, baseMemory())
 
         assertFalse(actions.any { it.startsWith(VisualReasoningPolicy.DEEP_REPLAN_PREFIX) })
@@ -180,16 +243,20 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
-    fun taskMemoryJsonCarriesAdaptiveReasoningContext() {
+    fun taskMemoryJsonCarriesExecutionWatchdogContext() {
         VisualReasoningRuntime.resetForTests()
         val json = baseMemory().copy(
             progressStatus = "ambiguous",
         ).toJson()
 
         assertEquals("visual_task_memory_v3_adaptive_reasoning", json.getString("schema"))
-        assertEquals("normal", json.getString("reasoningDepth"))
-        assertEquals("normal", json.getJSONObject("reasoningContext").getString("depth"))
-        assertTrue(json.getJSONArray("reasoningTriggers").toString().contains("semantic_ambiguity"))
+        assertEquals("fast", json.getString("reasoningDepth"))
+        assertEquals("fast", json.getJSONObject("reasoningContext").getString("depth"))
+        assertEquals(
+            "visual_reasoning_context_v2_execution_watchdog",
+            json.getJSONObject("reasoningContext").getString("schema"),
+        )
+        assertFalse(json.getJSONObject("reasoningContext").getBoolean("localProgressClassification"))
     }
 
     private fun baseMemory(): VisualTaskMemory = VisualTaskMemory(
