@@ -25,7 +25,6 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -40,7 +39,6 @@ private const val INLINE_STICKER_PACK_ASSET = "inline_stickers_v1.zip"
 private const val INLINE_STICKER_MAX_ENTRY_BYTES = 512 * 1024
 private const val INLINE_STICKER_MIN_DIMENSION = 32
 private const val INLINE_STICKER_MAX_DIMENSION = 2048
-private const val INLINE_STICKER_WARMUP_DELAY_MS = 420L
 private const val INLINE_STICKER_MAX_DECODE_CONCURRENCY = 2
 private const val INLINE_STICKER_PLACEHOLDER_SIZE_PX = 96
 
@@ -58,9 +56,10 @@ internal object InlineStickerAssets {
     private val loaderScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val bitmapCache = ConcurrentHashMap<String, Bitmap>()
+    private val bundledStickerBytesCache = ConcurrentHashMap<String, ByteArray>()
+    private val missingBundledStickerKeys = ConcurrentHashMap.newKeySet<String>()
     private val inFlight = ConcurrentHashMap<String, Deferred<Bitmap?>>()
     private val decodeSemaphore = Semaphore(INLINE_STICKER_MAX_DECODE_CONCURRENCY)
-    private val warmUpStarted = AtomicBoolean(false)
     private val loadingPlaceholderBitmap: Bitmap by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         createLoadingPlaceholderBitmap()
     }
@@ -112,12 +111,6 @@ internal object InlineStickerAssets {
     private val visibleMarkerRegex =
         Regex("""\[\[AI_LEDGER_INLINE_STICKER:([a-z0-9_]{2,48})]]""", RegexOption.IGNORE_CASE)
 
-    @Volatile
-    private var bundledStickerBytesCache: Map<String, ByteArray>? = null
-
-    @Volatile
-    private var bundledStickerPackLoadAttempted = false
-
     internal fun normalizeKey(value: String): String? {
         return value.trim().lowercase().takeIf { it in supportedKeys }
     }
@@ -128,24 +121,10 @@ internal object InlineStickerAssets {
     }
 
     /**
-     * Warms the small built-in sticker pack away from the first chat render. Decoding stays bounded
-     * and sequential from this caller, so opening the app does not create a burst of 19 concurrent
-     * WebP decodes or main-thread layout callbacks.
+     * 保留旧入口以兼容调用方，但冷启动不再做任何全量预热。真实出现的表情会按需解压、
+     * 解码并缓存；未显示的资源不会占用启动 CPU、堆内存或触发额外 GC。
      */
-    internal fun warmUpAll() {
-        if (!warmUpStarted.compareAndSet(false, true)) return
-        loaderScope.launch {
-            delay(INLINE_STICKER_WARMUP_DELAY_MS)
-            var loadedAny = false
-            for (assetKey in supportedKeys) {
-                val loaded = runCatching { loadBitmap(assetKey) }.getOrNull()
-                if (loaded != null) loadedAny = true
-            }
-            if (!loadedAny && bitmapCache.isEmpty()) {
-                warmUpStarted.set(false)
-            }
-        }
-    }
+    internal fun warmUpAll() = Unit
 
     internal fun containsProtocolMarker(text: String): Boolean {
         if (text.indexOf(INLINE_STICKER_VISIBLE_PREFIX, ignoreCase = true) >= 0) return true
@@ -316,7 +295,7 @@ internal object InlineStickerAssets {
     }
 
     private fun loadBundledBitmap(assetKey: String): Bitmap? {
-        val bytes = bundledStickerBytes()[assetKey] ?: return null
+        val bytes = bundledStickerBytes(assetKey) ?: return null
         val bitmap = BitmapFactory.decodeByteArray(
             bytes,
             0,
@@ -326,7 +305,6 @@ internal object InlineStickerAssets {
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
         ) ?: return null
-
         if (!isSupportedTransparentBitmap(bitmap)) {
             bitmap.recycle()
             return null
@@ -334,30 +312,31 @@ internal object InlineStickerAssets {
         return bitmap
     }
 
-    private fun bundledStickerBytes(): Map<String, ByteArray> {
-        bundledStickerBytesCache?.let { return it }
-        if (AiLedgerApplication.contextOrNull() == null) return emptyMap()
+    private fun bundledStickerBytes(assetKey: String): ByteArray? {
+        bundledStickerBytesCache[assetKey]?.let { return it }
+        if (assetKey in missingBundledStickerKeys) return null
+        if (AiLedgerApplication.contextOrNull() == null) return null
 
-        synchronized(this) {
-            bundledStickerBytesCache?.let { return it }
-            if (bundledStickerPackLoadAttempted) return emptyMap()
-
-            val loaded = loadBundledStickerPack()
-            bundledStickerPackLoadAttempted = true
-            bundledStickerBytesCache = loaded
-            return loaded
+        val loaded = loadBundledStickerEntry(assetKey)
+        if (loaded == null) {
+            missingBundledStickerKeys.add(assetKey)
+            return null
         }
+        bundledStickerBytesCache.putIfAbsent(assetKey, loaded)
+        return bundledStickerBytesCache[assetKey] ?: loaded
     }
 
-    private fun loadBundledStickerPack(): Map<String, ByteArray> {
-        val context = AiLedgerApplication.contextOrNull() ?: return emptyMap()
-        val assets = context.assets
-
+    /**
+     * ZipInputStream 只遍历到目标 entry，并且只把该张 WebP 复制到堆内存。旧实现首次请求
+     * 任意一张表情都会完整解压 19 张资源并长期保留全部压缩字节。
+     */
+    private fun loadBundledStickerEntry(assetKey: String): ByteArray? {
+        val context = AiLedgerApplication.contextOrNull() ?: return null
         return runCatching {
-            assets.open(INLINE_STICKER_PACK_ASSET).use { input ->
-                val loaded = LinkedHashMap<String, ByteArray>(supportedKeys.size)
+            context.assets.open(INLINE_STICKER_PACK_ASSET).use { input ->
                 ZipInputStream(input.buffered()).use { zip ->
-                    while (true) {
+                    var result: ByteArray? = null
+                    while (result == null) {
                         val entry = zip.nextEntry ?: break
                         if (entry.isDirectory) {
                             zip.closeEntry()
@@ -368,26 +347,23 @@ internal object InlineStickerAssets {
                         if (!fileName.endsWith(".webp", ignoreCase = true)) {
                             throw IllegalStateException("内置表情资源格式异常：${entry.name}")
                         }
-                        val assetKey = normalizeKey(
+                        val entryKey = normalizeKey(
                             fileName.substring(0, fileName.length - ".webp".length)
                         ) ?: throw IllegalStateException("内置表情资源名称异常：${entry.name}")
-                        if (loaded.containsKey(assetKey)) {
-                            throw IllegalStateException("内置表情资源重复：$assetKey")
-                        }
 
-                        val bytes = readZipEntry(zip, assetKey)
-                        if (!isWebP(bytes)) {
-                            throw IllegalStateException("内置表情资源格式异常：$assetKey")
+                        if (entryKey == assetKey) {
+                            val bytes = readZipEntry(zip, assetKey)
+                            if (!isWebP(bytes)) {
+                                throw IllegalStateException("内置表情资源格式异常：$assetKey")
+                            }
+                            result = bytes
                         }
-                        loaded[assetKey] = bytes
                         zip.closeEntry()
                     }
+                    result
                 }
-
-                validateCompletePack(loaded)
-                loaded
             }
-        }.getOrDefault(emptyMap())
+        }.getOrNull()
     }
 
     private fun readZipEntry(zip: ZipInputStream, assetKey: String): ByteArray {
@@ -408,14 +384,6 @@ internal object InlineStickerAssets {
             if (it.isEmpty()) {
                 throw IllegalStateException("内置表情资源为空：$assetKey")
             }
-        }
-    }
-
-    private fun validateCompletePack(loaded: Map<String, ByteArray>) {
-        if (loaded.keys != supportedKeys) {
-            throw IllegalStateException(
-                "内置表情资源不完整：缺少=${supportedKeys - loaded.keys}，多余=${loaded.keys - supportedKeys}"
-            )
         }
     }
 
