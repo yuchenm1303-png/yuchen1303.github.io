@@ -1,17 +1,15 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
  * 旧版全屏统一玻璃层的兼容入口。
  *
  * 当前普通 Compose 玻璃已经全部由 OrdinaryGlassSceneHost 单链接管，Shell 则由各自
- * OpenGL 宿主负责。继续保留旧全屏 Canvas 只会在每次背景刷新时扫描旧 registry，
- * 即使没有可绘制节点也会产生一张常驻全屏绘制节点。
+ * OpenGL 宿主负责。旧 Canvas 和旧 registry 均不再参与生产渲染。
  *
- * 保留函数签名用于兼容现有 App 结构，但不再创建 Canvas，也不参与任何 registry。
+ * 暂时保留调用签名以兼容 App 根结构；它不是 Composable，也不建立 Composition Group，
+ * 内联后不会留下全屏空绘制节点或运行时函数调用。
  */
-@Suppress("UNUSED_PARAMETER")
-@Composable
-fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) = Unit
+@Suppress("UNUSED_PARAMETER", "NOTHING_TO_INLINE")
+inline fun UnifiedGlassBackdropLayer(modifier: Modifier = Modifier) = Unit
