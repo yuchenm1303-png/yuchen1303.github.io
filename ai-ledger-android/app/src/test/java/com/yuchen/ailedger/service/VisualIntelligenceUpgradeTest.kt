@@ -49,6 +49,19 @@ class VisualIntelligenceUpgradeTest {
     }
 
     @Test
+    fun inputTextNeverAppearsInExecutionSummary() {
+        val step = CloudAgentStep(type = "input_text", text = "private-input-value")
+        val summary = VisualLoopSupport.resultSummary(
+            step = step,
+            signature = VisualActionValidator.actionSignature(step),
+            result = AgentExecutionResult(true, "输入完成", true),
+        )
+
+        assertFalse(summary.contains("private-input-value"))
+        assertFalse(summary.contains("target="))
+    }
+
+    @Test
     fun explicitUserCorrectionInvalidatesCurrentMilestone() {
         val update = VisualUserTaskUpdateClassifier.classify(
             rawReply = "不是这个页面，目标改为查看自选股",
@@ -73,6 +86,25 @@ class VisualIntelligenceUpgradeTest {
         assertEquals(VisualUserTaskUpdateKind.ManualStepCompleted, update!!.kind)
         assertEquals("[用户已完成手动步骤]", update.content)
         assertTrue(update.manualStepCompleted)
+    }
+
+    @Test
+    fun taskRevisionSignalUsesCanonicalReplanWithoutReplyContent() {
+        val update = VisualUserTaskUpdate(
+            revision = 7,
+            kind = VisualUserTaskUpdateKind.GoalRevision,
+            content = "目标改为查看自选股",
+            invalidatesCurrentMilestone = true,
+            invalidatesVisualHistory = true,
+        )
+
+        val signal = update.toPromptLine()
+
+        assertTrue(signal.startsWith("visual_replan_requested:reason=user_task_revision"))
+        assertTrue(signal.contains("taskRevision=7"))
+        assertTrue(signal.contains("kind=goal_revision"))
+        assertTrue(signal.contains("latestUserTurnAuthoritative=true"))
+        assertFalse(signal.contains(update.content))
     }
 
     @Test
