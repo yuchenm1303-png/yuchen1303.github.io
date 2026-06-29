@@ -14,6 +14,12 @@ import com.yuchen.ailedger.model.StockSectorSnapshot
 import com.yuchen.ailedger.model.StockSlowDataSnapshot
 import java.io.File
 import java.net.URLEncoder
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,36 +32,38 @@ class StockMarketDataRepository(
     )
 
     fun loadMarketHome(coldStartWait: Boolean = false): Result<StockMarketHomeSnapshot> = runCatching {
-        val timeoutMs = if (coldStartWait) {
-            MARKET_COLD_START_TIMEOUT_MS
-        } else {
-            MARKET_FAST_TIMEOUT_MS
+        val cached = readMarketHomeCache()
+        if (!coldStartWait && cached != null && cached.ageMs <= MARKET_CACHE_FRESH_MS) {
+            return@runCatching parseMarketHome(JSONObject(cached.body))
         }
-        try {
-            val body = httpGet(
-                "${baseUrl()}/api/stock/a-share/market/home",
-                timeoutMs,
-                MARKET_MICRO_CACHE_MS
-            )
-            val snapshot = parseMarketHome(JSONObject(body))
-            if (snapshot.hasUsableMarketData()) {
-                writeMarketHomeCache(body)
-            }
-            snapshot
-        } catch (networkError: Throwable) {
-            val cached = readMarketHomeCache()
-            if (cached == null) throw networkError
+
+        val refresh = scheduleMarketHomeRefresh()
+        val waitMs = when {
+            coldStartWait -> MARKET_COLD_START_TIMEOUT_MS.toLong()
+            cached != null -> MARKET_CACHE_REVALIDATE_WAIT_MS
+            else -> MARKET_INITIAL_WAIT_MS
+        }
+        val liveBody = awaitMarketRefresh(refresh, waitMs)
+        if (!liveBody.isNullOrBlank()) {
+            return@runCatching parseMarketHome(JSONObject(liveBody))
+        }
+
+        if (cached != null) {
             val snapshot = runCatching {
                 parseMarketHome(JSONObject(cached.body))
             }.getOrElse {
                 deleteMarketHomeCache()
-                throw networkError
+                throw it
             }
-            snapshot.copy(
+            return@runCatching snapshot.copy(
                 warnings = snapshot.warnings +
-                    "$ANDROID_CACHE_FALLBACK_MARKER ageMs=${cached.ageMs} reason=${networkError.message.orEmpty().take(120)}"
+                    "$ANDROID_CACHE_FALLBACK_MARKER ageMs=${cached.ageMs}"
             )
         }
+
+        StockMarketHomeSnapshot(
+            warnings = listOf(ANDROID_WARMING_MARKER)
+        )
     }
 
     fun loadSlowStock(query: String): Result<StockSlowDataSnapshot> = runCatching {
@@ -100,6 +108,52 @@ class StockMarketDataRepository(
             updatedAt = firstText(payload, "updatedAt").orEmpty(),
             warnings = stringList(payload.optJSONArray("warnings"))
         )
+    }
+
+    private fun scheduleMarketHomeRefresh(): CompletableFuture<String> {
+        val url = "${baseUrl()}/api/stock/a-share/market/home"
+        marketRefreshFutures[url]?.takeIf { !it.isDone }?.let { return it }
+
+        val created = CompletableFuture<String>()
+        val existing = marketRefreshFutures.putIfAbsent(url, created)
+        if (existing != null) return existing
+
+        marketRefreshExecutor.execute {
+            try {
+                val body = httpGet(
+                    url,
+                    MARKET_COLD_START_TIMEOUT_MS,
+                    microCacheMs = 0L
+                )
+                val snapshot = parseMarketHome(JSONObject(body))
+                if (!snapshot.hasUsableMarketData()) {
+                    throw IllegalStateException("市场首页返回内容尚未就绪")
+                }
+                writeMarketHomeCache(body)
+                created.complete(body)
+            } catch (error: Throwable) {
+                created.completeExceptionally(error)
+            } finally {
+                marketRefreshFutures.remove(url, created)
+            }
+        }
+        return created
+    }
+
+    private fun awaitMarketRefresh(
+        future: CompletableFuture<String>,
+        waitMs: Long
+    ): String? {
+        return try {
+            future.get(waitMs.coerceAtLeast(1L), TimeUnit.MILLISECONDS)
+        } catch (_: TimeoutException) {
+            null
+        } catch (_: ExecutionException) {
+            null
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            null
+        }
     }
 
     private fun parseMarketHome(root: JSONObject): StockMarketHomeSnapshot {
@@ -461,6 +515,9 @@ class StockMarketDataRepository(
     }
 
     private fun writeMarketHomeCache(body: String) {
+        val now = System.currentTimeMillis()
+        memoryMarketHomeBody = body
+        memoryMarketHomeStoredAtMs = now
         val file = marketHomeCacheFile() ?: return
         runCatching {
             file.parentFile?.mkdirs()
@@ -474,18 +531,33 @@ class StockMarketDataRepository(
     }
 
     private fun readMarketHomeCache(): CachedMarketHome? {
+        val now = System.currentTimeMillis()
+        val memoryBody = memoryMarketHomeBody
+        if (!memoryBody.isNullOrBlank()) {
+            val memoryAge = (now - memoryMarketHomeStoredAtMs).coerceAtLeast(0L)
+            if (memoryAge <= MARKET_CACHE_MAX_AGE_MS) {
+                return CachedMarketHome(memoryBody, memoryAge)
+            }
+            memoryMarketHomeBody = null
+            memoryMarketHomeStoredAtMs = 0L
+        }
+
         val file = marketHomeCacheFile() ?: return null
         if (!file.isFile || file.length() <= 2L) return null
-        val ageMs = (System.currentTimeMillis() - file.lastModified()).coerceAtLeast(0L)
+        val ageMs = (now - file.lastModified()).coerceAtLeast(0L)
         if (ageMs > MARKET_CACHE_MAX_AGE_MS) {
             file.delete()
             return null
         }
         val body = runCatching { file.readText() }.getOrNull()?.takeIf(String::isNotBlank) ?: return null
+        memoryMarketHomeBody = body
+        memoryMarketHomeStoredAtMs = now - ageMs
         return CachedMarketHome(body = body, ageMs = ageMs)
     }
 
     private fun deleteMarketHomeCache() {
+        memoryMarketHomeBody = null
+        memoryMarketHomeStoredAtMs = 0L
         runCatching { marketHomeCacheFile()?.delete() }
     }
 
@@ -515,9 +587,27 @@ class StockMarketDataRepository(
 
     companion object {
         const val ANDROID_CACHE_FALLBACK_MARKER = "android_market_cache:fallback"
+        const val ANDROID_WARMING_MARKER = "android_market_service:warming"
 
-        private const val MARKET_FAST_TIMEOUT_MS = 4_500
-        private const val MARKET_COLD_START_TIMEOUT_MS = 18_000
+        private val marketRefreshExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "stock-market-home-refresh").apply { isDaemon = true }
+        }
+        private val marketRefreshFutures = ConcurrentHashMap<String, CompletableFuture<String>>()
+
+        @Volatile
+        private var memoryMarketHomeBody: String? = null
+
+        @Volatile
+        private var memoryMarketHomeStoredAtMs: Long = 0L
+
+        fun prewarmMarketHome() {
+            StockMarketDataRepository().scheduleMarketHomeRefresh()
+        }
+
+        private const val MARKET_INITIAL_WAIT_MS = 900L
+        private const val MARKET_CACHE_REVALIDATE_WAIT_MS = 450L
+        private const val MARKET_CACHE_FRESH_MS = 15_000L
+        private const val MARKET_COLD_START_TIMEOUT_MS = 70_000
         private const val SLOW_TIMEOUT_MS = 12_000
         private const val MARKET_MICRO_CACHE_MS = 900L
         private const val SLOW_MICRO_CACHE_MS = 2_000L
