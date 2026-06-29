@@ -44,6 +44,8 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
 
+private const val DiagnosticPreviewMaxChars = 6_000
+
 @Composable
 internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiState) {
     val context = LocalContext.current
@@ -53,22 +55,19 @@ internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiStat
     val diagnostics by store.state.collectAsState()
     val scope = rememberCoroutineScope()
     var selectedTaskId by remember { mutableLongStateOf(0L) }
+    var loadedTaskId by remember { mutableLongStateOf(0L) }
     var detailText by remember { mutableStateOf("") }
     var loadingDetail by remember { mutableStateOf(false) }
 
     LaunchedEffect(diagnostics.sessions) {
         if (selectedTaskId == 0L || diagnostics.sessions.none { it.taskId == selectedTaskId }) {
-            selectedTaskId = diagnostics.sessions.firstOrNull()?.taskId ?: 0L
+            val nextTaskId = diagnostics.sessions.firstOrNull()?.taskId ?: 0L
+            if (nextTaskId != selectedTaskId) {
+                selectedTaskId = nextTaskId
+                loadedTaskId = 0L
+                detailText = ""
+            }
         }
-    }
-    LaunchedEffect(selectedTaskId, diagnostics.sessions) {
-        if (selectedTaskId <= 0L) {
-            detailText = ""
-            return@LaunchedEffect
-        }
-        loadingDetail = true
-        detailText = store.readSessionText(selectedTaskId)
-        loadingDetail = false
     }
 
     Text(
@@ -161,7 +160,13 @@ internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiStat
             DiagnosticSessionRow(
                 session = session,
                 selected = session.taskId == selectedTaskId,
-                onClick = { selectedTaskId = session.taskId },
+                onClick = {
+                    if (selectedTaskId != session.taskId) {
+                        selectedTaskId = session.taskId
+                        loadedTaskId = 0L
+                        detailText = ""
+                    }
+                },
             )
         }
 
@@ -220,8 +225,40 @@ internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiStat
         ) {
             store.clearAll()
             selectedTaskId = 0L
+            loadedTaskId = 0L
             detailText = ""
             Toast.makeText(context, "诊断记录已清空", Toast.LENGTH_SHORT).show()
+        }
+
+        DiagnosticActionButton(
+            title = when {
+                loadingDetail -> "正在加载诊断预览"
+                loadedTaskId == selectedTaskId && detailText.isNotBlank() -> "刷新诊断预览"
+                else -> "加载诊断预览"
+            },
+            subtitle = "仅在需要时读取，页面打开不再自动构建报告",
+            state = state,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = selectedTaskId > 0L && !loadingDetail,
+        ) {
+            scope.launch {
+                loadingDetail = true
+                val taskId = selectedTaskId
+                runCatching { store.readSessionText(taskId) }
+                    .onSuccess { text ->
+                        if (selectedTaskId == taskId) {
+                            detailText = text.takeLast(DiagnosticPreviewMaxChars)
+                            loadedTaskId = taskId
+                        }
+                    }
+                    .onFailure {
+                        if (selectedTaskId == taskId) {
+                            detailText = "诊断预览读取失败"
+                            loadedTaskId = taskId
+                        }
+                    }
+                loadingDetail = false
+            }
         }
 
         Text(
@@ -233,8 +270,9 @@ internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiStat
         Text(
             when {
                 loadingDetail -> "正在读取诊断记录…"
+                loadedTaskId != selectedTaskId -> "默认不读取完整诊断报告，点击“加载诊断预览”后显示。"
                 detailText.isBlank() -> "暂无可显示内容"
-                else -> detailText.takeLast(6_000)
+                else -> detailText
             },
             color = Color.White.copy(alpha = 0.58f),
             fontSize = 9.5.sp,
