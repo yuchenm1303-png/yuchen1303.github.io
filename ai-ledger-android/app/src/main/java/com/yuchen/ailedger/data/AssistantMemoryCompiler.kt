@@ -78,9 +78,13 @@ object AssistantMemoryRuntime {
     private val mutableState = MutableStateFlow(AssistantMemoryRuntimeState())
     val state: StateFlow<AssistantMemoryRuntimeState> = mutableState.asStateFlow()
 
-    fun record(compilation: AssistantMemoryCompilation) {
+    /**
+     * 本地请求契约不能冒充云端命中结果。
+     * 第二阶段接入云端响应诊断前，设置页保持“尚无真实结果”。
+     */
+    fun record(@Suppress("UNUSED_PARAMETER") compilation: AssistantMemoryCompilation) {
         mutableState.value = AssistantMemoryRuntimeState(
-            compilation = compilation,
+            compilation = null,
             updatedAtMillis = System.currentTimeMillis(),
         )
     }
