@@ -68,7 +68,8 @@ data class VisualReasoningContext(
     fun toPromptLine(): String = buildString {
         append(PROMPT_PREFIX)
         append("depth=").append(depth.wireValue)
-        append("|triggers=").append(triggers.joinToString(",") { it.wireValue })
+        // Hyphenated metadata cannot be mistaken for legacy no_progress execution evidence.
+        append("|triggers=").append(triggers.joinToString(",") { it.wireValue.replace('_', '-') })
         append("|noProgressCount=").append(noProgressCount)
         append("|sameActionCount=").append(sameActionCount)
         append("|executionFailureCount=").append(executionFailureCount)
