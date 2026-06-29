@@ -3,6 +3,7 @@ package com.yuchen.ailedger.ui
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.Choreographer
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -12,6 +13,7 @@ private const val FRAME_STATS_PUBLISH_INTERVAL_MS = 1000L
 private const val FRAME_STATS_FORCE_PUBLISH_EVERY_N_FRAMES = 120
 private const val FPS_CHANGE_THRESHOLD = 0.7f
 private const val FRAME_MS_CHANGE_THRESHOLD = 0.4f
+private const val STARTUP_METRICS_TAG = "AiLedgerStartup"
 
 object StartupMetrics {
     @Volatile
@@ -169,6 +171,7 @@ object StartupMetrics {
         )
         if (force || next.shouldPublishOver(_frameStats.value)) {
             _frameStats.value = next
+            Log.d(STARTUP_METRICS_TAG, "帧统计：${next.compactLabel()}")
         }
     }
 
@@ -176,6 +179,7 @@ object StartupMetrics {
         if (!enabled) return
         _events.add(event)
         if (_events.size > 48) _events.removeAt(0)
+        Log.d(STARTUP_METRICS_TAG, "${event.name}：${event.compactLabel()}")
     }
 }
 
