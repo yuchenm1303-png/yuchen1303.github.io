@@ -6,8 +6,10 @@ import org.json.JSONObject
 internal object VisualLoopMemorySupport {
     private const val RUNTIME_PREFIX = "visual_runtime_context:v2|"
     private const val LEGACY_RUNTIME_PREFIX = "visual_runtime_context:v1|"
-    private const val LEDGER_PREFIX = "visual_execution_ledger:v2|"
+    private const val LEDGER_PREFIX = "visual_execution_ledger:v3|"
+    private const val LEGACY_LEDGER_PREFIX = "visual_execution_ledger:v2|"
     private const val LEGACY_MEMORY_PREFIX = "visual_task_memory:v1|"
+    private const val LEGACY_REASONING_PREFIX = "visual_reasoning_context:v1|"
 
     fun replaceRuntimeLine(actions: MutableList<String>, runtime: VisualAgentRuntimeContext) {
         actions.removeAll { it.startsWith(RUNTIME_PREFIX) || it.startsWith(LEGACY_RUNTIME_PREFIX) }
@@ -41,30 +43,29 @@ internal object VisualLoopMemorySupport {
     }
 
     /**
-     * Exposes objective Android execution state plus cloud-declared hypothesis identifiers. Android
-     * never derives page meaning, expected evidence or milestone semantics from labels or user text.
+     * Exposes protocol ownership, cloud-declared task state and objective execution bookkeeping only.
+     * No page progress, visual meaning, failed hypothesis or action block is invented on Android.
      */
     fun replaceMemoryLine(actions: MutableList<String>, memory: VisualTaskMemory) {
         val reasoning = VisualReasoningPolicy.evaluate(memory, actions)
         VisualReasoningRuntime.update(reasoning)
         actions.removeAll {
             it.startsWith(LEDGER_PREFIX) ||
+                it.startsWith(LEGACY_LEDGER_PREFIX) ||
                 it.startsWith(LEGACY_MEMORY_PREFIX) ||
                 it.startsWith(VisualReasoningContext.PROMPT_PREFIX) ||
+                it.startsWith(LEGACY_REASONING_PREFIX) ||
                 it.startsWith(VisualReasoningPolicy.DEEP_REPLAN_PREFIX)
         }
         VisualLoopSupport.appendRecent(
             actions,
             buildString {
                 append(LEDGER_PREFIX)
-                append("progressStatus=").append(memory.progressStatus.take(80))
+                append("executionStatus=").append(memory.progressStatus.take(80))
                 append("|currentMilestoneId=").append(memory.currentMilestoneId.take(80))
                 append("|completedMilestoneCount=").append(memory.completedMilestoneIds.size)
-                append("|currentSurfaceId=").append(memory.currentPage?.id.orEmpty().take(100))
-                append("|lastConfirmedSurfaceId=").append(memory.lastConfirmedPage?.id.orEmpty().take(100))
-                append("|failedHypothesisCount=").append(memory.failedHypotheses.size)
-                append("|blockedActionCount=").append(memory.blockedActions.size)
-                append("|explorationBudgetRemaining=").append(memory.remainingExplorationBudget)
+                append("|currentFrameId=").append(memory.currentPage?.id.orEmpty().take(100))
+                append("|lastVerifiedFrameId=").append(memory.lastConfirmedPage?.id.orEmpty().take(100))
                 append("|taskRevision=").append(memory.taskRevision)
                 append("|taskRevisionPending=").append(memory.taskRevisionPending)
                 append("|currentMilestoneInvalidated=").append(memory.currentMilestoneInvalidated)
@@ -72,8 +73,10 @@ internal object VisualLoopMemorySupport {
                 append("|reasoningDepth=").append(reasoning.depth.wireValue)
                 append("|replanRequested=").append(memory.replanRequested)
                 append("|recoveryMode=").append(memory.recoveryMode)
+                append("|executionLedgerOnly=true")
                 append("|semanticDecisionOwner=gui_plus")
                 append("|localSemanticDecision=false")
+                append("|localProgressClassification=false")
             },
         )
         VisualLoopSupport.appendRecent(actions, reasoning.toPromptLine())
@@ -81,21 +84,15 @@ internal object VisualLoopMemorySupport {
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "task_memory",
             details = JSONObject().apply {
-                put("progressStatus", memory.progressStatus)
+                put("executionStatus", memory.progressStatus)
                 put("currentMilestoneId", memory.currentMilestoneId)
-                put("currentSurface", memory.currentPage?.toJson() ?: JSONObject.NULL)
-                put("lastConfirmedSurface", memory.lastConfirmedPage?.toJson() ?: JSONObject.NULL)
+                put("currentFrame", memory.currentPage?.toJson() ?: JSONObject.NULL)
+                put("lastVerifiedFrame", memory.lastConfirmedPage?.toJson() ?: JSONObject.NULL)
                 put("replanRequested", memory.replanRequested)
                 put("recoveryMode", memory.recoveryMode)
-                put("remainingExplorationBudget", memory.remainingExplorationBudget)
+                put("remainingCloudExplorationBudget", memory.remainingExplorationBudget)
                 put("completedMilestoneIds", JSONArray(memory.completedMilestoneIds))
-                put("failedHypotheses", JSONArray().apply {
-                    memory.failedHypotheses.forEach { put(it.toJson()) }
-                })
-                put("blockedActions", JSONArray().apply {
-                    memory.blockedActions.forEach { put(it.toJson()) }
-                })
-                put("confirmedFacts", JSONArray(memory.confirmedFacts))
+                put("confirmedProtocolFacts", JSONArray(memory.confirmedFacts))
                 put("taskContract", memory.taskContract?.toJson() ?: JSONObject.NULL)
                 put("legacyMode", memory.legacyMode)
                 put("taskRevision", memory.taskRevision)
@@ -104,6 +101,8 @@ internal object VisualLoopMemorySupport {
                 put("latestUserUpdateRevision", memory.latestUserUpdate?.revision ?: 0)
                 put("latestUserUpdateKind", memory.latestUserUpdate?.kind?.wireValue.orEmpty())
                 put("reasoningContext", reasoning.toJson())
+                put("semanticDecisionOwner", "gui_plus")
+                put("localProgressClassification", false)
             },
         )
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
