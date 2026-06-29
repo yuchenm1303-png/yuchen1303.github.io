@@ -53,6 +53,7 @@ data class VisualTaskContract(
 
     companion object {
         const val DEFAULT_EXPLORATION_BUDGET = 2
+        private const val UNIFIED_EXECUTION_PERMIT_VERSION = "visual_execution_permit_v2"
 
         fun fromJson(
             root: JSONObject?,
@@ -68,6 +69,7 @@ data class VisualTaskContract(
             val intent = step?.optJSONObject("actionIntent") ?: args.optJSONObject("actionIntent") ?: JSONObject()
             val rejection = root.transactionRejectionReason()
             val workSurface = root.isWorkSurfaceResponse()
+            val unifiedExecutionPermit = args.firstNonBlank("executionPermitVersion") == UNIFIED_EXECUTION_PERMIT_VERSION
 
             if (rejection != null) {
                 root.recordContractRejection(rejection)
@@ -85,9 +87,13 @@ data class VisualTaskContract(
             ).firstOrNull()
             if (item == null) {
                 if (workSurface && type != "open_app") {
+                    if (unifiedExecutionPermit) {
+                        root.recordPermitOwnedContractValidation(args)
+                        return null
+                    }
                     val committed = committedContract ?: root.failProtocol(
                         "task_contract_required",
-                        "GUI Plus must establish the full ordered task contract before the first work-surface action.",
+                        "GUI Plus must establish the full ordered task contract before the first legacy work-surface action.",
                     )
                     val contractDecision = VisualTaskContractProtocol.validateContract(committed)
                     if (!contractDecision.accepted) {
@@ -123,8 +129,11 @@ data class VisualTaskContract(
                 if (workSurface && type != "open_app") root.failProtocol(contractDecision.code, contractDecision.message)
                 return null
             }
-            if (workSurface && type != "open_app") {
+            if (workSurface && type != "open_app" && !unifiedExecutionPermit) {
                 root.validateActionIntent(step, args, intent, contract)
+            }
+            if (workSurface && unifiedExecutionPermit) {
+                root.recordPermitOwnedContractValidation(args)
             }
             return contract
         }
@@ -192,6 +201,21 @@ data class VisualTaskContract(
                     put("incomingContractPresent", false)
                     put("semanticDecisionOwner", "gui_plus")
                     put("localSemanticDecision", false)
+                },
+            )
+        }
+
+        private fun JSONObject.recordPermitOwnedContractValidation(args: JSONObject) {
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                "task_contract_validation_delegated_to_permit",
+                JSONObject().apply {
+                    put("permitVersion", args.optString("executionPermitVersion"))
+                    put("permitId", args.optString("executionPermitId"))
+                    put("permitKind", args.optString("executionPermitKind"))
+                    put("responseObservationId", responseObservationId())
+                    put("backendSemanticValidationRequired", true)
+                    put("androidSemanticValidation", false)
+                    put("androidExecutionGateRequired", true)
                 },
             )
         }
