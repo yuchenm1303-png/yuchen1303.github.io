@@ -113,15 +113,24 @@ internal object OpenGlStartupBackdropBridge {
 
     private var activeTextureKey: String? = null
     private var publishedPhase = OPENGL_BACKDROP_PHASE_EMPTY
+    private var requestedBlurAmount = 0f
 
     var backdrop by mutableStateOf<BlurredBackdropBitmap?>(null)
         private set
 
-    fun activate(textureKey: String) = onMain {
+    fun activate(textureKey: String, blurAmount: Float) = onMain {
+        val safeAmount = blurAmount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT)
         if (activeTextureKey != textureKey) {
             activeTextureKey = textureKey
             publishedPhase = OPENGL_BACKDROP_PHASE_EMPTY
+            requestedBlurAmount = safeAmount
             backdrop = null
+        } else {
+            requestedBlurAmount = safeAmount
+            val current = backdrop
+            if (current != null && current.blurAmount != safeAmount) {
+                backdrop = current.copy(blurAmount = safeAmount)
+            }
         }
     }
 
@@ -135,9 +144,12 @@ internal object OpenGlStartupBackdropBridge {
 
     fun updateBlurAmount(textureKey: String, amount: Float) = onMain {
         if (activeTextureKey == textureKey) {
-            val current = backdrop ?: return@onMain
             val safeAmount = amount.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT)
-            if (current.blurAmount != safeAmount) backdrop = current.copy(blurAmount = safeAmount)
+            requestedBlurAmount = safeAmount
+            val current = backdrop
+            if (current != null && current.blurAmount != safeAmount) {
+                backdrop = current.copy(blurAmount = safeAmount)
+            }
         }
     }
 
@@ -145,6 +157,7 @@ internal object OpenGlStartupBackdropBridge {
         if (activeTextureKey == textureKey) {
             activeTextureKey = null
             publishedPhase = OPENGL_BACKDROP_PHASE_EMPTY
+            requestedBlurAmount = 0f
             backdrop = null
         }
     }
@@ -152,7 +165,11 @@ internal object OpenGlStartupBackdropBridge {
     private fun publish(textureKey: String, value: BlurredBackdropBitmap, phase: Int) = onMain {
         if (activeTextureKey == textureKey && phase >= publishedPhase) {
             publishedPhase = phase
-            backdrop = value
+            backdrop = if (value.blurAmount == requestedBlurAmount) {
+                value
+            } else {
+                value.copy(blurAmount = requestedBlurAmount)
+            }
         }
     }
 
@@ -420,7 +437,7 @@ fun rememberBlurredBackdropBitmap(
     }
 
     DisposableEffect(textureKey) {
-        OpenGlStartupBackdropBridge.activate(textureKey)
+        OpenGlStartupBackdropBridge.activate(textureKey, blurAmount)
         onDispose { OpenGlStartupBackdropBridge.clear(textureKey) }
     }
 
