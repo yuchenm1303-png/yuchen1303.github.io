@@ -243,13 +243,27 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
-    fun taskMemoryJsonCarriesExecutionWatchdogContext() {
+    fun taskMemoryJsonCarriesExecutionWatchdogContextAndDropsLegacyLocalState() {
         VisualReasoningRuntime.resetForTests()
         val json = baseMemory().copy(
             progressStatus = "ambiguous",
+            failedHypotheses = listOf(
+                VisualFailedHypothesis(
+                    hypothesisId = "legacy",
+                    milestoneId = "m1",
+                    pageStateId = "old",
+                    actionSignature = "tap",
+                    actionCluster = "tap",
+                    purpose = "legacy",
+                    failureReason = "legacy",
+                ),
+            ),
         ).toJson()
 
-        assertEquals("visual_task_memory_v3_adaptive_reasoning", json.getString("schema"))
+        assertEquals("visual_task_memory_v4_visual_authority", json.getString("schema"))
+        assertEquals(0, json.getJSONArray("failedHypotheses").length())
+        assertEquals(0, json.getJSONArray("blockedActions").length())
+        assertFalse(json.getBoolean("localProgressClassification"))
         assertEquals("fast", json.getString("reasoningDepth"))
         assertEquals("fast", json.getJSONObject("reasoningContext").getString("depth"))
         assertEquals(
