@@ -6,129 +6,151 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class VisualTransactionalStateTest {
     @Test
     fun provisionalFinishCannotCommitCompletedTaskContract() {
-        val root = JSONObject()
-            .put(
-                "agentStep",
-                JSONObject()
-                    .put("type", "finish")
-                    .put(
-                        "args",
-                        JSONObject()
-                            .put("completionCandidate", true)
-                            .put("responseSessionId", "agent-session")
-                            .put("responseObservationId", "observation-1"),
-                    ),
-            )
-            .put("taskContract", syntheticCompletedGoalContract())
+        val root = workSurfaceResponse(
+            step = JSONObject()
+                .put("type", "finish")
+                .put(
+                    "args",
+                    JSONObject()
+                        .put("completionCandidate", true)
+                        .put("responseSessionId", "agent-session")
+                        .put("responseObservationId", "observation-1"),
+                ),
+            contract = completedContract(),
+        )
 
         assertNull(VisualTaskContract.fromJson(root))
     }
 
     @Test
     fun backendTapRewriteCannotCommitWaitAsActualTaskState() {
-        val root = JSONObject()
-            .put(
-                "agentStep",
+        val root = workSurfaceResponse(
+            step = validStep("wait").put(
+                "args",
                 JSONObject()
-                    .put("type", "wait")
-                    .put(
-                        "args",
-                        JSONObject()
-                            .put("rejectedActionType", "tap_xy")
-                            .put("responseSessionId", "agent-session")
-                            .put("responseObservationId", "observation-1"),
-                    ),
-            )
-            .put(
-                "debug",
-                JSONObject().put(
-                    "guiCompactAction",
-                    JSONObject()
-                        .put("a", "tap_xy")
-                        .put("x", 0.2)
-                        .put("y", 0.3)
-                        .put("t", "日K"),
-                ),
-            )
-            .put("taskContract", syntheticCompletedGoalContract())
+                    .put("rejectedActionType", "tap_xy")
+                    .put("responseSessionId", "agent-session")
+                    .put("responseObservationId", "observation-1"),
+            ),
+            contract = validContract(),
+        ).put(
+            "debug",
+            JSONObject().put(
+                "guiCompactAction",
+                JSONObject()
+                    .put("a", "tap_xy")
+                    .put("x", 0.2)
+                    .put("y", 0.3),
+            ),
+        )
 
         assertNull(VisualTaskContract.fromJson(root))
     }
 
     @Test
-    fun syntheticSingleGoalActionContractIsNeverCommitted() {
-        val root = JSONObject()
-            .put(
-                "agentStep",
-                JSONObject()
-                    .put("type", "tap_xy")
-                    .put("x", 0.2)
-                    .put("y", 0.3),
-            )
-            .put(
-                "taskContract",
-                JSONObject()
-                    .put("originalGoal", "复杂任务")
-                    .put("currentMilestoneId", "goal")
-                    .put(
-                        "milestones",
-                        JSONArray().put(
-                            JSONObject()
-                                .put("id", "goal")
-                                .put("title", "点击日K")
-                                .put("completed", false),
-                        ),
+    fun syntheticSingleGoalContractIsRejectedBeforeExecution() {
+        val decision = VisualTaskContractProtocol.validateContract(
+            VisualTaskContract(
+                originalGoal = "multi-step task",
+                currentMilestoneId = "goal",
+                milestones = listOf(
+                    VisualTaskMilestone(
+                        id = "goal",
+                        title = "current action",
+                        successEvidence = listOf("visible result"),
                     ),
-            )
+                ),
+            ),
+        )
 
-        assertNull(VisualTaskContract.fromJson(root))
+        assertFalse(decision.accepted)
+        assertEquals("ordered_milestones_required", decision.code)
+    }
+
+    @Test
+    fun workSurfaceWithoutContractBecomesRetryableProtocolFailure() {
+        val error = assertProtocolFailure("visual_protocol_task_contract_required") {
+            VisualTaskContract.fromJson(
+                workSurfaceResponse(
+                    step = validStep("tap_xy"),
+                    contract = null,
+                ),
+            )
+        }
+
+        assertTrue(error.retryable)
+        assertTrue(error.backendMessage.contains(VisualTaskContractProtocol.PROMPT_LINE))
+    }
+
+    @Test
+    fun workSurfaceActionWithoutIntentBecomesRetryableProtocolFailure() {
+        val error = assertProtocolFailure("visual_protocol_action_purpose_required") {
+            VisualTaskContract.fromJson(
+                workSurfaceResponse(
+                    step = JSONObject().put("type", "tap_xy").put("x", 0.2).put("y", 0.3),
+                    contract = validContract(),
+                ),
+            )
+        }
+
+        assertTrue(error.retryable)
     }
 
     @Test
     fun structuredMultiMilestoneContractRemainsAccepted() {
-        val root = JSONObject()
-            .put("agentStep", JSONObject().put("type", "tap_xy").put("x", 0.2).put("y", 0.3))
-            .put(
-                "taskContract",
-                JSONObject()
-                    .put("originalGoal", "查看贵州茅台并返回行情")
-                    .put("currentMilestoneId", "return_market")
-                    .put(
-                        "milestones",
-                        JSONArray()
-                            .put(JSONObject().put("id", "open_stock").put("completed", true))
-                            .put(JSONObject().put("id", "verify_day_k").put("completed", true))
-                            .put(JSONObject().put("id", "verify_timeline").put("completed", true))
-                            .put(JSONObject().put("id", "return_market").put("completed", false)),
-                    )
-                    .put(
-                        "completedMilestoneIds",
-                        JSONArray().put("open_stock").put("verify_day_k").put("verify_timeline"),
-                    ),
-            )
+        val root = workSurfaceResponse(
+            step = validStep("tap_xy"),
+            contract = validContract(),
+        )
 
         val contract = VisualTaskContract.fromJson(root)
 
-        assertEquals("return_market", contract?.currentMilestoneId)
+        assertEquals("return_home", contract?.currentMilestoneId)
         assertEquals(4, contract?.milestones?.size)
         assertEquals(
-            listOf("open_stock", "verify_day_k", "verify_timeline"),
+            listOf("open_detail", "verify_mode_a", "verify_mode_b"),
             contract?.completedMilestoneIds,
         )
     }
 
     @Test
+    fun sameRevisionCannotReorderOrDeleteCommittedMilestones() {
+        val previous = contractModel()
+        val incoming = previous.copy(
+            milestones = listOf(previous.milestones[1], previous.milestones[3]),
+            currentMilestoneId = "return_home",
+        )
+
+        val decision = VisualTaskContractProtocol.validateTransition(previous, incoming)
+
+        assertFalse(decision.accepted)
+        assertEquals("contract_history_rewritten", decision.code)
+    }
+
+    @Test
+    fun sameRevisionCannotRollbackCompletedMilestones() {
+        val previous = contractModel()
+        val incoming = previous.copy(completedMilestoneIds = listOf("open_detail"))
+
+        val decision = VisualTaskContractProtocol.validateTransition(previous, incoming)
+
+        assertFalse(decision.accepted)
+        assertEquals("completed_milestone_rollback", decision.code)
+    }
+
+    @Test
     fun rolledBackCompletionCandidateIsRemovedButLaterCandidateIsKept() {
         val actions = listOf(
-            "tap_xy|分时|0.2|0.3:ok:target=分时",
+            "tap_xy|mode|0.2|0.3:ok:target=mode",
             "finish_verification_pending:observationId=observation-1",
             "finish_permit_rejected:reason=not_confirmed",
-            "back:ok:target=返回",
+            "back:ok:target=back",
             "finish_verification_pending:observationId=observation-2",
         )
 
@@ -142,9 +164,9 @@ class VisualTransactionalStateTest {
     @Test
     fun gestureDispatchIsNotReportedAsSemanticSuccess() {
         val summary = VisualLoopSupport.resultSummary(
-            step = CloudAgentStep(type = "back", targetText = "返回"),
-            signature = "back|返回",
-            result = AgentExecutionResult(ok = true, message = "已执行返回", shouldContinue = true),
+            step = CloudAgentStep(type = "back", targetText = "back"),
+            signature = "back|back",
+            result = AgentExecutionResult(ok = true, message = "gesture dispatched", shouldContinue = true),
         )
 
         assertTrue(summary.contains("executionAccepted=true"))
@@ -153,17 +175,61 @@ class VisualTransactionalStateTest {
         assertFalse(summary.contains("semanticOutcome=success"))
     }
 
-    private fun syntheticCompletedGoalContract(): JSONObject = JSONObject()
-        .put("originalGoal", "复杂任务")
-        .put("currentMilestoneId", "goal")
-        .put(
-            "milestones",
-            JSONArray().put(
-                JSONObject()
-                    .put("id", "goal")
-                    .put("title", "所有步骤均已完成")
-                    .put("completed", true),
-            ),
-        )
-        .put("completedMilestoneIds", JSONArray().put("goal"))
+    private fun workSurfaceResponse(step: JSONObject, contract: JSONObject?): JSONObject = JSONObject()
+        .put("verifiedSurfaceState", "work_surface")
+        .put("observationId", "observation-1")
+        .put("agentStep", step)
+        .apply { contract?.let { put("taskContract", it) } }
+
+    private fun validStep(type: String): JSONObject = JSONObject()
+        .put("type", type)
+        .put("x", 0.2)
+        .put("y", 0.3)
+        .put("purpose", "advance the current milestone")
+        .put("milestoneId", "return_home")
+        .put("expectedEvidence", JSONArray().put("fresh visible evidence"))
+
+    private fun validContract(): JSONObject = contractModel().toJson()
+
+    private fun completedContract(): JSONObject = contractModel().copy(
+        currentMilestoneId = "return_home",
+        completedMilestoneIds = listOf("open_detail", "verify_mode_a", "verify_mode_b", "return_home"),
+        milestones = contractModel().milestones.map { it.copy(completed = true) },
+    ).toJson()
+
+    private fun contractModel(): VisualTaskContract = VisualTaskContract(
+        originalGoal = "complete an ordered visual task and verify the final page",
+        currentMilestoneId = "return_home",
+        milestones = listOf(
+            milestone("open_detail", completed = true),
+            milestone("verify_mode_a", completed = true),
+            milestone("verify_mode_b", completed = true),
+            milestone("return_home", completed = false),
+        ),
+        completedMilestoneIds = listOf("open_detail", "verify_mode_a", "verify_mode_b"),
+        taskRevision = 1,
+    )
+
+    private fun milestone(id: String, completed: Boolean): VisualTaskMilestone = VisualTaskMilestone(
+        id = id,
+        title = id,
+        purpose = "complete $id",
+        successEvidence = listOf("visible evidence for $id"),
+        failureEvidence = listOf("evidence contradicting $id"),
+        completed = completed,
+    )
+
+    private fun assertProtocolFailure(
+        expectedCode: String,
+        block: () -> Unit,
+    ): VisualAgentRequestException {
+        try {
+            block()
+            fail("Expected VisualAgentRequestException")
+        } catch (error: VisualAgentRequestException) {
+            assertEquals(expectedCode, error.code)
+            return error
+        }
+        throw AssertionError("unreachable")
+    }
 }
