@@ -71,6 +71,7 @@ data class VisualTaskContract(
                 )
             }
             if (root == null) return null
+            if (VisualUserTaskUpdateRuntime.hasUndispatchedRevision()) return null
             val containers = listOfNotNull(
                 root.optJSONObject("taskContract"),
                 root.optJSONObject("visualTaskContract"),
