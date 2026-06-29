@@ -259,10 +259,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     }
     val backdropOrigin = remember { BackdropCoordinateSource() }
     val backdropTicker = remember { BackdropFrameTicker() }
-    val glassRegistry = remember { GlassItemRegistry() }
-    val activeRegistry = remember(diagnostics.openGlGlassOff, glassRegistry) {
-        if (diagnostics.openGlGlassOff) null else glassRegistry
-    }
     val backdropInvalidator = remember(backdropTicker) { BackdropFrameInvalidator(backdropTicker) }
     val glassScrollInvalidation = remember(backdropInvalidator) {
         object : NestedScrollConnection {
@@ -372,7 +368,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
                 LocalBackdropFrameTicker provides backdropTicker,
-                LocalGlassItemRegistry provides activeRegistry,
                 LocalRainbowPrismStyle provides state.rainbowPrismStyle,
                 LocalMobileCommandQuickReply provides runPendingMobileAction
             ) {
@@ -385,7 +380,6 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                         customBackgroundPath = state.customBackgroundPath,
                         modifier = Modifier.fillMaxSize().onPlaced { backdropOrigin.coordinates = it }
                     )
-                    if (!ENABLE_OPENGL_GLASS_PROBE && !diagnostics.openGlGlassOff) UnifiedGlassBackdropLayer(Modifier.fillMaxSize())
                     OpenGLGlassProbeLayer(enabled = ENABLE_OPENGL_GLASS_PROBE && !diagnostics.openGlGlassOff, modifier = Modifier.fillMaxSize())
                     CompositionLocalProvider(LocalDensity provides compactDensity) {
                         Box(
