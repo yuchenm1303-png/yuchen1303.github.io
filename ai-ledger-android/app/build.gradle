@@ -4,6 +4,14 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+def aiLedgerClientToken = providers.environmentVariable('AI_LEDGER_CLIENT_TOKEN')
+    .orElse(providers.gradleProperty('AI_LEDGER_CLIENT_TOKEN'))
+    .getOrElse('')
+    .replace('\\', '\\\\')
+    .replace('"', '\\"')
+    .replace('\r', '')
+    .replace('\n', '')
+
 android {
     namespace 'com.yuchen.ailedger'
     compileSdk 36
@@ -14,6 +22,7 @@ android {
         targetSdk 36
         versionCode 1
         versionName '0.1.0-native-shell'
+        buildConfigField 'String', 'AI_LEDGER_CLIENT_TOKEN', "\"${aiLedgerClientToken}\""
     }
 
     buildTypes {
@@ -36,6 +45,7 @@ android {
 
     buildFeatures {
         compose true
+        buildConfig true
     }
 
     testOptions {
