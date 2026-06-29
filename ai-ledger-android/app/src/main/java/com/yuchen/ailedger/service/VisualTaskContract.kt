@@ -274,7 +274,7 @@ data class VisualTaskMemory(
             ),
         )
         return JSONObject().apply {
-            put("schema", "visual_task_memory_v6_strict_transaction_protocol")
+            put("schema", "visual_task_memory_v5_transactional_visual_authority")
             put("originalGoal", originalGoal); put("currentMilestoneId", currentMilestoneId)
             put("completedMilestoneIds", JSONArray(completedMilestoneIds)); put("currentPage", currentPage?.toJson() ?: JSONObject.NULL)
             put("confirmedFacts", JSONArray(confirmedFacts)); put("failedHypotheses", JSONArray()); put("blockedActions", JSONArray())
