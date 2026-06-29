@@ -37,33 +37,14 @@ internal object VisualTaskContractProtocol {
                 message = "GUI Plus must provide a complete ordered task contract before a work-surface action can execute.",
             )
 
-        validateContract(contract)?.let { return it }
-
-        val milestoneId = step.milestoneId?.trim().orEmpty()
-        if (milestoneId.isBlank()) {
-            return reject(
-                code = "action_milestone_required",
-                message = "Every work-surface action must bind to the current task-contract milestone.",
-            )
-        }
-        if (milestoneId != contract.currentMilestoneId) {
-            return reject(
-                code = "action_milestone_mismatch",
-                message = "The action milestone does not match the contract currentMilestoneId.",
-            )
-        }
-        if (step.purpose.isNullOrBlank()) {
-            return reject(
-                code = "action_purpose_required",
-                message = "Every work-surface action must carry its GUI Plus actionIntent purpose.",
-            )
-        }
-        if (step.expectedEvidence.isEmpty()) {
-            return reject(
-                code = "action_expected_evidence_required",
-                message = "Every work-surface action must declare the evidence GUI Plus expects to inspect next.",
-            )
-        }
+        validateContract(contract).takeUnless { it.accepted }?.let { return it }
+        validateActionIntent(
+            actionType = step.type,
+            purpose = step.purpose.orEmpty(),
+            milestoneId = step.milestoneId.orEmpty(),
+            expectedEvidence = step.expectedEvidence,
+            contract = contract,
+        ).takeUnless { it.accepted }?.let { return it }
 
         val current = contract.currentMilestone()
             ?: return reject("current_milestone_missing", "The current milestone is absent from the ordered contract.")
@@ -86,11 +67,11 @@ internal object VisualTaskContractProtocol {
             }
         }
 
-        validateTransition(committedContract, plan.taskContract)?.let { return it }
+        validateTransition(committedContract, plan.taskContract).takeUnless { it.accepted }?.let { return it }
         return Decision.Accepted
     }
 
-    private fun validateContract(contract: VisualTaskContract): Decision? {
+    fun validateContract(contract: VisualTaskContract): Decision {
         if (contract.legacyMode) {
             return reject("legacy_contract_forbidden", "Legacy task contracts cannot authorize work-surface execution.")
         }
@@ -120,15 +101,52 @@ internal object VisualTaskContractProtocol {
         if (contract.milestones.any { it.successEvidence.isEmpty() }) {
             return reject("milestone_evidence_required", "Every milestone must declare visible success evidence for GUI Plus.")
         }
-        return null
+        return Decision.Accepted
     }
 
-    private fun validateTransition(
+    fun validateActionIntent(
+        actionType: String,
+        purpose: String,
+        milestoneId: String,
+        expectedEvidence: List<String>,
+        contract: VisualTaskContract?,
+    ): Decision {
+        if (purpose.isBlank()) {
+            return reject(
+                code = "action_purpose_required",
+                message = "Every work-surface action must carry its GUI Plus actionIntent purpose.",
+            )
+        }
+        if (milestoneId.isBlank()) {
+            return reject(
+                code = "action_milestone_required",
+                message = "Every work-surface action must bind to the current task-contract milestone.",
+            )
+        }
+        if (expectedEvidence.isEmpty()) {
+            return reject(
+                code = "action_expected_evidence_required",
+                message = "Every work-surface action must declare the evidence GUI Plus expects to inspect next.",
+            )
+        }
+        if (contract != null && milestoneId != contract.currentMilestoneId) {
+            return reject(
+                code = "action_milestone_mismatch",
+                message = "The action milestone does not match the contract currentMilestoneId.",
+            )
+        }
+        if (actionType.isBlank()) {
+            return reject("action_type_required", "A work-surface transaction must contain one explicit action type.")
+        }
+        return Decision.Accepted
+    }
+
+    fun validateTransition(
         previous: VisualTaskContract?,
         incoming: VisualTaskContract?,
-    ): Decision? {
-        if (previous == null || incoming == null) return null
-        if (incoming.taskRevision > previous.taskRevision) return null
+    ): Decision {
+        if (previous == null || incoming == null) return Decision.Accepted
+        if (incoming.taskRevision > previous.taskRevision) return Decision.Accepted
 
         val previousIds = previous.milestones.map { it.id }
         val incomingIds = incoming.milestones.map { it.id }
@@ -149,7 +167,7 @@ internal object VisualTaskContractProtocol {
                 "A same-revision task-contract update cannot roll back committed milestones.",
             )
         }
-        return null
+        return Decision.Accepted
     }
 
     private fun reject(code: String, message: String): Decision = Decision(false, code, message)
