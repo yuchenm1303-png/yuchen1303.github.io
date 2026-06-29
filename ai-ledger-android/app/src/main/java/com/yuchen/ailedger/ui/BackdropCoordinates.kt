@@ -220,20 +220,33 @@ data class GlassRenderItem(
     val sceneGroup: GlassSceneGroup = GlassSceneGroup.Unassigned
 )
 
+/**
+ * 旧全屏统一玻璃层的兼容 registry。
+ *
+ * 当前生产普通玻璃使用 OrdinaryGlassItemRegistry，Shell 使用独立 OpenGL Host。这个
+ * registry 只为旧入口保留，并且在真正收到节点前不分配 Map，避免 App 根节点为一条
+ * 已停用的渲染链常驻集合对象。
+ */
 class GlassItemRegistry {
-    private val items = linkedMapOf<Any, GlassRenderItem>()
+    private var items: LinkedHashMap<Any, GlassRenderItem>? = null
     private var cachedSnapshot: List<GlassRenderItem> = emptyList()
+
     var version by mutableLongStateOf(0L)
         private set
 
     fun upsert(item: GlassRenderItem) {
-        val previous = items[item.key]
-        items[item.key] = item
+        val liveItems = items ?: linkedMapOf<Any, GlassRenderItem>().also { items = it }
+        val previous = liveItems[item.key]
+        liveItems[item.key] = item
         if (previous != item) invalidate()
     }
 
     fun remove(key: Any) {
-        if (items.remove(key) != null) invalidate()
+        val liveItems = items ?: return
+        if (liveItems.remove(key) != null) {
+            if (liveItems.isEmpty()) items = null
+            invalidate()
+        }
     }
 
     fun snapshot(): List<GlassRenderItem> {
@@ -242,7 +255,7 @@ class GlassItemRegistry {
     }
 
     private fun invalidate() {
-        cachedSnapshot = items.values.toList()
+        cachedSnapshot = items?.values?.toList().orEmpty()
         version += 1L
     }
 }
