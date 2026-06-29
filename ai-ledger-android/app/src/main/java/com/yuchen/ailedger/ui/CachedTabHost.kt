@@ -75,7 +75,6 @@ fun CachedAppTabHost(
     val parentGlassBackdrop = LocalGlassBackdrop.current
     val parentBlurredBackdrop = LocalBlurredBackdrop.current
     val parentBackdropTicker = LocalBackdropFrameTicker.current
-    val parentGlassRegistry = LocalGlassItemRegistry.current
 
     // 冷启动重效果门只允许打开一次。旧实现会在每次切页时先关闭再重新打开，
     // 导致设置页批绘制 registry 被移除后重新注册，看起来像整页自动刷新。
@@ -138,7 +137,6 @@ fun CachedAppTabHost(
                 // 离场期间保持原激活序号，避免子页面把整套卡片入退场动画重新启动。
                 val pageHeavyEffectsReady = active && heavyEffectsReady
                 val visualEffectsEnabled = visibleDuringTransition && pageHeavyEffectsReady && !diagnostics.openGlGlassOff
-                val liveRegistryEnabled = pageHeavyEffectsReady && !diagnostics.openGlGlassOff
                 val sceneGroup = tab.defaultGlassSceneGroup()
                 val ordinaryRenderMode = if (visibleDuringTransition) {
                     OrdinaryGlassParentDrawController.renderModeFor(sceneGroup)
@@ -173,8 +171,7 @@ fun CachedAppTabHost(
                             LocalOpenGLGlassViewportActive provides false,
                             LocalGlassBackdrop provides (if (visibleDuringTransition) parentGlassBackdrop else null),
                             LocalBlurredBackdrop provides (if (visibleDuringTransition) parentBlurredBackdrop else null),
-                            LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null),
-                            LocalGlassItemRegistry provides (if (liveRegistryEnabled) parentGlassRegistry else null)
+                            LocalBackdropFrameTicker provides (if (visualEffectsEnabled) parentBackdropTicker else null)
                         ) {
                             key(tab) {
                                 if (tab == AppTab.Settings) {
