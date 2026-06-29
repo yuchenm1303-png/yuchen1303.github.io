@@ -26,7 +26,7 @@ import com.yuchen.ailedger.ui.StartupMetrics
 import com.yuchen.ailedger.ui.StartupPerformanceGate
 import kotlinx.coroutines.launch
 
-private const val ENABLE_STARTUP_FRAME_MONITOR = false
+private val ENABLE_STARTUP_FRAME_MONITOR = BuildConfig.BUILD_TYPE == "performance"
 private const val ENABLE_STARTUP_METRICS_OVERLAY = false
 
 class MainActivity : ComponentActivity() {
