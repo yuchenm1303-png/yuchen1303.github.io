@@ -42,6 +42,13 @@ internal object VisualActionValidator {
         runtime: VisualAgentRuntimeContext? = null,
     ): VisualActionValidation {
         if (step.type !in CloudAgentStep.supportedTypes) return structural("Unsupported visual action: ${step.type}")
+        if (VisualUserTaskUpdateRuntime.hasUndispatchedRevision()) {
+            return VisualActionValidation(
+                ok = false,
+                message = "userTaskRevisionStaleResponse=true; a newer user instruction arrived after this model request started. Do not execute the stale action; re-observe and plan again with the latest authoritative user turn.",
+                failureClass = VisualFailureClass.VisualLocal,
+            )
+        }
         if (isRepairableGuiProtocolFailure(step)) {
             return VisualActionValidation(
                 ok = false,
@@ -69,6 +76,7 @@ internal object VisualActionValidator {
         if (step.type == "input_text" && step.text.isNullOrBlank()) {
             return VisualActionValidation(false, "Input text is empty.")
         }
+        VisualUserTaskUpdateRuntime.markDispatchedPlanValidated()
         return VisualActionValidation(true)
     }
 
