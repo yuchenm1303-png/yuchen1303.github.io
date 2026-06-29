@@ -306,6 +306,10 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         @Suppress("UNUSED_VARIABLE")
         val preservedAnchor = stableSurfaceAnchorY
+        val hostGeometryDirty = reconcileHostGeometry(
+            hostWidth = right - left,
+            hostHeight = bottom - top,
+        )
         textureView.translationY = 0f
         textureView.layout(0, 0, stableSurfaceWidth, stableSurfaceHeight)
         geometryAwaitingLayout = false
@@ -315,7 +319,7 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
             renderPosted = false
         }
         val frameDirty = syncDynamicFrameToTexture()
-        val shouldRender = renderAfterLayout || frameDirty
+        val shouldRender = changed || hostGeometryDirty || renderAfterLayout || frameDirty
         renderAfterLayout = false
         if (shouldRender) textureView.requestRender()
     }
@@ -340,6 +344,47 @@ private class OpenGLGlassCardHostView(context: Context) : FrameLayout(context) {
         if (renderPosted) return
         renderPosted = true
         postOnAnimation(renderRunnable)
+    }
+
+    private fun reconcileHostGeometry(hostWidth: Int, hostHeight: Int): Boolean {
+        val safeHostWidth = hostWidth.coerceAtLeast(1)
+        val safeHostHeight = hostHeight.coerceAtLeast(1)
+        val targetSurfaceWidth = max(stableSurfaceWidth, safeHostWidth)
+        val targetSurfaceHeight = max(stableSurfaceHeight, safeHostHeight)
+        val surfaceDirty =
+            targetSurfaceWidth != stableSurfaceWidth || targetSurfaceHeight != stableSurfaceHeight
+
+        if (surfaceDirty) {
+            stableSurfaceWidth = targetSurfaceWidth
+            stableSurfaceHeight = targetSurfaceHeight
+            val current = textureView.layoutParams as? LayoutParams
+            if (
+                current == null ||
+                current.width != stableSurfaceWidth ||
+                current.height != stableSurfaceHeight
+            ) {
+                textureView.layoutParams = LayoutParams(stableSurfaceWidth, stableSurfaceHeight)
+            }
+            PerformanceRuntimeMetrics.recordOpenGlSurface(stableSurfaceWidth, stableSurfaceHeight)
+        }
+
+        val safeRectOffsetY = latestRectOffsetY.coerceIn(
+            0f,
+            (safeHostHeight - 1).coerceAtLeast(0).toFloat(),
+        )
+        val hostViewportHeight =
+            (safeHostHeight.toFloat() - safeRectOffsetY).coerceAtLeast(1f)
+        val frameDirty =
+            abs(latestGlassWidth - safeHostWidth.toFloat()) > GLASS_SPEC_EPSILON_PX ||
+                abs(latestGlassHeight - hostViewportHeight) > GLASS_SPEC_EPSILON_PX ||
+                abs(latestRectOffsetY - safeRectOffsetY) > GLASS_SPEC_EPSILON_PX
+
+        if (frameDirty) {
+            latestGlassWidth = safeHostWidth.toFloat()
+            latestGlassHeight = hostViewportHeight
+            latestRectOffsetY = safeRectOffsetY
+        }
+        return surfaceDirty || frameDirty
     }
 
     private fun installDynamicSubscriptions() {
