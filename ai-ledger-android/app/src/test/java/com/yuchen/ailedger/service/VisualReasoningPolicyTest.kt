@@ -69,6 +69,73 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
+    fun routeCycleDetectsReturnToSameTargetEvenWhenCoordinatesDiffer() {
+        val context = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf(
+                "tap_xy|贵州茅台|0.50|0.31:ok:target=贵州茅台:result=已点击",
+                "tap_xy|日K|0.20|0.30:ok:target=日K:result=已点击",
+                "tap_xy|分时|0.21|0.30:ok:target=分时:result=已点击",
+                "back:ok:target=返回:result=已返回",
+                "tap_xy|贵州茅台|0.49|0.32:ok:target=贵州茅台:result=已点击",
+            ),
+        )
+
+        assertEquals(VisualReasoningDepth.Deep, context.depth)
+        assertEquals(4, context.routeCycleLength)
+        assertTrue(VisualReasoningTrigger.RouteCycle in context.triggers)
+        assertTrue(VisualReasoningPolicy.deepReplanLine(context)!!.contains("avoidRepeatedRoute=true"))
+    }
+
+    @Test
+    fun exactMultiActionSuffixCycleUsesDeepReasoning() {
+        val context = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf(
+                "tap_xy|日K|0.20|0.30:ok:target=日K",
+                "tap_xy|分时|0.21|0.30:ok:target=分时",
+                "back:ok:target=返回",
+                "tap_xy|日K|0.19|0.31:ok:target=日K",
+                "tap_xy|分时|0.22|0.29:ok:target=分时",
+                "back:ok:target=返回",
+            ),
+        )
+
+        assertEquals(VisualReasoningDepth.Deep, context.depth)
+        assertEquals(3, context.routeCycleLength)
+        assertTrue(VisualReasoningTrigger.RouteCycle in context.triggers)
+    }
+
+    @Test
+    fun completionRollbackInvalidatesPendingCandidateAndForcesOneDeepCorrection() {
+        val actions = listOf(
+            "finish_verification_pending:observationId=observation-2",
+            "finish_permit_rejected:reason=completion_not_confirmed|observationId=observation-3|replanRequired=false",
+        )
+        val context = VisualReasoningPolicy.evaluate(baseMemory(), actions)
+
+        assertEquals(VisualReasoningDepth.Deep, context.depth)
+        assertEquals(1, context.provisionalRollbackCount)
+        assertFalse(VisualReasoningTrigger.CompletionCandidate in context.triggers)
+        assertTrue(VisualReasoningTrigger.ProvisionalStateRollback in context.triggers)
+        assertTrue(VisualReasoningPolicy.deepReplanLine(context)!!.contains("discardProvisionalState=true"))
+    }
+
+    @Test
+    fun successfulCorrectionClearsRollbackPressure() {
+        val actions = listOf(
+            "finish_verification_pending:observationId=observation-2",
+            "finish_permit_rejected:reason=completion_not_confirmed|observationId=observation-3|replanRequired=false",
+            "back:ok:target=返回:executionAccepted=true:semanticOutcome=gui_plus_pending_judgement",
+            "visual_execution_observed:action=back|frameChanged=true|replanRequired=false",
+        )
+        val context = VisualReasoningPolicy.evaluate(baseMemory(), actions)
+
+        assertEquals(0, context.provisionalRollbackCount)
+        assertFalse(VisualReasoningTrigger.ProvisionalStateRollback in context.triggers)
+    }
+
+    @Test
     fun aDifferentSuccessfulActionClearsOldMechanicalPressure() {
         val actions = listOf(
             "wait|重新观察:ok:target=重新观察:result=等待 220ms",
@@ -148,18 +215,26 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
-    fun completionCandidateRequiresDeepButLocalBudgetDoesNot() {
+    fun liveCompletionCandidateRequiresDeepButRolledBackCandidateDoesNotRemainLive() {
         val completion = VisualReasoningPolicy.evaluate(
             baseMemory(),
             listOf("finish_verification_pending:observationId=observation-2"),
+        )
+        val rolledBack = VisualReasoningPolicy.evaluate(
+            baseMemory(),
+            listOf(
+                "finish_verification_pending:observationId=observation-2",
+                "finish_candidate_rejected:reason=invalid",
+            ),
         )
         val localBudgetOnly = VisualReasoningPolicy.evaluate(
             baseMemory().copy(remainingExplorationBudget = 0),
         )
 
         assertEquals(VisualReasoningDepth.Deep, completion.depth)
-        assertTrue(completion.completionEvidenceStrict)
-        assertTrue(completion.freshObservationRequired)
+        assertTrue(VisualReasoningTrigger.CompletionCandidate in completion.triggers)
+        assertFalse(VisualReasoningTrigger.CompletionCandidate in rolledBack.triggers)
+        assertTrue(VisualReasoningTrigger.ProvisionalStateRollback in rolledBack.triggers)
         assertEquals(VisualReasoningDepth.Fast, localBudgetOnly.depth)
         assertFalse(VisualReasoningTrigger.ExplorationBudgetPressure in localBudgetOnly.triggers)
     }
@@ -243,7 +318,7 @@ class VisualReasoningPolicyTest {
     }
 
     @Test
-    fun taskMemoryJsonCarriesExecutionWatchdogContextAndDropsLegacyLocalState() {
+    fun taskMemoryJsonCarriesTransactionalWatchdogAndDropsLegacyLocalState() {
         VisualReasoningRuntime.resetForTests()
         val json = baseMemory().copy(
             progressStatus = "ambiguous",
@@ -260,14 +335,16 @@ class VisualReasoningPolicyTest {
             ),
         ).toJson()
 
-        assertEquals("visual_task_memory_v4_visual_authority", json.getString("schema"))
+        assertEquals("visual_task_memory_v5_transactional_visual_authority", json.getString("schema"))
         assertEquals(0, json.getJSONArray("failedHypotheses").length())
         assertEquals(0, json.getJSONArray("blockedActions").length())
         assertFalse(json.getBoolean("localProgressClassification"))
+        assertTrue(json.getBoolean("transactionalCompletion"))
+        assertFalse(json.getBoolean("provisionalStateCommitted"))
         assertEquals("fast", json.getString("reasoningDepth"))
         assertEquals("fast", json.getJSONObject("reasoningContext").getString("depth"))
         assertEquals(
-            "visual_reasoning_context_v2_execution_watchdog",
+            "visual_reasoning_context_v3_transaction_watchdog",
             json.getJSONObject("reasoningContext").getString("schema"),
         )
         assertFalse(json.getJSONObject("reasoningContext").getBoolean("localProgressClassification"))
