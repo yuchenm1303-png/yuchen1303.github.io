@@ -21,7 +21,7 @@ import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.legacyOpenGlReferenceStyle
 import com.yuchen.ailedger.ui.GlassCoordinateSource
 import com.yuchen.ailedger.ui.GlassSceneGroup
-import com.yuchen.ailedger.ui.LegacyOpenGLGlassPreviewShell
+import com.yuchen.ailedger.ui.LegacyOpenGLShellHost
 import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
@@ -40,6 +40,12 @@ private const val NewOpenGlMinimumOpticalScale = 0.28f
 val LocalNewOpenGlGlassStyleOverride =
     staticCompositionLocalOf<((GlassBorderStyle) -> GlassBorderStyle)?> { null }
 
+/**
+ * Shell 级 OpenGL Renderer 路由。
+ *
+ * Assistant / Settings 继续使用经过验证的旧 Renderer；其他场景使用新版多档 Renderer。
+ * 普通 Card、Chip、Floating、Nav 和 Flex 永远不会进入本入口。
+ */
 @Composable
 fun NewOpenGLGlassCardLayer(
     radius: Int,
@@ -52,20 +58,19 @@ fun NewOpenGLGlassCardLayer(
     dynamicState: OpenGLGlassDynamicState? = null,
 ) {
     val sceneGroup = LocalGlassSceneGroup
-    val useLegacyRenderer =
+    val usesLegacyShellRenderer =
         sceneGroup == GlassSceneGroup.SettingsPage ||
             sceneGroup == GlassSceneGroup.AssistantPage
     val localBackdrop = LocalBlurredBackdrop.current
-    val backdrop = if (useLegacyRenderer) {
+    val backdrop = if (usesLegacyShellRenderer) {
         OpenGlStartupBackdropBridge.backdrop ?: localBackdrop
     } else {
         // 新版多档 Renderer 必须等待完整 low/medium/high 金字塔，不读取阶段性别名。
         localBackdrop
     } ?: return
 
-    // Do not create an EGL context, compile the shader or upload placeholder textures during the
-    // first layout burst. The Shell keeps exactly the same bounds and receives a cheap static skin;
-    // once its required real sampler set arrives this node is replaced in-place by the single host.
+    // 首次布局突发期间不创建 EGL Context、不编译 Shader，也不上传占位纹理。
+    // Shell 保持原有边界，真实采样纹理准备完成后再原位挂载唯一宿主。
     if (!backdrop.isReady) {
         Box(
             modifier = modifier.startupStaticGlassLayer(
@@ -78,7 +83,7 @@ fun NewOpenGLGlassCardLayer(
 
     // 设置页顶部状态卡片和首页聊天大玻璃共同复用实验室原版 OpenGL 完整宿主链：
     // 同一参数源、单样本优化、Compose 轮廓裁剪和旧 Renderer。
-    if (useLegacyRenderer) {
+    if (usesLegacyShellRenderer) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
             currentSpec?.copy(borderStyle = legacyOpenGlReferenceStyle())
@@ -86,13 +91,15 @@ fun NewOpenGLGlassCardLayer(
 
         if (legacySpec != null) {
             CompositionLocalProvider(LocalGlassBackdrop provides legacySpec) {
-                LegacyOpenGLGlassPreviewShell(
+                LegacyOpenGLShellHost(
                     quality = legacySpec.quality,
                     glassIntensity = glassIntensity,
                     motionIntensity = legacySpec.motionIntensity,
                     radius = radius,
                     modifier = modifier,
                     coordinateSource = coordinateSource,
+                    // GlassPanel 已持有生产 Shell 的坐标源，本层不再重复 onPlaced。
+                    manageCoordinatePlacement = false,
                     pressProgress = pressProgress,
                     pressCenter = pressCenter,
                     viewportTopInsetPx = viewportTopInsetPx,
