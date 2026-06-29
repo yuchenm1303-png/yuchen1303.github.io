@@ -172,3 +172,47 @@ internal object VisualTaskContractProtocol {
 
     private fun reject(code: String, message: String): Decision = Decision(false, code, message)
 }
+
+/**
+ * Task-scoped committed contract ledger used only for structural transition validation.
+ * It stores cloud-authored data verbatim and never creates or infers a milestone.
+ */
+internal object VisualCommittedTaskContractRuntime {
+    private val lock = Any()
+    private var taskId: Long = 0L
+    private var committed: VisualTaskContract? = null
+
+    fun currentOrNull(): VisualTaskContract? {
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return null
+        return synchronized(lock) {
+            if (taskId != currentTaskId) {
+                taskId = currentTaskId
+                committed = null
+            }
+            committed
+        }
+    }
+
+    fun commit(contract: VisualTaskContract) {
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return
+        synchronized(lock) {
+            if (taskId != currentTaskId) {
+                taskId = currentTaskId
+                committed = null
+            }
+            committed = contract
+        }
+    }
+
+    internal fun resetForTests() {
+        synchronized(lock) {
+            taskId = 0L
+            committed = null
+        }
+    }
+
+    private fun currentTaskIdOrZero(): Long =
+        runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+}
