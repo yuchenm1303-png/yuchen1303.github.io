@@ -58,6 +58,7 @@ internal object VisualUserTaskUpdateRuntime {
     private var taskId: Long = 0L
     private var revision: Int = 0
     private var dispatchedRevision: Int = 0
+    private var acceptedRevision: Int = 0
     private val updates = ArrayDeque<VisualUserTaskUpdate>()
 
     fun record(
@@ -110,6 +111,31 @@ internal object VisualUserTaskUpdateRuntime {
         }
     }
 
+    fun hasUndispatchedRevision(): Boolean {
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return false
+        return synchronized(lock) {
+            taskId == currentTaskId && revision > dispatchedRevision
+        }
+    }
+
+    fun markDispatchedPlanValidated() {
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return
+        synchronized(lock) {
+            if (taskId == currentTaskId) acceptedRevision = maxOf(acceptedRevision, dispatchedRevision)
+        }
+    }
+
+    fun isRevisionPending(value: Int): Boolean {
+        if (value <= 0) return false
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return false
+        return synchronized(lock) {
+            taskId == currentTaskId && acceptedRevision < value
+        }
+    }
+
     fun currentRevision(): Int {
         val currentTaskId = currentTaskIdOrZero()
         if (currentTaskId <= 0L) return 0
@@ -131,6 +157,7 @@ internal object VisualUserTaskUpdateRuntime {
             taskId = 0L
             revision = 0
             dispatchedRevision = 0
+            acceptedRevision = 0
             updates.clear()
         }
     }
@@ -143,6 +170,7 @@ internal object VisualUserTaskUpdateRuntime {
             taskId = currentTaskId
             revision = 0
             dispatchedRevision = 0
+            acceptedRevision = 0
             updates.clear()
         }
     }
