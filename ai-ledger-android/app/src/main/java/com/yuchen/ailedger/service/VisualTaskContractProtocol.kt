@@ -101,7 +101,7 @@ internal object VisualTaskContractProtocol {
         if (contract.milestones.any { it.successEvidence.isEmpty() }) {
             return reject("milestone_evidence_required", "Every milestone must declare visible success evidence for GUI Plus.")
         }
-        return Decision.Accepted
+        return validateTransition(VisualCommittedTaskContractRuntime.currentOrNull(), contract)
     }
 
     fun validateActionIntent(
