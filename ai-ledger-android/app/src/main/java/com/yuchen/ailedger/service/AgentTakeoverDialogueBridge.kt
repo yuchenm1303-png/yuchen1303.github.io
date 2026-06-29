@@ -3,10 +3,9 @@ package com.yuchen.ailedger.service
 /**
  * Keeps user guidance entered while the visual loop is paused for manual takeover.
  *
- * The bridge emits canonical `userInstruction:` dialogue turns because VisualAgentClient converts
- * only the canonical interaction prefixes into GUI Plus interactionHistory. A dedicated replan
- * signal is appended after the latest directive so the backend discards any conflicting cached
- * plan and reasons again from the fresh post-takeover screen.
+ * Every accepted directive is also written to the authoritative visual task revision queue. The
+ * dialogue turn remains the verbatim user message, while the revision queue carries invalidation and
+ * priority metadata without asking Android to invent page semantics.
  */
 internal object AgentTakeoverDialogueBridge {
     private const val MAX_MESSAGES = 8
@@ -31,6 +30,11 @@ internal object AgentTakeoverDialogueBridge {
             messages.addLast(clean)
             while (messages.size > MAX_MESSAGES) messages.removeFirst()
         }
+        VisualUserTaskUpdateRuntime.record(
+            rawReply = clean,
+            sourceReason = "manual_takeover_directive",
+            prompt = progress.lastResult.ifBlank { progress.currentAction },
+        )
         AgentRuntimeController.noteDiagnostic("已记录用户接管指令；恢复后将要求 GUI Plus 放弃冲突旧计划并重新规划")
         return true
     }
