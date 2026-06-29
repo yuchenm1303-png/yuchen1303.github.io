@@ -45,6 +45,7 @@ data class VisualTaskContract(
     val explorationBudgetPerMilestone: Int = DEFAULT_EXPLORATION_BUDGET,
     val schema: String = "visual_task_contract_v1",
     val legacyMode: Boolean = false,
+    val taskRevision: Int = 0,
 ) {
     fun currentMilestone(): VisualTaskMilestone? = milestones.firstOrNull { it.id == currentMilestoneId }
 
@@ -56,6 +57,7 @@ data class VisualTaskContract(
         put("completedMilestoneIds", JSONArray(completedMilestoneIds))
         put("explorationBudgetPerMilestone", explorationBudgetPerMilestone)
         put("legacyMode", legacyMode)
+        put("taskRevision", taskRevision)
     }
 
     companion object {
@@ -63,8 +65,6 @@ data class VisualTaskContract(
 
         fun fromJson(root: JSONObject?): VisualTaskContract? {
             root?.let { response ->
-                // 记录后端已经解析为 JSON 的完整响应信封；存储层会统一移除令牌、密码和输入内容。
-                // 该旁路不改变任何解析结果，也不会触发额外网络请求。
                 VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
                     type = "model_response",
                     details = response,
@@ -93,6 +93,10 @@ data class VisualTaskContract(
             val budget = item.optFlexibleInt("explorationBudgetPerMilestone")
                 ?: item.optFlexibleInt("explorationBudget")
                 ?: DEFAULT_EXPLORATION_BUDGET
+            val revision = item.optFlexibleInt("taskRevision")
+                ?: item.optFlexibleInt("userTaskRevision")
+                ?: item.optFlexibleInt("revision")
+                ?: 0
             return VisualTaskContract(
                 originalGoal = item.firstNonBlank("originalGoal", "goal", "sourceGoal").orEmpty().take(240),
                 currentMilestoneId = currentId.take(100),
@@ -101,6 +105,7 @@ data class VisualTaskContract(
                 explorationBudgetPerMilestone = budget.coerceIn(1, 4),
                 schema = item.firstNonBlank("schema").orEmpty().ifBlank { "visual_task_contract_v1" }.take(80),
                 legacyMode = item.flexibleBoolean("legacyMode") ?: false,
+                taskRevision = revision.coerceAtLeast(0),
             )
         }
     }
@@ -198,9 +203,14 @@ data class VisualTaskMemory(
     val recoveryMode: Boolean = false,
     val legacyMode: Boolean = true,
     val taskContract: VisualTaskContract? = null,
+    val taskRevision: Int = 0,
+    val taskRevisionPending: Boolean = false,
+    val currentMilestoneInvalidated: Boolean = false,
+    val latestUserUpdate: VisualUserTaskUpdate? = null,
+    val userUpdateHistory: List<VisualUserTaskUpdate> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
-        put("schema", "visual_task_memory_v1")
+        put("schema", "visual_task_memory_v2_user_revision")
         put("originalGoal", originalGoal)
         put("currentMilestoneId", currentMilestoneId)
         put("completedMilestoneIds", JSONArray(completedMilestoneIds))
@@ -215,6 +225,11 @@ data class VisualTaskMemory(
         put("recoveryMode", recoveryMode)
         put("legacyMode", legacyMode)
         put("taskContract", taskContract?.toJson() ?: JSONObject.NULL)
+        put("taskRevision", taskRevision)
+        put("taskRevisionPending", taskRevisionPending)
+        put("currentMilestoneInvalidated", currentMilestoneInvalidated)
+        put("latestUserUpdate", latestUserUpdate?.toJson() ?: JSONObject.NULL)
+        put("userUpdateHistory", JSONArray().apply { userUpdateHistory.forEach { put(it.toJson()) } })
     }
 }
 
