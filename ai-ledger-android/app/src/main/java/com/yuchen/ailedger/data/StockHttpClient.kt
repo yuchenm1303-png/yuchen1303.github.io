@@ -20,9 +20,9 @@ import okhttp3.Request
 /**
  * 股票模块共享网络传输层。
  *
- * 所有股票接口复用连接池、singleflight 和极短响应微缓存。传输层超时后会对同一接口族
- * 进行短暂冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个 Render 实例。
- * HTTP 404/405 和协议兼容错误不会进入该冷却，因此正式兼容 fallback 仍可正常工作。
+ * 所有股票接口复用连接池、singleflight 和极短响应微缓存。传输层超时、限流或服务端错误后，
+ * 会对同一接口族进行短暂冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个
+ * Render 实例。HTTP 404/405 不进入冷却，旧服务的正式兼容 fallback 仍可正常工作。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -43,9 +43,9 @@ internal object StockHttpClient {
     private val client = OkHttpClient.Builder()
         .dispatcher(dispatcher)
         .connectionPool(ConnectionPool(6, 5, TimeUnit.MINUTES))
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(8, TimeUnit.SECONDS)
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
@@ -64,13 +64,14 @@ internal object StockHttpClient {
         emptyMessage: String,
         microCacheMs: Long = DEFAULT_MICRO_CACHE_MS
     ): String {
+        val effectiveTimeoutMs = effectiveTimeoutMs(url, timeoutMs)
         recent(url, microCacheMs)?.let { return it }
         recentTransportFailure(url)?.let { throw it }
 
         val owned = CompletableFuture<String>()
         val existing = inFlight.putIfAbsent(url, owned)
         if (existing != null) {
-            return awaitShared(existing, timeoutMs, url)
+            return awaitShared(existing, effectiveTimeoutMs, url)
         }
 
         val startedAtNs = System.nanoTime()
@@ -89,7 +90,7 @@ internal object StockHttpClient {
                 .header("Cache-Control", "no-cache")
                 .build()
             val call = client.newCall(request)
-            call.timeout().timeout(timeoutMs.toLong(), TimeUnit.MILLISECONDS)
+            call.timeout().timeout(effectiveTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
             val body = call.execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
@@ -112,8 +113,8 @@ internal object StockHttpClient {
             return body
         } catch (error: Throwable) {
             val elapsedMs = elapsedMs(startedAtNs)
-            val normalized = normalizeTransportError(error, timeoutMs, elapsedMs)
-            if (isTransportFailure(error)) {
+            val normalized = normalizeTransportError(error, effectiveTimeoutMs, elapsedMs)
+            if (isTransportFailure(error) || isRetryableServiceFailure(error)) {
                 rememberTransportFailure(url, normalized)
             }
             owned.completeExceptionally(normalized)
@@ -121,6 +122,21 @@ internal object StockHttpClient {
         } finally {
             inFlight.remove(url, owned)
         }
+    }
+
+    private fun effectiveTimeoutMs(url: String, requestedTimeoutMs: Int): Int {
+        val routeCapMs = when {
+            "/api/stock/a-share/realtime" in url -> 2_300
+            "/api/stock/a-share/quotes" in url -> 3_200
+            "/api/stock/a-share/market/home" in url -> 4_500
+            "/api/stock/a-share/kline" in url -> 6_500
+            "/api/stock/a-share/stock/full" in url -> 8_000
+            "/api/stock/a-share/detail" in url && "mode=full" in url -> 8_000
+            "/api/stock/a-share/detail" in url -> 4_000
+            "/api/stock/crawl/a-share" in url -> 6_500
+            else -> 6_500
+        }
+        return requestedTimeoutMs.coerceAtMost(routeCapMs).coerceAtLeast(MIN_REQUEST_TIMEOUT_MS)
     }
 
     private fun normalizeTransportError(
@@ -151,6 +167,13 @@ internal object StockHttpClient {
             error is SSLException ||
             error is SocketTimeoutException ||
             error is InterruptedIOException
+    }
+
+    private fun isRetryableServiceFailure(error: Throwable): Boolean {
+        val message = error.message.orEmpty()
+        if (!message.startsWith("HTTP ")) return false
+        val status = message.removePrefix("HTTP ").takeWhile(Char::isDigit).toIntOrNull() ?: return false
+        return status == 408 || status == 425 || status == 429 || status in 500..599
     }
 
     private fun rememberTransportFailure(url: String, error: Throwable) {
@@ -211,6 +234,7 @@ internal object StockHttpClient {
     }
 
     private const val DEFAULT_MICRO_CACHE_MS = 220L
+    private const val MIN_REQUEST_TIMEOUT_MS = 700
     private const val SHARED_WAIT_GRACE_MS = 250L
     private const val TRANSPORT_FAILURE_COOLDOWN_MS = 2_500L
     private const val MAX_RECENT_RESPONSES = 64
