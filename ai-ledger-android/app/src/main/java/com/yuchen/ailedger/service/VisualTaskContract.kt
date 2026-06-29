@@ -232,22 +232,24 @@ data class VisualTaskMemory(
         val effectiveFailedHypotheses = if (effectiveInvalidation) emptyList() else failedHypotheses
         val effectiveBlockedActions = if (runtimeUpdates.isNotEmpty() || effectivePending) emptyList() else blockedActions
         val effectiveContract = taskContract?.copy(taskRevision = maxOf(taskContract.taskRevision, effectiveRevision))
-        val effectiveReasoning = reasoningContext ?: VisualReasoningPolicy.evaluate(
-            copy(
-                failedHypotheses = effectiveFailedHypotheses,
-                blockedActions = effectiveBlockedActions,
-                progressStatus = effectiveProgress,
-                replanRequested = effectiveReplan,
-                recoveryMode = recoveryMode || effectivePending,
-                taskContract = effectiveContract,
-                taskRevision = effectiveRevision,
-                taskRevisionPending = effectivePending,
-                currentMilestoneInvalidated = effectiveInvalidation,
-                latestUserUpdate = effectiveLatest,
-                userUpdateHistory = effectiveHistory,
-                reasoningContext = null,
-            ),
-        )
+        val effectiveReasoning = reasoningContext
+            ?: VisualReasoningRuntime.currentOrNull()
+            ?: VisualReasoningPolicy.evaluate(
+                copy(
+                    failedHypotheses = effectiveFailedHypotheses,
+                    blockedActions = effectiveBlockedActions,
+                    progressStatus = effectiveProgress,
+                    replanRequested = effectiveReplan,
+                    recoveryMode = recoveryMode || effectivePending,
+                    taskContract = effectiveContract,
+                    taskRevision = effectiveRevision,
+                    taskRevisionPending = effectivePending,
+                    currentMilestoneInvalidated = effectiveInvalidation,
+                    latestUserUpdate = effectiveLatest,
+                    userUpdateHistory = effectiveHistory,
+                    reasoningContext = null,
+                ),
+            )
 
         return JSONObject().apply {
             put("schema", "visual_task_memory_v3_adaptive_reasoning")
@@ -272,7 +274,7 @@ data class VisualTaskMemory(
             put("userUpdateHistory", JSONArray().apply { effectiveHistory.forEach { put(it.toJson()) } })
             put("reasoningContext", effectiveReasoning.toJson())
             put("reasoningDepth", effectiveReasoning.depth.wireValue)
-            put("reasoningTriggers", JSONArray(effectiveReasoning.triggers.map(VisualReasoningTrigger::wireValue)))
+            put("reasoningTriggers", JSONArray(effectiveReasoning.triggers.map { it.wireValue }))
         }
     }
 }
