@@ -2,6 +2,7 @@ package com.yuchen.ailedger
 
 import android.app.Application
 import android.content.Context
+import com.yuchen.ailedger.data.StockMarketDataRepository
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
@@ -43,6 +44,15 @@ class AiLedgerApplication : Application() {
                 }
                 visualDiagnostics.observeProgress(progress)
             }
+        }
+
+        // 股票代理使用 Render 免费实例，长时间空闲后可能休眠。必须等首屏与 OpenGL 初始化完成，
+        // 再用独立 IO 任务无阻塞预热，避免网络唤醒与首屏渲染争抢资源。
+        applicationScope.launch(Dispatchers.IO) {
+            withTimeoutOrNull(5_000L) {
+                StartupPerformanceGate.awaitDeferredBusinessWindow()
+            }
+            StockMarketDataRepository.prewarmMarketHome()
         }
     }
 
