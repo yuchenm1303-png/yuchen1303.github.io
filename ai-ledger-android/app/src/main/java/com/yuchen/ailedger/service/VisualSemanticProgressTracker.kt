@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import java.security.MessageDigest
 import org.json.JSONObject
 
 /**
@@ -88,9 +89,28 @@ class VisualSemanticProgressTracker(
         if (contract == null) return
         syncRuntimeUserUpdates()
         val previousContract = taskContract
+        val transition = VisualTaskContractProtocol.validateTransition(previousContract, contract)
+        if (!transition.accepted) {
+            structuralReplanRequested = true
+            lastProgressStatus = "task_contract_transition_rejected"
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+                type = "task_contract_transition_rejected",
+                details = JSONObject().apply {
+                    put("code", transition.code)
+                    put("message", transition.message)
+                    put("committedStateChanged", false)
+                    put("previousRevision", previousContract?.taskRevision ?: JSONObject.NULL)
+                    put("incomingRevision", contract.taskRevision)
+                    put("semanticDecisionOwner", "gui_plus")
+                    put("localSemanticDecision", false)
+                },
+            )
+            return
+        }
         val previousMilestoneId = currentMilestoneId
         val normalized = mergeTaskContracts(previousContract, contract, fallbackGoal)
         taskContract = normalized
+        VisualCommittedTaskContractRuntime.commit(normalized)
         currentMilestoneId = normalized.currentMilestoneId.ifBlank { DEFAULT_MILESTONE_ID }
         completedMilestoneIds += normalized.completedMilestoneIds
         completedMilestoneIds += normalized.milestones.filter { it.completed }.map { it.id }
@@ -185,8 +205,8 @@ class VisualSemanticProgressTracker(
         structuralRegressionConfirmed: Boolean = false,
     ): VisualSemanticProgressResult {
         syncRuntimeUserUpdates()
-        val beforeFingerprint = VisualActionValidator.snapshotFingerprint(before)
-        val afterFingerprint = VisualActionValidator.snapshotFingerprint(after)
+        val beforeFingerprint = VisualObservationProtocol.actionContextFingerprint(before)
+        val afterFingerprint = VisualObservationProtocol.actionContextFingerprint(after)
         val frameChanged = beforeFingerprint != afterFingerprint
         val packageChanged = before.packageName != after.packageName
         val structuralRegression = structuralRegressionConfirmed && verifiedTargetPackage.isNotBlank()
@@ -338,6 +358,7 @@ class VisualSemanticProgressTracker(
         lastProgressStatus = "user_update_consumed_by_plan"
         step?.milestoneId?.trim()?.takeIf(String::isNotBlank)?.let { currentMilestoneId = it.take(100) }
         taskContract = taskContract?.copy(taskRevision = maxOf(taskContract?.taskRevision ?: 0, taskRevision))
+        taskContract?.let(VisualCommittedTaskContractRuntime::commit)
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "user_task_update_consumed",
             details = JSONObject().apply {
@@ -397,17 +418,22 @@ class VisualSemanticProgressTracker(
     }
 
     private fun structuralFrame(snapshot: AgentScreenSnapshot): VisualPageState {
-        val fingerprint = VisualActionValidator.completionFingerprint(snapshot)
+        val fingerprint = VisualObservationProtocol.actionContextFingerprint(snapshot)
         return VisualPageState(
-            id = "frame-${Integer.toHexString(fingerprint.hashCode())}",
+            id = "frame-${sha256(fingerprint).take(FRAME_ID_DIGEST_CHARS)}",
             packageName = snapshot.packageName.take(120),
             summary = "",
         )
     }
 
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
+
     companion object {
         private const val DEFAULT_MILESTONE_ID = "work_surface"
         private const val MAX_MEMORY_ITEMS = 24
         private const val MAX_USER_UPDATES = 8
+        private const val FRAME_ID_DIGEST_CHARS = 24
     }
 }
