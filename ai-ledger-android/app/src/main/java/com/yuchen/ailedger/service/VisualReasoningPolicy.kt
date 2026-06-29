@@ -49,7 +49,7 @@ data class VisualReasoningContext(
     fun toJson(): JSONObject = JSONObject().apply {
         put("schema", "visual_reasoning_context_v1")
         put("depth", depth.wireValue)
-        put("triggers", JSONArray(triggers.map(VisualReasoningTrigger::wireValue)))
+        put("triggers", JSONArray(triggers.map { it.wireValue }))
         put("noProgressCount", noProgressCount)
         put("sameActionCount", sameActionCount)
         put("executionFailureCount", executionFailureCount)
@@ -68,7 +68,7 @@ data class VisualReasoningContext(
     fun toPromptLine(): String = buildString {
         append(PROMPT_PREFIX)
         append("depth=").append(depth.wireValue)
-        append("|triggers=").append(triggers.joinToString(",", transform = VisualReasoningTrigger::wireValue))
+        append("|triggers=").append(triggers.joinToString(",") { it.wireValue })
         append("|noProgressCount=").append(noProgressCount)
         append("|sameActionCount=").append(sameActionCount)
         append("|executionFailureCount=").append(executionFailureCount)
@@ -114,19 +114,21 @@ internal object VisualReasoningPolicy {
         val entityConflict = activeActions.any(String::isEntityConflictEvidence)
         val conflictingEvidence = activeActions.hasConflictingEvidence()
         val latestUpdateKind = memory.latestUserUpdate?.kind
-        val userCorrection = memory.taskRevisionPending && latestUpdateKind in setOf(
-            VisualUserTaskUpdateKind.Correction,
-            VisualUserTaskUpdateKind.GoalRevision,
-            VisualUserTaskUpdateKind.CancelSubgoal,
+        val userCorrection = memory.taskRevisionPending && (
+            memory.currentMilestoneInvalidated || latestUpdateKind in setOf(
+                VisualUserTaskUpdateKind.Correction,
+                VisualUserTaskUpdateKind.GoalRevision,
+                VisualUserTaskUpdateKind.CancelSubgoal,
+            )
         )
-        val userSupplement = memory.taskRevisionPending && latestUpdateKind in setOf(
+        val userSupplement = memory.taskRevisionPending && !userCorrection && latestUpdateKind in setOf(
             VisualUserTaskUpdateKind.Supplement,
             VisualUserTaskUpdateKind.ManualStepCompleted,
         )
         val budgetKnown = !memory.legacyMode || memory.taskContract != null
         val budgetExhausted = budgetKnown && memory.remainingExplorationBudget <= 0
         val budgetTight = budgetKnown && memory.remainingExplorationBudget == 1
-        val recovery = memory.replanRequested || memory.recoveryMode
+        val recovery = !memory.taskRevisionPending && (memory.replanRequested || memory.recoveryMode)
 
         val triggerSet = linkedSetOf<VisualReasoningTrigger>()
         when {
@@ -207,7 +209,7 @@ internal object VisualReasoningPolicy {
         return buildString {
             append(DEEP_REPLAN_PREFIX)
             append("reasoningDepth=deep")
-            append("|triggers=").append(context.triggers.joinToString(",", transform = VisualReasoningTrigger::wireValue))
+            append("|triggers=").append(context.triggers.joinToString(",") { it.wireValue })
             append("|semanticStatus=adaptive_deep")
             append("|requiresStrategyChange=true")
             append("|replanRequired=true")
