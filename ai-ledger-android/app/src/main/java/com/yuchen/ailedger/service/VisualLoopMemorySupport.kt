@@ -45,7 +45,13 @@ internal object VisualLoopMemorySupport {
      * never derives page meaning, expected evidence or milestone semantics from labels or user text.
      */
     fun replaceMemoryLine(actions: MutableList<String>, memory: VisualTaskMemory) {
-        actions.removeAll { it.startsWith(LEDGER_PREFIX) || it.startsWith(LEGACY_MEMORY_PREFIX) }
+        val reasoning = VisualReasoningPolicy.evaluate(memory, actions)
+        actions.removeAll {
+            it.startsWith(LEDGER_PREFIX) ||
+                it.startsWith(LEGACY_MEMORY_PREFIX) ||
+                it.startsWith(VisualReasoningContext.PROMPT_PREFIX) ||
+                it.startsWith(VisualReasoningPolicy.DEEP_REPLAN_PREFIX)
+        }
         VisualLoopSupport.appendRecent(
             actions,
             buildString {
@@ -62,12 +68,15 @@ internal object VisualLoopMemorySupport {
                 append("|taskRevisionPending=").append(memory.taskRevisionPending)
                 append("|currentMilestoneInvalidated=").append(memory.currentMilestoneInvalidated)
                 append("|latestUserUpdateKind=").append(memory.latestUserUpdate?.kind?.wireValue.orEmpty())
+                append("|reasoningDepth=").append(reasoning.depth.wireValue)
                 append("|replanRequested=").append(memory.replanRequested)
                 append("|recoveryMode=").append(memory.recoveryMode)
                 append("|semanticDecisionOwner=gui_plus")
                 append("|localSemanticDecision=false")
             },
         )
+        VisualLoopSupport.appendRecent(actions, reasoning.toPromptLine())
+        VisualReasoningPolicy.deepReplanLine(reasoning)?.let { VisualLoopSupport.appendRecent(actions, it) }
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "task_memory",
             details = JSONObject().apply {
@@ -93,7 +102,12 @@ internal object VisualLoopMemorySupport {
                 put("currentMilestoneInvalidated", memory.currentMilestoneInvalidated)
                 put("latestUserUpdateRevision", memory.latestUserUpdate?.revision ?: 0)
                 put("latestUserUpdateKind", memory.latestUserUpdate?.kind?.wireValue.orEmpty())
+                put("reasoningContext", reasoning.toJson())
             },
+        )
+        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
+            type = "reasoning_context",
+            details = reasoning.toJson(),
         )
     }
 
