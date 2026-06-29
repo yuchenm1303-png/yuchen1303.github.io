@@ -338,25 +338,25 @@ private fun StockNativeCommunityPanel(
         StockNativeGlassPanel(Modifier.fillMaxSize(), radius = 30.dp, contentPadding = 0.dp) {
             Column(Modifier.fillMaxSize()) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 13.dp),
+                    modifier = Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text("社区", color = Color.White.copy(alpha = 0.96f), fontSize = 17.sp, fontWeight = FontWeight.Black)
-                        Text("$name（$code）· 东方财富股吧只读社区", color = Color.White.copy(alpha = 0.36f), fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("社区", color = Color.White.copy(alpha = 0.96f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+                        Text("$name（$code）· 东方财富股吧只读社区", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    StockNativePill("刷新", false, Modifier.width(58.dp).height(29.dp), fontSize = 8, onClick = onRefresh)
+                    StockNativePill("刷新", false, Modifier.width(62.dp).height(31.dp), fontSize = 10, onClick = onRefresh)
                 }
                 StockDivider()
                 Row(
-                    Modifier.fillMaxWidth().height(43.dp).padding(horizontal = 14.dp),
+                    Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.Bottom,
                     horizontalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
                     NativeCommunitySortButton("最新发布", sort == "latest") { onSortChange("latest") }
                     NativeCommunitySortButton("热门", sort == "hot") { onSortChange("hot") }
                     Spacer(Modifier.weight(1f))
-                    Text("${ui.discussions.size.takeIf { it > 0 } ?: "等待数据"}", color = Color.White.copy(alpha = 0.30f), fontSize = 7.sp, modifier = Modifier.padding(bottom = 13.dp))
+                    Text("${ui.discussions.size.takeIf { it > 0 } ?: "等待数据"}", color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, modifier = Modifier.padding(bottom = 13.dp))
                 }
                 StockDivider()
                 if (posts.isEmpty()) {
@@ -378,7 +378,8 @@ private fun StockNativeCommunityPanel(
                                     else -> "已加载当前社区内容"
                                 },
                                 active = ui.discussionHasMore,
-                                modifier = Modifier.fillMaxWidth().height(36.dp),
+                                modifier = Modifier.fillMaxWidth().height(38.dp),
+                                fontSize = 10,
                                 onClick = { if (ui.discussionHasMore && !ui.discussionLoading) onLoadMore() }
                             )
                         }
@@ -391,9 +392,10 @@ private fun StockNativeCommunityPanel(
                         ui.discussions.isNotEmpty() -> "讨论 ${ui.discussions.size} 条 · 社区列表按需加载"
                         else -> "社区首次打开时才加载，不增加个股行情首屏开销。"
                     },
-                    color = Color.White.copy(alpha = 0.29f),
-                    fontSize = 7.sp,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
+                    color = Color.White.copy(alpha = 0.36f),
+                    fontSize = 9.sp,
+                    lineHeight = 13.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -403,27 +405,27 @@ private fun StockNativeCommunityPanel(
         Box(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 38.dp)
-                .size(48.dp)
+                .padding(end = 16.dp, bottom = 40.dp)
+                .size(50.dp)
                 .background(Brush.linearGradient(listOf(Color(0xFFFF405F), Color(0xFFFF1F49))), CircleShape)
                 .border(1.dp, Color.White.copy(alpha = 0.13f), CircleShape)
                 .clickable(onClick = onCompose),
             contentAlignment = Alignment.Center
         ) {
-            Text("✎", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Black)
+            Text("✎", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
         }
 
         if (readOnlyMessage) {
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 92.dp)
+                    .padding(bottom = 94.dp)
                     .background(Color(0xF2040713), StockPillShape)
                     .border(1.dp, Color.White.copy(alpha = 0.10f), StockPillShape)
                     .clickable(onClick = onDismissMessage)
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 13.dp, vertical = 9.dp)
             ) {
-                Text("当前为只读社区，暂不支持登录、发帖或回复", color = Color.White.copy(alpha = 0.78f), fontSize = 8.sp)
+                Text("当前为只读社区，暂不支持登录、发帖或回复", color = Color.White.copy(alpha = 0.82f), fontSize = 10.sp)
             }
         }
     }
@@ -432,12 +434,12 @@ private fun StockNativeCommunityPanel(
 @Composable
 private fun NativeCommunitySortButton(text: String, active: Boolean, onClick: () -> Unit) {
     Column(
-        Modifier.width(if (text.length > 2) 62.dp else 38.dp).fillMaxHeight().clickable(onClick = onClick),
+        Modifier.width(if (text.length > 2) 70.dp else 44.dp).fillMaxHeight().clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Bottom
     ) {
-        Text(text, color = Color.White.copy(alpha = if (active) 0.94f else 0.40f), fontSize = 10.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 10.dp))
-        Box(Modifier.width(if (active) 28.dp else 0.dp).height(3.dp).background(if (active) Color(0xFFFF3458) else Color.Transparent, StockPillShape))
+        Text(text, color = Color.White.copy(alpha = if (active) 0.94f else 0.44f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(bottom = 10.dp))
+        Box(Modifier.width(if (active) 30.dp else 0.dp).height(3.dp).background(if (active) Color(0xFFFF3458) else Color.Transparent, StockPillShape))
     }
 }
 
@@ -454,17 +456,17 @@ private fun NativeCommunityPostCard(
             .background(Color(0xF214182A), RoundedCornerShape(16.dp))
             .border(1.dp, Color.White.copy(alpha = 0.055f), RoundedCornerShape(16.dp))
             .clickable { onOpenPost(post.postId) }
-            .padding(horizontal = 12.dp, vertical = 11.dp),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            StockTextAvatar(post.author, Modifier.size(38.dp))
-            Spacer(Modifier.width(9.dp))
+            StockTextAvatar(post.author, Modifier.size(40.dp))
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(post.author, color = Color.White.copy(alpha = 0.91f), fontSize = 11.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(post.updatedAt.ifBlank { "时间未知" }, color = Color.White.copy(alpha = 0.34f), fontSize = 7.sp)
+                Text(post.author, color = Color.White.copy(alpha = 0.93f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(post.updatedAt.ifBlank { "时间未知" }, color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp)
             }
-            Text("•••", color = Color.White.copy(alpha = 0.32f), fontSize = 16.sp)
+            Text("•••", color = Color.White.copy(alpha = 0.35f), fontSize = 17.sp)
         }
         Text(
             buildString {
@@ -475,12 +477,12 @@ private fun NativeCommunityPostCard(
                 append(")$ ")
                 append(post.title.replace(Regex("^\\$[^$]{1,48}\\$\\s*"), ""))
             },
-            color = Color.White.copy(alpha = 0.82f),
-            fontSize = 11.sp,
-            lineHeight = 18.sp
+            color = Color.White.copy(alpha = 0.86f),
+            fontSize = 13.sp,
+            lineHeight = 21.sp
         )
         Row(
-            Modifier.fillMaxWidth().height(30.dp).border(0.dp, Color.Transparent),
+            Modifier.fillMaxWidth().height(34.dp).border(0.dp, Color.Transparent),
             verticalAlignment = Alignment.CenterVertically
         ) {
             NativeFeedAction("↗", "分享", Modifier.weight(1f))
@@ -488,14 +490,14 @@ private fun NativeCommunityPostCard(
             NativeFeedAction("♡", "阅读 ${compactCount(post.readCount)}", Modifier.weight(1f))
         }
         Text(
-            if (post.commentCount > 0) "网友讨论：已有 ${compactCount(post.commentCount)} 条评论，进入详情后按需加载" else "点击进入独立帖子详情页查看正文",
-            color = Color.White.copy(alpha = 0.44f),
-            fontSize = 8.sp,
-            lineHeight = 13.sp,
+            if (post.commentCount > 0) "网友讨论：已有 ${compactCount(post.commentCount)} 条评论，进入详情后自动加载" else "点击进入独立帖子详情页查看正文",
+            color = Color.White.copy(alpha = 0.50f),
+            fontSize = 10.sp,
+            lineHeight = 16.sp,
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color.White.copy(alpha = 0.033f), RoundedCornerShape(10.dp))
-                .padding(horizontal = 9.dp, vertical = 8.dp)
+                .padding(horizontal = 10.dp, vertical = 9.dp)
         )
     }
 }
@@ -503,9 +505,9 @@ private fun NativeCommunityPostCard(
 @Composable
 private fun NativeFeedAction(icon: String, label: String, modifier: Modifier) {
     Row(modifier.fillMaxHeight(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        Text(icon, color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+        Text(icon, color = Color.White.copy(alpha = 0.60f), fontSize = 13.sp)
         Spacer(Modifier.width(5.dp))
-        Text(label, color = Color.White.copy(alpha = 0.38f), fontSize = 8.sp, maxLines = 1)
+        Text(label, color = Color.White.copy(alpha = 0.45f), fontSize = 10.sp, maxLines = 1)
     }
 }
 
@@ -520,6 +522,13 @@ internal fun StockNativePostScreen(
 ) {
     val page = ui.postDetail
     val post = page?.post
+
+    LaunchedEffect(post?.postId) {
+        if (post != null && !ui.commentsLoaded && !ui.commentsLoading) {
+            onLoadComments(false)
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 4.dp, end = 4.dp, top = 12.dp, bottom = 112.dp),
@@ -531,36 +540,50 @@ internal fun StockNativePostScreen(
                 if (post == null) {
                     StockLoadingOrError(ui.postLoading, ui.postError, "帖子正文暂不可用", Modifier.height(220.dp))
                 } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            StockTextAvatar(post.author, Modifier.size(42.dp))
-                            Spacer(Modifier.width(10.dp))
+                            StockTextAvatar(post.author, Modifier.size(44.dp))
+                            Spacer(Modifier.width(11.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(post.author, color = Color.White.copy(alpha = 0.94f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-                                Text(post.publishedAt.ifBlank { "时间未知" }, color = Color.White.copy(alpha = 0.34f), fontSize = 8.sp)
+                                Text(post.author, color = Color.White.copy(alpha = 0.94f), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                                Text(post.publishedAt.ifBlank { "时间未知" }, color = Color.White.copy(alpha = 0.40f), fontSize = 10.sp)
                             }
-                            Text("•••", color = Color.White.copy(alpha = 0.32f), fontSize = 16.sp)
+                            Text("•••", color = Color.White.copy(alpha = 0.34f), fontSize = 17.sp)
                         }
-                        Text("$${page.name.ifBlank { code }}($code)$", color = Color(0xFF7DA2FF), fontSize = 11.sp, fontWeight = FontWeight.Black)
-                        Text(post.title.ifBlank { "股吧讨论" }, color = Color.White.copy(alpha = 0.96f), fontSize = 18.sp, lineHeight = 25.sp, fontWeight = FontWeight.Black)
-                        Text(post.content.ifBlank { "该帖子没有返回可展示的纯文本正文。" }, color = Color.White.copy(alpha = 0.77f), fontSize = 11.sp, lineHeight = 19.sp)
+                        Text("$${page.name.ifBlank { code }}($code)$", color = Color(0xFF7DA2FF), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                        Text(post.title.ifBlank { "股吧讨论" }, color = Color.White.copy(alpha = 0.96f), fontSize = 20.sp, lineHeight = 28.sp, fontWeight = FontWeight.Black)
+                        Text(post.content.ifBlank { "该帖子没有返回可展示的纯文本正文。" }, color = Color.White.copy(alpha = 0.80f), fontSize = 13.sp, lineHeight = 22.sp)
                         Text(
                             "社区内容来自公开股吧，仅代表发布者个人观点，不构成投资建议。",
-                            color = StockYellow.copy(alpha = 0.60f),
-                            fontSize = 7.sp,
-                            lineHeight = 12.sp,
+                            color = StockYellow.copy(alpha = 0.66f),
+                            fontSize = 9.sp,
+                            lineHeight = 14.sp,
                             modifier = Modifier.fillMaxWidth().background(StockYellow.copy(alpha = 0.045f), RoundedCornerShape(13.dp)).border(1.dp, StockYellow.copy(alpha = 0.10f), RoundedCornerShape(13.dp)).padding(horizontal = 10.dp, vertical = 9.dp)
                         )
-                        Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().height(40.dp), verticalAlignment = Alignment.CenterVertically) {
                             NativeFeedAction("↗", "分享", Modifier.weight(1f))
                             Row(
-                                Modifier.weight(1f).fillMaxHeight().clickable { onLoadComments(false) },
+                                Modifier.weight(1f).fillMaxHeight().clickable { onLoadComments(ui.commentsLoaded || !ui.commentsError.isNullOrBlank()) },
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.Center
                             ) {
-                                Text("◯", color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp)
+                                Text("◯", color = Color.White.copy(alpha = 0.62f), fontSize = 13.sp)
                                 Spacer(Modifier.width(5.dp))
-                                Text(if (ui.commentsLoaded) "评论 ${ui.comments.size}" else "查看评论", color = if (ui.commentsLoaded) StockAqua else Color.White.copy(alpha = 0.40f), fontSize = 8.sp)
+                                Text(
+                                    when {
+                                        ui.commentsLoading -> "加载中"
+                                        !ui.commentsError.isNullOrBlank() -> "重试评论"
+                                        ui.commentsLoaded -> "评论 ${ui.comments.size}"
+                                        else -> "查看评论"
+                                    },
+                                    color = when {
+                                        ui.commentsLoading -> StockYellow
+                                        !ui.commentsError.isNullOrBlank() -> StockRise
+                                        ui.commentsLoaded -> StockAqua
+                                        else -> Color.White.copy(alpha = 0.48f)
+                                    },
+                                    fontSize = 10.sp
+                                )
                             }
                             NativeFeedAction("♡", "赞 ${compactCount(post.likeCount)}", Modifier.weight(1f))
                         }
@@ -570,32 +593,85 @@ internal fun StockNativePostScreen(
         }
         item {
             StockNativeGlassPanel(Modifier.fillMaxWidth(), radius = 28.dp) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StockSectionTitle("网友评论", "点击后才加载，不随帖子正文预取", if (ui.commentsLoaded) "${ui.comments.size} 条" else "未加载")
+                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                    StockSectionTitle(
+                        "网友评论",
+                        "进入帖子详情后自动加载，失败时可以直接重试",
+                        when {
+                            ui.commentsLoading -> "加载中"
+                            !ui.commentsError.isNullOrBlank() -> "加载失败"
+                            ui.commentsLoaded -> "${ui.comments.size} 条"
+                            else -> "等待加载"
+                        }
+                    )
                     StockDivider()
                     when {
-                        !ui.commentsLoaded -> {
+                        ui.commentsLoading && ui.comments.isEmpty() -> {
+                            StockLoadingOrError(true, null, "正在加载网友评论", Modifier.height(160.dp))
+                        }
+                        !ui.commentsError.isNullOrBlank() && ui.comments.isEmpty() -> {
                             Column(
-                                Modifier.fillMaxWidth().height(180.dp),
+                                Modifier.fillMaxWidth().height(184.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.Center
                             ) {
-                                Text("查看这篇帖子的网友评论", color = Color.White.copy(alpha = 0.86f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-                                Text("评论内容将在点击后单独请求", color = Color.White.copy(alpha = 0.36f), fontSize = 8.sp, modifier = Modifier.padding(top = 5.dp))
-                                StockNativePill("加载评论", true, Modifier.width(104.dp).height(34.dp).padding(top = 14.dp)) { onLoadComments(false) }
+                                Text("评论加载失败", color = StockRise, fontSize = 14.sp, fontWeight = FontWeight.Black)
+                                Text(
+                                    ui.commentsError,
+                                    color = Color.White.copy(alpha = 0.50f),
+                                    fontSize = 10.sp,
+                                    lineHeight = 15.sp,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                                StockNativePill("重新加载评论", true, Modifier.width(126.dp).height(38.dp), fontSize = 10) {
+                                    onLoadComments(true)
+                                }
                             }
                         }
-                        ui.comments.isEmpty() -> StockLoadingOrError(ui.commentsLoading, ui.commentsError, "帖子正文已加载，但当前页面没有返回公开评论", Modifier.height(160.dp))
+                        !ui.commentsLoaded -> {
+                            Column(
+                                Modifier.fillMaxWidth().height(170.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text("正在准备网友评论", color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                                Text("评论会在正文加载完成后自动请求", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp))
+                                StockNativePill("立即加载", true, Modifier.width(108.dp).height(36.dp).padding(top = 13.dp), fontSize = 10) { onLoadComments(false) }
+                            }
+                        }
+                        ui.comments.isEmpty() -> {
+                            Column(
+                                Modifier.fillMaxWidth().height(170.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text("当前页面没有返回公开评论", color = Color.White.copy(alpha = 0.82f), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                                Text("可以重新请求一次，确认不是临时上游异常", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+                                StockNativePill("重新检查评论", true, Modifier.width(126.dp).height(38.dp), fontSize = 10) { onLoadComments(true) }
+                            }
+                        }
                         else -> {
                             ui.comments.forEach { comment ->
                                 NativeCommentRow(comment)
                                 StockDivider()
                             }
+                            if (!ui.commentsError.isNullOrBlank()) {
+                                Text(
+                                    "后续评论加载失败：${ui.commentsError}",
+                                    color = StockRise.copy(alpha = 0.80f),
+                                    fontSize = 10.sp,
+                                    lineHeight = 15.sp
+                                )
+                            }
                             if (ui.commentsHasMore) {
                                 StockNativePill(
                                     text = if (ui.commentsLoading) "加载中…" else "加载更多评论",
                                     active = true,
-                                    modifier = Modifier.fillMaxWidth().height(34.dp),
+                                    modifier = Modifier.fillMaxWidth().height(38.dp),
+                                    fontSize = 10,
                                     onClick = { if (!ui.commentsLoading) onLoadComments(false) }
                                 )
                             }
@@ -607,16 +683,16 @@ internal fun StockNativePostScreen(
         item {
             Text(
                 when {
-                    ui.postLoading -> "正在加载正文：评论接口尚未请求。"
-                    ui.commentsLoading -> "正在加载评论：这是用户点击后的独立请求。"
+                    ui.postLoading -> "正在加载正文：评论会在正文完成后自动请求。"
+                    ui.commentsLoading -> "正在加载评论：独立请求不会阻塞正文显示。"
                     !ui.postError.isNullOrBlank() -> "正文加载失败：${ui.postError}"
                     !ui.commentsError.isNullOrBlank() -> "评论加载失败：${ui.commentsError}"
                     ui.commentsLoaded -> "正文与评论已加载 · 评论 ${ui.comments.size} 条"
-                    else -> "帖子正文已加载 · 评论尚未请求"
+                    else -> "帖子正文已加载 · 正在准备评论请求"
                 },
-                color = Color.White.copy(alpha = 0.40f),
-                fontSize = 8.sp,
-                lineHeight = 13.sp,
+                color = Color.White.copy(alpha = 0.46f),
+                fontSize = 10.sp,
+                lineHeight = 15.sp,
                 modifier = Modifier.padding(horizontal = 2.dp)
             )
         }
@@ -625,25 +701,25 @@ internal fun StockNativePostScreen(
 
 @Composable
 private fun NativeCommentRow(comment: StockNativeDiscussionComment) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(comment.author, color = StockAqua.copy(alpha = 0.78f), fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(comment.publishedAt, color = Color.White.copy(alpha = 0.30f), fontSize = 7.sp)
+            Text(comment.author, color = StockAqua.copy(alpha = 0.84f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(comment.publishedAt, color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp)
         }
-        Text(comment.content, color = Color.White.copy(alpha = 0.72f), fontSize = 9.sp, lineHeight = 15.sp)
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("赞 ${compactCount(comment.likeCount)}", color = Color.White.copy(alpha = 0.31f), fontSize = 7.sp)
-            Text("回复 ${compactCount(comment.replyCount)}", color = Color.White.copy(alpha = 0.31f), fontSize = 7.sp)
+        Text(comment.content, color = Color.White.copy(alpha = 0.78f), fontSize = 12.sp, lineHeight = 19.sp)
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("赞 ${compactCount(comment.likeCount)}", color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp)
+            Text("回复 ${compactCount(comment.replyCount)}", color = Color.White.copy(alpha = 0.40f), fontSize = 9.sp)
         }
         if (comment.replies.isNotEmpty()) {
             Column(
-                Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.027f), RoundedCornerShape(0.dp, 10.dp, 10.dp, 0.dp)).border(width = 2.dp, color = StockAqua.copy(alpha = 0.15f), shape = RoundedCornerShape(0.dp, 10.dp, 10.dp, 0.dp)).padding(horizontal = 9.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp)
+                Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.027f), RoundedCornerShape(0.dp, 10.dp, 10.dp, 0.dp)).border(width = 2.dp, color = StockAqua.copy(alpha = 0.15f), shape = RoundedCornerShape(0.dp, 10.dp, 10.dp, 0.dp)).padding(horizontal = 11.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
             ) {
                 comment.replies.take(8).forEach { reply ->
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(reply.author, color = StockAqua.copy(alpha = 0.66f), fontSize = 7.sp, fontWeight = FontWeight.Black)
-                        Text(reply.content, color = Color.White.copy(alpha = 0.58f), fontSize = 8.sp, lineHeight = 13.sp)
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(reply.author, color = StockAqua.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        Text(reply.content, color = Color.White.copy(alpha = 0.66f), fontSize = 11.sp, lineHeight = 17.sp)
                     }
                 }
             }
