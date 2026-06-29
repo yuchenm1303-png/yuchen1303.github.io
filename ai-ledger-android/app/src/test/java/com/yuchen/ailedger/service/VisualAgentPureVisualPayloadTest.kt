@@ -31,8 +31,10 @@ class VisualAgentPureVisualPayloadTest {
         assertEquals(0, feedback.getInt("noProgressCount"))
         assertEquals(0, feedback.getJSONArray("blockedActionSignatures").length())
         val taskMemory = payload.getJSONObject("agentMemory").getJSONObject("taskMemory")
-        assertEquals("visual_task_memory_v4_visual_authority", taskMemory.getString("schema"))
+        assertEquals("visual_task_memory_v5_transactional_visual_authority", taskMemory.getString("schema"))
         assertFalse(taskMemory.getBoolean("localProgressClassification"))
+        assertTrue(taskMemory.getBoolean("transactionalCompletion"))
+        assertFalse(taskMemory.getBoolean("provisionalStateCommitted"))
         assertEquals(0, taskMemory.getJSONArray("failedHypotheses").length())
         assertEquals(0, taskMemory.getJSONArray("blockedActions").length())
     }
