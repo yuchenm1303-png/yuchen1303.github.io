@@ -5,7 +5,6 @@ import android.content.Context
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
-import com.yuchen.ailedger.ui.InlineStickerAssets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,20 +12,19 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class AiLedgerApplication : Application() {
-    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override fun onCreate() {
         super.onCreate()
         appContext = applicationContext
-        InlineStickerAssets.warmUpAll()
-        val visualDiagnostics = VisualIntelligenceDiagnosticsStore.get(applicationContext)
+
+        // 内置表情由真实消息按需加载。冷启动阶段禁止全量解压、解码 19 张 WebP，
+        // 避免与首页 Compose 入场、背景纹理生成和 OpenGL 首次编译争抢 CPU 与内存带宽。
         applicationScope.launch {
+            // 诊断存储会读取 SharedPreferences、创建线程并扫描历史目录，全部移出主线程。
+            val visualDiagnostics = VisualIntelligenceDiagnosticsStore.get(applicationContext)
             AgentRuntimeController.progress.collectLatest { progress ->
-                // The interactive floating window stays manual except for a new GUI Plus request
-                // that explicitly needs user input/help. The visual HUD is owned by the connected
-                // accessibility service and does not need an application-level service launch.
                 AgentOverlayService.syncForProgress(this@AiLedgerApplication, progress)
-                // 阶段一只旁路记录任务状态，不参与任何模型、工作面或动作决策。
                 visualDiagnostics.observeProgress(progress)
             }
         }
