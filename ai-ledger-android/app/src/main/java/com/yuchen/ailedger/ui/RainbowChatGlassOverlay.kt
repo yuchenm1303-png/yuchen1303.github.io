@@ -39,40 +39,43 @@ private const val RAINBOW_PHASE_B_SECONDS = 13.7
 private const val RAINBOW_PHASE_C_SECONDS = 11.1
 private const val RAINBOW_TAU = PI * 2.0
 private const val RAINBOW_CORNER_RADIUS_PX = 30f
-private const val RAINBOW_ALPHA_NORMALIZER = 4.48f
+private const val RAINBOW_LAYER_A_ALPHA = 0.070f
+private const val RAINBOW_LAYER_B_ALPHA = 0.052f
+private const val RAINBOW_LAYER_C_ALPHA = 0.038f
+private const val RAINBOW_HALO_ALPHA = 0.074f
 private const val UNSET_FRAME_NANOS = Long.MIN_VALUE
 
 /*
- * 各层颜色只在类加载时构建一次。动态 overall / sweep / halo 通过 Paint alpha 统一缩放，
- * 与原来逐颜色 copy(alpha = coefficient * factor) 的结果等价，同时消除逐帧颜色列表分配。
+ * 每层颜色按该层最大 alpha 独立归一化，动态强度由 Paint alpha 一次性恢复。
+ * 这样既复用 Shader，又避免全局放大后再缩小造成的低透明度色阶损失。
  */
 private val RainbowLayerAColors = intArrayOf(
-    normalizedRainbowColor(0xFFFF62D8, 0.070f),
-    normalizedRainbowColor(0xFFFFD86E, 0.050f),
-    normalizedRainbowColor(0xFF55FFF0, 0.066f),
+    normalizedRainbowColor(0xFFFF62D8, 0.070f, RAINBOW_LAYER_A_ALPHA),
+    normalizedRainbowColor(0xFFFFD86E, 0.050f, RAINBOW_LAYER_A_ALPHA),
+    normalizedRainbowColor(0xFF55FFF0, 0.066f, RAINBOW_LAYER_A_ALPHA),
     Color.Transparent.toArgb(),
 )
 
 private val RainbowLayerBColors = intArrayOf(
-    normalizedRainbowColor(0xFF62FFF0, 0.052f),
-    normalizedRainbowColor(0xFF7F95FF, 0.050f),
-    normalizedRainbowColor(0xFFFF78E4, 0.035f),
+    normalizedRainbowColor(0xFF62FFF0, 0.052f, RAINBOW_LAYER_B_ALPHA),
+    normalizedRainbowColor(0xFF7F95FF, 0.050f, RAINBOW_LAYER_B_ALPHA),
+    normalizedRainbowColor(0xFFFF78E4, 0.035f, RAINBOW_LAYER_B_ALPHA),
     Color.Transparent.toArgb(),
 )
 
 private val RainbowLayerCColors = intArrayOf(
     Color.Transparent.toArgb(),
-    normalizedRainbowColor(0xFFFFE58A, 0.030f),
-    normalizedRainbowColor(0xFF76FFF2, 0.038f),
-    normalizedRainbowColor(0xFFFF7BE5, 0.026f),
+    normalizedRainbowColor(0xFFFFE58A, 0.030f, RAINBOW_LAYER_C_ALPHA),
+    normalizedRainbowColor(0xFF76FFF2, 0.038f, RAINBOW_LAYER_C_ALPHA),
+    normalizedRainbowColor(0xFFFF7BE5, 0.026f, RAINBOW_LAYER_C_ALPHA),
     Color.Transparent.toArgb(),
 )
 
 private val RainbowHaloColors = intArrayOf(
-    normalizedRainbowColor(0xFFFFFFFF, 0.045f),
-    normalizedRainbowColor(0xFF72FFF2, 0.074f),
-    normalizedRainbowColor(0xFFFF76DE, 0.054f),
-    normalizedRainbowColor(0xFF7B95FF, 0.044f),
+    normalizedRainbowColor(0xFFFFFFFF, 0.045f, RAINBOW_HALO_ALPHA),
+    normalizedRainbowColor(0xFF72FFF2, 0.074f, RAINBOW_HALO_ALPHA),
+    normalizedRainbowColor(0xFFFF76DE, 0.054f, RAINBOW_HALO_ALPHA),
+    normalizedRainbowColor(0xFF7B95FF, 0.044f, RAINBOW_HALO_ALPHA),
     Color.Transparent.toArgb(),
 )
 
@@ -174,7 +177,7 @@ private class RainbowChatGlassFilmNode(
     private var startFrameNanos = UNSET_FRAME_NANOS
     private var elapsedNanos = 0L
 
-    private val screenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val screenPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
         this.style = Paint.Style.FILL
         xfermode = PorterDuffXfermode(PorterDuff.Mode.SCREEN)
     }
@@ -324,6 +327,7 @@ private class RainbowChatGlassFilmNode(
                 width = width,
                 height = height,
                 alphaFactor = sweepAlphaFactor,
+                layerAlpha = RAINBOW_LAYER_A_ALPHA,
             )
             drawRadialFilm(
                 canvas = canvas,
@@ -335,6 +339,7 @@ private class RainbowChatGlassFilmNode(
                 width = width,
                 height = height,
                 alphaFactor = sweepAlphaFactor,
+                layerAlpha = RAINBOW_LAYER_B_ALPHA,
             )
             drawLinearFilm(
                 canvas = canvas,
@@ -345,6 +350,7 @@ private class RainbowChatGlassFilmNode(
                 width = width,
                 height = height,
                 alphaFactor = sweepAlphaFactor,
+                layerAlpha = RAINBOW_LAYER_C_ALPHA,
             )
         }
 
@@ -359,6 +365,7 @@ private class RainbowChatGlassFilmNode(
                 width = width,
                 height = height,
                 alphaFactor = haloAlphaFactor,
+                layerAlpha = RAINBOW_HALO_ALPHA,
             )
         }
     }
@@ -373,12 +380,13 @@ private class RainbowChatGlassFilmNode(
         width: Float,
         height: Float,
         alphaFactor: Float,
+        layerAlpha: Float,
     ) {
         matrix.reset()
         matrix.setScale(radius.coerceAtLeast(1f), radius.coerceAtLeast(1f))
         matrix.postTranslate(centerX, centerY)
         shader.setLocalMatrix(matrix)
-        drawShaderFilm(canvas, shader, width, height, alphaFactor)
+        drawShaderFilm(canvas, shader, width, height, alphaFactor, layerAlpha)
     }
 
     private fun drawLinearFilm(
@@ -390,6 +398,7 @@ private class RainbowChatGlassFilmNode(
         width: Float,
         height: Float,
         alphaFactor: Float,
+        layerAlpha: Float,
     ) {
         val dx = endX - startX
         val dy = endY - startY
@@ -404,7 +413,7 @@ private class RainbowChatGlassFilmNode(
         linearMatrixValues[8] = 1f
         linearMatrix.setValues(linearMatrixValues)
         linearShader.setLocalMatrix(linearMatrix)
-        drawShaderFilm(canvas, linearShader, width, height, alphaFactor)
+        drawShaderFilm(canvas, linearShader, width, height, alphaFactor, layerAlpha)
     }
 
     private fun drawShaderFilm(
@@ -413,10 +422,10 @@ private class RainbowChatGlassFilmNode(
         width: Float,
         height: Float,
         alphaFactor: Float,
+        layerAlpha: Float,
     ) {
         screenPaint.shader = shader
-        screenPaint.alpha = ((alphaFactor / RAINBOW_ALPHA_NORMALIZER).coerceIn(0f, 1f) * 255f)
-            .roundToInt()
+        screenPaint.alpha = ((alphaFactor * layerAlpha).coerceIn(0f, 1f) * 255f).roundToInt()
         if (screenPaint.alpha <= 0) return
         canvas.drawRoundRect(
             0f,
@@ -444,8 +453,13 @@ private class RainbowChatGlassFilmNode(
     }
 }
 
-private fun normalizedRainbowColor(argb: Long, coefficient: Float): Int =
-    Color(argb).copy(alpha = (coefficient * RAINBOW_ALPHA_NORMALIZER).coerceIn(0f, 1f)).toArgb()
+private fun normalizedRainbowColor(
+    argb: Long,
+    coefficient: Float,
+    layerMaxAlpha: Float,
+): Int = Color(argb)
+    .copy(alpha = (coefficient / layerMaxAlpha.coerceAtLeast(0.0001f)).coerceIn(0f, 1f))
+    .toArgb()
 
 private fun sinFloat(value: Double): Float = sin(value).toFloat()
 
