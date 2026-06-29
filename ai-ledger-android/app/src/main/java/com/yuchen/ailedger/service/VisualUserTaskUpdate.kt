@@ -37,14 +37,16 @@ data class VisualUserTaskUpdate(
     }
 
     fun toPromptLine(): String = buildString {
-        append("visual_task_revision:v1")
-        append("|revision=").append(revision)
+        append("visual_replan_requested:reason=user_task_revision")
+        append("|schema=visual_task_revision_v1")
+        append("|taskRevision=").append(revision)
         append("|kind=").append(kind.wireValue)
         append("|invalidateCurrentMilestone=").append(invalidatesCurrentMilestone)
         append("|invalidateVisualHistory=").append(invalidatesVisualHistory)
         append("|manualStepCompleted=").append(manualStepCompleted)
         append("|latestUserTurnAuthoritative=true")
         append("|completionCandidateInvalidated=true")
+        append("|semanticStatus=user_revision")
         append("|priority=highest")
         append("|replanRequired=true")
     }
