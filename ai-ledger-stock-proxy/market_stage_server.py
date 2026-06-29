@@ -15,7 +15,7 @@ app = home.app
 INDICES_PATH = "/api/stock/a-share/market/indices"
 BREADTH_PATH = "/api/stock/a-share/market/breadth"
 DISCOVERY_PATH = "/api/stock/a-share/market/discovery"
-STAGE_VERSION = "v2-priority-stages"
+STAGE_VERSION = "v3-priority-stages"
 BREADTH_REFRESH_SECONDS = 10.0
 DISCOVERY_REFRESH_SECONDS = 22.0
 
@@ -52,6 +52,25 @@ def _cache_is_fresh(
         legacy._cache_key(kind, query, mode),
         max_age_seconds,
     ) is not None
+
+
+def _cached_stage_module(
+    kind: str,
+    query: str,
+    mode: str,
+    name: str,
+    fresh_seconds: float,
+) -> dict[str, Any]:
+    key = legacy._cache_key(kind, query, mode)
+    fresh = legacy._cache_get(key, fresh_seconds)
+    if fresh is not None:
+        payload, age = fresh
+        return home._mark_cached_module(payload, age, stale=False)
+    stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
+    if stale is not None:
+        payload, age = stale
+        return home._mark_cached_module(payload, age, stale=True)
+    return home._module_unavailable(name, "waiting_for_background_refresh")
 
 
 def _breadth_refresh_due() -> bool:
@@ -129,37 +148,41 @@ def _cached_indices() -> dict[str, Any]:
             home._load_indices_parallel,
         )
     except Exception as exc:
-        return home._cached_or_unavailable(
+        return _cached_stage_module(
             "market",
             "indices",
             "full-parallel",
             f"indices:{type(exc).__name__}",
+            legacy.FAST_CACHE_SECONDS,
         )
 
 
 def _cached_breadth() -> dict[str, Any]:
-    return home._cached_or_unavailable(
+    return _cached_stage_module(
         "market",
         "breadth",
         "v1",
         "marketBreadth",
+        BREADTH_REFRESH_SECONDS,
     )
 
 
 def _cached_discovery_modules() -> dict[str, dict[str, Any]]:
     modules: dict[str, dict[str, Any]] = {}
     for module_name, (query, _, _) in home._RANKING_SPECS.items():
-        modules[module_name] = home._cached_or_unavailable(
+        modules[module_name] = _cached_stage_module(
             "ranking",
             query,
             "20",
             module_name,
+            DISCOVERY_REFRESH_SECONDS,
         )
-    modules["sectorHotRanking"] = home._cached_or_unavailable(
+    modules["sectorHotRanking"] = _cached_stage_module(
         "sectors",
         "industry",
         "20",
         "sectorHotRanking",
+        DISCOVERY_REFRESH_SECONDS,
     )
     modules["popularityRanking"] = legacy._unavailable_module("popularity_ranking")
     modules["limitUpSummary"] = legacy._unavailable_module("limit_up_summary")
