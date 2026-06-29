@@ -35,6 +35,19 @@ data class VisualUserTaskUpdate(
         put("invalidatesVisualHistory", invalidatesVisualHistory)
         put("manualStepCompleted", manualStepCompleted)
     }
+
+    fun toPromptLine(): String = buildString {
+        append("visual_task_revision:v1")
+        append("|revision=").append(revision)
+        append("|kind=").append(kind.wireValue)
+        append("|invalidateCurrentMilestone=").append(invalidatesCurrentMilestone)
+        append("|invalidateVisualHistory=").append(invalidatesVisualHistory)
+        append("|manualStepCompleted=").append(manualStepCompleted)
+        append("|latestUserTurnAuthoritative=true")
+        append("|completionCandidateInvalidated=true")
+        append("|priority=highest")
+        append("|replanRequired=true")
+    }
 }
 
 internal object VisualUserTaskUpdateRuntime {
@@ -42,6 +55,7 @@ internal object VisualUserTaskUpdateRuntime {
     private val lock = Any()
     private var taskId: Long = 0L
     private var revision: Int = 0
+    private var dispatchedRevision: Int = 0
     private val updates = ArrayDeque<VisualUserTaskUpdate>()
 
     fun record(
@@ -85,10 +99,25 @@ internal object VisualUserTaskUpdateRuntime {
         }
     }
 
+    fun takeUndispatchedPromptLines(): List<String> {
+        val currentTaskId = runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+        if (currentTaskId <= 0L) return emptyList()
+        return synchronized(lock) {
+            if (taskId != currentTaskId) return@synchronized emptyList()
+            val pending = updates.filter { it.revision > dispatchedRevision }
+            if (pending.isEmpty()) return@synchronized emptyList()
+            dispatchedRevision = pending.maxOf { it.revision }
+            pending.takeLast(4).map(VisualUserTaskUpdate::toPromptLine)
+        }
+    }
+
+    fun latestDispatchedRevision(): Int = synchronized(lock) { dispatchedRevision }
+
     internal fun resetForTests() {
         synchronized(lock) {
             taskId = 0L
             revision = 0
+            dispatchedRevision = 0
             updates.clear()
         }
     }
@@ -97,6 +126,7 @@ internal object VisualUserTaskUpdateRuntime {
         if (taskId != currentTaskId) {
             taskId = currentTaskId
             revision = 0
+            dispatchedRevision = 0
             updates.clear()
         }
     }
