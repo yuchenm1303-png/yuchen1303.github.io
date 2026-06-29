@@ -274,7 +274,7 @@ data class ComposerAttachment(
     val previewUri: String? = null,
     val progress: Float = 0f,
     val status: ComposerAttachmentStatus = ComposerAttachmentStatus.Preparing,
-    val errorText: String? = null
+    val errorText: String? = null,
 ) {
     val isReady: Boolean get() = status == ComposerAttachmentStatus.Ready && !base64Data.isNullOrBlank()
 
@@ -376,8 +376,8 @@ data class AssistantUiState(
 @Immutable
 data class RainbowPrismStyle(
     val overall: Float = 1.00f,
-    val edgeHighlight: Float = 1.00f,
-    val sweepMin: Float = 0.15f,
-    val sweepMax: Float = 0.65f,
+    val edgeHighlight: Float = 2.00f,
+    val sweepMin: Float = 0.70f,
+    val sweepMax: Float = 1.80f,
     val rainbowHalo: Float = 0.80f
 )
