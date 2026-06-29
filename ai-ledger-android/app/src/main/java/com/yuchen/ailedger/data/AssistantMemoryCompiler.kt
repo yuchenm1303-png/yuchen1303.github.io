@@ -13,7 +13,7 @@ enum class AssistantMemoryIntent(val id: String, val scope: String) {
 
 /**
  * 仅用于兼容当前设置页的数据结构。
- * Android 不创建该列表；真实命中项必须在第二阶段由云端响应回传。
+ * Android 不创建该列表；真实命中项必须由云端响应回传。
  */
 data class AssistantMemorySource(
     val id: String,
@@ -25,11 +25,17 @@ data class AssistantMemorySource(
 )
 
 /**
- * Android 端只负责声明用户是否请求云端记忆，以及传递独立的自定义指令。
- * 这里绝不携带本地候选、记忆正文、选中 ID、语义分类或关键词判断结果。
+ * Android 端只声明本轮是否允许云端长期记忆，并独立传递自定义指令。
+ *
+ * 关键边界：
+ * 1. 不读取本地记忆正文或库存；
+ * 2. 不在本地做关键词、类别、作用域、冲突或相关性判断；
+ * 3. cloudReady 只描述管理页库存是否同步完成，不能替云端账号设置做决定；
+ * 4. 只有已从云端完整加载且明确关闭记忆时，本地才发送关闭状态；
+ * 5. 账号设置暂时未加载或记忆列表同步失败时，继续把决策交给后端。
  */
 data class AssistantMemoryCompilation(
-    val schema: String = "ai_ledger_cloud_memory_request_v2",
+    val schema: String = "ai_ledger_cloud_memory_request_v3",
     val intent: AssistantMemoryIntent = AssistantMemoryIntent.CLOUD_ORCHESTRATED,
     val activeScopes: Set<String> = emptySet(),
     val personaInstructions: String? = null,
@@ -42,9 +48,13 @@ data class AssistantMemoryCompilation(
     val errorCode: String = "",
     val memoryRequested: Boolean = false,
 ) {
-    /** memorySnapshot 保留空值仅用于协议兼容，Android 不再生成该字段。 */
+    /** memorySnapshot 保留空值仅用于旧协议兼容，Android 不再生成该字段。 */
     val hasAnyContext: Boolean
         get() = memoryRequested || memorySnapshot != null
+
+    /** 供请求层使用的唯一模式；auto 表示最终由后端账号设置决定。 */
+    val requestMode: String
+        get() = if (memoryRequested) "auto" else "off"
 
     fun personaConfigJson(): JSONObject? {
         val instructions = personaInstructions?.trim().orEmpty()
@@ -57,14 +67,15 @@ data class AssistantMemoryCompilation(
     }
 
     /**
-     * 这是纯传输诊断，不含任何本地语义结论。
-     * 真正的候选数、命中项、Gate、重排与 usage 状态必须由云端返回。
+     * 这里只描述请求传输状态，不含任何本地语义结论。
+     * 候选数、命中项、Gate、重排与 usage 状态必须来自云端响应。
      */
     fun diagnosticsJson(): JSONObject = JSONObject()
         .put("schema", schema)
         .put("intent", intent.id)
         .put("selectionOwner", selectionOwner)
         .put("selectionStatus", selectionStatus)
+        .put("requestMode", requestMode)
         .put("memoryRequested", memoryRequested)
         .put("activeScopes", JSONArray(activeScopes.toList()))
 }
@@ -80,7 +91,7 @@ object AssistantMemoryRuntime {
 
     /**
      * 本地请求契约不能冒充云端命中结果。
-     * 第二阶段接入云端响应诊断前，设置页保持“尚无真实结果”。
+     * 在云端真实诊断接入前，设置页保持“尚无真实命中结果”。
      */
     fun record(@Suppress("UNUSED_PARAMETER") compilation: AssistantMemoryCompilation) {
         mutableState.value = AssistantMemoryRuntimeState(
@@ -94,12 +105,12 @@ object AssistantMemoryCompiler {
     /**
      * 纯协议编译：
      * 1. 不读取 memoryState.memories；
-     * 2. 不构建候选或快照；
+     * 2. 不构建候选、快照或 selectedMemoryIds；
      * 3. 不按关键词、类别、作用域或正文判断；
      * 4. 不调用第二个模型；
-     * 5. 不产生本地 selectedMemoryIds。
+     * 5. 不把本地库存同步状态当作云端记忆开关。
      *
-     * 账号权限、记忆召回、冲突处理和重排全部由云端 Memory Service 负责。
+     * 账号权限、真实开关、召回、冲突处理和重排全部由云端 Memory Service 负责。
      */
     fun compile(
         userText: String,
@@ -107,8 +118,13 @@ object AssistantMemoryCompiler {
         memoryState: AssistantMemoryState,
     ): AssistantMemoryCompilation {
         val requestHasText = userText.trim().isNotBlank()
-        val accountReady = memoryState.accountUserId != null && memoryState.cloudReady
-        val memoryRequested = requestHasText && accountReady && memoryState.memoryEnabled
+        val accountKnown = memoryState.accountUserId != null
+
+        // cloudReady=false 只说明 Android 管理页尚未拿到完整库存，不能据此关闭云端记忆。
+        // 只有账号已知、完整云端状态已加载且 memoryEnabled=false，才视为用户明确关闭。
+        val locallyConfirmedDisabled =
+            accountKnown && memoryState.cloudReady && !memoryState.memoryEnabled
+        val memoryRequested = requestHasText && accountKnown && !locallyConfirmedDisabled
         val instructions = customInstructions
             ?.trim()
             ?.takeIf { requestHasText && it.isNotBlank() }
@@ -121,11 +137,10 @@ object AssistantMemoryCompiler {
             sources = emptyList(),
             suppressedConflictCount = 0,
             selectionStatus = when {
-                memoryRequested -> "backend_cloud_requested"
-                memoryState.accountUserId == null -> "disabled_anonymous"
-                !memoryState.memoryEnabled -> "disabled_by_user"
-                !memoryState.cloudReady -> "disabled_account_unavailable"
-                else -> "empty"
+                !requestHasText -> "empty"
+                !accountKnown -> "disabled_anonymous"
+                locallyConfirmedDisabled -> "disabled_by_user"
+                else -> "backend_cloud_requested"
             },
             selectionOwner = "backend_cloud_v4",
             memoryRequested = memoryRequested,
