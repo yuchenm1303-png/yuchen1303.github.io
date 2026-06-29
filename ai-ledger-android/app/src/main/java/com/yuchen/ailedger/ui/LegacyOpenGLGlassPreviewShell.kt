@@ -45,9 +45,14 @@ fun LegacyOpenGLGlassPreviewShell(
             )
         )
     }
+    val startupBackdrop = OpenGlStartupBackdropBridge.backdrop ?: LocalBlurredBackdrop.current
     val previewShape = remember(radius) { RoundedCornerShape(radius.dp) }
 
-    CompositionLocalProvider(LocalGlassBackdrop provides optimizedBackdrop) {
+    CompositionLocalProvider(
+        LocalGlassBackdrop provides optimizedBackdrop,
+        // 仅在旧版 Shell 宿主内部覆盖；普通玻璃仍读取完整三档 LocalBlurredBackdrop。
+        LocalBlurredBackdrop provides startupBackdrop
+    ) {
         Box(
             modifier = modifier
                 // 旧 Shader 的抗锯齿带位于几何边界外侧，统一由 Compose 裁剪最终轮廓。
