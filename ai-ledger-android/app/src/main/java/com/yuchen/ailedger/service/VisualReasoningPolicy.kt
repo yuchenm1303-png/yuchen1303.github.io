@@ -170,7 +170,7 @@ internal object VisualReasoningPolicy {
         val sameActionCount = consecutiveSameExecutedActionCount(events)
         val routeCycleLength = repeatedRouteCycleLength(events)
         val completionCandidate = activeActions.hasLiveCompletionCandidate()
-        val provisionalRollbackCount = activeActions.provisionalRollbackCount()
+        val provisionalRollbackCount = activeActions.activeProvisionalRollbackCount()
         val routeConflict = activeActions.any { it.isRouteConstraintConflictEvidence() } ||
             runtimeState?.surfaceState == "replanning"
         val entityConflict = activeActions.any { it.isEntityConflictEvidence() } ||
@@ -308,11 +308,17 @@ internal object VisualReasoningPolicy {
         return pending > rollback
     }
 
-    private fun List<String>.provisionalRollbackCount(): Int {
+    private fun List<String>.activeProvisionalRollbackCount(): Int {
         val latestPending = indexOfLast { it.isCompletionCandidateEvidence() }
-        return countIndexed { index, line ->
-            line.isCompletionRollbackEvidence() && index > latestPending
-        }
+        val latestRollback = indexOfLast { it.isCompletionRollbackEvidence() }
+        if (latestRollback < 0 || latestRollback < latestPending) return 0
+        val correctedAfterRollback = drop(latestRollback + 1)
+            .mapNotNull { it.toExecutionEventOrNull() }
+            .any { it.outcome == ExecutionOutcome.Success && !it.reobserve }
+        if (correctedAfterRollback) return 0
+        return subList((latestPending + 1).coerceAtLeast(0), latestRollback + 1)
+            .count { it.isCompletionRollbackEvidence() }
+            .coerceAtLeast(1)
     }
 
     private fun String.isCompletionCandidateEvidence(): Boolean =
@@ -355,10 +361,19 @@ internal object VisualReasoningPolicy {
         if (signature.isBlank()) return null
         return ExecutionEvent(
             signature = signature,
+            routeKey = signature.toRouteKey(),
             outcome = markerAndOutcome.second,
             reobserve = signature.equals(REOBSERVE_SIGNATURE, ignoreCase = true) ||
                 signature.startsWith("wait|重新观察|", ignoreCase = true),
         )
+    }
+
+    private fun String.toRouteKey(): String {
+        val semanticParts = split('|')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .filterNot { part -> ROUTE_NUMBER_PATTERN.matches(part) }
+        return if (semanticParts.size >= 2) semanticParts.take(6).joinToString("|") else this
     }
 
     private fun consecutiveReobserveOrFailureCount(
@@ -393,25 +408,25 @@ internal object VisualReasoningPolicy {
 
     /**
      * Detects a repeated mechanical route without interpreting screen content. It catches either an
-     * exact repeated suffix (A-B-C / A-B-C) or a return to the same action after at least two distinct
-     * intervening successful actions (A-B-C-D-A). This is a loop signal only; GUI Plus decides why.
+     * exact repeated suffix (A-B-C / A-B-C) or a return to the same semantic action label after at
+     * least two distinct intervening successful actions (A-B-C-D-A). GUI Plus decides why it happened.
      */
     private fun repeatedRouteCycleLength(events: List<ExecutionEvent>): Int {
         val successful = events.filter { it.outcome == ExecutionOutcome.Success && !it.reobserve }
         if (successful.size < MIN_ROUTE_CYCLE_EVENTS) return 0
-        val signatures = successful.map { it.signature }
-        val maxExact = minOf(MAX_ROUTE_CYCLE_LENGTH, signatures.size / 2)
+        val routeKeys = successful.map { it.routeKey }
+        val maxExact = minOf(MAX_ROUTE_CYCLE_LENGTH, routeKeys.size / 2)
         for (length in 2..maxExact) {
-            val previous = signatures.subList(signatures.size - length * 2, signatures.size - length)
-            val latest = signatures.subList(signatures.size - length, signatures.size)
+            val previous = routeKeys.subList(routeKeys.size - length * 2, routeKeys.size - length)
+            val latest = routeKeys.subList(routeKeys.size - length, routeKeys.size)
             if (previous == latest && latest.distinct().size >= 2) return length
         }
-        val latest = signatures.last()
-        val previousIndex = signatures.dropLast(1).indexOfLast { it == latest }
+        val latest = routeKeys.last()
+        val previousIndex = routeKeys.dropLast(1).indexOfLast { it == latest }
         if (previousIndex < 0) return 0
-        val distance = signatures.lastIndex - previousIndex
+        val distance = routeKeys.lastIndex - previousIndex
         if (distance !in 3..MAX_ROUTE_CYCLE_DISTANCE) return 0
-        val intervening = signatures.subList(previousIndex + 1, signatures.lastIndex)
+        val intervening = routeKeys.subList(previousIndex + 1, routeKeys.lastIndex)
         return if (intervening.distinct().size >= 2) distance else 0
     }
 
@@ -425,6 +440,7 @@ internal object VisualReasoningPolicy {
 
     private data class ExecutionEvent(
         val signature: String,
+        val routeKey: String,
         val outcome: ExecutionOutcome,
         val reobserve: Boolean,
     )
@@ -436,6 +452,7 @@ internal object VisualReasoningPolicy {
         val packageConflict: Boolean,
     )
 
+    private val ROUTE_NUMBER_PATTERN = Regex("-?\\d+(?:\\.\\d+)?")
     private const val LEGACY_PROMPT_PREFIX_V2 = "visual_reasoning_context:v2|"
     private const val LEGACY_PROMPT_PREFIX_V1 = "visual_reasoning_context:v1|"
     private const val REOBSERVE_SIGNATURE = "wait|重新观察"
