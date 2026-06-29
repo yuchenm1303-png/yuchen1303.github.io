@@ -431,15 +431,19 @@ internal object VisualLoopSupport {
 
     fun requestActions(recent: List<String>, interactions: List<String>): List<String> {
         captureStructuredUserReplies(interactions)
+        val revisionSignals = VisualUserTaskUpdateRuntime.takeUndispatchedPromptLines().takeLast(4)
         val mergedInteractions = interactions + AgentTakeoverDialogueBridge.interactionActions()
-        val interactionBudget = mergedInteractions.takeLast(MAX_INTERACTION_IN_REQUEST)
-        val runtimeBudget = (CLIENT_ACTION_LIMIT - interactionBudget.size).coerceAtLeast(MIN_RUNTIME_ACTIONS)
-        val request = recent.takeLast(runtimeBudget) + interactionBudget
+        val interactionLimit = (MAX_INTERACTION_IN_REQUEST - revisionSignals.size).coerceAtLeast(4)
+        val interactionBudget = mergedInteractions.takeLast(interactionLimit)
+        val runtimeBudget = (CLIENT_ACTION_LIMIT - interactionBudget.size - revisionSignals.size)
+            .coerceAtLeast(MIN_RUNTIME_ACTIONS)
+        val request = recent.takeLast(runtimeBudget) + revisionSignals + interactionBudget
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "model_request_memory",
             details = JSONObject().apply {
                 put("recentActionsBeforeBudget", JSONArray(recent))
                 put("interactionActionsBeforeBudget", JSONArray(mergedInteractions))
+                put("taskRevisionSignals", JSONArray(revisionSignals))
                 put("runtimeBudget", runtimeBudget)
                 put("interactionBudget", interactionBudget.size)
                 put("actualRequestActions", JSONArray(request))
