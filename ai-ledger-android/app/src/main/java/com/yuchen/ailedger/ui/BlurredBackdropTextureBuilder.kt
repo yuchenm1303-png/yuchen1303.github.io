@@ -28,7 +28,8 @@ private const val MAX_BLUR_SOURCE_SCALE = 0.72f
  * medium 是首页旧版 OpenGL Shell 唯一需要的模糊采样器，因此优先精确生成并通过
  * onCriticalReady 发布；普通 Compose 玻璃仍等待 low / medium / high 全部完成后才启用。
  * medium 发布后暂停剩余 CPU pass，直到 OpenGL 首帧完成或安全超时，避免首次 EGL、
- * Shader 编译和纹理上传与 low/high 模糊争抢资源。最终三档像素算法和参数保持不变。
+ * Shader 编译和纹理上传与低/高档模糊及亮度积分表计算争抢资源。最终三档像素算法、
+ * 色调参数和亮度表内容保持不变。
  */
 @Suppress("UNUSED_PARAMETER")
 internal fun buildBackdropTextureSet(
@@ -68,18 +69,13 @@ internal fun buildBackdropTextureSet(
     val iterations = params.iterations.roundToInt().coerceIn(1, 12)
     val scratch = BackdropPixelScratch(blurWidth * blurHeight)
 
-    // OpenGL 关键路径：先生成与旧流程完全相同的 medium 纹理和亮度表。
+    // OpenGL 关键路径：先生成与旧流程完全相同的 medium 纹理。
     val medium = buildTunedBlurLevel(
         source = blurSource,
         radius = 2,
         iterations = iterations,
         params = params,
         scratch = scratch
-    )
-    val luminanceMap = BackdropLuminanceMap.build(
-        source = medium,
-        fullWidthPx = fullWidth,
-        fullHeightPx = fullHeight
     )
     val clearImage = clearSource.asImageBitmap()
     val mediumImage = medium.asImageBitmap()
@@ -89,7 +85,8 @@ internal fun buildBackdropTextureSet(
             blurLowImage = mediumImage,
             blurMediumImage = mediumImage,
             blurHighImage = mediumImage,
-            luminanceMap = luminanceMap,
+            // 旧版 Shell 不读取亮度积分表；完整表在首帧后按原算法生成。
+            luminanceMap = BackdropLuminanceMap.Neutral,
             fullWidthPx = fullWidth,
             fullHeightPx = fullHeight,
             blurScale = effectiveScale
@@ -98,7 +95,12 @@ internal fun buildBackdropTextureSet(
 
     StartupPerformanceGate.awaitOpenGlFirstFrameBeforePyramidCompletion()
 
-    // 完整金字塔：输出算法与原顺序无关，每一级都从同一个 blurSource 独立计算。
+    // 完整金字塔：每一级都从同一个不可变 blurSource 独立计算，输出与原流程一致。
+    val luminanceMap = BackdropLuminanceMap.build(
+        source = medium,
+        fullWidthPx = fullWidth,
+        fullHeightPx = fullHeight
+    )
     val low = buildTunedBlurLevel(
         source = blurSource,
         radius = 1,
