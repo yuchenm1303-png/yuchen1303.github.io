@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -45,6 +48,7 @@ import java.util.Locale
 import kotlinx.coroutines.launch
 
 private const val DiagnosticPreviewMaxChars = 6_000
+private val DiagnosticAccent = Color(0xFF8DF9EA)
 
 @Composable
 internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiState) {
@@ -70,85 +74,17 @@ internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiStat
         }
     }
 
-    Text(
-        "智力诊断 · 阶段一",
-        color = Color.White.copy(alpha = 0.88f),
-        fontSize = 15.sp,
-        fontWeight = FontWeight.Black,
-        modifier = Modifier.padding(top = 2.dp),
+    DiagnosticSectionHeader()
+    DiagnosticOverviewCard(
+        enabled = diagnostics.enabled,
+        taskCount = diagnostics.sessions.size,
+        observationCount = diagnostics.sessions.sumOf { it.observationCount },
+        frameCount = diagnostics.sessions.sumOf { it.frameCount },
+        onEnabledChange = store::setEnabled,
     )
 
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.060f))
-            .padding(horizontal = 13.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "采集真实决策链",
-                color = Color.White.copy(alpha = 0.92f),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                "旁路保存既有截图、任务状态、模型上下文与执行记录，不额外截图，也不改变模型决策。",
-                color = Color.White.copy(alpha = 0.48f),
-                fontSize = 10.5.sp,
-                lineHeight = 15.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
-        Switch(
-            checked = diagnostics.enabled,
-            onCheckedChange = store::setEnabled,
-        )
-    }
-
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(9.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        DiagnosticMetric("任务", diagnostics.sessions.size.toString(), Modifier.weight(1f))
-        DiagnosticMetric(
-            "观察",
-            diagnostics.sessions.sumOf { it.observationCount }.toString(),
-            Modifier.weight(1f),
-        )
-        DiagnosticMetric(
-            "截图",
-            diagnostics.sessions.sumOf { it.frameCount }.toString(),
-            Modifier.weight(1f),
-        )
-    }
-
     if (diagnostics.sessions.isEmpty()) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color.White.copy(alpha = 0.045f))
-                .padding(horizontal = 16.dp, vertical = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                "还没有诊断记录",
-                color = Color.White.copy(alpha = 0.78f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                "开启视觉智能并执行一次任务后，这里会按任务显示逐轮数据。",
-                color = Color.White.copy(alpha = 0.42f),
-                fontSize = 10.5.sp,
-                lineHeight = 15.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+        DiagnosticEmptyState()
     } else {
         Text(
             "最近任务",
@@ -290,21 +226,201 @@ internal fun VisualIntelligenceDiagnosticsSettingsContent(state: AssistantUiStat
 }
 
 @Composable
+private fun DiagnosticSectionHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 2.dp, start = 2.dp, end = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "智力诊断",
+            color = Color.White.copy(alpha = 0.88f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Black,
+        )
+        Spacer(Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(DiagnosticAccent.copy(alpha = 0.10f))
+                .padding(horizontal = 9.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "阶段一",
+                color = DiagnosticAccent.copy(alpha = 0.80f),
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticOverviewCard(
+    enabled: Boolean,
+    taskCount: Int,
+    observationCount: Int,
+    frameCount: Int,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color.White.copy(alpha = 0.058f))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "采集真实决策链",
+                    color = Color.White.copy(alpha = 0.92f),
+                    fontSize = 15.sp,
+                    lineHeight = 19.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (enabled) "诊断采集已开启" else "诊断采集已暂停",
+                    color = if (enabled) {
+                        DiagnosticAccent.copy(alpha = 0.74f)
+                    } else {
+                        Color.White.copy(alpha = 0.38f)
+                    },
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange,
+            )
+        }
+
+        Text(
+            "旁路保存既有截图、任务状态、模型上下文和执行记录；不额外截图，也不干预模型决策。",
+            color = Color.White.copy(alpha = 0.46f),
+            fontSize = 10.5.sp,
+            lineHeight = 15.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color.White.copy(alpha = 0.075f))
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DiagnosticMetric("任务", taskCount.toString(), Modifier.weight(1f))
+            DiagnosticMetricDivider()
+            DiagnosticMetric("观察", observationCount.toString(), Modifier.weight(1f))
+            DiagnosticMetricDivider()
+            DiagnosticMetric("截图", frameCount.toString(), Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
 private fun DiagnosticMetric(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier
-            .height(54.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.050f))
-            .padding(horizontal = 11.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.SpaceBetween,
+        modifier = modifier.padding(horizontal = 8.dp, vertical = 1.dp),
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(label, color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-        Text(value, color = Color.White.copy(alpha = 0.88f), fontSize = 17.sp, fontWeight = FontWeight.Black)
+        Text(
+            label,
+            color = Color.White.copy(alpha = 0.42f),
+            fontSize = 9.5.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+        Text(
+            value,
+            color = Color.White.copy(alpha = 0.90f),
+            fontSize = 18.sp,
+            lineHeight = 21.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun DiagnosticMetricDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .height(34.dp)
+            .background(Color.White.copy(alpha = 0.08f))
+    )
+}
+
+@Composable
+private fun DiagnosticEmptyState() {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.042f))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(DiagnosticAccent.copy(alpha = 0.075f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "诊",
+                color = DiagnosticAccent.copy(alpha = 0.72f),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(
+                "暂无诊断记录",
+                color = Color.White.copy(alpha = 0.82f),
+                fontSize = 13.5.sp,
+                lineHeight = 17.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+            )
+            Text(
+                "执行一次视觉智能任务后，这里会按任务展示逐轮数据。",
+                color = Color.White.copy(alpha = 0.42f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
