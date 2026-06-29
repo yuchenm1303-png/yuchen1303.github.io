@@ -4,6 +4,7 @@ import org.json.JSONObject
 
 private const val CANONICAL_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v15_unified_execution_permit"
 private const val CANONICAL_VISUAL_INTERACTION_PROTOCOL = "gui_plus_dialogue_v2_bound_turns"
+private const val CANONICAL_VISUAL_MEMORY_SCHEMA = "android_visual_agent_loop_memory_v15_unified_execution_permit"
 
 /**
  * Produces the single canonical transport contract consumed by the current Worker.
@@ -18,6 +19,7 @@ internal fun JSONObject.compactVisualAgentPayloadForTransport(): JSONObject {
     TRANSPORT_ALIAS_KEYS.forEach(::remove)
 
     optJSONObject("agentMemory")?.apply {
+        put("schema", CANONICAL_VISUAL_MEMORY_SCHEMA)
         put("interactionProtocol", CANONICAL_VISUAL_INTERACTION_PROTOCOL)
         // Canonical copies live at the top level or inside taskMemory. Do not serialize the same
         // state graph multiple times into every visual-model request.
