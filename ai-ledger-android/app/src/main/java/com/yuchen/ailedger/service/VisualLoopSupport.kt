@@ -5,13 +5,13 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal object VisualLoopSupport {
-    const val MAX_RECENT_ACTIONS = 14
+    const val MAX_RECENT_ACTIONS = 20
     const val MAX_RECENT_ACTION_CHARS = 1_200
     const val MAX_INTERACTION_TEXT_CHARS = 1_000
     const val MAX_INTERACTION_ACTIONS = 12
     const val MAX_INTERACTION_IN_REQUEST = 8
-    const val CLIENT_ACTION_LIMIT = 14
-    const val MIN_RUNTIME_ACTIONS = 6
+    const val CLIENT_ACTION_LIMIT = 18
+    const val MIN_RUNTIME_ACTIONS = 8
     const val NORMAL_HISTORY_ITEMS = 4
     const val RECOVERY_HISTORY_ITEMS = 4
     const val MAX_APP_CONTEXT_ITEMS = 160
@@ -342,15 +342,21 @@ internal object VisualLoopSupport {
             ?: step.packageName?.takeIf(String::isNotBlank)
             ?: step.text?.takeIf { step.type != "input_text" }?.take(32)?.takeIf(String::isNotBlank)
         val executionTrace = buildExecutionTrace(step, result)
+        val visualAction = step.type in VISUAL_EXECUTION_ACTIONS
         val summary = buildList {
             add(signature)
             add(status)
             target?.let { add("target=${it.take(56)}") }
+            add("executionAccepted=${result.ok}")
+            if (visualAction) {
+                add("gestureDispatched=${result.ok}")
+                add("semanticOutcome=gui_plus_pending_judgement")
+            }
             executionTrace?.let { add("executionTrace=${it.take(MAX_EXECUTION_TRACE_CHARS)}") }
             add("result=${result.message.take(80)}")
         }.joinToString(":").take(MAX_RECENT_ACTION_CHARS)
         val diagnosticSummary = if (step.type == "input_text") {
-            "input_text:$status:result=${result.message.take(80)}"
+            "input_text:$status:executionAccepted=${result.ok}:semanticOutcome=gui_plus_pending_judgement:result=${result.message.take(80)}"
         } else {
             summary
         }
@@ -360,6 +366,9 @@ internal object VisualLoopSupport {
                 put("stepType", step.type)
                 put("signature", signature)
                 put("ok", result.ok)
+                put("executionAccepted", result.ok)
+                put("gestureDispatched", visualAction && result.ok)
+                put("semanticOutcome", if (visualAction) "gui_plus_pending_judgement" else "not_applicable")
                 put("shouldContinue", result.shouldContinue)
                 put("message", result.message)
                 put("summary", diagnosticSummary)
@@ -439,17 +448,20 @@ internal object VisualLoopSupport {
 
     fun requestActions(recent: List<String>, interactions: List<String>): List<String> {
         captureStructuredUserReplies(interactions)
+        val transactionalRecent = discardRolledBackCompletionCandidates(recent)
         val revisionSignals = VisualUserTaskUpdateRuntime.takeUndispatchedPromptLines().takeLast(4)
         val mergedInteractions = interactions + AgentTakeoverDialogueBridge.interactionActions()
         val interactionLimit = (MAX_INTERACTION_IN_REQUEST - revisionSignals.size).coerceAtLeast(4)
         val interactionBudget = mergedInteractions.takeLast(interactionLimit)
         val runtimeBudget = (CLIENT_ACTION_LIMIT - interactionBudget.size - revisionSignals.size)
             .coerceAtLeast(MIN_RUNTIME_ACTIONS)
-        val request = recent.takeLast(runtimeBudget) + revisionSignals + interactionBudget
+        val request = transactionalRecent.takeLast(runtimeBudget) + revisionSignals + interactionBudget
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "model_request_memory",
             details = JSONObject().apply {
                 put("recentActionsBeforeBudget", JSONArray(recent))
+                put("transactionalRecentActions", JSONArray(transactionalRecent))
+                put("discardedRolledBackCompletionLines", recent.size - transactionalRecent.size)
                 put("interactionActionsBeforeBudget", JSONArray(mergedInteractions))
                 put("taskRevisionSignals", JSONArray(revisionSignals))
                 put("runtimeBudget", runtimeBudget)
@@ -460,6 +472,26 @@ internal object VisualLoopSupport {
             },
         )
         return request
+    }
+
+    internal fun discardRolledBackCompletionCandidates(actions: List<String>): List<String> {
+        val rollbackIndex = actions.indexOfLast { it.isCompletionRollbackLine() }
+        if (rollbackIndex < 0) return actions
+        return actions.filterIndexed { index, line ->
+            !(index <= rollbackIndex && line.isCompletionCandidateLine())
+        }
+    }
+
+    private fun String.isCompletionCandidateLine(): Boolean {
+        val value = lowercase()
+        return value.startsWith("finish_verification_pending:") || value.contains("completioncandidate=true")
+    }
+
+    private fun String.isCompletionRollbackLine(): Boolean {
+        val value = lowercase()
+        return value.startsWith("finish_candidate_rejected:") ||
+            value.startsWith("finish_permit_rejected:") ||
+            value.startsWith("completion_candidate_rolled_back:")
     }
 
     private fun captureStructuredUserReplies(interactions: List<String>) {
@@ -486,6 +518,10 @@ internal object VisualLoopSupport {
         return (maxSteps * 3).coerceAtLeast(maxSteps + 8).coerceAtMost(120)
     }
 
+    private val VISUAL_EXECUTION_ACTIONS = setOf(
+        "tap_xy", "tap_node", "input_text", "scroll", "swipe", "back", "home", "recents",
+        "notifications", "quick_settings", "wait",
+    )
     private val EXECUTED_POINT_PATTERN = Regex("实际落点\\s+(-?\\d+(?:\\.\\d+)?),(-?\\d+(?:\\.\\d+)?)")
     private const val MAX_EXECUTION_TRACE_CHARS = 640
     private const val REOBSERVE_WAIT_MS = 220L
