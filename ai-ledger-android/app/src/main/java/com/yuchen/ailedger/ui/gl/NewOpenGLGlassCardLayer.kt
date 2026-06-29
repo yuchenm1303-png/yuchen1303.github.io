@@ -28,6 +28,7 @@ import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
 import com.yuchen.ailedger.ui.LocalGlassFoldoutClipRegistry
 import com.yuchen.ailedger.ui.LocalGlassSceneGroup
+import com.yuchen.ailedger.ui.OpenGlStartupBackdropBridge
 import com.yuchen.ailedger.ui.applyGlassFoldoutClip
 import kotlin.math.max
 import kotlin.math.min
@@ -50,11 +51,11 @@ fun NewOpenGLGlassCardLayer(
     viewportTopInsetPx: Float = 0f,
     dynamicState: OpenGLGlassDynamicState? = null,
 ) {
-    val backdrop = LocalBlurredBackdrop.current ?: return
+    val backdrop = OpenGlStartupBackdropBridge.backdrop ?: LocalBlurredBackdrop.current ?: return
 
     // Do not create an EGL context, compile the shader or upload placeholder textures during the
     // first layout burst. The Shell keeps exactly the same bounds and receives a cheap static skin;
-    // once the real sampler set arrives this node is replaced in-place by the single OpenGL host.
+    // once the exact critical sampler set arrives this node is replaced in-place by the single host.
     if (!backdrop.isReady) {
         Box(
             modifier = modifier.startupStaticGlassLayer(
