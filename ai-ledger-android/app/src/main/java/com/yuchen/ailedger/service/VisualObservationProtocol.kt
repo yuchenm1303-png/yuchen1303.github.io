@@ -12,8 +12,8 @@ internal data class VisualActionContextFreshness(
 
 object VisualObservationProtocol {
     /**
-     * Identifies the exact observation sent to the cloud. Visual bytes intentionally participate
-     * here so a returned action can be bound to the frame the model actually saw.
+     * Identifies the exact observation sent to GUI Plus. Visual bytes participate only so a returned
+     * action can be bound to the frame the model actually saw; the digest is never a progress judge.
      */
     fun observationId(
         snapshot: AgentScreenSnapshot,
@@ -29,13 +29,12 @@ object VisualObservationProtocol {
     }
 
     /**
-     * Performs a lightweight, action-aware execution guard against the fresh accessibility probe.
+     * Freshness is a protocol guard, not a second visual judge.
      *
-     * GUI Plus tap_xy is visual-authoritative: accessibility nodes may be incomplete, delayed,
-     * wrapper-only or reduced to a full-screen root, so node presence and node geometry must never
-     * veto an already permitted visual coordinate. Package ownership remains mandatory here; the
-     * execution permit and physical display-frame checks remain mandatory in the execution chain.
-     * Node-based freshness is retained only for node-semantic actions such as tap_node/input/scroll.
+     * Screenshot-native actions are authoritative GUI Plus decisions. Accessibility nodes may be
+     * incomplete, delayed, wrapper-only or absent, so they cannot veto click, swipe, navigation or
+     * focused-direct input. Android only verifies that the target app still owns the foreground.
+     * Explicit node actions retain a narrow same-node check because their executor needs that node.
      */
     internal fun evaluateActionContextFreshness(
         step: CloudAgentStep,
@@ -48,37 +47,19 @@ object VisualObservationProtocol {
             return VisualActionContextFreshness(false, "foreground_package_changed", 0f)
         }
 
-        if (step.type == "tap_xy") {
-            return VisualActionContextFreshness(true, "visual_coordinate_package_verified")
+        if (step.type in VISUAL_AUTHORITATIVE_ACTION_TYPES ||
+            (step.type == "input_text" && step.shouldUseFocusedDirectInput)
+        ) {
+            return VisualActionContextFreshness(true, "visual_action_package_verified")
         }
 
         targetFreshness(step, observedSnapshot, currentSnapshot)?.let { return it }
-
-        val observedTokens = interactionSurfaceTokens(observedSnapshot)
-        val currentTokens = interactionSurfaceTokens(currentSnapshot)
-        if (observedTokens.isEmpty() && currentTokens.isEmpty()) {
-            // Visual-only apps have no objective local semantic surface to compare. Package ownership
-            // and the verified WorkSurface state remain mandatory at the caller.
-            return VisualActionContextFreshness(true, "visual_only_package_verified")
-        }
-        if (observedTokens.size >= MIN_RICH_SURFACE_TOKENS && currentTokens.isEmpty()) {
-            return VisualActionContextFreshness(false, "interaction_surface_unavailable", 0f)
-        }
-        if (observedTokens.isEmpty() || currentTokens.isEmpty()) {
-            return VisualActionContextFreshness(true, "sparse_surface_package_verified")
-        }
-
-        val similarity = overlapCoefficient(observedTokens, currentTokens)
-        val minimumEvidence = min(observedTokens.size, currentTokens.size)
-        if (minimumEvidence >= MIN_RICH_SURFACE_TOKENS && similarity < MIN_SURFACE_OVERLAP) {
-            return VisualActionContextFreshness(false, "interaction_surface_changed", similarity)
-        }
-        return VisualActionContextFreshness(true, "fresh", similarity)
+        return VisualActionContextFreshness(true, "node_action_package_verified")
     }
 
     /**
-     * Compatibility entry point for callers that only need package/surface freshness. New visual
-     * execution paths should use [evaluateActionContextFreshness] with the actual action.
+     * Compatibility entry point. Without a concrete action there is no legitimate local basis for
+     * comparing page meaning, so only foreground package ownership is checked.
      */
     fun isActionContextFresh(
         observedSnapshot: AgentScreenSnapshot,
@@ -86,19 +67,12 @@ object VisualObservationProtocol {
     ): Boolean {
         val observedPackage = observedSnapshot.packageName.trim()
         val currentPackage = currentSnapshot.packageName.trim()
-        if (observedPackage.isBlank() || observedPackage != currentPackage) return false
-        val observedTokens = interactionSurfaceTokens(observedSnapshot)
-        val currentTokens = interactionSurfaceTokens(currentSnapshot)
-        if (observedTokens.isEmpty() && currentTokens.isEmpty()) return true
-        if (observedTokens.size >= MIN_RICH_SURFACE_TOKENS && currentTokens.isEmpty()) return false
-        if (observedTokens.isEmpty() || currentTokens.isEmpty()) return true
-        return min(observedTokens.size, currentTokens.size) < MIN_RICH_SURFACE_TOKENS ||
-            overlapCoefficient(observedTokens, currentTokens) >= MIN_SURFACE_OVERLAP
+        return observedPackage.isNotBlank() && observedPackage == currentPackage
     }
 
     /**
-     * Observation identity may remain exact because it is never used to decide whether two live
-     * screens are semantically equivalent. It only binds a cloud response to one captured frame.
+     * Observation identity remains exact because it is used only for anti-replay binding. It must not
+     * be interpreted as semantic page identity or task progress.
      */
     fun actionContextFingerprint(snapshot: AgentScreenSnapshot): String {
         val texts = snapshot.texts
@@ -139,9 +113,8 @@ object VisualObservationProtocol {
         observedSnapshot: AgentScreenSnapshot,
         currentSnapshot: AgentScreenSnapshot,
     ): VisualActionContextFreshness? {
-        val targetAwareType = step.type in setOf("tap_node", "input_text", "scroll")
-        if (!targetAwareType) return null
-        if (step.type == "input_text" && step.shouldUseFocusedDirectInput) return null
+        val nodeDependentType = step.type in NODE_DEPENDENT_ACTION_TYPES
+        if (!nodeDependentType) return null
 
         val observedTarget = findTargetNode(step, observedSnapshot)
         val currentTarget = findTargetNode(step, currentSnapshot)
@@ -150,7 +123,7 @@ object VisualObservationProtocol {
             currentTarget == null -> VisualActionContextFreshness(false, "action_target_missing")
             !samePhysicalTarget(observedTarget, currentTarget) ->
                 VisualActionContextFreshness(false, "action_target_changed")
-            else -> null
+            else -> VisualActionContextFreshness(true, "node_target_verified")
         }
     }
 
@@ -194,27 +167,6 @@ object VisualObservationProtocol {
         return firstBounds.isNear(secondBounds) || firstBounds.iou(secondBounds) >= MIN_TARGET_IOU
     }
 
-    private fun interactionSurfaceTokens(snapshot: AgentScreenSnapshot): Set<String> {
-        return interactionNodes(snapshot)
-            .asSequence()
-            .mapNotNull { node ->
-                val bounds = parseBounds(node.bounds) ?: return@mapNotNull null
-                listOf(
-                    nodeRole(node),
-                    stableClassName(node.className),
-                    bounds.bucketedKey(),
-                ).joinToString("|")
-            }
-            .take(MAX_EXECUTION_SURFACE_NODES)
-            .toSet()
-    }
-
-    private fun interactionNodes(snapshot: AgentScreenSnapshot): List<AgentScreenNode> {
-        val specialized = snapshot.clickableNodes + snapshot.inputNodes + snapshot.scrollableNodes
-        val source = if (specialized.isNotEmpty()) specialized else snapshot.allNodes
-        return source.distinctBy { "${nodeRole(it)}|${it.className}|${it.bounds}" }
-    }
-
     private fun nodeRole(node: AgentScreenNode): String = buildString(3) {
         if (node.clickable) append('c')
         if (node.editable) append('e')
@@ -234,12 +186,6 @@ object VisualObservationProtocol {
         .replace(DYNAMIC_NUMBER_PATTERN, "#")
         .replace(WHITESPACE_PATTERN, " ")
         .take(64)
-
-    private fun overlapCoefficient(first: Set<String>, second: Set<String>): Float {
-        val denominator = min(first.size, second.size)
-        if (denominator <= 0) return 1f
-        return first.count(second::contains).toFloat() / denominator.toFloat()
-    }
 
     private fun parseBounds(value: String): SurfaceBounds? {
         val values = BOUNDS_NUMBER_PATTERN.findAll(value)
@@ -263,9 +209,6 @@ object VisualObservationProtocol {
     ) {
         val area: Long
             get() = (right - left).toLong() * (bottom - top).toLong()
-
-        fun bucketedKey(): String = listOf(left, top, right, bottom)
-            .joinToString(",") { (it / BOUNDS_BUCKET_PX).toString() }
 
         fun isNear(other: SurfaceBounds): Boolean =
             maxOf(
@@ -304,16 +247,16 @@ object VisualObservationProtocol {
             .joinToString("") { byte -> "%02x".format(byte) }
     }
 
+    private val VISUAL_AUTHORITATIVE_ACTION_TYPES = setOf(
+        "tap_xy", "swipe", "back", "home", "recents", "notifications", "quick_settings",
+    )
+    private val NODE_DEPENDENT_ACTION_TYPES = setOf("tap_node", "input_text", "scroll")
     private val BOUNDS_NUMBER_PATTERN = Regex("-?\\d+")
     private val DYNAMIC_NUMBER_PATTERN = Regex("\\d+(?:[.,:/-]\\d+)*")
     private val WHITESPACE_PATTERN = Regex("\\s+")
     private const val MAX_TEXT_ITEMS = 24
     private const val MAX_NODE_ITEMS = 20
-    private const val MAX_EXECUTION_SURFACE_NODES = 64
-    private const val MIN_RICH_SURFACE_TOKENS = 4
-    private const val MIN_SURFACE_OVERLAP = 0.58f
     private const val MIN_TARGET_IOU = 0.62f
     private const val TARGET_BOUNDS_TOLERANCE_PX = 16
-    private const val BOUNDS_BUCKET_PX = 16
     private const val VISUAL_DIGEST_CHARS = 16
 }
