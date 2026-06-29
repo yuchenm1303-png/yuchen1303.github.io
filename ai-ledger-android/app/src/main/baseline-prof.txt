@@ -16,6 +16,7 @@ Lcom/yuchen/ailedger/ui/BackgroundKt;
 Lcom/yuchen/ailedger/ui/CachedTabHostKt;
 Lcom/yuchen/ailedger/ui/StartupMetrics;
 Lcom/yuchen/ailedger/ui/StartupPerformanceGate;
+Lcom/yuchen/ailedger/ui/PerformanceRuntimeMetrics;
 Lcom/yuchen/ailedger/ui/AssistantHomePolishedKt;
 Lcom/yuchen/ailedger/ui/InlineStickerAssets;
 Lcom/yuchen/ailedger/ui/ChatStickerRendererKt;
