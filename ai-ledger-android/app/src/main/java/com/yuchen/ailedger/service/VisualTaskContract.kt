@@ -209,27 +209,49 @@ data class VisualTaskMemory(
     val latestUserUpdate: VisualUserTaskUpdate? = null,
     val userUpdateHistory: List<VisualUserTaskUpdate> = emptyList(),
 ) {
-    fun toJson(): JSONObject = JSONObject().apply {
-        put("schema", "visual_task_memory_v2_user_revision")
-        put("originalGoal", originalGoal)
-        put("currentMilestoneId", currentMilestoneId)
-        put("completedMilestoneIds", JSONArray(completedMilestoneIds))
-        put("currentPage", currentPage?.toJson() ?: JSONObject.NULL)
-        put("confirmedFacts", JSONArray(confirmedFacts))
-        put("failedHypotheses", JSONArray().apply { failedHypotheses.forEach { put(it.toJson()) } })
-        put("blockedActions", JSONArray().apply { blockedActions.forEach { put(it.toJson()) } })
-        put("remainingExplorationBudget", remainingExplorationBudget)
-        put("lastConfirmedPage", lastConfirmedPage?.toJson() ?: JSONObject.NULL)
-        put("progressStatus", progressStatus)
-        put("replanRequested", replanRequested)
-        put("recoveryMode", recoveryMode)
-        put("legacyMode", legacyMode)
-        put("taskContract", taskContract?.toJson() ?: JSONObject.NULL)
-        put("taskRevision", taskRevision)
-        put("taskRevisionPending", taskRevisionPending)
-        put("currentMilestoneInvalidated", currentMilestoneInvalidated)
-        put("latestUserUpdate", latestUserUpdate?.toJson() ?: JSONObject.NULL)
-        put("userUpdateHistory", JSONArray().apply { userUpdateHistory.forEach { put(it.toJson()) } })
+    fun toJson(): JSONObject {
+        val runtimeUpdates = VisualUserTaskUpdateRuntime.updatesAfter(taskRevision)
+        val effectiveHistory = (userUpdateHistory + runtimeUpdates)
+            .distinctBy { it.revision }
+            .sortedBy { it.revision }
+            .takeLast(8)
+        val effectiveLatest = effectiveHistory.lastOrNull() ?: latestUserUpdate
+        val effectiveRevision = maxOf(taskRevision, effectiveLatest?.revision ?: 0)
+        val runtimeInvalidation = runtimeUpdates.any { it.invalidatesCurrentMilestone }
+        val effectiveInvalidation = currentMilestoneInvalidated || runtimeInvalidation
+        val effectivePending = taskRevisionPending || runtimeUpdates.isNotEmpty()
+        val effectiveReplan = replanRequested || effectivePending
+        val effectiveProgress = if (effectivePending && progressStatus == "unknown") {
+            "user_update_pending_replan"
+        } else {
+            progressStatus
+        }
+        val effectiveFailedHypotheses = if (effectiveInvalidation) emptyList() else failedHypotheses
+        val effectiveBlockedActions = if (effectivePending) emptyList() else blockedActions
+        val effectiveContract = taskContract?.copy(taskRevision = maxOf(taskContract.taskRevision, effectiveRevision))
+
+        return JSONObject().apply {
+            put("schema", "visual_task_memory_v2_user_revision")
+            put("originalGoal", originalGoal)
+            put("currentMilestoneId", currentMilestoneId)
+            put("completedMilestoneIds", JSONArray(completedMilestoneIds))
+            put("currentPage", currentPage?.toJson() ?: JSONObject.NULL)
+            put("confirmedFacts", JSONArray(confirmedFacts))
+            put("failedHypotheses", JSONArray().apply { effectiveFailedHypotheses.forEach { put(it.toJson()) } })
+            put("blockedActions", JSONArray().apply { effectiveBlockedActions.forEach { put(it.toJson()) } })
+            put("remainingExplorationBudget", remainingExplorationBudget)
+            put("lastConfirmedPage", lastConfirmedPage?.toJson() ?: JSONObject.NULL)
+            put("progressStatus", effectiveProgress)
+            put("replanRequested", effectiveReplan)
+            put("recoveryMode", recoveryMode || effectivePending)
+            put("legacyMode", legacyMode)
+            put("taskContract", effectiveContract?.toJson() ?: JSONObject.NULL)
+            put("taskRevision", effectiveRevision)
+            put("taskRevisionPending", effectivePending)
+            put("currentMilestoneInvalidated", effectiveInvalidation)
+            put("latestUserUpdate", effectiveLatest?.toJson() ?: JSONObject.NULL)
+            put("userUpdateHistory", JSONArray().apply { effectiveHistory.forEach { put(it.toJson()) } })
+        }
     }
 }
 
