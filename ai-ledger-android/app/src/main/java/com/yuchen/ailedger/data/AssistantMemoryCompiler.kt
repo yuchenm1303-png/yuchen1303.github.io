@@ -43,8 +43,12 @@ data class AssistantMemoryCompilation(
     val errorCode: String = "",
     val memoryRequested: Boolean = false,
 ) {
+    /**
+     * 该属性只控制后端长期记忆召回开关。自定义指令即使独立存在，也会通过
+     * personaConfigJson() 发送，但绝不能把 memoryEnabled 错误打开。
+     */
     val hasAnyContext: Boolean
-        get() = memoryRequested || !personaInstructions.isNullOrBlank() || memorySnapshot != null
+        get() = memoryRequested || memorySnapshot != null
 
     fun personaConfigJson(): JSONObject? {
         val instructions = personaInstructions?.trim().orEmpty()
@@ -101,6 +105,7 @@ object AssistantMemoryCompiler {
     /**
      * 普通聊天只声明“是否请求云端记忆”。真正的候选召回、冲突处理和重排
      * 全部由后端 V4 Memory Service 完成，Android 不再做本地候选筛选或额外模型调用。
+     * 自定义指令是独立能力，不受长期记忆总开关或 V4 表加载状态影响。
      */
     fun compile(
         userText: String,
@@ -113,7 +118,7 @@ object AssistantMemoryCompiler {
         val memoryRequested = requestHasText && accountReady && memoryState.memoryEnabled
         val instructions = customInstructions
             ?.trim()
-            ?.takeIf { memoryRequested && it.isNotBlank() }
+            ?.takeIf { requestHasText && it.isNotBlank() }
 
         return AssistantMemoryCompilation(
             activeScopes = if (memoryRequested) setOf("backend_cloud_v4") else emptySet(),
