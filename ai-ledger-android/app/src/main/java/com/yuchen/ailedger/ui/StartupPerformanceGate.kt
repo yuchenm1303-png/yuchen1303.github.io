@@ -1,7 +1,10 @@
 package com.yuchen.ailedger.ui
 
+import android.os.Looper
 import android.os.SystemClock
 import androidx.compose.runtime.withFrameNanos
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -14,19 +17,20 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Process-scoped cold-start coordinator.
  *
- * Expensive work is released by measured readiness instead of arbitrary short delays:
+ * Expensive work is released by measured readiness instead of arbitrary long delays:
  * 1. the first screen is stable and persisted preferences have produced their first snapshot;
- * 2. backdrop textures are decoded or generated;
+ * 2. the critical clear + medium backdrop sampler is ready;
  * 3. the real OpenGL Shell has presented its first frame;
- * 4. continuous visual effects and deferred business work are released.
+ * 4. the remaining low/high pyramid, continuous effects and deferred business work are released.
  *
  * The gates reset naturally when Android creates a new process.
  */
 internal object StartupPerformanceGate {
     private const val STABLE_FRAME_LIMIT_NS = 25_000_000L
-    private const val PREFERENCES_READY_TIMEOUT_MS = 1_400L
-    private const val OPENGL_FIRST_FRAME_TIMEOUT_MS = 2_200L
-    private const val DEFERRED_BUSINESS_SETTLE_MS = 320L
+    private const val PREFERENCES_READY_TIMEOUT_MS = 900L
+    private const val OPENGL_FIRST_FRAME_TIMEOUT_MS = 1_600L
+    private const val OPENGL_PYRAMID_PAUSE_TIMEOUT_MS = 700L
+    private const val DEFERRED_BUSINESS_SETTLE_MS = 140L
 
     private val initialWindowOwner = AtomicBoolean(false)
     private val postBackdropWindowOwner = AtomicBoolean(false)
@@ -36,6 +40,7 @@ internal object StartupPerformanceGate {
     private val initialWindowReady = CompletableDeferred<Unit>()
     private val backdropWorkFinished = CompletableDeferred<Unit>()
     private val openGlFirstFrameReady = CompletableDeferred<Unit>()
+    private val openGlFirstFrameLatch = CountDownLatch(1)
     private val postBackdropWindowReady = CompletableDeferred<Unit>()
     private val fullEffectsReady = CompletableDeferred<Unit>()
     private val deferredBusinessWindowReady = CompletableDeferred<Unit>()
@@ -45,9 +50,23 @@ internal object StartupPerformanceGate {
     }
 
     fun markOpenGlFirstFrameReady() {
+        openGlFirstFrameLatch.countDown()
         if (!openGlFirstFrameReady.isCompleted) {
             StartupMetrics.markOnce("OpenGL真实首帧完成")
             openGlFirstFrameReady.complete(Unit)
+        }
+    }
+
+    /**
+     * Called only by the low-priority backdrop builder after the exact medium sampler has been
+     * published. Pausing the remaining low/high CPU passes keeps them from overlapping EGL creation,
+     * shader compilation and the first texture upload. The timeout protects non-UI/background starts.
+     */
+    fun awaitOpenGlFirstFrameBeforePyramidCompletion() {
+        if (openGlFirstFrameReady.isCompleted) return
+        if (Looper.myLooper() == Looper.getMainLooper()) return
+        runCatching {
+            openGlFirstFrameLatch.await(OPENGL_PYRAMID_PAUSE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
         }
     }
 
@@ -60,9 +79,9 @@ internal object StartupPerformanceGate {
                     coroutineScope {
                         val frameWindow = async {
                             awaitStableFrameWindow(
-                                minimumElapsedMs = 460L,
-                                requiredStableFrames = 5,
-                                maximumWaitMs = 1_800L
+                                minimumElapsedMs = 260L,
+                                requiredStableFrames = 4,
+                                maximumWaitMs = 1_200L
                             )
                         }
                         val preferenceWindow = async {
@@ -103,9 +122,9 @@ internal object StartupPerformanceGate {
                     }
                     StartupMetrics.setWarmupState("OpenGL首帧后稳定中")
                     awaitStableFrameWindow(
-                        minimumElapsedMs = 160L,
-                        requiredStableFrames = 5,
-                        maximumWaitMs = 1_600L
+                        minimumElapsedMs = 96L,
+                        requiredStableFrames = 4,
+                        maximumWaitMs = 900L
                     )
                     StartupMetrics.markOnce("OpenGL与纹理稳定窗口完成")
                 } finally {
@@ -155,9 +174,9 @@ internal object StartupPerformanceGate {
     suspend fun awaitNotificationPermissionWindow() {
         awaitDeferredBusinessWindow()
         awaitStableFrameWindow(
-            minimumElapsedMs = 220L,
-            requiredStableFrames = 4,
-            maximumWaitMs = 1_000L
+            minimumElapsedMs = 140L,
+            requiredStableFrames = 3,
+            maximumWaitMs = 700L
         )
     }
 
