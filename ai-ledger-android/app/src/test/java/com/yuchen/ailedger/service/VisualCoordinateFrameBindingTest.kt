@@ -66,25 +66,32 @@ class VisualCoordinateFrameBindingTest {
     private fun permittedTap(x: Float, y: Float): CloudAgentStep {
         val sessionId = "visual-session-frame-test"
         val observationId = "observation-frame-test"
+        val packageName = "com.example.target"
         val kind = "independent_gui_visual_grounding"
-        val hash = VisualExecutionPermitPolicy.tapPermitHash(
-            sessionId = sessionId,
-            observationId = observationId,
-            x = x,
-            y = y,
-            kind = kind,
-        )
-        return CloudAgentStep(
+        val baseStep = CloudAgentStep(
             type = "tap_xy",
             x = x,
             y = y,
+        )
+        val hash = VisualActionValidator.executionPermitHash(
+            sessionId = sessionId,
+            observationId = observationId,
+            packageName = packageName,
+            kind = kind,
+            step = baseStep,
+            canonicalX = x.toDouble(),
+            canonicalY = y.toDouble(),
+        )
+        return baseStep.copy(
             toolArgs = JSONObject().apply {
                 put("responseObservationId", observationId)
                 put("responseSessionId", sessionId)
+                put("executionPermitVersion", "visual_execution_permit_v2")
                 put("executionPermitId", "permit_$hash")
                 put("executionPermitKind", kind)
                 put("executionPermitObservationId", observationId)
                 put("executionPermitSessionId", sessionId)
+                put("executionPermitPackageName", packageName)
                 put("executionPermitActionType", "tap_xy")
                 put("executionPermitX", x)
                 put("executionPermitY", y)
