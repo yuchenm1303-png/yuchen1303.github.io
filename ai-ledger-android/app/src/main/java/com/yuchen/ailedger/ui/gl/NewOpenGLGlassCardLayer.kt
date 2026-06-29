@@ -51,11 +51,21 @@ fun NewOpenGLGlassCardLayer(
     viewportTopInsetPx: Float = 0f,
     dynamicState: OpenGLGlassDynamicState? = null,
 ) {
-    val backdrop = OpenGlStartupBackdropBridge.backdrop ?: LocalBlurredBackdrop.current ?: return
+    val sceneGroup = LocalGlassSceneGroup
+    val useLegacyRenderer =
+        sceneGroup == GlassSceneGroup.SettingsPage ||
+            sceneGroup == GlassSceneGroup.AssistantPage
+    val localBackdrop = LocalBlurredBackdrop.current
+    val backdrop = if (useLegacyRenderer) {
+        OpenGlStartupBackdropBridge.backdrop ?: localBackdrop
+    } else {
+        // 新版多档 Renderer 必须等待完整 low/medium/high 金字塔，不读取阶段性别名。
+        localBackdrop
+    } ?: return
 
     // Do not create an EGL context, compile the shader or upload placeholder textures during the
     // first layout burst. The Shell keeps exactly the same bounds and receives a cheap static skin;
-    // once the exact critical sampler set arrives this node is replaced in-place by the single host.
+    // once its required real sampler set arrives this node is replaced in-place by the single host.
     if (!backdrop.isReady) {
         Box(
             modifier = modifier.startupStaticGlassLayer(
@@ -65,11 +75,6 @@ fun NewOpenGLGlassCardLayer(
         ) {}
         return
     }
-
-    val sceneGroup = LocalGlassSceneGroup
-    val useLegacyRenderer =
-        sceneGroup == GlassSceneGroup.SettingsPage ||
-            sceneGroup == GlassSceneGroup.AssistantPage
 
     // 设置页顶部状态卡片和首页聊天大玻璃共同复用实验室原版 OpenGL 完整宿主链：
     // 同一参数源、单样本优化、Compose 轮廓裁剪和旧 Renderer。
