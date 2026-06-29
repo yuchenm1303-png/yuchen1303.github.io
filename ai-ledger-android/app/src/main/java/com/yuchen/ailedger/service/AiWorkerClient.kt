@@ -37,7 +37,8 @@ data class AiWorkerConfig(
     val connectTimeoutMs: Int = DEFAULT_CONNECT_TIMEOUT_MS,
     val readTimeoutMs: Int = DEFAULT_READ_TIMEOUT_MS,
     val clientId: String? = null,
-    val clientAuthToken: String? = null,
+    val clientAuthToken: String? = AiWorkerRequestIdentity.defaultAppClientToken(),
+    val userAccessTokenProvider: (() -> String?)? = null,
 )
 
 data class CloudMobileAction(
@@ -175,6 +176,22 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         onlineEnabled: Boolean = false,
     ): JSONObject {
         return buildPayload(messages, resolveModelRoute(messages, modelPreference), onlineEnabled)
+    }
+
+    internal fun buildRequestHeadersForTest(stream: Boolean = false): Map<String, String> {
+        return requestHeaders(stream)
+    }
+
+    internal fun applyRequestIdentityHeaders(
+        connection: HttpURLConnection,
+        stream: Boolean = false,
+    ) {
+        AiWorkerRequestIdentity.applyTo(
+            connection = connection,
+            appClientToken = config.clientAuthToken,
+            userAccessTokenProvider = config.userAccessTokenProvider,
+            stream = stream,
+        )
     }
 
     private fun endpointPool(primary: String, fallbacks: List<String>): List<String> {
@@ -606,18 +623,23 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         }
     }
 
+    private fun requestHeaders(stream: Boolean): Map<String, String> {
+        return buildMap {
+            put("X-Client", CHAT_CLIENT_NAME)
+            put("X-Client-Id", resolvedClientId)
+            put("X-Device-Id", resolvedClientId)
+            putAll(
+                AiWorkerRequestIdentity.headers(
+                    appClientToken = config.clientAuthToken,
+                    userAccessTokenProvider = config.userAccessTokenProvider,
+                    stream = stream,
+                )
+            )
+        }
+    }
+
     private fun applyClientHeaders(connection: HttpURLConnection, stream: Boolean) {
-        connection.setRequestProperty("X-Client", CHAT_CLIENT_NAME)
-        connection.setRequestProperty("X-Client-Id", resolvedClientId)
-        connection.setRequestProperty("X-Device-Id", resolvedClientId)
-        if (stream) connection.setRequestProperty("X-AI-Ledger-Stream", "sse")
-        config.clientAuthToken
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?.let { token ->
-                connection.setRequestProperty("X-AI-Ledger-Token", token)
-                connection.setRequestProperty("Authorization", "Bearer $token")
-            }
+        requestHeaders(stream).forEach(connection::setRequestProperty)
     }
 
     private data class StreamPayload(
