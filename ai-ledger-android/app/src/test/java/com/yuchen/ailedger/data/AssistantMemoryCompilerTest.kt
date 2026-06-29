@@ -76,17 +76,18 @@ class AssistantMemoryCompilerTest {
     }
 
     @Test
-    fun anonymousChatDoesNotRequestUserMemory() {
+    fun unknownLocalIdentityStillDelegatesAuthenticationToBackend() {
         val compilation = AssistantMemoryCompiler.compile(
             userText = "你好",
             customInstructions = null,
             memoryState = AssistantMemoryState(),
         )
 
-        assertFalse(compilation.memoryRequested)
-        assertFalse(compilation.hasAnyContext)
-        assertEquals("off", compilation.requestMode)
-        assertEquals("disabled_anonymous", compilation.selectionStatus)
+        assertTrue(compilation.memoryRequested)
+        assertTrue(compilation.hasAnyContext)
+        assertEquals("auto", compilation.requestMode)
+        assertEquals("backend_identity_pending", compilation.selectionStatus)
+        assertEquals(setOf("backend_cloud_v4"), compilation.activeScopes)
     }
 
     @Test
