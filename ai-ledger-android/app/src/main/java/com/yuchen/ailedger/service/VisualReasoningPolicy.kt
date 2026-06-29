@@ -90,14 +90,53 @@ data class VisualReasoningContext(
     }
 }
 
+/** Task-scoped projection only; semantic facts remain owned by VisualTaskMemory. */
+internal object VisualReasoningRuntime {
+    private val lock = Any()
+    private var taskId: Long = 0L
+    private var context: VisualReasoningContext? = null
+
+    fun update(value: VisualReasoningContext) {
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return
+        synchronized(lock) {
+            if (taskId != currentTaskId) {
+                taskId = currentTaskId
+                context = null
+            }
+            context = value
+        }
+    }
+
+    fun currentOrNull(): VisualReasoningContext? {
+        val currentTaskId = currentTaskIdOrZero()
+        if (currentTaskId <= 0L) return null
+        return synchronized(lock) {
+            context?.takeIf { taskId == currentTaskId }
+        }
+    }
+
+    internal fun resetForTests() {
+        synchronized(lock) {
+            taskId = 0L
+            context = null
+        }
+    }
+
+    private fun currentTaskIdOrZero(): Long =
+        runCatching { AgentRuntimeController.currentTaskId() }.getOrDefault(0L)
+}
+
 internal object VisualReasoningPolicy {
     const val DEEP_REPLAN_PREFIX = "visual_replan_requested:reason=adaptive_reasoning_depth|"
+    private const val RUNTIME_PREFIX = "visual_runtime_context:v2|"
 
     fun evaluate(
         memory: VisualTaskMemory,
         recentActions: List<String> = emptyList(),
     ): VisualReasoningContext {
         val activeActions = activeObjectiveWindow(recentActions)
+        val runtimeState = activeActions.latestRuntimeState()
         val noProgressCount = activeActions.count(String::isNoProgressEvidence)
         val executionFailureCount = activeActions.count(String::isExecutionFailureEvidence)
         val sameActionCount = consecutiveSameExecutedActionCount(activeActions)
@@ -110,8 +149,10 @@ internal object VisualReasoningPolicy {
         val semanticRegression = memory.progressStatus.contains("regression", ignoreCase = true) ||
             memory.progressStatus.contains("regressed", ignoreCase = true) ||
             activeActions.any(String::isSemanticRegressionEvidence)
-        val routeConflict = activeActions.any(String::isRouteConstraintConflictEvidence)
-        val entityConflict = activeActions.any(String::isEntityConflictEvidence)
+        val routeConflict = activeActions.any(String::isRouteConstraintConflictEvidence) ||
+            runtimeState?.surfaceState == "replanning"
+        val entityConflict = activeActions.any(String::isEntityConflictEvidence) ||
+            runtimeState?.packageConflict == true
         val conflictingEvidence = activeActions.hasConflictingEvidence()
         val latestUpdateKind = memory.latestUserUpdate?.kind
         val userCorrection = memory.taskRevisionPending && (
@@ -230,6 +271,21 @@ internal object VisualReasoningPolicy {
             .takeLast(MAX_ACTIVE_ACTIONS)
     }
 
+    private fun List<String>.latestRuntimeState(): RuntimeState? {
+        val line = asReversed().firstOrNull { it.startsWith(RUNTIME_PREFIX) } ?: return null
+        val fields = linkedMapOf<String, String>()
+        line.split('|').drop(1).forEach { part ->
+            val separator = part.indexOf('=')
+            if (separator > 0) fields[part.substring(0, separator)] = part.substring(separator + 1)
+        }
+        val verified = fields["verifiedTargetPackage"].orEmpty().trim()
+        val current = fields["currentPackage"].orEmpty().trim()
+        return RuntimeState(
+            surfaceState = fields["state"].orEmpty().trim().lowercase(),
+            packageConflict = verified.isNotBlank() && current.isNotBlank() && verified != current,
+        )
+    }
+
     private fun String.isConfirmedProgressReset(): Boolean {
         val value = lowercase()
         return value.contains("open_app_package_verified") ||
@@ -316,6 +372,11 @@ internal object VisualReasoningPolicy {
         }
         return signature?.take(180)?.takeIf(String::isNotBlank)
     }
+
+    private data class RuntimeState(
+        val surfaceState: String,
+        val packageConflict: Boolean,
+    )
 
     private const val MAX_ACTIVE_ACTIONS = 14
 }
