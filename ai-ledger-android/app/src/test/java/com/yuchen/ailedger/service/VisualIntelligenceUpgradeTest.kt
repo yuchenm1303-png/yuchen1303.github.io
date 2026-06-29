@@ -19,7 +19,7 @@ class VisualIntelligenceUpgradeTest {
         assertFalse(validation.ok)
         assertEquals(VisualFailureClass.VisualLocal, validation.failureClass)
         assertTrue(validation.message.contains("protocolRepairRequired=true"))
-        assertTrue(validation.message.contains("mobile_use protocol"))
+        assertTrue(validation.message.contains("official mobile_use action"))
     }
 
     @Test
