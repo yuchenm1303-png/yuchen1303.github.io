@@ -4,8 +4,14 @@
   "private": true,
   "description": "AI Ledger 阿里云后端模块源码与测试入口。",
   "scripts": {
-    "test": "node --test test/*.test.js",
-    "test:auth": "node --test test/auth-runtime.test.js"
+    "runtime:inspect": "node scripts/runtime-bundle.js inspect",
+    "runtime:extract": "node scripts/runtime-bundle.js extract",
+    "runtime:build": "node scripts/runtime-bundle.js build",
+    "runtime:verify": "node scripts/runtime-bundle.js verify",
+    "runtime:check": "node scripts/runtime-bundle.js inspect && node --check aliyun-cn-server-web-data-v1.js",
+    "test": "npm run runtime:check && node --test test/*.test.js",
+    "test:auth": "node --test test/auth-runtime.test.js",
+    "test:runtime": "node --test test/runtime-bundle-contract.test.js"
   },
   "engines": {
     "node": ">=18"
