@@ -48,8 +48,9 @@ class VisualSemanticProgressTrackerTest {
 
         assertEquals(VisualSemanticProgressStatus.Stalled, result.status)
         assertNull(tracker.blockedHypothesisReason(step.copy(x = 0.53f), screen))
+        assertEquals(1, result.failedHypothesisCount)
         assertFalse(result.requiresReplan)
-        assertFalse(result.reobserveRecommended)
+        assertTrue(result.reobserveRecommended)
         assertFalse(result.shouldPauseForUser)
     }
 
@@ -126,7 +127,7 @@ class VisualSemanticProgressTrackerTest {
         )
         val page = snapshot("com.example.app", listOf("我的", "全部订单"))
         tracker.onVerifiedSurface(page)
-        tracker.evaluate(
+        val result = tracker.evaluate(
             semanticStep(
                 type = "tap_xy",
                 purpose = "打开订单",
@@ -141,9 +142,13 @@ class VisualSemanticProgressTrackerTest {
 
         val memory = tracker.memorySnapshot(page)
         assertEquals("orders", memory.currentMilestoneId)
-        assertTrue(memory.confirmedFacts.isEmpty())
-        assertTrue(memory.failedHypotheses.isEmpty())
+        assertTrue(memory.confirmedFacts.any { it.startsWith("verified_surface:") })
+        assertFalse(memory.confirmedFacts.any { it.contains("全部订单") })
+        assertEquals(1, memory.failedHypotheses.size)
+        assertEquals("screen_structure_unchanged", memory.failedHypotheses.single().failureReason)
         assertTrue(memory.blockedActions.isEmpty())
+        assertTrue(result.expectedEvidenceMatched.isEmpty())
+        assertTrue(result.failureEvidenceMatched.isEmpty())
         assertNotNull(memory.lastConfirmedPage)
         assertEquals("", memory.lastConfirmedPage?.summary)
         assertEquals("查看订单", memory.originalGoal)
