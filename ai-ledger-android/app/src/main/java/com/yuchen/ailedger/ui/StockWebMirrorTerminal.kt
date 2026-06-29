@@ -453,10 +453,10 @@ private fun MirrorTimeShareChart(stock: StockDetailUiState, isFiveDay: Boolean, 
             xFor = ::xFor,
             yFor = { yFor(it.average) },
             color = MirrorYellow.copy(alpha = 0.90f),
-            strokeWidth = 1.6.dp.toPx(),
+            strokeWidth = 1.0.dp.toPx(),
             include = { mirrorPhase(it) == "continuous" }
         )
-        mirrorDrawMinutePath(positioned, ::xFor, { yFor(it.price) }, if (stock.quote.isRising) MirrorRise else MirrorFall, 2.4.dp.toPx())
+        mirrorDrawMinutePath(positioned, ::xFor, { yFor(it.price) }, if (stock.quote.isRising) MirrorRise else MirrorFall, 1.5.dp.toPx())
         if (!isFiveDay) {
             val limitRatio = if (stock.quote.name.contains("ST", true)) 0.05f else 0.10f
             mirrorDrawText(mirrorPrice(previousClose * (1f + limitRatio)), width * 0.14f + 5.dp.toPx(), 4.dp.toPx(), 8.sp.toPx(), MirrorRise)
