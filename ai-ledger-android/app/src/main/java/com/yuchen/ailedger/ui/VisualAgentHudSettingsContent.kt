@@ -1,6 +1,9 @@
 package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -193,9 +198,26 @@ internal fun VisualAgentHudSettingsPage(
         store.state.map { it.previewEnabled }.distinctUntilChanged()
     }.collectAsState(initial = store.state.value.previewEnabled)
     val listState = rememberLazyListState()
+    val entranceProgress = remember { Animatable(0f) }
 
     SyncGlassBackdropToScroll(listState)
     BackHandler(onBack = onBack)
+
+    LaunchedEffect(Unit) {
+        entranceProgress.snapTo(0f)
+        if (state.motionIntensity <= 0.01f) {
+            entranceProgress.snapTo(1f)
+        } else {
+            entranceProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 360,
+                    delayMillis = 24,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+        }
+    }
 
     fun updatePreview(enabled: Boolean) {
         if (enabled && !AiAgentAccessibilityService.isConnected()) {
@@ -212,7 +234,17 @@ internal fun VisualAgentHudSettingsPage(
 
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val progress = entranceProgress.value
+                val scale = 0.985f + progress * 0.015f
+                alpha = progress
+                translationY = (1f - progress) * 20.dp.toPx()
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin(0.5f, 0.18f)
+            },
         contentPadding = PaddingValues(start = 14.dp, top = 16.dp, end = 14.dp, bottom = 132.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp),
     ) {
