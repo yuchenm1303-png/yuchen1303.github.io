@@ -7,39 +7,39 @@ import java.nio.ByteOrder
 private const val GL_HALF_FLOAT_OES = 0x8D61
 private const val GEOMETRY_TEXTURE_UNIT = GLES20.GL_TEXTURE2
 
-internal data class LegacyOpenGLGlassCacheFrame(
-    val viewportWidth: Int,
-    val viewportHeight: Int,
-    val rectWidth: Float,
-    val rectHeight: Float,
-    val rectOffsetY: Float,
-    val radius: Float,
-    val originX: Float,
-    val originY: Float,
-    val rootWidth: Float,
-    val rootHeight: Float,
-    val pressProgress: Float,
-    val pressCenterX: Float,
-    val pressCenterY: Float,
-    val materialVisibility: Float,
-    val materialMaxAlpha: Float,
-    val materialEdgeBrightness: Float,
-    val refractionPullScale: Float,
-    val refractionEdgePullDp: Float,
-    val refractionCompressionScale: Float,
-    val refractionCornerScale: Float,
-    val opticsSampleRadius: Float,
-    val opticsRingWidth: Float,
-    val opticsDebugAlpha: Float,
-    val opticsDarkScale: Float,
-    val texturesReady: Boolean,
-    val blurTextureId: Int,
-    val lensTextureId: Int,
-    val scissorLeft: Int,
-    val scissorTop: Int,
-    val scissorRight: Int,
-    val scissorBottom: Int,
-)
+internal class LegacyOpenGLGlassCacheFrame {
+    var viewportWidth: Int = 1
+    var viewportHeight: Int = 1
+    var rectWidth: Float = 1f
+    var rectHeight: Float = 1f
+    var rectOffsetY: Float = 0f
+    var radius: Float = 1f
+    var originX: Float = 0f
+    var originY: Float = 0f
+    var rootWidth: Float = 1f
+    var rootHeight: Float = 1f
+    var pressProgress: Float = 0f
+    var pressCenterX: Float = 0.5f
+    var pressCenterY: Float = 0.5f
+    var materialVisibility: Float = 0f
+    var materialMaxAlpha: Float = 0f
+    var materialEdgeBrightness: Float = 0f
+    var refractionPullScale: Float = 0f
+    var refractionEdgePullDp: Float = 0f
+    var refractionCompressionScale: Float = 0f
+    var refractionCornerScale: Float = 0f
+    var opticsSampleRadius: Float = 0f
+    var opticsRingWidth: Float = 0f
+    var opticsDebugAlpha: Float = 0f
+    var opticsDarkScale: Float = 0f
+    var texturesReady: Boolean = false
+    var blurTextureId: Int = 0
+    var lensTextureId: Int = 0
+    var scissorLeft: Int = 0
+    var scissorTop: Int = 0
+    var scissorRight: Int = 0
+    var scissorBottom: Int = 0
+}
 
 /**
  * 旧版玻璃的无损几何缓存。
@@ -52,6 +52,9 @@ internal class LegacyOpenGLGlassGeometryCache {
     private var supported = false
     private var permanentlyDisabled = false
     private var cacheValid = false
+    private var geometryValidationPending = true
+    private var compositeValidationPending = true
+    private var compositeUniformsInitialized = false
 
     private var geometryProgram = 0
     private var compositeProgram = 0
@@ -81,10 +84,39 @@ internal class LegacyOpenGLGlassGeometryCache {
     private var textureWidth = 0
     private var textureHeight = 0
 
+    private var lastCompositeViewportWidth = 0
+    private var lastCompositeViewportHeight = 0
+    private var lastCompositeOriginX = 0f
+    private var lastCompositeOriginY = 0f
+    private var lastCompositeRootWidth = 0f
+    private var lastCompositeRootHeight = 0f
+    private var lastCompositeRectWidth = 0f
+    private var lastCompositeRectHeight = 0f
+    private var lastCompositeRectOffsetY = 0f
+    private var lastCompositeRadius = 0f
+    private var lastCompositePressProgress = 0f
+    private var lastCompositePressCenterX = 0f
+    private var lastCompositePressCenterY = 0f
+    private var lastCompositeTexturesReady = false
+    private var lastCompositeMaterialVisibility = 0f
+    private var lastCompositeMaterialMaxAlpha = 0f
+    private var lastCompositeMaterialEdgeBrightness = 0f
+    private var lastCompositeRefractionPullScale = 0f
+    private var lastCompositeRefractionEdgePullDp = 0f
+    private var lastCompositeRefractionCompressionScale = 0f
+    private var lastCompositeRefractionCornerScale = 0f
+    private var lastCompositeOpticsSampleRadius = 0f
+    private var lastCompositeOpticsRingWidth = 0f
+    private var lastCompositeOpticsDebugAlpha = 0f
+    private var lastCompositeOpticsDarkScale = 0f
+
     fun onSurfaceCreated() {
         releaseProgramsAndFramebuffer()
         permanentlyDisabled = false
         cacheValid = false
+        geometryValidationPending = true
+        compositeValidationPending = true
+        compositeUniformsInitialized = false
 
         val extensions = GLES20.glGetString(GLES20.GL_EXTENSIONS).orEmpty()
         val supportsHalfTexture = extensions.contains("GL_OES_texture_half_float")
@@ -119,6 +151,11 @@ internal class LegacyOpenGLGlassGeometryCache {
             compositeMaterialHandle = GLES20.glGetUniformLocation(compositeProgram, "uMaterial")
             compositeRefractionHandle = GLES20.glGetUniformLocation(compositeProgram, "uRefraction")
             compositeOpticsHandle = GLES20.glGetUniformLocation(compositeProgram, "uOptics")
+
+            GLES20.glUseProgram(compositeProgram)
+            GLES20.glUniform1i(compositeBlurTextureHandle, 0)
+            GLES20.glUniform1i(compositeLensTextureHandle, 1)
+            GLES20.glUniform1i(compositeGeometryTextureHandle, 2)
             supported = true
         } catch (_: Throwable) {
             permanentlyDisabled = true
@@ -167,6 +204,9 @@ internal class LegacyOpenGLGlassGeometryCache {
         supported = false
         permanentlyDisabled = false
         cacheValid = false
+        geometryValidationPending = true
+        compositeValidationPending = true
+        compositeUniformsInitialized = false
     }
 
     private fun ensureFramebuffer(width: Int, height: Int): Boolean {
@@ -224,11 +264,15 @@ internal class LegacyOpenGLGlassGeometryCache {
         textureWidth = safeWidth
         textureHeight = safeHeight
         cacheValid = false
+        geometryValidationPending = true
+        compositeValidationPending = true
+        compositeUniformsInitialized = false
         return true
     }
 
     private fun renderGeometry(frame: LegacyOpenGLGlassCacheFrame, quadBufferId: Int): Boolean {
-        clearGlErrors()
+        val validate = geometryValidationPending
+        if (validate) clearGlErrors()
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, framebufferId)
         GLES20.glViewport(0, 0, frame.viewportWidth, frame.viewportHeight)
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
@@ -258,75 +302,157 @@ internal class LegacyOpenGLGlassGeometryCache {
         )
         applyScissor(frame)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        val error = GLES20.glGetError()
+        val success = !validate || GLES20.glGetError() == GLES20.GL_NO_ERROR
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, frame.viewportWidth, frame.viewportHeight)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        cacheValid = error == GLES20.GL_NO_ERROR
-        return cacheValid
+        cacheValid = success
+        if (success) geometryValidationPending = false
+        return success
     }
 
     private fun renderComposite(frame: LegacyOpenGLGlassCacheFrame, quadBufferId: Int): Boolean {
-        clearGlErrors()
+        val validate = compositeValidationPending
+        if (validate) clearGlErrors()
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glViewport(0, 0, frame.viewportWidth, frame.viewportHeight)
         GLES20.glUseProgram(compositeProgram)
         bindQuad(quadBufferId, compositePositionHandle)
-        GLES20.glUniform2f(
-            compositeResolutionHandle,
-            frame.viewportWidth.toFloat(),
-            frame.viewportHeight.toFloat(),
-        )
-        GLES20.glUniform2f(compositeCardOriginHandle, frame.originX, frame.originY)
-        GLES20.glUniform2f(compositeRootResolutionHandle, frame.rootWidth, frame.rootHeight)
-        GLES20.glUniform4f(
-            compositeRectHandle,
-            0f,
-            frame.rectOffsetY,
-            frame.rectWidth,
-            frame.rectHeight,
-        )
-        GLES20.glUniform1f(compositeRadiusHandle, frame.radius)
-        GLES20.glUniform4f(
-            compositePressHandle,
-            frame.pressProgress,
-            frame.pressCenterX,
-            frame.pressCenterY,
-            0f,
-        )
-        GLES20.glUniform1f(compositeTextureReadyHandle, if (frame.texturesReady) 1f else 0f)
-        GLES20.glUniform4f(
-            compositeMaterialHandle,
-            frame.materialVisibility,
-            frame.materialMaxAlpha,
-            frame.materialEdgeBrightness,
-            0f,
-        )
-        GLES20.glUniform4f(
-            compositeRefractionHandle,
-            frame.refractionPullScale,
-            frame.refractionEdgePullDp,
-            frame.refractionCompressionScale,
-            frame.refractionCornerScale,
-        )
-        GLES20.glUniform4f(
-            compositeOpticsHandle,
-            frame.opticsSampleRadius,
-            frame.opticsRingWidth,
-            frame.opticsDebugAlpha,
-            frame.opticsDarkScale,
-        )
-        GLES20.glUniform1i(compositeBlurTextureHandle, 0)
-        GLES20.glUniform1i(compositeLensTextureHandle, 1)
-        GLES20.glUniform1i(compositeGeometryTextureHandle, 2)
+        uploadCompositeUniforms(frame)
         bindTexture(GLES20.GL_TEXTURE0, frame.blurTextureId)
         bindTexture(GLES20.GL_TEXTURE1, frame.lensTextureId)
         bindTexture(GEOMETRY_TEXTURE_UNIT, geometryTextureId)
         applyScissor(frame)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        val error = GLES20.glGetError()
+        val success = !validate || GLES20.glGetError() == GLES20.GL_NO_ERROR
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        return error == GLES20.GL_NO_ERROR
+        if (success) compositeValidationPending = false
+        return success
+    }
+
+    private fun uploadCompositeUniforms(frame: LegacyOpenGLGlassCacheFrame) {
+        val force = !compositeUniformsInitialized
+        if (
+            force ||
+            lastCompositeViewportWidth != frame.viewportWidth ||
+            lastCompositeViewportHeight != frame.viewportHeight
+        ) {
+            GLES20.glUniform2f(
+                compositeResolutionHandle,
+                frame.viewportWidth.toFloat(),
+                frame.viewportHeight.toFloat(),
+            )
+            lastCompositeViewportWidth = frame.viewportWidth
+            lastCompositeViewportHeight = frame.viewportHeight
+        }
+        if (force || lastCompositeOriginX != frame.originX || lastCompositeOriginY != frame.originY) {
+            GLES20.glUniform2f(compositeCardOriginHandle, frame.originX, frame.originY)
+            lastCompositeOriginX = frame.originX
+            lastCompositeOriginY = frame.originY
+        }
+        if (force || lastCompositeRootWidth != frame.rootWidth || lastCompositeRootHeight != frame.rootHeight) {
+            GLES20.glUniform2f(compositeRootResolutionHandle, frame.rootWidth, frame.rootHeight)
+            lastCompositeRootWidth = frame.rootWidth
+            lastCompositeRootHeight = frame.rootHeight
+        }
+        if (
+            force ||
+            lastCompositeRectWidth != frame.rectWidth ||
+            lastCompositeRectHeight != frame.rectHeight ||
+            lastCompositeRectOffsetY != frame.rectOffsetY
+        ) {
+            GLES20.glUniform4f(
+                compositeRectHandle,
+                0f,
+                frame.rectOffsetY,
+                frame.rectWidth,
+                frame.rectHeight,
+            )
+            lastCompositeRectWidth = frame.rectWidth
+            lastCompositeRectHeight = frame.rectHeight
+            lastCompositeRectOffsetY = frame.rectOffsetY
+        }
+        if (force || lastCompositeRadius != frame.radius) {
+            GLES20.glUniform1f(compositeRadiusHandle, frame.radius)
+            lastCompositeRadius = frame.radius
+        }
+        if (
+            force ||
+            lastCompositePressProgress != frame.pressProgress ||
+            lastCompositePressCenterX != frame.pressCenterX ||
+            lastCompositePressCenterY != frame.pressCenterY
+        ) {
+            GLES20.glUniform4f(
+                compositePressHandle,
+                frame.pressProgress,
+                frame.pressCenterX,
+                frame.pressCenterY,
+                0f,
+            )
+            lastCompositePressProgress = frame.pressProgress
+            lastCompositePressCenterX = frame.pressCenterX
+            lastCompositePressCenterY = frame.pressCenterY
+        }
+        if (force || lastCompositeTexturesReady != frame.texturesReady) {
+            GLES20.glUniform1f(compositeTextureReadyHandle, if (frame.texturesReady) 1f else 0f)
+            lastCompositeTexturesReady = frame.texturesReady
+        }
+        if (
+            force ||
+            lastCompositeMaterialVisibility != frame.materialVisibility ||
+            lastCompositeMaterialMaxAlpha != frame.materialMaxAlpha ||
+            lastCompositeMaterialEdgeBrightness != frame.materialEdgeBrightness
+        ) {
+            GLES20.glUniform4f(
+                compositeMaterialHandle,
+                frame.materialVisibility,
+                frame.materialMaxAlpha,
+                frame.materialEdgeBrightness,
+                0f,
+            )
+            lastCompositeMaterialVisibility = frame.materialVisibility
+            lastCompositeMaterialMaxAlpha = frame.materialMaxAlpha
+            lastCompositeMaterialEdgeBrightness = frame.materialEdgeBrightness
+        }
+        if (
+            force ||
+            lastCompositeRefractionPullScale != frame.refractionPullScale ||
+            lastCompositeRefractionEdgePullDp != frame.refractionEdgePullDp ||
+            lastCompositeRefractionCompressionScale != frame.refractionCompressionScale ||
+            lastCompositeRefractionCornerScale != frame.refractionCornerScale
+        ) {
+            GLES20.glUniform4f(
+                compositeRefractionHandle,
+                frame.refractionPullScale,
+                frame.refractionEdgePullDp,
+                frame.refractionCompressionScale,
+                frame.refractionCornerScale,
+            )
+            lastCompositeRefractionPullScale = frame.refractionPullScale
+            lastCompositeRefractionEdgePullDp = frame.refractionEdgePullDp
+            lastCompositeRefractionCompressionScale = frame.refractionCompressionScale
+            lastCompositeRefractionCornerScale = frame.refractionCornerScale
+        }
+        if (
+            force ||
+            lastCompositeOpticsSampleRadius != frame.opticsSampleRadius ||
+            lastCompositeOpticsRingWidth != frame.opticsRingWidth ||
+            lastCompositeOpticsDebugAlpha != frame.opticsDebugAlpha ||
+            lastCompositeOpticsDarkScale != frame.opticsDarkScale
+        ) {
+            GLES20.glUniform4f(
+                compositeOpticsHandle,
+                frame.opticsSampleRadius,
+                frame.opticsRingWidth,
+                frame.opticsDebugAlpha,
+                frame.opticsDarkScale,
+            )
+            lastCompositeOpticsSampleRadius = frame.opticsSampleRadius
+            lastCompositeOpticsRingWidth = frame.opticsRingWidth
+            lastCompositeOpticsDebugAlpha = frame.opticsDebugAlpha
+            lastCompositeOpticsDarkScale = frame.opticsDarkScale
+        }
+        compositeUniformsInitialized = true
     }
 
     private fun applyScissor(frame: LegacyOpenGLGlassCacheFrame) {
@@ -367,6 +493,7 @@ internal class LegacyOpenGLGlassGeometryCache {
         if (compositeProgram != 0) GLES20.glDeleteProgram(compositeProgram)
         geometryProgram = 0
         compositeProgram = 0
+        compositeUniformsInitialized = false
     }
 
     private fun releaseFramebuffer() {
