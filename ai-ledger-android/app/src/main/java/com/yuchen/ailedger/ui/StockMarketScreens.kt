@@ -57,10 +57,20 @@ fun AStockMarketScreenV2(
         is StockNativeRoute.Detail -> 1.00f
         else -> 0.98f
     }
-    val stockDensity = remember(baseDensity.density, baseDensity.fontScale, routeFontScale) {
+    val routeDensityScale = when (route) {
+        is StockNativeRoute.Detail -> 0.90f
+        else -> 1.00f
+    }
+    val stockDensity = remember(
+        baseDensity.density,
+        baseDensity.fontScale,
+        routeFontScale,
+        routeDensityScale
+    ) {
         Density(
-            density = baseDensity.density,
-            fontScale = (baseDensity.fontScale * routeFontScale).coerceIn(0.88f, 1.30f)
+            density = baseDensity.density * routeDensityScale,
+            fontScale = (baseDensity.fontScale * routeFontScale / routeDensityScale)
+                .coerceIn(0.88f, 1.45f)
         )
     }
     val routeHorizontalPadding = when (route) {
