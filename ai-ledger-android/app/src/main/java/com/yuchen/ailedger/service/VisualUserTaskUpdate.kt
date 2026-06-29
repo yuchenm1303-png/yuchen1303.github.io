@@ -46,6 +46,7 @@ data class VisualUserTaskUpdate(
         append("|manualStepCompleted=").append(manualStepCompleted)
         append("|latestUserTurnAuthoritative=true")
         append("|completionCandidateInvalidated=true")
+        append("|reasoningDepth=deep")
         append("|semanticStatus=user_revision")
         append("|priority=highest")
         append("|replanRequired=true")
@@ -107,7 +108,29 @@ internal object VisualUserTaskUpdateRuntime {
             val pending = updates.filter { it.revision > dispatchedRevision }
             if (pending.isEmpty()) return@synchronized emptyList()
             dispatchedRevision = pending.maxOf { it.revision }
-            pending.takeLast(4).map(VisualUserTaskUpdate::toPromptLine)
+            val latest = pending.last()
+            val trigger = if (latest.isDirective) {
+                VisualReasoningTrigger.UserCorrection
+            } else {
+                VisualReasoningTrigger.UserSupplement
+            }
+            val reasoning = VisualReasoningContext(
+                depth = VisualReasoningDepth.Deep,
+                triggers = listOf(trigger),
+                explorationPressureLevel = "high",
+                historyItems = 4,
+                selfCheckPasses = 2,
+                candidateHypothesisLimit = 3,
+                freshObservationRequired = true,
+                completionEvidenceStrict = false,
+                directExecutionAllowed = false,
+            )
+            VisualReasoningRuntime.update(reasoning)
+            buildList {
+                add(reasoning.toPromptLine())
+                VisualReasoningPolicy.deepReplanLine(reasoning)?.let(::add)
+                pending.takeLast(2).forEach { add(it.toPromptLine()) }
+            }
         }
     }
 
