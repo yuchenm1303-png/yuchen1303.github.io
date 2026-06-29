@@ -7,6 +7,7 @@ internal data class VisualCompletionCandidate(
     val id: String,
     val sessionId: String,
     val observationId: String,
+    val taskRevision: Int = 0,
 )
 
 internal data class VisualCompletionPermit(
@@ -28,6 +29,10 @@ internal data class VisualCompletionValidation<T>(
 /**
  * Protocol-only verification for GUI Plus completion candidates and independent completion permits.
  * It never reads page text, target labels, app names or user-goal keywords.
+ *
+ * A user task revision is a hard completion barrier: a candidate captured before the newest user
+ * reply can never be upgraded into a permit, even if the backend verifier still returns a stale
+ * confirmation for the former goal.
  */
 internal object VisualCompletionPermitPolicy {
     private const val ACTION_TYPE = "finish"
@@ -39,6 +44,7 @@ internal object VisualCompletionPermitPolicy {
         step: CloudAgentStep,
         expectedSessionId: String,
         expectedObservationId: String,
+        currentTaskRevision: Int = VisualUserTaskUpdateRuntime.currentRevision(),
     ): VisualCompletionValidation<VisualCompletionCandidate> {
         fun finish(result: VisualCompletionValidation<VisualCompletionCandidate>) = report(
             stage = "candidate",
@@ -46,6 +52,7 @@ internal object VisualCompletionPermitPolicy {
             step = step,
             expectedSessionId = expectedSessionId,
             expectedObservationId = expectedObservationId,
+            currentTaskRevision = currentTaskRevision,
         )
         if (step.type != ACTION_TYPE) return finish(invalid("wrong_action_type"))
         val args = step.toolArgs ?: return finish(invalid("missing_completion_candidate_args"))
@@ -67,7 +74,16 @@ internal object VisualCompletionPermitPolicy {
             observationId != expectedObservationId.trim() ||
             responseObservationId != expectedObservationId.trim()
         ) return finish(invalid("completion_candidate_observation_mismatch"))
-        return finish(valid(VisualCompletionCandidate(candidateId, sessionId, observationId)))
+        return finish(
+            valid(
+                VisualCompletionCandidate(
+                    id = candidateId,
+                    sessionId = sessionId,
+                    observationId = observationId,
+                    taskRevision = currentTaskRevision.coerceAtLeast(0),
+                ),
+            ),
+        )
     }
 
     fun permit(
@@ -75,6 +91,7 @@ internal object VisualCompletionPermitPolicy {
         expectedSessionId: String,
         expectedObservationId: String,
         expectedCandidate: VisualCompletionCandidate,
+        currentTaskRevision: Int = VisualUserTaskUpdateRuntime.currentRevision(),
     ): VisualCompletionValidation<VisualCompletionPermit> {
         fun finish(result: VisualCompletionValidation<VisualCompletionPermit>) = report(
             stage = "permit",
@@ -82,8 +99,12 @@ internal object VisualCompletionPermitPolicy {
             step = step,
             expectedSessionId = expectedSessionId,
             expectedObservationId = expectedObservationId,
+            currentTaskRevision = currentTaskRevision,
         )
         if (step.type != ACTION_TYPE) return finish(invalid("wrong_action_type"))
+        if (currentTaskRevision > expectedCandidate.taskRevision) {
+            return finish(invalid("completion_candidate_invalidated_by_user_revision"))
+        }
         val args = step.toolArgs ?: return finish(invalid("missing_completion_permit_args"))
         val permitId = args.cleanString("completionPermitId")
         val permitKind = args.cleanString("completionPermitKind")
@@ -171,6 +192,7 @@ internal object VisualCompletionPermitPolicy {
         step: CloudAgentStep,
         expectedSessionId: String,
         expectedObservationId: String,
+        currentTaskRevision: Int,
     ): VisualCompletionValidation<T> {
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "completion_protocol",
@@ -181,6 +203,7 @@ internal object VisualCompletionPermitPolicy {
                 put("stepType", step.type)
                 put("expectedSessionId", expectedSessionId.take(180))
                 put("expectedObservationId", expectedObservationId.take(180))
+                put("currentTaskRevision", currentTaskRevision)
                 put("toolArgs", step.toolArgs ?: JSONObject.NULL)
             },
         )
