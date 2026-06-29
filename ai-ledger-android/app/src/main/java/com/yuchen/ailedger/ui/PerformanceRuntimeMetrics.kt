@@ -6,8 +6,9 @@ import java.util.concurrent.atomic.AtomicLong
 /**
  * 低开销运行时渲染计数器。
  *
- * 仅在 StartupMetrics 启用时记录，正式运行默认完全旁路，避免为了诊断本身引入
- * Compose 状态写入、主线程回调或日志 I/O。
+ * 仅在 StartupMetrics 启用时记录诊断计数，正式运行默认完全旁路，避免为了诊断本身引入
+ * Compose 状态写入、主线程回调或日志 I/O。OpenGL 首帧门控是运行时正确性信号，不属于
+ * 诊断计数，因此无论性能监控是否开启都必须在真实 swap 成功后发送。
  */
 internal object PerformanceRuntimeMetrics {
     private val assistantClockStarts = AtomicLong(0L)
@@ -63,6 +64,9 @@ internal object PerformanceRuntimeMetrics {
     }
 
     fun recordOpenGlFrame() {
+        // 调用点位于 EGL swapBuffers 成功分支；这才是真正可见首帧，而不是 Surface 创建、
+        // Shader 编译完成或 requestRender。必须先释放启动门，再按需记录诊断计数。
+        StartupPerformanceGate.markOpenGlFirstFrameReady()
         if (!StartupMetrics.isEnabled) return
         openGlFrames.incrementAndGet()
     }
