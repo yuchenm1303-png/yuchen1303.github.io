@@ -434,36 +434,49 @@ class StockMarketViewModel(
             var firstRound = true
             var warmupRetryIndex = 0
             while (isActive && pageActive && !_uiState.value.showDetail) {
-                if (firstRound) _uiState.update { it.copy(marketLoading = true) }
+                if (firstRound && !_uiState.value.marketHome.hasDisplayData()) {
+                    _uiState.update { it.copy(marketLoading = true) }
+                }
                 val result = withContext(Dispatchers.IO) {
                     marketDataRepository.loadMarketHome()
                 }
-                val warmupComplete = result.getOrNull()?.hasWarmupData() == true
+                val snapshot = result.getOrNull()
+                val serviceWarming = snapshot?.isServiceWarming() == true
+                val usingLocalCache = snapshot?.isAndroidCacheFallback() == true
+                val warmupComplete = snapshot?.hasWarmupData() == true &&
+                    !serviceWarming &&
+                    !usingLocalCache
+
                 _uiState.update { state ->
                     result.fold(
-                        onSuccess = { snapshot ->
+                        onSuccess = { loaded ->
+                            val keepCurrent = serviceWarming && state.marketHome.hasDisplayData()
+                            val visible = if (keepCurrent) state.marketHome else loaded
                             state.copy(
-                                marketHome = snapshot,
+                                marketHome = visible,
                                 stock = state.stock.copy(
-                                    indices = snapshot.indices,
-                                    marketBoards = snapshot.boards,
+                                    indices = visible.indices,
+                                    marketBoards = visible.boards,
                                     watchlist = emptyList()
                                 ),
-                                marketLoading = false,
-                                requestMessage = if (state.requestMessage?.startsWith("市场数据") == true) {
-                                    null
-                                } else {
-                                    state.requestMessage
+                                marketLoading = serviceWarming && !visible.hasDisplayData(),
+                                requestMessage = when {
+                                    serviceWarming -> "行情服务正在唤醒，正在自动恢复…"
+                                    usingLocalCache -> "行情服务正在更新，当前显示上次成功数据"
+                                    state.requestMessage?.startsWith("行情服务") == true -> null
+                                    state.requestMessage?.startsWith("市场数据") == true -> null
+                                    else -> state.requestMessage
                                 }
                             )
                         },
                         onFailure = { error ->
+                            val hasVisibleData = state.marketHome.hasDisplayData()
                             state.copy(
-                                marketLoading = false,
-                                requestMessage = if (firstRound) {
-                                    "市场数据加载失败：${error.message ?: error.javaClass.simpleName}"
+                                marketLoading = !hasVisibleData,
+                                requestMessage = if (hasVisibleData) {
+                                    "行情服务暂时不可用，当前保留已加载数据"
                                 } else {
-                                    state.requestMessage
+                                    "行情服务暂时不可用，正在自动重试：${error.message ?: error.javaClass.simpleName}"
                                 }
                             )
                         }
@@ -472,16 +485,23 @@ class StockMarketViewModel(
                 firstRound = false
                 if (!pageActive || _uiState.value.showDetail) break
 
-                val nextDelay = if (
-                    !warmupComplete && warmupRetryIndex < MARKET_WARMUP_RETRY_DELAYS_MS.size
-                ) {
-                    MARKET_WARMUP_RETRY_DELAYS_MS[warmupRetryIndex++]
-                } else {
-                    MARKET_REFRESH_INTERVAL_MS
+                val nextDelay = when {
+                    serviceWarming || usingLocalCache -> MARKET_SERVICE_POLL_INTERVAL_MS
+                    !warmupComplete && warmupRetryIndex < MARKET_WARMUP_RETRY_DELAYS_MS.size -> {
+                        MARKET_WARMUP_RETRY_DELAYS_MS[warmupRetryIndex++]
+                    }
+                    else -> MARKET_REFRESH_INTERVAL_MS
                 }
                 delay(nextDelay)
             }
         }
+    }
+
+    private fun StockMarketHomeSnapshot.hasDisplayData(): Boolean {
+        return indices.isNotEmpty() ||
+            marketBreadth.meta.hasRealData ||
+            boards.isNotEmpty() ||
+            sectors.isNotEmpty()
     }
 
     private fun StockMarketHomeSnapshot.hasWarmupData(): Boolean {
@@ -489,6 +509,18 @@ class StockMarketViewModel(
             marketBreadth.meta.hasRealData &&
             boards.isNotEmpty() &&
             sectors.isNotEmpty()
+    }
+
+    private fun StockMarketHomeSnapshot.isServiceWarming(): Boolean {
+        return warnings.any {
+            it.startsWith(StockMarketDataRepository.ANDROID_WARMING_MARKER)
+        }
+    }
+
+    private fun StockMarketHomeSnapshot.isAndroidCacheFallback(): Boolean {
+        return warnings.any {
+            it.startsWith(StockMarketDataRepository.ANDROID_CACHE_FALLBACK_MARKER)
+        }
     }
 
     private fun stopMarketLoop() {
@@ -891,6 +923,7 @@ class StockMarketViewModel(
     companion object {
         private const val REALTIME_INTERVAL_MS = 1_000L
         private const val MARKET_REFRESH_INTERVAL_MS = 20_000L
+        private const val MARKET_SERVICE_POLL_INTERVAL_MS = 1_500L
         private val MARKET_WARMUP_RETRY_DELAYS_MS = longArrayOf(1_200L, 2_400L, 4_800L)
         private const val SLOW_DETAIL_DELAY_MS = 900L
         private const val SLOW_DETAIL_REFRESH_TTL_MS = 120_000L
