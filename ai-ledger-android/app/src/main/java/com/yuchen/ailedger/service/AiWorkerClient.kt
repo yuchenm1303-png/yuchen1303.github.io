@@ -135,7 +135,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 }
             }
         }
-        throw lastError ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
+        val failure = lastError ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
+        AssistantMemoryUsageBridge.recordFailedPayload(payload, failure)
+        throw failure
     }
 
     @Throws(IOException::class)
@@ -167,7 +169,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 }
             }
         }
-        throw lastError ?: IOException("云端 AI 流式请求失败，请检查 Worker 配置。")
+        val failure = lastError ?: IOException("云端 AI 流式请求失败，请检查 Worker 配置。")
+        AssistantMemoryUsageBridge.recordFailedPayload(payload, failure)
+        throw failure
     }
 
     internal fun buildChatPayloadForTest(
@@ -331,6 +335,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
         }
 
         return JSONObject().apply {
+            put("requestId", java.util.UUID.randomUUID().toString())
             put("action", "chat")
             put("intent", intent)
             put("messages", workerMessages)
@@ -343,6 +348,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
             memoryCompilation?.memorySnapshot?.let { put("memorySnapshot", it) }
             memoryCompilation?.personaConfigJson()?.let { put("personaConfig", it) }
             memoryCompilation?.diagnosticsJson()?.let { put("memoryContextDiagnostics", it) }
+            put("memoryMode", memoryCompilation?.requestMode ?: "off")
             put("memoryEnabled", memoryCompilation?.hasAnyContext == true)
             put("memorySchema", memoryCompilation?.schema ?: "ai_ledger_memory_context_v3")
             put("chatExpressionPreferences", JSONObject().apply {
@@ -471,7 +477,7 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
                 "clientVersion",
                 if (hasImage) "compose-native-qwen-vision-v3-memory-retrieval"
                 else if (shouldStartAgent) "compose-native-agent-switch-v5"
-                else "compose-native-command-chat-v7-memory-retrieval",
+                else "compose-native-command-chat-v8-memory-diagnostics",
             )
             put("now", System.currentTimeMillis())
         }
@@ -1101,7 +1107,9 @@ class AiWorkerClient(private val config: AiWorkerConfig = AiWorkerConfig()) {
     }
 
     private fun String.toJsonOrNull(): JSONObject? = try {
-        takeIf { it.isNotBlank() }?.let { JSONObject(it) }
+        takeIf { it.isNotBlank() }?.let { raw ->
+            JSONObject(raw).also(AssistantMemoryUsageBridge::captureResponseJson)
+        }
     } catch (_: Exception) {
         null
     }
