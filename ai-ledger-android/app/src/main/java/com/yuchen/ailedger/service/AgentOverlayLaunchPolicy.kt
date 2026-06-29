@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 internal object AgentOverlayLaunchPolicy {
     private val mutableManualEnabled = MutableStateFlow(false)
     val manualEnabled: StateFlow<Boolean> = mutableManualEnabled.asStateFlow()
+
+    private val serviceRequested = AtomicBoolean(false)
 
     @Volatile
     private var pendingManualEnableAfterPermission: Boolean = false
@@ -64,18 +67,25 @@ internal object AgentOverlayLaunchPolicy {
         val appContext = context.applicationContext
         if (isManualEnabled() && canDrawOverlays(appContext)) {
             startService(appContext)
+        } else if (serviceRequested.get()) {
+            // 只有本进程确实请求过服务时才停止。默认空闲冷启动不会再产生无意义的
+            // Binder/ServiceManager 往返，同时权限被撤销时仍能正确清理已启动服务。
+            stopService(appContext)
         }
-        // 关闭动作只由 disableManually() 执行。空闲进度同步不再反复调用 stopService，
-        // 避免每次进程冷启动和状态更新都产生无意义的 Binder/ServiceManager 往返。
     }
 
     private fun startService(context: Context) {
         runCatching {
             context.startService(Intent(context, AgentOverlayService::class.java))
+        }.onSuccess {
+            serviceRequested.set(true)
         }
     }
 
     private fun stopService(context: Context) {
-        context.stopService(Intent(context, AgentOverlayService::class.java))
+        serviceRequested.set(false)
+        runCatching {
+            context.stopService(Intent(context, AgentOverlayService::class.java))
+        }
     }
 }
