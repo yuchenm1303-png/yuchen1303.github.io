@@ -280,11 +280,16 @@ class VisualAgentClientTest {
         val snapshot = testSnapshot(packageName = "com.example.app")
         val verified = verifiedRuntimeContext(snapshot, snapshot.packageName)
         listOf("tap_node", "scroll", "recents", "notifications", "quick_settings").forEach { type ->
-            val step = when (type) {
+            val baseStep = when (type) {
                 "tap_node" -> CloudAgentStep(type = type, targetText = "目标")
                 "scroll" -> CloudAgentStep(type = type, direction = "up")
                 else -> CloudAgentStep(type = type)
             }
+            val step = baseStep.copy(
+                toolArgs = org.json.JSONObject()
+                    .put("responseSessionId", "visual-session-test")
+                    .put("responseObservationId", verified.observationId),
+            )
             assertTrue(
                 "$type should validate",
                 VisualActionValidator.validate(step, snapshot, verified).ok,
