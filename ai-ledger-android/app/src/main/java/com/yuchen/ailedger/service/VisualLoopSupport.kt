@@ -333,7 +333,7 @@ internal object VisualLoopSupport {
         val target = step.targetText?.takeIf(String::isNotBlank)
             ?: step.appName?.takeIf(String::isNotBlank)
             ?: step.packageName?.takeIf(String::isNotBlank)
-            ?: step.text?.take(32)?.takeIf(String::isNotBlank)
+            ?: step.text?.takeIf { step.type != "input_text" }?.take(32)?.takeIf(String::isNotBlank)
         val executionTrace = buildExecutionTrace(step, result)
         val summary = buildList {
             add(signature)
@@ -430,6 +430,7 @@ internal object VisualLoopSupport {
     }
 
     fun requestActions(recent: List<String>, interactions: List<String>): List<String> {
+        captureStructuredUserReplies(interactions)
         val mergedInteractions = interactions + AgentTakeoverDialogueBridge.interactionActions()
         val interactionBudget = mergedInteractions.takeLast(MAX_INTERACTION_IN_REQUEST)
         val runtimeBudget = (CLIENT_ACTION_LIMIT - interactionBudget.size).coerceAtLeast(MIN_RUNTIME_ACTIONS)
@@ -447,6 +448,25 @@ internal object VisualLoopSupport {
             },
         )
         return request
+    }
+
+    private fun captureStructuredUserReplies(interactions: List<String>) {
+        var latestQuestion = ""
+        interactions.forEach { rawLine ->
+            val line = rawLine.trim()
+            when {
+                line.startsWith("guiPlusQuestion:") -> {
+                    latestQuestion = line.substringAfter("guiPlusQuestion:").take(MAX_INTERACTION_TEXT_CHARS)
+                }
+                line.startsWith("userReply:") -> {
+                    VisualUserTaskUpdateRuntime.record(
+                        rawReply = line.substringAfter("userReply:"),
+                        sourceReason = "model_help_reply",
+                        prompt = latestQuestion,
+                    )
+                }
+            }
+        }
     }
 
     fun modelTurnBudget(maxSteps: Int): Int {
