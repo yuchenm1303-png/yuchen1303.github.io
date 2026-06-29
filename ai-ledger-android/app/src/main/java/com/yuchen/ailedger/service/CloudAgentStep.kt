@@ -96,9 +96,7 @@ data class CloudAgentPlan(
          * GUI Plus is the sole visual grounding authority. Older backend builds may run a second
          * verifier and replace the original tap with wait/reobserve. When the response still carries
          * the original compact GUI Plus action, restore that exact observation-bound coordinate.
-         *
-         * This is protocol normalization, not local visual inference: Android never invents, moves or
-         * re-labels the point. Missing binding or malformed coordinates remain non-executable.
+         * Android never invents, moves or re-labels the point.
          */
         private fun restoreGuiPlusVisualTap(
             root: JSONObject?,
@@ -604,9 +602,6 @@ private fun JSONObject.optStringSet(name: String): Set<String> {
         else -> emptySet()
     }
 }
-
-private fun JSONObject.deepCopy(): JSONObject =
-    runCatching { JSONObject(toString()) }.getOrDefault(JSONObject())
 
 private fun JSONObject?.deepCopy(): JSONObject =
     this?.let { runCatching { JSONObject(it.toString()) }.getOrDefault(JSONObject()) } ?: JSONObject()
