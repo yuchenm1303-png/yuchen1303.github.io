@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -45,6 +46,82 @@ class VisualIntelligenceUpgradeTest {
         assertFalse(signature.contains("private-input-value"))
         assertTrue(signature.contains("input_text"))
         assertTrue(signature.contains("fill_private_field"))
+    }
+
+    @Test
+    fun explicitUserCorrectionInvalidatesCurrentMilestone() {
+        val update = VisualUserTaskUpdateClassifier.classify(
+            rawReply = "不是这个页面，目标改为查看自选股",
+            sourceReason = "model_help",
+            prompt = "请确认下一步",
+        )
+
+        assertNotNull(update)
+        assertEquals(VisualUserTaskUpdateKind.GoalRevision, update!!.kind)
+        assertTrue(update.invalidatesCurrentMilestone)
+        assertTrue(update.invalidatesVisualHistory)
+    }
+
+    @Test
+    fun manualCompletionTokenNeverLeaksPrivateInput() {
+        val update = VisualUserTaskUpdateClassifier.classify(
+            rawReply = VisualLoopSupport.PRIVATE_COMPLETION_TOKEN,
+            sourceReason = "model_help",
+            prompt = "请完成手动步骤",
+        )
+
+        assertEquals(VisualUserTaskUpdateKind.ManualStepCompleted, update!!.kind)
+        assertEquals("[用户已完成手动步骤]", update.content)
+        assertTrue(update.manualStepCompleted)
+    }
+
+    @Test
+    fun taskMemoryCarriesRevisionAndLatestUserUpdate() {
+        val update = VisualUserTaskUpdate(
+            revision = 3,
+            kind = VisualUserTaskUpdateKind.CancelSubgoal,
+            content = "跳过当前步骤",
+            invalidatesCurrentMilestone = true,
+            invalidatesVisualHistory = true,
+        )
+        val json = VisualTaskMemory(
+            originalGoal = "原始任务",
+            currentMilestoneId = "m1",
+            failedHypotheses = listOf(
+                VisualFailedHypothesis("h1", "m1", "p1", "wait", "wait", "等待", "unchanged"),
+            ),
+            blockedActions = listOf(
+                VisualBlockedAction("m1", "p1", "wait", "h1", "blocked"),
+            ),
+            taskRevision = 3,
+            taskRevisionPending = true,
+            currentMilestoneInvalidated = true,
+            latestUserUpdate = update,
+            userUpdateHistory = listOf(update),
+        ).toJson()
+
+        assertEquals(3, json.getInt("taskRevision"))
+        assertTrue(json.getBoolean("taskRevisionPending"))
+        assertTrue(json.getBoolean("currentMilestoneInvalidated"))
+        assertEquals("cancel_subgoal", json.getJSONObject("latestUserUpdate").getString("kind"))
+        assertEquals(0, json.getJSONArray("failedHypotheses").length())
+        assertEquals(0, json.getJSONArray("blockedActions").length())
+    }
+
+    @Test
+    fun taskContractParsesRevisionEcho() {
+        val root = JSONObject().put(
+            "taskContract",
+            JSONObject()
+                .put("originalGoal", "测试任务")
+                .put("currentMilestoneId", "m2")
+                .put("taskRevision", 4),
+        )
+
+        val contract = VisualTaskContract.fromJson(root)
+
+        assertEquals(4, contract!!.taskRevision)
+        assertEquals("m2", contract.currentMilestoneId)
     }
 
     @Test
