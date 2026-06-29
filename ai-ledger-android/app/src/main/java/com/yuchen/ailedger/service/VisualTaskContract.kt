@@ -139,6 +139,7 @@ data class VisualActionIntent(
     }
 }
 
+/** Legacy diagnostic shape retained for backward-compatible deserialization/tests only. */
 data class VisualFailedHypothesis(
     val hypothesisId: String,
     val milestoneId: String,
@@ -161,6 +162,7 @@ data class VisualFailedHypothesis(
     }
 }
 
+/** Legacy diagnostic shape retained; Android no longer creates or applies local visual blocks. */
 data class VisualBlockedAction(
     val milestoneId: String,
     val pageStateId: String,
@@ -229,15 +231,13 @@ data class VisualTaskMemory(
         } else {
             progressStatus
         }
-        val effectiveFailedHypotheses = if (effectiveInvalidation) emptyList() else failedHypotheses
-        val effectiveBlockedActions = if (runtimeUpdates.isNotEmpty() || effectivePending) emptyList() else blockedActions
         val effectiveContract = taskContract?.copy(taskRevision = maxOf(taskContract.taskRevision, effectiveRevision))
         val effectiveReasoning = reasoningContext
             ?: VisualReasoningRuntime.currentOrNull()
             ?: VisualReasoningPolicy.evaluate(
                 copy(
-                    failedHypotheses = effectiveFailedHypotheses,
-                    blockedActions = effectiveBlockedActions,
+                    failedHypotheses = emptyList(),
+                    blockedActions = emptyList(),
                     progressStatus = effectiveProgress,
                     replanRequested = effectiveReplan,
                     recoveryMode = recoveryMode || effectivePending,
@@ -252,14 +252,15 @@ data class VisualTaskMemory(
             )
 
         return JSONObject().apply {
-            put("schema", "visual_task_memory_v3_adaptive_reasoning")
+            put("schema", "visual_task_memory_v4_visual_authority")
             put("originalGoal", originalGoal)
             put("currentMilestoneId", currentMilestoneId)
             put("completedMilestoneIds", JSONArray(completedMilestoneIds))
             put("currentPage", currentPage?.toJson() ?: JSONObject.NULL)
             put("confirmedFacts", JSONArray(confirmedFacts))
-            put("failedHypotheses", JSONArray().apply { effectiveFailedHypotheses.forEach { put(it.toJson()) } })
-            put("blockedActions", JSONArray().apply { effectiveBlockedActions.forEach { put(it.toJson()) } })
+            // Compatibility keys remain explicitly empty so stale local semantic state cannot leak.
+            put("failedHypotheses", JSONArray())
+            put("blockedActions", JSONArray())
             put("remainingExplorationBudget", remainingExplorationBudget)
             put("lastConfirmedPage", lastConfirmedPage?.toJson() ?: JSONObject.NULL)
             put("progressStatus", effectiveProgress)
@@ -275,6 +276,10 @@ data class VisualTaskMemory(
             put("reasoningContext", effectiveReasoning.toJson())
             put("reasoningDepth", effectiveReasoning.depth.wireValue)
             put("reasoningTriggers", JSONArray(effectiveReasoning.triggers.map { it.wireValue }))
+            put("semanticDecisionOwner", "gui_plus")
+            put("localSemanticDecision", false)
+            put("localProgressClassification", false)
+            put("executionLedgerOnly", true)
         }
     }
 }
