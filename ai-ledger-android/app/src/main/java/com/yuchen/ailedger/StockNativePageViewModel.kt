@@ -350,7 +350,7 @@ class StockNativePageViewModel(
         val post = state.postDetail?.post ?: return
         val code = state.postDetail.code
         if (state.commentsLoading) return
-        if (!force && state.commentsLoaded && !state.commentsHasMore) return
+        if (!force && state.commentsLoaded && !state.commentsHasMore && state.commentsError.isNullOrBlank()) return
         val page = if (force || !state.commentsLoaded) 1 else state.commentsPage + 1
         val requestId = postRequestId
         commentsJob?.cancel()
@@ -359,7 +359,7 @@ class StockNativePageViewModel(
                 it.copy(
                     comments = if (page == 1) emptyList() else it.comments,
                     commentsLoading = true,
-                    commentsLoaded = true,
+                    commentsLoaded = if (page == 1) false else it.commentsLoaded,
                     commentsError = null
                 )
             }
@@ -378,10 +378,18 @@ class StockNativePageViewModel(
                             commentsPage = detail.commentPage,
                             commentsTotal = detail.commentTotal,
                             commentsHasMore = detail.hasMoreComments,
-                            commentsLoading = false
+                            commentsLoaded = true,
+                            commentsLoading = false,
+                            commentsError = null
                         )
                     },
-                    onFailure = { error -> current.copy(commentsLoading = false, commentsError = error.message ?: "评论加载失败") }
+                    onFailure = { error ->
+                        current.copy(
+                            commentsLoaded = current.comments.isNotEmpty(),
+                            commentsLoading = false,
+                            commentsError = error.message ?: "评论加载失败"
+                        )
+                    }
                 )
             }
         }
