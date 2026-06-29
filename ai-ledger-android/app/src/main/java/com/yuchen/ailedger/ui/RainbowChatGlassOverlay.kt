@@ -175,7 +175,7 @@ private class RainbowChatGlassFilmNode(
     private var elapsedNanos = 0L
 
     private val screenPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
+        this.style = Paint.Style.FILL
         xfermode = PorterDuffXfermode(PorterDuff.Mode.SCREEN)
     }
     private val radialMatrixA = Matrix()
