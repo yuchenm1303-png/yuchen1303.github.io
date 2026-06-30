@@ -118,7 +118,8 @@ internal fun StockNativeGlassPanel(
 }
 
 /**
- * 雾面小卡同样不裁剪材质层，避免卡片边缘出现左右断层。
+ * 股票雾面小卡只上报几何；背景裁切统一由 StockFrostBatchHost 父级绘制。
+ * 未处于股票批绘制场景时自动回退原 FrostInfoGlassPanel，视觉参数保持一致。
  */
 @Composable
 internal fun StockNativeFrostCard(
@@ -129,13 +130,13 @@ internal fun StockNativeFrostCard(
     content: @Composable () -> Unit
 ) {
     Box(modifier = modifier) {
-        FrostInfoGlassPanel(
-            radius = radius.value,
+        StockFrostBatchSurface(
+            radius = radius,
             backdropAlpha = 1f,
             frostAlpha = frostAlpha,
             dimAlpha = 0f,
             modifier = Modifier.matchParentSize()
-        ) {}
+        )
         Box(Modifier.fillMaxWidth().padding(contentPadding)) {
             content()
         }
