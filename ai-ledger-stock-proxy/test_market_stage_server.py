@@ -28,7 +28,7 @@ class MarketStageServerTest(unittest.TestCase):
 
         self.assertEqual(result, payload)
         cache_put.assert_called_once()
-        self.assertEqual(stage.INDICES_REFRESH_SECONDS, 6.0)
+        self.assertEqual(stage.INDICES_REFRESH_SECONDS, 8.0)
 
     def test_fresh_stage_cache_does_not_call_builder(self) -> None:
         payload = {
@@ -45,7 +45,7 @@ class MarketStageServerTest(unittest.TestCase):
                 "indices",
                 "full-parallel",
                 "indices",
-                6.0,
+                stage.INDICES_REFRESH_SECONDS,
                 builder=builder,
             )
         self.assertEqual(result["status"], "ok")
@@ -61,10 +61,7 @@ class MarketStageServerTest(unittest.TestCase):
             "warnings": [],
             "cacheAgeMs": 0,
         }
-        with (
-            patch.object(stage, "_cached_stage_module", return_value=module),
-            patch.object(stage, "_discovery_refresh_due", return_value=False),
-        ):
+        with patch.object(stage, "_cached_stage_module", return_value=module):
             payload = stage.a_share_market_discovery(Response())
 
         self.assertEqual(payload["status"], "ok")
@@ -73,16 +70,52 @@ class MarketStageServerTest(unittest.TestCase):
         self.assertNotIn("marketNews", payload)
         self.assertIn("sectorHotRanking", payload)
 
-    def test_only_one_background_refresh_path_is_used(self) -> None:
-        with patch.object(
-            stage.home,
-            "_start_market_home_background_refresh",
-            return_value=False,
-        ) as start:
-            started, warning = stage._start_background_if_due(True)
-        self.assertFalse(started)
-        self.assertIn("reused_or_cooling", warning)
+    def test_indices_and_discovery_are_read_only(self) -> None:
+        module = {
+            "status": "ok",
+            "source": "test",
+            "sourceUrlType": "test",
+            "items": [{"code": "000001"}],
+            "warnings": [],
+            "cacheAgeMs": 0,
+        }
+        with (
+            patch.object(stage, "_cached_indices", return_value=module),
+            patch.object(stage, "_cached_discovery_modules", return_value={"gainers": module}),
+            patch.object(stage.home, "_start_market_home_background_refresh") as start,
+        ):
+            indices = stage.a_share_market_indices(Response())
+            discovery = stage.a_share_market_discovery(Response())
+
+        start.assert_not_called()
+        self.assertIn("market_stage: indices_read_only", indices["warnings"])
+        self.assertIn("market_stage: discovery_read_only", discovery["warnings"])
+
+    def test_only_breadth_can_start_full_market_refresh(self) -> None:
+        breadth = {
+            "status": "ok",
+            "source": "test",
+            "sourceUrlType": "test",
+            "items": {"upCount": 1, "downCount": 1},
+            "warnings": [],
+            "cacheAgeMs": 0,
+        }
+        with (
+            patch.object(stage, "_cached_breadth", return_value=breadth),
+            patch.object(stage, "_market_refresh_due", return_value=True),
+            patch.object(
+                stage.home,
+                "_start_market_home_background_refresh",
+                return_value=True,
+            ) as start,
+        ):
+            payload = stage.a_share_market_breadth(Response())
+
         start.assert_called_once_with()
+        self.assertIn("market_stage: background_refresh_started", payload["warnings"])
+
+    def test_full_market_refresh_window_is_not_aggressive(self) -> None:
+        self.assertGreaterEqual(stage.MARKET_REFRESH_SECONDS, 30.0)
 
 
 if __name__ == "__main__":
