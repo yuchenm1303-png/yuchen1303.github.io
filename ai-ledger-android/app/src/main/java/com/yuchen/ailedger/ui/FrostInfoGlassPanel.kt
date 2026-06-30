@@ -28,7 +28,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -633,11 +635,54 @@ private fun DropletContactShadow(alpha: Float, offsetX: Float, offsetY: Float, s
 
 @Composable
 fun FrostInfoGlassPanel(modifier: Modifier = Modifier, radius: Float = 17.44f, backdropAlpha: Float = 1f, frostAlpha: Float = 0f, dimAlpha: Float = 0f, content: @Composable () -> Unit) {
+    val parentLayer = LocalPageFrostParentLayer.current
     val coordinates = remember { GlassCoordinateSource() }
-    Box(modifier = modifier.onGloballyPositioned { coordinates.coordinates = it }.clip(RoundedCornerShape(radius.dp))) {
-        BackdropCrop(coordinates, backdropAlpha.coerceIn(0f, 1f), Modifier.fillMaxSize())
-        Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = frostAlpha.coerceIn(0f, 0.85f))))
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = dimAlpha.coerceIn(0f, 0.65f))))
+    val itemId = remember { Any() }
+    val safeBackdrop = backdropAlpha.coerceIn(0f, 1f)
+    val safeFrost = frostAlpha.coerceIn(0f, 0.85f)
+    val safeDim = dimAlpha.coerceIn(0f, 0.65f)
+
+    SideEffect {
+        if (parentLayer != null) {
+            coordinates.coordinates?.let { placed ->
+                parentLayer.upsert(
+                    id = itemId,
+                    coordinates = placed,
+                    radiusDp = radius,
+                    backdropAlpha = safeBackdrop,
+                    frostAlpha = safeFrost,
+                    dimAlpha = safeDim,
+                )
+            }
+        }
+    }
+    DisposableEffect(parentLayer, itemId) {
+        onDispose {
+            parentLayer?.remove(itemId)
+            coordinates.coordinates = null
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .onGloballyPositioned { placed ->
+                coordinates.coordinates = placed
+                parentLayer?.upsert(
+                    id = itemId,
+                    coordinates = placed,
+                    radiusDp = radius,
+                    backdropAlpha = safeBackdrop,
+                    frostAlpha = safeFrost,
+                    dimAlpha = safeDim,
+                )
+            }
+            .clip(RoundedCornerShape(radius.dp))
+    ) {
+        if (parentLayer == null) {
+            BackdropCrop(coordinates, safeBackdrop, Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().background(Color.White.copy(alpha = safeFrost)))
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = safeDim)))
+        }
         content()
     }
 }
