@@ -53,9 +53,6 @@ fun CachedAppTabHost(
     val orderedPrewarmTabs = remember(effectivePrewarmTabs, currentTab) {
         AppTab.entries.filter { tab -> tab in effectivePrewarmTabs && tab != currentTab }
     }
-    val parentGlassBackdrop = LocalGlassBackdrop.current
-    val parentBlurredBackdrop = LocalBlurredBackdrop.current
-    val parentBackdropTicker = LocalBackdropFrameTicker.current
 
     LaunchedEffect(Unit) {
         StartupPerformanceGate.awaitPostBackdropStability()
@@ -95,9 +92,6 @@ fun CachedAppTabHost(
                     activationKey = activationTicks[tab.ordinal],
                     heavyEffectsReady = heavyEffectsReady,
                     diagnostics = diagnostics,
-                    parentGlassBackdrop = parentGlassBackdrop,
-                    parentBlurredBackdrop = parentBlurredBackdrop,
-                    parentBackdropTicker = parentBackdropTicker,
                     saveableStateHolder = saveableStateHolder,
                     onHidden = {
                         renderedTabMask = renderedTabMask and tab.cacheBit().inv()
