@@ -20,9 +20,9 @@ import okhttp3.Request
 /**
  * 股票模块共享网络传输层。
  *
- * 所有股票接口复用连接池、singleflight 和极短响应微缓存。个股兼容接口在传输层失败后会
+ * 所有股票接口复用连接池、singleflight 和极短响应微缓存。旧版兼容接口在传输层失败后会
  * 短暂冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个 Render 实例；市场首页
- * 阶段接口由上层缓存与恢复调度负责，不进入通用失败冷却。
+ * 阶段和统一实时接口分别由上层缓存、串行调度与退避恢复负责，不进入通用失败冷却。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -155,11 +155,15 @@ internal object StockHttpClient {
     }
 
     private fun shouldRememberTransportFailure(url: String): Boolean {
-        return !isMarketHomeRoute(url)
+        return !isMarketHomeRoute(url) && !isUnifiedRealtimeRoute(url)
     }
 
     private fun isMarketHomeRoute(url: String): Boolean {
         return "/api/stock/a-share/market/" in url
+    }
+
+    private fun isUnifiedRealtimeRoute(url: String): Boolean {
+        return "/api/stock/a-share/realtime" in url
     }
 
     private fun normalizeTransportError(
