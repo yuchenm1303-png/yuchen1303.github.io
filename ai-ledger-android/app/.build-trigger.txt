@@ -14,3 +14,4 @@ Build Compose Android APK verification
 2026-06-30 DeepSeek 纯文本启动规划根修复与视觉重试隔离构建验证
 2026-06-30 视觉双阶段超时与 WorkSurface 交接重放构建验证
 2026-06-30 GUI Plus 官方动作协议与本地推理隔离构建验证
+2026-06-30 视觉智能体本地链路定点回退到 a337add 稳定基线构建验证
