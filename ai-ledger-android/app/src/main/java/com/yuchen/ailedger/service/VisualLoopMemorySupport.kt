@@ -3,15 +3,25 @@ package com.yuchen.ailedger.service
 import org.json.JSONArray
 import org.json.JSONObject
 
+/**
+ * Serializes only objective Android execution state for the cloud loop.
+ * It never derives visual meaning, reasoning depth, hypotheses or route strategy.
+ */
 internal object VisualLoopMemorySupport {
     private const val RUNTIME_PREFIX = "visual_runtime_context:v2|"
     private const val LEGACY_RUNTIME_PREFIX = "visual_runtime_context:v1|"
-    private const val LEDGER_PREFIX = "visual_execution_ledger:v4|"
-    private const val LEGACY_LEDGER_PREFIX_V3 = "visual_execution_ledger:v3|"
-    private const val LEGACY_LEDGER_PREFIX_V2 = "visual_execution_ledger:v2|"
-    private const val LEGACY_MEMORY_PREFIX = "visual_task_memory:v1|"
-    private const val LEGACY_REASONING_PREFIX_V2 = "visual_reasoning_context:v2|"
-    private const val LEGACY_REASONING_PREFIX_V1 = "visual_reasoning_context:v1|"
+    private const val LEDGER_PREFIX = "visual_execution_ledger:v5|"
+    private val legacyLedgerPrefixes = listOf(
+        "visual_execution_ledger:v4|",
+        "visual_execution_ledger:v3|",
+        "visual_execution_ledger:v2|",
+        "visual_task_memory:v1|",
+        "visual_reasoning_context:v1|",
+        "visual_reasoning_context:v2|",
+        "visual_reasoning_context:v3|",
+        "visual_reasoning_context:v4|",
+        "visual_replan_requested:reason=adaptive_reasoning_depth|",
+    )
 
     fun replaceRuntimeLine(actions: MutableList<String>, runtime: VisualAgentRuntimeContext) {
         actions.removeAll { it.startsWith(RUNTIME_PREFIX) || it.startsWith(LEGACY_RUNTIME_PREFIX) }
@@ -44,23 +54,9 @@ internal object VisualLoopMemorySupport {
         )
     }
 
-    /**
-     * Exposes protocol ownership, committed cloud task state and objective execution bookkeeping only.
-     * Provisional completion, local page progress and local visual hypotheses never become committed
-     * memory.
-     */
     fun replaceMemoryLine(actions: MutableList<String>, memory: VisualTaskMemory) {
-        val reasoning = VisualReasoningPolicy.evaluate(memory, actions)
-        VisualReasoningRuntime.update(reasoning)
-        actions.removeAll {
-            it.startsWith(LEDGER_PREFIX) ||
-                it.startsWith(LEGACY_LEDGER_PREFIX_V3) ||
-                it.startsWith(LEGACY_LEDGER_PREFIX_V2) ||
-                it.startsWith(LEGACY_MEMORY_PREFIX) ||
-                it.startsWith(VisualReasoningContext.PROMPT_PREFIX) ||
-                it.startsWith(LEGACY_REASONING_PREFIX_V2) ||
-                it.startsWith(LEGACY_REASONING_PREFIX_V1) ||
-                it.startsWith(VisualReasoningPolicy.DEEP_REPLAN_PREFIX)
+        actions.removeAll { line ->
+            line.startsWith(LEDGER_PREFIX) || legacyLedgerPrefixes.any(line::startsWith)
         }
         VisualLoopSupport.appendRecent(
             actions,
@@ -75,21 +71,13 @@ internal object VisualLoopMemorySupport {
                 append("|taskRevisionPending=").append(memory.taskRevisionPending)
                 append("|currentMilestoneInvalidated=").append(memory.currentMilestoneInvalidated)
                 append("|latestUserUpdateKind=").append(memory.latestUserUpdate?.kind?.wireValue.orEmpty())
-                append("|reasoningDepth=").append(reasoning.depth.wireValue)
-                append("|routeCycleLength=").append(reasoning.routeCycleLength)
-                append("|provisionalRollbackCount=").append(reasoning.provisionalRollbackCount)
                 append("|replanRequested=").append(memory.replanRequested)
                 append("|recoveryMode=").append(memory.recoveryMode)
                 append("|executionLedgerOnly=true")
-                append("|transactionalState=true")
-                append("|provisionalStateCommitted=false")
                 append("|semanticDecisionOwner=gui_plus")
                 append("|localSemanticDecision=false")
-                append("|localProgressClassification=false")
             },
         )
-        VisualLoopSupport.appendRecent(actions, reasoning.toPromptLine())
-        VisualReasoningPolicy.deepReplanLine(reasoning)?.let { VisualLoopSupport.appendRecent(actions, it) }
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "task_memory",
             details = JSONObject().apply {
@@ -99,7 +87,6 @@ internal object VisualLoopMemorySupport {
                 put("lastVerifiedFrame", memory.lastConfirmedPage?.toJson() ?: JSONObject.NULL)
                 put("replanRequested", memory.replanRequested)
                 put("recoveryMode", memory.recoveryMode)
-                put("remainingCloudExplorationBudget", memory.remainingExplorationBudget)
                 put("committedMilestoneIds", JSONArray(memory.completedMilestoneIds))
                 put("confirmedProtocolFacts", JSONArray(memory.confirmedFacts))
                 put("taskContract", memory.taskContract?.toJson() ?: JSONObject.NULL)
@@ -109,16 +96,10 @@ internal object VisualLoopMemorySupport {
                 put("currentMilestoneInvalidated", memory.currentMilestoneInvalidated)
                 put("latestUserUpdateRevision", memory.latestUserUpdate?.revision ?: 0)
                 put("latestUserUpdateKind", memory.latestUserUpdate?.kind?.wireValue.orEmpty())
-                put("reasoningContext", reasoning.toJson())
-                put("transactionalState", true)
-                put("provisionalStateCommitted", false)
+                put("executionLedgerOnly", true)
                 put("semanticDecisionOwner", "gui_plus")
-                put("localProgressClassification", false)
+                put("localSemanticDecision", false)
             },
-        )
-        VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
-            type = "reasoning_context",
-            details = reasoning.toJson(),
         )
     }
 
@@ -165,14 +146,6 @@ internal object VisualLoopMemorySupport {
                     put("y", step.y ?: JSONObject.NULL)
                     put("riskLevel", step.riskLevel)
                     put("requiresConfirmation", step.requiresConfirmation)
-                    put("purpose", step.purpose ?: JSONObject.NULL)
-                    put("milestoneId", step.milestoneId ?: JSONObject.NULL)
-                    put("expectedEvidence", JSONArray(step.expectedEvidence))
-                    put("failureEvidence", JSONArray(step.failureEvidence))
-                    put("exploratory", step.exploratory)
-                    put("reversible", step.reversible)
-                    put("confidence", step.confidence ?: JSONObject.NULL)
-                    put("hypothesisId", step.hypothesisId)
                     put("toolArgs", if (step.type == "input_text") "[输入参数已隐藏]" else step.toolArgs ?: JSONObject.NULL)
                 })
                 put("agentState", plan.state?.let { state ->
