@@ -7,7 +7,7 @@ import org.junit.Test
 
 class AgentTakeoverDialogueBridgeTest {
     @Test
-    fun takeoverGuidanceBecomesCanonicalUserDialogueAndForcesGuiReplan() {
+    fun takeoverGuidanceBecomesCanonicalUserDialogueAndRequestsCloudReplan() {
         val actions = AgentTakeoverDialogueBridge.encodeInteractionActions(
             listOf(
                 "我已经手动返回到商品页",
@@ -68,9 +68,12 @@ class AgentTakeoverDialogueBridgeTest {
         assertEquals("我已经手动返回到商品页", history.getJSONObject(0).getString("content"))
         assertEquals("user", history.getJSONObject(1).getString("role"))
         assertTrue(history.getJSONObject(1).getString("content").contains("LATEST_USER_DIRECTIVE"))
-        assertTrue(payload.getBoolean("guiPlusReplanRequested"))
-        assertTrue(payload.getBoolean("visualReplanRequested"))
-        assertFalse(payload.getBoolean("routeRefreshRequested"))
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertTrue(feedback.getBoolean("userDirectivePending"))
+        assertTrue(feedback.getBoolean("replanRequested"))
+        assertFalse(payload.has("guiPlusReplanRequested"))
+        assertFalse(payload.has("visualReplanRequested"))
+        assertFalse(payload.has("routeRefreshRequested"))
         assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
     }
 
