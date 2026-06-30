@@ -86,9 +86,25 @@ internal fun JSONObject.transactionRejectionReason(): String? {
     val step = visualStep() ?: return null
     val type = step.firstNonBlank("type", "action", "tool", "name").normalizeVisualWire()
     val args = step.optJSONObject("args") ?: step.optJSONObject("arguments") ?: JSONObject()
-    return if (type == "finish" || args.flexibleBoolean("completionCandidate") == true) {
-        "provisional_completion_candidate"
-    } else null
+    if (type == "finish" || args.flexibleBoolean("completionCandidate") == true) {
+        return "provisional_completion_candidate"
+    }
+
+    val rejected = args.firstNonBlank("rejectedActionType", "restoredRejectedActionType").normalizeVisualWire()
+    val compact = optJSONObject("debug")?.optJSONObject("guiCompactAction")
+        ?: optJSONObject("guiCompactAction")
+        ?: optJSONObject("data")?.optJSONObject("debug")?.optJSONObject("guiCompactAction")
+        ?: optJSONObject("result")?.optJSONObject("debug")?.optJSONObject("guiCompactAction")
+    val compactType = compact?.firstNonBlank("a", "action", "type").normalizeVisualWire()
+    return if (
+        type == "wait" &&
+        rejected == "tap_xy" &&
+        compactType in setOf("tap_xy", "tap", "click", "press", "point")
+    ) {
+        "backend_action_rewrite_not_executed"
+    } else {
+        null
+    }
 }
 
 internal fun JSONObject.visualStep(): JSONObject? = optJSONObject("agentStep") ?: optJSONObject("step")
