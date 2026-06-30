@@ -21,11 +21,9 @@ internal fun NonOpenGLGlassBatchHost(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val pageFrostLayerState = rememberPageFrostParentLayerState()
-    val settingsFrostLayerState = if (includeAdaptiveSettingsFrost) {
-        rememberSettingsFrostParentLayerState()
-    } else {
-        null
-    }
+    val rememberedSettingsFrostLayerState = rememberSettingsFrostParentLayerState()
+    val settingsFrostLayerState = rememberedSettingsFrostLayerState
+        .takeIf { includeAdaptiveSettingsFrost }
     val foldoutClipRegistry = remember { GlassFoldoutClipRegistry() }
 
     DisposableEffect(pageFrostLayerState, foldoutClipRegistry) {
