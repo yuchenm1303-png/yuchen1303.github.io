@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,16 +11,7 @@ class VisualAgentPayloadCompactorTest {
     @Test
     fun compactorKeepsOneCanonicalCopyOfVisualState() {
         val snapshot = testSnapshot()
-        val runtime = VisualAgentRuntimeContext(
-            surfaceState = VisualSurfaceState.WorkSurface,
-            selectedTargetPackage = snapshot.packageName,
-            verifiedTargetPackage = snapshot.packageName,
-            currentPackage = snapshot.packageName,
-            observationId = VisualObservationProtocol.observationId(snapshot, 2L, 3L),
-            routeEpoch = 2L,
-            surfaceEpoch = 3L,
-            guiPlusEligible = true,
-        )
+        val runtime = testRuntime(snapshot)
         val payload = buildVisualAgentPayload(
             goal = "查看订单",
             snapshot = snapshot,
@@ -72,6 +65,63 @@ class VisualAgentPayloadCompactorTest {
         assertFalse(memory.getJSONObject("loopSignals").has("lastToolResponse"))
         assertTrue(payload.toString().length < originalSize)
     }
+
+    @Test
+    fun handoffTelemetryCannotTriggerDeepGuiPlusReasoning() {
+        val snapshot = testSnapshot()
+        val payload = buildVisualAgentPayload(
+            goal = "查看订单",
+            snapshot = snapshot,
+            recentActions = emptyList(),
+            deviceId = "device-test",
+            agentSessionId = "session-test",
+            runtimeContext = testRuntime(snapshot),
+        )
+        payload.put("recentAgentActions", JSONArray(listOf(
+            "open_app|com.example.shop|商店:ok:result=已打开",
+            "open_app|com.example.shop|商店:ok:result=already foreground",
+            "open_app_package_verified:package=com.example.shop|stableSamples=2|visualFrame=true",
+            "visual_reasoning_context:v3|depth=deep|triggers=repeated-action|sameActionCount=2",
+            "visual_replan_requested:reason=adaptive_reasoning_depth|replanRequired=true",
+        )))
+        payload.getJSONObject("executionFeedback").apply {
+            put("lastResultOk", false)
+            put("lastVerification", "visual_local_retry")
+            put("sameActionCount", 2)
+            put("localVisualRetryCount", 1)
+            put("visualReplanRequested", true)
+            put("guiPlusReplanRequested", true)
+        }
+        payload.getJSONObject("agentMemory").getJSONObject("taskMemory").put(
+            "reasoningContext",
+            JSONObject().put("depth", "deep").put("sameActionCount", 2),
+        )
+
+        payload.compactVisualAgentPayloadForTransport()
+
+        val actions = payload.getJSONArray("recentAgentActions").toString()
+        assertFalse(actions.contains("visual_reasoning_context"))
+        assertFalse(actions.contains("visual_replan_requested"))
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertEquals("surface_verified", feedback.getString("lastVerification"))
+        assertEquals(0, feedback.getInt("sameActionCount"))
+        assertFalse(feedback.getBoolean("visualReplanRequested"))
+        assertFalse(feedback.getBoolean("guiPlusReplanRequested"))
+        assertFalse(
+            payload.getJSONObject("agentMemory").getJSONObject("taskMemory").has("reasoningContext"),
+        )
+    }
+
+    private fun testRuntime(snapshot: AgentScreenSnapshot) = VisualAgentRuntimeContext(
+        surfaceState = VisualSurfaceState.WorkSurface,
+        selectedTargetPackage = snapshot.packageName,
+        verifiedTargetPackage = snapshot.packageName,
+        currentPackage = snapshot.packageName,
+        observationId = VisualObservationProtocol.observationId(snapshot, 2L, 3L),
+        routeEpoch = 2L,
+        surfaceEpoch = 3L,
+        guiPlusEligible = true,
+    )
 
     private fun testSnapshot() = AgentScreenSnapshot(
         currentApp = "com.example.shop",
