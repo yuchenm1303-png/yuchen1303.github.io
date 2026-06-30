@@ -33,7 +33,7 @@ internal object StockFileCache {
         }
 
         val file = cacheFile(fileName) ?: return null
-        val lock = fileLocks.getOrPut(fileName) { Any() }
+        val lock = lockFor(fileName)
         synchronized(lock) {
             if (!file.isFile || file.length() <= 2L) return null
             val ageMs = (now - file.lastModified()).coerceAtLeast(0L)
@@ -44,7 +44,7 @@ internal object StockFileCache {
             }
             val body = runCatching { file.readText() }
                 .getOrNull()
-                ?.takeIf(String::isNotBlank)
+                ?.takeIf { it.isNotBlank() }
                 ?: return null
             memory[fileName] = MemoryEntry(body, now - ageMs)
             return Entry(body, ageMs, source)
@@ -56,7 +56,7 @@ internal object StockFileCache {
         val now = System.currentTimeMillis()
         memory[fileName] = MemoryEntry(body, now)
         val file = cacheFile(fileName) ?: return
-        val lock = fileLocks.getOrPut(fileName) { Any() }
+        val lock = lockFor(fileName)
         synchronized(lock) {
             runCatching {
                 file.parentFile?.mkdirs()
@@ -73,11 +73,14 @@ internal object StockFileCache {
     fun delete(fileName: String) {
         memory.remove(fileName)
         val file = cacheFile(fileName) ?: return
-        val lock = fileLocks.getOrPut(fileName) { Any() }
+        val lock = lockFor(fileName)
         synchronized(lock) {
             runCatching { file.delete() }
         }
     }
+
+    private fun lockFor(fileName: String): Any =
+        fileLocks.computeIfAbsent(fileName) { Any() }
 
     private fun cacheFile(fileName: String): File? {
         val context = AiLedgerApplication.contextOrNull() ?: return null
