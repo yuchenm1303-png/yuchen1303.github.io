@@ -54,6 +54,6 @@ internal class StreamingDeltaCoalescer(
     }
 
     private companion object {
-        const val MIN_PUNCTUATION_CHARS = 6
+        const val MIN_PUNCTUATION_CHARS = 5
     }
 }
