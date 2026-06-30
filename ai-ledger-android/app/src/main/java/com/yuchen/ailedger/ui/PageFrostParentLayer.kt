@@ -43,14 +43,8 @@ internal fun PageFrostParentLayer(
         items.forEach { item ->
             val coordinates = item.coordinates
             if (!coordinates.isAttached) return@forEach
-            val currentRectInRoot = coordinates.boundsInRoot()
-            if (currentRectInRoot.width <= 1f || currentRectInRoot.height <= 1f) return@forEach
-            val localRect = Rect(
-                left = currentRectInRoot.left - root.left,
-                top = currentRectInRoot.top - root.top,
-                right = currentRectInRoot.right - root.left,
-                bottom = currentRectInRoot.bottom - root.top,
-            )
+            val localRect = layerState.localBoundsOf(coordinates) ?: return@forEach
+            if (localRect.width <= 1f || localRect.height <= 1f) return@forEach
             if (!localRect.isNearPageFrostViewport(viewport, preloadMargin)) return@forEach
 
             val foldoutClip = foldoutClipRegistry.resolveLocalClip(
@@ -65,6 +59,7 @@ internal fun PageFrostParentLayer(
                 coordinates.size.height.toFloat().coerceAtLeast(1f),
             )
             val cache = ensurePageFrostCache(item, localRect.size, sourceSize)
+            val currentRectInRoot = coordinates.boundsInRoot()
             val sampleOffset = currentRectInRoot.topLeft - backdropRoot
             clipRect(
                 left = foldoutClip.left,
