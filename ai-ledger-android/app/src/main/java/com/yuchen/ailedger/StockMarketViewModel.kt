@@ -113,9 +113,7 @@ class StockMarketViewModel(
     private var kLineJob: Job? = null
     private var minuteJob: Job? = null
     private var realtimeJob: Job? = null
-    private var marketIndicesJob: Job? = null
-    private var marketBreadthJob: Job? = null
-    private var marketDiscoveryJob: Job? = null
+    private var marketJob: Job? = null
     private var requestSeq = 0
     private var tabActive = AppPageActivity.activeTab.value == AppTab.Tools
     private var screenVisible = false
@@ -174,8 +172,8 @@ class StockMarketViewModel(
             it.copy(
                 loading = false,
                 marketLoading = it.marketHome.indices.isEmpty(),
-                marketBreadthLoading = true,
-                marketDiscoveryLoading = true,
+                marketBreadthLoading = !it.marketHome.marketBreadth.meta.hasRealData,
+                marketDiscoveryLoading = !it.marketHome.hasDiscoveryData(),
                 showDetail = false,
                 slowDataLoading = false,
                 activeAction = null,
@@ -359,7 +357,7 @@ class StockMarketViewModel(
 
         val state = _uiState.value
         if (!state.showDetail) {
-            startMarketLoop(forceNetwork = true)
+            startMarketLoop(forceNetwork = false)
             return
         }
         val code = activeCode()
@@ -381,16 +379,33 @@ class StockMarketViewModel(
             .ifBlank { activeCode().ifBlank { DEFAULT_STOCK_CODE } }
         quoteJob?.cancel()
         quoteJob = viewModelScope.launch {
-            if (openDetail) stopMarketLoop()
+            if (openDetail) {
+                stopMarketLoop()
+                stopRealtimeLoop()
+            }
             val before = _uiState.value
-            val requestStock = if (replaceContent) emptyStockState(target) else before.stock
+            val requestStock = if (
+                replaceContent && before.stock.quote.code != target
+            ) {
+                emptyStockState(target)
+            } else {
+                before.stock
+            }
             _uiState.update { state ->
                 state.copy(
                     stock = if (replaceContent) requestStock else state.stock,
                     loading = true,
                     showDetail = if (openDetail) true else state.showDetail,
-                    depthState = if (replaceContent) StockDepthState() else state.depthState,
-                    slowData = if (replaceContent) StockSlowDataSnapshot() else state.slowData,
+                    depthState = if (replaceContent && requestStock.quote.price == "--") {
+                        StockDepthState()
+                    } else {
+                        state.depthState
+                    },
+                    slowData = if (replaceContent && requestStock.quote.price == "--") {
+                        StockSlowDataSnapshot()
+                    } else {
+                        state.slowData
+                    },
                     slowDataLoading = if (replaceContent) false else state.slowDataLoading,
                     requestMessage = if (openDetail) "正在刷新实时行情" else state.requestMessage
                 )
@@ -412,9 +427,8 @@ class StockMarketViewModel(
                             state.copy(loading = false, requestMessage = null)
                         } else {
                             val baseState = if (
-                                replaceContent ||
                                 state.stock.quote.code.isBlank() ||
-                                state.stock.quote.code != resolvedCode
+                                (state.stock.quote.code != resolvedCode && state.stock.quote.code != target)
                             ) {
                                 state.copy(
                                     stock = emptyStockState(resolvedCode),
@@ -441,65 +455,58 @@ class StockMarketViewModel(
                     },
                     onFailure = { error ->
                         val message = error.message ?: error.javaClass.simpleName
-                        if (replaceContent) {
-                            val digits = target.filter(Char::isDigit)
-                                .takeIf { it.length == 6 }
-                                .orEmpty()
-                            val empty = emptyStockState(digits).copy(
-                                quote = emptyStockState(digits).quote.copy(
-                                    name = digits.ifBlank { target }
-                                ),
-                                aiSummary = "真实行情暂不可用，未展示本地示例数据。",
-                                dataSourceLabel = "真实行情暂不可用",
-                                errorMessage = message
-                            )
-                            state.copy(
-                                stock = empty,
-                                loading = false,
-                                showDetail = if (openDetail) true else state.showDetail,
-                                requestMessage = "行情刷新失败：$message"
-                            )
-                        } else {
-                            state.copy(
-                                loading = false,
-                                requestMessage = "行情刷新失败：$message"
-                            )
-                        }
+                        val usable = state.stock.hasUsableQuote(target)
+                        state.copy(
+                            stock = if (usable) {
+                                state.stock.copy(errorMessage = null)
+                            } else {
+                                state.stock.copy(
+                                    aiSummary = "真实行情暂不可用，正在自动恢复。",
+                                    dataSourceLabel = "行情正在恢复",
+                                    errorMessage = message
+                                )
+                            },
+                            loading = !usable,
+                            showDetail = if (openDetail) true else state.showDetail,
+                            requestMessage = if (usable) {
+                                "实时刷新暂缓，正在自动恢复"
+                            } else {
+                                "行情服务正在恢复…"
+                            }
+                        )
                     }
                 )
             }
 
-            if (openDetail && pageActive && loadedSuccessfully) {
-                startRealtimeLoop(resolvedCode)
-                loadSlowDetail(resolvedCode)
-                val tab = _uiState.value.selectedTab
-                if (!isMinuteTab(tab)) loadKLineForTab(tab, resolvedCode)
+            if (openDetail && pageActive) {
+                startRealtimeLoop(if (loadedSuccessfully) resolvedCode else target)
+                if (loadedSuccessfully) {
+                    loadSlowDetail(resolvedCode)
+                    val tab = _uiState.value.selectedTab
+                    if (!isMinuteTab(tab)) loadKLineForTab(tab, resolvedCode)
+                }
             }
         }
     }
 
     private fun startMarketLoop(forceNetwork: Boolean = false) {
         if (!pageActive || _uiState.value.showDetail) return
-        startMarketIndicesLoop(forceNetwork)
-        startMarketBreadthLoop(forceNetwork)
-        startMarketDiscoveryLoop(forceNetwork)
-    }
+        if (forceNetwork) stopMarketLoop()
+        if (marketJob?.isActive == true) return
 
-    private fun startMarketIndicesLoop(forceFirst: Boolean) {
-        if (marketIndicesJob?.isActive == true) return
-        marketIndicesJob = viewModelScope.launch {
-            var forceNetwork = forceFirst
-            var firstRound = true
+        marketJob = viewModelScope.launch {
+            var forceCycle = forceNetwork
+            var nextSupplementalAt = 0L
             while (isActive && pageActive && !_uiState.value.showDetail) {
-                if (firstRound && _uiState.value.marketHome.indices.isEmpty()) {
+                if (_uiState.value.marketHome.indices.isEmpty()) {
                     _uiState.update { it.copy(marketLoading = true) }
                 }
-                val result = withContext(Dispatchers.IO) {
-                    marketStageRepository.loadIndices(forceNetwork)
+
+                val indicesResult = withContext(Dispatchers.IO) {
+                    marketStageRepository.loadIndices(forceCycle)
                 }
-                forceNetwork = false
                 _uiState.update { state ->
-                    result.fold(
+                    indicesResult.fold(
                         onSuccess = { stage ->
                             val merged = mergeMarketIndices(state.marketHome, stage)
                             val hasIndices = merged.indices.isNotEmpty()
@@ -510,7 +517,7 @@ class StockMarketViewModel(
                                 requestMessage = when {
                                     hasIndices && state.requestMessage?.startsWith("主要指数") == true -> null
                                     hasIndices && state.requestMessage?.startsWith("市场行情") == true -> null
-                                    !hasIndices -> "主要指数正在加载，其他市场数据将分批补齐…"
+                                    !hasIndices -> "行情服务正在恢复，其他市场数据稍后补齐…"
                                     else -> state.requestMessage
                                 }
                             )
@@ -522,106 +529,86 @@ class StockMarketViewModel(
                                 requestMessage = if (hasIndices) {
                                     state.requestMessage
                                 } else {
-                                    "主要指数加载失败，正在自动重试：${error.message ?: error.javaClass.simpleName}"
+                                    "行情服务正在恢复：${error.message ?: error.javaClass.simpleName}"
                                 }
                             )
                         }
                     )
                 }
-                firstRound = false
-                delay(
-                    if (_uiState.value.marketHome.indices.isEmpty()) {
-                        MARKET_STAGE_RECOVERY_INTERVAL_MS
-                    } else {
-                        MARKET_INDICES_REFRESH_INTERVAL_MS
-                    }
-                )
-            }
-        }
-    }
 
-    private fun startMarketBreadthLoop(forceFirst: Boolean) {
-        if (marketBreadthJob?.isActive == true) return
-        marketBreadthJob = viewModelScope.launch {
-            delay(MARKET_BREADTH_INITIAL_DELAY_MS)
-            var forceNetwork = forceFirst
-            while (isActive && pageActive && !_uiState.value.showDetail) {
-                val hadBreadth = _uiState.value.marketHome.marketBreadth.meta.hasRealData
-                if (!hadBreadth) {
-                    _uiState.update { it.copy(marketBreadthLoading = true) }
+                if (!pageActive || _uiState.value.showDetail) break
+                if (_uiState.value.marketHome.indices.isEmpty()) {
+                    forceCycle = false
+                    delay(MARKET_RECOVERY_INTERVAL_MS)
+                    continue
                 }
-                val result = withContext(Dispatchers.IO) {
-                    marketStageRepository.loadBreadth(forceNetwork)
-                }
-                forceNetwork = false
-                _uiState.update { state ->
-                    result.fold(
-                        onSuccess = { stage ->
-                            val merged = mergeMarketBreadth(state.marketHome, stage)
-                            state.copy(
-                                marketHome = merged,
-                                marketBreadthLoading = !merged.marketBreadth.meta.hasRealData
-                            )
-                        },
-                        onFailure = {
-                            state.copy(
-                                marketBreadthLoading = !state.marketHome.marketBreadth.meta.hasRealData
-                            )
-                        }
-                    )
-                }
-                delay(
-                    if (_uiState.value.marketHome.marketBreadth.meta.hasRealData) {
-                        MARKET_BREADTH_REFRESH_INTERVAL_MS
-                    } else {
-                        MARKET_STAGE_RECOVERY_INTERVAL_MS
-                    }
-                )
-            }
-        }
-    }
 
-    private fun startMarketDiscoveryLoop(forceFirst: Boolean) {
-        if (marketDiscoveryJob?.isActive == true) return
-        marketDiscoveryJob = viewModelScope.launch {
-            delay(MARKET_DISCOVERY_INITIAL_DELAY_MS)
-            var forceNetwork = forceFirst
-            while (isActive && pageActive && !_uiState.value.showDetail) {
-                val hadDiscovery = _uiState.value.marketHome.hasDiscoveryData()
-                if (!hadDiscovery) {
-                    _uiState.update { it.copy(marketDiscoveryLoading = true) }
-                }
-                val result = withContext(Dispatchers.IO) {
-                    marketStageRepository.loadDiscovery(forceNetwork)
-                }
-                forceNetwork = false
-                _uiState.update { state ->
-                    result.fold(
-                        onSuccess = { stage ->
-                            val merged = mergeMarketDiscovery(state.marketHome, stage)
-                            state.copy(
-                                marketHome = merged,
-                                stock = state.stock.copy(
-                                    marketBoards = merged.boards,
-                                    watchlist = emptyList()
-                                ),
-                                marketDiscoveryLoading = !merged.hasDiscoveryData()
-                            )
-                        },
-                        onFailure = {
-                            state.copy(
-                                marketDiscoveryLoading = !state.marketHome.hasDiscoveryData()
-                            )
-                        }
-                    )
-                }
-                delay(
-                    if (_uiState.value.marketHome.hasDiscoveryData()) {
-                        MARKET_DISCOVERY_REFRESH_INTERVAL_MS
-                    } else {
-                        MARKET_STAGE_RECOVERY_INTERVAL_MS
+                val now = SystemClock.elapsedRealtime()
+                val needsSupplemental = forceCycle ||
+                    now >= nextSupplementalAt ||
+                    !_uiState.value.marketHome.marketBreadth.meta.hasRealData ||
+                    !_uiState.value.marketHome.hasDiscoveryData()
+
+                if (needsSupplemental) {
+                    val breadthResult = withContext(Dispatchers.IO) {
+                        marketStageRepository.loadBreadth(forceCycle)
                     }
-                )
+                    _uiState.update { state ->
+                        breadthResult.fold(
+                            onSuccess = { stage ->
+                                val merged = mergeMarketBreadth(state.marketHome, stage)
+                                state.copy(
+                                    marketHome = merged,
+                                    marketBreadthLoading = !merged.marketBreadth.meta.hasRealData
+                                )
+                            },
+                            onFailure = {
+                                state.copy(
+                                    marketBreadthLoading = !state.marketHome.marketBreadth.meta.hasRealData
+                                )
+                            }
+                        )
+                    }
+
+                    if (!pageActive || _uiState.value.showDetail) break
+
+                    val discoveryResult = withContext(Dispatchers.IO) {
+                        marketStageRepository.loadDiscovery(forceCycle)
+                    }
+                    _uiState.update { state ->
+                        discoveryResult.fold(
+                            onSuccess = { stage ->
+                                val merged = mergeMarketDiscovery(state.marketHome, stage)
+                                state.copy(
+                                    marketHome = merged,
+                                    stock = state.stock.copy(
+                                        marketBoards = merged.boards,
+                                        watchlist = emptyList()
+                                    ),
+                                    marketDiscoveryLoading = !merged.hasDiscoveryData()
+                                )
+                            },
+                            onFailure = {
+                                state.copy(
+                                    marketDiscoveryLoading = !state.marketHome.hasDiscoveryData()
+                                )
+                            }
+                        )
+                    }
+
+                    val supplementalReady =
+                        _uiState.value.marketHome.marketBreadth.meta.hasRealData &&
+                            _uiState.value.marketHome.hasDiscoveryData()
+                    nextSupplementalAt = SystemClock.elapsedRealtime() +
+                        if (supplementalReady) {
+                            MARKET_SUPPLEMENTAL_REFRESH_INTERVAL_MS
+                        } else {
+                            MARKET_SUPPLEMENTAL_RECOVERY_INTERVAL_MS
+                        }
+                }
+
+                forceCycle = false
+                delay(MARKET_INDICES_REFRESH_INTERVAL_MS)
             }
         }
     }
@@ -695,12 +682,8 @@ class StockMarketViewModel(
         boards.isNotEmpty() || sectors.isNotEmpty()
 
     private fun stopMarketLoop() {
-        marketIndicesJob?.cancel()
-        marketIndicesJob = null
-        marketBreadthJob?.cancel()
-        marketBreadthJob = null
-        marketDiscoveryJob?.cancel()
-        marketDiscoveryJob = null
+        marketJob?.cancel()
+        marketJob = null
     }
 
     private fun loadSlowDetail(query: String, force: Boolean = false) {
@@ -898,47 +881,97 @@ class StockMarketViewModel(
 
     private fun startRealtimeLoop(code: String) {
         if (!pageActive) return
-        val target = code.ifBlank { activeCode() }.ifBlank { _uiState.value.query }
-        if (realtimeJob?.isActive == true && activeCode() == target) return
+        val initialTarget = code.ifBlank { activeCode() }.ifBlank { _uiState.value.query }
+        if (realtimeJob?.isActive == true && activeCode() == initialTarget) return
         realtimeJob?.cancel()
-        lastSequenceByStream.remove(minuteKey(target, 1))
-        lastSequenceByStream.remove(minuteKey(target, 5))
+        lastSequenceByStream.remove(minuteKey(initialTarget, 1))
+        lastSequenceByStream.remove(minuteKey(initialTarget, 5))
         realtimeJob = viewModelScope.launch {
-            var nextTickAt = SystemClock.elapsedRealtime()
-            while (isActive) {
-                val waitMs = nextTickAt - SystemClock.elapsedRealtime()
-                if (waitMs > 0L) delay(waitMs)
-                if (!pageActive || !_uiState.value.showDetail) break
-
+            var streamCode = initialTarget
+            var consecutiveFailures = 0
+            while (isActive && pageActive && _uiState.value.showDetail) {
                 val before = _uiState.value
-                val activeCode = before.stock.quote.code.ifBlank { target }
                 val minuteDays = daysForTab(before.selectedTab)
+                val wasUsable = before.stock.hasUsableQuote(streamCode)
                 val result = withContext(Dispatchers.IO) {
-                    realtimeRepository.loadRealtimeFrame(activeCode, before.stock, minuteDays)
+                    realtimeRepository.loadRealtimeFrame(streamCode, before.stock, minuteDays)
                 }
-                result.onSuccess { frame ->
-                    if (pageActive && acceptSequence(activeCode, minuteDays, frame.sequence)) {
+
+                result.fold(
+                    onSuccess = { frame ->
+                        val resolvedCode = frame.quote.code.ifBlank { streamCode }
+                        if (acceptSequence(resolvedCode, minuteDays, frame.sequence)) {
+                            _uiState.update { state ->
+                                val stateCode = state.stock.quote.code
+                                if (
+                                    !pageActive ||
+                                    !state.showDetail ||
+                                    (stateCode != streamCode && stateCode != resolvedCode)
+                                ) {
+                                    state
+                                } else {
+                                    val exposeMinutes = isMinuteTab(state.selectedTab) &&
+                                        daysForTab(state.selectedTab) == minuteDays
+                                    applyRealtimeFrame(
+                                        state,
+                                        frame,
+                                        resolvedCode,
+                                        minuteDays,
+                                        exposeMinutes
+                                    ).copy(
+                                        loading = false,
+                                        requestMessage = null
+                                    )
+                                }
+                            }
+                            streamCode = resolvedCode
+                            consecutiveFailures = 0
+                            if (!wasUsable) {
+                                loadSlowDetail(resolvedCode)
+                                val tab = _uiState.value.selectedTab
+                                if (!isMinuteTab(tab)) {
+                                    loadKLineForTab(tab, resolvedCode)
+                                }
+                            }
+                        }
+                    },
+                    onFailure = { error ->
+                        consecutiveFailures += 1
+                        val message = error.message ?: error.javaClass.simpleName
                         _uiState.update { state ->
-                            if (!pageActive || !state.showDetail || state.stock.quote.code != activeCode) {
+                            if (!pageActive || !state.showDetail) {
                                 state
                             } else {
-                                val exposeMinutes = isMinuteTab(state.selectedTab) &&
-                                    daysForTab(state.selectedTab) == minuteDays
-                                applyRealtimeFrame(
-                                    state,
-                                    frame,
-                                    activeCode,
-                                    minuteDays,
-                                    exposeMinutes
+                                val usable = state.stock.hasUsableQuote(streamCode)
+                                state.copy(
+                                    stock = if (usable) {
+                                        state.stock.copy(errorMessage = null)
+                                    } else {
+                                        state.stock.copy(
+                                            aiSummary = "真实行情暂不可用，正在自动恢复。",
+                                            dataSourceLabel = "行情正在恢复",
+                                            errorMessage = message
+                                        )
+                                    },
+                                    loading = !usable,
+                                    requestMessage = if (usable) {
+                                        "实时刷新暂缓，正在自动恢复"
+                                    } else {
+                                        "行情服务正在恢复…"
+                                    }
                                 )
                             }
                         }
                     }
-                }
+                )
 
-                nextTickAt += REALTIME_INTERVAL_MS
-                val now = SystemClock.elapsedRealtime()
-                while (nextTickAt <= now) nextTickAt += REALTIME_INTERVAL_MS
+                delay(
+                    if (consecutiveFailures == 0) {
+                        REALTIME_INTERVAL_MS
+                    } else {
+                        realtimeRetryDelay(consecutiveFailures)
+                    }
+                )
             }
         }
     }
@@ -1067,6 +1100,30 @@ class StockMarketViewModel(
         return true
     }
 
+    private fun StockDetailUiState.hasUsableQuote(code: String): Boolean {
+        val currentCode = quote.code.trim()
+        return priceIsUsable() && (
+            currentCode == code ||
+                queryMatchesResolvedCode(code, currentCode)
+            )
+    }
+
+    private fun StockDetailUiState.priceIsUsable(): Boolean =
+        quote.price.isNotBlank() && quote.price != "--"
+
+    private fun queryMatchesResolvedCode(query: String, resolvedCode: String): Boolean {
+        val queryDigits = query.filter(Char::isDigit)
+        val resolvedDigits = resolvedCode.filter(Char::isDigit)
+        return queryDigits.length == 6 && queryDigits == resolvedDigits
+    }
+
+    private fun realtimeRetryDelay(failureCount: Int): Long = when {
+        failureCount <= 1 -> 1_000L
+        failureCount == 2 -> 2_000L
+        failureCount == 3 -> 4_000L
+        else -> 8_000L
+    }
+
     private fun <K, V> LinkedHashMap<K, V>.putBounded(
         key: K,
         value: V,
@@ -1123,12 +1180,10 @@ class StockMarketViewModel(
 
     companion object {
         private const val REALTIME_INTERVAL_MS = 1_000L
-        private const val MARKET_INDICES_REFRESH_INTERVAL_MS = 8_000L
-        private const val MARKET_BREADTH_REFRESH_INTERVAL_MS = 12_000L
-        private const val MARKET_DISCOVERY_REFRESH_INTERVAL_MS = 25_000L
-        private const val MARKET_STAGE_RECOVERY_INTERVAL_MS = 1_500L
-        private const val MARKET_BREADTH_INITIAL_DELAY_MS = 120L
-        private const val MARKET_DISCOVERY_INITIAL_DELAY_MS = 480L
+        private const val MARKET_INDICES_REFRESH_INTERVAL_MS = 10_000L
+        private const val MARKET_SUPPLEMENTAL_REFRESH_INTERVAL_MS = 30_000L
+        private const val MARKET_SUPPLEMENTAL_RECOVERY_INTERVAL_MS = 10_000L
+        private const val MARKET_RECOVERY_INTERVAL_MS = 3_000L
         private const val SLOW_DETAIL_DELAY_MS = 900L
         private const val SLOW_DETAIL_REFRESH_TTL_MS = 120_000L
         private const val MAX_ONE_DAY_POINTS = 600
