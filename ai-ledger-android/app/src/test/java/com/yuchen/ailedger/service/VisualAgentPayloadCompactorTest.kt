@@ -6,7 +6,7 @@ import org.junit.Test
 
 class VisualAgentPayloadCompactorTest {
     @Test
-    fun transportUsesOneTaskMemorySource() {
+    fun visualPayloadUsesOneTaskMemorySourceWithoutCleanupPass() {
         val snapshot = AgentScreenSnapshot(
             currentApp = "com.example.app",
             packageName = "com.example.app",
@@ -25,12 +25,11 @@ class VisualAgentPayloadCompactorTest {
             taskMemory = VisualTaskMemory(originalGoal = "test"),
         )
 
-        payload.compactVisualAgentPayloadForTransport()
-
         assertTrue(payload.has("taskMemory"))
         assertTrue(payload.has("executionFeedback"))
         assertFalse(payload.has("agentMemory"))
         assertFalse(payload.has("lastToolResponse"))
+        assertFalse(payload.has("routeRefreshRequested"))
         assertFalse(payload.getJSONObject("taskMemory").has("reasoningContext"))
     }
 }
