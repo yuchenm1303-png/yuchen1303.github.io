@@ -62,17 +62,19 @@ class VisualIntelligenceUpgradeTest {
     }
 
     @Test
-    fun explicitUserCorrectionInvalidatesCurrentMilestone() {
+    fun userReplyIsPreservedWithoutLocalIntentClassification() {
+        val rawReply = "不是这个页面，目标改为查看自选股"
         val update = VisualUserTaskUpdateClassifier.classify(
-            rawReply = "不是这个页面，目标改为查看自选股",
+            rawReply = rawReply,
             sourceReason = "model_help",
             prompt = "请确认下一步",
         )
 
         assertNotNull(update)
-        assertEquals(VisualUserTaskUpdateKind.GoalRevision, update!!.kind)
-        assertTrue(update.invalidatesCurrentMilestone)
-        assertTrue(update.invalidatesVisualHistory)
+        assertEquals(VisualUserTaskUpdateKind.Supplement, update!!.kind)
+        assertEquals(rawReply, update.content)
+        assertFalse(update.invalidatesCurrentMilestone)
+        assertFalse(update.invalidatesVisualHistory)
     }
 
     @Test
@@ -89,7 +91,7 @@ class VisualIntelligenceUpgradeTest {
     }
 
     @Test
-    fun taskRevisionSignalUsesCanonicalReplanWithoutReplyContent() {
+    fun taskRevisionSignalCarriesOnlyCanonicalMetadata() {
         val update = VisualUserTaskUpdate(
             revision = 7,
             kind = VisualUserTaskUpdateKind.GoalRevision,
@@ -100,7 +102,7 @@ class VisualIntelligenceUpgradeTest {
 
         val signal = update.toPromptLine()
 
-        assertTrue(signal.startsWith("visual_replan_requested:reason=user_task_revision"))
+        assertTrue(signal.startsWith("visual_task_revision:v2"))
         assertTrue(signal.contains("taskRevision=7"))
         assertTrue(signal.contains("kind=goal_revision"))
         assertTrue(signal.contains("latestUserTurnAuthoritative=true"))
