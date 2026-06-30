@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 
-const val ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH = 12_000
+const val ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH = 2_000
 
 private const val CUSTOM_INSTRUCTIONS_TABLE = "assistant_custom_instructions"
 private const val CUSTOM_INSTRUCTIONS_CONNECT_TIMEOUT_MS = 12_000
@@ -41,11 +41,19 @@ data class AssistantCustomInstructionsState(
     val isLoggedIn: Boolean
         get() = accountUserId != null
 
+    val contentLength: Int
+        get() = customInstructionsCharacterCount(content)
+
+    val isWithinLimit: Boolean
+        get() = contentLength <= ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH
+
     val effectiveLength: Int
-        get() = if (enabled && cloudReady) content.length else 0
+        get() = if (enabled && cloudReady && isWithinLimit) contentLength else 0
 
     fun effectiveText(): String? {
-        return content.trim().takeIf { enabled && cloudReady && it.isNotBlank() }
+        return normalizeCustomInstructions(content).takeIf {
+            enabled && cloudReady && isWithinLimit && it.isNotBlank()
+        }
     }
 }
 
@@ -95,6 +103,15 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
 
     fun save(content: String, enabled: Boolean) {
         val clean = normalizeCustomInstructions(content)
+        val characterCount = customInstructionsCharacterCount(clean)
+        if (characterCount > ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH) {
+            _state.value = _state.value.copy(
+                message = customInstructionsTooLongMessage(characterCount),
+                error = true
+            )
+            return
+        }
+
         runMutation("正在保存自定义指令…") { session ->
             val next = client.upsert(session, clean, enabled && clean.isNotBlank())
             _state.value = next.copy(
@@ -103,12 +120,10 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                 accountUserId = session.userId,
                 accountEmail = session.email,
                 cloudReady = true,
-                message = if (next.enabled) {
-                    "自定义指令已保存并启用。"
-                } else if (next.content.isBlank()) {
-                    "自定义指令已清空。"
-                } else {
-                    "自定义指令已保存，但当前未启用。"
+                message = when {
+                    next.enabled -> "自定义指令已保存并启用。"
+                    next.content.isBlank() -> "自定义指令已清空。"
+                    else -> "自定义指令已保存，但当前未启用。"
                 },
                 error = false
             )
@@ -120,6 +135,13 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         if (!current.cloudReady || current.content.isBlank()) {
             _state.value = current.copy(
                 message = "请先填写并保存自定义指令。",
+                error = true
+            )
+            return
+        }
+        if (!current.isWithinLimit) {
+            _state.value = current.copy(
+                message = customInstructionsTooLongMessage(current.contentLength),
                 error = true
             )
             return
@@ -152,18 +174,19 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         )
         try {
             val loaded = client.load(session)
+            val overLimit = !loaded.isWithinLimit
             _state.value = loaded.copy(
                 loading = false,
                 saving = false,
                 accountUserId = session.userId,
                 accountEmail = session.email,
                 cloudReady = true,
-                message = if (loaded.content.isBlank()) {
-                    "还没有设置自定义指令。"
-                } else {
-                    "自定义指令已同步。"
+                message = when {
+                    loaded.content.isBlank() -> "还没有设置自定义指令。"
+                    overLimit -> "自定义指令已同步，但超过 ${ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH} 个字符；精简并重新保存后才会生效。"
+                    else -> "自定义指令已同步。"
                 },
-                error = false
+                error = overLimit
             )
         } catch (error: Throwable) {
             _state.value = AssistantCustomInstructionsState(
@@ -354,7 +377,14 @@ internal fun normalizeCustomInstructions(value: String): String {
         .joinToString("\n")
         .replace(Regex("\n{4,}"), "\n\n\n")
         .trim()
-        .take(ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH)
+}
+
+internal fun customInstructionsCharacterCount(value: String): Int {
+    return value.codePointCount(0, value.length)
+}
+
+private fun customInstructionsTooLongMessage(characterCount: Int): String {
+    return "自定义指令最多 ${ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH} 个字符，当前 $characterCount 个；请精简后再保存。"
 }
 
 private fun String.urlEncode(): String = URLEncoder.encode(this, Charsets.UTF_8.name())
