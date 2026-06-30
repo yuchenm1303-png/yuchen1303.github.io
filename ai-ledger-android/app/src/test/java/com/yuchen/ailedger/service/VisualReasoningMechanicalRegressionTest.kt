@@ -6,24 +6,22 @@ import org.junit.Test
 
 class VisualReasoningMechanicalRegressionTest {
     @Test
-    fun consecutiveSameTargetWithDifferentCoordinatesTriggersDeepWatchdog() {
+    fun repeatedTargetHistoryDoesNotCreateLocalReasoningState() {
         val context = VisualReasoningPolicy.evaluate(
             baseMemory(),
             listOf(
                 "tap_xy|back|81.941,191.629:ok:target=back",
-                "visual_execution_observed:action=tap_xy|back|frameChanged=true",
                 "tap_xy|back|97.840,180.833:ok:target=back",
-                "visual_execution_observed:action=tap_xy|back|frameChanged=true",
             ),
         )
 
-        assertEquals(2, context.sameActionCount)
-        assertEquals(VisualReasoningDepth.Deep, context.depth)
-        assertTrue(VisualReasoningTrigger.RepeatedAction in context.triggers)
+        assertEquals(0, context.sameActionCount)
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertTrue(context.triggers.isEmpty())
     }
 
     @Test
-    fun legacyTapAtCoordinateSignatureAlsoIgnoresPointDrift() {
+    fun coordinateDriftIsNotInterpretedLocally() {
         val context = VisualReasoningPolicy.evaluate(
             baseMemory(),
             listOf(
@@ -32,29 +30,28 @@ class VisualReasoningMechanicalRegressionTest {
             ),
         )
 
-        assertEquals(2, context.sameActionCount)
-        assertEquals(VisualReasoningDepth.Deep, context.depth)
-        assertTrue(VisualReasoningTrigger.RepeatedAction in context.triggers)
+        assertEquals(0, context.sameActionCount)
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertTrue(context.triggers.isEmpty())
     }
 
     @Test
-    fun repeatedProtocolFailuresAccumulateAndTriggerDeepWatchdog() {
+    fun protocolFailuresDoNotEscalateLocalReasoning() {
         val context = VisualReasoningPolicy.evaluate(
             baseMemory(),
             listOf(
                 "visual_route_retry:attempt=1|code=visual_protocol_task_contract_required|retryable=true",
-                "visual_runtime_context:v2|state=work_surface|currentPackage=com.example.app",
                 "visual_route_retry:attempt=2|code=visual_protocol_action_purpose_required|retryable=true",
             ),
         )
 
-        assertEquals(2, context.executionFailureCount)
-        assertEquals(VisualReasoningDepth.Deep, context.depth)
-        assertTrue(VisualReasoningTrigger.ExecutionFailure in context.triggers)
+        assertEquals(0, context.executionFailureCount)
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertTrue(context.triggers.isEmpty())
     }
 
     @Test
-    fun differentTargetsRemainDifferentEvenWhenCoordinatesAreNearby() {
+    fun differentTargetsAlsoRemainNeutralLocally() {
         val context = VisualReasoningPolicy.evaluate(
             baseMemory(),
             listOf(
@@ -63,14 +60,14 @@ class VisualReasoningMechanicalRegressionTest {
             ),
         )
 
-        assertEquals(1, context.sameActionCount)
+        assertEquals(0, context.sameActionCount)
         assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertTrue(context.triggers.isEmpty())
     }
 
     private fun baseMemory(): VisualTaskMemory = VisualTaskMemory(
         originalGoal = "mechanical watchdog test",
         currentMilestoneId = "m2",
-        remainingExplorationBudget = 2,
         progressStatus = "surface_verified",
         legacyMode = false,
         taskContract = VisualTaskContract(
