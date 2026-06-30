@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 
 internal class PageFrostDrawCache {
     var geometrySignature: Long = Long.MIN_VALUE
@@ -88,8 +89,13 @@ internal class PageFrostParentLayerState {
         dimAlpha: Float,
     ) {
         if (!coordinates.isAttached) return
-        val rectInRoot = coordinates.boundsInRoot()
-        if (rectInRoot.width <= 1f || rectInRoot.height <= 1f) return
+        val itemSize = coordinates.size
+        if (itemSize.width <= 1 || itemSize.height <= 1) return
+        val topLeft = coordinates.positionInRoot()
+        val rectInRoot = Rect(
+            offset = topLeft,
+            size = Size(itemSize.width.toFloat(), itemSize.height.toFloat()),
+        )
 
         val safeRadius = radiusDp.coerceAtLeast(0f)
         val safeBackdrop = backdropAlpha.coerceIn(0f, 1f)
