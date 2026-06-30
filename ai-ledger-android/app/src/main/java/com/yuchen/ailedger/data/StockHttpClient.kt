@@ -20,9 +20,9 @@ import okhttp3.Request
 /**
  * 股票模块共享网络传输层。
  *
- * 所有股票接口复用连接池、singleflight 和极短响应微缓存。个股接口在传输层失败后会短暂
- * 冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个 Render 实例；市场首页阶段
- * 接口由上层 stale-while-revalidate 负责恢复，不进入通用失败冷却。
+ * 所有股票接口复用连接池、singleflight 和极短响应微缓存。个股兼容接口在传输层失败后会
+ * 短暂冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个 Render 实例；市场首页
+ * 阶段接口由上层缓存与恢复调度负责，不进入通用失败冷却。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -139,10 +139,10 @@ internal object StockHttpClient {
         }
         val routeCapMs = when {
             "/api/stock/a-share/market/home" in url -> MARKET_HOME_TIMEOUT_MS
-            "/api/stock/a-share/market/indices" in url -> 3_200
-            "/api/stock/a-share/market/breadth" in url -> 2_800
-            "/api/stock/a-share/market/discovery" in url -> 2_800
-            "/api/stock/a-share/realtime" in url -> 2_300
+            "/api/stock/a-share/market/indices" in url -> 5_000
+            "/api/stock/a-share/market/breadth" in url -> 4_500
+            "/api/stock/a-share/market/discovery" in url -> 4_500
+            "/api/stock/a-share/realtime" in url -> 3_800
             "/api/stock/a-share/quotes" in url -> 3_200
             "/api/stock/a-share/kline" in url -> 6_500
             "/api/stock/a-share/stock/full" in url -> 8_000
