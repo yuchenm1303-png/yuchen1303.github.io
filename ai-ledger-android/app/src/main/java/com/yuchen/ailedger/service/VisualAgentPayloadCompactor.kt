@@ -184,18 +184,45 @@ private fun VisualTaskMemory.toLeanMemoryJson() = JSONObject().apply {
     put("executionLedgerOnly", true)
 }
 
+/**
+ * Compatibility boundary for legacy callers. A fresh payload is built from the allowed fields
+ * instead of mutating the old object, so legacy local-control keys cannot survive accidentally.
+ */
 internal fun JSONObject.compactVisualAgentPayloadForTransport(): JSONObject {
-    put("agentSessionProtocol", VISUAL_SESSION_PROTOCOL)
-    put("interactionProtocol", VISUAL_INTERACTION_PROTOCOL)
-    optJSONObject("agentMemory")?.optJSONObject("taskMemory")?.let { memory ->
-        LOCAL_REASONING_KEYS.forEach(memory::remove)
-        memory.put("semanticDecisionOwner", "gui_plus")
-        memory.put("localSemanticDecision", false)
-        memory.put("executionLedgerOnly", true)
-        put("taskMemory", memory)
+    val sourceMemory = optJSONObject("agentMemory")?.optJSONObject("taskMemory")
+        ?: optJSONObject("taskMemory")
+    val cleanPayload = JSONObject()
+    val iterator = keys()
+    while (iterator.hasNext()) {
+        val key = iterator.next()
+        if (key !in LEGACY_TOP_LEVEL_KEYS) {
+            cleanPayload.put(key, opt(key))
+        }
     }
-    LEGACY_TOP_LEVEL_KEYS.forEach(::remove)
-    return this
+
+    cleanPayload.put("agentSessionProtocol", VISUAL_SESSION_PROTOCOL)
+    cleanPayload.put("interactionProtocol", VISUAL_INTERACTION_PROTOCOL)
+
+    sourceMemory?.let { memory ->
+        val cleanMemory = JSONObject(memory.toString())
+        LOCAL_REASONING_KEYS.forEach(cleanMemory::remove)
+        cleanMemory.put("semanticDecisionOwner", "gui_plus")
+        cleanMemory.put("localSemanticDecision", false)
+        cleanMemory.put("executionLedgerOnly", true)
+        cleanPayload.put("taskMemory", cleanMemory)
+    }
+
+    cleanPayload.optJSONObject("executionFeedback")?.let { feedback ->
+        val cleanFeedback = JSONObject(feedback.toString())
+        LOCAL_CONTROL_KEYS.forEach(cleanFeedback::remove)
+        LOCAL_REASONING_KEYS.forEach(cleanFeedback::remove)
+        cleanFeedback.put("semanticDecisionOwner", "gui_plus")
+        cleanFeedback.put("localSemanticDecision", false)
+        cleanFeedback.put("executionLedgerOnly", true)
+        cleanPayload.put("executionFeedback", cleanFeedback)
+    }
+
+    return cleanPayload
 }
 
 private val LOCAL_REASONING_KEYS = listOf(
@@ -205,6 +232,15 @@ private val LOCAL_REASONING_KEYS = listOf(
     "failedHypotheses",
     "blockedActions",
     "remainingExplorationBudget",
+)
+
+private val LOCAL_CONTROL_KEYS = listOf(
+    "finishVerificationRequested",
+    "localVisualRetryRequested",
+    "visualReplanRequested",
+    "guiPlusReplanRequested",
+    "routeRefreshRequested",
+    "invalidateCachedAgentBrainRoute",
 )
 
 private val LEGACY_TOP_LEVEL_KEYS = listOf(
