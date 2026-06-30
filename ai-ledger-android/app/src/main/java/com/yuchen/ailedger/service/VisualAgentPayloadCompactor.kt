@@ -53,7 +53,7 @@ private val AGENT_MEMORY_DUPLICATE_KEYS = setOf(
 
 private val LOOP_SIGNAL_DUPLICATE_KEYS = setOf(
     "postActionFeedback",      // canonical top-level executionFeedback
-    "lastToolResponse",       // canonical top-level lastToolResponse
+    "lastToolResponse",        // canonical top-level lastToolResponse
     "currentMilestoneId",      // canonical agentMemory.taskMemory
     "completedMilestoneIds",
     "failedHypotheses",
