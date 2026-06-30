@@ -62,9 +62,10 @@ internal object StockHttpClient {
         url: String,
         timeoutMs: Int,
         emptyMessage: String,
-        microCacheMs: Long = DEFAULT_MICRO_CACHE_MS
+        microCacheMs: Long = DEFAULT_MICRO_CACHE_MS,
+        allowColdStartWait: Boolean = false
     ): String {
-        val effectiveTimeoutMs = effectiveTimeoutMs(url, timeoutMs)
+        val effectiveTimeoutMs = effectiveTimeoutMs(url, timeoutMs, allowColdStartWait)
         recent(url, microCacheMs)?.let { return it }
         recentTransportFailure(url)?.let { throw it }
 
@@ -115,6 +116,7 @@ internal object StockHttpClient {
             val elapsedMs = elapsedMs(startedAtNs)
             val normalized = normalizeTransportError(error, effectiveTimeoutMs, elapsedMs)
             if (
+                !allowColdStartWait &&
                 shouldRememberTransportFailure(url) &&
                 (isTransportFailure(error) || isRetryableServiceFailure(error))
             ) {
@@ -127,7 +129,14 @@ internal object StockHttpClient {
         }
     }
 
-    private fun effectiveTimeoutMs(url: String, requestedTimeoutMs: Int): Int {
+    private fun effectiveTimeoutMs(
+        url: String,
+        requestedTimeoutMs: Int,
+        allowColdStartWait: Boolean
+    ): Int {
+        if (allowColdStartWait) {
+            return requestedTimeoutMs.coerceIn(MIN_REQUEST_TIMEOUT_MS, MAX_COLD_START_TIMEOUT_MS)
+        }
         val routeCapMs = when {
             "/api/stock/a-share/market/home" in url -> MARKET_HOME_TIMEOUT_MS
             "/api/stock/a-share/market/indices" in url -> 3_200
@@ -254,6 +263,7 @@ internal object StockHttpClient {
     private const val DEFAULT_MICRO_CACHE_MS = 220L
     private const val MIN_REQUEST_TIMEOUT_MS = 700
     private const val MARKET_HOME_TIMEOUT_MS = 70_000
+    private const val MAX_COLD_START_TIMEOUT_MS = 75_000
     private const val SHARED_WAIT_GRACE_MS = 250L
     private const val TRANSPORT_FAILURE_COOLDOWN_MS = 2_500L
     private const val MAX_RECENT_RESPONSES = 64
