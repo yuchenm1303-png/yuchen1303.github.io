@@ -22,8 +22,7 @@ private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v1
 
 /**
  * Runs one visual planning request on Dispatchers.IO while keeping the active connection reachable
- * from the task-stop watcher. Disconnecting the HttpURLConnection unblocks upload/read immediately;
- * normal requests keep the same payload, headers and timeout policy as the synchronous path.
+ * from the task-stop watcher. There is no secondary payload builder or cleanup pass.
  */
 internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
     goal: String,
@@ -53,7 +52,7 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
         deviceProfile = deviceProfile,
         runtimeContext = runtimeContext,
         taskMemory = taskMemory,
-    ).compactVisualAgentPayloadForTransport()
+    )
     val activeConnection = AtomicReference<HttpURLConnection?>(null)
     val request = async(Dispatchers.IO) {
         postCancellableVisualAgentStep(
