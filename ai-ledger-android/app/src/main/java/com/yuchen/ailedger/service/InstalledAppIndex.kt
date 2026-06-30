@@ -1,9 +1,12 @@
 package com.yuchen.ailedger.service
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import java.text.Normalizer
 
 /**
@@ -42,6 +45,10 @@ class InstalledAppIndex(
 ) {
     private val context = context.applicationContext
 
+    init {
+        ensurePackageChangeObserver(context)
+    }
+
     /**
      * Supplies neutral identifiers to the cloud context only. These values are never used locally
      * to parse a goal or select an application.
@@ -53,7 +60,11 @@ class InstalledAppIndex(
     fun getLaunchableApps(forceReload: Boolean = false): List<InstalledAppEntry> {
         val now = System.currentTimeMillis()
         synchronized(cacheLock) {
-            if (!forceReload && sharedCachedApps.isNotEmpty() && now - sharedLastLoadedAt < CACHE_TTL_MS) {
+            if (
+                !forceReload &&
+                sharedCacheLoaded &&
+                now - sharedLastLoadedAt < CACHE_FALLBACK_TTL_MS
+            ) {
                 return sharedCachedApps
             }
         }
@@ -64,9 +75,11 @@ class InstalledAppIndex(
         }
         val apps = packageManager.queryIntentActivities(launchIntent, launcherQueryFlags())
             .mapNotNull { info ->
+                // queryIntentActivities(ACTION_MAIN + CATEGORY_LAUNCHER) already guarantees a
+                // launchable activity. Avoid an additional getLaunchIntentForPackage() binder call
+                // for every result.
                 val packageName = info.activityInfo?.packageName.orEmpty().trim()
                 if (packageName.isBlank()) return@mapNotNull null
-                if (packageManager.getLaunchIntentForPackage(packageName) == null) return@mapNotNull null
                 val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty()
                     .ifBlank { safeApplicationLabel(packageManager, packageName) }
                 if (label.isBlank()) return@mapNotNull null
@@ -81,12 +94,13 @@ class InstalledAppIndex(
         synchronized(cacheLock) {
             sharedCachedApps = apps
             sharedLastLoadedAt = now
+            sharedCacheLoaded = true
         }
         return apps
     }
 
     private fun launcherQueryFlags(): Int {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PackageManager.MATCH_ALL
         } else {
             0
@@ -105,8 +119,56 @@ class InstalledAppIndex(
 
     companion object {
         private val cacheLock = Any()
-        private var sharedCachedApps: List<InstalledAppEntry> = emptyList()
-        private var sharedLastLoadedAt: Long = 0L
-        private const val CACHE_TTL_MS = 5 * 60_000L
+        @Volatile private var sharedCachedApps: List<InstalledAppEntry> = emptyList()
+        @Volatile private var sharedLastLoadedAt: Long = 0L
+        @Volatile private var sharedCacheLoaded: Boolean = false
+        @Volatile private var packageObserverInstalled: Boolean = false
+        private var packageObserver: BroadcastReceiver? = null
+
+        /**
+         * Package add/remove/replace broadcasts invalidate the process-wide inventory immediately.
+         * The long fallback TTL only protects against an OEM dropping a broadcast; normal chat no
+         * longer rescans PackageManager every five minutes.
+         */
+        private fun ensurePackageChangeObserver(context: Context) {
+            if (packageObserverInstalled) return
+            synchronized(cacheLock) {
+                if (packageObserverInstalled) return
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(context: Context?, intent: Intent?) {
+                        invalidateCache()
+                    }
+                }
+                val filter = IntentFilter().apply {
+                    addAction(Intent.ACTION_PACKAGE_ADDED)
+                    addAction(Intent.ACTION_PACKAGE_REMOVED)
+                    addAction(Intent.ACTION_PACKAGE_REPLACED)
+                    addDataScheme("package")
+                }
+                val registered = runCatching {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        context.registerReceiver(receiver, filter)
+                    }
+                    true
+                }.getOrDefault(false)
+                if (registered) {
+                    packageObserver = receiver
+                    packageObserverInstalled = true
+                }
+            }
+        }
+
+        internal fun invalidateCache() {
+            synchronized(cacheLock) {
+                sharedCachedApps = emptyList()
+                sharedLastLoadedAt = 0L
+                sharedCacheLoaded = false
+            }
+        }
+
+        private const val CACHE_FALLBACK_TTL_MS = 24 * 60 * 60_000L
     }
 }
