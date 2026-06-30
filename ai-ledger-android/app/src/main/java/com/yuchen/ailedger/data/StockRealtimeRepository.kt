@@ -45,7 +45,7 @@ class StockRealtimeRepository(
         val tradeKey: String = ""
     )
 
-    private val retryAfterByQuery = ConcurrentHashMap<String, Long>()
+    private val legacyUntilByQuery = ConcurrentHashMap<String, Long>()
     private val cursorByStream = ConcurrentHashMap<String, RealtimeCursor>()
 
     fun loadRealtimeFrame(
@@ -58,37 +58,38 @@ class StockRealtimeRepository(
         val retryKey = normalized.lowercase()
         val now = System.currentTimeMillis()
         cleanupMaps(now)
-        val retryAfter = retryAfterByQuery[retryKey] ?: 0L
 
-        val unified = if (now >= retryAfter) {
-            runCatching {
-                loadUnifiedRealtime(normalized, safeDays, current).also {
-                    retryAfterByQuery.remove(retryKey)
-                }
-            }
-        } else {
-            Result.failure(IllegalStateException("统一实时接口冷却中"))
+        val legacyUntil = legacyUntilByQuery[retryKey] ?: 0L
+        if (now < legacyUntil) {
+            return runCatching { loadLegacyRealtime(normalized, safeDays, current) }
         }
 
-        return unified.recoverCatching { error ->
-            if (now >= retryAfter) {
-                val delayMs = if (
-                    error.message?.contains("HTTP 404") == true ||
-                    error.message?.contains("HTTP 405") == true
-                ) {
-                    UNIFIED_NOT_FOUND_RETRY_MS
+        val unified = runCatching {
+            loadUnifiedRealtime(normalized, safeDays, current).also {
+                legacyUntilByQuery.remove(retryKey)
+            }
+        }
+        return unified.fold(
+            onSuccess = { Result.success(it) },
+            onFailure = { error ->
+                if (!isUnifiedRouteUnavailable(error)) {
+                    Result.failure(error)
                 } else {
-                    UNIFIED_TRANSIENT_RETRY_MS
+                    legacyUntilByQuery[retryKey] = now + UNIFIED_NOT_FOUND_RETRY_MS
+                    runCatching { loadLegacyRealtime(normalized, safeDays, current) }
                 }
-                retryAfterByQuery[retryKey] = now + delayMs
             }
-            loadLegacyRealtime(normalized, safeDays, current)
-        }
+        )
+    }
+
+    private fun isUnifiedRouteUnavailable(error: Throwable): Boolean {
+        val message = error.message.orEmpty()
+        return message.contains("HTTP 404") || message.contains("HTTP 405")
     }
 
     private fun cleanupMaps(now: Long) {
-        if (retryAfterByQuery.size > MAX_RETRY_KEYS) {
-            val iterator = retryAfterByQuery.entries.iterator()
+        if (legacyUntilByQuery.size > MAX_RETRY_KEYS) {
+            val iterator = legacyUntilByQuery.entries.iterator()
             while (iterator.hasNext()) {
                 if (iterator.next().value <= now) iterator.remove()
             }
@@ -673,11 +674,10 @@ class StockRealtimeRepository(
             StockModuleStatus.Partial,
             StockModuleStatus.Stale
         )
-        private const val UNIFIED_TIMEOUT_MS = 1_800
-        private const val LEGACY_TIMEOUT_MS = 2_400
-        private const val QUOTE_TIMEOUT_MS = 1_800
+        private const val UNIFIED_TIMEOUT_MS = 3_600
+        private const val LEGACY_TIMEOUT_MS = 3_500
+        private const val QUOTE_TIMEOUT_MS = 3_000
         private const val UNIFIED_NOT_FOUND_RETRY_MS = 30_000L
-        private const val UNIFIED_TRANSIENT_RETRY_MS = 5_000L
         private const val MAX_RETRY_KEYS = 128
         private const val MAX_CURSOR_KEYS = 128
     }
