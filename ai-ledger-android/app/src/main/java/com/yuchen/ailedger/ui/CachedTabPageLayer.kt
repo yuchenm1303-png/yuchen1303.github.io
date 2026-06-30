@@ -31,13 +31,13 @@ internal fun CachedTabPageLayer(
     activationKey: Int,
     heavyEffectsReady: Boolean,
     diagnostics: PerformanceDiagnosticsState,
-    parentGlassBackdrop: GlassBackdropSpec?,
-    parentBlurredBackdrop: BlurredBackdropBitmap?,
-    parentBackdropTicker: BackdropFrameTicker?,
     saveableStateHolder: SaveableStateHolder,
     onHidden: () -> Unit,
     content: @Composable (AppTab) -> Unit,
 ) {
+    val parentGlassBackdrop = LocalGlassBackdrop.current
+    val parentBlurredBackdrop = LocalBlurredBackdrop.current
+    val parentBackdropTicker = LocalBackdropFrameTicker.current
     val active = tab == currentTab
     val initialAlpha = if (tab == initialTab && activationKey == 1) 1f else 0f
     val alphaState = remember(tab) { Animatable(initialAlpha) }
