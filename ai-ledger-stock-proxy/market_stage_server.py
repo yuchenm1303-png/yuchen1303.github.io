@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from time import monotonic
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import Response
 
@@ -15,7 +15,8 @@ app = home.app
 INDICES_PATH = "/api/stock/a-share/market/indices"
 BREADTH_PATH = "/api/stock/a-share/market/breadth"
 DISCOVERY_PATH = "/api/stock/a-share/market/discovery"
-STAGE_VERSION = "v3-priority-stages"
+STAGE_VERSION = "v4-priority-stages"
+INDICES_REFRESH_SECONDS = 6.0
 BREADTH_REFRESH_SECONDS = 10.0
 DISCOVERY_REFRESH_SECONDS = 22.0
 
@@ -60,12 +61,27 @@ def _cached_stage_module(
     mode: str,
     name: str,
     fresh_seconds: float,
+    builder: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     key = legacy._cache_key(kind, query, mode)
     fresh = legacy._cache_get(key, fresh_seconds)
     if fresh is not None:
         payload, age = fresh
         return home._mark_cached_module(payload, age, stale=False)
+
+    if builder is not None:
+        try:
+            payload = builder()
+        except Exception:
+            stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
+            if stale is not None:
+                payload, age = stale
+                return home._mark_cached_module(payload, age, stale=True)
+            raise
+        if legacy._payload_has_real_items(payload):
+            legacy._cache_put(key, payload)
+            return payload
+
     stale = legacy._cache_get(key, legacy.STALE_CACHE_SECONDS)
     if stale is not None:
         payload, age = stale
@@ -115,7 +131,6 @@ def _stage_payload(
         if real_count > 0
         else "warming"
     )
-    refresh_state = home._refresh_state_name()
     result_warnings = list(warnings or [])
     for name, module in modules.items():
         for warning in module.get("warnings") or []:
@@ -132,7 +147,7 @@ def _stage_payload(
         "updatedAt": datetime.now(timezone.utc).isoformat(),
         "cacheAgeMs": max((_module_cache_age_ms(module) for module in modules.values()), default=0),
         "isDerived": False,
-        "refreshState": refresh_state,
+        "refreshState": home._refresh_state_name(),
         "buildLatencyMs": elapsed_ms,
         "warnings": result_warnings + [f"market_stage_{stage}_build_ms={elapsed_ms}"],
         **modules,
@@ -140,21 +155,14 @@ def _stage_payload(
 
 
 def _cached_indices() -> dict[str, Any]:
-    try:
-        return home._cached_module(
-            "market",
-            "indices",
-            "full-parallel",
-            home._load_indices_parallel,
-        )
-    except Exception as exc:
-        return _cached_stage_module(
-            "market",
-            "indices",
-            "full-parallel",
-            f"indices:{type(exc).__name__}",
-            legacy.FAST_CACHE_SECONDS,
-        )
+    return _cached_stage_module(
+        "market",
+        "indices",
+        "full-parallel",
+        "indices",
+        INDICES_REFRESH_SECONDS,
+        builder=home._load_indices_parallel,
+    )
 
 
 def _cached_breadth() -> dict[str, Any]:
@@ -184,9 +192,6 @@ def _cached_discovery_modules() -> dict[str, dict[str, Any]]:
         "sectorHotRanking",
         DISCOVERY_REFRESH_SECONDS,
     )
-    modules["popularityRanking"] = legacy._unavailable_module("popularity_ranking")
-    modules["limitUpSummary"] = legacy._unavailable_module("limit_up_summary")
-    modules["marketNews"] = legacy._unavailable_module("market_news")
     return modules
 
 
@@ -212,12 +217,7 @@ def a_share_market_indices(response: Response) -> dict[str, Any]:
     _, refresh_warning = _start_background_if_due(
         _breadth_refresh_due() or _discovery_refresh_due()
     )
-    payload = _stage_payload(
-        "indices",
-        modules,
-        started_at,
-        [refresh_warning],
-    )
+    payload = _stage_payload("indices", modules, started_at, [refresh_warning])
     response.headers["X-Market-Stage"] = "indices"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
     response.headers["Server-Timing"] = f"market-indices;dur={payload['buildLatencyMs']}"
@@ -233,12 +233,7 @@ def a_share_market_breadth(response: Response) -> dict[str, Any]:
         "sentiment": home._sentiment_from_breadth(breadth),
     }
     _, refresh_warning = _start_background_if_due(_breadth_refresh_due())
-    payload = _stage_payload(
-        "breadth",
-        modules,
-        started_at,
-        [refresh_warning],
-    )
+    payload = _stage_payload("breadth", modules, started_at, [refresh_warning])
     response.headers["X-Market-Stage"] = "breadth"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
     response.headers["Server-Timing"] = f"market-breadth;dur={payload['buildLatencyMs']}"
@@ -250,12 +245,7 @@ def a_share_market_discovery(response: Response) -> dict[str, Any]:
     started_at = monotonic()
     modules = _cached_discovery_modules()
     _, refresh_warning = _start_background_if_due(_discovery_refresh_due())
-    payload = _stage_payload(
-        "discovery",
-        modules,
-        started_at,
-        [refresh_warning],
-    )
+    payload = _stage_payload("discovery", modules, started_at, [refresh_warning])
     response.headers["X-Market-Stage"] = "discovery"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
     response.headers["Server-Timing"] = f"market-discovery;dur={payload['buildLatencyMs']}"
