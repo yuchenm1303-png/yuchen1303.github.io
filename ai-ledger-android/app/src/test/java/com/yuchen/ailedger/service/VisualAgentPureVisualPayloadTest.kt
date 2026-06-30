@@ -19,7 +19,7 @@ class VisualAgentPureVisualPayloadTest {
             ),
             runtimeContext = runtime(snapshot),
             taskMemory = tracker.memorySnapshot(snapshot),
-        ).compactVisualAgentPayloadForTransport()
+        )
 
         assertFalse(payload.has("localVisualRetryRequested"))
         assertFalse(payload.has("guiPlusReplanRequested"))
@@ -54,7 +54,7 @@ class VisualAgentPureVisualPayloadTest {
                 progressStatus = "execution_observed",
                 reasoningContext = VisualReasoningContext(depth = VisualReasoningDepth.Deep),
             ),
-        ).compactVisualAgentPayloadForTransport()
+        )
 
         assertFalse(payload.has("localVisualRetryRequested"))
         assertFalse(payload.has("guiPlusReplanRequested"))
