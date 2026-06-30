@@ -42,6 +42,11 @@ class StockMarketStageRepository(
         )
     }
 
+    private data class ParsedCache(
+        val entry: StockFileCache.Entry,
+        val snapshot: StockMarketHomeSnapshot
+    )
+
     fun loadIndices(forceNetwork: Boolean = false): Result<StockMarketHomeSnapshot> =
         loadStage(Stage.Indices, forceNetwork)
 
@@ -55,9 +60,9 @@ class StockMarketStageRepository(
         stage: Stage,
         forceNetwork: Boolean
     ): Result<StockMarketHomeSnapshot> = runCatching {
-        val cached = readStageCache(stage) ?: readLegacyHomeCache()
-        if (!forceNetwork && cached != null && cached.ageMs <= stage.freshMs) {
-            return@runCatching parseCached(cached, stage)
+        val cached = readUsableCache(stage)
+        if (!forceNetwork && cached != null && cached.entry.ageMs <= stage.freshMs) {
+            return@runCatching cached.snapshot
         }
 
         try {
@@ -72,49 +77,49 @@ class StockMarketStageRepository(
                 StockFileCache.write(stage.cacheFileName, body)
                 snapshot
             } else if (cached != null) {
-                parseCached(cached, stage).withStageWarning(
-                    "market_stage:${stage.wireName}: warming; cached=${cached.source}; ageMs=${cached.ageMs}"
+                cached.snapshot.withStageWarning(
+                    "market_stage:${stage.wireName}: warming; cached=${cached.entry.source}; " +
+                        "ageMs=${cached.entry.ageMs}"
                 )
             } else {
                 snapshot.withStageWarning("market_stage:${stage.wireName}: warming_without_cache")
             }
         } catch (networkError: Throwable) {
             if (cached == null) throw networkError
-            parseCached(cached, stage).withStageWarning(
-                "market_stage:${stage.wireName}: cache_fallback; cached=${cached.source}; " +
-                    "ageMs=${cached.ageMs}; reason=${networkError.message.orEmpty().take(120)}"
+            cached.snapshot.withStageWarning(
+                "market_stage:${stage.wireName}: cache_fallback; cached=${cached.entry.source}; " +
+                    "ageMs=${cached.entry.ageMs}; reason=${networkError.message.orEmpty().take(120)}"
             )
         }
     }
 
-    private fun parseCached(
-        cached: StockFileCache.Entry,
-        stage: Stage
-    ): StockMarketHomeSnapshot {
-        return runCatching {
-            StockMarketSnapshotParser.parse(JSONObject(cached.body))
-        }.getOrElse {
-            if (cached.source == stage.wireName) {
-                StockFileCache.delete(stage.cacheFileName)
+    private fun readUsableCache(stage: Stage): ParsedCache? {
+        val candidates = listOfNotNull(
+            StockFileCache.read(
+                fileName = stage.cacheFileName,
+                maxAgeMs = CACHE_MAX_AGE_MS,
+                source = stage.wireName
+            ),
+            StockFileCache.read(
+                fileName = LEGACY_HOME_CACHE_FILE,
+                maxAgeMs = CACHE_MAX_AGE_MS,
+                source = "legacy-home"
+            )
+        )
+        for (entry in candidates) {
+            val parsed = runCatching {
+                StockMarketSnapshotParser.parse(JSONObject(entry.body))
+            }.getOrNull()
+            if (parsed != null && parsed.hasStageData(stage)) {
+                return ParsedCache(entry, parsed)
             }
-            throw it
+            if (entry.source == stage.wireName) {
+                StockFileCache.delete(stage.cacheFileName)
+            } else {
+                StockFileCache.delete(LEGACY_HOME_CACHE_FILE)
+            }
         }
-    }
-
-    private fun readStageCache(stage: Stage): StockFileCache.Entry? {
-        return StockFileCache.read(
-            fileName = stage.cacheFileName,
-            maxAgeMs = CACHE_MAX_AGE_MS,
-            source = stage.wireName
-        )
-    }
-
-    private fun readLegacyHomeCache(): StockFileCache.Entry? {
-        return StockFileCache.read(
-            fileName = LEGACY_HOME_CACHE_FILE,
-            maxAgeMs = CACHE_MAX_AGE_MS,
-            source = "legacy-home"
-        )
+        return null
     }
 
     private fun StockMarketHomeSnapshot.hasStageData(stage: Stage): Boolean = when (stage) {
