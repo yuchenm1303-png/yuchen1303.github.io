@@ -19,25 +19,27 @@ import org.json.JSONObject
 private const val CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS = 8_000
 private const val CANCELLABLE_VISUAL_READ_TIMEOUT_MS = 25_000
 private const val CANCELLABLE_VISUAL_CALL_TIMEOUT_MS = 35_000L
-// 后端首次 DeepSeek 规划的 Provider 截止为 15 秒。客户端必须给冷启动、鉴权、
-// JSON 解析和回包留下明确余量，不能抢在后端前面制造“假 DeepSeek 超时”。
-private const val INITIAL_ROUTE_CONNECT_TIMEOUT_MS = 8_000
-private const val INITIAL_ROUTE_READ_TIMEOUT_MS = 22_000
-private const val INITIAL_ROUTE_CALL_TIMEOUT_MS = 26_000L
+
+// AgentBrain 首轮或交接重放只上传文本目标、应用目录和已提交契约。后端采用分阶段
+// 超时：响应头 8 秒、正文 21 秒；Android 留出网络回包与 JSON 解析余量。
+private const val AGENT_BRAIN_CONNECT_TIMEOUT_MS = 8_000
+private const val AGENT_BRAIN_READ_TIMEOUT_MS = 24_000
+private const val AGENT_BRAIN_CALL_TIMEOUT_MS = 30_000L
 private const val CANCELLABLE_VISUAL_STOP_POLL_MS = 50L
 private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v16_text_bootstrap_gui_loop"
 
 /**
- * Two deliberately separate cloud phases:
+ * Runs the cloud loop in two explicit phases:
  *
- * 1. Before a task contract exists, DeepSeek receives only the user goal and canonical
- *    launchable-app directory. No screenshot, observation, node tree, visual history or runtime
- *    reasoning state is uploaded.
- * 2. After Android opens and verifies the exact target package, GUI Plus receives the fresh
- *    screenshot and committed cloud-authored task contract.
+ * 1. AgentBrain route phase: before a contract exists, or while Android is still completing the
+ *    mechanical target-app handoff, send only the goal, canonical app directory and any committed
+ *    contract. Replaying this phase never uploads a screenshot and never authorizes GUI actions.
+ * 2. GUI Plus phase: only after Android has verified the exact target package, send the fresh
+ *    screenshot and observation-bound runtime context.
  *
- * The committed task contract is the irreversible handoff boundary. Once it exists, Android must
- * never fall back into DeepSeek planning because of a transient package or screenshot state.
+ * The transport layer does not manufacture a local WorkSurface error. An unfinished handoff simply
+ * replays the cloud-authored open_app route, normally from the backend cache, until Android verifies
+ * the target or the route request fails explicitly.
  */
 internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
     goal: String,
@@ -56,22 +58,18 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
     val endpointBase = endpoint.trim().trimEnd('/')
     if (endpointBase.isBlank()) throw java.io.IOException("AI Worker endpoint is not configured")
 
-    val initialRoute = shouldUseInitialAgentBrainRoute(taskMemory)
-    if (!initialRoute && runtimeContext?.guiPlusEligible != true) {
-        throw VisualAgentRequestException(
-            httpStatus = null,
-            code = "visual_work_surface_not_verified",
-            retryable = false,
-            backendMessage = "A committed task contract exists, but Android has not verified the target work surface. DeepSeek and GUI Plus were not called.",
-        )
-    }
-    val payload = if (initialRoute) {
+    val committedContract = taskMemory?.taskContract
+    val agentBrainRouteRequest = shouldUseAgentBrainRoute(
+        taskContract = committedContract,
+        runtimeContext = runtimeContext,
+    )
+    val payload = if (agentBrainRouteRequest) {
         buildInitialAgentBrainRoutePayload(
             goal = goal,
             appContext = appContext,
             deviceId = deviceId,
             agentSessionId = agentSessionId,
-            taskContract = null,
+            taskContract = committedContract,
         )
     } else {
         buildVisualAgentPayload(
@@ -97,7 +95,7 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
             payload = payload,
             deviceId = deviceId,
             agentSessionId = agentSessionId,
-            initialRoute = initialRoute,
+            agentBrainRouteRequest = agentBrainRouteRequest,
             activeConnection = activeConnection,
         )
     }
@@ -111,7 +109,11 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
             delay(CANCELLABLE_VISUAL_STOP_POLL_MS)
         }
     }
-    val absoluteTimeoutMs = if (initialRoute) INITIAL_ROUTE_CALL_TIMEOUT_MS else CANCELLABLE_VISUAL_CALL_TIMEOUT_MS
+    val absoluteTimeoutMs = if (agentBrainRouteRequest) {
+        AGENT_BRAIN_CALL_TIMEOUT_MS
+    } else {
+        CANCELLABLE_VISUAL_CALL_TIMEOUT_MS
+    }
     try {
         withTimeoutOrNull(absoluteTimeoutMs) {
             request.await()
@@ -120,10 +122,10 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
             request.cancel(CancellationException("Cloud request exceeded its absolute timeout."))
             throw VisualAgentRequestException(
                 httpStatus = null,
-                code = if (initialRoute) "agent_brain_route_timeout" else "network_timeout",
-                retryable = !initialRoute,
-                backendMessage = if (initialRoute) {
-                    "The initial text-planning request exceeded the ${absoluteTimeoutMs / 1000}s Android client boundary. No screenshot retry or GUI request was started."
+                code = if (agentBrainRouteRequest) "agent_brain_route_timeout" else "network_timeout",
+                retryable = !agentBrainRouteRequest,
+                backendMessage = if (agentBrainRouteRequest) {
+                    "AgentBrain route request exceeded the ${absoluteTimeoutMs / 1000}s Android boundary. No screenshot or GUI action was started."
                 } else {
                     "visual_agent_step exceeded ${absoluteTimeoutMs / 1000}s absolute timeout"
                 },
@@ -135,8 +137,14 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
     }
 }
 
-internal fun shouldUseInitialAgentBrainRoute(taskMemory: VisualTaskMemory?): Boolean =
-    taskMemory?.taskContract == null
+/**
+ * A committed contract is not enough to enter GUI Plus. Until the exact WorkSurface is verified,
+ * replay the AgentBrain entry route with that immutable contract instead of throwing a local error.
+ */
+internal fun shouldUseAgentBrainRoute(
+    taskContract: VisualTaskContract?,
+    runtimeContext: VisualAgentRuntimeContext?,
+): Boolean = taskContract == null || runtimeContext?.guiPlusEligible != true
 
 internal fun buildInitialAgentBrainRoutePayload(
     goal: String,
@@ -175,15 +183,18 @@ internal fun buildInitialAgentBrainRoutePayload(
         put("appInventoryHash", inventoryHash)
         put("appContext", appArray)
         put("deviceContext", JSONObject().apply {
-            put("schema", "android_agent_brain_text_bootstrap_v1")
+            put("schema", "android_agent_brain_text_bootstrap_v2")
             put("appInventoryHash", inventoryHash)
         })
         taskContract?.let { contract ->
             put("taskContract", contract.toJson())
-            put("agentMemory", JSONObject().apply { put("taskContract", contract.toJson()) })
+            put("agentMemory", JSONObject().apply {
+                put("schema", "android_agent_brain_handoff_replay_v1")
+                put("taskContract", contract.toJson())
+            })
         }
         put("client", "android-compose")
-        put("clientVersion", "text-bootstrap-gui-loop-v2")
+        put("clientVersion", "text-bootstrap-gui-loop-v3")
     }
 }
 
@@ -192,20 +203,20 @@ private fun postCancellableAgentRequest(
     payload: JSONObject,
     deviceId: String,
     agentSessionId: String,
-    initialRoute: Boolean,
+    agentBrainRouteRequest: Boolean,
     activeConnection: AtomicReference<HttpURLConnection?>,
 ): CloudAgentPlan {
     val requestStart = SystemClock.elapsedRealtime()
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
-        connectTimeout = if (initialRoute) INITIAL_ROUTE_CONNECT_TIMEOUT_MS else CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS
-        readTimeout = if (initialRoute) INITIAL_ROUTE_READ_TIMEOUT_MS else CANCELLABLE_VISUAL_READ_TIMEOUT_MS
+        connectTimeout = if (agentBrainRouteRequest) AGENT_BRAIN_CONNECT_TIMEOUT_MS else CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS
+        readTimeout = if (agentBrainRouteRequest) AGENT_BRAIN_READ_TIMEOUT_MS else CANCELLABLE_VISUAL_READ_TIMEOUT_MS
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
         setRequestProperty(
             "X-Client",
-            if (initialRoute) "android-compose-agent-brain-bootstrap-v2" else "android-compose-visual-agent-v16",
+            if (agentBrainRouteRequest) "android-compose-agent-brain-bootstrap-v3" else "android-compose-visual-agent-v16",
         )
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
@@ -235,8 +246,15 @@ private fun postCancellableAgentRequest(
         val serverElapsedMs = data?.optLong("elapsedMs", -1L) ?: -1L
         val providerRequestCount = data?.optInt("providerRequestCount", -1) ?: -1
         val internalRetryCount = data?.optInt("internalRetryCount", -1) ?: -1
+        val routeReplay = agentBrainRouteRequest && payload.has("taskContract")
         AgentRuntimeController.noteDiagnostic(buildString {
-            append(if (initialRoute) "AgentBrainText" else "GUIPlusVisual")
+            append(
+                when {
+                    routeReplay -> "AgentBrainHandoff"
+                    agentBrainRouteRequest -> "AgentBrainText"
+                    else -> "GUIPlusVisual"
+                },
+            )
             append(" q=").append(bytesToKb(requestBytes.size)).append("K")
             append(" r=").append(bytesToKb(body.toByteArray(Charsets.UTF_8).size)).append("K")
             append(" headers=").append(responseHeadersMs)
@@ -249,42 +267,46 @@ private fun postCancellableAgentRequest(
             if (routeProtocol.isNotBlank()) append(" p=").append(routeProtocol)
         })
         if (status !in 200..299) throw parseVisualAgentHttpFailure(status, body)
-        if (!initialRoute) {
+        if (!agentBrainRouteRequest) {
             validateVisualAgentResponseObservationId(payload.optString("expectedActionObservationId"), data)
         }
         CloudAgentPlan.fromJson(data)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
             ?: throw java.io.IOException(
-                if (initialRoute) "agent_brain_route did not return one executable agentStep" else "visual_agent_step did not return one agentStep",
+                if (agentBrainRouteRequest) {
+                    "agent_brain_route did not return one executable agentStep"
+                } else {
+                    "visual_agent_step did not return one agentStep"
+                },
             )
     } catch (error: SocketTimeoutException) {
         throw VisualAgentRequestException(
             httpStatus = null,
-            code = if (initialRoute) "agent_brain_route_timeout" else "network_timeout",
-            retryable = !initialRoute,
-            backendMessage = if (initialRoute) {
-                "The Android client received no complete initial-planning response within ${INITIAL_ROUTE_READ_TIMEOUT_MS / 1000}s. This is a client boundary report, not proof that DeepSeek itself failed."
+            code = if (agentBrainRouteRequest) "agent_brain_route_timeout" else "network_timeout",
+            retryable = !agentBrainRouteRequest,
+            backendMessage = if (agentBrainRouteRequest) {
+                "Android received no complete AgentBrain route response within ${AGENT_BRAIN_READ_TIMEOUT_MS / 1000}s. No screenshot or GUI action was started."
             } else {
                 "visual_agent_step timed out after ${CANCELLABLE_VISUAL_READ_TIMEOUT_MS / 1000}s"
             },
             cause = error,
         )
     } catch (error: VisualAgentRequestException) {
-        if (!initialRoute || !error.retryable) throw error
+        if (!agentBrainRouteRequest || !error.retryable) throw error
         throw VisualAgentRequestException(
             httpStatus = error.httpStatus,
             code = error.code,
             retryable = false,
-            backendMessage = "${error.backendMessage}; initial text planning is never retried inside the visual loop",
+            backendMessage = "${error.backendMessage}; AgentBrain route requests are never nested-retried inside the visual loop",
             cause = error,
         )
     } catch (error: java.io.IOException) {
-        if (!initialRoute) throw error
+        if (!agentBrainRouteRequest) throw error
         throw VisualAgentRequestException(
             httpStatus = null,
             code = "agent_brain_route_failed",
             retryable = false,
-            backendMessage = "Initial text planning failed before GUI Plus started: ${error.message.orEmpty().take(240)}",
+            backendMessage = "AgentBrain route failed before GUI Plus started: ${error.message.orEmpty().take(240)}",
             cause = error,
         )
     } finally {
