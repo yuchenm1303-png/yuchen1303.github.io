@@ -136,13 +136,33 @@ class StockMarketStageRepository(
         private const val LEGACY_HOME_CACHE_FILE = "stock_market_home_cache_v1.json"
         private const val CACHE_MAX_AGE_MS = 4L * 24L * 60L * 60L * 1_000L
         private const val MAX_WARNINGS = 24
+        private const val COLD_START_WAKE_TIMEOUT_MS = 70_000
 
-        /** 首屏稳定后顺序唤醒服务，避免冷启动时三个 URL 同时争抢连接。 */
+        /**
+         * 首屏稳定后先用单条健康检查完整唤醒 Render，再顺序预热三个阶段。
+         * 页面请求始终保留短超时，只有这个后台预热任务允许等待完整冷启动周期。
+         */
         fun prewarmMarketHome() {
             val repository = StockMarketStageRepository()
-            repository.loadIndices(forceNetwork = true)
-            repository.loadBreadth(forceNetwork = false)
-            repository.loadDiscovery(forceNetwork = false)
+            runCatching {
+                StockHttpClient.get(
+                    url = "${repository.baseUrl()}/health",
+                    timeoutMs = COLD_START_WAKE_TIMEOUT_MS,
+                    emptyMessage = "股票服务健康检查返回为空",
+                    microCacheMs = 0L,
+                    allowColdStartWait = true
+                )
+            }
+            val indices = repository.loadIndices(forceNetwork = true).getOrNull()
+            val breadth = repository.loadBreadth(forceNetwork = false).getOrNull()
+            val discovery = repository.loadDiscovery(forceNetwork = false).getOrNull()
+            if (
+                indices?.indices?.isNotEmpty() == true &&
+                breadth?.marketBreadth?.meta?.hasRealData == true &&
+                (discovery?.boards?.isNotEmpty() == true || discovery?.sectors?.isNotEmpty() == true)
+            ) {
+                StockFileCache.delete(LEGACY_HOME_CACHE_FILE)
+            }
         }
     }
 }
