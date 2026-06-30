@@ -7,82 +7,59 @@ import org.junit.Test
 
 class VisualAdaptiveReasoningIntegrationTest {
     @Test
-    fun deepReasoningUsesExistingGuiPlusReplanAndRecoveryHistory() {
+    fun legacyDeepSignalsAreRemovedAtTransportBoundary() {
         val snapshot = snapshot()
-        val context = VisualReasoningContext(
+        val legacyContext = VisualReasoningContext(
             depth = VisualReasoningDepth.Deep,
             triggers = listOf(VisualReasoningTrigger.RepeatedNoProgress),
             noProgressCount = 2,
             sameActionCount = 2,
-            explorationPressureLevel = "high",
-            historyItems = 4,
-            selfCheckPasses = 2,
-            candidateHypothesisLimit = 3,
-            freshObservationRequired = true,
-            completionEvidenceStrict = true,
             directExecutionAllowed = false,
         )
         val payload = buildVisualAgentPayload(
             goal = "打开目标页面",
             snapshot = snapshot,
             recentActions = listOf(
-                context.toPromptLine(),
-                VisualReasoningPolicy.deepReplanLine(context)!!,
+                legacyContext.toPromptLine(),
+                "visual_replan_requested:reason=adaptive_reasoning_depth|depth=deep",
             ),
             visualHistory = listOf(history("one"), history("two"), history("three"), history("four")),
             runtimeContext = runtime(snapshot),
-            taskMemory = memory(context),
-        )
+            taskMemory = memory(legacyContext),
+        ).compactVisualAgentPayloadForTransport()
 
-        assertTrue(payload.getBoolean("localVisualRetryRequested"))
-        assertTrue(payload.getBoolean("guiPlusReplanRequested"))
-        assertFalse(payload.getBoolean("routeRefreshRequested"))
-        assertEquals(4, payload.getJSONArray("visualHistory").length())
-        assertEquals(
-            "deep",
-            payload.getJSONObject("agentMemory")
-                .getJSONObject("taskMemory")
-                .getString("reasoningDepth"),
-        )
+        assertFalse(payload.has("localVisualRetryRequested"))
+        assertFalse(payload.has("guiPlusReplanRequested"))
+        assertFalse(payload.has("routeRefreshRequested"))
+        assertFalse(payload.has("agentMemory"))
+        assertEquals(2, payload.getJSONArray("visualHistory").length())
+
+        val taskMemory = payload.getJSONObject("taskMemory")
+        assertFalse(taskMemory.has("reasoningContext"))
+        assertFalse(taskMemory.has("reasoningDepth"))
+        assertFalse(taskMemory.has("reasoningTriggers"))
+        assertTrue(taskMemory.getBoolean("executionLedgerOnly"))
     }
 
     @Test
-    fun normalReasoningAddsSelfCheckContextWithoutForcingDeepReplan() {
-        val snapshot = snapshot()
-        val context = VisualReasoningContext(
-            depth = VisualReasoningDepth.Normal,
-            triggers = listOf(VisualReasoningTrigger.FirstNoProgress),
-            noProgressCount = 1,
-            explorationPressureLevel = "medium",
-            historyItems = 2,
-            selfCheckPasses = 1,
-            candidateHypothesisLimit = 2,
-        )
-        val payload = buildVisualAgentPayload(
-            goal = "打开目标页面",
-            snapshot = snapshot,
-            recentActions = listOf(context.toPromptLine()),
-            visualHistory = listOf(history("one"), history("two"), history("three"), history("four")),
-            runtimeContext = runtime(snapshot),
-            taskMemory = memory(context),
+    fun localPolicyCannotEscalateCloudReasoning() {
+        val context = VisualReasoningPolicy.evaluate(
+            memory = VisualTaskMemory(originalGoal = "打开目标页面"),
+            recentActions = listOf(
+                "tap_xy|目标:retry:result=失败",
+                "tap_xy|目标:retry:result=失败",
+            ),
         )
 
-        assertFalse(payload.getBoolean("localVisualRetryRequested"))
-        assertFalse(payload.getBoolean("guiPlusReplanRequested"))
-        assertFalse(payload.getBoolean("routeRefreshRequested"))
-        assertEquals(2, payload.getJSONArray("visualHistory").length())
-        assertEquals(
-            "normal",
-            payload.getJSONObject("agentMemory")
-                .getJSONObject("taskMemory")
-                .getString("reasoningDepth"),
-        )
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertTrue(context.triggers.isEmpty())
+        assertFalse(context.deepThinkingRequested)
+        assertEquals(null, VisualReasoningPolicy.deepReplanLine(context))
     }
 
     private fun memory(context: VisualReasoningContext): VisualTaskMemory = VisualTaskMemory(
         originalGoal = "打开目标页面",
         currentMilestoneId = "m1",
-        remainingExplorationBudget = 2,
         progressStatus = "surface_verified",
         legacyMode = false,
         taskContract = VisualTaskContract(
