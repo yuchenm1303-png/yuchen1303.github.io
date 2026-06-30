@@ -13,19 +13,31 @@ import discussion_post_server  # noqa: F401  注册帖子正文按需路由
 import hot_rank_server  # noqa: F401  注册实时热点榜路由
 import index_detail_server  # noqa: F401  注册指数详情路由
 import market_home_server
-import market_stage_server  # noqa: F401  注册市场首页分阶段刷新路由
 import market_kline_server  # noqa: F401  注册扩展历史K线路由
 import sector_detail_server  # noqa: F401  注册板块详情与成分股路由
+
+
+MARKET_STAGE_IMPORT_ERROR = ""
+try:
+    import market_stage_server  # type: ignore  # noqa: F401
+except Exception as exc:  # 生产入口必须优先保证核心行情服务可启动
+    market_stage_server = None  # type: ignore[assignment]
+    MARKET_STAGE_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
 
 
 app = stock_server.app
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.production")
 _PROCESS_STARTED_AT = monotonic()
 _PROCESS_STARTED_ISO = datetime.now(timezone.utc).isoformat()
-_SERVICE_VERSION = "0.9.3-staged-market-home"
+_SERVICE_VERSION = "0.9.4-resilient-staged-market-home"
 _HOT_TICK_INTERVAL_SECONDS = 0.9
 _HOT_TICK_MIN_AGE_SECONDS = 0.72
 _HOT_SYMBOL_TTL_SECONDS = 30.0
+_STAGE_PATHS = (
+    "/api/stock/a-share/market/indices",
+    "/api/stock/a-share/market/breadth",
+    "/api/stock/a-share/market/discovery",
+)
 _hot_tick_task: asyncio.Task[None] | None = None
 _hot_tick_semaphore = asyncio.Semaphore(4)
 
@@ -39,6 +51,39 @@ def _remove_get_routes(paths: set[str]) -> None:
             and "GET" in (getattr(route, "methods", None) or set())
         )
     ]
+
+
+def _fallback_market_stage(stage: str) -> dict[str, Any]:
+    payload = market_home_server._load_market_home_cached()
+    fallback = dict(payload)
+    fallback["stage"] = stage
+    fallback["stageVersion"] = "fallback-market-home"
+    fallback["warnings"] = list(fallback.get("warnings") or []) + [
+        "market_stage: degraded_to_market_home",
+        f"market_stage_import_error: {MARKET_STAGE_IMPORT_ERROR}",
+    ]
+    return fallback
+
+
+if market_stage_server is None:
+    _remove_get_routes(set(_STAGE_PATHS))
+
+    @app.get(_STAGE_PATHS[0])
+    def fallback_market_indices() -> dict[str, Any]:
+        return _fallback_market_stage("indices")
+
+    @app.get(_STAGE_PATHS[1])
+    def fallback_market_breadth() -> dict[str, Any]:
+        return _fallback_market_stage("breadth")
+
+    @app.get(_STAGE_PATHS[2])
+    def fallback_market_discovery() -> dict[str, Any]:
+        return _fallback_market_stage("discovery")
+
+    LOGGER.error(
+        "market stage module unavailable; core stock service started with fallback routes: %s",
+        MARKET_STAGE_IMPORT_ERROR,
+    )
 
 
 def _safe_runtime_diagnostics() -> dict[str, Any]:
@@ -146,6 +191,7 @@ _remove_get_routes({"/health"})
 @app.get("/health")
 def health() -> dict[str, Any]:
     commit = os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "unknown"
+    stage_available = market_stage_server is not None
     return {
         "ok": True,
         "status": "ok",
@@ -158,12 +204,15 @@ def health() -> dict[str, Any]:
         "cacheSize": len(stock_server.legacy._cache),
         "marketHome": market_home_server.market_home_diagnostics(),
         "marketStages": {
-            "version": market_stage_server.STAGE_VERSION,
-            "paths": [
-                market_stage_server.INDICES_PATH,
-                market_stage_server.BREADTH_PATH,
-                market_stage_server.DISCOVERY_PATH,
-            ],
+            "available": stage_available,
+            "degraded": not stage_available,
+            "version": (
+                getattr(market_stage_server, "STAGE_VERSION", "fallback-market-home")
+                if stage_available
+                else "fallback-market-home"
+            ),
+            "paths": list(_STAGE_PATHS),
+            "importError": MARKET_STAGE_IMPORT_ERROR,
         },
         "realtime": {
             **_safe_runtime_diagnostics(),
