@@ -2,555 +2,87 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Ledger · AgentBrain 浏览器测试台</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Ledger · AgentBrain 测试台</title>
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #070b18;
-      --panel: rgba(20, 27, 52, .88);
-      --panel-2: rgba(13, 18, 38, .82);
-      --line: rgba(154, 177, 255, .22);
-      --text: #eef3ff;
-      --muted: #99a7c7;
-      --accent: #84b7ff;
-      --accent-2: #c29aff;
-      --good: #63e6a6;
-      --warn: #ffd479;
-      --bad: #ff8c9b;
-      --shadow: 0 24px 80px rgba(0, 0, 0, .36);
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-      background:
-        radial-gradient(circle at 12% 4%, rgba(77, 143, 255, .20), transparent 34%),
-        radial-gradient(circle at 88% 16%, rgba(174, 96, 255, .16), transparent 30%),
-        linear-gradient(160deg, #050816, #090d1e 52%, #080b17);
-      color: var(--text);
-    }
-    .shell { width: min(1400px, calc(100% - 32px)); margin: 28px auto 52px; }
-    header {
-      display: flex; align-items: flex-end; justify-content: space-between; gap: 24px;
-      margin-bottom: 20px;
-    }
-    h1 { margin: 0; font-size: clamp(28px, 4vw, 46px); letter-spacing: -.03em; }
-    .subtitle { margin: 8px 0 0; color: var(--muted); max-width: 780px; line-height: 1.65; }
-    .badge {
-      padding: 9px 13px; border: 1px solid var(--line); border-radius: 999px;
-      color: #cdd9ff; background: rgba(67, 94, 166, .15); white-space: nowrap;
-    }
-    .grid { display: grid; grid-template-columns: minmax(350px, .88fr) minmax(470px, 1.35fr); gap: 18px; }
-    .card {
-      border: 1px solid var(--line); border-radius: 22px; background: var(--panel);
-      box-shadow: var(--shadow); backdrop-filter: blur(18px); overflow: hidden;
-    }
-    .card-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
-    .card-head h2 { margin: 0; font-size: 17px; }
-    .card-head p { margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
-    .card-body { padding: 18px 20px 21px; }
-    label { display: block; color: #c8d3ed; font-size: 13px; margin: 0 0 7px; }
-    input, textarea, select {
-      width: 100%; border: 1px solid rgba(154,177,255,.24); border-radius: 12px;
-      background: rgba(4, 8, 22, .62); color: var(--text); padding: 11px 12px;
-      outline: none; font: inherit; transition: .16s border-color, .16s box-shadow;
-    }
-    input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(132,183,255,.10); }
-    textarea { resize: vertical; min-height: 104px; line-height: 1.55; }
-    .field { margin-bottom: 14px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .hint { color: var(--muted); font-size: 12px; line-height: 1.55; margin-top: 6px; }
-    .toolbar { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 18px; }
-    button {
-      border: 1px solid rgba(154,177,255,.26); border-radius: 12px; color: var(--text);
-      background: rgba(67, 91, 156, .22); padding: 10px 14px; cursor: pointer; font-weight: 650;
-    }
-    button.primary { background: linear-gradient(135deg, #568df5, #8d69e9); border-color: transparent; }
-    button.danger { color: #ffd8de; background: rgba(176, 55, 76, .20); }
-    button:disabled { opacity: .45; cursor: not-allowed; }
-    .status-strip {
-      display: grid; grid-template-columns: repeat(5, 1fr); gap: 9px; margin-bottom: 16px;
-    }
-    .metric { border: 1px solid var(--line); background: var(--panel-2); border-radius: 14px; padding: 12px; min-height: 78px; }
-    .metric span { display: block; color: var(--muted); font-size: 11px; }
-    .metric strong { display: block; margin-top: 8px; font-size: 20px; }
-    .metric small { display: block; color: var(--muted); margin-top: 4px; }
-    .state { display: inline-flex; align-items: center; gap: 7px; font-weight: 700; }
-    .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--muted); box-shadow: 0 0 12px currentColor; }
-    .ok { color: var(--good); } .ok .dot { background: var(--good); }
-    .warn { color: var(--warn); } .warn .dot { background: var(--warn); }
-    .bad { color: var(--bad); } .bad .dot { background: var(--bad); }
-    .idle { color: #b8c4df; }
-    .tabs { display: flex; gap: 7px; margin-bottom: 12px; }
-    .tabs button { padding: 8px 11px; font-size: 12px; }
-    .tabs button.active { border-color: var(--accent); background: rgba(80,130,226,.22); }
-    pre {
-      margin: 0; min-height: 280px; max-height: 520px; overflow: auto; white-space: pre-wrap; word-break: break-word;
-      border: 1px solid var(--line); border-radius: 14px; background: #050814; padding: 14px;
-      color: #d9e4ff; font: 12px/1.62 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    }
-    .checks { display: grid; gap: 8px; margin-bottom: 13px; }
-    .check { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 11px; background: rgba(4,8,22,.45); font-size: 13px; }
-    .check code { color: #c5d7ff; }
-    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 14px; }
-    table { width: 100%; border-collapse: collapse; min-width: 820px; font-size: 12px; }
-    th, td { padding: 10px 11px; border-bottom: 1px solid rgba(154,177,255,.12); text-align: left; }
-    th { color: #b9c7e8; background: rgba(16,22,45,.95); position: sticky; top: 0; }
-    td { color: #d9e3f8; }
-    .footer-note { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.65; }
-    .full { grid-column: 1 / -1; }
-    .secret-row { display: flex; gap: 8px; }
-    .secret-row input { flex: 1; }
-    @media (max-width: 960px) {
-      .grid { grid-template-columns: 1fr; }
-      .status-strip { grid-template-columns: repeat(2, 1fr); }
-      header { align-items: flex-start; flex-direction: column; }
-    }
+    :root{color-scheme:dark;--bg:#080b18;--panel:#11172b;--line:#2b365d;--text:#eef3ff;--muted:#9daac8;--good:#65e6a7;--bad:#ff8e9c;--warn:#ffd178;--accent:#78a9ff}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0,#19346a55,transparent 34%),linear-gradient(155deg,#060916,#0a0e1f);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif;min-height:100vh}
+    main{width:min(1180px,calc(100% - 28px));margin:28px auto 48px}h1{margin:0;font-size:clamp(28px,4vw,44px)}p{color:var(--muted);line-height:1.6}.grid{display:grid;grid-template-columns:minmax(330px,.85fr) minmax(440px,1.2fr);gap:16px}.card{background:#11172be8;border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 20px 70px #0006}.head{padding:17px 19px;border-bottom:1px solid var(--line)}.head h2{margin:0;font-size:17px}.body{padding:18px}.field{margin-bottom:13px}label{display:block;color:#c9d4ed;font-size:13px;margin-bottom:6px}input,textarea{width:100%;border:1px solid var(--line);border-radius:11px;background:#070b18;color:var(--text);padding:10px 11px;font:inherit;outline:none}textarea{min-height:96px;resize:vertical;line-height:1.5}input:focus,textarea:focus{border-color:var(--accent)}.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}button{border:1px solid var(--line);border-radius:11px;background:#21305a;color:var(--text);padding:9px 13px;font-weight:650;cursor:pointer}button.primary{background:linear-gradient(135deg,#4f87ef,#8d68e7);border:0}button.danger{background:#5a2330}button:disabled{opacity:.45;cursor:not-allowed}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:13px}.metric{border:1px solid var(--line);border-radius:12px;background:#090e20;padding:10px}.metric span{display:block;color:var(--muted);font-size:11px}.metric strong{display:block;margin-top:6px;font-size:18px}.ok{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}pre{margin:0;border:1px solid var(--line);border-radius:12px;background:#050813;padding:13px;min-height:330px;max-height:560px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:12px/1.58 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.checks{display:grid;gap:7px;margin-bottom:12px}.check{display:flex;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:#090e20;font-size:13px}.full{grid-column:1/-1}.table{overflow:auto;border:1px solid var(--line);border-radius:12px}table{width:100%;border-collapse:collapse;min-width:850px;font-size:12px}th,td{padding:9px 10px;border-bottom:1px solid #273252;text-align:left}th{background:#10172d;color:#bcc9e7}.note{font-size:12px;color:var(--muted);margin-top:10px}.secret{display:flex;gap:7px}.secret input{flex:1}@media(max-width:900px){.grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}
   </style>
 </head>
 <body>
-  <div class="shell">
-    <header>
-      <div>
-        <h1>AgentBrain 浏览器测试台</h1>
-        <p class="subtitle">直接测试“后端 → DeepSeek 初始文本规划”链路，不启动 Android、无障碍、截图或 GUI Plus。页面会测量响应头、首个正文分片和完整响应耗时。</p>
+<main>
+  <h1>AgentBrain 浏览器测试台</h1>
+  <p>只测试“后端 → DeepSeek 初始文本规划”。不启动 Android、无障碍、截图或 GUI Plus。协议：text-bootstrap-gui-loop-v2。</p>
+  <div class="grid">
+    <section class="card">
+      <div class="head"><h2>请求配置</h2></div>
+      <div class="body">
+        <div class="field"><label>后端完整地址</label><input id="endpoint" placeholder="https://your-backend.example.com" /></div>
+        <div class="field"><label>X-AI-Ledger-Token</label><div class="secret"><input id="token" type="password" autocomplete="off" /><button id="showToken">显示</button></div></div>
+        <div class="field"><label>用户任务</label><textarea id="goal">打开同花顺；进入底部“行情”页面，搜索“600519”并进入贵州茅台详情页，切换到日K再切回分时，最后返回行情首页并结束任务。</textarea></div>
+        <div class="field"><label>App 目录（每行：名称|packageName）</label><textarea id="apps">同花顺|com.hexin.plat.android
+微信|com.tencent.mm</textarea></div>
+        <div class="row">
+          <div class="field"><label>单次超时（毫秒）</label><input id="timeout" type="number" value="26000" min="1000" max="60000" step="500" /></div>
+          <div class="field"><label>连续次数</label><input id="repeat" type="number" value="1" min="1" max="30" /></div>
+        </div>
+        <div class="buttons"><button class="primary" id="run">开始测试</button><button class="danger" id="stop" disabled>停止</button><button id="curl">复制 cURL</button><button id="export" disabled>导出报告</button><button id="clear">清空</button></div>
+        <div class="note">网页只发送后端既有 CORS 白名单中的请求头。会话协议放在 JSON 正文里，不发送额外的 X-Agent-Session-* 请求头。</div>
       </div>
-      <div class="badge">协议：text-bootstrap-gui-loop-v1</div>
-    </header>
+    </section>
 
-    <main class="grid">
-      <section class="card">
-        <div class="card-head"><h2>请求配置</h2><p>Token 只保存在当前页面内存，不写入 localStorage。</p></div>
-        <div class="card-body">
-          <div class="field">
-            <label for="endpoint">后端完整地址</label>
-            <input id="endpoint" type="url" placeholder="https://your-worker.example.com" autocomplete="off" />
-            <div class="hint">填写 Android 当前使用的同一个 endpoint。若页面与后端不同源，后端必须允许 CORS 和 OPTIONS。</div>
-          </div>
-          <div class="field">
-            <label for="token">X-AI-Ledger-Token</label>
-            <div class="secret-row">
-              <input id="token" type="password" placeholder="App Token（可选，取决于后端认证）" autocomplete="off" />
-              <button id="toggleToken" type="button">显示</button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="goal">用户任务</label>
-            <textarea id="goal">打开同花顺；如果应用已经在前台，不要重复打开。进入底部“行情”页面，搜索“600519”并进入贵州茅台详情页，切换到日K再切回分时，最后返回行情首页并结束任务。</textarea>
-          </div>
-          <div class="field">
-            <label for="apps">App 目录（每行：名称|packageName）</label>
-            <textarea id="apps">同花顺|com.hexin.plat.android
-微信|com.tencent.mm</textarea>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label for="timeout">单次超时（毫秒）</label>
-              <input id="timeout" type="number" min="1000" max="60000" step="500" value="15000" />
-            </div>
-            <div class="field">
-              <label for="repeat">连续次数</label>
-              <input id="repeat" type="number" min="1" max="30" value="1" />
-            </div>
-          </div>
-          <div class="row">
-            <div class="field">
-              <label for="interval">轮次间隔（毫秒）</label>
-              <input id="interval" type="number" min="0" max="10000" step="100" value="500" />
-            </div>
-            <div class="field">
-              <label for="deviceId">测试 Device ID</label>
-              <input id="deviceId" value="browser-agent-brain-test" />
-            </div>
-          </div>
-          <div class="toolbar">
-            <button class="primary" id="run">开始测试</button>
-            <button class="danger" id="stop" disabled>停止</button>
-            <button id="copyCurl">复制 cURL</button>
-            <button id="exportReport" disabled>导出报告</button>
-            <button id="clear">清空结果</button>
-          </div>
-          <div class="footer-note">浏览器报 <b>Failed to fetch</b> 通常表示 CORS、证书或 DNS 问题，不等于 DeepSeek 超时。此时使用“复制 cURL”在终端运行可绕过浏览器 CORS。</div>
+    <section class="card">
+      <div class="head"><h2>当前结果</h2><p id="summary">尚未测试。</p></div>
+      <div class="body">
+        <div class="metrics">
+          <div class="metric"><span>状态</span><strong id="state">待机</strong></div>
+          <div class="metric"><span>响应头</span><strong id="headersMs">—</strong></div>
+          <div class="metric"><span>完整响应</span><strong id="totalMs">—</strong></div>
+          <div class="metric"><span>HTTP</span><strong id="http">—</strong></div>
         </div>
-      </section>
+        <div id="checks" class="checks"></div>
+        <pre id="output">等待请求…</pre>
+      </div>
+    </section>
 
-      <section class="card">
-        <div class="card-head"><h2>当前结果</h2><p id="currentSummary">尚未开始测试。</p></div>
-        <div class="card-body">
-          <div class="status-strip">
-            <div class="metric"><span>状态</span><strong id="status"><span class="state idle"><i class="dot"></i>待机</span></strong></div>
-            <div class="metric"><span>响应头</span><strong id="headersMs">—</strong><small>fetch 返回 Response</small></div>
-            <div class="metric"><span>首个正文分片</span><strong id="firstByteMs">—</strong><small>近似 TTFB</small></div>
-            <div class="metric"><span>完整响应</span><strong id="totalMs">—</strong><small>正文读取结束</small></div>
-            <div class="metric"><span>HTTP</span><strong id="httpStatus">—</strong><small id="workerVersion">Worker —</small></div>
-          </div>
-          <div class="checks" id="checks"></div>
-          <div class="tabs">
-            <button class="active" data-tab="parsed">解析结果</button>
-            <button data-tab="raw">原始响应</button>
-            <button data-tab="request">实际请求</button>
-            <button data-tab="headers">响应头</button>
-          </div>
-          <pre id="viewer">等待请求…</pre>
+    <section class="card full">
+      <div class="head"><h2>连续测试统计</h2></div>
+      <div class="body">
+        <div class="metrics">
+          <div class="metric"><span>成功率</span><strong id="successRate">—</strong></div>
+          <div class="metric"><span>中位数</span><strong id="median">—</strong></div>
+          <div class="metric"><span>P95</span><strong id="p95">—</strong></div>
+          <div class="metric"><span>有效账本</span><strong id="contractRate">—</strong></div>
         </div>
-      </section>
-
-      <section class="card full">
-        <div class="card-head"><h2>连续测试统计</h2><p>推荐连续运行 10 次，观察成功率、中位数和 P95。</p></div>
-        <div class="card-body">
-          <div class="status-strip">
-            <div class="metric"><span>成功率</span><strong id="successRate">—</strong></div>
-            <div class="metric"><span>中位数</span><strong id="median">—</strong></div>
-            <div class="metric"><span>P95</span><strong id="p95">—</strong></div>
-            <div class="metric"><span>最小 / 最大</span><strong id="range">—</strong></div>
-            <div class="metric"><span>有效账本</span><strong id="contractRate">—</strong></div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>#</th><th>状态</th><th>HTTP</th><th>响应头</th><th>首字节</th><th>总耗时</th><th>open_app</th><th>TaskContract</th><th>Worker</th><th>错误</th></tr></thead>
-              <tbody id="rows"><tr><td colspan="10" style="color:var(--muted)">暂无测试数据</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-    </main>
+        <div class="table"><table><thead><tr><th>#</th><th>状态</th><th>HTTP</th><th>响应头</th><th>总耗时</th><th>Provider</th><th>调用次数</th><th>内部重试</th><th>open_app</th><th>TaskContract</th><th>错误</th></tr></thead><tbody id="rows"><tr><td colspan="11">暂无数据</td></tr></tbody></table></div>
+      </div>
+    </section>
   </div>
-
+</main>
 <script>
 (() => {
-  'use strict';
-  const $ = (id) => document.getElementById(id);
-  const els = {
-    endpoint: $('endpoint'), token: $('token'), goal: $('goal'), apps: $('apps'), timeout: $('timeout'),
-    repeat: $('repeat'), interval: $('interval'), deviceId: $('deviceId'), run: $('run'), stop: $('stop'),
-    copyCurl: $('copyCurl'), exportReport: $('exportReport'), clear: $('clear'), toggleToken: $('toggleToken'),
-    status: $('status'), headersMs: $('headersMs'), firstByteMs: $('firstByteMs'), totalMs: $('totalMs'),
-    httpStatus: $('httpStatus'), workerVersion: $('workerVersion'), currentSummary: $('currentSummary'),
-    checks: $('checks'), viewer: $('viewer'), rows: $('rows'), successRate: $('successRate'), median: $('median'),
-    p95: $('p95'), range: $('range'), contractRate: $('contractRate')
-  };
-
-  let running = false;
-  let controller = null;
-  let results = [];
-  let currentViews = { parsed: null, raw: '', request: null, headers: {} };
-  let currentTab = 'parsed';
-
-  if (location.protocol.startsWith('http')) els.endpoint.value = location.origin;
-
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-  const nowIso = () => new Date().toISOString();
-  const ms = value => Number.isFinite(value) ? `${Math.round(value)} ms` : '—';
-  const escapeHtml = value => String(value ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-
-  function parseApps() {
-    return els.apps.value.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
-      const split = line.indexOf('|');
-      if (split < 1) throw new Error(`App 行格式错误：${line}`);
-      const label = line.slice(0, split).trim();
-      const packageName = line.slice(split + 1).trim();
-      if (!label || !packageName) throw new Error(`App 行缺少名称或包名：${line}`);
-      return { label, packageName };
-    });
-  }
-
-  async function sha256(text) {
-    const data = new TextEncoder().encode(text);
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hash)).map(v => v.toString(16).padStart(2, '0')).join('').slice(0, 24);
-  }
-
-  async function buildPayload() {
-    const apps = parseApps();
-    const canonical = [...apps].sort((a,b) => a.packageName.localeCompare(b.packageName))
-      .map(app => `${app.packageName}|${app.label}`).join('\n');
-    const appInventoryHash = await sha256(canonical);
-    const sessionId = `browser-test-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
-    return {
-      intent: 'agent_brain_route',
-      goal: els.goal.value.trim(),
-      agentSessionId: sessionId,
-      deviceId: els.deviceId.value.trim() || 'browser-agent-brain-test',
-      agentSessionProtocol: 'android_visual_agent_v16_text_bootstrap_gui_loop',
-      appInventoryHash,
-      appContext: apps,
-      deviceContext: {
-        schema: 'android_agent_brain_text_bootstrap_v1',
-        appInventoryHash
-      },
-      client: 'browser-agent-brain-test',
-      clientVersion: 'agent-brain-browser-test-v1'
-    };
-  }
-
-  function normalizeEndpoint() {
-    const value = els.endpoint.value.trim();
-    if (!value) throw new Error('请填写后端地址');
-    return value.replace(/\/$/, '');
-  }
-
-  function findObject(root, keys) {
-    const candidates = [root, root?.data, root?.result, root?.payload, root?.response].filter(v => v && typeof v === 'object');
-    for (const candidate of candidates) {
-      for (const key of keys) {
-        if (candidate[key] && typeof candidate[key] === 'object') return candidate[key];
-      }
-    }
-    return null;
-  }
-
-  function parsePlan(data) {
-    if (!data || typeof data !== 'object') return { step: null, contract: null, parsed: null };
-    const step = findObject(data, ['agentStep', 'step', 'agentAction']) ||
-      (data.type || data.action ? data : null);
-    const contract = findObject(data, ['taskContract', 'visualTaskContract', 'agentTaskContract']) ||
-      data.agentMemory?.taskContract || data.data?.agentMemory?.taskContract || null;
-    const args = step?.args || step?.arguments || {};
-    const type = step?.type || step?.action || step?.tool || step?.name || '';
-    const packageName = step?.packageName || step?.package || args.packageName || args.package || '';
-    const milestones = Array.isArray(contract?.milestones) ? contract.milestones : Array.isArray(contract?.steps) ? contract.steps : [];
-    const currentMilestoneId = contract?.currentMilestoneId || contract?.milestoneId || '';
-    return {
-      step, contract,
-      parsed: {
-        actionType: type,
-        packageName,
-        currentMilestoneId,
-        milestoneCount: milestones.length,
-        milestoneIds: milestones.map(m => m?.id || m?.milestoneId || '').filter(Boolean),
-        originalGoal: contract?.originalGoal || contract?.goal || ''
-      }
-    };
-  }
-
-  function validateResponse(responseOk, parsed) {
-    const milestones = parsed.contract?.milestones || parsed.contract?.steps || [];
-    const ids = Array.isArray(milestones) ? milestones.map(m => m?.id || m?.milestoneId || '').filter(Boolean) : [];
-    const current = parsed.parsed?.currentMilestoneId || '';
-    return [
-      ['HTTP 2xx', responseOk],
-      ['返回单一 open_app', parsed.parsed?.actionType === 'open_app'],
-      ['packageName 非空', Boolean(parsed.parsed?.packageName)],
-      ['TaskContract 存在', Boolean(parsed.contract)],
-      ['至少两个 milestones', ids.length >= 2],
-      ['currentMilestoneId 有效', Boolean(current) && ids.includes(current)]
-    ];
-  }
-
-  async function readResponse(response, startedAt) {
-    const headersAt = performance.now();
-    const headersMs = headersAt - startedAt;
-    const headers = Object.fromEntries(response.headers.entries());
-    if (!response.body || !response.body.getReader) {
-      const raw = await response.text();
-      return { raw, headersMs, firstByteMs: headersMs, totalMs: performance.now() - startedAt, headers };
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let raw = '';
-    let firstByteMs = null;
-    while (true) {
-      const part = await reader.read();
-      if (part.done) break;
-      if (firstByteMs === null) firstByteMs = performance.now() - startedAt;
-      raw += decoder.decode(part.value, { stream: true });
-    }
-    raw += decoder.decode();
-    return { raw, headersMs, firstByteMs: firstByteMs ?? headersMs, totalMs: performance.now() - startedAt, headers };
-  }
-
-  function setStatus(kind, text) {
-    els.status.innerHTML = `<span class="state ${kind}"><i class="dot"></i>${escapeHtml(text)}</span>`;
-  }
-
-  function renderChecks(checks) {
-    els.checks.innerHTML = checks.map(([name, ok]) =>
-      `<div class="check"><span>${escapeHtml(name)}</span><strong class="${ok ? 'ok' : 'bad'}">${ok ? '通过' : '失败'}</strong></div>`
-    ).join('');
-  }
-
-  function formatViewer(value) {
-    if (typeof value === 'string') return value || '(空响应)';
-    return JSON.stringify(value, null, 2);
-  }
-
-  function renderViewer() {
-    els.viewer.textContent = formatViewer(currentViews[currentTab]);
-  }
-
-  function percentile(values, p) {
-    if (!values.length) return null;
-    const sorted = [...values].sort((a,b) => a-b);
-    const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((p / 100) * sorted.length) - 1));
-    return sorted[index];
-  }
-
-  function renderStats() {
-    if (!results.length) {
-      els.rows.innerHTML = '<tr><td colspan="10" style="color:var(--muted)">暂无测试数据</td></tr>';
-      ['successRate','median','p95','range','contractRate'].forEach(key => els[key].textContent = '—');
-      els.exportReport.disabled = true;
-      return;
-    }
-    const successful = results.filter(r => r.ok);
-    const totals = successful.map(r => r.totalMs).filter(Number.isFinite);
-    const validContracts = results.filter(r => r.contractValid).length;
-    els.successRate.textContent = `${successful.length}/${results.length} (${Math.round(successful.length/results.length*100)}%)`;
-    els.median.textContent = totals.length ? ms(percentile(totals, 50)) : '—';
-    els.p95.textContent = totals.length ? ms(percentile(totals, 95)) : '—';
-    els.range.textContent = totals.length ? `${ms(Math.min(...totals))} / ${ms(Math.max(...totals))}` : '—';
-    els.contractRate.textContent = `${validContracts}/${results.length}`;
-    els.rows.innerHTML = results.map(r => `<tr>
-      <td>${r.index}</td><td class="${r.ok ? 'ok' : 'bad'}">${r.ok ? '成功' : '失败'}</td>
-      <td>${escapeHtml(r.httpStatus ?? '—')}</td><td>${ms(r.headersMs)}</td><td>${ms(r.firstByteMs)}</td><td>${ms(r.totalMs)}</td>
-      <td class="${r.openApp ? 'ok' : 'bad'}">${r.openApp ? '是' : '否'}</td>
-      <td class="${r.contractValid ? 'ok' : 'bad'}">${r.contractValid ? '有效' : '无效'}</td>
-      <td>${escapeHtml(r.workerVersion || '—')}</td><td title="${escapeHtml(r.error || '')}">${escapeHtml((r.error || '').slice(0,90) || '—')}</td>
-    </tr>`).join('');
-    els.exportReport.disabled = false;
-  }
-
-  async function runOne(index) {
-    const endpoint = normalizeEndpoint();
-    const payload = await buildPayload();
-    const headers = {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Accept': 'application/json',
-      'X-Client': 'browser-agent-brain-test-v1',
-      'X-Client-Id': payload.deviceId,
-      'X-Device-Id': payload.deviceId,
-      'X-Agent-Session-Protocol': payload.agentSessionProtocol,
-      'X-Agent-Session-Id': payload.agentSessionId
-    };
-    const token = els.token.value.trim();
-    if (token) headers['X-AI-Ledger-Token'] = token;
-
-    currentViews.request = { endpoint, headers: {...headers, ...(token ? {'X-AI-Ledger-Token':'[已隐藏]'} : {})}, payload };
-    setStatus('warn', `第 ${index} 次请求中`);
-    els.currentSummary.textContent = '正在等待后端与 DeepSeek 返回完整初始规划…';
-    renderViewer();
-
-    controller = new AbortController();
-    const timeoutMs = Math.max(1000, Number(els.timeout.value) || 15000);
-    const timer = setTimeout(() => controller.abort(new DOMException(`浏览器测试超时 ${timeoutMs}ms`, 'AbortError')), timeoutMs);
-    const startedAt = performance.now();
-    let response = null;
-    try {
-      response = await fetch(endpoint, {
-        method: 'POST', headers, body: JSON.stringify(payload), mode: 'cors', credentials: 'omit', signal: controller.signal
-      });
-      const read = await readResponse(response, startedAt);
-      clearTimeout(timer);
-      let data = null;
-      let jsonError = '';
-      try { data = read.raw ? JSON.parse(read.raw) : null; } catch (e) { jsonError = e.message; }
-      const parsed = parsePlan(data);
-      const checks = validateResponse(response.ok, parsed);
-      const allChecks = checks.every(([,ok]) => ok);
-      const workerVersion = read.headers['x-ai-ledger-worker-version'] || data?.version || data?.workerVersion || '';
-      const routeProtocol = read.headers['x-ai-ledger-route-protocol'] || '';
-      const errorMessage = response.ok ? (jsonError ? `JSON 解析失败：${jsonError}` : (!allChecks ? '协议结构校验未全部通过' : '')) :
-        (data?.error || data?.message || read.raw.slice(0,240) || `HTTP ${response.status}`);
-      const result = {
-        index, at: nowIso(), ok: response.ok && allChecks, responseOk: response.ok, httpStatus: response.status,
-        headersMs: read.headersMs, firstByteMs: read.firstByteMs, totalMs: read.totalMs,
-        openApp: parsed.parsed?.actionType === 'open_app', contractValid: Boolean(parsed.contract) && checks.slice(3).every(([,ok]) => ok),
-        workerVersion, routeProtocol, checks, error: errorMessage, request: payload, responseHeaders: read.headers,
-        rawResponse: read.raw, parsed: parsed.parsed, taskContract: parsed.contract, agentStep: parsed.step
-      };
-      currentViews = { parsed: { summary: result.parsed, agentStep: result.agentStep, taskContract: result.taskContract, checks: Object.fromEntries(checks) }, raw: read.raw, request: currentViews.request, headers: read.headers };
-      els.headersMs.textContent = ms(read.headersMs); els.firstByteMs.textContent = ms(read.firstByteMs); els.totalMs.textContent = ms(read.totalMs);
-      els.httpStatus.textContent = String(response.status); els.workerVersion.textContent = `Worker ${workerVersion || '未知'}`;
-      renderChecks(checks); renderViewer();
-      setStatus(result.ok ? 'ok' : 'bad', result.ok ? '成功' : '协议失败');
-      els.currentSummary.textContent = result.ok ? `DeepSeek 初始规划成功，用时 ${Math.round(read.totalMs)}ms。` : `请求完成，但协议或 HTTP 校验失败：${errorMessage || '见下方结果'}`;
-      return result;
-    } catch (error) {
-      clearTimeout(timer);
-      const totalMs = performance.now() - startedAt;
-      const isAbort = error?.name === 'AbortError';
-      const likelyCors = !isAbort && error instanceof TypeError && /fetch/i.test(error.message || '');
-      const errorMessage = isAbort ? `浏览器在 ${Math.round(totalMs)}ms 后中止请求` : likelyCors ? 'Failed to fetch：可能是 CORS、DNS、证书或网络错误，并非已确认的 DeepSeek 超时' : (error?.message || String(error));
-      const result = { index, at: nowIso(), ok: false, httpStatus: response?.status ?? null, headersMs: null, firstByteMs: null, totalMs, openApp: false, contractValid: false, workerVersion: '', routeProtocol: '', checks: [], error: errorMessage, request: payload };
-      currentViews = { parsed: { error: errorMessage, diagnosis: likelyCors ? '浏览器跨域/网络层失败。请复制 cURL 在终端测试。' : '请求超时或网络失败。' }, raw: '', request: currentViews.request, headers: {} };
-      els.headersMs.textContent = '—'; els.firstByteMs.textContent = '—'; els.totalMs.textContent = ms(totalMs); els.httpStatus.textContent = response?.status ?? '—'; els.workerVersion.textContent = 'Worker —';
-      renderChecks([]); renderViewer(); setStatus('bad', isAbort ? '超时' : likelyCors ? '浏览器网络/CORS' : '失败');
-      els.currentSummary.textContent = errorMessage;
-      return result;
-    } finally {
-      controller = null;
-    }
-  }
-
-  async function runBatch() {
-    if (running) return;
-    running = true; els.run.disabled = true; els.stop.disabled = false;
-    const count = Math.min(30, Math.max(1, Number(els.repeat.value) || 1));
-    const interval = Math.max(0, Number(els.interval.value) || 0);
-    try {
-      for (let i = 1; i <= count && running; i++) {
-        const result = await runOne(results.length + 1);
-        results.push(result); renderStats();
-        if (i < count && running && interval) await sleep(interval);
-      }
-    } catch (error) {
-      setStatus('bad', '配置错误'); els.currentSummary.textContent = error.message || String(error);
-    } finally {
-      running = false; els.run.disabled = false; els.stop.disabled = true;
-    }
-  }
-
-  async function copyCurl() {
-    try {
-      const endpoint = normalizeEndpoint();
-      const payload = await buildPayload();
-      const token = els.token.value.trim();
-      const headers = [
-        `-H 'Content-Type: application/json; charset=utf-8'`,
-        `-H 'Accept: application/json'`,
-        `-H 'X-Client: browser-agent-brain-test-v1'`,
-        `-H 'X-Client-Id: ${payload.deviceId.replace(/'/g, "'\\''")}'`,
-        `-H 'X-Device-Id: ${payload.deviceId.replace(/'/g, "'\\''")}'`,
-        `-H 'X-Agent-Session-Protocol: ${payload.agentSessionProtocol}'`,
-        `-H 'X-Agent-Session-Id: ${payload.agentSessionId}'`
-      ];
-      if (token) headers.push(`-H 'X-AI-Ledger-Token: ${token.replace(/'/g, "'\\''")}'`);
-      const json = JSON.stringify(payload).replace(/'/g, "'\\''");
-      const command = `curl -i --max-time ${Math.ceil((Number(els.timeout.value)||15000)/1000)} \\\n  -X POST '${endpoint.replace(/'/g, "'\\''")}' \\\n  ${headers.join(' \\\n  ')} \\\n  --data-raw '${json}'`;
-      await navigator.clipboard.writeText(command);
-      els.currentSummary.textContent = 'cURL 已复制。终端运行可绕过浏览器 CORS。';
-    } catch (error) { els.currentSummary.textContent = `复制失败：${error.message || error}`; }
-  }
-
-  function exportReport() {
-    const report = {
-      schema: 'ai_ledger_agent_brain_browser_test_report_v1', exportedAt: nowIso(),
-      endpoint: els.endpoint.value.trim(), goal: els.goal.value.trim(), timeoutMs: Number(els.timeout.value),
-      summary: {
-        total: results.length, success: results.filter(r=>r.ok).length,
-        medianMs: percentile(results.filter(r=>r.ok).map(r=>r.totalMs), 50),
-        p95Ms: percentile(results.filter(r=>r.ok).map(r=>r.totalMs), 95)
-      },
-      results: results.map(r => ({...r, request: {...r.request, token: undefined}}))
-    };
-    const blob = new Blob([JSON.stringify(report, null, 2)], {type:'application/json'});
-    const url = URL.createObjectURL(blob); const a = document.createElement('a');
-    a.href = url; a.download = `agent-brain-browser-test-${Date.now()}.json`; a.click(); URL.revokeObjectURL(url);
-  }
-
-  document.querySelectorAll('[data-tab]').forEach(btn => btn.addEventListener('click', () => {
-    document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b === btn));
-    currentTab = btn.dataset.tab; renderViewer();
-  }));
-  els.run.addEventListener('click', runBatch);
-  els.stop.addEventListener('click', () => { running = false; controller?.abort(); });
-  els.copyCurl.addEventListener('click', copyCurl);
-  els.exportReport.addEventListener('click', exportReport);
-  els.clear.addEventListener('click', () => { results = []; currentViews = {parsed:null,raw:'',request:null,headers:{}}; renderStats(); renderViewer(); setStatus('idle','待机'); els.currentSummary.textContent='已清空。'; });
-  els.toggleToken.addEventListener('click', () => { const show = els.token.type === 'password'; els.token.type = show ? 'text' : 'password'; els.toggleToken.textContent = show ? '隐藏' : '显示'; });
-  renderStats(); renderViewer();
+  const $ = id => document.getElementById(id);
+  const el = Object.fromEntries(['endpoint','token','goal','apps','timeout','repeat','run','stop','curl','export','clear','showToken','summary','state','headersMs','totalMs','http','checks','output','successRate','median','p95','contractRate','rows'].map(id => [id,$(id)]));
+  let running=false, controller=null, results=[];
+  if (location.protocol.startsWith('http')) el.endpoint.value=location.origin;
+  const fmt=v=>Number.isFinite(v)?`${Math.round(v)} ms`:'—';
+  const esc=v=>String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  function apps(){return el.apps.value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean).map(line=>{const i=line.indexOf('|');if(i<1)throw new Error(`App 行格式错误：${line}`);return{label:line.slice(0,i).trim(),packageName:line.slice(i+1).trim()};});}
+  async function hash(text){const bytes=new TextEncoder().encode(text);const data=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(data)].map(v=>v.toString(16).padStart(2,'0')).join('').slice(0,24);}
+  async function payload(){const list=apps();const canonical=[...list].sort((a,b)=>a.packageName.localeCompare(b.packageName)).map(v=>`${v.packageName}|${v.label}`).join('\n');const appInventoryHash=await hash(canonical);return{intent:'agent_brain_route',goal:el.goal.value.trim(),agentSessionId:`browser-${Date.now()}`,deviceId:'browser-agent-brain-test',agentSessionProtocol:'android_visual_agent_v16_text_bootstrap_gui_loop',appInventoryHash,appContext:list,deviceContext:{schema:'android_agent_brain_text_bootstrap_v1',appInventoryHash},client:'browser-agent-brain-test',clientVersion:'agent-brain-browser-test-v2'};}
+  function endpoint(){const v=el.endpoint.value.trim().replace(/\/$/,'');if(!v)throw new Error('请填写后端地址');return v;}
+  function parse(data){const roots=[data,data?.data,data?.result].filter(Boolean);let step=null,contract=null;for(const r of roots){step=step||r.agentStep||r.step;contract=contract||r.taskContract||r.agentBrainRoute?.taskContract||r.routePlan?.taskContract;}const args=step?.args||step?.arguments||{};const type=step?.type||step?.action||'';const pkg=step?.packageName||args.packageName||'';const milestones=Array.isArray(contract?.milestones)?contract.milestones:[];return{step,contract,type,pkg,milestones};}
+  function checks(ok,p){return[['HTTP 2xx',ok],['返回 open_app',p.type==='open_app'],['packageName 非空',!!p.pkg],['TaskContract 存在',!!p.contract],['至少两个 milestones',p.milestones.length>=2],['最后包含 verify_completion',p.milestones.some(v=>(v.id||v.milestoneId)==='verify_completion')]];}
+  function showChecks(items){el.checks.innerHTML=items.map(([n,ok])=>`<div class="check"><span>${esc(n)}</span><b class="${ok?'ok':'bad'}">${ok?'通过':'失败'}</b></div>`).join('');}
+  function percentile(values,p){if(!values.length)return null;const s=[...values].sort((a,b)=>a-b);return s[Math.min(s.length-1,Math.ceil(p/100*s.length)-1)];}
+  function stats(){if(!results.length){el.rows.innerHTML='<tr><td colspan="11">暂无数据</td></tr>';['successRate','median','p95','contractRate'].forEach(k=>el[k].textContent='—');el.export.disabled=true;return;}const success=results.filter(v=>v.ok),times=success.map(v=>v.totalMs);el.successRate.textContent=`${success.length}/${results.length}`;el.median.textContent=fmt(percentile(times,50));el.p95.textContent=fmt(percentile(times,95));el.contractRate.textContent=`${results.filter(v=>v.contractValid).length}/${results.length}`;el.rows.innerHTML=results.map(v=>`<tr><td>${v.index}</td><td class="${v.ok?'ok':'bad'}">${v.ok?'成功':'失败'}</td><td>${v.status??'—'}</td><td>${fmt(v.headersMs)}</td><td>${fmt(v.totalMs)}</td><td>${fmt(v.providerElapsedMs)}</td><td>${v.providerRequestCount??'—'}</td><td>${v.internalRetryCount??'—'}</td><td>${v.openApp?'是':'否'}</td><td>${v.contractValid?'有效':'无效'}</td><td>${esc((v.error||'').slice(0,100)||'—')}</td></tr>`).join('');el.export.disabled=false;}
+  async function one(index){const body=await payload();const headers={'Content-Type':'application/json; charset=utf-8','Accept':'application/json','X-Client':'browser-agent-brain-test-v2','X-Client-Id':body.deviceId,'X-Device-Id':body.deviceId};if(el.token.value.trim())headers['X-AI-Ledger-Token']=el.token.value.trim();controller=new AbortController();const limit=Math.max(1000,Number(el.timeout.value)||26000);const timer=setTimeout(()=>controller.abort(),limit);const start=performance.now();el.state.textContent='请求中';el.state.className='warn';try{const response=await fetch(endpoint(),{method:'POST',headers,body:JSON.stringify(body),mode:'cors',credentials:'omit',signal:controller.signal});const headersMs=performance.now()-start;const raw=await response.text();const totalMs=performance.now()-start;let data=null;try{data=raw?JSON.parse(raw):null;}catch{}const p=parse(data);const list=checks(response.ok,p);const valid=list.every(v=>v[1]);const result={index,at:new Date().toISOString(),ok:response.ok&&valid,status:response.status,headersMs,totalMs,providerElapsedMs:Number.isFinite(Number(data?.providerElapsedMs))?Number(data.providerElapsedMs):null,providerRequestCount:Number.isFinite(Number(data?.providerRequestCount))?Number(data.providerRequestCount):null,internalRetryCount:Number.isFinite(Number(data?.internalRetryCount))?Number(data.internalRetryCount):null,promptChars:Number.isFinite(Number(data?.promptChars))?Number(data.promptChars):null,openApp:p.type==='open_app',contractValid:!!p.contract&&list.slice(3).every(v=>v[1]),error:response.ok?(valid?'':'协议校验失败'):(data?.error||data?.message||raw.slice(0,240)),request:body,response:data,raw};el.headersMs.textContent=fmt(headersMs);el.totalMs.textContent=fmt(totalMs);el.http.textContent=String(response.status);el.state.textContent=result.ok?'成功':'失败';el.state.className=result.ok?'ok':'bad';el.summary.textContent=result.ok?`规划成功：总耗时 ${Math.round(totalMs)}ms，Provider ${fmt(result.providerElapsedMs)}，调用 ${result.providerRequestCount??'—'} 次，内部重试 ${result.internalRetryCount??'—'} 次。`:`请求完成但失败：${result.error||'见响应'}`;showChecks(list);el.output.textContent=JSON.stringify({timing:{browserHeadersMs:Math.round(headersMs),browserTotalMs:Math.round(totalMs),providerElapsedMs:result.providerElapsedMs,providerRequestCount:result.providerRequestCount,internalRetryCount:result.internalRetryCount,promptChars:result.promptChars},agentStep:p.step,taskContract:p.contract,rawResponse:data},null,2);return result;}catch(error){const totalMs=performance.now()-start;const aborted=error?.name==='AbortError';const message=aborted?`浏览器在 ${Math.round(totalMs)}ms 后主动中止`:'Failed to fetch：可能是 CORS、DNS、证书或网络问题';el.state.textContent=aborted?'超时':'网络失败';el.state.className='bad';el.totalMs.textContent=fmt(totalMs);el.summary.textContent=message;el.output.textContent=JSON.stringify({error:message,detail:String(error)},null,2);showChecks([]);return{index,at:new Date().toISOString(),ok:false,status:null,headersMs:null,totalMs,providerElapsedMs:null,providerRequestCount:null,internalRetryCount:null,openApp:false,contractValid:false,error:message,request:body};}finally{clearTimeout(timer);controller=null;}}
+  async function run(){if(running)return;running=true;el.run.disabled=true;el.stop.disabled=false;try{const count=Math.min(30,Math.max(1,Number(el.repeat.value)||1));for(let i=0;i<count&&running;i++){results.push(await one(results.length+1));stats();if(i+1<count&&running)await sleep(400);}}catch(e){el.summary.textContent=e.message||String(e);}finally{running=false;el.run.disabled=false;el.stop.disabled=true;}}
+  async function curl(){try{const body=await payload();const token=el.token.value.trim();const hs=[`-H 'Content-Type: application/json; charset=utf-8'`,`-H 'Accept: application/json'`,`-H 'X-Client: browser-agent-brain-test-v2'`,`-H 'X-Client-Id: ${body.deviceId}'`,`-H 'X-Device-Id: ${body.deviceId}'`];if(token)hs.push(`-H 'X-AI-Ledger-Token: ${token.replace(/'/g,"'\\''")}'`);const json=JSON.stringify(body).replace(/'/g,"'\\''");const cmd=`curl -i --max-time ${Math.ceil((Number(el.timeout.value)||26000)/1000)} \\\n  -X POST '${endpoint()}' \\\n  ${hs.join(' \\\n  ')} \\\n  --data-raw '${json}'`;await navigator.clipboard.writeText(cmd);el.summary.textContent='cURL 已复制。';}catch(e){el.summary.textContent=e.message||String(e);}}
+  function exportReport(){const blob=new Blob([JSON.stringify({schema:'ai_ledger_agent_brain_browser_test_report_v2',exportedAt:new Date().toISOString(),endpoint:el.endpoint.value.trim(),results},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`agent-brain-test-${Date.now()}.json`;a.click();URL.revokeObjectURL(url);}
+  el.run.onclick=run;el.stop.onclick=()=>{running=false;controller?.abort()};el.curl.onclick=curl;el.export.onclick=exportReport;el.clear.onclick=()=>{results=[];stats();el.output.textContent='等待请求…';el.summary.textContent='已清空。'};el.showToken.onclick=()=>{const show=el.token.type==='password';el.token.type=show?'text':'password';el.showToken.textContent=show?'隐藏':'显示'};stats();
 })();
 </script>
 </body>
