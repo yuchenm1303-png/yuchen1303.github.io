@@ -54,7 +54,7 @@ internal fun PageFrostParentLayer(
                 hostRootOffset = root.topLeft,
                 viewport = viewport,
             ) ?: return@forEach
-            if (localRect.intersectionOrNull(foldoutClip) == null) return@forEach
+            if (!localRect.overlapsPageFrostRect(foldoutClip)) return@forEach
 
             val cache = ensurePageFrostCache(item, localRect.size)
             val sampleOffset = item.rectInRoot.topLeft - backdropRoot
@@ -98,6 +98,12 @@ internal fun PageFrostParentLayer(
         }
     }
 }
+
+private fun Rect.overlapsPageFrostRect(other: Rect): Boolean =
+    right > other.left &&
+        bottom > other.top &&
+        left < other.right &&
+        top < other.bottom
 
 internal fun Rect.isNearPageFrostViewport(viewport: Rect, margin: Float): Boolean =
     right >= viewport.left - margin &&
