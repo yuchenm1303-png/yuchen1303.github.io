@@ -15,10 +15,9 @@ app = home.app
 INDICES_PATH = "/api/stock/a-share/market/indices"
 BREADTH_PATH = "/api/stock/a-share/market/breadth"
 DISCOVERY_PATH = "/api/stock/a-share/market/discovery"
-STAGE_VERSION = "v4-priority-stages"
-INDICES_REFRESH_SECONDS = 6.0
-BREADTH_REFRESH_SECONDS = 10.0
-DISCOVERY_REFRESH_SECONDS = 22.0
+STAGE_VERSION = "v5-stable-coordinator"
+INDICES_REFRESH_SECONDS = 8.0
+MARKET_REFRESH_SECONDS = 30.0
 
 
 def _remove_get_routes(paths: set[str]) -> None:
@@ -89,21 +88,19 @@ def _cached_stage_module(
     return home._module_unavailable(name, "waiting_for_background_refresh")
 
 
-def _breadth_refresh_due() -> bool:
-    return not _cache_is_fresh(
+def _market_refresh_due() -> bool:
+    if not _cache_is_fresh(
         "market",
         "breadth",
         "v1",
-        BREADTH_REFRESH_SECONDS,
-    )
-
-
-def _discovery_refresh_due() -> bool:
+        MARKET_REFRESH_SECONDS,
+    ):
+        return True
     if not _cache_is_fresh(
         "sectors",
         "industry",
         "20",
-        DISCOVERY_REFRESH_SECONDS,
+        MARKET_REFRESH_SECONDS,
     ):
         return True
     return any(
@@ -111,7 +108,7 @@ def _discovery_refresh_due() -> bool:
             "ranking",
             query,
             "20",
-            DISCOVERY_REFRESH_SECONDS,
+            MARKET_REFRESH_SECONDS,
         )
         for query, _, _ in home._RANKING_SPECS.values()
     )
@@ -171,7 +168,7 @@ def _cached_breadth() -> dict[str, Any]:
         "breadth",
         "v1",
         "marketBreadth",
-        BREADTH_REFRESH_SECONDS,
+        MARKET_REFRESH_SECONDS,
     )
 
 
@@ -183,14 +180,14 @@ def _cached_discovery_modules() -> dict[str, dict[str, Any]]:
             query,
             "20",
             module_name,
-            DISCOVERY_REFRESH_SECONDS,
+            MARKET_REFRESH_SECONDS,
         )
     modules["sectorHotRanking"] = _cached_stage_module(
         "sectors",
         "industry",
         "20",
         "sectorHotRanking",
-        DISCOVERY_REFRESH_SECONDS,
+        MARKET_REFRESH_SECONDS,
     )
     return modules
 
@@ -214,10 +211,12 @@ _remove_get_routes({INDICES_PATH, BREADTH_PATH, DISCOVERY_PATH})
 def a_share_market_indices(response: Response) -> dict[str, Any]:
     started_at = monotonic()
     modules = {"indices": _cached_indices()}
-    _, refresh_warning = _start_background_if_due(
-        _breadth_refresh_due() or _discovery_refresh_due()
+    payload = _stage_payload(
+        "indices",
+        modules,
+        started_at,
+        ["market_stage: indices_read_only"],
     )
-    payload = _stage_payload("indices", modules, started_at, [refresh_warning])
     response.headers["X-Market-Stage"] = "indices"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
     response.headers["Server-Timing"] = f"market-indices;dur={payload['buildLatencyMs']}"
@@ -232,7 +231,7 @@ def a_share_market_breadth(response: Response) -> dict[str, Any]:
         "marketBreadth": breadth,
         "sentiment": home._sentiment_from_breadth(breadth),
     }
-    _, refresh_warning = _start_background_if_due(_breadth_refresh_due())
+    _, refresh_warning = _start_background_if_due(_market_refresh_due())
     payload = _stage_payload("breadth", modules, started_at, [refresh_warning])
     response.headers["X-Market-Stage"] = "breadth"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
@@ -244,8 +243,12 @@ def a_share_market_breadth(response: Response) -> dict[str, Any]:
 def a_share_market_discovery(response: Response) -> dict[str, Any]:
     started_at = monotonic()
     modules = _cached_discovery_modules()
-    _, refresh_warning = _start_background_if_due(_discovery_refresh_due())
-    payload = _stage_payload("discovery", modules, started_at, [refresh_warning])
+    payload = _stage_payload(
+        "discovery",
+        modules,
+        started_at,
+        ["market_stage: discovery_read_only"],
+    )
     response.headers["X-Market-Stage"] = "discovery"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
     response.headers["Server-Timing"] = f"market-discovery;dur={payload['buildLatencyMs']}"
