@@ -9,38 +9,67 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 
 /**
- * 设置页生产态 Compose 玻璃单宿主。
+ * 每个 Tab 独立持有的非 OpenGL 玻璃父级宿主。
  *
- * 批处理宿主从设置页第一次进入 Composition 起就保持同一棵稳定结构；几何数据由
- * onPlaced/onGloballyPositioned 自然补齐，禁止再通过延时切换整套 Composition 分支。
- * 这样不会在进入设置页约 820ms 后卸载并重新挂载 Slider、折叠区和本地交互状态。
- *
- * 折叠动画裁剪表始终存在，只记录真实 LayoutCoordinates，不创建逐帧扫描；
- * 同时不接入任何 OpenGL registry 或 geometry sync。
+ * 普通雾面卡、设置页自适应雾面卡、凹槽 Slider 与动态进度轨都在各自页面父层绘制。
+ * 本宿主不调用 OpenGL，不注册到 OpenGL registry，也不触发 geometry sync。
  */
 @Composable
-internal fun SettingsComposeGlassBatchHost(
+internal fun NonOpenGLGlassBatchHost(
     modifier: Modifier = Modifier,
-    content: @Composable BoxScope.() -> Unit
+    includeAdaptiveSettingsFrost: Boolean = false,
+    content: @Composable BoxScope.() -> Unit,
 ) {
-    val frostLayerState = rememberSettingsFrostParentLayerState()
+    val pageFrostLayerState = rememberPageFrostParentLayerState()
+    val settingsFrostLayerState = if (includeAdaptiveSettingsFrost) {
+        rememberSettingsFrostParentLayerState()
+    } else {
+        null
+    }
     val foldoutClipRegistry = remember { GlassFoldoutClipRegistry() }
 
-    DisposableEffect(foldoutClipRegistry) {
-        onDispose { foldoutClipRegistry.clear() }
+    DisposableEffect(pageFrostLayerState, foldoutClipRegistry) {
+        onDispose {
+            pageFrostLayerState.clear()
+            foldoutClipRegistry.clear()
+        }
     }
 
     CompositionLocalProvider(
         LocalGlassFoldoutClipRegistry provides foldoutClipRegistry,
         LocalSettingsStaticBatchReady provides true,
-        LocalSettingsFrostParentLayer provides frostLayerState
+        LocalPageFrostParentLayer provides pageFrostLayerState,
+        LocalSettingsFrostParentLayer provides settingsFrostLayerState,
     ) {
         Box(modifier = modifier) {
-            SettingsFrostParentLayer(
-                layerState = frostLayerState,
-                modifier = Modifier.matchParentSize()
+            PageFrostParentLayer(
+                layerState = pageFrostLayerState,
+                modifier = Modifier.matchParentSize(),
             )
-            content()
+            if (settingsFrostLayerState != null) {
+                SettingsFrostParentLayer(
+                    layerState = settingsFrostLayerState,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+            InsetGlassSliderBatchGroup(Modifier.matchParentSize()) {
+                InsetGlassSliderProgressBatchGroup(Modifier.matchParentSize()) {
+                    content()
+                }
+            }
         }
     }
+}
+
+/** 保留旧入口，设置页仍启用原有的高模糊自适应材质。 */
+@Composable
+internal fun SettingsComposeGlassBatchHost(
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    NonOpenGLGlassBatchHost(
+        modifier = modifier,
+        includeAdaptiveSettingsFrost = true,
+        content = content,
+    )
 }
