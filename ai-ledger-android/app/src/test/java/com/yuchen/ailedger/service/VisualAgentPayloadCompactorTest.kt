@@ -31,7 +31,7 @@ class VisualAgentPayloadCompactorTest {
 
         payload.compactVisualAgentPayloadForTransport()
 
-        assertEquals("android_visual_agent_v15_unified_execution_permit", payload.getString("agentSessionProtocol"))
+        assertEquals("android_visual_agent_v16_text_bootstrap_gui_loop", payload.getString("agentSessionProtocol"))
         assertEquals("gui_plus_dialogue_v2_bound_turns", payload.getString("interactionProtocol"))
         assertTrue(payload.has("recentAgentActions"))
         assertTrue(payload.has("lastToolResponse"))
@@ -56,9 +56,9 @@ class VisualAgentPayloadCompactorTest {
         assertFalse(payload.has("taskContract"))
 
         val memory = payload.getJSONObject("agentMemory")
-        assertEquals("android_visual_agent_loop_memory_v15_unified_execution_permit", memory.getString("schema"))
+        assertEquals("android_visual_agent_loop_memory_v16_text_bootstrap_gui_loop", memory.getString("schema"))
         assertEquals("gui_plus_dialogue_v2_bound_turns", memory.getString("interactionProtocol"))
-        assertTrue(memory.has("recentActions"))
+        assertFalse(memory.has("recentActions"))
         assertTrue(memory.has("taskMemory"))
         assertTrue(memory.has("loopSignals"))
         assertFalse(memory.has("executionFeedback"))
