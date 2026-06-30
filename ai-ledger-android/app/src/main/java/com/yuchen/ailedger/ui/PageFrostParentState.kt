@@ -76,9 +76,7 @@ internal class PageFrostParentLayerState {
     internal fun localBoundsOf(coordinates: LayoutCoordinates): Rect? {
         val root = rootCoordinates ?: return null
         if (!root.isAttached || !coordinates.isAttached) return null
-        return runCatching {
-            root.localBoundingBoxOf(coordinates, clipBounds = false)
-        }.getOrNull()
+        return root.localBoundingBoxOf(coordinates, clipBounds = false)
     }
 
     internal fun upsert(
