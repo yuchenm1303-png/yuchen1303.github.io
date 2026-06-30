@@ -20,6 +20,7 @@ internal object NormalChatDeviceIntentPolicy {
     private val imperativeSignals = listOf(
         "帮我",
         "请帮",
+        "请",
         "给我",
         "替我",
         "帮忙",
@@ -80,7 +81,7 @@ internal object NormalChatDeviceIntentPolicy {
         "b站",
         "浏览器",
         "相机",
-        "设置",
+        "系统设置",
         "电话",
         "短信",
         "邮件",
@@ -152,8 +153,15 @@ internal object NormalChatDeviceIntentPolicy {
         if (explanationSignals.any(clean::contains)) return false
 
         val hasAction = actionSignals.any(clean::contains)
-        val hasTarget = deviceTargets.any(clean::contains)
-        val imperative = imperativeSignals.any(clean::contains) || actionSignals.any(clean::startsWith)
+        val directSettingsIntent = listOf(
+            "打开设置",
+            "进入设置",
+            "启动设置",
+            "切换到设置",
+        ).any(clean::contains)
+        val hasTarget = directSettingsIntent || deviceTargets.any(clean::contains)
+        val imperative =
+            imperativeSignals.any(clean::contains) || actionSignals.any(clean::startsWith)
         return hasAction && hasTarget && imperative
     }
 
@@ -162,7 +170,7 @@ internal object NormalChatDeviceIntentPolicy {
         if (!shouldProbe(clean)) return false
         if (systemOnlyTargets.any(clean::contains) && !containsKnownAppName(clean)) return false
 
-        val appLaunchSignal = listOf(
+        return listOf(
             "打开",
             "启动",
             "运行",
@@ -175,7 +183,6 @@ internal object NormalChatDeviceIntentPolicy {
             "open ",
             "launch ",
         ).any(clean::contains)
-        return appLaunchSignal
     }
 
     private fun containsKnownAppName(text: String): Boolean {
