@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -30,6 +31,12 @@ internal fun buildLeanVisualAgentPayload(
         .map { it.take(1_200) }
         .toList()
         .takeLast(14)
+    val apps = appContext.asSequence()
+        .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
+        .distinctBy { it.packageName }
+        .take(160)
+        .toList()
+    val inventoryHash = apps.inventoryHash()
     val workSurface = runtime.guiPlusEligible && runtime.verifiedTargetPackage.isNotBlank()
     val visual = snapshot.visual?.takeIf { it.hasImage }
 
@@ -43,30 +50,37 @@ internal fun buildLeanVisualAgentPayload(
         put("deviceId", deviceId.trim().take(120))
         put("agentSessionProtocol", "android_visual_agent_v15_unified_execution_permit")
         put("interactionProtocol", VISUAL_INTERACTION_PROTOCOL)
-        put("executionMode", when (executionMode) {
-            AgentExecutionMode.VisualForce -> "visual_force"
-            AgentExecutionMode.ExplicitAgent -> "explicit_agent"
-            AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
-        })
+        put(
+            "executionMode",
+            when (executionMode) {
+                AgentExecutionMode.VisualForce -> "visual_force"
+                AgentExecutionMode.ExplicitAgent -> "explicit_agent"
+                AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
+            },
+        )
         put("decisionOwner", "deepseek_then_gui_plus")
         put("visualDecisionOwner", if (workSurface) "gui_plus" else "deepseek")
+        put("visualAgentDirect", workSurface)
         put("exclusiveVisualSession", workSurface)
         put("allowAgentBrain", !workSurface)
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
-        put("runtimeExecutionContext", JSONObject().apply {
-            put("schema", "android_visual_execution_runtime_v2")
-            put("surfaceState", runtime.surfaceState.wireValue)
-            put("selectedTargetPackage", runtime.selectedTargetPackage)
-            put("verifiedTargetPackage", runtime.verifiedTargetPackage)
-            put("currentPackage", snapshot.packageName)
-            put("observationId", runtime.observationId)
-            put("routeEpoch", runtime.routeEpoch)
-            put("surfaceEpoch", runtime.surfaceEpoch)
-            put("guiPlusEligible", workSurface)
-            put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
-            put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
-        })
+        put(
+            "runtimeExecutionContext",
+            JSONObject().apply {
+                put("schema", "android_visual_execution_runtime_v2")
+                put("surfaceState", runtime.surfaceState.wireValue)
+                put("selectedTargetPackage", runtime.selectedTargetPackage)
+                put("verifiedTargetPackage", runtime.verifiedTargetPackage)
+                put("currentPackage", snapshot.packageName)
+                put("observationId", runtime.observationId)
+                put("routeEpoch", runtime.routeEpoch)
+                put("surfaceEpoch", runtime.surfaceEpoch)
+                put("guiPlusEligible", workSurface)
+                put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
+                put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
+            },
+        )
         put("observationId", runtime.observationId)
         put("expectedActionObservationId", runtime.observationId)
         put("screenSnapshot", snapshot.toJson(includeImage = false))
@@ -75,21 +89,41 @@ internal fun buildLeanVisualAgentPayload(
         put("executionFeedback", taskMemory.toExecutionFeedback(runtime, actions))
         put("taskMemory", taskMemory?.toExecutionLedgerJson() ?: JSONObject.NULL)
         put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
-        put("appContext", JSONArray().apply {
-            appContext.asSequence()
-                .filter { it.label.isNotBlank() && it.packageName.isNotBlank() }
-                .distinctBy { it.packageName }
-                .take(160)
-                .forEach { app -> put(app.toPayloadJson()) }
-        })
-        put("visualHistory", JSONArray().apply {
-            visualHistory.takeLast(4).forEach { item ->
-                put(JSONObject().apply {
-                    put("assistantOutput", item.assistantOutput.take(1_200))
-                    put("executionResult", item.executionResult.take(240))
-                })
-            }
-        })
+        put("appInventoryHash", inventoryHash)
+        put(
+            "appCatalog",
+            JSONObject().apply {
+                put("schema", "android_visual_app_catalog_v5_canonical")
+                put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
+                put("identityField", "packageName")
+                put("displayField", "label")
+                put("selectionOwner", "deepseek")
+                put("inventoryHash", inventoryHash)
+                put("entryCount", apps.size)
+            },
+        )
+        put(
+            "deviceContext",
+            JSONObject().apply {
+                put("schema", "android_visual_device_context_v2")
+                put("currentPackage", snapshot.packageName)
+                put("deviceId", deviceId.trim().take(120))
+            },
+        )
+        put("appContext", JSONArray().apply { apps.forEach { put(it.toPayloadJson()) } })
+        put(
+            "visualHistory",
+            JSONArray().apply {
+                visualHistory.takeLast(4).forEach { item ->
+                    put(
+                        JSONObject().apply {
+                            put("assistantOutput", item.assistantOutput.take(1_200))
+                            put("executionResult", item.executionResult.take(240))
+                        },
+                    )
+                }
+            },
+        )
         put("coordinateProtocol", VisualAgentProtocol.coordinateProtocol)
         put("supportedAgentSteps", JSONArray(VisualAgentProtocol.supportedStepTypes.toList()))
         put("supportedDeviceTools", JSONArray(CloudAgentStep.deviceToolTypes.toList()))
@@ -97,24 +131,32 @@ internal fun buildLeanVisualAgentPayload(
         put("actionBatchMax", 1)
         put("hasScreenshot", visual != null)
         put("imageCount", if (visual != null) 1 else 0)
-        visual?.let { frame -> put("screenshot", JSONObject().apply {
-            put("mimeType", frame.mimeType)
-            put("base64Data", frame.base64Jpeg)
-            put("width", frame.width)
-            put("height", frame.height)
-            put("displayWidth", frame.displayWidth)
-            put("displayHeight", frame.displayHeight)
-            put("source", frame.source)
-            put("reason", frame.reason)
-            put("observationId", runtime.observationId)
-        }) }
-        put("responseFormat", JSONObject().apply {
-            put("type", "json_object")
-            put("includeAgentState", true)
-            put("includeAgentStep", true)
-            put("includeTaskContract", true)
-            put("echoObservationId", true)
-        })
+        visual?.let { frame ->
+            put(
+                "screenshot",
+                JSONObject().apply {
+                    put("mimeType", frame.mimeType)
+                    put("base64Data", frame.base64Jpeg)
+                    put("width", frame.width)
+                    put("height", frame.height)
+                    put("displayWidth", frame.displayWidth)
+                    put("displayHeight", frame.displayHeight)
+                    put("source", frame.source)
+                    put("reason", frame.reason)
+                    put("observationId", runtime.observationId)
+                },
+            )
+        }
+        put(
+            "responseFormat",
+            JSONObject().apply {
+                put("type", "json_object")
+                put("includeAgentState", true)
+                put("includeAgentStep", true)
+                put("includeTaskContract", true)
+                put("echoObservationId", true)
+            },
+        )
         put("client", "android-compose")
         put("clientVersion", "visual-clean-v1")
         put("now", System.currentTimeMillis())
@@ -125,11 +167,17 @@ private fun VisualTaskMemory?.toExecutionFeedback(
     runtime: VisualAgentRuntimeContext,
     actions: List<String>,
 ): JSONObject = JSONObject().apply {
-    val lastResult = actions.asReversed().firstNotNullOfOrNull { line -> when {
-        ":ok:" in line -> true
-        ":failed:" in line || ":retry:" in line -> false
-        else -> null
-    } }
+    val lastResult = actions.asReversed().firstNotNullOfOrNull { line ->
+        when {
+            ":ok:" in line -> true
+            ":failed:" in line || ":retry:" in line -> false
+            else -> null
+        }
+    }
+    val userDirectivePending = actions.any {
+        it.startsWith("userInstruction:[LATEST_USER_DIRECTIVE]") ||
+            it.startsWith("visual_replan_requested:reason=user_instruction|")
+    }
     put("schema", "android_visual_execution_feedback_v2")
     put("lastResultOk", lastResult ?: JSONObject.NULL)
     put("latestEvent", actions.lastOrNull().orEmpty())
@@ -139,7 +187,13 @@ private fun VisualTaskMemory?.toExecutionFeedback(
     put("taskRevision", this@toExecutionFeedback?.taskRevision ?: 0)
     put("taskRevisionPending", this@toExecutionFeedback?.taskRevisionPending == true)
     put("currentMilestoneInvalidated", this@toExecutionFeedback?.currentMilestoneInvalidated == true)
-    put("replanRequested", this@toExecutionFeedback?.taskRevisionPending == true || runtime.surfaceState == VisualSurfaceState.Replanning)
+    put("userDirectivePending", userDirectivePending)
+    put(
+        "replanRequested",
+        userDirectivePending ||
+            this@toExecutionFeedback?.taskRevisionPending == true ||
+            runtime.surfaceState == VisualSurfaceState.Replanning,
+    )
     put("structuralRegression", runtime.surfaceState == VisualSurfaceState.Replanning)
     put("semanticDecisionOwner", "gui_plus")
     put("localSemanticDecision", false)
@@ -163,7 +217,10 @@ private fun VisualTaskMemory.toExecutionLedgerJson(): JSONObject = JSONObject().
     put("taskRevisionPending", taskRevisionPending)
     put("currentMilestoneInvalidated", currentMilestoneInvalidated)
     put("latestUserUpdate", latestUserUpdate?.toJson() ?: JSONObject.NULL)
-    put("userUpdateHistory", JSONArray().apply { userUpdateHistory.takeLast(8).forEach { put(it.toJson()) } })
+    put(
+        "userUpdateHistory",
+        JSONArray().apply { userUpdateHistory.takeLast(8).forEach { put(it.toJson()) } },
+    )
     put("semanticDecisionOwner", "gui_plus")
     put("localSemanticDecision", false)
     put("executionLedgerOnly", true)
@@ -176,21 +233,51 @@ private fun VisualAgentAppContextItem.toPayloadJson(): JSONObject = JSONObject()
     put("identityType", "package_name")
     put("launchable", true)
     put("aliases", JSONArray(aliases.map(String::trim).filter(String::isNotBlank).distinct().take(24)))
-    put("capabilities", JSONArray(capabilities.map { it.trim().lowercase().replace('-', '_') }.filter(String::isNotBlank).distinct().take(32)))
+    put(
+        "capabilities",
+        JSONArray(
+            capabilities.map { it.trim().lowercase().replace('-', '_') }
+                .filter(String::isNotBlank)
+                .distinct()
+                .take(32),
+        ),
+    )
+}
+
+private fun List<VisualAgentAppContextItem>.inventoryHash(): String {
+    val canonical = sortedBy { it.packageName }.joinToString("\n") { app ->
+        listOf(
+            app.packageName.trim(),
+            app.label.trim(),
+            app.aliases.map(String::trim).filter(String::isNotBlank).sorted().joinToString(","),
+            app.capabilities.map { it.trim().lowercase().replace('-', '_') }
+                .filter(String::isNotBlank)
+                .sorted()
+                .joinToString(","),
+        ).joinToString("|")
+    }
+    return MessageDigest.getInstance("SHA-256")
+        .digest(canonical.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
+        .take(24)
 }
 
 private fun List<String>.toInteractionHistory(): JSONArray = JSONArray().apply {
-    this@toInteractionHistory.mapNotNull { line -> when {
-        line.startsWith("guiPlusQuestion:") -> "assistant" to line.substringAfter("guiPlusQuestion:")
-        line.startsWith("userReply:") -> "user" to line.substringAfter("userReply:")
-        line.startsWith("userInstruction:") -> "user" to line.substringAfter("userInstruction:")
-        else -> null
-    } }.takeLast(12).forEachIndexed { index, (role, content) ->
-        put(JSONObject().apply {
-            put("index", index)
-            put("role", role)
-            put("content", content.trim().take(1_000))
-        })
+    this@toInteractionHistory.mapNotNull { line ->
+        when {
+            line.startsWith("guiPlusQuestion:") -> "assistant" to line.substringAfter("guiPlusQuestion:")
+            line.startsWith("userReply:") -> "user" to line.substringAfter("userReply:")
+            line.startsWith("userInstruction:") -> "user" to line.substringAfter("userInstruction:")
+            else -> null
+        }
+    }.takeLast(12).forEachIndexed { index, (role, content) ->
+        put(
+            JSONObject().apply {
+                put("index", index)
+                put("role", role)
+                put("content", content.trim().take(1_000))
+            },
+        )
     }
 }
 
