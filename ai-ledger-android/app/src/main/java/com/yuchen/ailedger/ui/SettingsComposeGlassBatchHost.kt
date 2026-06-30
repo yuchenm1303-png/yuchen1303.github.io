@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 
 /**
  * 每个 Tab 独立持有的非 OpenGL 玻璃父级宿主。
@@ -39,7 +40,9 @@ internal fun NonOpenGLGlassBatchHost(
         LocalPageFrostParentLayer provides pageFrostLayerState,
         LocalSettingsFrostParentLayer provides settingsFrostLayerState,
     ) {
-        Box(modifier = modifier) {
+        Box(
+            modifier = modifier.onGloballyPositioned(pageFrostLayerState::updateRoot)
+        ) {
             PageFrostParentLayer(
                 layerState = pageFrostLayerState,
                 modifier = Modifier.matchParentSize(),
