@@ -2,9 +2,9 @@ package com.yuchen.ailedger.service
 
 import org.json.JSONObject
 
-private const val CANONICAL_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v15_unified_execution_permit"
+private const val CANONICAL_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v16_text_bootstrap_gui_loop"
 private const val CANONICAL_VISUAL_INTERACTION_PROTOCOL = "gui_plus_dialogue_v2_bound_turns"
-private const val CANONICAL_VISUAL_MEMORY_SCHEMA = "android_visual_agent_loop_memory_v15_unified_execution_permit"
+private const val CANONICAL_VISUAL_MEMORY_SCHEMA = "android_visual_agent_loop_memory_v16_text_bootstrap_gui_loop"
 
 /**
  * Produces the single canonical transport contract consumed by the current Worker.
@@ -30,31 +30,31 @@ internal fun JSONObject.compactVisualAgentPayloadForTransport(): JSONObject {
 }
 
 private val TRANSPORT_ALIAS_KEYS = setOf(
-    "agentGoal",           // canonical: goal
-    "recentActions",       // canonical: recentAgentActions
-    "toolResponse",        // canonical: lastToolResponse
-    "sessionId",           // canonical: agentSessionId
-    "clientId",            // canonical: deviceId
-    "message",             // canonical: goal
-    "hasImage",            // canonical: hasScreenshot
-    "hasImages",           // canonical: hasScreenshot + imageCount
-    "taskContract",        // canonical: agentMemory.taskMemory.taskContract
+    "agentGoal",
+    "recentActions",
+    "toolResponse",
+    "sessionId",
+    "clientId",
+    "message",
+    "hasImage",
+    "hasImages",
+    "taskContract",
 )
 
 private val AGENT_MEMORY_DUPLICATE_KEYS = setOf(
-    "runtimeExecutionContext", // canonical top-level runtimeExecutionContext
-    "surfaceContext",          // canonical top-level surfaceContext
-    "deviceProfile",           // canonical top-level/deviceContext deviceProfile
-    "appSelectionProtocol",    // canonical top-level appSelectionProtocol
-    "executionFeedback",       // canonical top-level executionFeedback
-    "lastToolResponse",        // canonical top-level lastToolResponse
-    "taskContract",            // canonical agentMemory.taskMemory.taskContract
+    "runtimeExecutionContext",
+    "surfaceContext",
+    "deviceProfile",
+    "appSelectionProtocol",
+    "executionFeedback",
+    "lastToolResponse",
+    "taskContract",
 )
 
 private val LOOP_SIGNAL_DUPLICATE_KEYS = setOf(
-    "postActionFeedback",      // canonical top-level executionFeedback
-    "lastToolResponse",        // canonical top-level lastToolResponse
-    "currentMilestoneId",      // canonical agentMemory.taskMemory
+    "postActionFeedback",
+    "lastToolResponse",
+    "currentMilestoneId",
     "completedMilestoneIds",
     "failedHypotheses",
     "blockedActions",
