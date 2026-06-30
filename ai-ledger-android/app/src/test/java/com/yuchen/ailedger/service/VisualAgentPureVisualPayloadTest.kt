@@ -1,17 +1,15 @@
 package com.yuchen.ailedger.service
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualAgentPureVisualPayloadTest {
     @Test
-    fun dynamicFrameTelemetryCannotRequestRetryOrRouteRefresh() {
+    fun transportKeepsOnlyObjectiveVisualState() {
         val snapshot = snapshot()
         val tracker = VisualSemanticProgressTracker(originalGoal = "查看行情")
         tracker.onVerifiedSurface(snapshot)
-        val memory = tracker.memorySnapshot(snapshot)
         val payload = buildVisualAgentPayload(
             goal = "查看行情",
             snapshot = snapshot,
@@ -20,58 +18,48 @@ class VisualAgentPureVisualPayloadTest {
                 "visual_execution_observed:action=wait|观察日K|executionObserved=true|frameChanged=true|packageChanged=false|replanRequired=false",
             ),
             runtimeContext = runtime(snapshot),
-            taskMemory = memory,
-        )
+            taskMemory = tracker.memorySnapshot(snapshot),
+        ).compactVisualAgentPayloadForTransport()
 
-        assertFalse(payload.getBoolean("localVisualRetryRequested"))
-        assertFalse(payload.getBoolean("guiPlusReplanRequested"))
-        assertFalse(payload.getBoolean("routeRefreshRequested"))
-        val feedback = payload.getJSONObject("executionFeedback")
-        assertEquals(0, feedback.getInt("screenChangedCount"))
-        assertEquals(0, feedback.getInt("noProgressCount"))
-        assertEquals(0, feedback.getJSONArray("blockedActionSignatures").length())
-        val taskMemory = payload.getJSONObject("agentMemory").getJSONObject("taskMemory")
-        assertEquals("visual_task_memory_v5_transactional_visual_authority", taskMemory.getString("schema"))
-        assertFalse(taskMemory.getBoolean("localProgressClassification"))
-        assertTrue(taskMemory.getBoolean("transactionalCompletion"))
-        assertFalse(taskMemory.getBoolean("provisionalStateCommitted"))
-        assertEquals(0, taskMemory.getJSONArray("failedHypotheses").length())
-        assertEquals(0, taskMemory.getJSONArray("blockedActions").length())
+        assertFalse(payload.has("localVisualRetryRequested"))
+        assertFalse(payload.has("guiPlusReplanRequested"))
+        assertFalse(payload.has("routeRefreshRequested"))
+        assertFalse(payload.has("agentMemory"))
+        assertFalse(payload.has("lastToolResponse"))
+        assertTrue(payload.has("executionFeedback"))
+
+        val memory = payload.getJSONObject("taskMemory")
+        assertFalse(memory.has("reasoningContext"))
+        assertFalse(memory.has("reasoningDepth"))
+        assertFalse(memory.has("reasoningTriggers"))
+        assertFalse(memory.has("failedHypotheses"))
+        assertFalse(memory.has("blockedActions"))
+        assertTrue(memory.getBoolean("executionLedgerOnly"))
     }
 
     @Test
-    fun explicitMechanicalDeepSignalRequestsGuiPlusReplanWithoutRouteRefresh() {
+    fun legacyDeepSignalCannotRequestLocalOrGuiReplan() {
         val snapshot = snapshot()
-        val context = VisualReasoningContext(
-            depth = VisualReasoningDepth.Deep,
-            triggers = listOf(VisualReasoningTrigger.RepeatedAction),
-            sameActionCount = 2,
-            explorationPressureLevel = "high",
-            historyItems = 4,
-            selfCheckPasses = 2,
-            candidateHypothesisLimit = 3,
-            freshObservationRequired = true,
-            directExecutionAllowed = false,
-        )
         val payload = buildVisualAgentPayload(
             goal = "查看行情",
             snapshot = snapshot,
             recentActions = listOf(
-                context.toPromptLine(),
-                VisualReasoningPolicy.deepReplanLine(context)!!,
+                "visual_reasoning_context:v4|depth=deep|trigger=repeated_action",
+                "visual_replan_requested:reason=adaptive_reasoning_depth|depth=deep",
             ),
             runtimeContext = runtime(snapshot),
             taskMemory = VisualTaskMemory(
                 originalGoal = "查看行情",
                 currentMilestoneId = "chart",
                 progressStatus = "execution_observed",
-                reasoningContext = context,
+                reasoningContext = VisualReasoningContext(depth = VisualReasoningDepth.Deep),
             ),
-        )
+        ).compactVisualAgentPayloadForTransport()
 
-        assertTrue(payload.getBoolean("localVisualRetryRequested"))
-        assertTrue(payload.getBoolean("guiPlusReplanRequested"))
-        assertFalse(payload.getBoolean("routeRefreshRequested"))
+        assertFalse(payload.has("localVisualRetryRequested"))
+        assertFalse(payload.has("guiPlusReplanRequested"))
+        assertFalse(payload.has("routeRefreshRequested"))
+        assertFalse(payload.getJSONObject("taskMemory").has("reasoningDepth"))
     }
 
     private fun runtime(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext = VisualAgentRuntimeContext(
