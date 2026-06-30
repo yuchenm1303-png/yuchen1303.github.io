@@ -38,7 +38,7 @@ internal object VisualTaskContractParser {
             if (!workSurface) return null
             val committed = committedContract ?: root.failVisualProtocol(
                 "task_contract_required",
-                "GUI Plus must establish the full ordered task contract before the first work-surface action.",
+                "DeepSeek AgentBrain must establish the full ordered task contract before GUI Plus begins work-surface execution.",
             )
             VisualTaskContractProtocol.validateContract(committed).requireAccepted(root)
             root.validateVisualActionIntent(step, args, intent, committed)
