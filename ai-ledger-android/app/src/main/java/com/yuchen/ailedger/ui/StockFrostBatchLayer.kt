@@ -135,18 +135,20 @@ private class StockFrostBatchRegistry {
 private class ResolvedStockFrostItem {
     var rect: Rect = Rect.Zero
     var radiusPx: Float = 0f
-    var frostAlpha: Float = 0f
-    var dimAlpha: Float = 0f
 }
 
 private class StockFrostBatchDrawCache {
     private val resolvedPool = ArrayList<ResolvedStockFrostItem>()
     private val backdropPaths = LinkedHashMap<Int, Path>()
+    private val frostPaths = LinkedHashMap<Int, Path>()
+    private val dimPaths = LinkedHashMap<Int, Path>()
     private var resolvedCount = 0
 
     fun begin() {
         resolvedCount = 0
         backdropPaths.values.forEach(Path::reset)
+        frostPaths.values.forEach(Path::reset)
+        dimPaths.values.forEach(Path::reset)
     }
 
     fun append(
@@ -163,18 +165,19 @@ private class StockFrostBatchDrawCache {
         }
         item.rect = rect
         item.radiusPx = radiusPx
-        item.frostAlpha = frostAlpha
-        item.dimAlpha = dimAlpha
         resolvedCount += 1
 
-        val key = backdropAlpha.toBits()
-        val path = backdropPaths.getOrPut(key) { Path() }
-        path.addRoundRect(
-            RoundRect(
-                rect = rect,
-                cornerRadius = CornerRadius(radiusPx, radiusPx)
-            )
+        val roundRect = RoundRect(
+            rect = rect,
+            cornerRadius = CornerRadius(radiusPx, radiusPx)
         )
+        appendPath(backdropPaths, backdropAlpha, roundRect)
+        if (frostAlpha > 0f) appendPath(frostPaths, frostAlpha, roundRect)
+        if (dimAlpha > 0f) appendPath(dimPaths, dimAlpha, roundRect)
+    }
+
+    private fun appendPath(paths: MutableMap<Int, Path>, alpha: Float, roundRect: RoundRect) {
+        paths.getOrPut(alpha.toBits()) { Path() }.addRoundRect(roundRect)
     }
 
     fun forEachResolved(block: (ResolvedStockFrostItem) -> Unit) {
@@ -185,8 +188,17 @@ private class StockFrostBatchDrawCache {
         }
     }
 
-    fun forEachBackdropPath(block: (Float, Path) -> Unit) {
-        backdropPaths.forEach { (alphaBits, path) ->
+    fun forEachBackdropPath(block: (Float, Path) -> Unit) =
+        forEachPath(backdropPaths, block)
+
+    fun forEachFrostPath(block: (Float, Path) -> Unit) =
+        forEachPath(frostPaths, block)
+
+    fun forEachDimPath(block: (Float, Path) -> Unit) =
+        forEachPath(dimPaths, block)
+
+    private fun forEachPath(paths: Map<Int, Path>, block: (Float, Path) -> Unit) {
+        paths.forEach { (alphaBits, path) ->
             if (!path.isEmpty) block(Float.fromBits(alphaBits), path)
         }
     }
@@ -290,49 +302,31 @@ internal fun StockFrostBatchHost(
                         }
                     } else {
                         drawCache.forEachResolved { item ->
-                            val path = Path().apply {
-                                addRoundRect(
-                                    RoundRect(
-                                        rect = item.rect,
-                                        cornerRadius = CornerRadius(item.radiusPx, item.radiusPx)
-                                    )
-                                )
-                            }
-                            clipPath(path) {
-                                drawRect(
-                                    brush = Brush.verticalGradient(
-                                        colors = listOf(
-                                            Color(0xFF1A2B58),
-                                            Color(0xFF5B4A8E),
-                                            Color(0xFFB85D78)
-                                        ),
-                                        startY = item.rect.top,
-                                        endY = item.rect.bottom
+                            drawRoundRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color(0xFF1A2B58),
+                                        Color(0xFF5B4A8E),
+                                        Color(0xFFB85D78)
                                     ),
-                                    topLeft = item.rect.topLeft,
-                                    size = item.rect.size
-                                )
-                            }
+                                    startY = item.rect.top,
+                                    endY = item.rect.bottom
+                                ),
+                                topLeft = item.rect.topLeft,
+                                size = item.rect.size,
+                                cornerRadius = CornerRadius(item.radiusPx, item.radiusPx)
+                            )
                         }
                     }
 
-                    drawCache.forEachResolved { item ->
-                        val corner = CornerRadius(item.radiusPx, item.radiusPx)
-                        if (item.frostAlpha > 0f) {
-                            drawRoundRect(
-                                color = Color.White.copy(alpha = item.frostAlpha),
-                                topLeft = item.rect.topLeft,
-                                size = item.rect.size,
-                                cornerRadius = corner
-                            )
+                    drawCache.forEachFrostPath { alpha, path ->
+                        clipPath(path) {
+                            drawRect(Color.White.copy(alpha = alpha))
                         }
-                        if (item.dimAlpha > 0f) {
-                            drawRoundRect(
-                                color = Color.Black.copy(alpha = item.dimAlpha),
-                                topLeft = item.rect.topLeft,
-                                size = item.rect.size,
-                                cornerRadius = corner
-                            )
+                    }
+                    drawCache.forEachDimPath { alpha, path ->
+                        clipPath(path) {
+                            drawRect(Color.Black.copy(alpha = alpha))
                         }
                     }
 
