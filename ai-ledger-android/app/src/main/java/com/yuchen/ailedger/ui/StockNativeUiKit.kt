@@ -4,8 +4,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -189,10 +186,6 @@ internal fun StockNativePageHeader(
     }
 }
 
-/**
- * 股票密集按钮只保留轻量按压状态，玻璃材质继续交给分类父级统一绘制。
- * 相比 PressableGlass，不再为每个按钮常驻三组 Animatable、pointerInput 与 graphicsLayer。
- */
 @Composable
 internal fun StockNativePill(
     text: String,
@@ -202,24 +195,11 @@ internal fun StockNativePill(
     onClick: () -> Unit
 ) {
     val state = LocalStockNativeGlassState.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val clickModifier = modifier.clickable(
-        interactionSource = interactionSource,
-        indication = null,
-        onClick = onClick
-    )
     val content: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text,
-                color = Color.White.copy(
-                    alpha = when {
-                        pressed -> 1f
-                        active -> 0.98f
-                        else -> 0.80f
-                    }
-                ),
+                color = Color.White.copy(alpha = if (active) 0.98f else 0.80f),
                 fontSize = fontSize.sp,
                 fontWeight = FontWeight.Black,
                 maxLines = 1,
@@ -229,21 +209,21 @@ internal fun StockNativePill(
         }
     }
     if (state != null) {
-        val baseIntensity = state.glassIntensity * if (active) 1.04f else 0.96f
-        GlassPanel(
-            quality = state.quality,
-            glassIntensity = baseIntensity * if (pressed) 1.08f else 1f,
-            motionIntensity = state.motionIntensity,
-            radius = 999,
-            modifier = clickModifier,
-            role = if (active) GlassRole.Floating else GlassRole.Chip,
+        PressableGlass(
+            state.quality,
+            state.glassIntensity * if (active) 1.04f else 0.96f,
+            state.motionIntensity,
+            999,
+            modifier,
+            if (active) GlassRole.Floating else GlassRole.Chip,
+            onClick = onClick,
             content = content
         )
     } else {
         StockNativeFrostCard(
-            modifier = clickModifier,
+            modifier = modifier.clickable(onClick = onClick),
             radius = 999.dp,
-            frostAlpha = (if (active) 0.105f else 0.068f) + if (pressed) 0.018f else 0f,
+            frostAlpha = if (active) 0.105f else 0.068f,
             content = content
         )
     }
