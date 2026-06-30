@@ -2,7 +2,7 @@ package com.yuchen.ailedger
 
 import android.app.Application
 import android.content.Context
-import com.yuchen.ailedger.data.StockMarketDataRepository
+import com.yuchen.ailedger.data.StockMarketStageRepository
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
@@ -47,14 +47,15 @@ class AiLedgerApplication : Application() {
         }
 
         // 股票代理使用 Render 免费实例，长时间空闲后可能休眠。只有 Compose 前台首屏真正稳定后
-        // 才允许无阻塞预热；后台组件或无障碍空闲态拉起进程时不产生股票网络请求。
+        // 才顺序预热“指数→市场宽度→榜单板块”，避免三个 URL 在冷启动时同时争抢连接。
+        // 后台组件或无障碍空闲态拉起进程时不会产生股票网络请求。
         applicationScope.launch(Dispatchers.IO) {
             val foregroundReady = withTimeoutOrNull(15_000L) {
                 StartupPerformanceGate.awaitDeferredBusinessWindow()
                 true
             } == true
             if (foregroundReady) {
-                StockMarketDataRepository.prewarmMarketHome()
+                StockMarketStageRepository.prewarmMarketHome()
             }
         }
     }
