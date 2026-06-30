@@ -14,6 +14,7 @@ import org.json.JSONObject
 class StockMarketDataRepository(
     private val proxyBaseUrl: String = "https://ai-ledger-stock-proxy.onrender.com"
 ) {
+    @Deprecated("市场首页请直接使用 StockMarketStageRepository")
     fun loadMarketHome(coldStartWait: Boolean = false): Result<StockMarketHomeSnapshot> = runCatching {
         val stages = StockMarketStageRepository(proxyBaseUrl)
         val indices = stages.loadIndices(forceNetwork = coldStartWait).getOrThrow()
@@ -49,7 +50,7 @@ class StockMarketDataRepository(
                 indices.limitUpMeta
             },
             updatedAt = listOf(indices.updatedAt, breadth.updatedAt, discovery.updatedAt)
-                .firstOrNull(String::isNotBlank)
+                .firstOrNull { it.isNotBlank() }
                 .orEmpty(),
             warnings = (indices.warnings + breadth.warnings + discovery.warnings)
                 .distinct()
@@ -115,6 +116,7 @@ class StockMarketDataRepository(
         private const val SLOW_MICRO_CACHE_MS = 2_000L
         private const val MAX_WARNINGS = 32
 
+        @Deprecated("请使用 StockMarketStageRepository.prewarmMarketHome()")
         fun prewarmMarketHome() {
             StockMarketStageRepository.prewarmMarketHome()
         }
