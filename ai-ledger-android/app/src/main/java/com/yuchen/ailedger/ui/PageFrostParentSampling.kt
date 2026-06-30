@@ -11,7 +11,8 @@ import kotlin.math.roundToInt
 internal fun DrawScope.drawPageFrostBackdrop(
     backdrop: BlurredBackdropBitmap,
     sampleOffset: Offset,
-    localSize: Size,
+    sampleSize: Size,
+    destinationSize: Size,
     alpha: Float,
 ) {
     if (backdrop.image.width <= 0 || backdrop.image.height <= 0) return
@@ -21,11 +22,11 @@ internal fun DrawScope.drawPageFrostBackdrop(
     val srcY = (sampleOffset.y * backdrop.scale)
         .roundToInt()
         .coerceIn(0, backdrop.image.height - 1)
-    val srcW = (localSize.width * backdrop.scale)
+    val srcW = (sampleSize.width * backdrop.scale)
         .roundToInt()
         .coerceAtLeast(1)
         .coerceAtMost(backdrop.image.width - srcX)
-    val srcH = (localSize.height * backdrop.scale)
+    val srcH = (sampleSize.height * backdrop.scale)
         .roundToInt()
         .coerceAtLeast(1)
         .coerceAtMost(backdrop.image.height - srcY)
@@ -36,8 +37,8 @@ internal fun DrawScope.drawPageFrostBackdrop(
         srcSize = IntSize(srcW, srcH),
         dstOffset = IntOffset.Zero,
         dstSize = IntSize(
-            localSize.width.roundToInt().coerceAtLeast(1),
-            localSize.height.roundToInt().coerceAtLeast(1),
+            destinationSize.width.roundToInt().coerceAtLeast(1),
+            destinationSize.height.roundToInt().coerceAtLeast(1),
         ),
         alpha = alpha.coerceIn(0f, 1f),
         blendMode = BlendMode.SrcOver,
