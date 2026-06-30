@@ -82,12 +82,12 @@ class AssistantMemoryStateTest {
     }
 
     @Test
-    fun customInstructionsPreserveParagraphsAndRespectLimit() {
+    fun customInstructionsPreserveParagraphsWithoutSilentTruncation() {
         val raw = "第一条规则\r\n\r\n第二条   规则" + "x".repeat(ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH)
 
         val normalized = normalizeCustomInstructions(raw)
 
         assertTrue(normalized.contains("第一条规则\n\n第二条 规则"))
-        assertEquals(ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH, normalized.length)
+        assertTrue(customInstructionsCharacterCount(normalized) > ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH)
     }
 }
