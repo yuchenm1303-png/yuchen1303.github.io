@@ -9,9 +9,13 @@ on:
       - "ai-ledger-android/**"
       - ".github/workflows/build-compose-android-apk.yml"
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   backend_contract:
-    name: Test backend source contracts
+    name: Test backend and lightweight source contracts
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -23,6 +27,8 @@ jobs:
       - name: Test backend modules
         working-directory: ai-ledger-android/app/backend
         run: npm test
+      - name: Verify Android lightweight contracts
+        run: python ai-ledger-android/scripts/verify_lightweight_contracts.py
 
   debug_test:
     name: Test and build debug APK
@@ -44,7 +50,7 @@ jobs:
         working-directory: ai-ledger-android
         env:
           AI_LEDGER_CLIENT_TOKEN: ${{ secrets.AI_LEDGER_CLIENT_TOKEN }}
-        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug
+        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug --stacktrace
       - name: Upload materialized home sources
         if: always()
         uses: actions/upload-artifact@v4
@@ -86,7 +92,78 @@ jobs:
         working-directory: ai-ledger-android
         env:
           AI_LEDGER_CLIENT_TOKEN: ${{ secrets.AI_LEDGER_CLIENT_TOKEN }}
-        run: gradle -p . :app:assemblePerformance
+        run: gradle -p . :app:assemblePerformance --stacktrace
+      - name: Download previous performance APK baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          baseline_dir="ai-ledger-android/app/build/apk-baseline"
+          mkdir -p "$baseline_dir"
+
+          previous_run_id="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/build-compose-android-apk.yml/runs?branch=dev-update-1&status=success&per_page=20" \
+              --jq ".workflow_runs[] | select(.id != ${GITHUB_RUN_ID}) | .id" \
+              | head -n 1 || true
+          )"
+          if [ -z "$previous_run_id" ]; then
+            echo "No previous successful workflow run found."
+            exit 0
+          fi
+
+          artifact_id="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts?per_page=100" \
+              --jq '.artifacts[] | select(.name == "ai-assistant-compose-performance-apk" and .expired == false) | .id' \
+              | head -n 1 || true
+          )"
+          if [ -z "$artifact_id" ]; then
+            echo "No previous performance APK artifact found."
+            exit 0
+          fi
+
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+            > "$baseline_dir/artifact.zip"
+          unzip -q "$baseline_dir/artifact.zip" -d "$baseline_dir/unpacked"
+          baseline_apk="$(find "$baseline_dir/unpacked" -type f -name '*.apk' | head -n 1 || true)"
+          if [ -n "$baseline_apk" ]; then
+            cp "$baseline_apk" "$baseline_dir/baseline-performance.apk"
+            echo "Baseline APK restored from workflow run ${previous_run_id}."
+          fi
+      - name: Generate APK size regression report
+        run: |
+          set -euo pipefail
+          report="ai-ledger-android/app/build/reports/apk-regression.md"
+          current="ai-ledger-android/app/build/outputs/apk/performance/app-performance.apk"
+          mapping="ai-ledger-android/app/build/outputs/mapping/performance/mapping.txt"
+          baseline="ai-ledger-android/app/build/apk-baseline/baseline-performance.apk"
+          args=(
+            --current "$current"
+            --mapping "$mapping"
+            --report "$report"
+            --max-growth-percent 5
+            --max-growth-bytes 1048576
+          )
+          if [ -f "$baseline" ]; then
+            args+=(--baseline "$baseline")
+          fi
+
+          set +e
+          python ai-ledger-android/scripts/apk_metrics.py "${args[@]}"
+          status=$?
+          set -e
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Upload APK regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-assistant-apk-regression-report
+          path: ai-ledger-android/app/build/reports/apk-regression.md
+          if-no-files-found: warn
       - name: Upload Compose performance APK
         uses: actions/upload-artifact@v4
         with:
