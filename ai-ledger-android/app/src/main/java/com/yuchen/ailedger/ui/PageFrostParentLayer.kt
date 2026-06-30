@@ -5,17 +5,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 
 private const val PageFrostPreloadMarginDp = 64f
 
-/** 通用雾面玻璃的页面级单 Canvas，不接入任何 OpenGL 结构。 */
 @Composable
 internal fun PageFrostParentLayer(
     layerState: PageFrostParentLayerState,
@@ -40,24 +41,31 @@ internal fun PageFrostParentLayer(
         if (backdrop != null) frameTicker?.frameNanos
 
         items.forEach { item ->
-            if (!item.coordinates.isAttached) return@forEach
+            val coordinates = item.coordinates
+            if (!coordinates.isAttached) return@forEach
+            val currentRectInRoot = coordinates.boundsInRoot()
+            if (currentRectInRoot.width <= 1f || currentRectInRoot.height <= 1f) return@forEach
             val localRect = Rect(
-                left = item.rectInRoot.left - root.left,
-                top = item.rectInRoot.top - root.top,
-                right = item.rectInRoot.right - root.left,
-                bottom = item.rectInRoot.bottom - root.top,
+                left = currentRectInRoot.left - root.left,
+                top = currentRectInRoot.top - root.top,
+                right = currentRectInRoot.right - root.left,
+                bottom = currentRectInRoot.bottom - root.top,
             )
             if (!localRect.isNearPageFrostViewport(viewport, preloadMargin)) return@forEach
 
             val foldoutClip = foldoutClipRegistry.resolveLocalClip(
-                descendant = item.coordinates,
+                descendant = coordinates,
                 hostRootOffset = root.topLeft,
                 viewport = viewport,
             ) ?: return@forEach
             if (!localRect.overlapsPageFrostRect(foldoutClip)) return@forEach
 
-            val cache = ensurePageFrostCache(item, localRect.size)
-            val sampleOffset = item.rectInRoot.topLeft - backdropRoot
+            val sourceSize = Size(
+                coordinates.size.width.toFloat().coerceAtLeast(1f),
+                coordinates.size.height.toFloat().coerceAtLeast(1f),
+            )
+            val cache = ensurePageFrostCache(item, localRect.size, sourceSize)
+            val sampleOffset = currentRectInRoot.topLeft - backdropRoot
             clipRect(
                 left = foldoutClip.left,
                 top = foldoutClip.top,
@@ -70,7 +78,8 @@ internal fun PageFrostParentLayer(
                             drawPageFrostBackdrop(
                                 backdrop = backdrop,
                                 sampleOffset = sampleOffset,
-                                localSize = cache.localSize,
+                                sampleSize = sourceSize,
+                                destinationSize = cache.localSize,
                                 alpha = item.backdropAlpha,
                             )
                         } else {
@@ -81,16 +90,10 @@ internal fun PageFrostParentLayer(
                             )
                         }
                         if (item.frostAlpha > 0f) {
-                            drawRect(
-                                color = Color.White.copy(alpha = item.frostAlpha),
-                                size = cache.localSize,
-                            )
+                            drawRect(Color.White.copy(alpha = item.frostAlpha), size = cache.localSize)
                         }
                         if (item.dimAlpha > 0f) {
-                            drawRect(
-                                color = Color.Black.copy(alpha = item.dimAlpha),
-                                size = cache.localSize,
-                            )
+                            drawRect(Color.Black.copy(alpha = item.dimAlpha), size = cache.localSize)
                         }
                     }
                 }
@@ -100,10 +103,7 @@ internal fun PageFrostParentLayer(
 }
 
 private fun Rect.overlapsPageFrostRect(other: Rect): Boolean =
-    right > other.left &&
-        bottom > other.top &&
-        left < other.right &&
-        top < other.bottom
+    right > other.left && bottom > other.top && left < other.right && top < other.bottom
 
 internal fun Rect.isNearPageFrostViewport(viewport: Rect, margin: Float): Boolean =
     right >= viewport.left - margin &&
