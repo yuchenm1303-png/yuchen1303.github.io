@@ -1,8 +1,6 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -12,11 +10,11 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -25,6 +23,8 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -33,7 +33,7 @@ import kotlin.math.roundToInt
  *
  * 这里只处理 FrostInfoGlassPanel 的背景裁切和纯色雾面罩，不调用 OpenGL，
  * 不注册到普通玻璃或 OpenGL registry，也不会触发任何 OpenGL geometry sync。
- * 所有可见小卡共享一次父级背景采样，子项只上报几何与材质参数。
+ * 所有可见小卡共享父级背景采样，子项只上报几何与材质参数。
  */
 @Stable
 private class StockFrostBatchNode(
@@ -133,7 +133,6 @@ private class StockFrostBatchRegistry {
 private class ResolvedStockFrostItem {
     var rect: Rect = Rect.Zero
     var radiusPx: Float = 0f
-    var backdropAlpha: Float = 1f
     var frostAlpha: Float = 0f
     var dimAlpha: Float = 0f
 }
@@ -162,7 +161,6 @@ private class StockFrostBatchDrawCache {
         }
         item.rect = rect
         item.radiusPx = radiusPx
-        item.backdropAlpha = backdropAlpha
         item.frostAlpha = frostAlpha
         item.dimAlpha = dimAlpha
         resolvedCount += 1
@@ -177,7 +175,7 @@ private class StockFrostBatchDrawCache {
         )
     }
 
-    inline fun forEachResolved(block: (ResolvedStockFrostItem) -> Unit) {
+    fun forEachResolved(block: (ResolvedStockFrostItem) -> Unit) {
         var index = 0
         while (index < resolvedCount) {
             block(resolvedPool[index])
@@ -185,11 +183,15 @@ private class StockFrostBatchDrawCache {
         }
     }
 
-    inline fun forEachBackdropPath(block: (Float, Path) -> Unit) {
+    fun forEachBackdropPath(block: (Float, Path) -> Unit) {
         backdropPaths.forEach { (alphaBits, path) ->
             if (!path.isEmpty) block(Float.fromBits(alphaBits), path)
         }
     }
+}
+
+private class StockFrostHostGeometry {
+    var root: Offset = Offset.Zero
 }
 
 private val LocalStockFrostBatchRegistry =
@@ -202,13 +204,11 @@ internal fun StockFrostBatchHost(
 ) {
     val registry = remember { StockFrostBatchRegistry() }
     val drawCache = remember { StockFrostBatchDrawCache() }
+    val hostGeometry = remember { StockFrostHostGeometry() }
     val backdropCoordinates = remember { GlassCoordinateSource() }
     val backdrop = LocalBlurredBackdrop.current
     val backdropOrigin = LocalBackdropOrigin.current
     val frameTicker = LocalBackdropFrameTicker.current
-
-    var hostRootX = 0f
-    var hostRootY = 0f
 
     DisposableEffect(registry) {
         onDispose { registry.clear() }
@@ -220,21 +220,122 @@ internal fun StockFrostBatchHost(
                 .onGloballyPositioned { coordinates ->
                     backdropCoordinates.coordinates = coordinates
                     val root = coordinates.positionInRoot()
-                    if (hostRootX != root.x || hostRootY != root.y) {
-                        hostRootX = root.x
-                        hostRootY = root.y
+                    if (hostGeometry.root != root) {
+                        hostGeometry.root = root
                         registry.invalidate()
                     }
                 }
-                .stockFrostBatchDraw(
-                    registry = registry,
-                    drawCache = drawCache,
-                    backdropCoordinates = backdropCoordinates,
-                    backdrop = backdrop,
-                    backdropOrigin = backdropOrigin,
-                    frameTicker = frameTicker,
-                    hostRoot = { Offset(hostRootX, hostRootY) }
-                )
+                .drawWithContent {
+                    frameTicker?.frameNanos
+                    registry.version
+                    drawCache.begin()
+
+                    val root = hostGeometry.root
+                    val viewportWidth = size.width
+                    val viewportHeight = size.height
+                    registry.snapshot().forEach { node ->
+                        if (node.width <= 0f || node.height <= 0f) return@forEach
+                        val left = node.rootX - root.x
+                        val top = node.rootY - root.y
+                        val right = left + node.width
+                        val bottom = top + node.height
+                        if (
+                            right <= 0f || bottom <= 0f ||
+                            left >= viewportWidth || top >= viewportHeight
+                        ) {
+                            return@forEach
+                        }
+                        drawCache.append(
+                            rect = Rect(left, top, right, bottom),
+                            radiusPx = node.radiusDp.dp.toPx(),
+                            backdropAlpha = node.backdropAlpha,
+                            frostAlpha = node.frostAlpha,
+                            dimAlpha = node.dimAlpha
+                        )
+                    }
+
+                    if (backdrop != null && size.width > 0f && size.height > 0f) {
+                        val sampleOffset = backdropCoordinates.offsetRelativeTo(backdropOrigin)
+                        val srcX = (sampleOffset.x * backdrop.scale)
+                            .roundToInt()
+                            .coerceIn(0, backdrop.image.width - 1)
+                        val srcY = (sampleOffset.y * backdrop.scale)
+                            .roundToInt()
+                            .coerceIn(0, backdrop.image.height - 1)
+                        val srcW = (size.width * backdrop.scale)
+                            .roundToInt()
+                            .coerceAtLeast(1)
+                            .coerceAtMost(backdrop.image.width - srcX)
+                        val srcH = (size.height * backdrop.scale)
+                            .roundToInt()
+                            .coerceAtLeast(1)
+                            .coerceAtMost(backdrop.image.height - srcY)
+                        val dstW = size.width.roundToInt().coerceAtLeast(1)
+                        val dstH = size.height.roundToInt().coerceAtLeast(1)
+
+                        drawCache.forEachBackdropPath { alpha, path ->
+                            clipPath(path) {
+                                drawImage(
+                                    image = backdrop.image,
+                                    srcOffset = IntOffset(srcX, srcY),
+                                    srcSize = IntSize(srcW, srcH),
+                                    dstOffset = IntOffset.Zero,
+                                    dstSize = IntSize(dstW, dstH),
+                                    alpha = alpha,
+                                    blendMode = BlendMode.SrcOver
+                                )
+                            }
+                        }
+                    } else {
+                        drawCache.forEachResolved { item ->
+                            val path = Path().apply {
+                                addRoundRect(
+                                    RoundRect(
+                                        rect = item.rect,
+                                        cornerRadius = CornerRadius(item.radiusPx, item.radiusPx)
+                                    )
+                                )
+                            }
+                            clipPath(path) {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color(0xFF1A2B58),
+                                            Color(0xFF5B4A8E),
+                                            Color(0xFFB85D78)
+                                        ),
+                                        startY = item.rect.top,
+                                        endY = item.rect.bottom
+                                    ),
+                                    topLeft = item.rect.topLeft,
+                                    size = item.rect.size
+                                )
+                            }
+                        }
+                    }
+
+                    drawCache.forEachResolved { item ->
+                        val corner = CornerRadius(item.radiusPx, item.radiusPx)
+                        if (item.frostAlpha > 0f) {
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = item.frostAlpha),
+                                topLeft = item.rect.topLeft,
+                                size = item.rect.size,
+                                cornerRadius = corner
+                            )
+                        }
+                        if (item.dimAlpha > 0f) {
+                            drawRoundRect(
+                                color = Color.Black.copy(alpha = item.dimAlpha),
+                                topLeft = item.rect.topLeft,
+                                size = item.rect.size,
+                                cornerRadius = corner
+                            )
+                        }
+                    }
+
+                    drawContent()
+                }
         ) {
             content()
         }
@@ -287,122 +388,4 @@ internal fun StockFrostBatchSurface(
             }
         }
     )
-}
-
-private fun Modifier.stockFrostBatchDraw(
-    registry: StockFrostBatchRegistry,
-    drawCache: StockFrostBatchDrawCache,
-    backdropCoordinates: GlassCoordinateSource,
-    backdrop: BlurredBackdropBitmap?,
-    backdropOrigin: BackdropCoordinateSource?,
-    frameTicker: BackdropFrameTicker?,
-    hostRoot: () -> Offset
-): Modifier = androidx.compose.ui.draw.drawWithContent {
-    frameTicker?.frameNanos
-    registry.version
-
-    drawCache.begin()
-    val root = hostRoot()
-    val viewportWidth = size.width
-    val viewportHeight = size.height
-
-    registry.snapshot().forEach { node ->
-        if (node.width <= 0f || node.height <= 0f) return@forEach
-        val left = node.rootX - root.x
-        val top = node.rootY - root.y
-        val right = left + node.width
-        val bottom = top + node.height
-        if (right <= 0f || bottom <= 0f || left >= viewportWidth || top >= viewportHeight) {
-            return@forEach
-        }
-        drawCache.append(
-            rect = Rect(left, top, right, bottom),
-            radiusPx = node.radiusDp.dp.toPx(),
-            backdropAlpha = node.backdropAlpha,
-            frostAlpha = node.frostAlpha,
-            dimAlpha = node.dimAlpha
-        )
-    }
-
-    if (backdrop != null && size.width > 0f && size.height > 0f) {
-        val sampleOffset = backdropCoordinates.offsetRelativeTo(backdropOrigin)
-        val srcX = (sampleOffset.x * backdrop.scale)
-            .roundToInt()
-            .coerceIn(0, backdrop.image.width - 1)
-        val srcY = (sampleOffset.y * backdrop.scale)
-            .roundToInt()
-            .coerceIn(0, backdrop.image.height - 1)
-        val srcW = (size.width * backdrop.scale)
-            .roundToInt()
-            .coerceAtLeast(1)
-            .coerceAtMost(backdrop.image.width - srcX)
-        val srcH = (size.height * backdrop.scale)
-            .roundToInt()
-            .coerceAtLeast(1)
-            .coerceAtMost(backdrop.image.height - srcY)
-        val dstW = size.width.roundToInt().coerceAtLeast(1)
-        val dstH = size.height.roundToInt().coerceAtLeast(1)
-
-        drawCache.forEachBackdropPath { alpha, path ->
-            clipPath(path) {
-                drawImage(
-                    image = backdrop.image,
-                    srcOffset = androidx.compose.ui.unit.IntOffset(srcX, srcY),
-                    srcSize = androidx.compose.ui.unit.IntSize(srcW, srcH),
-                    dstOffset = androidx.compose.ui.unit.IntOffset.Zero,
-                    dstSize = androidx.compose.ui.unit.IntSize(dstW, dstH),
-                    alpha = alpha,
-                    blendMode = BlendMode.SrcOver
-                )
-            }
-        }
-    } else {
-        drawCache.forEachResolved { item ->
-            val path = Path().apply {
-                addRoundRect(
-                    RoundRect(
-                        rect = item.rect,
-                        cornerRadius = CornerRadius(item.radiusPx, item.radiusPx)
-                    )
-                )
-            }
-            clipPath(path) {
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF1A2B58),
-                            Color(0xFF5B4A8E),
-                            Color(0xFFB85D78)
-                        ),
-                        startY = item.rect.top,
-                        endY = item.rect.bottom
-                    ),
-                    topLeft = item.rect.topLeft,
-                    size = item.rect.size
-                )
-            }
-        }
-    }
-
-    drawCache.forEachResolved { item ->
-        val corner = CornerRadius(item.radiusPx, item.radiusPx)
-        if (item.frostAlpha > 0f) {
-            drawRoundRect(
-                color = Color.White.copy(alpha = item.frostAlpha),
-                topLeft = item.rect.topLeft,
-                size = item.rect.size,
-                cornerRadius = corner
-            )
-        }
-        if (item.dimAlpha > 0f) {
-            drawRoundRect(
-                color = Color.Black.copy(alpha = item.dimAlpha),
-                topLeft = item.rect.topLeft,
-                size = item.rect.size,
-                cornerRadius = corner
-            )
-        }
-    }
-
-    drawContent()
 }
