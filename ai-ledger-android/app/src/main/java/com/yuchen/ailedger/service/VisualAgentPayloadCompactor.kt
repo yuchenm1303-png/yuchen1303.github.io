@@ -4,63 +4,33 @@ import org.json.JSONObject
 
 private const val CANONICAL_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v15_unified_execution_permit"
 private const val CANONICAL_VISUAL_INTERACTION_PROTOCOL = "gui_plus_dialogue_v2_bound_turns"
-private const val CANONICAL_VISUAL_MEMORY_SCHEMA = "android_visual_agent_loop_memory_v15_unified_execution_permit"
 
-/**
- * Produces the single canonical transport contract consumed by the current Worker.
- *
- * The builder still exposes compatibility aliases for old synchronous callers and tests. The active
- * visual loop sends only one copy of each state object while preserving screenshot binding,
- * execution feedback, task memory and GUI Plus ownership.
- */
+/** Final transport boundary: one task memory, one execution feedback, no local reasoning fields. */
 internal fun JSONObject.compactVisualAgentPayloadForTransport(): JSONObject {
     put("agentSessionProtocol", CANONICAL_VISUAL_SESSION_PROTOCOL)
     put("interactionProtocol", CANONICAL_VISUAL_INTERACTION_PROTOCOL)
-    TRANSPORT_ALIAS_KEYS.forEach(::remove)
 
-    optJSONObject("agentMemory")?.apply {
-        put("schema", CANONICAL_VISUAL_MEMORY_SCHEMA)
-        put("interactionProtocol", CANONICAL_VISUAL_INTERACTION_PROTOCOL)
-        AGENT_MEMORY_DUPLICATE_KEYS.forEach(::remove)
-        optJSONObject("loopSignals")?.let { signals ->
-            LOOP_SIGNAL_DUPLICATE_KEYS.forEach(signals::remove)
-        }
+    optJSONObject("agentMemory")?.optJSONObject("taskMemory")?.let { memory ->
+        LOCAL_REASONING_KEYS.forEach(memory::remove)
+        memory.put("semanticDecisionOwner", "gui_plus")
+        memory.put("localSemanticDecision", false)
+        memory.put("executionLedgerOnly", true)
+        put("taskMemory", memory)
     }
+
+    LEGACY_TOP_LEVEL_KEYS.forEach(::remove)
     return this
 }
 
-private val TRANSPORT_ALIAS_KEYS = setOf(
-    "agentGoal",           // canonical: goal
-    "recentActions",       // canonical: recentAgentActions
-    "toolResponse",        // canonical: lastToolResponse
-    "sessionId",           // canonical: agentSessionId
-    "clientId",            // canonical: deviceId
-    "message",             // canonical: goal
-    "hasImage",            // canonical: hasScreenshot
-    "hasImages",           // canonical: hasScreenshot + imageCount
-    "taskContract",        // canonical: agentMemory.taskMemory.taskContract
+private val LEGACY_TOP_LEVEL_KEYS = setOf(
+    "agentGoal", "message", "sessionId", "clientId", "recentActions",
+    "toolResponse", "lastToolResponse", "agentMemory", "surfaceContext",
+    "taskContract", "hasImage", "hasImages", "visualReplanRequested",
+    "guiPlusReplanRequested", "localVisualRetryRequested", "routeRefreshRequested",
+    "invalidateCachedAgentBrainRoute",
 )
 
-private val AGENT_MEMORY_DUPLICATE_KEYS = setOf(
-    "runtimeExecutionContext", // canonical top-level runtimeExecutionContext
-    "surfaceContext",          // canonical top-level surfaceContext
-    "deviceProfile",           // canonical top-level/deviceContext deviceProfile
-    "appSelectionProtocol",    // canonical top-level appSelectionProtocol
-    "executionFeedback",       // canonical top-level executionFeedback
-    "lastToolResponse",        // canonical top-level lastToolResponse
-    "taskContract",            // canonical agentMemory.taskMemory.taskContract
-)
-
-private val LOOP_SIGNAL_DUPLICATE_KEYS = setOf(
-    "postActionFeedback",      // canonical top-level executionFeedback
-    "lastToolResponse",        // canonical top-level lastToolResponse
-    "currentMilestoneId",      // canonical agentMemory.taskMemory
-    "completedMilestoneIds",
-    "failedHypotheses",
-    "blockedActions",
-    "remainingExplorationBudget",
-    "lastConfirmedPage",
-    "semanticProgressStatus",
-    "semanticReplanRequested",
-    "legacyTaskContract",
+private val LOCAL_REASONING_KEYS = setOf(
+    "reasoningContext", "reasoningDepth", "reasoningTriggers",
+    "failedHypotheses", "blockedActions", "remainingExplorationBudget",
 )
