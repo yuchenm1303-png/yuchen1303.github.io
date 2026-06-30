@@ -11,7 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.dp
 
 private const val PageFrostPreloadMarginDp = 64f
@@ -58,8 +58,7 @@ internal fun PageFrostParentLayer(
                 coordinates.size.height.toFloat().coerceAtLeast(1f),
             )
             val cache = ensurePageFrostCache(item, localRect.size, sourceSize)
-            val currentRectInRoot = coordinates.boundsInRoot()
-            val sampleOffset = currentRectInRoot.topLeft - backdropRoot
+            val sampleOffset = coordinates.positionInRoot() - backdropRoot
             clipRect(
                 left = foldoutClip.left,
                 top = foldoutClip.top,
