@@ -115,10 +115,5 @@ class StockMarketDataRepository(
         private const val SLOW_TIMEOUT_MS = 12_000
         private const val SLOW_MICRO_CACHE_MS = 2_000L
         private const val MAX_WARNINGS = 32
-
-        @Deprecated("请使用 StockMarketStageRepository.prewarmMarketHome()")
-        fun prewarmMarketHome() {
-            StockMarketStageRepository.prewarmMarketHome()
-        }
     }
 }
