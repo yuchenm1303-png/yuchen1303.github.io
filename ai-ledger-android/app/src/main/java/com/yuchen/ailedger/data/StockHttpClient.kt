@@ -20,9 +20,9 @@ import okhttp3.Request
 /**
  * 股票模块共享网络传输层。
  *
- * 所有股票接口复用连接池、singleflight 和极短响应微缓存。传输层超时、限流或服务端错误后，
- * 会对同一接口族进行短暂冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个
- * Render 实例。市场首页拥有独立冷启动恢复流程，不进入通用失败冷却。
+ * 所有股票接口复用连接池、singleflight 和极短响应微缓存。个股接口在传输层失败后会短暂
+ * 冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个 Render 实例；市场首页阶段
+ * 接口由上层 stale-while-revalidate 负责恢复，不进入通用失败冷却。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -128,10 +128,11 @@ internal object StockHttpClient {
     }
 
     private fun effectiveTimeoutMs(url: String, requestedTimeoutMs: Int): Int {
-        if ("/api/stock/a-share/market/home" in url) {
-            return MARKET_HOME_TIMEOUT_MS
-        }
         val routeCapMs = when {
+            "/api/stock/a-share/market/home" in url -> MARKET_HOME_TIMEOUT_MS
+            "/api/stock/a-share/market/indices" in url -> 3_200
+            "/api/stock/a-share/market/breadth" in url -> 2_800
+            "/api/stock/a-share/market/discovery" in url -> 2_800
             "/api/stock/a-share/realtime" in url -> 2_300
             "/api/stock/a-share/quotes" in url -> 3_200
             "/api/stock/a-share/kline" in url -> 6_500
@@ -145,7 +146,11 @@ internal object StockHttpClient {
     }
 
     private fun shouldRememberTransportFailure(url: String): Boolean {
-        return "/api/stock/a-share/market/home" !in url
+        return !isMarketHomeRoute(url)
+    }
+
+    private fun isMarketHomeRoute(url: String): Boolean {
+        return "/api/stock/a-share/market/" in url
     }
 
     private fun normalizeTransportError(
@@ -202,6 +207,7 @@ internal object StockHttpClient {
     }
 
     private fun recentTransportFailure(url: String): Throwable? {
+        if (!shouldRememberTransportFailure(url)) return null
         val key = requestFamily(url)
         val failure = transportFailures[key] ?: return null
         if (failure.expiresAtMs > System.currentTimeMillis()) return failure.error
@@ -235,6 +241,9 @@ internal object StockHttpClient {
             throw (error.cause ?: error)
         } catch (error: TimeoutException) {
             throw IllegalStateException("共享行情请求等待超时：${url.take(96)}", error)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IllegalStateException("共享行情请求已取消：${url.take(96)}", error)
         }
     }
 
