@@ -26,13 +26,13 @@ private const val CANCELLABLE_VISUAL_STOP_POLL_MS = 50L
 private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v16_text_bootstrap_gui_loop"
 
 /**
- * Uses two deliberately separate cloud phases:
+ * Two deliberately separate cloud phases:
  *
- * 1. Before a verified work surface exists, DeepSeek receives only the user goal and the canonical
+ * 1. Before a verified work surface exists, DeepSeek receives only the user goal and canonical
  *    launchable-app directory. No screenshot, observation, node tree, visual history or runtime
  *    reasoning state is uploaded.
- * 2. After Android has opened and verified the exact target package, the regular GUI Plus request
- *    carries the fresh screenshot and the committed cloud-authored task contract.
+ * 2. After Android opens and verifies the exact target package, GUI Plus receives the fresh
+ *    screenshot and committed cloud-authored task contract.
  *
  * Android does not select an app, split the goal or infer a milestone in either phase.
  */
@@ -153,46 +153,23 @@ internal fun buildInitialAgentBrainRoutePayload(
     }
 
     return JSONObject().apply {
-        put("action", "agent_brain_route")
         put("intent", "agent_brain_route")
-        put("type", "agent_brain_route")
-        put("requestType", "agent_brain_route")
-        put("agentBrainRoute", true)
         put("goal", goal.trim().take(240))
-        put("agentGoal", goal.trim().take(240))
-        put("message", goal.trim().take(240))
         put("agentSessionId", agentSessionId.trim().take(120))
-        put("sessionId", agentSessionId.trim().take(120))
         put("deviceId", deviceId.trim().take(120))
-        put("clientId", deviceId.trim().take(120))
+        put("agentSessionProtocol", CANCELLABLE_VISUAL_SESSION_PROTOCOL)
         put("appInventoryHash", inventoryHash)
         put("appContext", appArray)
         put("deviceContext", JSONObject().apply {
             put("schema", "android_agent_brain_text_bootstrap_v1")
             put("appInventoryHash", inventoryHash)
-            put("installedApps", appArray)
         })
         taskContract?.let { contract ->
             put("taskContract", contract.toJson())
             put("agentMemory", JSONObject().apply { put("taskContract", contract.toJson()) })
         }
-        put("hasScreenshot", false)
-        put("hasImage", false)
-        put("imageCount", 0)
-        put("allowAgentBrain", true)
-        put("allowRoutePlanner", false)
-        put("allowSemanticJudge", false)
-        put("decisionOwner", "deepseek")
-        put("visualDecisionOwner", "none_before_verified_work_surface")
-        put("responseFormat", JSONObject().apply {
-            put("type", "json_object")
-            put("includeAgentBrainRoute", true)
-            put("includeAgentStep", true)
-            put("includeTaskContract", true)
-        })
         put("client", "android-compose")
         put("clientVersion", "text-bootstrap-gui-loop-v1")
-        put("now", System.currentTimeMillis())
     }
 }
 
@@ -266,6 +243,24 @@ private fun postCancellableAgentRequest(
             } else {
                 "visual_agent_step timed out after ${CANCELLABLE_VISUAL_READ_TIMEOUT_MS / 1000}s"
             },
+            cause = error,
+        )
+    } catch (error: VisualAgentRequestException) {
+        if (!initialRoute || !error.retryable) throw error
+        throw VisualAgentRequestException(
+            httpStatus = error.httpStatus,
+            code = error.code,
+            retryable = false,
+            backendMessage = "${error.backendMessage}; initial text planning is not retried inside the visual loop",
+            cause = error,
+        )
+    } catch (error: java.io.IOException) {
+        if (!initialRoute) throw error
+        throw VisualAgentRequestException(
+            httpStatus = null,
+            code = "agent_brain_route_failed",
+            retryable = false,
+            backendMessage = "DeepSeek initial text planning failed before GUI Plus started: ${error.message.orEmpty().take(240)}",
             cause = error,
         )
     } finally {
