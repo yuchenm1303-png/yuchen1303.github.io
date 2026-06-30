@@ -4,6 +4,7 @@ import android.os.SystemClock
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -12,18 +13,28 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
 import org.json.JSONObject
 
 private const val CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS = 8_000
 private const val CANCELLABLE_VISUAL_READ_TIMEOUT_MS = 25_000
 private const val CANCELLABLE_VISUAL_CALL_TIMEOUT_MS = 35_000L
+private const val INITIAL_ROUTE_CONNECT_TIMEOUT_MS = 5_000
+private const val INITIAL_ROUTE_READ_TIMEOUT_MS = 10_000
+private const val INITIAL_ROUTE_CALL_TIMEOUT_MS = 12_000L
 private const val CANCELLABLE_VISUAL_STOP_POLL_MS = 50L
-private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v15_unified_execution_permit"
+private const val CANCELLABLE_VISUAL_SESSION_PROTOCOL = "android_visual_agent_v16_text_bootstrap_gui_loop"
 
 /**
- * Runs one visual planning request on Dispatchers.IO while keeping the active connection reachable
- * from the task-stop watcher. Disconnecting the HttpURLConnection unblocks upload/read immediately;
- * normal requests keep the same payload, headers and timeout policy as the synchronous path.
+ * Uses two deliberately separate cloud phases:
+ *
+ * 1. Before a verified work surface exists, DeepSeek receives only the user goal and the canonical
+ *    launchable-app directory. No screenshot, observation, node tree, visual history or runtime
+ *    reasoning state is uploaded.
+ * 2. After Android has opened and verified the exact target package, the regular GUI Plus request
+ *    carries the fresh screenshot and the committed cloud-authored task contract.
+ *
+ * Android does not select an app, split the goal or infer a milestone in either phase.
  */
 internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
     goal: String,
@@ -41,26 +52,41 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
 ): CloudAgentPlan = coroutineScope {
     val endpointBase = endpoint.trim().trimEnd('/')
     if (endpointBase.isBlank()) throw java.io.IOException("AI Worker endpoint is not configured")
-    val payload = buildVisualAgentPayload(
-        goal = goal,
-        snapshot = snapshot,
-        recentActions = recentActions,
-        visualHistory = visualHistory,
-        appContext = appContext,
-        deviceId = deviceId,
-        agentSessionId = agentSessionId,
-        executionMode = executionMode,
-        deviceProfile = deviceProfile,
-        runtimeContext = runtimeContext,
-        taskMemory = taskMemory,
-    ).compactVisualAgentPayloadForTransport()
+
+    val initialRoute = runtimeContext?.guiPlusEligible != true
+    val payload = if (initialRoute) {
+        buildInitialAgentBrainRoutePayload(
+            goal = goal,
+            appContext = appContext,
+            deviceId = deviceId,
+            agentSessionId = agentSessionId,
+            taskContract = taskMemory?.taskContract,
+        )
+    } else {
+        buildVisualAgentPayload(
+            goal = goal,
+            snapshot = snapshot,
+            recentActions = recentActions,
+            visualHistory = visualHistory,
+            appContext = appContext,
+            deviceId = deviceId,
+            agentSessionId = agentSessionId,
+            executionMode = executionMode,
+            deviceProfile = deviceProfile,
+            runtimeContext = runtimeContext,
+            taskMemory = taskMemory,
+        ).compactVisualAgentPayloadForTransport()
+    }
+    VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordModelRequestPayload(payload)
+
     val activeConnection = AtomicReference<HttpURLConnection?>(null)
     val request = async(Dispatchers.IO) {
-        postCancellableVisualAgentStep(
+        postCancellableAgentRequest(
             endpoint = endpointBase,
             payload = payload,
             deviceId = deviceId,
             agentSessionId = agentSessionId,
+            initialRoute = initialRoute,
             activeConnection = activeConnection,
         )
     }
@@ -74,17 +100,22 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
             delay(CANCELLABLE_VISUAL_STOP_POLL_MS)
         }
     }
+    val absoluteTimeoutMs = if (initialRoute) INITIAL_ROUTE_CALL_TIMEOUT_MS else CANCELLABLE_VISUAL_CALL_TIMEOUT_MS
     try {
-        withTimeoutOrNull(CANCELLABLE_VISUAL_CALL_TIMEOUT_MS) {
+        withTimeoutOrNull(absoluteTimeoutMs) {
             request.await()
         } ?: run {
             activeConnection.get()?.disconnect()
-            request.cancel(CancellationException("Visual request exceeded its absolute timeout."))
+            request.cancel(CancellationException("Cloud request exceeded its absolute timeout."))
             throw VisualAgentRequestException(
                 httpStatus = null,
-                code = "network_timeout",
-                retryable = true,
-                backendMessage = "visual_agent_step exceeded ${CANCELLABLE_VISUAL_CALL_TIMEOUT_MS / 1000}s absolute timeout",
+                code = if (initialRoute) "agent_brain_route_timeout" else "network_timeout",
+                retryable = !initialRoute,
+                backendMessage = if (initialRoute) {
+                    "DeepSeek initial text plan exceeded ${absoluteTimeoutMs / 1000}s; no screenshot or GUI request was started."
+                } else {
+                    "visual_agent_step exceeded ${absoluteTimeoutMs / 1000}s absolute timeout"
+                },
             )
         }
     } finally {
@@ -93,26 +124,107 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
     }
 }
 
-private fun postCancellableVisualAgentStep(
+internal fun buildInitialAgentBrainRoutePayload(
+    goal: String,
+    appContext: List<VisualAgentAppContextItem>,
+    deviceId: String,
+    agentSessionId: String,
+    taskContract: VisualTaskContract? = null,
+): JSONObject {
+    val apps = appContext.asSequence()
+        .map { it.label.trim() to it.packageName.trim() }
+        .filter { (label, packageName) -> label.isNotBlank() && packageName.isNotBlank() }
+        .distinctBy { it.second }
+        .take(160)
+        .toList()
+    val inventoryCanonical = apps.sortedBy { it.second }
+        .joinToString("\n") { (label, packageName) -> "$packageName|$label" }
+    val inventoryHash = MessageDigest.getInstance("SHA-256")
+        .digest(inventoryCanonical.toByteArray(Charsets.UTF_8))
+        .joinToString("") { byte -> "%02x".format(byte) }
+        .take(24)
+    val appArray = JSONArray().apply {
+        apps.forEach { (label, packageName) ->
+            put(JSONObject().apply {
+                put("label", label.take(120))
+                put("packageName", packageName.take(120))
+            })
+        }
+    }
+
+    return JSONObject().apply {
+        put("action", "agent_brain_route")
+        put("intent", "agent_brain_route")
+        put("type", "agent_brain_route")
+        put("requestType", "agent_brain_route")
+        put("agentBrainRoute", true)
+        put("goal", goal.trim().take(240))
+        put("agentGoal", goal.trim().take(240))
+        put("message", goal.trim().take(240))
+        put("agentSessionId", agentSessionId.trim().take(120))
+        put("sessionId", agentSessionId.trim().take(120))
+        put("deviceId", deviceId.trim().take(120))
+        put("clientId", deviceId.trim().take(120))
+        put("appInventoryHash", inventoryHash)
+        put("appContext", appArray)
+        put("deviceContext", JSONObject().apply {
+            put("schema", "android_agent_brain_text_bootstrap_v1")
+            put("appInventoryHash", inventoryHash)
+            put("installedApps", appArray)
+        })
+        taskContract?.let { contract ->
+            put("taskContract", contract.toJson())
+            put("agentMemory", JSONObject().apply { put("taskContract", contract.toJson()) })
+        }
+        put("hasScreenshot", false)
+        put("hasImage", false)
+        put("imageCount", 0)
+        put("allowAgentBrain", true)
+        put("allowRoutePlanner", false)
+        put("allowSemanticJudge", false)
+        put("decisionOwner", "deepseek")
+        put("visualDecisionOwner", "none_before_verified_work_surface")
+        put("responseFormat", JSONObject().apply {
+            put("type", "json_object")
+            put("includeAgentBrainRoute", true)
+            put("includeAgentStep", true)
+            put("includeTaskContract", true)
+        })
+        put("client", "android-compose")
+        put("clientVersion", "text-bootstrap-gui-loop-v1")
+        put("now", System.currentTimeMillis())
+    }
+}
+
+private fun postCancellableAgentRequest(
     endpoint: String,
     payload: JSONObject,
     deviceId: String,
     agentSessionId: String,
+    initialRoute: Boolean,
     activeConnection: AtomicReference<HttpURLConnection?>,
 ): CloudAgentPlan {
     val requestStart = SystemClock.elapsedRealtime()
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
-        connectTimeout = CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS
-        readTimeout = CANCELLABLE_VISUAL_READ_TIMEOUT_MS
+        connectTimeout = if (initialRoute) INITIAL_ROUTE_CONNECT_TIMEOUT_MS else CANCELLABLE_VISUAL_CONNECT_TIMEOUT_MS
+        readTimeout = if (initialRoute) INITIAL_ROUTE_READ_TIMEOUT_MS else CANCELLABLE_VISUAL_READ_TIMEOUT_MS
         doOutput = true
         setRequestProperty("Content-Type", "application/json; charset=utf-8")
         setRequestProperty("Accept", "application/json")
-        setRequestProperty("X-Client", "android-compose-visual-agent-v15-unified-permit")
+        setRequestProperty(
+            "X-Client",
+            if (initialRoute) "android-compose-agent-brain-bootstrap-v1" else "android-compose-visual-agent-v16",
+        )
         setRequestProperty("X-Client-Id", deviceId.take(120))
         setRequestProperty("X-Device-Id", deviceId.take(120))
         setRequestProperty("X-Agent-Session-Protocol", CANCELLABLE_VISUAL_SESSION_PROTOCOL)
         setRequestProperty("X-Agent-Session-Id", agentSessionId.take(120))
+        AiWorkerRequestIdentity.applyTo(
+            connection = this,
+            appClientToken = AiWorkerRequestIdentity.defaultAppClientToken(),
+            mode = AiWorkerIdentityMode.AppOnly,
+        )
     }
     activeConnection.set(connection)
     return try {
@@ -128,23 +240,32 @@ private fun postCancellableVisualAgentStep(
         val workerVersion = connection.getHeaderField("X-AI-Ledger-Worker-Version").orEmpty().take(48)
         val routeProtocol = connection.getHeaderField("X-AI-Ledger-Route-Protocol").orEmpty().take(48)
         AgentRuntimeController.noteDiagnostic(buildString {
-            append("VisualDirect q=").append(bytesToKb(requestBytes.size)).append("K")
-            append(" r=").append(bytesToKb(body.length)).append("K")
+            append(if (initialRoute) "AgentBrainText" else "GUIPlusVisual")
+            append(" q=").append(bytesToKb(requestBytes.size)).append("K")
+            append(" r=").append(bytesToKb(body.toByteArray(Charsets.UTF_8).size)).append("K")
             append(" h=").append(SystemClock.elapsedRealtime() - requestStart)
             if (workerVersion.isNotBlank()) append(" w=").append(workerVersion)
             if (routeProtocol.isNotBlank()) append(" p=").append(routeProtocol)
         })
         if (status !in 200..299) throw parseVisualAgentHttpFailure(status, body)
-        validateVisualAgentResponseObservationId(payload.optString("expectedActionObservationId"), data)
+        if (!initialRoute) {
+            validateVisualAgentResponseObservationId(payload.optString("expectedActionObservationId"), data)
+        }
         CloudAgentPlan.fromJson(data)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
-            ?: throw java.io.IOException("visual_agent_step did not return one agentStep")
+            ?: throw java.io.IOException(
+                if (initialRoute) "agent_brain_route did not return one executable agentStep" else "visual_agent_step did not return one agentStep",
+            )
     } catch (error: SocketTimeoutException) {
         throw VisualAgentRequestException(
             httpStatus = null,
-            code = "network_timeout",
-            retryable = true,
-            backendMessage = "visual_agent_step timed out after ${CANCELLABLE_VISUAL_READ_TIMEOUT_MS / 1000}s",
+            code = if (initialRoute) "agent_brain_route_timeout" else "network_timeout",
+            retryable = !initialRoute,
+            backendMessage = if (initialRoute) {
+                "DeepSeek initial text plan timed out after ${INITIAL_ROUTE_READ_TIMEOUT_MS / 1000}s; GUI Plus was not started."
+            } else {
+                "visual_agent_step timed out after ${CANCELLABLE_VISUAL_READ_TIMEOUT_MS / 1000}s"
+            },
             cause = error,
         )
     } finally {
