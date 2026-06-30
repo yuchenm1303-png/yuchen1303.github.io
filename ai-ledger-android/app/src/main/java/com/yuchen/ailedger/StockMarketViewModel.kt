@@ -117,20 +117,49 @@ class StockMarketViewModel(
     private var marketBreadthJob: Job? = null
     private var marketDiscoveryJob: Job? = null
     private var requestSeq = 0
-    private var pageActive = AppPageActivity.activeTab.value == AppTab.Tools
+    private var tabActive = AppPageActivity.activeTab.value == AppTab.Tools
+    private var screenVisible = false
+    private var pageActive = false
 
-    private val minuteCache = mutableMapOf<String, List<StockMinutePoint>>()
-    private val kLineCache = mutableMapOf<String, List<StockKLinePoint>>()
-    private val lastSequenceByStream = mutableMapOf<String, Long>()
-    private val lastSlowLoadAtByCode = mutableMapOf<String, Long>()
+    private val minuteCache = LinkedHashMap<String, List<StockMinutePoint>>(16, 0.75f, true)
+    private val kLineCache = LinkedHashMap<String, List<StockKLinePoint>>(20, 0.75f, true)
+    private val lastSequenceByStream = LinkedHashMap<String, Long>(28, 0.75f, true)
+    private val lastSlowLoadAtByCode = LinkedHashMap<String, Long>(28, 0.75f, true)
 
     init {
         viewModelScope.launch {
             AppPageActivity.activeTab.collect { tab ->
-                setPageActive(tab == AppTab.Tools)
+                tabActive = tab == AppTab.Tools
+                updatePageActive()
             }
         }
-        refreshHome()
+    }
+
+    /**
+     * Activity 级 ViewModel 必须额外知道股票 Composable 是否真实存在。
+     * Tools 首页和股票页属于同一 AppTab，仅依赖 AppTab 会让股票轮询在退出后继续运行。
+     */
+    fun setScreenVisible(visible: Boolean) {
+        if (screenVisible == visible) return
+        screenVisible = visible
+        if (visible && _uiState.value.showDetail) {
+            stopRealtimeLoop()
+            slowDetailJob?.cancel()
+            minuteJob?.cancel()
+            kLineJob?.cancel()
+            _uiState.update {
+                it.copy(
+                    showDetail = false,
+                    loading = false,
+                    activeAction = null,
+                    slowDataLoading = false,
+                    kLineLoading = false,
+                    depthState = StockDepthState(),
+                    requestMessage = null
+                )
+            }
+        }
+        updatePageActive()
     }
 
     fun updateQuery(value: String) {
@@ -302,22 +331,35 @@ class StockMarketViewModel(
         )
     }
 
+    private fun updatePageActive() {
+        setPageActive(tabActive && screenVisible)
+    }
+
     private fun setPageActive(active: Boolean) {
         if (pageActive == active) return
         pageActive = active
         if (!active) {
+            requestSeq += 1
             stopRealtimeLoop()
             stopMarketLoop()
             slowDetailJob?.cancel()
             minuteJob?.cancel()
             kLineJob?.cancel()
             quoteJob?.cancel()
+            _uiState.update { state ->
+                state.copy(
+                    loading = false,
+                    slowDataLoading = false,
+                    kLineLoading = false,
+                    requestMessage = state.requestMessage?.takeUnless { it.startsWith("正在") }
+                )
+            }
             return
         }
 
         val state = _uiState.value
         if (!state.showDetail) {
-            startMarketLoop()
+            startMarketLoop(forceNetwork = true)
             return
         }
         val code = activeCode()
@@ -711,7 +753,11 @@ class StockMarketViewModel(
                 }
             }
             if (acceptedRealData) {
-                lastSlowLoadAtByCode[query] = SystemClock.elapsedRealtime()
+                lastSlowLoadAtByCode.putBounded(
+                    query,
+                    SystemClock.elapsedRealtime(),
+                    MAX_SLOW_LOAD_CACHE_ENTRIES
+                )
             }
         }
     }
@@ -801,7 +847,9 @@ class StockMarketViewModel(
             _uiState.update { state ->
                 result.fold(
                     onSuccess = { points ->
-                        if (points.size >= 2) kLineCache[cacheKey] = points
+                        if (points.size >= 2) {
+                            kLineCache.putBounded(cacheKey, points, MAX_KLINE_CACHE_ENTRIES)
+                        }
                         val currentView = pageActive &&
                             state.stock.quote.code == target &&
                             !isMinuteTab(state.selectedTab) &&
@@ -909,7 +957,9 @@ class StockMarketViewModel(
             isSnapshot = frame.minuteIsSnapshot,
             maxSize = if (minuteDays >= 5) MAX_FIVE_DAY_POINTS else MAX_ONE_DAY_POINTS
         )
-        if (mergedMinutes.isNotEmpty()) minuteCache[minuteCacheKey] = mergedMinutes
+        if (mergedMinutes.isNotEmpty()) {
+            minuteCache.putBounded(minuteCacheKey, mergedMinutes, MAX_MINUTE_CACHE_ENTRIES)
+        }
 
         val visibleMinutes = if (exposeMinutePoints) {
             mergedMinutes.ifEmpty { state.stock.minutePoints }
@@ -1009,8 +1059,26 @@ class StockMarketViewModel(
         val streamKey = minuteKey(code, minuteDays)
         val previous = lastSequenceByStream[streamKey] ?: 0L
         if (sequence <= previous) return false
-        lastSequenceByStream[streamKey] = sequence
+        lastSequenceByStream.putBounded(
+            streamKey,
+            sequence,
+            MAX_SEQUENCE_CACHE_ENTRIES
+        )
         return true
+    }
+
+    private fun <K, V> LinkedHashMap<K, V>.putBounded(
+        key: K,
+        value: V,
+        maxEntries: Int
+    ) {
+        put(key, value)
+        while (size > maxEntries) {
+            val iterator = entries.iterator()
+            if (!iterator.hasNext()) break
+            iterator.next()
+            iterator.remove()
+        }
     }
 
     private fun stopRealtimeLoop() {
@@ -1067,5 +1135,9 @@ class StockMarketViewModel(
         private const val MAX_FIVE_DAY_POINTS = 2_600
         private const val MAX_TRADE_TICKS = 120
         private const val MAX_MARKET_WARNINGS = 32
+        private const val MAX_MINUTE_CACHE_ENTRIES = 12
+        private const val MAX_KLINE_CACHE_ENTRIES = 18
+        private const val MAX_SEQUENCE_CACHE_ENTRIES = 24
+        private const val MAX_SLOW_LOAD_CACHE_ENTRIES = 24
     }
 }
