@@ -6,53 +6,16 @@ import org.junit.Test
 
 class VisualRouteRetryPolicyTest {
     @Test
-    fun structuredFalseProviderTimeoutStops() {
+    fun legacyHttp400ProviderTimeoutIsRetried() {
         val error = VisualAgentRequestException(
             httpStatus = 400,
             code = "agent_brain_route_failed",
             retryable = false,
-            backendMessage = "provider_body_timeout",
+            backendMessage = "DeepSeek 主脑路由失败: provider_body_timeout",
         )
-        val decision = VisualRouteRetryPolicy.decide(error, 0)
-        assertTrue(decision is VisualRouteRetryDecision.Stop)
-        assertEquals("non_retryable", (decision as VisualRouteRetryDecision.Stop).reason)
-    }
 
-    @Test
-    fun structuredFalseLengthErrorStops() {
-        val error = VisualAgentRequestException(
-            httpStatus = 400,
-            code = "agent_brain_route_failed",
-            retryable = false,
-            backendMessage = "finish_reason=length content_chars=0",
-        )
-        val decision = VisualRouteRetryPolicy.decide(error, 0)
-        assertTrue(decision is VisualRouteRetryDecision.Stop)
-        assertEquals("non_retryable", (decision as VisualRouteRetryDecision.Stop).reason)
-    }
+        val decision = VisualRouteRetryPolicy.decide(error, completedRetries = 0)
 
-    @Test
-    fun structuredFalse503Stops() {
-        val error = VisualAgentRequestException(
-            httpStatus = 503,
-            code = "agent_brain_route_failed",
-            retryable = false,
-            backendMessage = "upstream unavailable",
-        )
-        val decision = VisualRouteRetryPolicy.decide(error, 0)
-        assertTrue(decision is VisualRouteRetryDecision.Stop)
-        assertEquals("non_retryable", (decision as VisualRouteRetryDecision.Stop).reason)
-    }
-
-    @Test
-    fun structuredTrue503Retries() {
-        val error = VisualAgentRequestException(
-            httpStatus = 503,
-            code = "visual_provider_unavailable",
-            retryable = true,
-            backendMessage = "upstream temporarily unavailable",
-        )
-        val decision = VisualRouteRetryPolicy.decide(error, 0)
         assertTrue(decision is VisualRouteRetryDecision.Retry)
         decision as VisualRouteRetryDecision.Retry
         assertEquals(1, decision.attempt)
@@ -60,16 +23,27 @@ class VisualRouteRetryPolicyTest {
     }
 
     @Test
-    fun initialAgentBrainTimeoutStopsWithoutVisualRetry() {
+    fun emptyLengthTruncatedRouteOutputIsRetried() {
         val error = VisualAgentRequestException(
-            httpStatus = null,
-            code = "agent_brain_route_timeout",
+            httpStatus = 400,
+            code = "agent_brain_route_failed",
             retryable = false,
-            backendMessage = "initial text planning exceeded client boundary",
+            backendMessage = "RetryCompact empty finish_reason=length choices=1 content_chars=0",
         )
-        val decision = VisualRouteRetryPolicy.decide(error, 0)
-        assertTrue(decision is VisualRouteRetryDecision.Stop)
-        assertEquals("request_timeout", (decision as VisualRouteRetryDecision.Stop).reason)
+
+        assertTrue(VisualRouteRetryPolicy.decide(error, 0) is VisualRouteRetryDecision.Retry)
+    }
+
+    @Test
+    fun transientHttpStatusOverridesIncorrectBackendRetryFlag() {
+        val error = VisualAgentRequestException(
+            httpStatus = 503,
+            code = "agent_brain_route_failed",
+            retryable = false,
+            backendMessage = "upstream unavailable",
+        )
+
+        assertTrue(VisualRouteRetryPolicy.decide(error, 0) is VisualRouteRetryDecision.Retry)
     }
 
     @Test
@@ -80,7 +54,9 @@ class VisualRouteRetryPolicyTest {
             retryable = false,
             backendMessage = "expectedActionObservationId is missing",
         )
-        val decision = VisualRouteRetryPolicy.decide(error, 0)
+
+        val decision = VisualRouteRetryPolicy.decide(error, completedRetries = 0)
+
         assertTrue(decision is VisualRouteRetryDecision.Stop)
         assertEquals("non_retryable", (decision as VisualRouteRetryDecision.Stop).reason)
     }
@@ -88,6 +64,7 @@ class VisualRouteRetryPolicyTest {
     @Test
     fun retryBudgetStopsAfterTwoRecoveryAttempts() {
         val decision = VisualRouteRetryPolicy.decide(retryable = true, completedRetries = 2)
+
         assertTrue(decision is VisualRouteRetryDecision.Stop)
         assertEquals("retry_limit_reached", (decision as VisualRouteRetryDecision.Stop).reason)
     }
