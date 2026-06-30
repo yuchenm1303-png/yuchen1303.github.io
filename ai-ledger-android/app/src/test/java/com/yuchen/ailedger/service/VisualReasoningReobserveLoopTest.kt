@@ -1,51 +1,53 @@
 package com.yuchen.ailedger.service
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualReasoningReobserveLoopTest {
     @Test
-    fun firstExplicitReobserveUsesNormalRegardlessOfDynamicFrame() {
+    fun firstReobserveDoesNotCreateLocalReasoningPressure() {
         val context = VisualReasoningPolicy.evaluate(
             memory = VisualTaskMemory(originalGoal = "测试任务"),
             recentActions = actualActionThenReobserves(count = 1, frameChanged = true),
         )
 
-        assertEquals(VisualReasoningDepth.Normal, context.depth)
-        assertEquals(1, context.noProgressCount)
-        assertEquals(1, context.sameActionCount)
-        assertTrue(VisualReasoningTrigger.FirstNoProgress in context.triggers)
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertEquals(0, context.noProgressCount)
+        assertEquals(0, context.sameActionCount)
+        assertTrue(context.triggers.isEmpty())
+        assertNull(VisualReasoningPolicy.deepReplanLine(context))
     }
 
     @Test
-    fun repeatedReobserveForcesDeepEvenWhenChartPixelsKeepChanging() {
+    fun repeatedReobserveStillLeavesReasoningToCloud() {
         val context = VisualReasoningPolicy.evaluate(
             memory = VisualTaskMemory(originalGoal = "测试任务"),
             recentActions = actualActionThenReobserves(count = 2, frameChanged = true),
         )
 
-        assertEquals(VisualReasoningDepth.Deep, context.depth)
-        assertEquals(2, context.noProgressCount)
-        assertEquals(2, context.sameActionCount)
-        assertTrue(VisualReasoningTrigger.RepeatedNoProgress in context.triggers)
-        assertNotNull(VisualReasoningPolicy.deepReplanLine(context))
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertEquals(0, context.noProgressCount)
+        assertEquals(0, context.sameActionCount)
+        assertTrue(context.triggers.isEmpty())
+        assertNull(VisualReasoningPolicy.deepReplanLine(context))
     }
 
     @Test
-    fun repeatedReobserveAlsoForcesDeepWhenFrameIsStatic() {
+    fun staticFrameReobserveDoesNotTriggerAndroidDeepMode() {
         val context = VisualReasoningPolicy.evaluate(
             memory = VisualTaskMemory(originalGoal = "测试任务"),
             recentActions = actualActionThenReobserves(count = 2, frameChanged = false),
         )
 
-        assertEquals(VisualReasoningDepth.Deep, context.depth)
-        assertEquals(2, context.noProgressCount)
+        assertEquals(VisualReasoningDepth.Fast, context.depth)
+        assertEquals(0, context.noProgressCount)
+        assertTrue(context.triggers.isEmpty())
     }
 
     @Test
-    fun ordinaryLoadingWaitIsDistinctAndClearsReobservePressure() {
+    fun ordinaryLoadingWaitAlsoRemainsNeutral() {
         val actions = actualActionThenReobserves(count = 2, frameChanged = true) + listOf(
             "wait|等待搜索结果加载完成:ok:target=等待搜索结果加载完成:result=等待 700ms",
             "visual_execution_observed:action=wait|等待搜索结果加载完成|frameChanged=true|replanRequired=false",
@@ -58,7 +60,8 @@ class VisualReasoningReobserveLoopTest {
 
         assertEquals(VisualReasoningDepth.Fast, context.depth)
         assertEquals(0, context.noProgressCount)
-        assertEquals(1, context.sameActionCount)
+        assertEquals(0, context.sameActionCount)
+        assertTrue(context.triggers.isEmpty())
     }
 
     private fun actualActionThenReobserves(
