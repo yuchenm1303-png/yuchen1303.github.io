@@ -19,24 +19,62 @@ class AiWorkerClientTest {
                     id = "user-test",
                     text = "你好",
                     role = MessageRole.User,
-                )
+                ),
             ),
             modelPreference = ChatModel.Kimi,
             onlineEnabled = false,
         )
 
         val preferences = payload.getJSONObject("chatExpressionPreferences")
-        assertEquals("ai_ledger_chat_expression_preferences_v1", preferences.getString("schema"))
+        assertEquals(
+            "ai_ledger_chat_expression_preferences_v1",
+            preferences.getString("schema"),
+        )
         assertTrue(preferences.getInt("inlineStickerFrequency") in 0..100)
         assertTrue(preferences.getInt("inlineStickerIntensity") in 0..100)
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-command-chat-v8-memory-diagnostics",
+            "compose-native-command-chat-v9-intent-gated",
             payload.getString("clientVersion"),
         )
         assertTrue(payload.getString("requestId").isNotBlank())
         assertTrue(payload.has("memoryMode"))
+    }
+
+    @Test
+    fun ordinaryQuestionDoesNotAttachDevicePlannerContext() {
+        val payload = payloadFor("解释一下三相异步电动机的工作原理")
+        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
+        val protocol = payload.getJSONObject("commandProtocol")
+
+        assertFalse(probe.getBoolean("enabled"))
+        assertFalse(probe.getBoolean("installedAppsIncluded"))
+        assertEquals(0, probe.getJSONArray("supportedDeviceToolSteps").length())
+        assertEquals(0, probe.getJSONArray("installedApps").length())
+        assertEquals(0, protocol.getJSONArray("supportedAgentActions").length())
+        assertFalse(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
+    }
+
+    @Test
+    fun explicitAppLaunchEnablesPlannerAndAppInventoryContract() {
+        val payload = payloadFor("请帮我打开微信")
+        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
+
+        assertTrue(probe.getBoolean("enabled"))
+        assertTrue(probe.getBoolean("installedAppsIncluded"))
+        assertTrue(probe.getJSONArray("supportedDeviceToolSteps").length() > 0)
+        assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
+    }
+
+    @Test
+    fun systemActionDoesNotAttachInstalledAppInventory() {
+        val payload = payloadFor("请帮我打开蓝牙")
+        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
+
+        assertTrue(probe.getBoolean("enabled"))
+        assertFalse(probe.getBoolean("installedAppsIncluded"))
+        assertEquals(0, probe.getJSONArray("installedApps").length())
     }
 
     @Test
@@ -54,7 +92,7 @@ class AiWorkerClientTest {
                 clientId = "test-device",
                 clientAuthToken = "app-token",
                 userAccessTokenProvider = { "header.payload.signature" },
-            )
+            ),
         )
 
         val headers = client.buildRequestHeadersForTest()
@@ -71,7 +109,7 @@ class AiWorkerClientTest {
                 clientId = "test-device",
                 clientAuthToken = "app-token",
                 userAccessTokenProvider = { null },
-            )
+            ),
         )
 
         val headers = client.buildRequestHeadersForTest()
@@ -87,7 +125,7 @@ class AiWorkerClientTest {
                 clientId = "test-device",
                 clientAuthToken = "same-token",
                 userAccessTokenProvider = { "same-token" },
-            )
+            ),
         )
 
         val headers = client.buildRequestHeadersForTest()
@@ -103,7 +141,7 @@ class AiWorkerClientTest {
                 clientId = "test-device",
                 clientAuthToken = "app-token",
                 userAccessTokenProvider = { "header.payload.signature" },
-            )
+            ),
         )
 
         val headers = client.buildRequestHeadersForTest(stream = true)
@@ -124,4 +162,22 @@ class AiWorkerClientTest {
         assertEquals("app-token", headers["X-AI-Ledger-Token"])
         assertNull(headers["Authorization"])
     }
+
+    private fun payloadFor(text: String) = AiWorkerClient(
+        AiWorkerConfig(
+            clientId = "test-device",
+            clientAuthToken = "app-token",
+            userAccessTokenProvider = { null },
+        ),
+    ).buildChatPayloadForTest(
+        messages = listOf(
+            ChatMessage(
+                id = "user-test",
+                text = text,
+                role = MessageRole.User,
+            ),
+        ),
+        modelPreference = ChatModel.Kimi,
+        onlineEnabled = false,
+    )
 }
