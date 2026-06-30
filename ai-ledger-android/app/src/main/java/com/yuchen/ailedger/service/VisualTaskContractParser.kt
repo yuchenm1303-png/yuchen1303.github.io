@@ -19,7 +19,9 @@ internal object VisualTaskContractParser {
 
         if (rejection != null) {
             root.recordContractRejection(rejection)
-            if (rejection == "provisional_completion_candidate") return null
+            if (rejection == "provisional_completion_candidate" || rejection == "backend_action_rewrite_not_executed") {
+                return null
+            }
             if (workSurface) root.failVisualProtocol(rejection, "Cloud response cannot mutate committed task state.")
             return null
         }
@@ -41,7 +43,7 @@ internal object VisualTaskContractParser {
             VisualTaskContractProtocol.validateContract(committed).requireAccepted(root)
             root.validateVisualActionIntent(step, args, intent, committed)
             root.recordContractReuse(committed)
-            return committed
+            return null
         }
 
         val milestones = item.objectList("milestones", "steps")
