@@ -1,16 +1,15 @@
 package com.yuchen.ailedger.service
 
 /**
- * Structural transaction boundary between cloud planning/vision and Android.
+ * Structural transaction boundary between GUI Plus and Android.
  *
- * DeepSeek AgentBrain owns the initial goal-level task contract. GUI Plus owns fresh-screen
- * semantics, milestone advancement and the next visual action. This validator never interprets
- * page text, app-specific words, visual meaning or user intent; Android only verifies that the
- * cloud-authored transaction is complete and internally consistent before execution.
+ * This validator never interprets page text, app-specific words, visual meaning, or user intent.
+ * GUI Plus owns every semantic decision. Android only verifies that the cloud decision arrived as a
+ * complete, internally consistent transaction before any work-surface action is executed.
  */
 internal object VisualTaskContractProtocol {
     const val PROMPT_LINE =
-        "visual_task_contract_protocol:v2|requiredOnWorkSurface=true|minMilestones=2|fullOrderedContract=true|singleGoalForbidden=true|actionIntentRequired=true|currentMilestoneBindingRequired=true|initialContractOwner=deepseek_agent_brain|visualProgressOwner=gui_plus|provisionalFinishCannotCommit=true|completionCommitOwner=android_fresh_screen_ack"
+        "visual_task_contract_protocol:v2|requiredOnWorkSurface=true|minMilestones=2|fullOrderedContract=true|singleGoalForbidden=true|actionIntentRequired=true|currentMilestoneBindingRequired=true|provisionalFinishCannotCommit=true|completionCommitOwner=android_fresh_screen_ack"
 
     data class Decision(
         val accepted: Boolean,
@@ -35,7 +34,7 @@ internal object VisualTaskContractProtocol {
         val contract = plan.taskContract ?: committedContract
             ?: return reject(
                 code = "task_contract_required",
-                message = "DeepSeek AgentBrain must establish a complete ordered task contract before GUI Plus can execute a work-surface action.",
+                message = "GUI Plus must provide a complete ordered task contract before a work-surface action can execute.",
             )
 
         validateContract(contract).takeUnless { it.accepted }?.let { return it }
@@ -90,7 +89,7 @@ internal object VisualTaskContractProtocol {
             )
         }
         if (contract.milestones.any { it.title.isBlank() && it.purpose.isBlank() }) {
-            return reject("milestone_description_required", "Every milestone must have a title or purpose supplied by the cloud planner.")
+            return reject("milestone_description_required", "Every milestone must have a title or purpose supplied by GUI Plus.")
         }
         if (contract.milestones.any { it.successEvidence.isEmpty() }) {
             return reject("milestone_evidence_required", "Every milestone must declare visible success evidence for GUI Plus.")
@@ -158,7 +157,7 @@ internal object VisualTaskContractProtocol {
         if (!incomingCompleted.containsAll(previousCompleted)) {
             return reject(
                 "completed_milestone_rollback",
-                "A same-revision task-contract update cannot roll back a completed milestone.",
+                "A same-revision task-contract update cannot roll back committed milestones.",
             )
         }
         return Decision.Accepted
