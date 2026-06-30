@@ -1,11 +1,11 @@
 package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -43,12 +43,8 @@ fun AStockMarketScreenV2(
 ) {
     val marketViewModel: StockMarketViewModel = viewModel()
     val nativeViewModel: StockNativePageViewModel = viewModel()
-    val marketUi by marketViewModel.uiState.collectAsState()
-    val nativeUi by nativeViewModel.uiState.collectAsState()
     val context = LocalContext.current.applicationContext
     val watchlistRepository = remember(context) { StockWatchlistRepository.get(context) }
-    val watchlistState by watchlistRepository.state.collectAsState()
-    val watchlist = watchlistState.items
     var route by remember { mutableStateOf<StockNativeRoute>(StockNativeRoute.Home) }
     val routeStack = remember { mutableStateListOf<StockNativeRoute>() }
     val baseDensity = LocalDensity.current
@@ -79,6 +75,11 @@ fun AStockMarketScreenV2(
         else -> 4.dp
     }
 
+    DisposableEffect(marketViewModel) {
+        marketViewModel.setScreenVisible(true)
+        onDispose { marketViewModel.setScreenVisible(false) }
+    }
+
     fun navigate(next: StockNativeRoute) {
         if (next == route) return
         routeStack.add(route)
@@ -93,19 +94,13 @@ fun AStockMarketScreenV2(
     }
 
     fun navigateBack() {
-        val previous = if (routeStack.isNotEmpty()) routeStack.removeAt(routeStack.lastIndex) else StockNativeRoute.Home
+        val previous = if (routeStack.isNotEmpty()) {
+            routeStack.removeAt(routeStack.lastIndex)
+        } else {
+            StockNativeRoute.Home
+        }
         if (route is StockNativeRoute.Detail) marketViewModel.backToHome()
         route = previous
-    }
-
-    fun toggleWatch() {
-        val quote = marketUi.stock.quote
-        if (quote.code.length != 6) return
-        watchlistRepository.toggle(
-            code = quote.code,
-            name = quote.name.ifBlank { quote.code },
-            market = quote.market
-        )
     }
 
     BackHandler {
@@ -116,129 +111,171 @@ fun AStockMarketScreenV2(
         LocalStockNativeGlassState provides state,
         LocalDensity provides stockDensity
     ) {
-        Box(
-            Modifier
+        StockFrostBatchHost(
+            modifier = Modifier
                 .fillMaxSize()
                 .padding(horizontal = routeHorizontalPadding)
         ) {
             when (val current = route) {
-                StockNativeRoute.Home -> StockNativeHomeScreen(
-                    marketUi = marketUi,
-                    nativeUi = nativeUi,
-                    watchlist = watchlist,
-                    watchlistStatus = watchlistState.statusLabel,
-                    watchlistMessage = watchlistState.message,
-                    watchlistBusy = watchlistState.loading || watchlistState.saving,
-                    onBack = onBack,
-                    onRefresh = marketViewModel::refreshHome,
-                    onRefreshWatchlist = watchlistRepository::refresh,
-                    onQueryChange = marketViewModel::updateQuery,
-                    onSearch = {
-                        val query = marketUi.query.trim()
-                        if (query.isNotBlank()) openStock(query)
-                    },
-                    onOpenStock = ::openStock,
-                    onRemoveWatch = watchlistRepository::remove,
-                    onSelectAction = { action ->
-                        marketViewModel.selectHomeAction(action)
-                        if (action == "热点") nativeViewModel.loadHot(StockNativeHotType.Popularity)
-                    },
-                    onOpenRanking = { type ->
-                        nativeViewModel.loadRanking(type)
-                        navigate(StockNativeRoute.Ranking(type))
-                    },
-                    onOpenHot = { type ->
-                        nativeViewModel.loadHot(type)
-                        navigate(StockNativeRoute.Hot(type))
-                    },
-                    onLoadConcept = nativeViewModel::loadConceptSectors,
-                    onOpenSector = { code ->
-                        nativeViewModel.loadSector(code)
-                        navigate(StockNativeRoute.Sector(code))
-                    },
-                    onOpenIndex = { code ->
-                        nativeViewModel.loadIndex(code)
-                        navigate(StockNativeRoute.Index(code))
-                    },
-                    onOpenAssistant = onOpenAssistant
-                )
+                StockNativeRoute.Home -> {
+                    val marketUi by marketViewModel.uiState.collectAsState()
+                    val nativeUi by nativeViewModel.uiState.collectAsState()
+                    val watchlistState by watchlistRepository.state.collectAsState()
+                    StockNativeHomeScreen(
+                        marketUi = marketUi,
+                        nativeUi = nativeUi,
+                        watchlist = watchlistState.items,
+                        watchlistStatus = watchlistState.statusLabel,
+                        watchlistMessage = watchlistState.message,
+                        watchlistBusy = watchlistState.loading || watchlistState.saving,
+                        onBack = onBack,
+                        onRefresh = marketViewModel::refreshHome,
+                        onRefreshWatchlist = watchlistRepository::refresh,
+                        onQueryChange = marketViewModel::updateQuery,
+                        onSearch = {
+                            val query = marketUi.query.trim()
+                            if (query.isNotBlank()) openStock(query)
+                        },
+                        onOpenStock = ::openStock,
+                        onRemoveWatch = watchlistRepository::remove,
+                        onSelectAction = { action ->
+                            marketViewModel.selectHomeAction(action)
+                            if (action == "热点") {
+                                nativeViewModel.loadHot(StockNativeHotType.Popularity)
+                            }
+                        },
+                        onOpenRanking = { type ->
+                            nativeViewModel.loadRanking(type)
+                            navigate(StockNativeRoute.Ranking(type))
+                        },
+                        onOpenHot = { type ->
+                            nativeViewModel.loadHot(type)
+                            navigate(StockNativeRoute.Hot(type))
+                        },
+                        onLoadConcept = nativeViewModel::loadConceptSectors,
+                        onOpenSector = { code ->
+                            nativeViewModel.loadSector(code)
+                            navigate(StockNativeRoute.Sector(code))
+                        },
+                        onOpenIndex = { code ->
+                            nativeViewModel.loadIndex(code)
+                            navigate(StockNativeRoute.Index(code))
+                        },
+                        onOpenAssistant = onOpenAssistant
+                    )
+                }
 
-                is StockNativeRoute.Ranking -> StockNativeRankingScreen(
-                    ui = nativeUi,
-                    type = current.type,
-                    onBack = ::navigateBack,
-                    onRefresh = { nativeViewModel.loadRanking(nativeUi.rankingType, true) },
-                    onSelectType = { type ->
-                        nativeViewModel.loadRanking(type)
-                        route = StockNativeRoute.Ranking(type)
-                    },
-                    onOpenStock = ::openStock
-                )
+                is StockNativeRoute.Ranking -> {
+                    val nativeUi by nativeViewModel.uiState.collectAsState()
+                    StockNativeRankingScreen(
+                        ui = nativeUi,
+                        type = current.type,
+                        onBack = ::navigateBack,
+                        onRefresh = { nativeViewModel.loadRanking(nativeUi.rankingType, true) },
+                        onSelectType = { type ->
+                            nativeViewModel.loadRanking(type)
+                            route = StockNativeRoute.Ranking(type)
+                        },
+                        onOpenStock = ::openStock
+                    )
+                }
 
-                is StockNativeRoute.Hot -> StockNativeHotScreen(
-                    ui = nativeUi,
-                    type = current.type,
-                    onBack = ::navigateBack,
-                    onRefresh = { nativeViewModel.loadHot(nativeUi.hotSnapshot.type, true) },
-                    onSelectType = { type ->
-                        nativeViewModel.loadHot(type)
-                        route = StockNativeRoute.Hot(type)
-                    },
-                    onOpenStock = ::openStock
-                )
+                is StockNativeRoute.Hot -> {
+                    val nativeUi by nativeViewModel.uiState.collectAsState()
+                    StockNativeHotScreen(
+                        ui = nativeUi,
+                        type = current.type,
+                        onBack = ::navigateBack,
+                        onRefresh = { nativeViewModel.loadHot(nativeUi.hotSnapshot.type, true) },
+                        onSelectType = { type ->
+                            nativeViewModel.loadHot(type)
+                            route = StockNativeRoute.Hot(type)
+                        },
+                        onOpenStock = ::openStock
+                    )
+                }
 
-                is StockNativeRoute.Sector -> StockNativeSectorScreen(
-                    ui = nativeUi,
-                    code = current.code,
-                    onBack = ::navigateBack,
-                    onRefresh = { nativeViewModel.loadSector(current.code, true) },
-                    onSelectTab = nativeViewModel::selectSectorTab,
-                    onLoadMore = nativeViewModel::loadMoreSectorConstituents,
-                    onOpenSector = { code ->
-                        nativeViewModel.loadSector(code, true)
-                        route = StockNativeRoute.Sector(code)
-                    },
-                    onOpenStock = ::openStock
-                )
+                is StockNativeRoute.Sector -> {
+                    val nativeUi by nativeViewModel.uiState.collectAsState()
+                    StockNativeSectorScreen(
+                        ui = nativeUi,
+                        code = current.code,
+                        onBack = ::navigateBack,
+                        onRefresh = { nativeViewModel.loadSector(current.code, true) },
+                        onSelectTab = nativeViewModel::selectSectorTab,
+                        onLoadMore = nativeViewModel::loadMoreSectorConstituents,
+                        onOpenSector = { code ->
+                            nativeViewModel.loadSector(code, true)
+                            route = StockNativeRoute.Sector(code)
+                        },
+                        onOpenStock = ::openStock
+                    )
+                }
 
-                is StockNativeRoute.Index -> StockNativeIndexScreenV2(
-                    ui = nativeUi,
-                    code = current.code,
-                    onBack = ::navigateBack,
-                    onRefresh = { nativeViewModel.loadIndex(current.code, true) },
-                    onOpenIndex = { code ->
-                        nativeViewModel.loadIndex(code, true)
-                        route = StockNativeRoute.Index(code)
-                    }
-                )
+                is StockNativeRoute.Index -> {
+                    val nativeUi by nativeViewModel.uiState.collectAsState()
+                    StockNativeIndexScreenV2(
+                        ui = nativeUi,
+                        code = current.code,
+                        onBack = ::navigateBack,
+                        onRefresh = { nativeViewModel.loadIndex(current.code, true) },
+                        onOpenIndex = { code ->
+                            nativeViewModel.loadIndex(code, true)
+                            route = StockNativeRoute.Index(code)
+                        }
+                    )
+                }
 
-                is StockNativeRoute.Detail -> StockNativeDetailScreen(
-                    appState = state,
-                    marketUi = marketUi,
-                    nativeUi = nativeUi,
-                    startInCommunity = current.startInCommunity,
-                    isWatched = watchlist.any { it.code == marketUi.stock.quote.code },
-                    onBack = ::navigateBack,
-                    onRefresh = marketViewModel::refreshCurrent,
-                    onToggleWatch = ::toggleWatch,
-                    onSelectTab = marketViewModel::selectTab,
-                    onLoadCommunity = { reset -> nativeViewModel.loadDiscussions(marketUi.stock.quote.code, reset) },
-                    onLoadMoreCommunity = { nativeViewModel.loadDiscussions(marketUi.stock.quote.code, false) },
-                    onOpenPost = { postId ->
-                        val code = marketUi.stock.quote.code
-                        nativeViewModel.loadPost(code, postId)
-                        navigate(StockNativeRoute.Post(code, postId))
-                    }
-                )
+                is StockNativeRoute.Detail -> {
+                    val marketUi by marketViewModel.uiState.collectAsState()
+                    val nativeUi by nativeViewModel.uiState.collectAsState()
+                    val watchlistState by watchlistRepository.state.collectAsState()
+                    val quote = marketUi.stock.quote
+                    StockNativeDetailScreen(
+                        appState = state,
+                        marketUi = marketUi,
+                        nativeUi = nativeUi,
+                        startInCommunity = current.startInCommunity,
+                        isWatched = watchlistState.items.any { it.code == quote.code },
+                        onBack = ::navigateBack,
+                        onRefresh = marketViewModel::refreshCurrent,
+                        onToggleWatch = {
+                            if (quote.code.length == 6) {
+                                watchlistRepository.toggle(
+                                    code = quote.code,
+                                    name = quote.name.ifBlank { quote.code },
+                                    market = quote.market
+                                )
+                            }
+                        },
+                        onSelectTab = marketViewModel::selectTab,
+                        onLoadCommunity = { reset ->
+                            nativeViewModel.loadDiscussions(quote.code, reset)
+                        },
+                        onLoadMoreCommunity = {
+                            nativeViewModel.loadDiscussions(quote.code, false)
+                        },
+                        onOpenPost = { postId ->
+                            val code = quote.code
+                            nativeViewModel.loadPost(code, postId)
+                            navigate(StockNativeRoute.Post(code, postId))
+                        }
+                    )
+                }
 
-                is StockNativeRoute.Post -> StockNativePostScreen(
-                    ui = nativeUi,
-                    code = current.code,
-                    postId = current.postId,
-                    onBack = ::navigateBack,
-                    onRefresh = { nativeViewModel.loadPost(current.code, current.postId, true) },
-                    onLoadComments = nativeViewModel::loadComments
-                )
+                is StockNativeRoute.Post -> {
+                    val nativeUi by nativeViewModel.uiState.collectAsState()
+                    StockNativePostScreen(
+                        ui = nativeUi,
+                        code = current.code,
+                        postId = current.postId,
+                        onBack = ::navigateBack,
+                        onRefresh = {
+                            nativeViewModel.loadPost(current.code, current.postId, true)
+                        },
+                        onLoadComments = nativeViewModel::loadComments
+                    )
+                }
             }
         }
     }
