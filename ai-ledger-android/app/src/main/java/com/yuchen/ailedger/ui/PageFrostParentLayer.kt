@@ -12,7 +12,6 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 
 private const val PageFrostPreloadMarginDp = 64f
@@ -27,7 +26,7 @@ internal fun PageFrostParentLayer(
     val frameTicker = LocalBackdropFrameTicker.current
     val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
 
-    Canvas(modifier = modifier.onGloballyPositioned(layerState::updateRoot)) {
+    Canvas(modifier = modifier) {
         layerState.drawVersion
         val items = layerState.items()
         if (items.isEmpty()) return@Canvas
