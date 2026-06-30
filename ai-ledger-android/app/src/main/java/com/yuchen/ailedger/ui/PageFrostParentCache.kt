@@ -7,19 +7,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
-import kotlin.math.min
 
 internal fun DrawScope.ensurePageFrostCache(
     item: PageFrostParentItem,
-    itemSize: Size,
+    destinationSize: Size,
+    sourceSize: Size,
 ): PageFrostDrawCache {
     val cache = item.drawCache
-    val width = itemSize.width.coerceAtLeast(1f)
-    val height = itemSize.height.coerceAtLeast(1f)
-    val radiusPx = item.radiusDp.dp.toPx()
-        .coerceAtMost(min(width, height) * 0.5f)
-        .coerceAtLeast(0f)
-    val signature = pageFrostGeometrySignature(width, height, radiusPx)
+    val width = destinationSize.width.coerceAtLeast(1f)
+    val height = destinationSize.height.coerceAtLeast(1f)
+    val sourceWidth = sourceSize.width.coerceAtLeast(1f)
+    val sourceHeight = sourceSize.height.coerceAtLeast(1f)
+    val scaleX = width / sourceWidth
+    val scaleY = height / sourceHeight
+    val baseRadiusPx = item.radiusDp.dp.toPx().coerceAtLeast(0f)
+    val radiusX = (baseRadiusPx * scaleX).coerceAtMost(width * 0.5f)
+    val radiusY = (baseRadiusPx * scaleY).coerceAtMost(height * 0.5f)
+    val signature = pageFrostGeometrySignature(width, height, radiusX, radiusY)
     if (cache.geometrySignature == signature) return cache
 
     cache.localSize = Size(width, height)
@@ -30,8 +34,8 @@ internal fun DrawScope.ensurePageFrostCache(
                 top = 0f,
                 right = width,
                 bottom = height,
-                radiusX = radiusPx,
-                radiusY = radiusPx,
+                radiusX = radiusX,
+                radiusY = radiusY,
             )
         )
     }
@@ -48,10 +52,16 @@ internal fun DrawScope.ensurePageFrostCache(
     return cache
 }
 
-private fun pageFrostGeometrySignature(width: Float, height: Float, radius: Float): Long {
+private fun pageFrostGeometrySignature(
+    width: Float,
+    height: Float,
+    radiusX: Float,
+    radiusY: Float,
+): Long {
     var result = 1125899906842597L
     result = result * 31L + width.toBits()
     result = result * 31L + height.toBits()
-    result = result * 31L + radius.toBits()
+    result = result * 31L + radiusX.toBits()
+    result = result * 31L + radiusY.toBits()
     return result
 }
