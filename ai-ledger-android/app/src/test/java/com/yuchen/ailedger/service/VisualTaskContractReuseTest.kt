@@ -9,23 +9,20 @@ import org.junit.Test
 
 class VisualTaskContractReuseTest {
     @Test
-    fun unifiedPermitCannotAuthorizeFirstWorkSurfaceActionWithoutContract() {
-        val error = captureProtocolFailure {
-            VisualTaskContract.fromJson(
-                root = workSurfaceActionRoot(
-                    milestoneId = "",
-                    includeUnifiedPermit = true,
-                ),
-                committedContract = null,
-            )
-        }
+    fun unifiedPermitCanAuthorizeFirstWorkSurfaceActionWithoutRepeatedContract() {
+        val parsed = VisualTaskContract.fromJson(
+            root = workSurfaceActionRoot(
+                milestoneId = "",
+                includeUnifiedPermit = true,
+            ),
+            committedContract = null,
+        )
 
-        assertNotNull(error)
-        assertEquals("visual_protocol_task_contract_required", error!!.code)
+        assertNull(parsed)
     }
 
     @Test
-    fun laterWorkSurfaceActionReusesCommittedContractWithoutRecommittingIt() {
+    fun laterLegacyWorkSurfaceActionReusesCommittedContract() {
         val parsed = VisualTaskContract.fromJson(
             root = workSurfaceActionRoot(milestoneId = "m1"),
             committedContract = committedContract(),
@@ -35,7 +32,7 @@ class VisualTaskContractReuseTest {
     }
 
     @Test
-    fun firstWorkSurfaceActionStillRequiresInitialContract() {
+    fun firstLegacyWorkSurfaceActionStillRequiresInitialContract() {
         val error = captureProtocolFailure {
             VisualTaskContract.fromJson(
                 root = workSurfaceActionRoot(milestoneId = "m1"),
@@ -48,7 +45,7 @@ class VisualTaskContractReuseTest {
     }
 
     @Test
-    fun reusedContractStillRejectsWrongMilestoneBinding() {
+    fun reusedLegacyContractStillRejectsWrongMilestoneBinding() {
         val error = captureProtocolFailure {
             VisualTaskContract.fromJson(
                 root = workSurfaceActionRoot(milestoneId = "m2"),
@@ -85,7 +82,7 @@ class VisualTaskContractReuseTest {
                 if (includeUnifiedPermit) {
                     put("executionPermitVersion", "visual_execution_permit_v2")
                     put("executionPermitId", "permit_test")
-                    put("executionPermitKind", "backend_unified_semantic_execution_gate")
+                    put("executionPermitKind", "independent_gui_visual_grounding")
                 }
             })
         })
