@@ -10,8 +10,8 @@ package com.yuchen.ailedger.service
 internal class StreamingDeltaCoalescer(
     private val onDelta: (String) -> Unit,
     private val clockMs: () -> Long = System::currentTimeMillis,
-    private val targetChunkChars: Int = 24,
-    private val maxDelayMs: Long = 48L,
+    private val targetChunkChars: Int = 48,
+    private val maxDelayMs: Long = 120L,
 ) {
     private val pending = StringBuilder()
     private var emittedAny = false
