@@ -38,7 +38,11 @@ internal object VisualIntelligenceDiagnosticsReport {
 
     fun build(session: File) {
         val events = readEvents(session)
-        val summary = readJson(File(session, "summary.json")) ?: JSONObject()
+        val summaryFile = File(session, "summary.json")
+        val summary = readJson(summaryFile) ?: JSONObject()
+        reconcileModelStatistics(summary, events)
+        summaryFile.writeText(summary.toString(2))
+
         val findings = analyze(events)
         File(session, "findings.json").writeText(
             JSONObject().apply {
@@ -50,6 +54,72 @@ internal object VisualIntelligenceDiagnosticsReport {
         )
         File(session, "findings.txt").writeText(buildFindingsText(summary, events, findings))
         File(session, "report.html").writeText(buildHtml(summary, events, findings))
+    }
+
+    /**
+     * The cancellable visual route records request-memory and parsed response events directly.
+     * Reconcile summary.json from those trace events at export time so the report never shows zero
+     * requests/responses while the complete per-turn evidence is present.
+     */
+    private fun reconcileModelStatistics(
+        summary: JSONObject,
+        events: List<TraceEvent>,
+    ) {
+        val exactRequests = events.filter { it.type == "model_request" }
+        val requestEvents = if (exactRequests.isNotEmpty()) {
+            exactRequests
+        } else {
+            events.filter { it.type == "model_request_memory" }
+        }
+        val transportResponses = events.filter { it.type == "model_transport_response" }
+        val backendResponses = events.filter { event ->
+            event.type == "model_response" && event.details?.has("ok") == true
+        }
+        val responseEvents = if (transportResponses.isNotEmpty()) transportResponses else backendResponses
+        val transportFailures = events.count { it.type == "model_transport_failure" }
+
+        var backendFailureCount = 0
+        var requestBytes = 0L
+        var responseBytes = 0L
+        var durationMs = 0L
+        var measuredResponseCount = 0
+
+        if (transportResponses.isNotEmpty()) {
+            transportResponses.forEach { event ->
+                val details = event.details ?: JSONObject()
+                requestBytes += details.optLong("requestBytes")
+                responseBytes += details.optLong("responseBytes")
+                durationMs += details.optLong("durationMs")
+                measuredResponseCount += 1
+            }
+        } else {
+            backendResponses.forEach { event ->
+                val details = event.details ?: JSONObject()
+                val report = details.optJSONObject("reportSummary")
+                if (report != null) {
+                    backendFailureCount += report.optInt("modelFailureCount")
+                    requestBytes += report.optLong("requestBytes")
+                    durationMs += report.optLong("modelDurationMs")
+                    measuredResponseCount += 1
+                } else {
+                    if (!details.optBoolean("ok", true)) backendFailureCount += 1
+                    durationMs += details.optJSONObject("debug")?.optLong("totalMs") ?: 0L
+                }
+            }
+        }
+
+        summary.put("modelRequestCount", requestEvents.size)
+        summary.put("modelResponseCount", responseEvents.size)
+        summary.put("modelFailureCount", transportFailures + backendFailureCount)
+        summary.put("modelRequestBytes", requestBytes)
+        summary.put("modelResponseBytes", responseBytes)
+        summary.put("modelDurationMs", durationMs)
+        summary.put("modelStatsSource", "trace_reconciled")
+        summary.put("modelStatsMeasuredResponseCount", measuredResponseCount)
+        summary.put(
+            "modelUnmatchedRequestCount",
+            (requestEvents.size - responseEvents.size - transportFailures - backendFailureCount).coerceAtLeast(0),
+        )
     }
 
     private fun readEvents(session: File): List<TraceEvent> {
@@ -171,12 +241,12 @@ internal object VisualIntelligenceDiagnosticsReport {
         events.filter { it.type == "execution_result" }.forEach { event ->
             val details = event.details ?: JSONObject()
             val message = details.optString("message")
-            val summary = details.optString("summary")
-            if (message.contains("边界保护") || summary.contains("boundaryAdjusted=true")) {
+            val resultSummary = details.optString("summary")
+            if (message.contains("边界保护") || resultSummary.contains("boundaryAdjusted=true")) {
                 findings += Finding(
                     "warning",
                     "点击坐标被边界保护调整",
-                    message.ifBlank { summary }.take(360),
+                    message.ifBlank { resultSummary }.take(360),
                     event.turnId,
                     event.index,
                 )
@@ -278,7 +348,9 @@ internal object VisualIntelligenceDiagnosticsReport {
         }
 
         val actionKeys = events.filter { it.type == "planned_action" }.mapNotNull { event ->
-            event.details?.let { "${it.optString("type")}|${it.optString("packageName")}|${it.optString("targetText")}" to event }
+            event.details?.let {
+                "${it.optString("type")}|${it.optString("packageName")}|${it.optString("targetText")}" to event
+            }
         }
         actionKeys.zipWithNext().forEach { pair ->
             if (pair.first.first.isNotBlank() && pair.first.first == pair.second.first) {
@@ -408,7 +480,8 @@ internal object VisualIntelligenceDiagnosticsReport {
                 .filter(String::isNotBlank).joinToString(" · ")
         }.orEmpty().ifBlank {
             parsed?.details?.optJSONObject("parsedStep")?.let { step ->
-                listOf(step.optString("type"), step.optString("targetText")).filter(String::isNotBlank).joinToString(" · ")
+                listOf(step.optString("type"), step.optString("targetText"))
+                    .filter(String::isNotBlank).joinToString(" · ")
             }.orEmpty()
         }.ifBlank {
             turnEvents.lastOrNull { it.type == "runtime_progress" }?.raw?.optString("currentAction").orEmpty()
