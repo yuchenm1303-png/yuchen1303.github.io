@@ -38,13 +38,14 @@ internal fun UserProfileAvatar(
     loggedIn: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val effectiveAvatarPath = localAvatarPath.takeIf { loggedIn }
     val avatarBitmap by produceState<ImageBitmap?>(
         initialValue = null,
-        key1 = localAvatarPath,
+        key1 = effectiveAvatarPath,
         key2 = avatarVersion,
     ) {
         value = withContext(Dispatchers.IO) {
-            localAvatarPath
+            effectiveAvatarPath
                 ?.takeIf { it.isNotBlank() }
                 ?.let(::File)
                 ?.takeIf(File::isFile)
