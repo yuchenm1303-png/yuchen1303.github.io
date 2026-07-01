@@ -42,7 +42,7 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun SettingsDetailPanel(
-    panel: SettingsPanel,
+    panel: SettingsDetailSection,
     state: AssistantUiState,
     aiEndpoint: String,
     onQualityChange: (RenderQuality) -> Unit,
@@ -98,13 +98,13 @@ internal fun SettingsDetailPanel(
                 DetailHeader(panelTitle(activePanel), panelSubtitle(activePanel))
                 Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
                     when (activePanel) {
-                        SettingsPanel.Appearance -> AppearanceContent(
+                        SettingsDetailSection.Appearance -> AppearanceContent(
                             state,
                             onBackgroundThemeChange,
                             onUploadBackgroundClick,
                             onClearCustomBackgroundClick,
                         )
-                        SettingsPanel.Glass -> GlassContent(
+                        SettingsDetailSection.Glass -> GlassContent(
                             state,
                             onQualityChange,
                             onGlassPresetChange,
@@ -112,13 +112,13 @@ internal fun SettingsDetailPanel(
                             onMotionIntensityChange,
                             onRainbowPrismChange,
                         )
-                        SettingsPanel.Assistant -> VisualAgentHudSettingsContent(state)
-                        SettingsPanel.Data -> DataContent(state)
-                        SettingsPanel.Service -> ServiceContent(state, aiEndpoint)
-                        SettingsPanel.Advanced -> AdvancedContent()
-                        SettingsPanel.Chat -> ChatPageSettingsContent()
-                        SettingsPanel.Memory -> AccountMemorySettingsContent(state)
-                        SettingsPanel.Debug -> GlassDebugFloatingPanel(
+                        SettingsDetailSection.Assistant -> VisualAgentHudSettingsContent(state)
+                        SettingsDetailSection.Data -> DataContent(state)
+                        SettingsDetailSection.Service -> ServiceContent(state, aiEndpoint)
+                        SettingsDetailSection.Advanced -> AdvancedContent()
+                        SettingsDetailSection.Chat -> ChatPageSettingsContent()
+                        SettingsDetailSection.Memory -> AccountMemorySettingsContent(state)
+                        SettingsDetailSection.Debug -> GlassDebugFloatingPanel(
                             state,
                             onBackdropChange,
                             onBorderChange,
@@ -386,38 +386,38 @@ private fun ChatPageSettingsContent() {
     }
 }
 
-private fun SettingsPanel.settingsOrder(): Int = when (this) {
-    SettingsPanel.Appearance -> 0
-    SettingsPanel.Glass -> 1
-    SettingsPanel.Assistant -> 2
-    SettingsPanel.Data -> 3
-    SettingsPanel.Service -> 4
-    SettingsPanel.Advanced -> 5
-    SettingsPanel.Chat -> 6
-    SettingsPanel.Memory -> 7
-    SettingsPanel.Debug -> 8
+private fun SettingsDetailSection.settingsOrder(): Int = when (this) {
+    SettingsDetailSection.Appearance -> 0
+    SettingsDetailSection.Glass -> 1
+    SettingsDetailSection.Assistant -> 2
+    SettingsDetailSection.Data -> 3
+    SettingsDetailSection.Service -> 4
+    SettingsDetailSection.Advanced -> 5
+    SettingsDetailSection.Chat -> 6
+    SettingsDetailSection.Memory -> 7
+    SettingsDetailSection.Debug -> 8
 }
 
-private fun panelTitle(panel: SettingsPanel): String = when (panel) {
-    SettingsPanel.Appearance -> "主题"
-    SettingsPanel.Glass -> "玻璃"
-    SettingsPanel.Assistant -> "视觉智能"
-    SettingsPanel.Data -> "数据偏好"
-    SettingsPanel.Service -> "账号设置"
-    SettingsPanel.Advanced -> "系统信息"
-    SettingsPanel.Chat -> "聊天设置"
-    SettingsPanel.Memory -> "记忆"
-    SettingsPanel.Debug -> "玻璃实验室"
+private fun panelTitle(panel: SettingsDetailSection): String = when (panel) {
+    SettingsDetailSection.Appearance -> "主题"
+    SettingsDetailSection.Glass -> "玻璃"
+    SettingsDetailSection.Assistant -> "视觉智能"
+    SettingsDetailSection.Data -> "数据偏好"
+    SettingsDetailSection.Service -> "账号设置"
+    SettingsDetailSection.Advanced -> "系统信息"
+    SettingsDetailSection.Chat -> "聊天设置"
+    SettingsDetailSection.Memory -> "记忆"
+    SettingsDetailSection.Debug -> "玻璃实验室"
 }
 
-private fun panelSubtitle(panel: SettingsPanel): String = when (panel) {
-    SettingsPanel.Appearance -> "背景、主题和自定义图片。"
-    SettingsPanel.Glass -> "画质、玻璃质感和聊天大玻璃彩虹。"
-    SettingsPanel.Assistant -> "边缘光效、鼠标光标与运行 HUD 的全部参数。"
-    SettingsPanel.Data -> "账单状态、预算、本地数据和常用导航地址。"
-    SettingsPanel.Service -> "账号登录、AI Worker 和云端接口。"
-    SettingsPanel.Advanced -> "渲染边界和 OpenGL 隔离状态。"
-    SettingsPanel.Chat -> "聊天消息、内联表情显示与云端表达偏好。"
-    SettingsPanel.Memory -> "登录后查看、整理并控制 AI 的长期记忆。"
-    SettingsPanel.Debug -> "高级玻璃参数与实验入口。"
+private fun panelSubtitle(panel: SettingsDetailSection): String = when (panel) {
+    SettingsDetailSection.Appearance -> "背景、主题和自定义图片。"
+    SettingsDetailSection.Glass -> "画质、玻璃质感和聊天大玻璃彩虹。"
+    SettingsDetailSection.Assistant -> "边缘光效、鼠标光标与运行 HUD 的全部参数。"
+    SettingsDetailSection.Data -> "账单状态、预算、本地数据和常用导航地址。"
+    SettingsDetailSection.Service -> "账号登录、AI Worker 和云端接口。"
+    SettingsDetailSection.Advanced -> "渲染边界和 OpenGL 隔离状态。"
+    SettingsDetailSection.Chat -> "聊天消息、内联表情显示与云端表达偏好。"
+    SettingsDetailSection.Memory -> "登录后查看、整理并控制 AI 的长期记忆。"
+    SettingsDetailSection.Debug -> "高级玻璃参数与实验入口。"
 }
