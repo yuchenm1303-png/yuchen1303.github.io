@@ -2,9 +2,6 @@ package com.yuchen.ailedger.ui
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -15,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,9 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -75,29 +71,9 @@ fun PlanCenterScreen(
         onDispose { onModalVisibilityChange(false) }
     }
 
-    val pageBlur by animateDpAsState(
-        targetValue = if (modalVisible) 14.dp else 0.dp,
-        label = "plan-page-blur",
-    )
-    val pageAlpha by animateFloatAsState(
-        targetValue = if (modalVisible) 0.40f else 1f,
-        label = "plan-page-alpha",
-    )
-    val pageScale by animateFloatAsState(
-        targetValue = if (modalVisible) 0.985f else 1f,
-        label = "plan-page-scale",
-    )
-
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .blur(pageBlur)
-                .graphicsLayer {
-                    alpha = pageAlpha
-                    scaleX = pageScale
-                    scaleY = pageScale
-                },
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 12.dp, bottom = 110.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -174,26 +150,17 @@ fun PlanCenterScreen(
         if (modalVisible) {
             val backdropBlocker = remember { MutableInteractionSource() }
             val panelBlocker = remember { MutableInteractionSource() }
-            FrostInfoGlassPanel(
-                radius = 0f,
-                backdropAlpha = 1f,
-                frostAlpha = 0.035f,
-                dimAlpha = 0.38f,
+
+            Box(
                 modifier = Modifier
                     .zIndex(100f)
-                    .fillMaxSize(),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.12f))
-                        .clickable(
-                            interactionSource = backdropBlocker,
-                            indication = null,
-                            onClick = ::closeModal,
-                        ),
-                )
-            }
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = backdropBlocker,
+                        indication = null,
+                        onClick = ::closeModal,
+                    ),
+            )
 
             editorDraft?.let { initial ->
                 key(editorGeneration) {
@@ -201,8 +168,9 @@ fun PlanCenterScreen(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .zIndex(101f)
-                            .fillMaxWidth(0.94f)
-                            .fillMaxHeight(0.86f)
+                            .fillMaxWidth(0.92f)
+                            .fillMaxHeight(0.80f)
+                            .clip(RoundedCornerShape(30.dp))
                             .clickable(
                                 interactionSource = panelBlocker,
                                 indication = null,
@@ -231,7 +199,8 @@ fun PlanCenterScreen(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .zIndex(101f)
-                        .fillMaxWidth(0.86f)
+                        .fillMaxWidth(0.84f)
+                        .clip(RoundedCornerShape(28.dp))
                         .clickable(
                             interactionSource = panelBlocker,
                             indication = null,
