@@ -98,6 +98,14 @@ fun StockFirstToolsHomeScreen(
         return
     }
 
+    if (selectedTool == ToolDestination.AppControl) {
+        AppManagementScreen(
+            state = pageState,
+            onBack = onCloseTool,
+        )
+        return
+    }
+
     if (selectedTool != null && selectedTool != ToolDestination.StockMarket) {
         PendingToolScreen(
             destination = selectedTool,
@@ -474,14 +482,17 @@ private fun StockToolEntryCard(
 
 @Composable
 private fun StockToolEntryContent(destination: ToolDestination) {
+    val appControl = destination == ToolDestination.AppControl
+    val subtitle = if (appControl) "查看全部应用、存储、权限与内部控制" else destination.subtitle
+    val available = destination.available || appControl
     Row(
         Modifier.fillMaxSize().padding(horizontal = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(destination.title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(destination.subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(if (destination.available) "进入" else "规划中", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        Text(if (available) "进入" else "规划中", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
