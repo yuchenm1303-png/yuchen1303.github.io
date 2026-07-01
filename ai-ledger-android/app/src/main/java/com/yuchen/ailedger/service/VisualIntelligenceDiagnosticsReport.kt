@@ -46,7 +46,7 @@ internal object VisualIntelligenceDiagnosticsReport {
         val findings = analyze(events)
         File(session, "findings.json").writeText(
             JSONObject().apply {
-                put("schema", "visual_intelligence_findings_v3")
+                put("schema", "visual_intelligence_findings_v4")
                 put("generatedAt", System.currentTimeMillis())
                 put("taskId", summary.optLong("taskId"))
                 put("findings", JSONArray().apply { findings.forEach { put(it.toJson()) } })
@@ -54,72 +54,6 @@ internal object VisualIntelligenceDiagnosticsReport {
         )
         File(session, "findings.txt").writeText(buildFindingsText(summary, events, findings))
         File(session, "report.html").writeText(buildHtml(summary, events, findings))
-    }
-
-    /**
-     * The cancellable visual route records request-memory and parsed response events directly.
-     * Reconcile summary.json from those trace events at export time so the report never shows zero
-     * requests/responses while the complete per-turn evidence is present.
-     */
-    private fun reconcileModelStatistics(
-        summary: JSONObject,
-        events: List<TraceEvent>,
-    ) {
-        val exactRequests = events.filter { it.type == "model_request" }
-        val requestEvents = if (exactRequests.isNotEmpty()) {
-            exactRequests
-        } else {
-            events.filter { it.type == "model_request_memory" }
-        }
-        val transportResponses = events.filter { it.type == "model_transport_response" }
-        val backendResponses = events.filter { event ->
-            event.type == "model_response" && event.details?.has("ok") == true
-        }
-        val responseEvents = if (transportResponses.isNotEmpty()) transportResponses else backendResponses
-        val transportFailures = events.count { it.type == "model_transport_failure" }
-
-        var backendFailureCount = 0
-        var requestBytes = 0L
-        var responseBytes = 0L
-        var durationMs = 0L
-        var measuredResponseCount = 0
-
-        if (transportResponses.isNotEmpty()) {
-            transportResponses.forEach { event ->
-                val details = event.details ?: JSONObject()
-                requestBytes += details.optLong("requestBytes")
-                responseBytes += details.optLong("responseBytes")
-                durationMs += details.optLong("durationMs")
-                measuredResponseCount += 1
-            }
-        } else {
-            backendResponses.forEach { event ->
-                val details = event.details ?: JSONObject()
-                val report = details.optJSONObject("reportSummary")
-                if (report != null) {
-                    backendFailureCount += report.optInt("modelFailureCount")
-                    requestBytes += report.optLong("requestBytes")
-                    durationMs += report.optLong("modelDurationMs")
-                    measuredResponseCount += 1
-                } else {
-                    if (!details.optBoolean("ok", true)) backendFailureCount += 1
-                    durationMs += details.optJSONObject("debug")?.optLong("totalMs") ?: 0L
-                }
-            }
-        }
-
-        summary.put("modelRequestCount", requestEvents.size)
-        summary.put("modelResponseCount", responseEvents.size)
-        summary.put("modelFailureCount", transportFailures + backendFailureCount)
-        summary.put("modelRequestBytes", requestBytes)
-        summary.put("modelResponseBytes", responseBytes)
-        summary.put("modelDurationMs", durationMs)
-        summary.put("modelStatsSource", "trace_reconciled")
-        summary.put("modelStatsMeasuredResponseCount", measuredResponseCount)
-        summary.put(
-            "modelUnmatchedRequestCount",
-            (requestEvents.size - responseEvents.size - transportFailures - backendFailureCount).coerceAtLeast(0),
-        )
     }
 
     private fun readEvents(session: File): List<TraceEvent> {
@@ -149,76 +83,197 @@ internal object VisualIntelligenceDiagnosticsReport {
         }
     }
 
+    private fun modelRequests(events: List<TraceEvent>): List<TraceEvent> {
+        val exact = events.filter { it.type == "model_request" }
+        return if (exact.isNotEmpty()) exact else events.filter { it.type == "model_request_memory" }
+    }
+
+    private fun backendResponses(events: List<TraceEvent>): List<TraceEvent> = events.filter { event ->
+        event.type == "model_response" && event.details?.optBoolean("ok", false) == true
+    }
+
+    private fun reportSummary(event: TraceEvent): JSONObject? =
+        event.details?.optJSONObject("reportSummary")
+            ?: event.details?.optJSONObject("debug")?.optJSONObject("reportSummary")
+
+    private fun reportDiagnostics(event: TraceEvent): JSONObject? =
+        event.details?.optJSONObject("reportDiagnostics")
+            ?: event.details?.optJSONObject("debug")?.optJSONObject("reportDiagnostics")
+
+    private fun providerCalls(event: TraceEvent): List<JSONObject> {
+        val calls = reportDiagnostics(event)
+            ?.optJSONObject("model")
+            ?.optJSONArray("calls")
+            ?: return emptyList()
+        return buildList {
+            for (index in 0 until calls.length()) calls.optJSONObject(index)?.let(::add)
+        }
+    }
+
+    private fun responseBytes(event: TraceEvent): Long {
+        val summaryBytes = reportSummary(event)?.optLong("modelResponseBytes", 0L) ?: 0L
+        if (summaryBytes > 0L) return summaryBytes
+        val diagnosticsBytes = reportDiagnostics(event)
+            ?.optJSONObject("model")
+            ?.optLong("responseBytes", 0L)
+            ?: 0L
+        if (diagnosticsBytes > 0L) return diagnosticsBytes
+        return providerCalls(event).sumOf { it.optLong("responseBodyBytes", 0L) }
+    }
+
+    private fun requestBytes(event: TraceEvent): Long {
+        val summaryBytes = reportSummary(event)?.optLong("requestBytes", 0L) ?: 0L
+        if (summaryBytes > 0L) return summaryBytes
+        return reportDiagnostics(event)
+            ?.optJSONObject("request")
+            ?.optLong("bytes", 0L)
+            ?: 0L
+    }
+
+    private fun modelDuration(event: TraceEvent): Long {
+        val summaryMs = reportSummary(event)?.optLong("modelDurationMs", 0L) ?: 0L
+        if (summaryMs > 0L) return summaryMs
+        val diagnosticsMs = reportDiagnostics(event)
+            ?.optJSONObject("model")
+            ?.optLong("durationMs", 0L)
+            ?: 0L
+        if (diagnosticsMs > 0L) return diagnosticsMs
+        return event.details?.optJSONObject("debug")?.optLong("totalMs", 0L) ?: 0L
+    }
+
+    private fun modelFailures(event: TraceEvent): Int {
+        val summaryFailures = reportSummary(event)?.optInt("modelFailureCount", 0) ?: 0
+        if (summaryFailures > 0) return summaryFailures
+        return reportDiagnostics(event)
+            ?.optJSONObject("model")
+            ?.optInt("failureCount", 0)
+            ?: 0
+    }
+
+    private fun reconcileModelStatistics(summary: JSONObject, events: List<TraceEvent>) {
+        val requests = modelRequests(events)
+        val transports = events.filter { it.type == "model_transport_response" }
+        val responses = backendResponses(events)
+        val transportFailures = events.count { it.type == "model_transport_failure" }
+
+        val requestBytes = if (transports.isNotEmpty()) {
+            transports.sumOf { it.details?.optLong("requestBytes", 0L) ?: 0L }
+        } else {
+            responses.sumOf(::requestBytes)
+        }
+        val responseBytes = if (transports.isNotEmpty()) {
+            transports.sumOf { it.details?.optLong("responseBytes", 0L) ?: 0L }
+        } else {
+            responses.sumOf(::responseBytes)
+        }
+        val durationMs = if (transports.isNotEmpty()) {
+            transports.sumOf { it.details?.optLong("durationMs", 0L) ?: 0L }
+        } else {
+            responses.sumOf(::modelDuration)
+        }
+        val backendFailures = responses.sumOf(::modelFailures)
+        val responseCount = if (transports.isNotEmpty()) transports.size else responses.size
+
+        summary.put("modelRequestCount", requests.size)
+        summary.put("modelResponseCount", responseCount)
+        summary.put("modelFailureCount", transportFailures + backendFailures)
+        summary.put("modelRequestBytes", requestBytes)
+        summary.put("modelResponseBytes", responseBytes)
+        summary.put("modelDurationMs", durationMs)
+        summary.put("modelStatsSource", "trace_reconciled_v2")
+        summary.put(
+            "modelUnmatchedRequestCount",
+            (requests.size - responseCount - transportFailures - backendFailures).coerceAtLeast(0),
+        )
+    }
+
+    private fun hasCompleteRequestEvidence(events: List<TraceEvent>): Boolean {
+        if (events.any { it.type == "model_request" }) return true
+        return backendResponses(events).any { event ->
+            providerCalls(event).any { call -> call.optJSONObject("sanitizedRequest") != null }
+        }
+    }
+
+    private fun hasCompleteResponseEvidence(events: List<TraceEvent>): Boolean {
+        if (events.any { it.type == "model_transport_response" }) return true
+        return backendResponses(events).any { event ->
+            providerCalls(event).any { call -> call.optString("rawResponse").isNotBlank() }
+        }
+    }
+
+    private fun actionSignature(event: TraceEvent): String? {
+        val details = event.details ?: return null
+        val type = details.optString("type")
+        if (type.isBlank()) return null
+        val args = details.optJSONObject("toolArgs")
+        val x = args?.optNullableDouble("executionPermitX")
+            ?: args?.optNullableDouble("__androidModelX")
+            ?: details.optNullableDouble("x")
+        val y = args?.optNullableDouble("executionPermitY")
+            ?: args?.optNullableDouble("__androidModelY")
+            ?: details.optNullableDouble("y")
+        val coordinate = if (x != null && y != null) "%.4f,%.4f".format(x, y) else ""
+        return listOf(
+            type,
+            details.optString("packageName"),
+            details.optString("targetText"),
+            coordinate,
+        ).joinToString("|")
+    }
+
     private fun analyze(events: List<TraceEvent>): List<Finding> {
         val findings = mutableListOf<Finding>()
-        val exactRequests = events.filter { it.type == "model_request" }
-        val requestContexts = events.filter { it.type in requestBoundaryTypes }
-        val transportResponses = events.filter { it.type == "model_transport_response" }
-        val parsedResponses = events.filter { it.type == "model_response" }
-        val responseTurns = (transportResponses + parsedResponses).map { it.turnId }.toSet()
+        val requests = modelRequests(events)
+        val transports = events.filter { it.type == "model_transport_response" }
+        val responses = backendResponses(events)
+        val responseTurns = (transports + responses).map { it.turnId }.filter(String::isNotBlank).toSet()
 
-        exactRequests.forEach { request ->
-            val bytes = request.raw.optInt("requestBytes")
-            if (bytes >= 350_000) {
-                findings += Finding(
-                    "warning",
-                    "模型请求体偏大",
-                    "本轮上传约 ${bytes / 1024} KB，可能显著增加视觉推理延迟。",
-                    request.turnId,
-                    request.index,
-                )
+        requests.forEach { request ->
+            if (request.type == "model_request") {
+                val bytes = request.raw.optInt("requestBytes")
+                if (bytes >= 350_000) {
+                    findings += Finding(
+                        "warning",
+                        "模型请求体偏大",
+                        "本轮上传约 ${bytes / 1024} KB，可能增加视觉推理延迟。",
+                        request.turnId,
+                        request.index,
+                    )
+                }
             }
-            if (request.turnId !in responseTurns) {
+            if (request.turnId.isNotBlank() && request.turnId !in responseTurns) {
                 findings += Finding(
                     "error",
                     "模型请求缺少对应响应",
-                    "已记录真实请求，但没有找到 HTTP 响应或解析后的模型响应。",
+                    "已记录请求边界，但没有找到对应的传输响应或后端模型响应。",
                     request.turnId,
                     request.index,
                 )
             }
         }
 
-        transportResponses.forEach { event ->
+        transports.forEach { event ->
             val details = event.details ?: JSONObject()
             val duration = details.optLong("durationMs")
             val status = details.optInt("httpStatus")
             if (duration >= 10_000L) {
-                findings += Finding(
-                    "warning",
-                    "模型请求耗时过长",
-                    "HTTP $status，本轮耗时 ${duration} ms。",
-                    event.turnId,
-                    event.index,
-                )
+                findings += Finding("warning", "模型请求耗时过长", "HTTP $status，本轮耗时 ${duration} ms。", event.turnId, event.index)
             }
             if (status !in 200..299) {
-                findings += Finding(
-                    "error",
-                    "模型服务返回错误",
-                    "HTTP $status，${details.optString("parseOutcome", "unknown")}。",
-                    event.turnId,
-                    event.index,
-                )
+                findings += Finding("error", "模型服务返回错误", "HTTP $status，${details.optString("parseOutcome", "unknown")}。", event.turnId, event.index)
             }
             if (!details.optBoolean("observationIdValid", true)) {
-                findings += Finding(
-                    "error",
-                    "模型响应绑定了错误观察帧",
-                    "响应没有通过 observationId 新鲜度校验，旧坐标不能安全执行。",
-                    event.turnId,
-                    event.index,
-                )
+                findings += Finding("error", "模型响应绑定了错误观察帧", "响应没有通过 observationId 新鲜度校验。", event.turnId, event.index)
             }
         }
 
-        events.filter { it.type in setOf("tap_permit_rejected", "tap_permit_validation") }.forEach { event ->
-            val details = event.details ?: JSONObject()
-            if (event.type == "tap_permit_rejected" || !details.optBoolean("valid", true)) {
+        responses.forEach { event ->
+            val largestProviderRequest = providerCalls(event).maxOfOrNull { it.optLong("requestBodyBytes", 0L) } ?: 0L
+            if (largestProviderRequest >= 900_000L) {
                 findings += Finding(
-                    "error",
-                    "点击许可校验失败",
-                    details.optString("reason").ifBlank { "坐标没有通过独立 GUI 执行许可校验。" },
+                    "warning",
+                    "GUI Plus 上下文偏大",
+                    "本轮供应商请求约 ${largestProviderRequest / 1024} KB；应检查历史截图窗口是否按预期收敛。",
                     event.turnId,
                     event.index,
                 )
@@ -228,13 +283,7 @@ internal object VisualIntelligenceDiagnosticsReport {
         events.filter { it.type == "action_validation" }.forEach { event ->
             val details = event.details ?: JSONObject()
             if (!details.optBoolean("ok", true)) {
-                findings += Finding(
-                    "error",
-                    "动作在 Android 验证层被拒绝",
-                    "${details.optString("failureClass")}: ${details.optString("message")}",
-                    event.turnId,
-                    event.index,
-                )
+                findings += Finding("error", "动作在 Android 验证层被拒绝", "${details.optString("failureClass")}: ${details.optString("message")}", event.turnId, event.index)
             }
         }
 
@@ -243,180 +292,65 @@ internal object VisualIntelligenceDiagnosticsReport {
             val message = details.optString("message")
             val resultSummary = details.optString("summary")
             if (message.contains("边界保护") || resultSummary.contains("boundaryAdjusted=true")) {
-                findings += Finding(
-                    "warning",
-                    "点击坐标被边界保护调整",
-                    message.ifBlank { resultSummary }.take(360),
-                    event.turnId,
-                    event.index,
-                )
+                findings += Finding("warning", "点击坐标被边界保护调整", message.ifBlank { resultSummary }.take(360), event.turnId, event.index)
             }
             if (!details.optBoolean("ok", true)) {
-                findings += Finding(
-                    "error",
-                    "动作执行失败",
-                    message.take(360),
-                    event.turnId,
-                    event.index,
-                )
+                findings += Finding("error", "动作执行失败", message.take(360), event.turnId, event.index)
             }
-        }
-
-        events.filter { it.type == "open_app_verification" }.forEach { event ->
-            val details = event.details ?: JSONObject()
-            val expected = details.optString("expectedPackage")
-            val actual = details.optString("actualPackage")
-            if (!details.optBoolean("verified")) {
-                findings += Finding(
-                    if (expected.isNotBlank() && expected == actual) "error" else "warning",
-                    if (expected == actual) "目标应用已在前台却验证失败" else "目标应用前台验证失败",
-                    "expected=$expected, actual=$actual, stable=${details.optInt("stableSamples")}/${details.optInt("requiredStableSamples")}, reason=${details.optString("reason")}。",
-                    event.turnId,
-                    event.index,
-                )
-            }
-        }
-
-        val safetyBlocks = events.filter { event ->
-            event.type == "safety_policy" && event.details?.optString("stage") == "auto_execute_gate" &&
-                event.details?.optBoolean("canAutoExecute") == false
-        }
-        safetyBlocks.forEach { event ->
-            val details = event.details ?: JSONObject()
-            findings += Finding(
-                "info",
-                "动作被安全策略转交用户",
-                "step=${details.optString("stepType")}, confirm=${details.optBoolean("requiresConfirmation")}, input=${details.optBoolean("requiresUserInput")}, executable=${details.optBoolean("executableType")}。",
-                event.turnId,
-                event.index,
-            )
         }
 
         events.filter { it.type == "completion_protocol" }.forEach { event ->
             val details = event.details ?: JSONObject()
             if (!details.optBoolean("valid", true)) {
-                findings += Finding(
-                    "error",
-                    "完成协议校验失败",
-                    "stage=${details.optString("stage")}, reason=${details.optString("reason")}。",
-                    event.turnId,
-                    event.index,
-                )
+                findings += Finding("error", "完成协议校验失败", "stage=${details.optString("stage")}, reason=${details.optString("reason")}。", event.turnId, event.index)
             }
         }
 
-        val waitingEvents = events.filter { event ->
-            event.type == "runtime_progress" && event.raw.optString("status") == "等待输入"
-        }
-        val repliedEvents = events.filter { event ->
-            event.type == "runtime_progress" && event.raw.optString("status") in setOf("已输入", "已确认")
-        }
-        repliedEvents.forEach { reply ->
-            val nextWaiting = waitingEvents.firstOrNull { it.index > reply.index && it.index - reply.index <= 35 }
-            if (nextWaiting != null) {
-                findings += Finding(
-                    "error",
-                    "用户已经回复但很快再次被询问",
-                    "交互回复可能没有被模型、完成协议或安全策略正确消费。请查看两轮之间的模型输出和 safety_policy 事件。",
-                    nextWaiting.turnId,
-                    nextWaiting.index,
-                )
+        val planned = events.filter { it.type == "planned_action" }.mapNotNull { event -> actionSignature(event)?.let { it to event } }
+        planned.zipWithNext().forEach { (before, after) ->
+            if (before.first == after.first) {
+                findings += Finding("warning", "连续重复完全相同动作", after.first, after.second.turnId, after.second.index)
             }
         }
 
-        val visualFrames = events.filter { it.type == "screen_observation" && it.frameFile().isNotBlank() }
-        visualFrames.zipWithNext().forEach { pair ->
-            val before = pair.first
-            val after = pair.second
-            val beforeVisual = before.raw.optJSONObject("visual") ?: return@forEach
-            val afterVisual = after.raw.optJSONObject("visual") ?: return@forEach
-            val beforeStructural = before.raw.optString("structuralFingerprint")
-            val afterStructural = after.raw.optString("structuralFingerprint")
-            val distance = VisualDiagnosticFrameAnalyzer.hammingDistance(
-                beforeVisual.optString("differenceHash"),
-                afterVisual.optString("differenceHash"),
-            ) ?: return@forEach
-            if (beforeStructural.isNotBlank() && beforeStructural == afterStructural && distance >= 14) {
-                findings += Finding(
-                    "warning",
-                    "视觉画面明显变化但结构指纹未变化",
-                    "连续截图 dHash 距离为 $distance，但 structuralFingerprint 仍为 $beforeStructural。",
-                    after.turnId,
-                    after.index,
-                )
-            }
+        if (!hasCompleteRequestEvidence(events)) {
+            findings += Finding("warning", "尚未采集完整 HTTP 请求体", "没有找到脱敏后的最终供应商请求副本。")
         }
-
-        val actionKeys = events.filter { it.type == "planned_action" }.mapNotNull { event ->
-            event.details?.let {
-                "${it.optString("type")}|${it.optString("packageName")}|${it.optString("targetText")}" to event
-            }
+        if (!hasCompleteResponseEvidence(events)) {
+            findings += Finding("warning", "尚未采集完整 HTTP 响应体", "没有找到供应商原始响应副本。")
         }
-        actionKeys.zipWithNext().forEach { pair ->
-            if (pair.first.first.isNotBlank() && pair.first.first == pair.second.first) {
-                findings += Finding(
-                    "warning",
-                    "连续重复相同动作",
-                    pair.second.first,
-                    pair.second.second.turnId,
-                    pair.second.second.index,
-                )
-            }
-        }
-
-        if (exactRequests.isEmpty()) {
-            findings += Finding(
-                "warning",
-                "尚未采集完整 HTTP 请求体",
-                "当前可以还原有效动作记忆、运行时状态和截图，但仍缺少最终发送 JSON 的逐字段副本。",
-            )
-        }
-        if (transportResponses.isEmpty()) {
-            findings += Finding(
-                "warning",
-                "尚未采集完整 HTTP 响应体",
-                "当前依赖解析后的 model_response 和运行日志，仍不能百分之百区分后端原始输出与解析器处理。",
-            )
-        }
-        if (requestContexts.isEmpty()) {
+        if (requests.isEmpty()) {
             findings += Finding("error", "没有模型轮次边界", "无法把截图、模型决策和动作执行按轮次配对。")
         }
 
         return findings.distinctBy { listOf(it.severity, it.title, it.detail, it.turnId) }
     }
 
-    private fun buildFindingsText(
-        summary: JSONObject,
-        events: List<TraceEvent>,
-        findings: List<Finding>,
-    ): String = buildString {
+    private fun buildFindingsText(summary: JSONObject, events: List<TraceEvent>, findings: List<Finding>): String = buildString {
         appendLine("视觉智能诊断自动分析")
         appendLine("任务：${summary.optString("goal").ifBlank { "未知" }}")
         appendLine("任务 ID：${summary.optLong("taskId")}")
         appendLine("事件数：${events.size}")
-        appendLine("模型轮次：${events.filter { it.type in requestBoundaryTypes }.map { it.turnId }.distinct().size}")
-        appendLine("完整请求：${events.count { it.type == "model_request" }}")
-        appendLine("完整响应：${events.count { it.type == "model_transport_response" }}")
-        appendLine("解析响应：${events.count { it.type == "model_response" }}")
+        appendLine("模型请求：${summary.optInt("modelRequestCount")}")
+        appendLine("模型响应：${summary.optInt("modelResponseCount")}")
+        appendLine("模型失败：${summary.optInt("modelFailureCount")}")
+        appendLine("请求字节：${summary.optLong("modelRequestBytes")}")
+        appendLine("响应字节：${summary.optLong("modelResponseBytes")}")
+        appendLine("模型耗时：${summary.optLong("modelDurationMs")} ms")
         appendLine("视觉帧：${events.count { it.type == "screen_observation" && it.frameFile().isNotBlank() }}")
         appendLine()
         if (findings.isEmpty()) {
             appendLine("未检测到自动规则可识别的异常。")
         } else {
             findings.forEachIndexed { index, finding ->
-                append(index + 1).append(". [").append(finding.severity.uppercase()).append("] ")
-                    .appendLine(finding.title)
+                append(index + 1).append(". [").append(finding.severity.uppercase()).append("] ").appendLine(finding.title)
                 if (finding.turnId.isNotBlank()) appendLine("   轮次：${finding.turnId}")
                 appendLine("   ${finding.detail}")
             }
         }
     }
 
-    private fun buildHtml(
-        summary: JSONObject,
-        events: List<TraceEvent>,
-        findings: List<Finding>,
-    ): String {
+    private fun buildHtml(summary: JSONObject, events: List<TraceEvent>, findings: List<Finding>): String {
         val turnIds = events.map { it.turnId }.filter(String::isNotBlank).distinct()
         val unassigned = events.filter { it.turnId.isBlank() }
         return buildString {
@@ -428,8 +362,9 @@ internal object VisualIntelligenceDiagnosticsReport {
                 .append("<br><b>任务 ID：</b>").append(summary.optLong("taskId"))
                 .append("<br><b>状态：</b>").append(summary.optString("status").html())
                 .append("<br><b>事件：</b>").append(events.size)
-                .append("　<b>轮次：</b>").append(turnIds.size)
-                .append("　<b>截图：</b>").append(events.count { it.frameFile().isNotBlank() })
+                .append("　<b>模型请求/响应：</b>").append(summary.optInt("modelRequestCount")).append("/").append(summary.optInt("modelResponseCount"))
+                .append("　<b>模型耗时：</b>").append(summary.optLong("modelDurationMs")).append(" ms")
+                .append("　<b>响应：</b>").append(summary.optLong("modelResponseBytes")).append(" B")
                 .append("</div>")
 
             append("<h2>自动发现</h2>")
@@ -445,9 +380,7 @@ internal object VisualIntelligenceDiagnosticsReport {
             }
 
             append("<h2>逐轮回放</h2>")
-            turnIds.forEach { turnId ->
-                appendTurn(this, turnId, events.filter { it.turnId == turnId }, events)
-            }
+            turnIds.forEach { turnId -> appendTurn(this, turnId, events.filter { it.turnId == turnId }, events) }
             if (unassigned.isNotEmpty()) {
                 append("<h2>任务级事件</h2>")
                 appendEventList(this, unassigned)
@@ -456,14 +389,8 @@ internal object VisualIntelligenceDiagnosticsReport {
         }
     }
 
-    private fun appendTurn(
-        output: StringBuilder,
-        turnId: String,
-        turnEvents: List<TraceEvent>,
-        allEvents: List<TraceEvent>,
-    ) {
+    private fun appendTurn(output: StringBuilder, turnId: String, turnEvents: List<TraceEvent>, allEvents: List<TraceEvent>) {
         val request = turnEvents.firstOrNull { it.type in requestBoundaryTypes }
-        val transport = turnEvents.firstOrNull { it.type == "model_transport_response" }
         val parsed = turnEvents.lastOrNull { it.type == "model_response" }
         val planned = turnEvents.lastOrNull { it.type == "planned_action" }
         val result = turnEvents.lastOrNull { it.type == "execution_result" }
@@ -472,61 +399,35 @@ internal object VisualIntelligenceDiagnosticsReport {
         val inputFrame = explicitInput.ifBlank {
             allEvents.filter { it.index < requestIndex && it.frameFile().isNotBlank() }.lastOrNull()?.frameFile().orEmpty()
         }
-        val outputFrame = turnEvents.filter { it.index > requestIndex && it.frameFile().isNotBlank() }
-            .lastOrNull()?.frameFile().orEmpty()
+        val outputFrame = turnEvents.filter { it.index > requestIndex && it.frameFile().isNotBlank() }.lastOrNull()?.frameFile().orEmpty()
         val marker = planned?.details?.marker()
         val actionTitle = planned?.details?.let { details ->
-            listOf(details.optString("type"), details.optString("targetText"))
-                .filter(String::isNotBlank).joinToString(" · ")
+            listOf(details.optString("type"), details.optString("targetText")).filter(String::isNotBlank).joinToString(" · ")
         }.orEmpty().ifBlank {
             parsed?.details?.optJSONObject("parsedStep")?.let { step ->
-                listOf(step.optString("type"), step.optString("targetText"))
-                    .filter(String::isNotBlank).joinToString(" · ")
+                listOf(step.optString("type"), step.optString("targetText")).filter(String::isNotBlank).joinToString(" · ")
             }.orEmpty()
-        }.ifBlank {
-            turnEvents.lastOrNull { it.type == "runtime_progress" }?.raw?.optString("currentAction").orEmpty()
         }.ifBlank { "未记录动作" }
 
-        output.append("<section class=\"turn\"><div class=\"turn-head\"><h3>")
-            .append(turnId.html()).append("</h3><span>").append(actionTitle.html()).append("</span></div>")
+        output.append("<section class=\"turn\"><div class=\"turn-head\"><h3>").append(turnId.html()).append("</h3><span>").append(actionTitle.html()).append("</span></div>")
         output.append("<div class=\"shots\">")
         appendShot(output, "模型输入帧", inputFrame, marker)
         appendShot(output, "动作后帧", outputFrame, null)
         output.append("</div><div class=\"facts\">")
-        request?.let { event ->
-            val bytes = event.raw.optInt("requestBytes")
-            output.append("<div><b>请求：</b>")
-                .append(if (bytes > 0) "${bytes / 1024} KB" else event.type.html())
-                .append("</div>")
-        }
-        transport?.details?.let { details ->
-            output.append("<div><b>响应：</b>HTTP ").append(details.optInt("httpStatus"))
-                .append(" · ").append(details.optLong("durationMs")).append(" ms · ")
-                .append(details.optString("parseOutcome").html()).append("</div>")
-        }
-        result?.details?.let { details ->
-            output.append("<div><b>执行：</b>").append(details.optString("message").html()).append("</div>")
-        }
+        result?.details?.let { output.append("<div><b>执行：</b>").append(it.optString("message").html()).append("</div>") }
         output.append("</div>")
         appendEventList(output, turnEvents)
         output.append("</section>")
     }
 
-    private fun appendShot(
-        output: StringBuilder,
-        label: String,
-        frameFile: String,
-        marker: Pair<Double, Double>?,
-    ) {
+    private fun appendShot(output: StringBuilder, label: String, frameFile: String, marker: Pair<Double, Double>?) {
         output.append("<div class=\"shot-card\"><b>").append(label.html()).append("</b>")
         if (frameFile.isBlank()) {
             output.append("<div class=\"empty\">没有关联截图</div>")
         } else {
-            output.append("<div class=\"shot\"><img src=\"").append(frameFile.attribute())
-                .append("\" alt=\"").append(label.attribute()).append("\">")
+            output.append("<div class=\"shot\"><img src=\"").append(frameFile.attribute()).append("\" alt=\"").append(label.attribute()).append("\">")
             marker?.let { (x, y) ->
-                output.append("<span class=\"marker\" style=\"left:")
-                    .append((x * 100.0).coerceIn(0.0, 100.0)).append("%;top:")
+                output.append("<span class=\"marker\" style=\"left:").append((x * 100.0).coerceIn(0.0, 100.0)).append("%;top:")
                     .append((y * 100.0).coerceIn(0.0, 100.0)).append("%\"></span>")
             }
             output.append("</div><small>").append(frameFile.html()).append("</small>")
@@ -536,16 +437,15 @@ internal object VisualIntelligenceDiagnosticsReport {
 
     private fun appendEventList(output: StringBuilder, events: List<TraceEvent>) {
         events.forEach { event ->
-            output.append("<details><summary>").append(event.index).append(" · ")
-                .append(event.type.html()).append(" · ").append(event.capturedAt).append("</summary><pre>")
+            output.append("<details><summary>").append(event.index).append(" · ").append(event.type.html()).append(" · ").append(event.capturedAt).append("</summary><pre>")
                 .append(event.raw.toString(2).html()).append("</pre></details>")
         }
     }
 
     private fun JSONObject.marker(): Pair<Double, Double>? {
         val args = optJSONObject("toolArgs")
-        val x = args?.optNullableDouble("__androidModelX") ?: args?.optNullableDouble("executionPermitX")
-        val y = args?.optNullableDouble("__androidModelY") ?: args?.optNullableDouble("executionPermitY")
+        val x = args?.optNullableDouble("executionPermitX") ?: args?.optNullableDouble("__androidModelX")
+        val y = args?.optNullableDouble("executionPermitY") ?: args?.optNullableDouble("__androidModelY")
         return if (x != null && y != null) x to y else null
     }
 
@@ -554,15 +454,9 @@ internal object VisualIntelligenceDiagnosticsReport {
         return runCatching { getDouble(key) }.getOrNull() ?: optString(key).toDoubleOrNull()
     }
 
-    private fun readJson(file: File): JSONObject? =
-        runCatching { file.takeIf(File::isFile)?.readText()?.let(::JSONObject) }.getOrNull()
+    private fun readJson(file: File): JSONObject? = runCatching { file.takeIf(File::isFile)?.readText()?.let(::JSONObject) }.getOrNull()
 
-    private fun String.html(): String = replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&#39;")
-
+    private fun String.html(): String = replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")
     private fun String.attribute(): String = html()
 
     private const val CSS = """
