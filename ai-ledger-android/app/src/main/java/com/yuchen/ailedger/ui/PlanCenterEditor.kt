@@ -2,6 +2,7 @@ package com.yuchen.ailedger.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -381,19 +382,14 @@ private fun PlanModalGlassSurface(
     val safeRadius = radius.coerceAtLeast(18)
     val safeContainerProgress = containerProgress.coerceIn(0f, 1f)
     val safeContentProgress = contentProgress.coerceIn(0f, 1f)
-    val compactAlpha = (1f - safeContentProgress * 1.35f).coerceIn(0f, 1f)
-    val contentTranslation = (1f - safeContentProgress) * 12f
+    val compactEntrance = ((safeContainerProgress - 0.04f) / 0.18f).coerceIn(0f, 1f)
+    val compactAlpha = (
+        compactEntrance * (1f - safeContentProgress * 1.35f)
+        ).coerceIn(0f, 1f)
+    val contentTranslation = (1f - safeContentProgress) * 10f
     val shape = RoundedCornerShape(safeRadius.dp)
 
     Box(modifier = modifier.clip(shape)) {
-        FrostInfoGlassPanel(
-            radius = safeRadius.toFloat(),
-            backdropAlpha = 1f,
-            frostAlpha = 0.060f,
-            dimAlpha = 0.145f,
-            modifier = Modifier.fillMaxSize(),
-        ) {}
-
         PressableGlass(
             quality = state.quality,
             glassIntensity = state.glassIntensity * 1.12f,
@@ -404,6 +400,16 @@ private fun PlanModalGlassSurface(
             onClick = {},
         ) {
             Box(Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Color(0xFF071126).copy(
+                                alpha = 0.16f + safeContentProgress * 0.035f,
+                            ),
+                        ),
+                )
+
                 if (compactAlpha > 0.001f) {
                     Row(
                         modifier = Modifier
@@ -427,7 +433,7 @@ private fun PlanModalGlassSurface(
                     }
                 }
 
-                if (safeContainerProgress > 0.48f && safeContentProgress > 0.001f) {
+                if (safeContainerProgress > 0.58f && safeContentProgress > 0.001f) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
