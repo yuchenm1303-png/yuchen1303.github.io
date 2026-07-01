@@ -322,7 +322,9 @@ private fun DataContent(state: AssistantUiState) {
 
 @Composable
 private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) {
-    NativeAccountSettingsCard(state)
+    SettingsNestedOrdinaryGlassHost {
+        NativeAccountSettingsCard(state)
+    }
     SettingInfoRow(
         "AI 接口",
         if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint,
@@ -352,7 +354,9 @@ private fun ChatPageSettingsContent() {
         onValueChange = { InlineStickerDisplaySettings.updateSizeDp(context, it) },
         valueText = "${stickerSizeDp.roundToInt()} dp",
     )
-    InlineStickerExpressionSettingsControls()
+    SettingsNestedOrdinaryGlassHost {
+        InlineStickerExpressionSettingsControls()
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -384,6 +388,20 @@ private fun ChatPageSettingsContent() {
             fontWeight = FontWeight.Bold,
         )
     }
+}
+
+/**
+ * 嵌套在雾面信息卡中的普通玻璃必须在信息卡内容层内批绘制，
+ * 否则页面总父层会把它们画到外层雾面背景下面。
+ */
+@Composable
+private fun SettingsNestedOrdinaryGlassHost(content: @Composable () -> Unit) {
+    OrdinaryGlassSceneHost(
+        group = LocalGlassSceneContext.current.group,
+        modifier = Modifier.fillMaxWidth(),
+        renderMode = OrdinaryGlassRenderMode.ParentDraw,
+        content = content,
+    )
 }
 
 private fun SettingsDetailSection.settingsOrder(): Int = when (this) {
