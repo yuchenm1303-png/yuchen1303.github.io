@@ -84,7 +84,7 @@ data class BackdropDebugParams(
     val scale: Float = 2.00f,
     val radius: Float = 0.23041475f,
     val iterations: Float = 12f,
-    val brightness: Float = 0.70f,
+    val brightness: Float = 1.10f,
     val contrast: Float = 1.0241935f,
     val saturation: Float = 1.112f,
     val customImageBrightness: Float = 0.70f,
