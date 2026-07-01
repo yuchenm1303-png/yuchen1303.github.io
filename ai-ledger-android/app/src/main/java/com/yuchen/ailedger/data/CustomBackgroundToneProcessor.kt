@@ -76,7 +76,7 @@ internal object CustomBackgroundToneProcessor {
             ?.listFiles()
             .orEmpty()
             .filter { it.name.startsWith(".${displayFile.name}.tone-") }
-            .forEach(File::delete)
+            .forEach { it.delete() }
     }
 
     fun sourceIdentityFile(displayFile: File): File =
