@@ -2,12 +2,21 @@ package com.yuchen.ailedger.ui
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -15,9 +24,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.PlanDraft
@@ -27,6 +41,7 @@ import com.yuchen.ailedger.model.PlanTask
 fun PlanCenterScreen(
     state: AssistantUiState,
     onBack: () -> Unit,
+    onModalVisibilityChange: (Boolean) -> Unit = {},
     viewModel: PlanCenterViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -36,121 +51,178 @@ fun PlanCenterScreen(
     var editorDraft by remember { mutableStateOf<PlanDraft?>(null) }
     var editorGeneration by remember { mutableIntStateOf(0) }
     var deleteCandidate by remember { mutableStateOf<PlanTask?>(null) }
+    val modalVisible = editorDraft != null || deleteCandidate != null
 
     fun openEditor(task: PlanTask? = null, template: PlanDraft? = null) {
         editingId = task?.id
         editorDraft = template ?: task?.toPlanDraft() ?: defaultPlanDraft(quickTitle)
+        deleteCandidate = null
         quickTitle = ""
         editorGeneration += 1
     }
 
-    BackHandler(onBack = onBack)
+    fun closeModal() {
+        editorDraft = null
+        editingId = null
+        deleteCandidate = null
+    }
+
+    BackHandler(enabled = modalVisible, onBack = ::closeModal)
+    BackHandler(enabled = !modalVisible, onBack = onBack)
     LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(modalVisible) { onModalVisibilityChange(modalVisible) }
+    DisposableEffect(Unit) {
+        onDispose { onModalVisibilityChange(false) }
+    }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            PlanHeader(
-                state = state,
-                activeCount = planState.activeCount,
-                onBack = onBack,
-            )
-        }
-        item {
-            PlanQuickComposer(
-                state = state,
-                value = quickTitle,
-                onValueChange = { quickTitle = it.take(80) },
-                onCreate = { openEditor() },
-            )
-        }
-        item {
-            PlanTemplateStrip(state = state) { template ->
-                openEditor(template = template)
-            }
-        }
-        if (!planState.exactAlarmReady) {
-            item {
-                PlanInfoBanner(state = state) {
-                    if (!viewModel.requestExactAlarmAccess()) {
-                        Toast.makeText(
-                            context,
-                            "当前系统没有可用的精确闹钟设置页面",
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-            }
-        }
-        item {
-            PlanFilterBar(
-                state = state,
-                selected = planState.filter,
-                onSelect = viewModel::setFilter,
-            )
-        }
-        item { PlanSectionTitle(planState.filter, planState.visibleTasks.size) }
+    val pageBlur by animateDpAsState(
+        targetValue = if (modalVisible) 14.dp else 0.dp,
+        label = "plan-page-blur",
+    )
+    val pageAlpha by animateFloatAsState(
+        targetValue = if (modalVisible) 0.40f else 1f,
+        label = "plan-page-alpha",
+    )
+    val pageScale by animateFloatAsState(
+        targetValue = if (modalVisible) 0.985f else 1f,
+        label = "plan-page-scale",
+    )
 
-        if (planState.visibleTasks.isEmpty()) {
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(pageBlur)
+                .graphicsLayer {
+                    alpha = pageAlpha
+                    scaleX = pageScale
+                    scaleY = pageScale
+                },
+            contentPadding = PaddingValues(top = 12.dp, bottom = 110.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
             item {
-                PlanEmptyCard(
+                PlanHeader(
                     state = state,
-                    filtered = planState.tasks.isNotEmpty(),
+                    activeCount = planState.activeCount,
+                    onBack = onBack,
+                )
+            }
+            item {
+                PlanQuickComposer(
+                    state = state,
+                    value = quickTitle,
+                    onValueChange = { quickTitle = it.take(80) },
                     onCreate = { openEditor() },
                 )
             }
-        } else {
-            items(planState.visibleTasks, key = { it.id }) { task ->
-                PlanTaskCard(
+            item {
+                PlanTemplateGrid(state = state) { template ->
+                    openEditor(template = template)
+                }
+            }
+            if (!planState.exactAlarmReady) {
+                item {
+                    PlanInfoBanner(state = state) {
+                        if (!viewModel.requestExactAlarmAccess()) {
+                            Toast.makeText(
+                                context,
+                                "当前系统没有可用的精确闹钟设置页面",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    }
+                }
+            }
+            item {
+                PlanFilterBar(
+                    state = state,
+                    selected = planState.filter,
+                    onSelect = viewModel::setFilter,
+                )
+            }
+            item { PlanSectionTitle(planState.filter, planState.visibleTasks.size) }
+
+            if (planState.visibleTasks.isEmpty()) {
+                item {
+                    PlanEmptyCard(
+                        state = state,
+                        filtered = planState.tasks.isNotEmpty(),
+                        onCreate = { openEditor() },
+                    )
+                }
+            } else {
+                items(planState.visibleTasks, key = { it.id }) { task ->
+                    PlanTaskCard(
+                        state = state,
+                        task = task,
+                        onEdit = { openEditor(task = task) },
+                        onDelete = {
+                            editorDraft = null
+                            editingId = null
+                            deleteCandidate = task
+                        },
+                        onToggle = { enabled ->
+                            val result = viewModel.toggleTask(task.id, enabled)
+                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                        },
+                    )
+                }
+            }
+        }
+
+        if (modalVisible) {
+            val blocker = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .zIndex(100f)
+                    .fillMaxSize()
+                    .background(Color(0xA8050918))
+                    .clickable(
+                        interactionSource = blocker,
+                        indication = null,
+                        onClick = ::closeModal,
+                    ),
+            )
+
+            editorDraft?.let { initial ->
+                key(editorGeneration) {
+                    PlanEditorPanel(
+                        state = state,
+                        initial = initial,
+                        editing = editingId != null,
+                        exactAlarmReady = planState.exactAlarmReady,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .zIndex(101f)
+                            .fillMaxWidth(0.94f)
+                            .fillMaxHeight(0.86f),
+                        onDismiss = ::closeModal,
+                        onSave = { draft ->
+                            val result = viewModel.saveTask(editingId, draft)
+                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                            if (result.ok) closeModal()
+                        },
+                    )
+                }
+            }
+
+            deleteCandidate?.let { task ->
+                PlanDeletePanel(
                     state = state,
                     task = task,
-                    onEdit = { openEditor(task = task) },
-                    onDelete = { deleteCandidate = task },
-                    onToggle = { enabled ->
-                        val result = viewModel.toggleTask(task.id, enabled)
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .zIndex(101f)
+                        .fillMaxWidth(0.86f),
+                    onDismiss = ::closeModal,
+                    onConfirm = {
+                        val result = viewModel.deleteTask(task.id)
                         Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                        closeModal()
                     },
                 )
             }
         }
-    }
-
-    editorDraft?.let { initial ->
-        key(editorGeneration) {
-            PlanEditorDialog(
-                state = state,
-                initial = initial,
-                editing = editingId != null,
-                exactAlarmReady = planState.exactAlarmReady,
-                onDismiss = {
-                    editorDraft = null
-                    editingId = null
-                },
-                onSave = { draft ->
-                    val result = viewModel.saveTask(editingId, draft)
-                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                    if (result.ok) {
-                        editorDraft = null
-                        editingId = null
-                    }
-                },
-            )
-        }
-    }
-
-    deleteCandidate?.let { task ->
-        PlanDeleteDialog(
-            state = state,
-            task = task,
-            onDismiss = { deleteCandidate = null },
-            onConfirm = {
-                val result = viewModel.deleteTask(task.id)
-                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                deleteCandidate = null
-            },
-        )
     }
 }
