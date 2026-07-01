@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.weight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,8 +27,8 @@ import kotlin.math.roundToInt
 internal fun SettingsDashboardGridFullMotion(
     state: AssistantUiState,
     aiEndpoint: String,
-    selectedPanel: SettingsPanel,
-    onSelected: (SettingsPanel) -> Unit,
+    selectedPanel: SettingsDetailSection,
+    onSelected: (SettingsDetailSection) -> Unit,
 ) {
     val context = LocalContext.current
     val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
@@ -56,19 +55,19 @@ internal fun SettingsDashboardGridFullMotion(
                 title = "主题",
                 subtitle = "背景与主题",
                 value = settingsDashboardThemeLabel(state.backgroundTheme),
-                selected = selectedPanel == SettingsPanel.Appearance,
+                selected = selectedPanel == SettingsDetailSection.Appearance,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Appearance) }
+            ) { onSelected(SettingsDetailSection.Appearance) }
             AnimatedSettingsFrostTile(
                 icon = "璃",
                 title = "玻璃",
                 subtitle = "质感与流畅度",
                 value = "${settingsDashboardQualityLabel(state.quality)} · ${settingsDashboardGlassLabel(state.glassPreset)}",
-                selected = selectedPanel == SettingsPanel.Glass,
+                selected = selectedPanel == SettingsDetailSection.Glass,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Glass) }
+            ) { onSelected(SettingsDetailSection.Glass) }
         }
         SettingsDashboardRow {
             AnimatedSettingsFrostTile(
@@ -76,19 +75,19 @@ internal fun SettingsDashboardGridFullMotion(
                 title = "视觉智能",
                 subtitle = "边缘光与光标",
                 value = "运行 HUD",
-                selected = selectedPanel == SettingsPanel.Assistant,
+                selected = selectedPanel == SettingsDetailSection.Assistant,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Assistant) }
+            ) { onSelected(SettingsDetailSection.Assistant) }
             AnimatedSettingsFrostTile(
                 icon = "账",
                 title = "数据偏好",
                 subtitle = "预算与账单",
                 value = "${state.ledgerRecords.size} 笔",
-                selected = selectedPanel == SettingsPanel.Data,
+                selected = selectedPanel == SettingsDetailSection.Data,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Data) }
+            ) { onSelected(SettingsDetailSection.Data) }
         }
         SettingsDashboardRow {
             AnimatedSettingsFrostTile(
@@ -96,19 +95,19 @@ internal fun SettingsDashboardGridFullMotion(
                 title = "账号设置",
                 subtitle = "账号 / Worker",
                 value = serviceValue,
-                selected = selectedPanel == SettingsPanel.Service,
+                selected = selectedPanel == SettingsDetailSection.Service,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Service) }
+            ) { onSelected(SettingsDetailSection.Service) }
             AnimatedSettingsFrostTile(
                 icon = "GL",
                 title = "系统信息",
                 subtitle = "渲染边界",
                 value = "OpenGL 隔离",
-                selected = selectedPanel == SettingsPanel.Advanced,
+                selected = selectedPanel == SettingsDetailSection.Advanced,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Advanced) }
+            ) { onSelected(SettingsDetailSection.Advanced) }
         }
         SettingsDashboardRow {
             AnimatedSettingsFrostTile(
@@ -116,19 +115,19 @@ internal fun SettingsDashboardGridFullMotion(
                 title = "聊天设置",
                 subtitle = "消息与表情",
                 value = "${stickerSizeDp.roundToInt()} dp",
-                selected = selectedPanel == SettingsPanel.Chat,
+                selected = selectedPanel == SettingsDetailSection.Chat,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Chat) }
+            ) { onSelected(SettingsDetailSection.Chat) }
             AnimatedSettingsFrostTile(
                 icon = "忆",
                 title = "记忆",
                 subtitle = "长期上下文",
                 value = memoryValue,
-                selected = selectedPanel == SettingsPanel.Memory,
+                selected = selectedPanel == SettingsDetailSection.Memory,
                 state = state,
                 modifier = Modifier.weight(1f),
-            ) { onSelected(SettingsPanel.Memory) }
+            ) { onSelected(SettingsDetailSection.Memory) }
         }
     }
 }
