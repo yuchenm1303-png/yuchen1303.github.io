@@ -189,11 +189,10 @@ private fun PendingToolScreen(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(24.dp))
                             .background(Color(0xFF151A4F).copy(alpha = 0.28f))
-                            .padding(horizontal = 18.dp, vertical = 24.dp),
+                            .padding(horizontal = 18.dp, vertical = 20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text(destination.icon, color = Color.White.copy(alpha = 0.90f), fontSize = 28.sp, fontWeight = FontWeight.Black)
                         Text("功能正在建设", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black)
                         Text(
                             "入口已经纳入统一路由，后续会按独立功能批次完成，不再出现点击后无反馈的情况。",
@@ -478,9 +477,7 @@ private fun StockToolEntryContent(destination: ToolDestination) {
     Row(
         Modifier.fillMaxSize().padding(horizontal = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(13.dp)
     ) {
-        Text(destination.icon, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(destination.title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text(destination.subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

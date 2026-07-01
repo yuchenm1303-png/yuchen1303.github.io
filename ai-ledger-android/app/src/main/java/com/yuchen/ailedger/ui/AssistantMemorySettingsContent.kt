@@ -163,7 +163,6 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
 
     if (accountUserId == null) {
         MemoryCenteredCard(
-            icon = "锁",
             title = "登录后使用个性化与长期记忆",
             description = "诊断仍会记录匿名或请求失败状态；登录后才会读取与管理账号记忆。",
         )
@@ -176,7 +175,6 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
     )
     when {
         customState.loading -> MemoryCenteredCard(
-            icon = "令",
             title = "正在同步自定义指令",
             description = customState.accountEmail.orEmpty(),
         )
@@ -268,7 +266,6 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
     )
     when {
         memoryState.loading -> MemoryCenteredCard(
-            icon = "忆",
             title = "正在同步长期记忆",
             description = memoryState.accountEmail.orEmpty(),
         )
@@ -465,7 +462,6 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
             )
             if (memoryState.memories.isEmpty()) {
                 MemoryCenteredCard(
-                    icon = "忆",
                     title = "还没有长期记忆",
                     description = "事实放进个人信息，回答方式放进偏好，必须执行的流程放进长期规则。",
                 )
@@ -798,25 +794,16 @@ private fun MemoryMetric(label: String, value: String, modifier: Modifier = Modi
 }
 
 @Composable
-private fun MemoryCenteredCard(icon: String, title: String, description: String) {
+private fun MemoryCenteredCard(title: String, description: String) {
     Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
             .background(Color.White.copy(alpha = 0.048f))
-            .padding(horizontal = 18.dp, vertical = 22.dp),
+            .padding(horizontal = 18.dp, vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(RoundedCornerShape(17.dp))
-                .background(Color.White.copy(alpha = 0.065f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(icon, color = Color.White.copy(alpha = 0.66f), fontSize = 18.sp, fontWeight = FontWeight.Black)
-        }
         Text(
             title,
             color = Color.White.copy(alpha = 0.82f),

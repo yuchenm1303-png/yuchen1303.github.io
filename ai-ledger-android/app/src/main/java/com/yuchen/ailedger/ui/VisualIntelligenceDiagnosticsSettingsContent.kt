@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Switch
@@ -397,48 +396,31 @@ private fun DiagnosticMetricDivider() {
 
 @Composable
 private fun DiagnosticEmptyState() {
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(Color.White.copy(alpha = 0.042f))
             .padding(horizontal = 15.dp, vertical = 15.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(13.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(14.dp))
-                .background(DiagnosticAccent.copy(alpha = 0.075f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                "诊",
-                color = DiagnosticAccent.copy(alpha = 0.72f),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Black,
-            )
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "暂无诊断记录",
-                color = Color.White.copy(alpha = 0.82f),
-                fontSize = 13.5.sp,
-                lineHeight = 17.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-            )
-            Text(
-                "执行一次视觉智能任务后，这里会按任务展示逐轮数据。",
-                color = Color.White.copy(alpha = 0.42f),
-                fontSize = 10.sp,
-                lineHeight = 14.sp,
-                fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+        Text(
+            "暂无诊断记录",
+            color = Color.White.copy(alpha = 0.82f),
+            fontSize = 13.5.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+        )
+        Text(
+            "执行一次视觉智能任务后，这里会按任务展示逐轮数据。",
+            color = Color.White.copy(alpha = 0.42f),
+            fontSize = 10.sp,
+            lineHeight = 14.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
