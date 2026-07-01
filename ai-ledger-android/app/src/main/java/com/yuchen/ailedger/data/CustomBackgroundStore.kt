@@ -41,8 +41,9 @@ class CustomBackgroundStore(
         val fitted = rotated.scaleToMaxEdge(MAX_STORE_EDGE)
         val target = customBackgroundFile
 
+        // 原图只压缩一次，展示文件直接复制同一份 JPEG，避免上传时重复执行昂贵编码。
         writeJpeg(fitted, customBackgroundSourceFile)
-        writeJpeg(fitted, target)
+        copyFileAtomically(customBackgroundSourceFile, target)
         CustomBackgroundToneProcessor.invalidate(target)
 
         if (fitted !== rotated) fitted.recycle()
@@ -67,14 +68,28 @@ class CustomBackgroundStore(
             FileOutputStream(temporary).use { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output))
             }
-            if (target.exists() && !target.delete()) {
-                error("无法替换背景图片")
-            }
-            if (!temporary.renameTo(target)) {
-                temporary.copyTo(target, overwrite = true)
-            }
+            replaceFile(temporary, target)
         } finally {
             temporary.delete()
+        }
+    }
+
+    private fun copyFileAtomically(source: File, target: File) {
+        val temporary = File(target.parentFile, ".${target.name}.copy-${System.nanoTime()}")
+        try {
+            source.copyTo(temporary, overwrite = true)
+            replaceFile(temporary, target)
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    private fun replaceFile(source: File, target: File) {
+        if (target.exists() && !target.delete()) {
+            error("无法替换背景图片")
+        }
+        if (!source.renameTo(target)) {
+            source.copyTo(target, overwrite = true)
         }
     }
 
