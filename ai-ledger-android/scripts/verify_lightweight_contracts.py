@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail CI when protected low-load and chat rendering contracts are accidentally weakened."""
+"""Fail CI when protected low-load, chat rendering, routing, or UI contracts are weakened."""
 
 from __future__ import annotations
 
@@ -68,6 +68,61 @@ def main() -> int:
             "MessageAttachmentListV2",
             "MessageBadgeV2",
             "MessageDataCards",
+        ],
+    )
+
+    app_route = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/App.kt"
+    errors += require_text(
+        app_route,
+        required=[
+            "StockFirstToolsHomeScreen(",
+            "SettingsPolishedScreenOptimized(",
+        ],
+    )
+
+    settings_route = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/SettingsPolishedDetails.kt"
+    errors += require_text(
+        settings_route,
+        required=[
+            "SettingsDetailSection.Assistant -> VisualAgentHudSettingsContent(state)",
+            "SettingsDetailSection.Memory -> AccountMemorySettingsContent(state)",
+        ],
+    )
+
+    tools_page = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/StockFirstToolsHomeScreen.kt"
+    errors += require_text(
+        tools_page,
+        required=[
+            'Text("功能正在建设"',
+            "private fun StockToolEntryContent(destination: ToolDestination)",
+        ],
+        forbidden=[
+            "Text(destination.icon",
+        ],
+    )
+
+    memory_page = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/AssistantMemorySettingsContent.kt"
+    errors += require_text(
+        memory_page,
+        required=[
+            "private fun MemoryCenteredCard(title: String, description: String)",
+        ],
+        forbidden=[
+            "MemoryCenteredCard(icon:",
+            'icon = "锁"',
+            'icon = "令"',
+            'icon = "忆"',
+        ],
+    )
+
+    visual_diagnostics = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/VisualIntelligenceDiagnosticsSettingsContent.kt"
+    errors += require_text(
+        visual_diagnostics,
+        required=[
+            "private fun DiagnosticEmptyState()",
+        ],
+        forbidden=[
+            'Text(\n                "诊",',
         ],
     )
 
