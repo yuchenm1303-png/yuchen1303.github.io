@@ -502,7 +502,17 @@ fun PressableGlass(
     val ordinarySweep = remember { Animatable(0f) }
     var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
     var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
-    val motion = motionIntensity.coerceIn(0f, 1f)
+    val backdrop = LocalGlassBackdrop.current
+    val requestedMotion = motionIntensity.coerceIn(0f, 1f)
+    val settingsMotion = if (
+        requestedMotion <= 0.02f &&
+        LocalSettingsFrostParentLayer.current != null
+    ) {
+        backdrop?.motionIntensity?.coerceIn(0f, 1f)
+    } else {
+        null
+    }
+    val motion = settingsMotion ?: requestedMotion
     val ordinaryPressEnabled = role != GlassRole.Shell && motion > 0.02f
     val elasticity = if (ordinaryPressEnabled) ordinaryGlassElasticity(role, pressSize) * motion else 0f
     val pressValue = if (ordinaryPressEnabled) ordinaryPress.value.coerceIn(-0.20f, 1.32f) else 0f
@@ -516,7 +526,6 @@ fun PressableGlass(
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
-    val backdrop = LocalGlassBackdrop.current
     val cardBackdrop = LocalBlurredBackdrop.current
     val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
     val useNewOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && role == GlassRole.Shell && !viewportOwnsShell && cardBackdrop != null
@@ -544,7 +553,7 @@ fun PressableGlass(
     Box(
         modifier = modifier
             .onSizeChanged { size -> pressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat()) }
-            .pointerInput(ordinaryPressEnabled, motionIntensity, role) {
+            .pointerInput(ordinaryPressEnabled, motion, role) {
                 if (!ordinaryPressEnabled) return@pointerInput
                 awaitEachGesture {
                     fun updatePressCenter(position: Offset) {
