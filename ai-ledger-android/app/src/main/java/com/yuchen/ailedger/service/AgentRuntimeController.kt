@@ -89,7 +89,8 @@ object AgentRuntimeController {
     }
 
     private val taskStateLock = Any()
-    private val taskIdSequence = AtomicLong(0L)
+    // 以当前毫秒时间作为进程级序列起点，避免 App 重启后任务编号从 1 重新开始并复用旧诊断目录。
+    private val taskIdSequence = AtomicLong(System.currentTimeMillis())
 
     @Volatile private var manualStopGeneration: Long = 0L
     @Volatile private var userTakeoverPaused: Boolean = false
