@@ -87,7 +87,7 @@ internal fun SettingsPolishedScreenOptimized(
             SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
                 SettingsOptimizedSectionTitle(
                     "常用设置",
-                    "选中的入口会持续呼吸，方便快速定位当前面板。",
+                    "选中的入口会保持静态高亮，方便快速定位当前面板。",
                 )
             }
         }
