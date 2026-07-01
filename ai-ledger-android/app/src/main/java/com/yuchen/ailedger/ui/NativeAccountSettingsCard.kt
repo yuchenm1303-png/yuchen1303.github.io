@@ -171,55 +171,16 @@ fun NativeAccountSettingsCard(state: AssistantUiState) {
             )
 
             if (!loggedIn) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    AccountModeChip(
-                        "登录",
-                        authMode == AccountAuthMode.Login,
-                        state,
-                        Modifier.weight(1f),
-                    ) { authMode = AccountAuthMode.Login }
-                    AccountModeChip(
-                        "注册",
-                        authMode == AccountAuthMode.Register,
-                        state,
-                        Modifier.weight(1f),
-                    ) { authMode = AccountAuthMode.Register }
-                }
-                AccountTextField(
-                    value = emailInput,
-                    onValueChange = { emailInput = it.take(80) },
-                    placeholder = "邮箱 name@example.com",
-                    keyboardType = KeyboardType.Email,
-                    enabled = !loading,
-                )
-                AccountTextField(
-                    value = passwordInput,
-                    onValueChange = { passwordInput = it.take(72) },
-                    placeholder = "密码至少 6 位",
-                    keyboardType = KeyboardType.Password,
-                    visualTransformation = PasswordVisualTransformation(),
-                    enabled = !loading,
-                )
-                AccountActionButton(
-                    title = if (loading) {
-                        "处理中…"
-                    } else if (authMode == AccountAuthMode.Register) {
-                        "注册"
-                    } else {
-                        "登录"
-                    },
-                    subtitle = if (authMode == AccountAuthMode.Register) {
-                        "Supabase 邮箱注册"
-                    } else {
-                        "邮箱密码登录"
-                    },
+                AccountAuthForm(
                     state = state,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !loading,
-                    onClick = {
+                    authMode = authMode,
+                    onAuthModeChange = { authMode = it },
+                    emailInput = emailInput,
+                    onEmailChange = { emailInput = it.take(80) },
+                    passwordInput = passwordInput,
+                    onPasswordChange = { passwordInput = it.take(72) },
+                    loading = loading,
+                    onSubmit = {
                         if (authMode == AccountAuthMode.Register) {
                             authRepository.signUp(emailInput, passwordInput)
                         } else {
@@ -256,17 +217,185 @@ fun NativeAccountSettingsCard(state: AssistantUiState) {
 
             Text(
                 text = accountState.message,
-                color = when (accountState.tone) {
-                    SupabaseAccountMessageTone.Success -> Color(0xFF8DF9EA).copy(alpha = 0.88f)
-                    SupabaseAccountMessageTone.Error -> Color(0xFFFFB4B4).copy(alpha = 0.92f)
-                    SupabaseAccountMessageTone.Normal -> Color.White.copy(alpha = 0.52f)
-                },
+                color = accountMessageColor(accountState.tone),
                 fontSize = 12.sp,
                 lineHeight = 17.sp,
                 fontWeight = FontWeight.Bold,
             )
         }
     }
+}
+
+@Composable
+internal fun AccountLoginBottomCard(
+    state: AssistantUiState,
+    onDismiss: () -> Unit,
+) {
+    val context = LocalContext.current.applicationContext
+    val authRepository = remember(context) { SupabaseAuthRepository.get(context) }
+    val accountState by authRepository.state.collectAsState()
+    var authMode by rememberSaveable { mutableStateOf(AccountAuthMode.Login) }
+    var emailInput by rememberSaveable { mutableStateOf("") }
+    var passwordInput by rememberSaveable { mutableStateOf("") }
+
+    LaunchedEffect(accountState.isLoggedIn) {
+        if (accountState.isLoggedIn) onDismiss()
+    }
+
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 30,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(338.dp),
+        role = GlassRole.Card,
+    ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        text = if (authMode == AccountAuthMode.Login) "登录 AI Ledger" else "创建 AI Ledger 账号",
+                        color = Color.White.copy(alpha = 0.96f),
+                        fontSize = 20.sp,
+                        lineHeight = 24.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                    Text(
+                        text = "登录后同步昵称、头像、记忆与自选数据。",
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                PressableGlass(
+                    quality = state.quality,
+                    glassIntensity = state.glassIntensity,
+                    motionIntensity = state.motionIntensity,
+                    radius = 999,
+                    modifier = Modifier
+                        .width(38.dp)
+                        .height(34.dp),
+                    role = GlassRole.Chip,
+                    onClick = onDismiss,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "×",
+                            color = Color.White.copy(alpha = 0.72f),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                }
+            }
+
+            AccountAuthForm(
+                state = state,
+                authMode = authMode,
+                onAuthModeChange = { authMode = it },
+                emailInput = emailInput,
+                onEmailChange = { emailInput = it.take(80) },
+                passwordInput = passwordInput,
+                onPasswordChange = { passwordInput = it.take(72) },
+                loading = accountState.loading,
+                onSubmit = {
+                    if (authMode == AccountAuthMode.Register) {
+                        authRepository.signUp(emailInput, passwordInput)
+                    } else {
+                        authRepository.signIn(emailInput, passwordInput)
+                    }
+                },
+            )
+
+            Text(
+                text = accountState.message,
+                color = accountMessageColor(accountState.tone),
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccountAuthForm(
+    state: AssistantUiState,
+    authMode: AccountAuthMode,
+    onAuthModeChange: (AccountAuthMode) -> Unit,
+    emailInput: String,
+    onEmailChange: (String) -> Unit,
+    passwordInput: String,
+    onPasswordChange: (String) -> Unit,
+    loading: Boolean,
+    onSubmit: () -> Unit,
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        AccountModeChip(
+            "登录",
+            authMode == AccountAuthMode.Login,
+            state,
+            Modifier.weight(1f),
+        ) { onAuthModeChange(AccountAuthMode.Login) }
+        AccountModeChip(
+            "注册",
+            authMode == AccountAuthMode.Register,
+            state,
+            Modifier.weight(1f),
+        ) { onAuthModeChange(AccountAuthMode.Register) }
+    }
+    AccountTextField(
+        value = emailInput,
+        onValueChange = onEmailChange,
+        placeholder = "邮箱 name@example.com",
+        keyboardType = KeyboardType.Email,
+        enabled = !loading,
+    )
+    AccountTextField(
+        value = passwordInput,
+        onValueChange = onPasswordChange,
+        placeholder = "密码至少 6 位",
+        keyboardType = KeyboardType.Password,
+        visualTransformation = PasswordVisualTransformation(),
+        enabled = !loading,
+    )
+    AccountActionButton(
+        title = if (loading) {
+            "处理中…"
+        } else if (authMode == AccountAuthMode.Register) {
+            "创建账号"
+        } else {
+            "登录"
+        },
+        subtitle = if (authMode == AccountAuthMode.Register) {
+            "使用邮箱注册 Supabase 账号"
+        } else {
+            "使用邮箱和密码继续"
+        },
+        state = state,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = !loading && emailInput.isNotBlank() && passwordInput.length >= 6,
+        onClick = onSubmit,
+    )
 }
 
 @Composable
@@ -558,5 +687,13 @@ private fun AccountTextField(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+private fun accountMessageColor(tone: SupabaseAccountMessageTone): Color {
+    return when (tone) {
+        SupabaseAccountMessageTone.Success -> Color(0xFF8DF9EA).copy(alpha = 0.88f)
+        SupabaseAccountMessageTone.Error -> Color(0xFFFFB4B4).copy(alpha = 0.92f)
+        SupabaseAccountMessageTone.Normal -> Color.White.copy(alpha = 0.52f)
     }
 }
