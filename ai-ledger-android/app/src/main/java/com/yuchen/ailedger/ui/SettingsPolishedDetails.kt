@@ -14,6 +14,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -109,6 +115,7 @@ internal fun SettingsDetailPanel(
                             onGlassIntensityChange,
                             onMotionIntensityChange,
                             onRainbowPrismChange,
+                            onBackdropChange,
                         )
                         SettingsDetailSection.Assistant -> VisualAgentHudSettingsContent(state)
                         SettingsDetailSection.Data -> DataContent(state)
@@ -230,55 +237,282 @@ private fun GlassContent(
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
     onRainbowPrismChange: (RainbowPrismStyle) -> Unit,
+    onBackdropChange: (BackdropDebugParams) -> Unit,
 ) {
     val prism = state.rainbowPrismStyle
-    SliderSettingRow(
-        "玻璃强度",
-        "控制通用玻璃的可见度、雾感和边缘能量。",
-        state.glassIntensity,
-        0.6f..1.4f,
-        onGlassIntensityChange,
-    )
-    SliderSettingRow(
-        "动态强度",
-        "控制呼吸、扫光和形变动画幅度，0 为静态。",
-        state.motionIntensity,
-        0f..1.4f,
-        onMotionIntensityChange,
-    )
-    SectionTitleInline("首页聊天大玻璃彩虹")
-    SliderSettingRow(
-        "整体彩虹强度",
-        "统一调节聊天大玻璃彩虹镀膜的总能量。",
-        prism.overall,
-        0f..2f,
-    ) { onRainbowPrismChange(prism.copy(overall = it)) }
-    SliderSettingRow(
-        "棱彩边缘高光",
-        "增强圆角和玻璃边缘对彩色入射光的捕获。",
-        prism.edgeHighlight,
-        0f..2f,
-    ) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
-    SectionTitleInline("随机渐变扫光区间")
-    SliderSettingRow(
-        "扫光强度下限",
-        "随机扫光每次出现时允许的最低亮度。",
-        prism.sweepMin,
-        0f..2f,
-    ) { onRainbowPrismChange(prism.copy(sweepMin = it)) }
-    SliderSettingRow(
-        "扫光强度上限",
-        "随机扫光每次出现时允许的最高亮度。",
-        prism.sweepMax,
-        0f..2f,
-    ) { onRainbowPrismChange(prism.copy(sweepMax = it)) }
-    SliderSettingRow(
-        "粉金青蓝彩虹光晕",
-        "调节粉、金、青、蓝在玻璃外缘形成的柔和光晕。",
-        prism.rainbowHalo,
-        0f..2f,
-    ) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
+    val backdrop = state.backdropParams
+
+    SettingsParameterGroup(
+        title = "玻璃基础",
+        subtitle = "通用玻璃材质与动画幅度",
+    ) {
+        SliderSettingRow(
+            "玻璃强度",
+            "控制通用玻璃的可见度、雾感和边缘能量。",
+            state.glassIntensity,
+            0.6f..1.4f,
+            onGlassIntensityChange,
+        )
+        SliderSettingRow(
+            "动态强度",
+            "控制呼吸、扫光和形变动画幅度，0 为静态。",
+            state.motionIntensity,
+            0f..1.4f,
+            onMotionIntensityChange,
+        )
+    }
+
+    SettingsParameterGroup(
+        title = "彩虹镀膜",
+        subtitle = "聊天大玻璃边缘与外缘彩虹能量",
+    ) {
+        SliderSettingRow(
+            "整体彩虹强度",
+            "统一调节聊天大玻璃彩虹镀膜的总能量。",
+            prism.overall,
+            0f..2f,
+        ) { onRainbowPrismChange(prism.copy(overall = it)) }
+        SliderSettingRow(
+            "棱彩边缘高光",
+            "增强圆角和玻璃边缘对彩色入射光的捕获。",
+            prism.edgeHighlight,
+            0f..2f,
+        ) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
+        SliderSettingRow(
+            "粉金青蓝彩虹光晕",
+            "调节粉、金、青、蓝在玻璃外缘形成的柔和光晕。",
+            prism.rainbowHalo,
+            0f..2f,
+        ) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
+    }
+
+    SettingsParameterGroup(
+        title = "随机渐变扫光",
+        subtitle = "聊天大玻璃随机扫光亮度区间",
+    ) {
+        SliderSettingRow(
+            "扫光强度下限",
+            "随机扫光每次出现时允许的最低亮度。",
+            prism.sweepMin,
+            0f..2f,
+        ) { onRainbowPrismChange(prism.copy(sweepMin = it)) }
+        SliderSettingRow(
+            "扫光强度上限",
+            "随机扫光每次出现时允许的最高亮度。",
+            prism.sweepMax,
+            0f..2f,
+        ) { onRainbowPrismChange(prism.copy(sweepMax = it)) }
+    }
+
+    SettingsParameterGroup(
+        title = "三层背景模糊",
+        subtitle = "清晰纹理与低、中、高三档模糊缓存",
+    ) {
+        SettingsParameterSlider(
+            title = "缓存分辨率",
+            description = "调节背景模糊缓存的有效分辨率；运行时上限受安全边界保护。",
+            value = backdrop.scale.coerceIn(0.18f, 0.72f),
+            valueRange = 0.18f..0.72f,
+            valueText = { "${it.settingsRoundedValue()}×" },
+        ) { onBackdropChange(backdrop.copy(scale = it)) }
+        SettingsParameterSlider(
+            title = "模糊层级",
+            description = "在清晰、低、中、高模糊纹理之间调节玻璃实际采样强度。",
+            value = backdrop.radius,
+            valueRange = 0f..4f,
+            valueText = { "${it.settingsRoundedValue()} 级" },
+        ) { onBackdropChange(backdrop.copy(radius = it)) }
+        SettingsParameterSlider(
+            title = "模糊迭代",
+            description = "控制低、中、高三档模糊缓存的生成轮数。",
+            value = backdrop.iterations,
+            valueRange = 1f..16f,
+            valueText = { "${it.roundToInt()} 次" },
+        ) { onBackdropChange(backdrop.copy(iterations = it.roundToInt().toFloat())) }
+    }
+
+    SettingsParameterGroup(
+        title = "背景色彩输出",
+        subtitle = "模糊缓存生成后的明暗与色彩",
+    ) {
+        SettingsParameterSlider(
+            title = "背景亮度",
+            description = "调节玻璃采样背景的整体明暗。",
+            value = backdrop.brightness,
+            valueRange = 0.4f..2.2f,
+        ) { onBackdropChange(backdrop.copy(brightness = it)) }
+        SettingsParameterSlider(
+            title = "背景对比度",
+            description = "调节玻璃采样背景的明暗反差。",
+            value = backdrop.contrast,
+            valueRange = 0.5f..1.8f,
+        ) { onBackdropChange(backdrop.copy(contrast = it)) }
+        SettingsParameterSlider(
+            title = "背景饱和度",
+            description = "调节玻璃采样背景的综合色彩浓度。",
+            value = backdrop.saturation,
+            valueRange = 0f..2.2f,
+        ) { onBackdropChange(backdrop.copy(saturation = it)) }
+    }
+
+    SettingsParameterGroup(
+        title = "背景云雾层",
+        subtitle = "内置主题的云层形态与高光",
+    ) {
+        SettingsParameterSlider(
+            title = "云雾透明度",
+            description = "调节内置主题背景云雾层的整体可见度。",
+            value = backdrop.cloudAlpha,
+            valueRange = 0f..2f,
+        ) { onBackdropChange(backdrop.copy(cloudAlpha = it)) }
+        SettingsParameterSlider(
+            title = "云雾柔化",
+            description = "调节云层边缘的扩散与柔和程度。",
+            value = backdrop.cloudSoftness,
+            valueRange = 0f..3f,
+        ) { onBackdropChange(backdrop.copy(cloudSoftness = it)) }
+        SettingsParameterSlider(
+            title = "云层横向拉伸",
+            description = "调节云雾层在水平方向的铺展范围。",
+            value = backdrop.cloudStretchX,
+            valueRange = 0.4f..4f,
+        ) { onBackdropChange(backdrop.copy(cloudStretchX = it)) }
+        SettingsParameterSlider(
+            title = "云层纵向拉伸",
+            description = "调节云雾层在垂直方向的厚度。",
+            value = backdrop.cloudStretchY,
+            valueRange = 0.2f..2f,
+        ) { onBackdropChange(backdrop.copy(cloudStretchY = it)) }
+        SettingsParameterSlider(
+            title = "云层高光",
+            description = "调节云雾亮部的局部高光透明度。",
+            value = backdrop.cloudHighlightAlpha,
+            valueRange = 0f..1f,
+        ) { onBackdropChange(backdrop.copy(cloudHighlightAlpha = it)) }
+    }
+
+    SettingsParameterGroup(
+        title = "背景月亮层",
+        subtitle = "内置主题的月体、光晕与边缘",
+    ) {
+        SettingsParameterSlider(
+            title = "月亮尺寸",
+            description = "调节内置主题月体的整体尺寸。",
+            value = backdrop.moonScale,
+            valueRange = 0.5f..1.8f,
+        ) { onBackdropChange(backdrop.copy(moonScale = it)) }
+        SettingsParameterSlider(
+            title = "月亮光晕",
+            description = "调节月体周围柔和光晕的透明度。",
+            value = backdrop.moonHaloAlpha,
+            valueRange = 0f..1f,
+        ) { onBackdropChange(backdrop.copy(moonHaloAlpha = it)) }
+        SettingsParameterSlider(
+            title = "月亮边缘光",
+            description = "调节月体轮廓边缘的亮度。",
+            value = backdrop.moonRimAlpha,
+            valueRange = 0f..1.2f,
+        ) { onBackdropChange(backdrop.copy(moonRimAlpha = it)) }
+    }
 }
+
+@Composable
+private fun SettingsParameterGroup(
+    title: String,
+    subtitle: String,
+    content: @Composable () -> Unit,
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
+    val shape = RoundedCornerShape(20.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(Color.White.copy(alpha = if (expanded) 0.070f else 0.048f))
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = 0.86f,
+                    stiffness = Spring.StiffnessMediumLow,
+                )
+            ),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 13.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    title,
+                    color = Color.White.copy(alpha = 0.88f),
+                    fontSize = 14.5.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    subtitle,
+                    color = Color.White.copy(alpha = 0.42f),
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                if (expanded) "收起 ︿" else "展开 ﹀",
+                color = Color.White.copy(alpha = 0.56f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+            )
+        }
+
+        if (expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsParameterSlider(
+    title: String,
+    description: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    valueText: (Float) -> String = { "${it.settingsRoundedValue()}×" },
+    onValueChange: (Float) -> Unit,
+) {
+    val safeValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
+    InsetGlassParameterSlider(
+        title = title,
+        description = description,
+        value = safeValue,
+        valueRange = valueRange,
+        onValueChange = onValueChange,
+        valueText = valueText(safeValue),
+    )
+}
+
+private fun Float.settingsRoundedValue(): String =
+    ((this * 100f).roundToInt() / 100f).toString()
 
 @Composable
 private fun DataContent(state: AssistantUiState) {
@@ -412,7 +646,7 @@ private fun panelTitle(panel: SettingsDetailSection): String = when (panel) {
 
 private fun panelSubtitle(panel: SettingsDetailSection): String = when (panel) {
     SettingsDetailSection.Appearance -> "背景、主题和自定义图片。"
-    SettingsDetailSection.Glass -> "玻璃强度、动态效果和聊天大玻璃彩虹。"
+    SettingsDetailSection.Glass -> "玻璃、彩虹光效与多层背景模糊参数。"
     SettingsDetailSection.Assistant -> "边缘光效、鼠标光标与运行 HUD 的全部参数。"
     SettingsDetailSection.Data -> "账单状态、预算、本地数据和常用导航地址。"
     SettingsDetailSection.Service -> "账号登录、AI Worker 和云端接口。"
