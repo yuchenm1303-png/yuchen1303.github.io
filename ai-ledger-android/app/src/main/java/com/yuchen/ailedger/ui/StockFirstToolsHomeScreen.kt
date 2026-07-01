@@ -98,6 +98,16 @@ fun StockFirstToolsHomeScreen(
         return
     }
 
+    if (selectedTool == ToolDestination.Reminder) {
+        GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
+            PlanCenterScreen(
+                state = pageState,
+                onBack = onCloseTool,
+            )
+        }
+        return
+    }
+
     if (selectedTool == ToolDestination.AppControl) {
         AppManagementScreen(
             state = pageState,
