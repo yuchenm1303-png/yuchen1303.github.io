@@ -64,7 +64,7 @@ internal fun SettingsPolishedScreenOptimized(
 ) {
     val listState = rememberLazyListState()
     SyncGlassBackdropToScroll(listState)
-    var selectedPanel by rememberSaveable { mutableStateOf(SettingsPanel.Service) }
+    var selectedPanel by rememberSaveable { mutableStateOf(SettingsDetailSection.Service) }
     val entranceSessions = remember { mutableStateMapOf<String, Int>() }
 
     LazyColumn(
@@ -123,8 +123,8 @@ internal fun SettingsPolishedScreenOptimized(
         }
         item(key = "settings-lab-entry") {
             SettingsOptimizedEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
-                SettingsLabEntry(state, selectedPanel == SettingsPanel.Debug) {
-                    selectedPanel = SettingsPanel.Debug
+                SettingsLabEntry(state, selectedPanel == SettingsDetailSection.Debug) {
+                    selectedPanel = SettingsDetailSection.Debug
                 }
             }
         }
