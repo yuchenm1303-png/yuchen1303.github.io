@@ -51,7 +51,7 @@ import kotlin.math.roundToInt
 private const val MAX_BACKDROP_BLUR_AMOUNT = 4f
 private const val FULL_BACKDROP_BLUR_LEVEL_COUNT = 3
 private const val BACKDROP_TEXTURE_DIMENSION_BUCKET = 8
-private const val CUSTOM_BACKGROUND_TONE_SETTLE_MS = 140L
+private const val CUSTOM_BACKGROUND_TONE_SETTLE_MS = 180L
 
 private const val OPENGL_BACKDROP_PHASE_EMPTY = 0
 private const val OPENGL_BACKDROP_PHASE_CRITICAL = 1
@@ -480,29 +480,34 @@ fun rememberBlurredBackdropBitmap(
         val result = BackdropBuildRegistry.request(textureKey) {
             runCatching {
                 val preset = if (useDefaultWallpaper) decodePresetNightSkyBitmap(context) else null
-                val resolvedSourcePath = if (useCustomImage) {
-                    CustomBackgroundToneProcessor.ensureProcessed(
-                        displayPath = requireNotNull(sourcePath),
-                        params = params.quantizedForTextures(),
-                    )?.absolutePath ?: sourcePath
-                } else {
-                    sourcePath
+                val quantizedParams = params.quantizedForTextures()
+                val buildTextures: (String?) -> BackdropTextureSet = { resolvedPath ->
+                    buildBackdropTextureSet(
+                        fullWidth = width,
+                        fullHeight = height,
+                        theme = theme,
+                        params = quantizedParams,
+                        customBackgroundPath = resolvedPath,
+                        presetBitmap = preset,
+                        blurLevelCount = FULL_BACKDROP_BLUR_LEVEL_COUNT,
+                        onCriticalReady = { critical ->
+                            OpenGlStartupBackdropBridge.publishCritical(
+                                textureKey,
+                                critical.withBlurAmount(blurAmount)
+                            )
+                        }
+                    )
                 }
-                buildBackdropTextureSet(
-                    fullWidth = width,
-                    fullHeight = height,
-                    theme = theme,
-                    params = params.quantizedForTextures(),
-                    customBackgroundPath = resolvedSourcePath,
-                    presetBitmap = preset,
-                    blurLevelCount = FULL_BACKDROP_BLUR_LEVEL_COUNT,
-                    onCriticalReady = { critical ->
-                        OpenGlStartupBackdropBridge.publishCritical(
-                            textureKey,
-                            critical.withBlurAmount(blurAmount)
-                        )
+                if (useCustomImage) {
+                    CustomBackgroundToneProcessor.withProcessedFile(
+                        displayPath = requireNotNull(sourcePath),
+                        params = quantizedParams,
+                    ) { processedFile ->
+                        buildTextures(processedFile.absolutePath)
                     }
-                )
+                } else {
+                    buildTextures(sourcePath)
+                }
             }.getOrNull()?.let { built ->
                 BackdropBuildResult(built, shouldPersist = true)
             }
