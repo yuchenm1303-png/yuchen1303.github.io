@@ -54,6 +54,7 @@ import com.yuchen.ailedger.data.LedgerSnapshot
 import com.yuchen.ailedger.data.LedgerStore
 import com.yuchen.ailedger.data.StockWatchlistRepository
 import com.yuchen.ailedger.data.SupabaseAuthRepository
+import com.yuchen.ailedger.data.UserProfileRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BackdropDebugParams
@@ -244,12 +245,14 @@ private fun SettingsOptimizedHeader() {
 private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
     val context = LocalContext.current.applicationContext
     val authRepository = remember(context) { SupabaseAuthRepository.get(context) }
+    val profileRepository = remember(context) { UserProfileRepository.get(context) }
     val memoryRepository = remember(context) { AssistantMemoryRepository.get(context) }
     val watchlistRepository = remember(context) { StockWatchlistRepository.get(context) }
     val ledgerStore = remember(context) { LedgerStore(context) }
     val ledgerSnapshots = remember(ledgerStore) { ledgerStore.observeSnapshots() }
 
     val accountState by authRepository.state.collectAsState()
+    val profileState by profileRepository.state.collectAsState()
     val memoryState by memoryRepository.state.collectAsState()
     val watchlistState by watchlistRepository.state.collectAsState()
     val ledgerSnapshot by ledgerSnapshots.collectAsState(
@@ -263,7 +266,13 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
     val loggedIn = accountState.isLoggedIn
     val session = accountState.session
     val email = session?.email.orEmpty()
-    val displayName = remember(email, loggedIn) { profileDisplayName(email, loggedIn) }
+    val displayName = if (loggedIn) {
+        profileState.profile?.displayName
+            ?.takeIf { it.isNotBlank() }
+            ?: profileDisplayName(email, true)
+    } else {
+        "本地用户"
+    }
     val maskedEmail = remember(email, loggedIn) { profileMaskedEmail(email, loggedIn) }
     val avatarText = remember(displayName, loggedIn) {
         if (loggedIn) {
@@ -283,12 +292,17 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
     val syncStatus = profileSyncStatus(
         accountLoading = accountState.loading,
         loggedIn = loggedIn,
+        profileLoading = profileState.loading || profileState.saving || profileState.uploadingAvatar,
+        profileReady = profileState.cloudReady,
         memoryLoading = memoryState.loading,
         memoryReady = memoryState.cloudReady,
         watchlistLoading = watchlistState.loading,
         watchlistReady = watchlistState.cloudReady,
     )
-    val syncHealthy = loggedIn && memoryState.cloudReady && watchlistState.cloudReady
+    val syncHealthy = loggedIn &&
+        profileState.cloudReady &&
+        memoryState.cloudReady &&
+        watchlistState.cloudReady
     val visualStatus = remember(agentProgress) { visualAgentSummary(agentProgress) }
 
     GlassPanel(
@@ -321,8 +335,11 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                SettingsProfileAvatar(
-                    text = avatarText,
+                UserProfileAvatar(
+                    localAvatarPath = profileState.localAvatarPath,
+                    avatarVersion = profileState.profile?.avatarVersion ?: 0L,
+                    fallbackText = avatarText,
+                    size = 62.dp,
                     loggedIn = loggedIn,
                 )
                 Spacer(Modifier.width(11.dp))
@@ -399,54 +416,6 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                     valueFontSize = 16.5f,
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun SettingsProfileAvatar(
-    text: String,
-    loggedIn: Boolean,
-) {
-    val shape = CircleShape
-    Box(
-        Modifier
-            .size(62.dp)
-            .clip(shape)
-            .background(
-                Brush.radialGradient(
-                    colors = if (loggedIn) {
-                        listOf(
-                            Color(0xFF86E8FF).copy(alpha = 0.62f),
-                            Color(0xFF335FD7).copy(alpha = 0.74f),
-                            Color(0xFF141A55).copy(alpha = 0.96f),
-                        )
-                    } else {
-                        listOf(
-                            Color.White.copy(alpha = 0.20f),
-                            Color(0xFF263269).copy(alpha = 0.72f),
-                            Color(0xFF11173F).copy(alpha = 0.96f),
-                        )
-                    }
-                )
-            )
-            .border(1.dp, Color.White.copy(alpha = if (loggedIn) 0.42f else 0.20f), shape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(Color(0xFF07132D).copy(alpha = 0.24f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = text,
-                color = Color.White.copy(alpha = 0.94f),
-                fontSize = if (text.length > 1) 16.sp else 23.sp,
-                fontWeight = FontWeight.ExtraBold,
-                textAlign = TextAlign.Center,
-            )
         }
     }
 }
@@ -709,16 +678,18 @@ private fun profileAccountStatus(
 private fun profileSyncStatus(
     accountLoading: Boolean,
     loggedIn: Boolean,
+    profileLoading: Boolean,
+    profileReady: Boolean,
     memoryLoading: Boolean,
     memoryReady: Boolean,
     watchlistLoading: Boolean,
     watchlistReady: Boolean,
 ): String {
     return when {
-        accountLoading || memoryLoading || watchlistLoading -> "正在同步"
+        accountLoading || profileLoading || memoryLoading || watchlistLoading -> "正在同步"
         !loggedIn -> "本地数据正常"
-        memoryReady && watchlistReady -> "云端同步正常"
-        memoryReady || watchlistReady -> "部分同步正常"
+        profileReady && memoryReady && watchlistReady -> "云端同步正常"
+        profileReady || memoryReady || watchlistReady -> "部分同步正常"
         else -> "云端待恢复"
     }
 }
