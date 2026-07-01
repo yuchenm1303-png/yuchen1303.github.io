@@ -21,6 +21,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import com.yuchen.ailedger.data.CustomBackgroundToneProcessor
+import com.yuchen.ailedger.data.customImageToneCacheKey
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
@@ -40,6 +42,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
@@ -48,6 +51,7 @@ import kotlin.math.roundToInt
 private const val MAX_BACKDROP_BLUR_AMOUNT = 4f
 private const val FULL_BACKDROP_BLUR_LEVEL_COUNT = 3
 private const val BACKDROP_TEXTURE_DIMENSION_BUCKET = 8
+private const val CUSTOM_BACKGROUND_TONE_SETTLE_MS = 140L
 
 private const val OPENGL_BACKDROP_PHASE_EMPTY = 0
 private const val OPENGL_BACKDROP_PHASE_CRITICAL = 1
@@ -418,16 +422,21 @@ fun rememberBlurredBackdropBitmap(
     val customFile = source.customImagePath?.let(::File)
     val useDefaultWallpaper = source.kind == BackdropSourceKind.DefaultWallpaper
     val useThemeSource = source.kind == BackdropSourceKind.BuiltInTheme
+    val useCustomImage = source.kind == BackdropSourceKind.CustomImage
     val textureParamsKey = params.textureCacheKey(
         includeScale = !useDefaultWallpaper,
-        includeCloudAlpha = useThemeSource
+        includeCloudAlpha = useThemeSource,
+        includeCustomTone = useCustomImage,
     )
     val sourceKey = when (source.kind) {
         BackdropSourceKind.DefaultWallpaper -> "default_wallpaper_fullres_v2"
         BackdropSourceKind.BuiltInTheme -> "theme:${theme.storageValue}"
         BackdropSourceKind.CustomImage -> {
             val file = requireNotNull(customFile)
-            "custom:${file.absolutePath}:${file.lastModified()}:${file.length()}"
+            val identityFile = CustomBackgroundToneProcessor.sourceIdentityFile(file)
+                .takeIf { it.isFile }
+                ?: file
+            "custom:${identityFile.absolutePath}:${identityFile.lastModified()}:${identityFile.length()}"
         }
     }
     val textureKey = "v6|$width×$height|$textureParamsKey|levels:$FULL_BACKDROP_BLUR_LEVEL_COUNT|$sourceKey"
@@ -466,16 +475,25 @@ fun rememberBlurredBackdropBitmap(
             return@LaunchedEffect
         }
 
+        if (useCustomImage) delay(CUSTOM_BACKGROUND_TONE_SETTLE_MS)
         StartupPerformanceGate.awaitInitialTextureBuildWindow()
         val result = BackdropBuildRegistry.request(textureKey) {
             runCatching {
                 val preset = if (useDefaultWallpaper) decodePresetNightSkyBitmap(context) else null
+                val resolvedSourcePath = if (useCustomImage) {
+                    CustomBackgroundToneProcessor.ensureProcessed(
+                        displayPath = requireNotNull(sourcePath),
+                        params = params.quantizedForTextures(),
+                    )?.absolutePath ?: sourcePath
+                } else {
+                    sourcePath
+                }
                 buildBackdropTextureSet(
                     fullWidth = width,
                     fullHeight = height,
                     theme = theme,
                     params = params.quantizedForTextures(),
-                    customBackgroundPath = sourcePath,
+                    customBackgroundPath = resolvedSourcePath,
                     presetBitmap = preset,
                     blurLevelCount = FULL_BACKDROP_BLUR_LEVEL_COUNT,
                     onCriticalReady = { critical ->
@@ -517,7 +535,8 @@ private fun quantizeTextureDimension(value: Int): Int =
 
 private fun BackdropDebugParams.textureCacheKey(
     includeScale: Boolean,
-    includeCloudAlpha: Boolean
+    includeCloudAlpha: Boolean,
+    includeCustomTone: Boolean,
 ): String = buildString {
     if (includeScale) append(scale.round2()).append('|')
     append(iterations.roundToInt()).append('|')
@@ -525,6 +544,7 @@ private fun BackdropDebugParams.textureCacheKey(
     append(contrast.round2()).append('|')
     append(saturation.round2())
     if (includeCloudAlpha) append('|').append(cloudAlpha.round2())
+    if (includeCustomTone) append('|').append(customImageToneCacheKey())
 }
 
 private fun BackdropDebugParams.quantizedForTextures(): BackdropDebugParams = copy(
@@ -533,6 +553,9 @@ private fun BackdropDebugParams.quantizedForTextures(): BackdropDebugParams = co
     brightness = brightness.round2(),
     contrast = contrast.round2(),
     saturation = saturation.round2(),
+    customImageBrightness = customImageBrightness.round2(),
+    customImageHighlightStart = customImageHighlightStart.round2(),
+    customImageHighlightLimit = customImageHighlightLimit.round2(),
     cloudAlpha = cloudAlpha.round2()
 )
 
