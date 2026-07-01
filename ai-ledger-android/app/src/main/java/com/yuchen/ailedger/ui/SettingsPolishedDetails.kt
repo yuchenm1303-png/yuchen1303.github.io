@@ -45,9 +45,9 @@ internal fun SettingsDetailPanel(
     panel: SettingsDetailSection,
     state: AssistantUiState,
     aiEndpoint: String,
-    onQualityChange: (RenderQuality) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onQualityChange: (RenderQuality) -> Unit,
     @Suppress("UNUSED_PARAMETER") onPreviewConversationChange: (Boolean) -> Unit,
-    onGlassPresetChange: (GlassPreset) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onGlassPresetChange: (GlassPreset) -> Unit,
     onBackgroundThemeChange: (BackgroundTheme) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
@@ -106,8 +106,6 @@ internal fun SettingsDetailPanel(
                         )
                         SettingsDetailSection.Glass -> GlassContent(
                             state,
-                            onQualityChange,
-                            onGlassPresetChange,
                             onGlassIntensityChange,
                             onMotionIntensityChange,
                             onRainbowPrismChange,
@@ -229,27 +227,11 @@ private fun AppearanceContent(
 @Composable
 private fun GlassContent(
     state: AssistantUiState,
-    onQualityChange: (RenderQuality) -> Unit,
-    onGlassPresetChange: (GlassPreset) -> Unit,
     onGlassIntensityChange: (Float) -> Unit,
     onMotionIntensityChange: (Float) -> Unit,
     onRainbowPrismChange: (RainbowPrismStyle) -> Unit,
 ) {
     val prism = state.rainbowPrismStyle
-    SettingChipGrid(
-        RenderQuality.entries,
-        state.quality,
-        { qualityLabel(it) },
-        state,
-        onQualityChange,
-    )
-    SettingChipGrid(
-        GlassPreset.entries,
-        state.glassPreset,
-        { glassPresetLabel(it) },
-        state,
-        onGlassPresetChange,
-    )
     SliderSettingRow(
         "玻璃强度",
         "控制通用玻璃的可见度、雾感和边缘能量。",
@@ -430,7 +412,7 @@ private fun panelTitle(panel: SettingsDetailSection): String = when (panel) {
 
 private fun panelSubtitle(panel: SettingsDetailSection): String = when (panel) {
     SettingsDetailSection.Appearance -> "背景、主题和自定义图片。"
-    SettingsDetailSection.Glass -> "画质、玻璃质感和聊天大玻璃彩虹。"
+    SettingsDetailSection.Glass -> "玻璃强度、动态效果和聊天大玻璃彩虹。"
     SettingsDetailSection.Assistant -> "边缘光效、鼠标光标与运行 HUD 的全部参数。"
     SettingsDetailSection.Data -> "账单状态、预算、本地数据和常用导航地址。"
     SettingsDetailSection.Service -> "账号登录、AI Worker 和云端接口。"
