@@ -43,7 +43,6 @@ import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.model.AssistantUiState
 
 private enum class AccountAuthMode { Login, Register }
-private const val AccountFormPressMotion = 0f
 
 @Composable
 fun NativeAccountSettingsCard(state: AssistantUiState) {
@@ -249,7 +248,7 @@ private fun AccountModeChip(
     PressableGlass(
         state.quality,
         state.glassIntensity,
-        AccountFormPressMotion,
+        state.motionIntensity,
         999,
         modifier.height(40.dp),
         if (selected) GlassRole.Floating else GlassRole.Chip,
@@ -278,7 +277,7 @@ private fun AccountActionButton(
     PressableGlass(
         state.quality,
         state.glassIntensity * if (enabled) 1f else 0.72f,
-        AccountFormPressMotion,
+        state.motionIntensity,
         23,
         modifier.height(58.dp),
         GlassRole.Chip,
