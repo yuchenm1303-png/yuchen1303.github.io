@@ -173,17 +173,26 @@ fun PlanCenterScreen(
 
         if (modalVisible) {
             val blocker = remember { MutableInteractionSource() }
-            Box(
+            FrostInfoGlassPanel(
+                radius = 0f,
+                backdropAlpha = 1f,
+                frostAlpha = 0.035f,
+                dimAlpha = 0.38f,
                 modifier = Modifier
                     .zIndex(100f)
-                    .fillMaxSize()
-                    .background(Color(0xA8050918))
-                    .clickable(
-                        interactionSource = blocker,
-                        indication = null,
-                        onClick = ::closeModal,
-                    ),
-            )
+                    .fillMaxSize(),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.12f))
+                        .clickable(
+                            interactionSource = blocker,
+                            indication = null,
+                            onClick = ::closeModal,
+                        ),
+                )
+            }
 
             editorDraft?.let { initial ->
                 key(editorGeneration) {
