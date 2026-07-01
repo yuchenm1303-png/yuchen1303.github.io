@@ -18,6 +18,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,12 +58,12 @@ internal fun PlanEditorPanel(
     onSave: (PlanDraft) -> Unit,
 ) {
     val context = LocalContext.current
-    var title by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.title) }
-    var note by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.note) }
-    var type by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.type) }
-    var repeatMode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.repeatMode) }
-    var scheduledAt by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.scheduledAtMillis) }
-    val selected = androidx.compose.runtime.remember(scheduledAt) {
+    var title by remember { mutableStateOf(initial.title) }
+    var note by remember { mutableStateOf(initial.note) }
+    var type by remember { mutableStateOf(initial.type) }
+    var repeatMode by remember { mutableStateOf(initial.repeatMode) }
+    var scheduledAt by remember { mutableStateOf(initial.scheduledAtMillis) }
+    val selected = remember(scheduledAt) {
         Instant.ofEpochMilli(scheduledAt).atZone(ZoneId.systemDefault())
     }
 
