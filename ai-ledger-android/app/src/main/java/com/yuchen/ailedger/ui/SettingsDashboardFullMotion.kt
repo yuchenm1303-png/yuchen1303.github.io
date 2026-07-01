@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -27,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -48,8 +48,8 @@ import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.PI
-import kotlin.math.sin
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 /**
  * 设置页八个入口使用普通雾面玻璃，不接入 OpenGL。
