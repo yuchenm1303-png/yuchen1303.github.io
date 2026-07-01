@@ -187,8 +187,8 @@ internal object OpenGlStartupBackdropBridge {
 }
 
 /**
- * CPU 模糊、磁盘解码与缓存写入共用单个后台优先级线程，避免与 Compose、RenderThread 和
- * OpenGL 编译争抢冷启动资源。相同纹理请求会合并为同一个 Deferred。
+ * CPU 模糊与磁盘解码共用单个后台优先级构建线程，保证同一时刻只有一套大像素缓冲区工作。
+ * PNG 压缩和磁盘持久化独立到另一个低优先级线程，避免缓存写入阻塞最新纹理生成。
  */
 private object BackdropBuildRuntime {
     val dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { task ->
@@ -198,6 +198,20 @@ private object BackdropBuildRuntime {
                 task.run()
             },
             "BackdropTextureBuilder"
+        ).apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+
+    val scope = CoroutineScope(SupervisorJob() + dispatcher)
+}
+
+private object BackdropDiskRuntime {
+    val dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { task ->
+        Thread(
+            {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                task.run()
+            },
+            "BackdropDiskCacheIO"
         ).apply { isDaemon = true }
     }.asCoroutineDispatcher()
 
@@ -225,20 +239,31 @@ private data class BackdropBuildResult(
     val shouldPersist: Boolean
 )
 
+/**
+ * 同一纹理键只生成一次；不同参数快速连续到达时，只允许正在执行的一次和最后一次请求
+ * 真正进入重计算，排队中的过期中间值会在分配大像素缓冲区之前直接退出。
+ */
 private object BackdropBuildRegistry {
     private val inFlight = mutableMapOf<String, Deferred<BackdropBuildResult?>>()
+    private var latestGeneration = 0L
 
     fun request(
         key: String,
         block: suspend () -> BackdropBuildResult?
     ): Deferred<BackdropBuildResult?> = synchronized(inFlight) {
-        inFlight[key] ?: BackdropBuildRuntime.scope.async {
-            try {
-                block()
-            } finally {
-                synchronized(inFlight) { inFlight.remove(key) }
-            }
-        }.also { inFlight[key] = it }
+        inFlight[key] ?: run {
+            val generation = ++latestGeneration
+            BackdropBuildRuntime.scope.async {
+                try {
+                    if (synchronized(inFlight) { generation != latestGeneration }) {
+                        return@async null
+                    }
+                    block()
+                } finally {
+                    synchronized(inFlight) { inFlight.remove(key) }
+                }
+            }.also { inFlight[key] = it }
+        }
     }
 }
 
@@ -253,6 +278,8 @@ private object BackdropDiskCache {
     private const val LEGACY_ROOT_DIRECTORY = "glass_backdrop_v5"
     private const val METADATA_FILE = "metadata.txt"
     private const val LUMINANCE_FILE = "luminance.bin"
+
+    private var latestPersistGeneration = 0L
 
     fun load(context: Context, textureKey: String): BackdropTextureSet? = runCatching {
         val directory = entryDirectory(context, textureKey)
@@ -291,8 +318,12 @@ private object BackdropDiskCache {
     }.getOrNull()
 
     fun persistAsync(context: Context, textureKey: String, textures: BackdropTextureSet) {
-        BackdropBuildRuntime.scope.launch {
+        val generation = synchronized(this) { ++latestPersistGeneration }
+        BackdropDiskRuntime.scope.launch {
             StartupPerformanceGate.awaitDeferredBusinessWindow()
+            if (synchronized(BackdropDiskCache) { generation != latestPersistGeneration }) {
+                return@launch
+            }
             runCatching { persist(context, textureKey, textures) }
         }
     }
