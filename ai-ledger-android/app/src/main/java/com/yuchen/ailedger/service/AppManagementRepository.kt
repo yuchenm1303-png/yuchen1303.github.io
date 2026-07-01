@@ -81,8 +81,14 @@ class AppManagementRepository(context: Context) {
     fun loadApps(): List<ManagedAppSummary> {
         val applications = installedApplications()
         val protectedPackages = protectedPackageReasons(applications)
+        val launchablePackages = launchablePackageNames()
         return applications
-            .map { info -> info.toSummary(protectedPackages[info.packageName].orEmpty()) }
+            .map { info ->
+                info.toSummary(
+                    protectionReason = protectedPackages[info.packageName].orEmpty(),
+                    isLaunchable = info.packageName in launchablePackages,
+                )
+            }
             .sortedWith(
                 compareBy<ManagedAppSummary> { normalizeLabel(it.label) }
                     .thenBy { it.packageName },
@@ -93,7 +99,10 @@ class AppManagementRepository(context: Context) {
         val packageInfo = packageInfo(packageName, PackageManager.GET_PERMISSIONS) ?: return null
         val applicationInfo = packageInfo.applicationInfo ?: applicationInfo(packageName) ?: return null
         val protectedReason = protectedPackageReasons(installedApplications())[packageName].orEmpty()
-        val summary = applicationInfo.toSummary(protectedReason)
+        val summary = applicationInfo.toSummary(
+            protectionReason = protectedReason,
+            isLaunchable = packageManager.getLaunchIntentForPackage(packageName) != null,
+        )
         val usageAccessGranted = hasStorageStatsAccess()
         val storage = queryStorage(applicationInfo, summary.apkBytes, usageAccessGranted)
         return ManagedAppDetails(
@@ -156,6 +165,24 @@ class AppManagementRepository(context: Context) {
         }
     }.getOrDefault(emptyList())
 
+    private fun launchablePackageNames(): Set<String> {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val activities = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.queryIntentActivities(
+                    intent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DISABLED_COMPONENTS.toLong()),
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.queryIntentActivities(intent, PackageManager.MATCH_DISABLED_COMPONENTS)
+            }
+        }.getOrDefault(emptyList())
+        return activities.mapNotNullTo(linkedSetOf()) { info ->
+            info.activityInfo?.packageName?.trim()?.takeIf(String::isNotBlank)
+        }
+    }
+
     private fun applicationInfo(packageName: String): ApplicationInfo? = runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             packageManager.getApplicationInfo(
@@ -177,7 +204,10 @@ class AppManagementRepository(context: Context) {
         }
     }.getOrNull()
 
-    private fun ApplicationInfo.toSummary(protectionReason: String): ManagedAppSummary {
+    private fun ApplicationInfo.toSummary(
+        protectionReason: String,
+        isLaunchable: Boolean,
+    ): ManagedAppSummary {
         val label = runCatching { packageManager.getApplicationLabel(this).toString().trim() }
             .getOrDefault("")
             .ifBlank { packageName }
@@ -189,7 +219,7 @@ class AppManagementRepository(context: Context) {
             uid = uid,
             isSystemApp = system,
             isEnabled = enabled,
-            isLaunchable = packageManager.getLaunchIntentForPackage(packageName) != null,
+            isLaunchable = isLaunchable,
             isProtected = protectionReason.isNotBlank(),
             protectionReason = protectionReason,
             apkBytes = apkBytes(this),
@@ -225,7 +255,7 @@ class AppManagementRepository(context: Context) {
         return names.mapIndexed { index, name ->
             val permissionInfo = runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    packageManager.getPermissionInfo(name, PackageManager.PermissionInfoFlags.of(0))
+                    packageManager.getPermissionInfo(name, PackageManager.PermissionInfoFlags.of(0L))
                 } else {
                     @Suppress("DEPRECATION")
                     packageManager.getPermissionInfo(name, 0)
