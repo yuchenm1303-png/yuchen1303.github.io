@@ -298,22 +298,22 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
         radius = 30,
         modifier = Modifier
             .fillMaxWidth()
-            .height(252.dp),
+            .height(228.dp),
         role = GlassRole.Shell,
         intensity = (state.glassIntensity * 1.08f).coerceIn(0.78f, 1.30f),
     ) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp),
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
             Text(
                 text = "个人空间",
-                color = Color.White,
-                fontSize = 22.sp,
-                lineHeight = 26.sp,
-                fontWeight = FontWeight.Black,
+                color = Color.White.copy(alpha = 0.94f),
+                fontSize = 19.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
             )
 
@@ -325,26 +325,26 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                     text = avatarText,
                     loggedIn = loggedIn,
                 )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(11.dp))
                 Column(
                     Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
                         text = displayName,
-                        color = Color.White.copy(alpha = 0.96f),
-                        fontSize = 23.sp,
-                        lineHeight = 27.sp,
-                        fontWeight = FontWeight.Black,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 19.sp,
+                        lineHeight = 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         text = maskedEmail,
-                        color = Color.White.copy(alpha = 0.52f),
-                        fontSize = 11.5.sp,
-                        lineHeight = 15.sp,
-                        fontWeight = FontWeight.Bold,
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 10.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -353,7 +353,7 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                         active = loggedIn,
                     )
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(9.dp))
                 SettingsIdentityBadge(
                     ledgerId = ledgerId,
                     syncStatus = syncStatus,
@@ -362,12 +362,12 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                 )
             }
 
-            SettingsPersonalHairline(alpha = 0.13f)
+            SettingsPersonalHairline(alpha = 0.11f)
 
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .height(76.dp),
+                    .height(64.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SettingsPersonalMetric(
@@ -396,7 +396,7 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                     value = visualStatus.value,
                     detail = visualStatus.detail,
                     modifier = Modifier.weight(1.12f),
-                    valueFontSize = 20f,
+                    valueFontSize = 16.5f,
                 )
             }
         }
@@ -411,7 +411,7 @@ private fun SettingsProfileAvatar(
     val shape = CircleShape
     Box(
         Modifier
-            .size(72.dp)
+            .size(62.dp)
             .clip(shape)
             .background(
                 Brush.radialGradient(
@@ -430,21 +430,21 @@ private fun SettingsProfileAvatar(
                     }
                 )
             )
-            .border(1.dp, Color.White.copy(alpha = if (loggedIn) 0.48f else 0.22f), shape),
+            .border(1.dp, Color.White.copy(alpha = if (loggedIn) 0.42f else 0.20f), shape),
         contentAlignment = Alignment.Center,
     ) {
         Box(
             Modifier
-                .size(56.dp)
+                .size(48.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF07132D).copy(alpha = 0.26f)),
+                .background(Color(0xFF07132D).copy(alpha = 0.24f)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = text,
-                color = Color.White.copy(alpha = 0.96f),
-                fontSize = if (text.length > 1) 19.sp else 29.sp,
-                fontWeight = FontWeight.Black,
+                color = Color.White.copy(alpha = 0.94f),
+                fontSize = if (text.length > 1) 16.sp else 23.sp,
+                fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center,
             )
         }
@@ -458,31 +458,31 @@ private fun SettingsAccountStatusPill(
 ) {
     Row(
         Modifier
-            .height(27.dp)
+            .height(24.dp)
             .clip(RoundedCornerShape(999.dp))
             .background(
-                if (active) Color(0xFF8DF9EA).copy(alpha = 0.105f)
-                else Color.White.copy(alpha = 0.060f)
+                if (active) Color(0xFF8DF9EA).copy(alpha = 0.090f)
+                else Color.White.copy(alpha = 0.052f)
             )
-            .padding(horizontal = 10.dp),
+            .padding(horizontal = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         Box(
             Modifier
-                .size(5.dp)
+                .size(4.dp)
                 .clip(CircleShape)
                 .background(
-                    if (active) Color(0xFF8DF9EA).copy(alpha = 0.90f)
-                    else Color.White.copy(alpha = 0.34f)
+                    if (active) Color(0xFF8DF9EA).copy(alpha = 0.84f)
+                    else Color.White.copy(alpha = 0.30f)
                 )
         )
         Text(
             text = text,
-            color = Color.White.copy(alpha = 0.72f),
-            fontSize = 9.5.sp,
-            lineHeight = 12.sp,
-            fontWeight = FontWeight.ExtraBold,
+            color = Color.White.copy(alpha = 0.64f),
+            fontSize = 8.5.sp,
+            lineHeight = 10.sp,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -498,62 +498,62 @@ private fun SettingsIdentityBadge(
 ) {
     Column(
         Modifier
-            .width(116.dp)
-            .clip(RoundedCornerShape(18.dp))
+            .width(108.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.075f),
-                        Color(0xFF5B63CE).copy(alpha = 0.055f),
-                        Color.Black.copy(alpha = 0.060f),
+                        Color.White.copy(alpha = 0.066f),
+                        Color(0xFF5B63CE).copy(alpha = 0.050f),
+                        Color.Black.copy(alpha = 0.050f),
                     )
                 )
             )
-            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 10.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .border(1.dp, Color.White.copy(alpha = 0.085f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 9.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
             text = "AI LEDGER ID",
-            color = Color(0xFF9CCBFF).copy(alpha = 0.66f),
-            fontSize = 8.sp,
-            lineHeight = 10.sp,
-            fontWeight = FontWeight.Black,
+            color = Color(0xFF9CCBFF).copy(alpha = 0.58f),
+            fontSize = 7.5.sp,
+            lineHeight = 9.sp,
+            fontWeight = FontWeight.ExtraBold,
             maxLines = 1,
         )
         Text(
             text = ledgerId,
-            color = Color.White.copy(alpha = if (loggedIn) 0.92f else 0.55f),
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            fontWeight = FontWeight.Black,
+            color = Color.White.copy(alpha = if (loggedIn) 0.86f else 0.50f),
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        SettingsPersonalHairline(alpha = 0.08f)
+        SettingsPersonalHairline(alpha = 0.07f)
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             Box(
                 Modifier
-                    .size(5.dp)
+                    .size(4.dp)
                     .clip(CircleShape)
                     .background(
                         when {
-                            syncHealthy -> Color(0xFF8DF9EA).copy(alpha = 0.90f)
-                            loggedIn -> Color(0xFFFFD38A).copy(alpha = 0.84f)
-                            else -> Color.White.copy(alpha = 0.30f)
+                            syncHealthy -> Color(0xFF8DF9EA).copy(alpha = 0.84f)
+                            loggedIn -> Color(0xFFFFD38A).copy(alpha = 0.78f)
+                            else -> Color.White.copy(alpha = 0.26f)
                         }
                     )
             )
             Text(
                 text = syncStatus,
-                color = Color.White.copy(alpha = 0.54f),
-                fontSize = 8.5.sp,
-                lineHeight = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
+                color = Color.White.copy(alpha = 0.47f),
+                fontSize = 7.5.sp,
+                lineHeight = 9.sp,
+                fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -567,41 +567,41 @@ private fun SettingsPersonalMetric(
     value: String,
     detail: String,
     modifier: Modifier = Modifier,
-    valueFontSize: Float = 23f,
+    valueFontSize: Float = 18f,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 7.dp, vertical = 6.dp),
+            .padding(horizontal = 6.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.48f),
-            fontSize = 10.sp,
-            lineHeight = 13.sp,
-            fontWeight = FontWeight.ExtraBold,
+            color = Color.White.copy(alpha = 0.43f),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
         )
         Text(
             text = value,
-            color = Color.White.copy(alpha = 0.96f),
+            color = Color.White.copy(alpha = 0.92f),
             fontSize = valueFontSize.sp,
-            lineHeight = (valueFontSize + 4f).sp,
-            fontWeight = FontWeight.Black,
+            lineHeight = (valueFontSize + 3f).sp,
+            fontWeight = FontWeight.ExtraBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
         )
         Text(
             text = detail,
-            color = Color.White.copy(alpha = 0.31f),
-            fontSize = 8.5.sp,
-            lineHeight = 11.sp,
-            fontWeight = FontWeight.Bold,
+            color = Color.White.copy(alpha = 0.26f),
+            fontSize = 7.5.sp,
+            lineHeight = 9.sp,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
@@ -614,8 +614,8 @@ private fun SettingsPersonalDivider() {
     Box(
         Modifier
             .width(1.dp)
-            .height(52.dp)
-            .background(Color.White.copy(alpha = 0.085f))
+            .height(42.dp)
+            .background(Color.White.copy(alpha = 0.070f))
     )
 }
 
