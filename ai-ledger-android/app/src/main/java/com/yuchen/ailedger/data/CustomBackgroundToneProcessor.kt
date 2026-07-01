@@ -20,13 +20,38 @@ internal object CustomBackgroundToneProcessor {
     private const val JPEG_QUALITY = 94
     private const val MIN_HIGHLIGHT_GAP = 0.02f
 
+    /**
+     * 处理和消费固定展示文件必须处于同一把锁内。这样快速拖动参数时，旧纹理任务不会在
+     * 新参数覆盖文件后误读新图并写入旧缓存键。
+     */
     @Synchronized
-    fun ensureProcessed(
+    fun <T> withProcessedFile(
         displayPath: String,
         params: BackdropDebugParams,
-    ): File? = runCatching {
+        block: (File) -> T,
+    ): T? = runCatching {
+        val displayFile = ensureProcessedLocked(displayPath, params) ?: return@runCatching null
+        block(displayFile)
+    }.getOrNull()
+
+    fun invalidate(displayFile: File) {
+        metadataFileFor(displayFile).delete()
+        displayFile.parentFile
+            ?.listFiles()
+            .orEmpty()
+            .filter { it.name.startsWith(".${displayFile.name}.tone-") }
+            .forEach { it.delete() }
+    }
+
+    fun sourceIdentityFile(displayFile: File): File =
+        File(displayFile.parentFile, SOURCE_FILE_NAME)
+
+    private fun ensureProcessedLocked(
+        displayPath: String,
+        params: BackdropDebugParams,
+    ): File? {
         val displayFile = File(displayPath)
-        if (!displayFile.isFile) return@runCatching null
+        if (!displayFile.isFile) return null
 
         val sourceFile = sourceIdentityFile(displayFile)
         if (!sourceFile.isFile) {
@@ -42,13 +67,13 @@ internal object CustomBackgroundToneProcessor {
         }
         val metadataFile = metadataFileFor(displayFile)
         if (displayFile.isFile && metadataFile.readTextOrNull() == fingerprint) {
-            return@runCatching displayFile
+            return displayFile
         }
 
         val sourceBitmap = BitmapFactory.decodeFile(
             sourceFile.absolutePath,
             BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
-        ) ?: return@runCatching null
+        ) ?: return null
         val processedBitmap = sourceBitmap.applyToneProtection(normalized)
         val temporary = File(
             displayFile.parentFile,
@@ -62,25 +87,13 @@ internal object CustomBackgroundToneProcessor {
             replaceFile(temporary, displayFile)
             metadataFile.writeText(fingerprint)
             displayFile.setLastModified(System.currentTimeMillis())
-            displayFile
+            return displayFile
         } finally {
             temporary.delete()
             if (processedBitmap !== sourceBitmap && !processedBitmap.isRecycled) processedBitmap.recycle()
             if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
         }
-    }.getOrNull()
-
-    fun invalidate(displayFile: File) {
-        metadataFileFor(displayFile).delete()
-        displayFile.parentFile
-            ?.listFiles()
-            .orEmpty()
-            .filter { it.name.startsWith(".${displayFile.name}.tone-") }
-            .forEach { it.delete() }
     }
-
-    fun sourceIdentityFile(displayFile: File): File =
-        File(displayFile.parentFile, SOURCE_FILE_NAME)
 
     private fun metadataFileFor(displayFile: File): File =
         File(displayFile.parentFile, METADATA_FILE_NAME)
