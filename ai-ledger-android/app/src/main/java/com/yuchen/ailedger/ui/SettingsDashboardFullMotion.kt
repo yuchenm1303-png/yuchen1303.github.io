@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -365,7 +364,7 @@ private fun RowScope.SettingsPersonalSpaceMotionTile(
             Box(Modifier.fillMaxSize()) {
                 Box(
                     Modifier
-                        .matchParentSize()
+                        .fillMaxSize()
                         .settingsRestrainedSelectedAccent(
                             progress = selectedProgress,
                             radius = radius,
@@ -381,7 +380,7 @@ private fun RowScope.SettingsPersonalSpaceMotionTile(
                 if (motionEnabled && surfaceOpticsPress > 0.001f) {
                     Box(
                         Modifier
-                            .matchParentSize()
+                            .fillMaxSize()
                             .settingsPersonalSpacePressOptics(
                                 safePress = surfaceOpticsPress,
                                 pressCenter = pressCenter,
