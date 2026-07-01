@@ -2,7 +2,6 @@ package com.yuchen.ailedger.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,9 +12,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -32,8 +32,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.PlanDraft
 import com.yuchen.ailedger.model.PlanRepeatMode
@@ -45,11 +43,12 @@ import java.time.LocalTime
 import java.time.ZoneId
 
 @Composable
-internal fun PlanEditorDialog(
+internal fun PlanEditorPanel(
     state: AssistantUiState,
     initial: PlanDraft,
     editing: Boolean,
     exactAlarmReady: Boolean,
+    modifier: Modifier = Modifier,
     onDismiss: () -> Unit,
     onSave: (PlanDraft) -> Unit,
 ) {
@@ -63,233 +62,263 @@ internal fun PlanEditorDialog(
         Instant.ofEpochMilli(scheduledAt).atZone(ZoneId.systemDefault())
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    PlanNativeGlassFrame(
+        state = state,
+        radius = 30,
+        role = GlassRole.Card,
+        intensityScale = 1.16f,
+        modifier = modifier,
     ) {
-        PlanNativeGlassFrame(
-            state = state,
-            radius = 30,
-            role = GlassRole.Card,
-            modifier = Modifier.fillMaxWidth(0.92f),
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 17.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 17.dp)
-                    .verticalScroll(rememberScrollState()),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        if (editing) "编辑计划" else "创建计划",
+                        color = Color.White,
+                        fontSize = 23.sp,
+                        lineHeight = 27.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        "选择类型、时间和重复方式",
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 11.sp,
+                    )
+                }
+                PlanEditorAction(
+                    state = state,
+                    text = "关闭",
+                    color = Color.White.copy(alpha = 0.62f),
+                    compact = true,
+                    onClick = onDismiss,
+                )
+            }
+
+            LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(
-                    if (editing) "编辑计划" else "创建计划",
-                    color = Color.White,
-                    fontSize = 21.sp,
-                    fontWeight = FontWeight.Black,
-                )
-                Text(
-                    "选择类型、时间和重复方式",
-                    color = Color.White.copy(alpha = 0.48f),
-                    fontSize = 11.sp,
-                )
-
-                PlanEditorLabel("计划名称")
-                PlanEditorInput(
-                    state = state,
-                    value = title,
-                    onValueChange = { title = it.take(80) },
-                    hint = "例如：交实验报告",
-                    height = 50.dp,
-                )
-
-                PlanEditorLabel("类型")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PlanEditorChoice(
-                        state = state,
-                        text = "提醒",
-                        selected = type == PlanTaskType.Reminder,
-                    ) { type = PlanTaskType.Reminder }
-                    PlanEditorChoice(
-                        state = state,
-                        text = "闹钟",
-                        selected = type == PlanTaskType.Alarm,
-                    ) { type = PlanTaskType.Alarm }
-                }
-
-                PlanEditorLabel("日期与时间")
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    PlanEditorDateButton(
-                        state = state,
-                        text = selected.format(planDateFormat),
-                        modifier = Modifier.weight(1f),
-                        onClick = {
-                            DatePickerDialog(
-                                context,
-                                { _, year, month, day ->
-                                    scheduledAt = replacePlanDate(
-                                        scheduledAt,
-                                        LocalDate.of(year, month + 1, day),
-                                    )
-                                },
-                                selected.year,
-                                selected.monthValue - 1,
-                                selected.dayOfMonth,
-                            ).show()
-                        },
-                    )
-                    PlanEditorDateButton(
-                        state = state,
-                        text = selected.format(planTimeFormat),
-                        modifier = Modifier.width(108.dp),
-                        onClick = {
-                            TimePickerDialog(
-                                context,
-                                { _, hour, minute ->
-                                    scheduledAt = replacePlanTime(
-                                        scheduledAt,
-                                        LocalTime.of(hour, minute),
-                                    )
-                                },
-                                selected.hour,
-                                selected.minute,
-                                true,
-                            ).show()
-                        },
-                    )
-                }
-
-                PlanEditorLabel("重复")
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
-                    PlanRepeatMode.entries.forEach { mode ->
-                        PlanEditorChoice(
+                item {
+                    PlanEditorSection("计划名称") {
+                        PlanEditorInput(
                             state = state,
-                            text = mode.label,
-                            selected = repeatMode == mode,
-                        ) { repeatMode = mode }
+                            value = title,
+                            onValueChange = { title = it.take(80) },
+                            hint = "例如：交实验报告",
+                            height = 50.dp,
+                        )
                     }
                 }
-
-                PlanEditorLabel("备注")
-                PlanEditorInput(
-                    state = state,
-                    value = note,
-                    onValueChange = { note = it.take(240) },
-                    hint = "可选，写下具体内容",
-                    height = 82.dp,
-                )
-
-                if (type == PlanTaskType.Alarm && !exactAlarmReady) {
-                    Text(
-                        "精确闹钟功能尚未开启，系统可能轻微延迟。",
-                        color = Color(0xFFFFDFA8),
-                        fontSize = 9.5.sp,
-                    )
+                item {
+                    PlanEditorSection("类型") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PlanEditorChoice(
+                                state = state,
+                                text = "提醒",
+                                selected = type == PlanTaskType.Reminder,
+                            ) { type = PlanTaskType.Reminder }
+                            PlanEditorChoice(
+                                state = state,
+                                text = "闹钟",
+                                selected = type == PlanTaskType.Alarm,
+                            ) { type = PlanTaskType.Alarm }
+                        }
+                    }
                 }
-                Text(
-                    "计划保存在本机，重启和应用更新后会自动恢复。",
-                    color = Color.White.copy(alpha = 0.34f),
-                    fontSize = 9.sp,
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    PlanEditorAction(
-                        state = state,
-                        text = "取消",
-                        color = Color.White.copy(alpha = 0.62f),
-                        onClick = onDismiss,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    PlanEditorAction(
-                        state = state,
-                        text = if (editing) "保存" else "创建",
-                        color = Color(0xFFB7FFF4),
-                        emphasized = true,
-                        onClick = {
-                            onSave(
-                                PlanDraft(
-                                    title = title,
-                                    note = note,
-                                    type = type,
-                                    repeatMode = repeatMode,
-                                    scheduledAtMillis = scheduledAt,
-                                ),
+                item {
+                    PlanEditorSection("日期与时间") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            PlanEditorDateButton(
+                                state = state,
+                                text = selected.format(planDateFormat),
+                                modifier = Modifier.weight(1f),
+                                onClick = {
+                                    DatePickerDialog(
+                                        context,
+                                        { _, year, month, day ->
+                                            scheduledAt = replacePlanDate(
+                                                scheduledAt,
+                                                LocalDate.of(year, month + 1, day),
+                                            )
+                                        },
+                                        selected.year,
+                                        selected.monthValue - 1,
+                                        selected.dayOfMonth,
+                                    ).show()
+                                },
                             )
-                        },
-                    )
+                            PlanEditorDateButton(
+                                state = state,
+                                text = selected.format(planTimeFormat),
+                                modifier = Modifier.width(108.dp),
+                                onClick = {
+                                    TimePickerDialog(
+                                        context,
+                                        { _, hour, minute ->
+                                            scheduledAt = replacePlanTime(
+                                                scheduledAt,
+                                                LocalTime.of(hour, minute),
+                                            )
+                                        },
+                                        selected.hour,
+                                        selected.minute,
+                                        true,
+                                    ).show()
+                                },
+                            )
+                        }
+                    }
                 }
+                item {
+                    PlanEditorSection("重复") {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
+                            PlanRepeatMode.entries.forEach { mode ->
+                                PlanEditorChoice(
+                                    state = state,
+                                    text = mode.label,
+                                    selected = repeatMode == mode,
+                                ) { repeatMode = mode }
+                            }
+                        }
+                    }
+                }
+                item {
+                    PlanEditorSection("备注") {
+                        PlanEditorInput(
+                            state = state,
+                            value = note,
+                            onValueChange = { note = it.take(240) },
+                            hint = "可选，写下具体内容",
+                            height = 82.dp,
+                        )
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        if (type == PlanTaskType.Alarm && !exactAlarmReady) {
+                            Text(
+                                "精确闹钟功能尚未开启，系统可能轻微延迟。",
+                                color = Color(0xFFFFDFA8),
+                                fontSize = 9.5.sp,
+                            )
+                        }
+                        Text(
+                            "计划保存在本机，重启和应用更新后会自动恢复。",
+                            color = Color.White.copy(alpha = 0.34f),
+                            fontSize = 9.sp,
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                PlanEditorAction(
+                    state = state,
+                    text = "取消",
+                    color = Color.White.copy(alpha = 0.62f),
+                    onClick = onDismiss,
+                )
+                Spacer(Modifier.width(8.dp))
+                PlanEditorAction(
+                    state = state,
+                    text = if (editing) "保存" else "创建",
+                    color = Color(0xFFB7FFF4),
+                    emphasized = true,
+                    onClick = {
+                        onSave(
+                            PlanDraft(
+                                title = title,
+                                note = note,
+                                type = type,
+                                repeatMode = repeatMode,
+                                scheduledAtMillis = scheduledAt,
+                            ),
+                        )
+                    },
+                )
             }
         }
     }
 }
 
 @Composable
-internal fun PlanDeleteDialog(
+internal fun PlanDeletePanel(
     state: AssistantUiState,
     task: PlanTask,
+    modifier: Modifier = Modifier,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    PlanNativeGlassFrame(
+        state = state,
+        radius = 28,
+        role = GlassRole.Card,
+        intensityScale = 1.16f,
+        modifier = modifier,
     ) {
-        PlanNativeGlassFrame(
-            state = state,
-            radius = 28,
-            role = GlassRole.Card,
-            modifier = Modifier.fillMaxWidth(0.86f),
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+            Text("删除计划", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+            Text(
+                "确定删除“${task.title}”吗？删除后不会再触发提醒。",
+                color = Color.White.copy(alpha = 0.62f),
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
             ) {
-                Text("删除计划", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                Text(
-                    "确定删除“${task.title}”吗？删除后不会再触发提醒。",
+                PlanEditorAction(
+                    state = state,
+                    text = "取消",
                     color = Color.White.copy(alpha = 0.62f),
-                    fontSize = 12.sp,
-                    lineHeight = 18.sp,
+                    onClick = onDismiss,
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    PlanEditorAction(
-                        state = state,
-                        text = "取消",
-                        color = Color.White.copy(alpha = 0.62f),
-                        onClick = onDismiss,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    PlanEditorAction(
-                        state = state,
-                        text = "删除",
-                        color = Color(0xFFFFA8A8),
-                        emphasized = true,
-                        onClick = onConfirm,
-                    )
-                }
+                Spacer(Modifier.width(8.dp))
+                PlanEditorAction(
+                    state = state,
+                    text = "删除",
+                    color = Color(0xFFFFA8A8),
+                    emphasized = true,
+                    onClick = onConfirm,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun PlanEditorLabel(text: String) {
-    Text(
-        text,
-        color = Color.White.copy(alpha = 0.58f),
-        fontSize = 10.sp,
-        fontWeight = FontWeight.ExtraBold,
-    )
+private fun PlanEditorSection(
+    label: String,
+    content: @Composable () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text(
+            label,
+            color = Color.White.copy(alpha = 0.58f),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.ExtraBold,
+        )
+        content()
+    }
 }
 
 @Composable
@@ -304,6 +333,7 @@ private fun PlanEditorInput(
         state = state,
         radius = 17,
         role = GlassRole.Card,
+        intensityScale = 0.94f,
         modifier = Modifier.fillMaxWidth().height(height),
     ) {
         Box(
@@ -361,7 +391,7 @@ private fun PlanEditorDateButton(
 ) {
     PressableGlass(
         quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.92f,
+        glassIntensity = state.glassIntensity * 0.94f,
         motionIntensity = state.motionIntensity,
         radius = 17,
         modifier = modifier.height(46.dp),
@@ -379,6 +409,7 @@ private fun PlanEditorAction(
     state: AssistantUiState,
     text: String,
     color: Color,
+    compact: Boolean = false,
     emphasized: Boolean = false,
     onClick: () -> Unit,
 ) {
@@ -387,7 +418,7 @@ private fun PlanEditorAction(
         glassIntensity = state.glassIntensity * if (emphasized) 1.10f else 0.88f,
         motionIntensity = state.motionIntensity,
         radius = 999,
-        modifier = Modifier.width(76.dp).height(40.dp),
+        modifier = Modifier.width(if (compact) 62.dp else 76.dp).height(if (compact) 34.dp else 40.dp),
         role = GlassRole.Chip,
         onClick = onClick,
     ) {
