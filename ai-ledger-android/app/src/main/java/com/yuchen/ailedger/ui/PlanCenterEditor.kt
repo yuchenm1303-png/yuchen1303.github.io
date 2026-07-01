@@ -2,14 +2,6 @@ package com.yuchen.ailedger.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,26 +18,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -61,7 +39,6 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
-import kotlinx.coroutines.launch
 
 @Composable
 internal fun PlanEditorPanel(
@@ -69,25 +46,29 @@ internal fun PlanEditorPanel(
     initial: PlanDraft,
     editing: Boolean,
     exactAlarmReady: Boolean,
-    revealProgress: Float,
+    panelRadius: Int,
+    containerProgress: Float,
+    contentProgress: Float,
     modifier: Modifier = Modifier,
     onDismiss: () -> Unit,
     onSave: (PlanDraft) -> Unit,
 ) {
     val context = LocalContext.current
-    var title by remember { mutableStateOf(initial.title) }
-    var note by remember { mutableStateOf(initial.note) }
-    var type by remember { mutableStateOf(initial.type) }
-    var repeatMode by remember { mutableStateOf(initial.repeatMode) }
-    var scheduledAt by remember { mutableStateOf(initial.scheduledAtMillis) }
-    val selected = remember(scheduledAt) {
+    var title by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.title) }
+    var note by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.note) }
+    var type by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.type) }
+    var repeatMode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.repeatMode) }
+    var scheduledAt by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(initial.scheduledAtMillis) }
+    val selected = androidx.compose.runtime.remember(scheduledAt) {
         Instant.ofEpochMilli(scheduledAt).atZone(ZoneId.systemDefault())
     }
 
-    PlanInteractiveCapsulePanel(
+    PlanModalGlassSurface(
         state = state,
-        radius = 30,
-        revealProgress = revealProgress,
+        radius = panelRadius,
+        containerProgress = containerProgress,
+        contentProgress = contentProgress,
+        compactTitle = if (editing) "编辑计划" else "创建计划",
         modifier = modifier,
     ) {
         Column(
@@ -329,19 +310,23 @@ internal fun PlanEditorPanel(
 internal fun PlanDeletePanel(
     state: AssistantUiState,
     task: PlanTask,
-    revealProgress: Float,
+    panelRadius: Int,
+    containerProgress: Float,
+    contentProgress: Float,
     modifier: Modifier = Modifier,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    PlanInteractiveCapsulePanel(
+    PlanModalGlassSurface(
         state = state,
-        radius = 28,
-        revealProgress = revealProgress,
+        radius = panelRadius,
+        containerProgress = containerProgress,
+        contentProgress = contentProgress,
+        compactTitle = "删除计划",
         modifier = modifier,
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            modifier = Modifier.fillMaxSize().padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             Text(
@@ -380,191 +365,78 @@ internal fun PlanDeletePanel(
 }
 
 @Composable
-private fun PlanInteractiveCapsulePanel(
+private fun PlanModalGlassSurface(
     state: AssistantUiState,
     radius: Int,
-    revealProgress: Float,
+    containerProgress: Float,
+    contentProgress: Float,
+    compactTitle: String,
     modifier: Modifier,
     content: @Composable () -> Unit,
 ) {
-    val pressAnim = remember { Animatable(0f) }
-    val afterglowAnim = remember { Animatable(0f) }
-    val animationScope = rememberCoroutineScope()
-    var panelSize by remember { mutableStateOf(Size(1f, 1f)) }
-    var interactionLightX by remember { mutableStateOf(0.50f) }
-    val motionScale = state.motionIntensity.coerceIn(0f, 1.25f)
-    val pressValue = pressAnim.value.coerceIn(-0.18f, 1.15f)
-    val pressPositive = pressValue.coerceAtLeast(0f)
-    val recoilValue = (-pressValue).coerceAtLeast(0f)
-    val afterglow = afterglowAnim.value.coerceIn(0f, 1f)
-    val contentAlpha = ((revealProgress - 0.28f) / 0.72f).coerceIn(0f, 1f)
-    val revealGlow = if (revealProgress < 0.58f) {
-        (revealProgress / 0.58f).coerceIn(0f, 1f)
-    } else {
-        ((1f - revealProgress) / 0.42f).coerceIn(0f, 1f)
-    }
-    val glowEnergy = (
-        pressPositive * 0.70f +
-            afterglow * 0.52f +
-            revealGlow * 0.72f
-        ).coerceIn(0f, 1.25f)
-    val shape = RoundedCornerShape(radius.dp)
+    val safeRadius = radius.coerceAtLeast(18)
+    val safeContainerProgress = containerProgress.coerceIn(0f, 1f)
+    val safeContentProgress = contentProgress.coerceIn(0f, 1f)
+    val compactAlpha = (1f - safeContentProgress * 1.35f).coerceIn(0f, 1f)
+    val contentTranslation = (1f - safeContentProgress) * 12f
+    val shape = RoundedCornerShape(safeRadius.dp)
 
-    Box(
-        modifier = modifier
-            .onSizeChanged {
-                panelSize = Size(
-                    width = it.width.coerceAtLeast(1).toFloat(),
-                    height = it.height.coerceAtLeast(1).toFloat(),
-                )
-            }
-            .graphicsLayer {
-                transformOrigin = TransformOrigin(interactionLightX.coerceIn(0.08f, 0.92f), 0.50f)
-                scaleX = 1f + pressPositive * 0.006f * motionScale - recoilValue * 0.002f * motionScale
-                scaleY = 1f - pressPositive * 0.008f * motionScale + recoilValue * 0.003f * motionScale
-                translationX = (interactionLightX - 0.5f) * pressPositive * 2.4.dp.toPx() * motionScale
-                translationY = pressPositive * 1.8.dp.toPx() * motionScale - recoilValue * 0.7.dp.toPx() * motionScale
-            }
-            .pointerInput(motionScale) {
-                if (motionScale <= 0.05f) return@pointerInput
-                awaitEachGesture {
-                    fun updateLight(position: Offset) {
-                        interactionLightX = (
-                            position.x / panelSize.width.coerceAtLeast(1f)
-                            ).coerceIn(0.08f, 0.92f)
-                    }
-
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    updateLight(down.position)
-                    animationScope.launch {
-                        afterglowAnim.stop()
-                        afterglowAnim.animateTo(0f, tween(70, easing = FastOutSlowInEasing))
-                    }
-                    animationScope.launch {
-                        pressAnim.stop()
-                        if (pressAnim.value < 0.18f) pressAnim.snapTo(0.18f)
-                        pressAnim.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(135, easing = FastOutSlowInEasing),
-                        )
-                        pressAnim.animateTo(
-                            targetValue = 0.88f,
-                            animationSpec = spring(
-                                dampingRatio = 0.58f,
-                                stiffness = Spring.StiffnessMediumLow,
-                            ),
-                        )
-                    }
-
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val tracked = event.changes.firstOrNull { it.id == down.id }
-                            ?: event.changes.firstOrNull()
-                        if (tracked != null) {
-                            updateLight(tracked.position)
-                            if (!tracked.pressed) break
-                        }
-                        if (event.changes.none { it.pressed }) break
-                    }
-
-                    animationScope.launch {
-                        pressAnim.stop()
-                        pressAnim.animateTo(
-                            targetValue = -0.12f,
-                            animationSpec = tween(105, easing = FastOutSlowInEasing),
-                        )
-                        pressAnim.animateTo(
-                            targetValue = 0.04f,
-                            animationSpec = spring(
-                                dampingRatio = 0.42f,
-                                stiffness = Spring.StiffnessLow,
-                            ),
-                        )
-                        pressAnim.animateTo(
-                            targetValue = 0f,
-                            animationSpec = tween(170, easing = FastOutSlowInEasing),
-                        )
-                    }
-                    animationScope.launch {
-                        afterglowAnim.stop()
-                        afterglowAnim.animateTo(0.72f, tween(90, easing = FastOutSlowInEasing))
-                        afterglowAnim.animateTo(0f, tween(560, easing = FastOutSlowInEasing))
-                    }
-                }
-            }
-            .clip(shape),
-    ) {
-        PlanNativeGlassFrame(
-            state = state,
-            radius = radius,
-            role = GlassRole.Card,
-            intensityScale = 1.16f + glowEnergy * 0.08f,
+    Box(modifier = modifier.clip(shape)) {
+        FrostInfoGlassPanel(
+            radius = safeRadius.toFloat(),
+            backdropAlpha = 1f,
+            frostAlpha = 0.060f,
+            dimAlpha = 0.145f,
             modifier = Modifier.fillMaxSize(),
+        ) {}
+
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * 1.12f,
+            motionIntensity = state.motionIntensity,
+            radius = safeRadius,
+            modifier = Modifier.fillMaxSize(),
+            role = GlassRole.Card,
+            onClick = {},
         ) {
             Box(Modifier.fillMaxSize()) {
-                PlanCapsulePanelLightOverlay(
-                    radius = radius,
-                    lightX = interactionLightX,
-                    energy = glowEnergy,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = contentAlpha },
-                ) {
-                    content()
+                if (compactAlpha > 0.001f) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .graphicsLayer { alpha = compactAlpha },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        Text(
+                            "+",
+                            color = Color(0xFFB7FFF4),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                        Text(
+                            compactTitle,
+                            color = Color.White.copy(alpha = 0.92f),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                    }
+                }
+
+                if (safeContainerProgress > 0.48f && safeContentProgress > 0.001f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = safeContentProgress
+                                translationY = contentTranslation.dp.toPx()
+                            },
+                    ) {
+                        content()
+                    }
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun PlanCapsulePanelLightOverlay(
-    radius: Int,
-    lightX: Float,
-    energy: Float,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val safeEnergy = energy.coerceIn(0f, 1.25f)
-        if (safeEnergy <= 0.001f) return@Canvas
-        val corner = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-        val center = Offset(
-            x = size.width * lightX.coerceIn(0.08f, 0.92f),
-            y = size.height * 0.10f,
-        )
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = safeEnergy * 0.15f),
-                    Color(0xFFB7FFF4).copy(alpha = safeEnergy * 0.070f),
-                    Color(0xFFC8BCFF).copy(alpha = safeEnergy * 0.045f),
-                    Color.Transparent,
-                ),
-                center = center,
-                radius = size.width * 0.72f,
-            ),
-            cornerRadius = corner,
-            blendMode = BlendMode.Screen,
-        )
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color(0xFF8DF9EA).copy(alpha = safeEnergy * 0.090f),
-                    Color.White.copy(alpha = safeEnergy * 0.13f),
-                    Color(0xFFC8BCFF).copy(alpha = safeEnergy * 0.075f),
-                    Color.Transparent,
-                ),
-                start = Offset(-size.width * 0.18f, 0f),
-                end = Offset(size.width * 1.18f, size.height * 0.34f),
-            ),
-            cornerRadius = corner,
-            style = Stroke(width = 1.15.dp.toPx()),
-            blendMode = BlendMode.Screen,
-        )
     }
 }
 
