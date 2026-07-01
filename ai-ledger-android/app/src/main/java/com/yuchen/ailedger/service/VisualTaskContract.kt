@@ -111,7 +111,7 @@ data class VisualTaskContract(
             val currentId = item.firstNonBlank("currentMilestoneId", "milestoneId", "currentMilestone")
                 ?: milestones.firstOrNull { !it.completed }?.id.orEmpty()
             val contract = VisualTaskContract(
-                originalGoal = item.firstNonBlank("originalGoal", "goal", "sourceGoal").orEmpty().take(240),
+                originalGoal = item.firstNonBlank("originalGoal", "goal", "sourceGoal").orEmpty(),
                 currentMilestoneId = currentId.take(100),
                 milestones = milestones,
                 completedMilestoneIds = (item.stringList("completedMilestoneIds", "completedMilestones") +
