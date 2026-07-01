@@ -5,7 +5,7 @@ begin;
 
 create table if not exists public.user_profiles (
     user_id uuid primary key references auth.users(id) on delete cascade,
-    display_name text not null default '',
+    display_name text not null default 'AI Ledger 用户',
     avatar_path text,
     avatar_version bigint not null default 0,
     created_at timestamptz not null default now(),
@@ -13,6 +13,10 @@ create table if not exists public.user_profiles (
     constraint user_profiles_display_name_length
         check (char_length(display_name) between 1 and 24)
 );
+
+-- 兼容脚本曾经执行过、但默认值还是空字符串的情况。
+alter table public.user_profiles
+    alter column display_name set default 'AI Ledger 用户';
 
 alter table public.user_profiles enable row level security;
 
