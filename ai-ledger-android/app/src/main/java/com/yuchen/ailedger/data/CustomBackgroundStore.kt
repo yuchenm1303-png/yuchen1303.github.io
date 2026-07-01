@@ -58,7 +58,7 @@ class CustomBackgroundStore(
                 it.name.startsWith("custom_wallpaper") ||
                     it.name.startsWith(".${CUSTOM_BACKGROUND_FILE}.")
             }
-            .forEach(File::delete)
+            .forEach { it.delete() }
     }
 
     private fun writeJpeg(bitmap: Bitmap, target: File) {
