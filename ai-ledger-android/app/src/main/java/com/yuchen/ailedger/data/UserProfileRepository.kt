@@ -353,10 +353,10 @@ class UserProfileRepository private constructor(context: Context) {
         }
 
         val existing = localStore.avatarFile(session.userId)
-        val cacheCurrent = existing.isFile && cachedProfile?.let { cached ->
+        val cacheCurrent = existing.isFile && (cachedProfile?.let { cached ->
             cached.avatarPath == cloudProfile.avatarPath &&
                 cached.avatarVersion == cloudProfile.avatarVersion
-        } == true
+        } == true)
         if (cacheCurrent) return existing
 
         val downloaded = client.downloadAvatar(
@@ -679,8 +679,9 @@ private fun prepareAvatarFile(context: Context, uri: Uri): File {
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
         )
 
-        outputFile = File.createTempFile("profile_avatar_", ".webp", context.cacheDir)
-        FileOutputStream(outputFile).use { stream ->
+        val file = File.createTempFile("profile_avatar_", ".webp", context.cacheDir)
+        outputFile = file
+        FileOutputStream(file).use { stream ->
             val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 Bitmap.CompressFormat.WEBP_LOSSY
             } else {
@@ -691,7 +692,7 @@ private fun prepareAvatarFile(context: Context, uri: Uri): File {
                 throw IOException("头像压缩失败，请换一张图片重试。")
             }
         }
-        return outputFile
+        return file
     } catch (error: Throwable) {
         outputFile?.delete()
         throw error
