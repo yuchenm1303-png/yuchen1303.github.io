@@ -240,30 +240,28 @@ private data class BackdropBuildResult(
 )
 
 /**
- * 同一纹理键只生成一次；不同参数快速连续到达时，只允许正在执行的一次和最后一次请求
- * 真正进入重计算，排队中的过期中间值会在分配大像素缓冲区之前直接退出。
+ * 同一纹理键只生成一次。参数连续变化时，已经运行的任务允许安全完成，排队中的任务则只让
+ * 当前最后请求的键进入大像素计算；即使用户快速调回正在生成的旧值，也不会误把中间值当最新值。
  */
 private object BackdropBuildRegistry {
     private val inFlight = mutableMapOf<String, Deferred<BackdropBuildResult?>>()
-    private var latestGeneration = 0L
+    private var latestRequestedKey: String? = null
 
     fun request(
         key: String,
         block: suspend () -> BackdropBuildResult?
     ): Deferred<BackdropBuildResult?> = synchronized(inFlight) {
-        inFlight[key] ?: run {
-            val generation = ++latestGeneration
-            BackdropBuildRuntime.scope.async {
-                try {
-                    if (synchronized(inFlight) { generation != latestGeneration }) {
-                        return@async null
-                    }
-                    block()
-                } finally {
-                    synchronized(inFlight) { inFlight.remove(key) }
+        latestRequestedKey = key
+        inFlight[key] ?: BackdropBuildRuntime.scope.async {
+            try {
+                if (synchronized(inFlight) { key != latestRequestedKey }) {
+                    return@async null
                 }
-            }.also { inFlight[key] = it }
-        }
+                block()
+            } finally {
+                synchronized(inFlight) { inFlight.remove(key) }
+            }
+        }.also { inFlight[key] = it }
     }
 }
 
@@ -456,7 +454,7 @@ fun rememberBlurredBackdropBitmap(
     val useCustomImage = source.kind == BackdropSourceKind.CustomImage
     val textureParamsKey = params.textureCacheKey(
         includeScale = !useDefaultWallpaper,
-        includeCloudAlpha = useThemeSource,
+        includeThemeLayers = useThemeSource,
         includeCustomTone = useCustomImage,
     )
     val sourceKey = when (source.kind) {
@@ -571,7 +569,7 @@ private fun quantizeTextureDimension(value: Int): Int =
 
 private fun BackdropDebugParams.textureCacheKey(
     includeScale: Boolean,
-    includeCloudAlpha: Boolean,
+    includeThemeLayers: Boolean,
     includeCustomTone: Boolean,
 ): String = buildString {
     if (includeScale) append(scale.round2()).append('|')
@@ -579,7 +577,16 @@ private fun BackdropDebugParams.textureCacheKey(
     append(brightness.round2()).append('|')
     append(contrast.round2()).append('|')
     append(saturation.round2())
-    if (includeCloudAlpha) append('|').append(cloudAlpha.round2())
+    if (includeThemeLayers) {
+        append('|').append(cloudAlpha.round2())
+        append('|').append(cloudSoftness.round2())
+        append('|').append(cloudStretchX.round2())
+        append('|').append(cloudStretchY.round2())
+        append('|').append(cloudHighlightAlpha.round2())
+        append('|').append(moonScale.round2())
+        append('|').append(moonHaloAlpha.round2())
+        append('|').append(moonRimAlpha.round2())
+    }
     if (includeCustomTone) append('|').append(customImageToneCacheKey())
 }
 
@@ -592,7 +599,14 @@ private fun BackdropDebugParams.quantizedForTextures(): BackdropDebugParams = co
     customImageBrightness = customImageBrightness.round2(),
     customImageHighlightStart = customImageHighlightStart.round2(),
     customImageHighlightLimit = customImageHighlightLimit.round2(),
-    cloudAlpha = cloudAlpha.round2()
+    cloudAlpha = cloudAlpha.round2(),
+    cloudSoftness = cloudSoftness.round2(),
+    cloudStretchX = cloudStretchX.round2(),
+    cloudStretchY = cloudStretchY.round2(),
+    cloudHighlightAlpha = cloudHighlightAlpha.round2(),
+    moonScale = moonScale.round2(),
+    moonHaloAlpha = moonHaloAlpha.round2(),
+    moonRimAlpha = moonRimAlpha.round2(),
 )
 
 private fun Float.round2(): Float = (this * 100f).roundToInt() / 100f
