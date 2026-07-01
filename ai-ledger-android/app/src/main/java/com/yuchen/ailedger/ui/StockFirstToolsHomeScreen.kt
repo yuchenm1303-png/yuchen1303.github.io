@@ -101,11 +101,6 @@ fun StockFirstToolsHomeScreen(
                     StockMarketHeroEntry(pageState, onOpenTool)
                 }
             }
-            item {
-                ToolsEntrance(delayMs = 175, initialOffsetY = 18, initialScale = 0.970f) {
-                    StockToolsQuickRow(pageState, onOpenTool)
-                }
-            }
             ToolDestination.entries.forEachIndexed { index, destination ->
                 item(key = "tool-entry-${destination.name}") {
                     ToolsEntrance(
@@ -278,40 +273,6 @@ private fun StockHeroMetric(label: String, value: String, modifier: Modifier = M
     Column(modifier, verticalArrangement = Arrangement.Center) {
         Text(label, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun StockToolsQuickRow(state: AssistantUiState, onOpenTool: (ToolDestination) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        StockQuickPill("股票", "行情", ToolDestination.StockMarket, state, Modifier.weight(1f), onOpenTool)
-        StockQuickPill("账单", "明细", ToolDestination.LedgerCenter, state, Modifier.weight(1f), onOpenTool)
-        StockQuickPill("提醒", "待接入", ToolDestination.Reminder, state, Modifier.weight(1f), onOpenTool)
-    }
-}
-
-@Composable
-private fun StockQuickPill(
-    title: String,
-    subtitle: String,
-    target: ToolDestination,
-    state: AssistantUiState,
-    modifier: Modifier,
-    onOpenTool: (ToolDestination) -> Unit,
-) {
-    PressableGlass(
-        state.quality,
-        state.glassIntensity * if (target == ToolDestination.StockMarket) 1.03f else 0.92f,
-        state.motionIntensity,
-        22,
-        modifier.height(62.dp),
-        if (target == ToolDestination.StockMarket) GlassRole.Floating else GlassRole.Chip,
-        onClick = { onOpenTool(target) }
-    ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 11.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(title, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-        }
     }
 }
 
