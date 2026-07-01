@@ -458,7 +458,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
                                             )
                                         } else {
                                             key(settingsPageGeneration) {
-                                                SettingsPolishedScreen(
+                                                SettingsPolishedScreenOptimized(
                                                     state = settingsState,
                                                     aiEndpoint = viewModel.aiEndpoint,
                                                     onQualityChange = viewModel::selectQuality,
