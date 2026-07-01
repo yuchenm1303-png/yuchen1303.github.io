@@ -7,9 +7,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -19,22 +16,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.PlanDraft
 import com.yuchen.ailedger.model.PlanTask
 
 @Composable
 fun PlanCenterScreen(
+    state: AssistantUiState,
     onBack: () -> Unit,
     viewModel: PlanCenterViewModel = viewModel(),
 ) {
     val context = LocalContext.current
-    val state = viewModel.uiState
+    val planState = viewModel.uiState
     var quickTitle by remember { mutableStateOf("") }
     var editingId by remember { mutableStateOf<String?>(null) }
     var editorDraft by remember { mutableStateOf<PlanDraft?>(null) }
@@ -53,25 +49,32 @@ fun PlanCenterScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 94.dp),
+        contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { PlanHeader(state.activeCount, onBack) }
+        item {
+            PlanHeader(
+                state = state,
+                activeCount = planState.activeCount,
+                onBack = onBack,
+            )
+        }
         item {
             PlanQuickComposer(
+                state = state,
                 value = quickTitle,
                 onValueChange = { quickTitle = it.take(80) },
                 onCreate = { openEditor() },
             )
         }
         item {
-            PlanTemplateStrip { template ->
+            PlanTemplateStrip(state = state) { template ->
                 openEditor(template = template)
             }
         }
-        if (!state.exactAlarmReady) {
+        if (!planState.exactAlarmReady) {
             item {
-                PlanInfoBanner {
+                PlanInfoBanner(state = state) {
                     if (!viewModel.requestExactAlarmAccess()) {
                         Toast.makeText(
                             context,
@@ -82,19 +85,27 @@ fun PlanCenterScreen(
                 }
             }
         }
-        item { PlanFilterBar(state.filter, viewModel::setFilter) }
-        item { PlanSectionTitle(state.filter, state.visibleTasks.size) }
+        item {
+            PlanFilterBar(
+                state = state,
+                selected = planState.filter,
+                onSelect = viewModel::setFilter,
+            )
+        }
+        item { PlanSectionTitle(planState.filter, planState.visibleTasks.size) }
 
-        if (state.visibleTasks.isEmpty()) {
+        if (planState.visibleTasks.isEmpty()) {
             item {
                 PlanEmptyCard(
-                    filtered = state.tasks.isNotEmpty(),
+                    state = state,
+                    filtered = planState.tasks.isNotEmpty(),
                     onCreate = { openEditor() },
                 )
             }
         } else {
-            items(state.visibleTasks, key = { it.id }) { task ->
+            items(planState.visibleTasks, key = { it.id }) { task ->
                 PlanTaskCard(
+                    state = state,
                     task = task,
                     onEdit = { openEditor(task = task) },
                     onDelete = { deleteCandidate = task },
@@ -110,9 +121,10 @@ fun PlanCenterScreen(
     editorDraft?.let { initial ->
         key(editorGeneration) {
             PlanEditorDialog(
+                state = state,
                 initial = initial,
                 editing = editingId != null,
-                exactAlarmReady = state.exactAlarmReady,
+                exactAlarmReady = planState.exactAlarmReady,
                 onDismiss = {
                     editorDraft = null
                     editingId = null
@@ -130,40 +142,14 @@ fun PlanCenterScreen(
     }
 
     deleteCandidate?.let { task ->
-        AlertDialog(
-            onDismissRequest = { deleteCandidate = null },
-            containerColor = Color(0xFF101A3D),
-            tonalElevation = 0.dp,
-            title = {
-                Text(
-                    "删除计划",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Black,
-                )
-            },
-            text = {
-                Text(
-                    "确定删除“${task.title}”吗？删除后不会再触发提醒。",
-                    color = Color.White.copy(alpha = 0.68f),
-                    fontSize = 13.sp,
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val result = viewModel.deleteTask(task.id)
-                        Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                        deleteCandidate = null
-                    },
-                ) {
-                    Text("删除", color = Color(0xFFFF9A9A), fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteCandidate = null }) {
-                    Text("取消", color = Color.White.copy(alpha = 0.62f))
-                }
+        PlanDeleteDialog(
+            state = state,
+            task = task,
+            onDismiss = { deleteCandidate = null },
+            onConfirm = {
+                val result = viewModel.deleteTask(task.id)
+                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                deleteCandidate = null
             },
         )
     }
