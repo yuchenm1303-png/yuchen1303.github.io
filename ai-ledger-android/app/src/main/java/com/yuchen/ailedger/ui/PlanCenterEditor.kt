@@ -2,7 +2,14 @@ package com.yuchen.ailedger.ui
 
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +29,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +57,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun PlanEditorPanel(
@@ -388,16 +402,93 @@ private fun PlanModalGlassSurface(
         ).coerceIn(0f, 1f)
     val contentTranslation = (1f - safeContentProgress) * 10f
     val shape = RoundedCornerShape(safeRadius.dp)
+    val motion = state.motionIntensity.coerceIn(0f, 1f)
+    val pressAnim = remember { Animatable(0f) }
+    val pressScope = rememberCoroutineScope()
+    var surfaceSize by remember { mutableStateOf(Size(1f, 1f)) }
+    var pressCenter by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
+    val pressValue = pressAnim.value.coerceIn(-0.16f, 1f)
+    val compression = pressValue.coerceAtLeast(0f)
+    val rebound = (-pressValue).coerceAtLeast(0f)
 
-    Box(modifier = modifier.clip(shape)) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * 1.12f,
-            motionIntensity = state.motionIntensity,
+    Box(
+        modifier = modifier
+            .onSizeChanged { measured ->
+                surfaceSize = Size(
+                    measured.width.coerceAtLeast(1).toFloat(),
+                    measured.height.coerceAtLeast(1).toFloat(),
+                )
+            }
+            .pointerInput(motion) {
+                if (motion <= 0.02f) return@pointerInput
+                awaitEachGesture {
+                    fun updateCenter(position: Offset) {
+                        pressCenter = Offset(
+                            x = (position.x / surfaceSize.width.coerceAtLeast(1f)).coerceIn(0.08f, 0.92f),
+                            y = (position.y / surfaceSize.height.coerceAtLeast(1f)).coerceIn(0.08f, 0.92f),
+                        )
+                    }
+
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    updateCenter(down.position)
+                    pressScope.launch {
+                        pressAnim.stop()
+                        if (pressAnim.value < 0.14f) pressAnim.snapTo(0.14f)
+                        pressAnim.animateTo(
+                            targetValue = 0.82f,
+                            animationSpec = tween(125, easing = FastOutSlowInEasing),
+                        )
+                        pressAnim.animateTo(
+                            targetValue = 0.68f,
+                            animationSpec = spring(
+                                dampingRatio = 0.72f,
+                                stiffness = Spring.StiffnessMediumLow,
+                            ),
+                        )
+                    }
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == down.id }
+                            ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            updateCenter(tracked.position)
+                            if (!tracked.pressed) break
+                        }
+                        if (event.changes.none { it.pressed }) break
+                    }
+
+                    pressScope.launch {
+                        pressAnim.stop()
+                        pressAnim.animateTo(
+                            targetValue = -0.10f,
+                            animationSpec = tween(115, easing = FastOutSlowInEasing),
+                        )
+                        pressAnim.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = 0.68f,
+                                stiffness = Spring.StiffnessLow,
+                            ),
+                        )
+                    }
+                }
+            }
+            .graphicsLayer {
+                transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
+                scaleX = 1f + compression * 0.0035f * motion - rebound * 0.0015f * motion
+                scaleY = 1f - compression * 0.0055f * motion + rebound * 0.0025f * motion
+                translationX = (pressCenter.x - 0.5f) * compression * 1.15.dp.toPx() * motion
+                translationY = compression * 1.10.dp.toPx() * motion - rebound * 0.45.dp.toPx() * motion
+            }
+            .clip(shape),
+    ) {
+        PlanNativeGlassFrame(
+            state = state,
             radius = safeRadius,
-            modifier = Modifier.fillMaxSize(),
             role = GlassRole.Card,
-            onClick = {},
+            intensityScale = 1.12f,
+            modifier = Modifier.fillMaxSize(),
         ) {
             Box(Modifier.fillMaxSize()) {
                 Box(
