@@ -172,7 +172,8 @@ fun PlanCenterScreen(
         }
 
         if (modalVisible) {
-            val blocker = remember { MutableInteractionSource() }
+            val backdropBlocker = remember { MutableInteractionSource() }
+            val panelBlocker = remember { MutableInteractionSource() }
             FrostInfoGlassPanel(
                 radius = 0f,
                 backdropAlpha = 1f,
@@ -187,7 +188,7 @@ fun PlanCenterScreen(
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.12f))
                         .clickable(
-                            interactionSource = blocker,
+                            interactionSource = backdropBlocker,
                             indication = null,
                             onClick = ::closeModal,
                         ),
@@ -196,41 +197,59 @@ fun PlanCenterScreen(
 
             editorDraft?.let { initial ->
                 key(editorGeneration) {
-                    PlanEditorPanel(
-                        state = state,
-                        initial = initial,
-                        editing = editingId != null,
-                        exactAlarmReady = planState.exactAlarmReady,
+                    Box(
                         modifier = Modifier
                             .align(Alignment.Center)
                             .zIndex(101f)
                             .fillMaxWidth(0.94f)
-                            .fillMaxHeight(0.86f),
-                        onDismiss = ::closeModal,
-                        onSave = { draft ->
-                            val result = viewModel.saveTask(editingId, draft)
-                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                            if (result.ok) closeModal()
-                        },
-                    )
+                            .fillMaxHeight(0.86f)
+                            .clickable(
+                                interactionSource = panelBlocker,
+                                indication = null,
+                                onClick = {},
+                            ),
+                    ) {
+                        PlanEditorPanel(
+                            state = state,
+                            initial = initial,
+                            editing = editingId != null,
+                            exactAlarmReady = planState.exactAlarmReady,
+                            modifier = Modifier.fillMaxSize(),
+                            onDismiss = ::closeModal,
+                            onSave = { draft ->
+                                val result = viewModel.saveTask(editingId, draft)
+                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                if (result.ok) closeModal()
+                            },
+                        )
+                    }
                 }
             }
 
             deleteCandidate?.let { task ->
-                PlanDeletePanel(
-                    state = state,
-                    task = task,
+                Box(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .zIndex(101f)
-                        .fillMaxWidth(0.86f),
-                    onDismiss = ::closeModal,
-                    onConfirm = {
-                        val result = viewModel.deleteTask(task.id)
-                        Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                        closeModal()
-                    },
-                )
+                        .fillMaxWidth(0.86f)
+                        .clickable(
+                            interactionSource = panelBlocker,
+                            indication = null,
+                            onClick = {},
+                        ),
+                ) {
+                    PlanDeletePanel(
+                        state = state,
+                        task = task,
+                        modifier = Modifier.fillMaxWidth(),
+                        onDismiss = ::closeModal,
+                        onConfirm = {
+                            val result = viewModel.deleteTask(task.id)
+                            Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                            closeModal()
+                        },
+                    )
+                }
             }
         }
     }
