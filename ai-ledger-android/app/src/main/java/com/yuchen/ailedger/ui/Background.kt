@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-private const val CUSTOM_BACKGROUND_TONE_SETTLE_MS = 140L
+private const val CUSTOM_BACKGROUND_TONE_SETTLE_MS = 100L
 
 internal enum class BackdropSourceKind {
     DefaultWallpaper,
@@ -135,10 +135,9 @@ private fun rememberCustomBackgroundImage(
             StartupPerformanceGate.awaitInitialTextureBuildWindow()
             delay(CUSTOM_BACKGROUND_TONE_SETTLE_MS)
             image = withContext(Dispatchers.Default) {
-                CustomBackgroundToneProcessor.ensureProcessed(filePath, params)
-                    ?.absolutePath
-                    ?.let(::decodeDisplaySizedBitmap)
-                    ?.asImageBitmap()
+                CustomBackgroundToneProcessor.withProcessedFile(filePath, params) { processedFile ->
+                    decodeDisplaySizedBitmap(processedFile.absolutePath)?.asImageBitmap()
+                }
             }
         }
     }
