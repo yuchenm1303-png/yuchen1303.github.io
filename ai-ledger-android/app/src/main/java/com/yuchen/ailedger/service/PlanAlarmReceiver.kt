@@ -79,7 +79,7 @@ private object PlanNotificationPublisher {
             if (task.type == PlanTaskType.Alarm) "闹钟时间到了" else "计划提醒时间到了"
         }
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification_ai)
             .setContentTitle(task.title)
             .setContentText(detail)
             .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
