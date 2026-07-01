@@ -10,12 +10,14 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,7 +26,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,7 +36,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,7 +48,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.LedgerViewModel
+import com.yuchen.ailedger.ToolsMarketHeroUiState
+import com.yuchen.ailedger.ToolsMarketHeroViewModel
+import com.yuchen.ailedger.ToolsMarketIndexItem
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.model.StockMinutePoint
 import com.yuchen.ailedger.model.ToolDestination
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
@@ -61,6 +73,16 @@ fun StockFirstToolsHomeScreen(
         remember(pageVisible) { state.copy(motionIntensity = 0f) }
     }
     val selectedTool = pageState.selectedTool
+    val heroViewModel: ToolsMarketHeroViewModel = viewModel()
+    val heroUi by heroViewModel.uiState.collectAsState()
+    val heroVisible = pageVisible && selectedTool == null
+
+    LaunchedEffect(heroVisible) {
+        heroViewModel.setVisible(heroVisible)
+    }
+    DisposableEffect(heroViewModel) {
+        onDispose { heroViewModel.setVisible(false) }
+    }
 
     if (selectedTool == ToolDestination.LedgerCenter || selectedTool == ToolDestination.Statistics) {
         val ledgerViewModel: LedgerViewModel = viewModel()
@@ -98,7 +120,7 @@ fun StockFirstToolsHomeScreen(
             }
             item {
                 ToolsEntrance(delayMs = 95, initialOffsetY = 18, initialScale = 0.966f) {
-                    StockMarketHeroEntry(pageState, onOpenTool)
+                    StockMarketHeroEntry(pageState, heroUi, onOpenTool)
                 }
             }
             ToolDestination.entries.forEachIndexed { index, destination ->
@@ -236,43 +258,198 @@ private fun StockToolsHeader() {
 }
 
 @Composable
-private fun StockMarketHeroEntry(state: AssistantUiState, onOpenTool: (ToolDestination) -> Unit) {
+private fun StockMarketHeroEntry(
+    state: AssistantUiState,
+    heroUi: ToolsMarketHeroUiState,
+    onOpenTool: (ToolDestination) -> Unit
+) {
+    val statusLabel = when {
+        heroUi.loading -> "同步中"
+        heroUi.indices.any { it.hasRealQuote } -> "实时指数"
+        !heroUi.errorMessage.isNullOrBlank() -> "待恢复"
+        else -> "等待数据"
+    }
+
     OpenGlShellGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 1.03f,
         motionIntensity = state.motionIntensity,
         radius = 28,
-        modifier = Modifier.fillMaxWidth().height(198.dp),
+        modifier = Modifier.fillMaxWidth().height(224.dp),
         mood = OpenGlShellMood.Hero,
         onClick = { onOpenTool(ToolDestination.StockMarket) }
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 17.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 17.dp, vertical = 15.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("市场入口", color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "市场入口",
+                        color = Color.White.copy(alpha = 0.52f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        statusLabel,
+                        color = Color(0xFF8DF9EA).copy(alpha = if (heroUi.loading) 0.54f else 0.76f),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1
+                    )
+                }
                 Text(ToolDestination.StockMarket.title, color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text("A股首页、自选、热榜、龙虎榜、板块和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("三大指数、真实分时、热榜、板块和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().height(68.dp).padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+                modifier = Modifier.fillMaxWidth().height(100.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                StockHeroMetric("市场", "A股", Modifier.weight(1f))
-                StockHeroMetric("上证", "3048.03", Modifier.weight(1f))
-                StockHeroMetric("热点", "龙虎榜", Modifier.weight(1f))
+                heroUi.indices.take(3).forEach { item ->
+                    StockHeroIndexMetric(
+                        item = item,
+                        modifier = Modifier.weight(1f).fillMaxHeight()
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun StockHeroMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.Center) {
-        Text(label, color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value, color = Color.White.copy(alpha = 0.92f), fontSize = 17.sp, lineHeight = 20.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun StockHeroIndexMetric(
+    item: ToolsMarketIndexItem,
+    modifier: Modifier = Modifier
+) {
+    val tone = when {
+        !item.hasRealQuote -> Color.White.copy(alpha = 0.44f)
+        item.isRising -> StockRise
+        else -> StockFall
+    }
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(17.dp))
+            .background(Color(0xFF101742).copy(alpha = 0.26f))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            item.name,
+            color = Color.White.copy(alpha = 0.58f),
+            fontSize = 9.5.sp,
+            lineHeight = 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            item.price.ifBlank { "--" },
+            color = Color.White.copy(alpha = if (item.hasRealQuote) 0.94f else 0.54f),
+            fontSize = 15.sp,
+            lineHeight = 18.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            heroIndexChangeText(item),
+            color = tone.copy(alpha = if (item.hasRealQuote) 0.92f else 0.60f),
+            fontSize = 8.5.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        StockHeroSparkline(
+            points = item.minutePoints,
+            previousClose = item.previousClose,
+            tone = tone,
+            modifier = Modifier.fillMaxWidth().height(25.dp)
+        )
+    }
+}
+
+private fun heroIndexChangeText(item: ToolsMarketIndexItem): String {
+    val amount = item.changeAmount.takeIf { it.isNotBlank() && it != "--" }
+    val percent = item.changePercent.takeIf { it.isNotBlank() && it != "--" }
+    return listOfNotNull(amount, percent).joinToString("  ").ifBlank { "--" }
+}
+
+@Composable
+private fun StockHeroSparkline(
+    points: List<StockMinutePoint>,
+    previousClose: Float,
+    tone: Color,
+    modifier: Modifier = Modifier
+) {
+    val rows = remember(points) { points.filter { it.price.isFinite() && it.price > 0f } }
+    Canvas(modifier = modifier) {
+        val inset = 1.dp.toPx()
+        val left = inset
+        val right = (size.width - inset).coerceAtLeast(left + 1f)
+        val top = inset
+        val bottom = (size.height - inset).coerceAtLeast(top + 1f)
+
+        if (rows.size < 2) {
+            val y = (top + bottom) / 2f
+            drawLine(
+                color = Color.White.copy(alpha = 0.11f),
+                start = Offset(left, y),
+                end = Offset(right, y),
+                strokeWidth = 1.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+            return@Canvas
+        }
+
+        val prices = rows.map { it.price }
+        var low = prices.minOrNull() ?: return@Canvas
+        var high = prices.maxOrNull() ?: return@Canvas
+        if (previousClose.isFinite() && previousClose > 0f) {
+            low = minOf(low, previousClose)
+            high = maxOf(high, previousClose)
+        }
+        val span = high - low
+        val xFor = { index: Int ->
+            left + (right - left) * index / rows.lastIndex.coerceAtLeast(1).toFloat()
+        }
+        val yFor = { value: Float ->
+            if (span <= 0.0001f) {
+                (top + bottom) / 2f
+            } else {
+                bottom - (value - low) / span * (bottom - top)
+            }
+        }
+
+        if (previousClose.isFinite() && previousClose > 0f) {
+            val referenceY = yFor(previousClose)
+            drawLine(
+                color = Color.White.copy(alpha = 0.095f),
+                start = Offset(left, referenceY),
+                end = Offset(right, referenceY),
+                strokeWidth = 0.8.dp.toPx(),
+                cap = StrokeCap.Round
+            )
+        }
+
+        val path = Path()
+        rows.forEachIndexed { index, point ->
+            val x = xFor(index)
+            val y = yFor(point.price)
+            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(
+            path = path,
+            color = tone.copy(alpha = 0.96f),
+            style = Stroke(width = 1.45.dp.toPx(), cap = StrokeCap.Round)
+        )
     }
 }
 
