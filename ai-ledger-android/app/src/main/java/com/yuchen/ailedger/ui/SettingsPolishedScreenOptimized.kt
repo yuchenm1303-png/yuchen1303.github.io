@@ -1,5 +1,8 @@
 package com.yuchen.ailedger.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,8 +13,10 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +26,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,13 +43,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,6 +77,7 @@ import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.service.AgentOverlayProgress
 import com.yuchen.ailedger.service.AgentRuntimeController
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 
 @Composable
@@ -83,71 +96,132 @@ internal fun SettingsPolishedScreenOptimized(
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit,
 ) {
+    val context = LocalContext.current.applicationContext
+    val profileRepository = remember(context) { UserProfileRepository.get(context) }
     val listState = rememberLazyListState()
-    SyncGlassBackdropToScroll(listState)
-    var selectedPanel by rememberSaveable { mutableStateOf(SettingsDetailSection.Service) }
+    val coroutineScope = rememberCoroutineScope()
     val entranceSessions = remember { mutableStateMapOf<String, Int>() }
+    var selectedPanel by rememberSaveable { mutableStateOf(SettingsDetailSection.Service) }
+    var showLoginCard by rememberSaveable { mutableStateOf(false) }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp),
-    ) {
-        item(key = "settings-header") {
-            SettingsOptimizedEntrance("settings-header", entranceSessions, 0, -8, 0.985f) {
-                SettingsOptimizedHeader()
-            }
-        }
-        item(key = "settings-overview") {
-            SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
-                SettingsPersonalSpaceCard(state)
-            }
-        }
-        item(key = "settings-section-title") {
-            SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
-                SettingsOptimizedSectionTitle(
-                    "常用设置",
-                    "选中的入口会保持静态高亮，方便快速定位当前面板。",
-                )
-            }
-        }
-        item(key = "settings-dashboard") {
-            SettingsOptimizedEntrance("settings-dashboard", entranceSessions, 260, 20, 0.965f) {
-                SettingsDashboardGridFullMotion(
-                    state = state,
-                    aiEndpoint = aiEndpoint,
-                    selectedPanel = selectedPanel,
-                    onSelected = { selectedPanel = it },
-                )
-            }
-        }
-        item(key = "settings-detail") {
-            SettingsOptimizedEntrance("settings-detail", entranceSessions, 370, 22, 0.965f) {
-                SettingsDetailPanel(
-                    panel = selectedPanel,
-                    state = state,
-                    aiEndpoint = aiEndpoint,
-                    onQualityChange = onQualityChange,
-                    onPreviewConversationChange = onPreviewConversationChange,
-                    onGlassPresetChange = onGlassPresetChange,
-                    onBackgroundThemeChange = onBackgroundThemeChange,
-                    onGlassIntensityChange = onGlassIntensityChange,
-                    onMotionIntensityChange = onMotionIntensityChange,
-                    onRainbowPrismChange = onRainbowPrismChange,
-                    onBackdropChange = onBackdropChange,
-                    onBorderChange = onBorderChange,
-                    onUploadBackgroundClick = onUploadBackgroundClick,
-                    onClearCustomBackgroundClick = onClearCustomBackgroundClick,
-                )
-            }
-        }
-        item(key = "settings-lab-entry") {
-            SettingsOptimizedEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
-                SettingsLabEntry(state, selectedPanel == SettingsDetailSection.Debug) {
-                    selectedPanel = SettingsDetailSection.Debug
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        uri?.let(profileRepository::updateAvatar)
+    }
+
+    SyncGlassBackdropToScroll(listState)
+    BackHandler(enabled = showLoginCard) { showLoginCard = false }
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            item(key = "settings-header") {
+                SettingsOptimizedEntrance("settings-header", entranceSessions, 0, -8, 0.985f) {
+                    SettingsOptimizedHeader()
                 }
             }
+            item(key = "settings-overview") {
+                SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
+                    SettingsPersonalSpaceCard(
+                        state = state,
+                        onLoginClick = { showLoginCard = true },
+                        onAvatarEditClick = { avatarPicker.launch("image/*") },
+                        onNicknameEditClick = {
+                            selectedPanel = SettingsDetailSection.Service
+                            coroutineScope.launch {
+                                delay(70)
+                                listState.animateScrollToItem(4)
+                            }
+                        },
+                    )
+                }
+            }
+            item(key = "settings-section-title") {
+                SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
+                    SettingsOptimizedSectionTitle(
+                        "常用设置",
+                        "选中的入口会保持静态高亮，方便快速定位当前面板。",
+                    )
+                }
+            }
+            item(key = "settings-dashboard") {
+                SettingsOptimizedEntrance("settings-dashboard", entranceSessions, 260, 20, 0.965f) {
+                    SettingsDashboardGridFullMotion(
+                        state = state,
+                        aiEndpoint = aiEndpoint,
+                        selectedPanel = selectedPanel,
+                        onSelected = { selectedPanel = it },
+                    )
+                }
+            }
+            item(key = "settings-detail") {
+                SettingsOptimizedEntrance("settings-detail", entranceSessions, 370, 22, 0.965f) {
+                    SettingsDetailPanel(
+                        panel = selectedPanel,
+                        state = state,
+                        aiEndpoint = aiEndpoint,
+                        onQualityChange = onQualityChange,
+                        onPreviewConversationChange = onPreviewConversationChange,
+                        onGlassPresetChange = onGlassPresetChange,
+                        onBackgroundThemeChange = onBackgroundThemeChange,
+                        onGlassIntensityChange = onGlassIntensityChange,
+                        onMotionIntensityChange = onMotionIntensityChange,
+                        onRainbowPrismChange = onRainbowPrismChange,
+                        onBackdropChange = onBackdropChange,
+                        onBorderChange = onBorderChange,
+                        onUploadBackgroundClick = onUploadBackgroundClick,
+                        onClearCustomBackgroundClick = onClearCustomBackgroundClick,
+                    )
+                }
+            }
+            item(key = "settings-lab-entry") {
+                SettingsOptimizedEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
+                    SettingsLabEntry(state, selectedPanel == SettingsDetailSection.Debug) {
+                        selectedPanel = SettingsDetailSection.Debug
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = showLoginCard,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(120)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.34f))
+                    .clickable { showLoginCard = false }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showLoginCard,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = 12.dp, vertical = 90.dp)
+                .imePadding(),
+            enter = fadeIn(tween(170)) +
+                slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = 0.82f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    )
+                ) { fullHeight -> fullHeight },
+            exit = fadeOut(tween(120)) +
+                slideOutVertically(tween(170)) { fullHeight -> fullHeight },
+        ) {
+            AccountLoginBottomCard(
+                state = state,
+                onDismiss = { showLoginCard = false },
+            )
         }
     }
 }
@@ -242,7 +316,12 @@ private fun SettingsOptimizedHeader() {
 }
 
 @Composable
-private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
+private fun SettingsPersonalSpaceCard(
+    state: AssistantUiState,
+    onLoginClick: () -> Unit,
+    onAvatarEditClick: () -> Unit,
+    onNicknameEditClick: () -> Unit,
+) {
     val context = LocalContext.current.applicationContext
     val authRepository = remember(context) { SupabaseAuthRepository.get(context) }
     val profileRepository = remember(context) { UserProfileRepository.get(context) }
@@ -335,27 +414,51 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                UserProfileAvatar(
-                    localAvatarPath = profileState.localAvatarPath,
-                    avatarVersion = profileState.profile?.avatarVersion ?: 0L,
-                    fallbackText = avatarText,
-                    size = 62.dp,
-                    loggedIn = loggedIn,
-                )
+                Box {
+                    UserProfileAvatar(
+                        localAvatarPath = profileState.localAvatarPath,
+                        avatarVersion = profileState.profile?.avatarVersion ?: 0L,
+                        fallbackText = avatarText,
+                        size = 62.dp,
+                        loggedIn = loggedIn,
+                    )
+                    if (loggedIn) {
+                        SettingsAvatarEditBadge(
+                            state = state,
+                            onClick = onAvatarEditClick,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .offset(x = 3.dp, y = 3.dp),
+                        )
+                    }
+                }
                 Spacer(Modifier.width(11.dp))
                 Column(
                     Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
-                    Text(
-                        text = displayName,
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 19.sp,
-                        lineHeight = 22.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = displayName,
+                            color = Color.White.copy(alpha = 0.94f),
+                            fontSize = 19.sp,
+                            lineHeight = 22.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (loggedIn) {
+                            Spacer(Modifier.width(5.dp))
+                            SettingsNicknameEditButton(
+                                state = state,
+                                onClick = onNicknameEditClick,
+                            )
+                        }
+                    }
                     Text(
                         text = maskedEmail,
                         color = Color.White.copy(alpha = 0.48f),
@@ -365,18 +468,37 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    SettingsAccountStatusPill(
-                        text = accountStatus,
-                        active = loggedIn,
-                    )
+                    if (loggedIn) {
+                        SettingsAccountStatusPill(
+                            text = accountStatus,
+                            active = true,
+                        )
+                    } else {
+                        Text(
+                            text = "登录后同步昵称、头像与长期记忆",
+                            color = Color.White.copy(alpha = 0.36f),
+                            fontSize = 8.5.sp,
+                            lineHeight = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Spacer(Modifier.width(9.dp))
-                SettingsIdentityBadge(
-                    ledgerId = ledgerId,
-                    syncStatus = syncStatus,
-                    syncHealthy = syncHealthy,
-                    loggedIn = loggedIn,
-                )
+                if (loggedIn) {
+                    SettingsIdentityBadge(
+                        ledgerId = ledgerId,
+                        syncStatus = syncStatus,
+                        syncHealthy = syncHealthy,
+                        loggedIn = true,
+                    )
+                } else {
+                    SettingsPersonalLoginButton(
+                        state = state,
+                        onClick = onLoginClick,
+                    )
+                }
             }
 
             SettingsPersonalHairline(alpha = 0.11f)
@@ -416,6 +538,124 @@ private fun SettingsPersonalSpaceCard(state: AssistantUiState) {
                     valueFontSize = 16.5f,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingsPersonalLoginButton(
+    state: AssistantUiState,
+    onClick: () -> Unit,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = Modifier
+            .width(78.dp)
+            .height(42.dp),
+        role = GlassRole.Chip,
+        onClick = onClick,
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = "登录",
+                color = Color.White.copy(alpha = 0.92f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsAvatarEditBadge(
+    state: AssistantUiState,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = modifier.size(25.dp),
+        role = GlassRole.Chip,
+        onClick = onClick,
+    ) {
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .padding(5.5.dp)
+        ) {
+            val stroke = size.minDimension * 0.115f
+            val bodyTop = size.height * 0.28f
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.84f),
+                topLeft = Offset(size.width * 0.08f, bodyTop),
+                size = Size(size.width * 0.84f, size.height * 0.62f),
+                cornerRadius = CornerRadius(size.minDimension * 0.12f),
+                style = Stroke(width = stroke),
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.84f),
+                topLeft = Offset(size.width * 0.31f, size.height * 0.12f),
+                size = Size(size.width * 0.38f, size.height * 0.22f),
+                cornerRadius = CornerRadius(size.minDimension * 0.08f),
+                style = Stroke(width = stroke),
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.84f),
+                radius = size.minDimension * 0.18f,
+                center = Offset(size.width * 0.50f, size.height * 0.59f),
+                style = Stroke(width = stroke),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsNicknameEditButton(
+    state: AssistantUiState,
+    onClick: () -> Unit,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = Modifier
+            .width(27.dp)
+            .height(25.dp),
+        role = GlassRole.Chip,
+        onClick = onClick,
+    ) {
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .padding(6.dp)
+        ) {
+            val stroke = size.minDimension * 0.14f
+            val color = Color.White.copy(alpha = 0.78f)
+            drawLine(
+                color = color,
+                start = Offset(size.width * 0.23f, size.height * 0.76f),
+                end = Offset(size.width * 0.73f, size.height * 0.26f),
+                strokeWidth = stroke,
+            )
+            drawLine(
+                color = color,
+                start = Offset(size.width * 0.67f, size.height * 0.20f),
+                end = Offset(size.width * 0.80f, size.height * 0.33f),
+                strokeWidth = stroke,
+            )
+            drawLine(
+                color = color.copy(alpha = 0.54f),
+                start = Offset(size.width * 0.17f, size.height * 0.84f),
+                end = Offset(size.width * 0.44f, size.height * 0.78f),
+                strokeWidth = stroke * 0.72f,
+            )
         }
     }
 }
