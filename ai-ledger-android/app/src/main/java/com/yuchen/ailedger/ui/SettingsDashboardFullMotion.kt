@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,86 +52,107 @@ internal fun SettingsDashboardGridFullMotion(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         SettingsDashboardRow {
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "景",
                 title = "主题",
                 subtitle = "背景与主题",
                 value = settingsDashboardThemeLabel(state.backgroundTheme),
                 selected = selectedPanel == SettingsDetailSection.Appearance,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Appearance) }
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "璃",
                 title = "玻璃",
                 subtitle = "质感与流畅度",
                 value = "${settingsDashboardQualityLabel(state.quality)} · ${settingsDashboardGlassLabel(state.glassPreset)}",
                 selected = selectedPanel == SettingsDetailSection.Glass,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Glass) }
         }
         SettingsDashboardRow {
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "视",
                 title = "视觉智能",
                 subtitle = "边缘光与光标",
                 value = "运行 HUD",
                 selected = selectedPanel == SettingsDetailSection.Assistant,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Assistant) }
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "账",
                 title = "数据偏好",
                 subtitle = "预算与账单",
                 value = "${state.ledgerRecords.size} 笔",
                 selected = selectedPanel == SettingsDetailSection.Data,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Data) }
         }
         SettingsDashboardRow {
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "云",
                 title = "账号设置",
                 subtitle = "账号 / Worker",
                 value = serviceValue,
                 selected = selectedPanel == SettingsDetailSection.Service,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Service) }
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "GL",
                 title = "系统信息",
                 subtitle = "渲染边界",
                 value = "OpenGL 隔离",
                 selected = selectedPanel == SettingsDetailSection.Advanced,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Advanced) }
         }
         SettingsDashboardRow {
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "聊",
                 title = "聊天设置",
                 subtitle = "消息与表情",
                 value = "${stickerSizeDp.roundToInt()} dp",
                 selected = selectedPanel == SettingsDetailSection.Chat,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Chat) }
-            AnimatedSettingsFrostTile(
+            SettingsDashboardTile(
                 icon = "忆",
                 title = "记忆",
                 subtitle = "长期上下文",
                 value = memoryValue,
                 selected = selectedPanel == SettingsDetailSection.Memory,
                 state = state,
-                modifier = Modifier.weight(1f),
             ) { onSelected(SettingsDetailSection.Memory) }
         }
     }
+}
+
+@Composable
+private fun RowScope.SettingsDashboardTile(
+    icon: String,
+    title: String,
+    subtitle: String,
+    value: String,
+    selected: Boolean,
+    state: AssistantUiState,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    AnimatedSettingsFrostTile(
+        icon = icon,
+        title = title,
+        subtitle = subtitle,
+        value = value,
+        selected = selected,
+        state = state,
+        modifier = Modifier
+            .weight(1f)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+            ),
+        onClick = {},
+    )
 }
 
 @Composable
