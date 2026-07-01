@@ -20,15 +20,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.R
+import com.yuchen.ailedger.data.CustomBackgroundToneProcessor
+import com.yuchen.ailedger.data.customImageToneCacheKey
 import com.yuchen.ailedger.model.BackgroundTheme
 import com.yuchen.ailedger.model.BUILTIN_THEME_BACKGROUND_PATH
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.RenderQuality
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+private const val CUSTOM_BACKGROUND_TONE_SETTLE_MS = 140L
 
 internal enum class BackdropSourceKind {
     DefaultWallpaper,
@@ -75,7 +80,11 @@ fun WeatherNightBackground(
     // start gate as the glass texture builder, so the bundled wallpaper cannot steal CPU from the
     // first layout/entrance frames. After the process gate has opened, source changes remain instant.
     val customImage = if (source.kind == BackdropSourceKind.CustomImage) {
-        rememberCustomBackgroundImage(source.customImagePath)
+        rememberCustomBackgroundImage(
+            context = context.applicationContext,
+            path = source.customImagePath,
+            params = params,
+        )
     } else {
         null
     }
@@ -112,15 +121,24 @@ private fun DrawScope.drawBackdropLoadingBase() {
 }
 
 @Composable
-private fun rememberCustomBackgroundImage(path: String?): ImageBitmap? {
-    var image by remember(path) { mutableStateOf<ImageBitmap?>(null) }
-    LaunchedEffect(path) {
+private fun rememberCustomBackgroundImage(
+    context: Context,
+    path: String?,
+    params: BackdropDebugParams,
+): ImageBitmap? {
+    val toneKey = params.customImageToneCacheKey()
+    var image by remember(path, toneKey) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(path, toneKey) {
         image = null
         val filePath = path?.takeIf { File(it).isFile }
         if (filePath != null) {
             StartupPerformanceGate.awaitInitialTextureBuildWindow()
-            image = withContext(Dispatchers.IO) {
-                decodeDisplaySizedBitmap(filePath)?.asImageBitmap()
+            delay(CUSTOM_BACKGROUND_TONE_SETTLE_MS)
+            image = withContext(Dispatchers.Default) {
+                CustomBackgroundToneProcessor.ensureProcessed(filePath, params)
+                    ?.absolutePath
+                    ?.let(::decodeDisplaySizedBitmap)
+                    ?.asImageBitmap()
             }
         }
     }
