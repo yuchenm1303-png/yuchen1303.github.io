@@ -4,13 +4,11 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,7 +27,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
@@ -45,17 +42,12 @@ internal fun PlanHeader(
     activeCount: Int,
     onBack: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity,
-            motionIntensity = state.motionIntensity,
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        PlanPressableGlass(
+            state = state,
             radius = 999,
-            modifier = Modifier.size(44.dp),
             role = GlassRole.Chip,
+            modifier = Modifier.size(44.dp),
             onClick = onBack,
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -72,11 +64,7 @@ internal fun PlanHeader(
                 fontWeight = FontWeight.Medium,
             )
         }
-        PlanNativePill(
-            state = state,
-            text = "$activeCount 个活动",
-            selected = activeCount > 0,
-        )
+        PlanNativePill(state, "$activeCount 个活动", activeCount > 0)
     }
 }
 
@@ -134,13 +122,12 @@ internal fun PlanQuickComposer(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            PressableGlass(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity * 1.08f,
-                motionIntensity = state.motionIntensity,
+            PlanPressableGlass(
+                state = state,
                 radius = 999,
-                modifier = Modifier.size(50.dp),
                 role = GlassRole.Floating,
+                intensityScale = 1.08f,
+                modifier = Modifier.size(50.dp),
                 onClick = onCreate,
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -209,13 +196,12 @@ private fun PlanTemplateChip(
     bottom: String,
     onClick: () -> Unit,
 ) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.94f,
-        motionIntensity = state.motionIntensity,
+    PlanPressableGlass(
+        state = state,
         radius = 21,
-        modifier = Modifier.width(146.dp).height(76.dp),
         role = GlassRole.Chip,
+        intensityScale = 0.94f,
+        modifier = Modifier.width(146.dp).height(76.dp),
         onClick = onClick,
     ) {
         Column(
@@ -277,13 +263,11 @@ internal fun PlanInfoBanner(
                     fontSize = 9.5.sp,
                 )
             }
-            PressableGlass(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity,
-                motionIntensity = state.motionIntensity,
+            PlanPressableGlass(
+                state = state,
                 radius = 999,
-                modifier = Modifier.width(72.dp).height(36.dp),
                 role = GlassRole.Chip,
+                modifier = Modifier.width(72.dp).height(36.dp),
                 onClick = onAction,
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -307,13 +291,12 @@ internal fun PlanFilterBar(
                 PlanTaskFilter.Active -> 96.dp
                 PlanTaskFilter.Paused -> 112.dp
             }
-            PressableGlass(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity * if (selected == filter) 1.14f else 0.88f,
-                motionIntensity = state.motionIntensity,
+            PlanPressableGlass(
+                state = state,
                 radius = 999,
-                modifier = Modifier.width(width).height(42.dp),
                 role = GlassRole.Chip,
+                intensityScale = if (selected == filter) 1.14f else 0.88f,
+                modifier = Modifier.width(width).height(42.dp),
                 onClick = { onSelect(filter) },
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -392,17 +375,21 @@ internal fun PlanEmptyCard(
             )
             if (!filtered) {
                 Spacer(Modifier.height(17.dp))
-                PressableGlass(
-                    quality = state.quality,
-                    glassIntensity = state.glassIntensity * 1.08f,
-                    motionIntensity = state.motionIntensity,
+                PlanPressableGlass(
+                    state = state,
                     radius = 999,
-                    modifier = Modifier.width(160.dp).height(42.dp),
                     role = GlassRole.Chip,
+                    intensityScale = 1.08f,
+                    modifier = Modifier.width(160.dp).height(42.dp),
                     onClick = onCreate,
                 ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("创建第一个计划", color = Color(0xFFB7FFF4), fontSize = 11.5.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "创建第一个计划",
+                            color = Color(0xFFB7FFF4),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
                     }
                 }
             }
@@ -428,10 +415,7 @@ internal fun PlanTaskCard(
             modifier = Modifier.fillMaxWidth().padding(15.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 val accent = if (task.type == PlanTaskType.Alarm) Color(0xFFC8BCFF) else Color(0xFFB7FFF4)
                 PlanNativeGlassFrame(
                     state = state,
@@ -491,10 +475,7 @@ internal fun PlanTaskCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     task.nextLabel(),
                     modifier = Modifier.weight(1f),
@@ -519,13 +500,12 @@ private fun PlanTaskActionChip(
     color: Color,
     onClick: () -> Unit,
 ) {
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity * 0.88f,
-        motionIntensity = state.motionIntensity,
+    PlanPressableGlass(
+        state = state,
         radius = 999,
-        modifier = Modifier.width(58.dp).height(34.dp),
         role = GlassRole.Chip,
+        intensityScale = 0.88f,
+        modifier = Modifier.width(58.dp).height(34.dp),
         onClick = onClick,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -540,11 +520,7 @@ private fun PlanNativePill(
     text: String,
     selected: Boolean,
 ) {
-    PlanNativeGlassFrame(
-        state = state,
-        radius = 999,
-        role = GlassRole.Chip,
-    ) {
+    PlanNativeGlassFrame(state = state, radius = 999, role = GlassRole.Chip) {
         Text(
             text,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -553,6 +529,28 @@ private fun PlanNativePill(
             fontWeight = FontWeight.ExtraBold,
         )
     }
+}
+
+@Composable
+private fun PlanPressableGlass(
+    state: AssistantUiState,
+    radius: Int,
+    role: GlassRole,
+    modifier: Modifier,
+    intensityScale: Float = 1f,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * intensityScale,
+        motionIntensity = state.motionIntensity,
+        radius = radius,
+        modifier = modifier,
+        role = role,
+        onClick = onClick,
+        content = content,
+    )
 }
 
 @Composable
