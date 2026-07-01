@@ -268,15 +268,16 @@ class UserProfileRepository private constructor(context: Context) {
                 )
 
                 try {
-                    current.avatarPath?.takeIf { it.isNotBlank() }?.let { path ->
-                        client.deleteAvatar(session, path)
-                    }
+                    val previousAvatarPath = current.avatarPath?.takeIf { it.isNotBlank() }
                     val next = current.copy(
                         avatarPath = null,
                         avatarVersion = System.currentTimeMillis(),
                         updatedAt = Instant.now().toString(),
                     )
                     client.upsertProfile(session, next)
+                    previousAvatarPath?.let { path ->
+                        runCatching { client.deleteAvatar(session, path) }
+                    }
                     localStore.deleteAvatar(session.userId)
                     localStore.saveProfile(next)
                     _state.value = _state.value.copy(
@@ -352,12 +353,17 @@ class UserProfileRepository private constructor(context: Context) {
         }
 
         val existing = localStore.avatarFile(session.userId)
-        val cacheCurrent = existing.isFile &&
-            cachedProfile?.avatarPath == cloudProfile.avatarPath &&
-            cachedProfile.avatarVersion == cloudProfile.avatarVersion
+        val cacheCurrent = existing.isFile && cachedProfile?.let { cached ->
+            cached.avatarPath == cloudProfile.avatarPath &&
+                cached.avatarVersion == cloudProfile.avatarVersion
+        } == true
         if (cacheCurrent) return existing
 
-        val downloaded = client.downloadAvatar(session, avatarPath, localStore.createAvatarTempFile(session.userId))
+        val downloaded = client.downloadAvatar(
+            session,
+            avatarPath,
+            localStore.createAvatarTempFile(session.userId),
+        )
         return try {
             localStore.replaceAvatar(session.userId, downloaded)
         } finally {
@@ -406,7 +412,7 @@ private class UserProfileLocalStore(context: Context) {
             UserProfile(
                 userId = json.optString("user_id").ifBlank { userId },
                 displayName = json.optString("display_name"),
-                avatarPath = json.optString("avatar_path").takeIf { it.isNotBlank() },
+                avatarPath = json.nullableString("avatar_path"),
                 avatarVersion = json.optLong("avatar_version", 0L),
                 updatedAt = json.optString("updated_at"),
             )
@@ -479,7 +485,7 @@ private class SupabaseUserProfileClient(
             userId = row.optString("user_id").ifBlank { session.userId },
             displayName = normalizeDisplayName(row.optString("display_name"))
                 .ifBlank { defaultDisplayName(session.email) },
-            avatarPath = row.optString("avatar_path").takeIf { it.isNotBlank() },
+            avatarPath = row.nullableString("avatar_path"),
             avatarVersion = row.optLong("avatar_version", 0L),
             updatedAt = row.optString("updated_at"),
         )
@@ -579,7 +585,7 @@ private class SupabaseUserProfileClient(
             doOutput = uploadFile != null
             if (!contentType.isNullOrBlank()) setRequestProperty("Content-Type", contentType)
             if (upsert) setRequestProperty("x-upsert", "true")
-            uploadFile?.let { file -> fixedLengthStreamingMode(file.length()) }
+            uploadFile?.let { file -> setFixedLengthStreamingMode(file.length()) }
         }
         try {
             uploadFile?.inputStream()?.use { input ->
@@ -590,13 +596,15 @@ private class SupabaseUserProfileClient(
                 val text = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 throw IOException(translateProfileError(text, status))
             }
-            if (downloadFile != null && status in 200..299) {
-                downloadFile.parentFile?.mkdirs()
-                connection.inputStream.use { input ->
-                    FileOutputStream(downloadFile).use { output -> input.copyTo(output) }
+            when {
+                downloadFile != null && status in 200..299 -> {
+                    downloadFile.parentFile?.mkdirs()
+                    connection.inputStream.use { input ->
+                        FileOutputStream(downloadFile).use { output -> input.copyTo(output) }
+                    }
                 }
-            } else {
-                connection.inputStream?.close()
+                status in 200..299 -> connection.inputStream?.close()
+                else -> connection.errorStream?.close()
             }
         } finally {
             connection.disconnect()
@@ -657,6 +665,7 @@ private fun prepareAvatarFile(context: Context, uri: Uri): File {
         USER_AVATAR_EDGE_PX,
         Bitmap.Config.ARGB_8888,
     )
+    var outputFile: File? = null
     try {
         val sourceWidth = decoded.width.coerceAtLeast(1)
         val sourceHeight = decoded.height.coerceAtLeast(1)
@@ -670,8 +679,8 @@ private fun prepareAvatarFile(context: Context, uri: Uri): File {
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG),
         )
 
-        val file = File.createTempFile("profile_avatar_", ".webp", context.cacheDir)
-        FileOutputStream(file).use { stream ->
+        outputFile = File.createTempFile("profile_avatar_", ".webp", context.cacheDir)
+        FileOutputStream(outputFile).use { stream ->
             val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 Bitmap.CompressFormat.WEBP_LOSSY
             } else {
@@ -682,7 +691,10 @@ private fun prepareAvatarFile(context: Context, uri: Uri): File {
                 throw IOException("头像压缩失败，请换一张图片重试。")
             }
         }
-        return file
+        return outputFile
+    } catch (error: Throwable) {
+        outputFile?.delete()
+        throw error
     } finally {
         if (!decoded.isRecycled) decoded.recycle()
         if (!output.isRecycled) output.recycle()
@@ -750,6 +762,11 @@ internal fun defaultDisplayName(email: String): String {
         }
         .take(USER_PROFILE_MAX_NAME_LENGTH)
         .ifBlank { "AI Ledger 用户" }
+}
+
+private fun JSONObject.nullableString(key: String): String? {
+    if (isNull(key)) return null
+    return optString(key).trim().takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
 }
 
 private fun String.urlEncode(): String = URLEncoder.encode(this, Charsets.UTF_8.name())
