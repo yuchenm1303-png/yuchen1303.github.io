@@ -20,6 +20,9 @@ class CustomBackgroundStore(
     val customBackgroundFile: File
         get() = File(backgroundDir, CUSTOM_BACKGROUND_FILE)
 
+    private val customBackgroundSourceFile: File
+        get() = File(backgroundDir, CustomBackgroundToneProcessor.SOURCE_FILE_NAME)
+
     fun saveFromUri(uri: Uri): String {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -37,9 +40,10 @@ class CustomBackgroundStore(
         val rotated = decoded.applyExifRotation(uri)
         val fitted = rotated.scaleToMaxEdge(MAX_STORE_EDGE)
         val target = customBackgroundFile
-        FileOutputStream(target).use { output ->
-            fitted.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output)
-        }
+
+        writeJpeg(fitted, customBackgroundSourceFile)
+        writeJpeg(fitted, target)
+        CustomBackgroundToneProcessor.invalidate(target)
 
         if (fitted !== rotated) fitted.recycle()
         if (rotated !== decoded) rotated.recycle()
@@ -48,8 +52,30 @@ class CustomBackgroundStore(
     }
 
     fun clearCustomBackground() {
-        customBackgroundFile.takeIf { it.exists() }?.delete()
-        File(backgroundDir, LEGACY_CUSTOM_BACKGROUND_BLUR_FILE).takeIf { it.exists() }?.delete()
+        backgroundDir.listFiles()
+            .orEmpty()
+            .filter {
+                it.name.startsWith("custom_wallpaper") ||
+                    it.name.startsWith(".${CUSTOM_BACKGROUND_FILE}.")
+            }
+            .forEach(File::delete)
+    }
+
+    private fun writeJpeg(bitmap: Bitmap, target: File) {
+        val temporary = File(target.parentFile, ".${target.name}.write-${System.nanoTime()}")
+        try {
+            FileOutputStream(temporary).use { output ->
+                check(bitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output))
+            }
+            if (target.exists() && !target.delete()) {
+                error("无法替换背景图片")
+            }
+            if (!temporary.renameTo(target)) {
+                temporary.copyTo(target, overwrite = true)
+            }
+        } finally {
+            temporary.delete()
+        }
     }
 
     private fun Bitmap.applyExifRotation(uri: Uri): Bitmap {
@@ -88,7 +114,6 @@ class CustomBackgroundStore(
 
     private companion object {
         const val CUSTOM_BACKGROUND_FILE = "custom_wallpaper.jpg"
-        const val LEGACY_CUSTOM_BACKGROUND_BLUR_FILE = "custom_wallpaper_blur.jpg"
         const val MAX_DECODE_EDGE = 2400
         const val MAX_STORE_EDGE = 1800
         const val JPEG_QUALITY = 92
