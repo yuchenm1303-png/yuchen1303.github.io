@@ -44,7 +44,6 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -241,7 +240,7 @@ private data class BackdropBuildResult(
 
 /**
  * 同一纹理键只生成一次。参数连续变化时，已经运行的任务允许安全完成，排队中的任务则只让
- * 当前最后请求的键进入大像素计算；即使用户快速调回正在生成的旧值，也不会误把中间值当最新值。
+ * 当前最后请求的键进入磁盘解码和大像素计算；快速调回旧值时也能正确把旧键重新标记为最新。
  */
 private object BackdropBuildRegistry {
     private val inFlight = mutableMapOf<String, Deferred<BackdropBuildResult?>>()
@@ -254,14 +253,16 @@ private object BackdropBuildRegistry {
         latestRequestedKey = key
         inFlight[key] ?: BackdropBuildRuntime.scope.async {
             try {
-                if (synchronized(inFlight) { key != latestRequestedKey }) {
-                    return@async null
-                }
+                if (!isLatest(key)) return@async null
                 block()
             } finally {
                 synchronized(inFlight) { inFlight.remove(key) }
             }
         }.also { inFlight[key] = it }
+    }
+
+    fun isLatest(key: String): Boolean = synchronized(inFlight) {
+        key == latestRequestedKey
     }
 }
 
@@ -491,54 +492,54 @@ fun rememberBlurredBackdropBitmap(
             return@LaunchedEffect
         }
 
-        // Warm process launches should not wait behind the cold-start gate when a complete disk cache
-        // already exists. The decode still runs on the same background-priority texture thread.
-        val diskCached = withContext(BackdropBuildRuntime.dispatcher) {
-            BackdropDiskCache.load(context, textureKey)
-        }
-        if (diskCached != null) {
-            BlurredBackdropMemoryCache.put(textureKey, diskCached)
-            textures = diskCached
-            OpenGlStartupBackdropBridge.publishComplete(textureKey, diskCached.withBlurAmount(blurAmount))
-            StartupPerformanceGate.markBackdropWorkFinished(success = true)
-            return@LaunchedEffect
-        }
-
-        if (useCustomImage) delay(CUSTOM_BACKGROUND_TONE_SETTLE_MS)
-        StartupPerformanceGate.awaitInitialTextureBuildWindow()
         val result = BackdropBuildRegistry.request(textureKey) {
-            runCatching {
-                val preset = if (useDefaultWallpaper) decodePresetNightSkyBitmap(context) else null
-                val quantizedParams = params.quantizedForTextures()
-                val buildTextures: (String?) -> BackdropTextureSet = { resolvedPath ->
-                    buildBackdropTextureSet(
-                        fullWidth = width,
-                        fullHeight = height,
-                        theme = theme,
-                        params = quantizedParams,
-                        customBackgroundPath = resolvedPath,
-                        presetBitmap = preset,
-                        blurLevelCount = FULL_BACKDROP_BLUR_LEVEL_COUNT,
-                        onCriticalReady = { critical ->
-                            OpenGlStartupBackdropBridge.publishCritical(
-                                textureKey,
-                                critical.withBlurAmount(blurAmount)
-                            )
-                        }
-                    )
-                }
-                if (useCustomImage) {
-                    CustomBackgroundToneProcessor.withProcessedFile(
-                        displayPath = requireNotNull(sourcePath),
-                        params = quantizedParams,
-                    ) { processedFile ->
-                        buildTextures(processedFile.absolutePath)
-                    }
+            val diskCached = BackdropDiskCache.load(context, textureKey)
+            if (diskCached != null) {
+                BackdropBuildResult(diskCached, shouldPersist = false)
+            } else {
+                if (useCustomImage) delay(CUSTOM_BACKGROUND_TONE_SETTLE_MS)
+                if (!BackdropBuildRegistry.isLatest(textureKey)) {
+                    null
                 } else {
-                    buildTextures(sourcePath)
+                    StartupPerformanceGate.awaitInitialTextureBuildWindow()
+                    if (!BackdropBuildRegistry.isLatest(textureKey)) {
+                        null
+                    } else {
+                        runCatching {
+                            val preset = if (useDefaultWallpaper) decodePresetNightSkyBitmap(context) else null
+                            val quantizedParams = params.quantizedForTextures()
+                            val buildTextures: (String?) -> BackdropTextureSet = { resolvedPath ->
+                                buildBackdropTextureSet(
+                                    fullWidth = width,
+                                    fullHeight = height,
+                                    theme = theme,
+                                    params = quantizedParams,
+                                    customBackgroundPath = resolvedPath,
+                                    presetBitmap = preset,
+                                    blurLevelCount = FULL_BACKDROP_BLUR_LEVEL_COUNT,
+                                    onCriticalReady = { critical ->
+                                        OpenGlStartupBackdropBridge.publishCritical(
+                                            textureKey,
+                                            critical.withBlurAmount(blurAmount)
+                                        )
+                                    }
+                                )
+                            }
+                            if (useCustomImage) {
+                                CustomBackgroundToneProcessor.withProcessedFile(
+                                    displayPath = requireNotNull(sourcePath),
+                                    params = quantizedParams,
+                                ) { processedFile ->
+                                    buildTextures(processedFile.absolutePath)
+                                }
+                            } else {
+                                buildTextures(sourcePath)
+                            }
+                        }.getOrNull()?.let { built ->
+                            BackdropBuildResult(built, shouldPersist = true)
+                        }
+                    }
                 }
-            }.getOrNull()?.let { built ->
-                BackdropBuildResult(built, shouldPersist = true)
             }
         }.await()
 
