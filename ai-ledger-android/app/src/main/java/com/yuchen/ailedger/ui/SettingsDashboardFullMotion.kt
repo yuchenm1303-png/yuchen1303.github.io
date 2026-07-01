@@ -29,7 +29,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,7 +65,7 @@ import kotlinx.coroutines.launch
 
 private val SettingsCardPressEasing = CubicBezierEasing(0.10f, 0.00f, 0.05f, 1.00f)
 private val SettingsCardReleaseEasing = CubicBezierEasing(0.16f, 0.00f, 0.10f, 1.00f)
-private const val SettingsCardTau = (PI * 2.0).toFloat()
+private val SettingsCardTau = (PI * 2.0).toFloat()
 
 /**
  * 设置页八个入口使用普通 Compose 雾面玻璃，完全不接入 OpenGL registry。
@@ -181,7 +180,6 @@ private fun RowScope.SettingsPhysicalGlassTile(
     val pressAnim = remember { Animatable(0f) }
     val afterglowAnim = remember { Animatable(0f) }
     val arrivalAnim = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
     var tileSize by remember { mutableStateOf(Size(1f, 1f)) }
     var touchCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
     var pressCycleStarted by remember { mutableStateOf(false) }
