@@ -356,6 +356,52 @@ private fun GlassContent(
     }
 
     SettingsParameterGroup(
+        title = "上传图片亮度保护",
+        subtitle = "只在参数稳定后重建一次自定义背景缓存",
+    ) {
+        SettingsParameterSlider(
+            title = "上传图亮度",
+            description = "只调节用户上传原图的基础亮度；内置主题和默认壁纸不受影响。",
+            value = backdrop.customImageBrightness,
+            valueRange = 0.50f..1.10f,
+        ) { onBackdropChange(backdrop.copy(customImageBrightness = it)) }
+        SettingsParameterSlider(
+            title = "高光压缩起点",
+            description = "图片亮度超过该位置后开始柔和压缩，暗部和中间调尽量保持原样。",
+            value = backdrop.customImageHighlightStart,
+            valueRange = 0.35f..0.85f,
+            valueText = { "${(it * 100f).roundToInt()}%" },
+        ) {
+            val start = it
+            val limit = maxOf(backdrop.customImageHighlightLimit, start + 0.02f)
+                .coerceAtMost(0.92f)
+            onBackdropChange(
+                backdrop.copy(
+                    customImageHighlightStart = start,
+                    customImageHighlightLimit = limit,
+                )
+            )
+        }
+        SettingsParameterSlider(
+            title = "亮度输出上限",
+            description = "限制上传图片最亮区域的最终亮度，避免白色背景冲淡玻璃上的文字。",
+            value = backdrop.customImageHighlightLimit,
+            valueRange = 0.50f..0.92f,
+            valueText = { "${(it * 100f).roundToInt()}%" },
+        ) {
+            val limit = it
+            val start = minOf(backdrop.customImageHighlightStart, limit - 0.02f)
+                .coerceAtLeast(0.35f)
+            onBackdropChange(
+                backdrop.copy(
+                    customImageHighlightStart = start,
+                    customImageHighlightLimit = limit,
+                )
+            )
+        }
+    }
+
+    SettingsParameterGroup(
         title = "背景云雾层",
         subtitle = "内置主题的云层形态与高光",
     ) {
@@ -646,7 +692,7 @@ private fun panelTitle(panel: SettingsDetailSection): String = when (panel) {
 
 private fun panelSubtitle(panel: SettingsDetailSection): String = when (panel) {
     SettingsDetailSection.Appearance -> "背景、主题和自定义图片。"
-    SettingsDetailSection.Glass -> "玻璃、彩虹光效与多层背景模糊参数。"
+    SettingsDetailSection.Glass -> "玻璃、彩虹光效、背景模糊与上传图亮度保护。"
     SettingsDetailSection.Assistant -> "边缘光效、鼠标光标与运行 HUD 的全部参数。"
     SettingsDetailSection.Data -> "账单状态、预算、本地数据和常用导航地址。"
     SettingsDetailSection.Service -> "账号登录、AI Worker 和云端接口。"
