@@ -251,16 +251,10 @@ class AppManagementRepository(context: Context) {
 
     private fun permissionsFor(info: PackageInfo): List<ManagedAppPermission> {
         val names = info.requestedPermissions.orEmpty()
-        val flags = info.requestedPermissionsFlags.orEmpty()
+        val flags = info.requestedPermissionsFlags ?: IntArray(0)
         return names.mapIndexed { index, name ->
-            val permissionInfo = runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    packageManager.getPermissionInfo(name, PackageManager.PermissionInfoFlags.of(0L))
-                } else {
-                    @Suppress("DEPRECATION")
-                    packageManager.getPermissionInfo(name, 0)
-                }
-            }.getOrNull()
+            @Suppress("DEPRECATION")
+            val permissionInfo = runCatching { packageManager.getPermissionInfo(name, 0) }.getOrNull()
             val label = permissionInfo
                 ?.let { runCatching { it.loadLabel(packageManager).toString().trim() }.getOrNull() }
                 .orEmpty()
