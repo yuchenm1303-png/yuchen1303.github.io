@@ -111,11 +111,11 @@ fun PlanCenterScreen(
                     )
                 }
                 launch {
-                    delay(150)
+                    delay(175)
                     contentProgress.animateTo(
                         targetValue = 1f,
                         animationSpec = tween(
-                            durationMillis = 230,
+                            durationMillis = 215,
                             easing = FastOutSlowInEasing,
                         ),
                     )
@@ -156,14 +156,14 @@ fun PlanCenterScreen(
                 contentProgress.animateTo(
                     targetValue = 0f,
                     animationSpec = tween(
-                        durationMillis = 105,
+                        durationMillis = 100,
                         easing = FastOutSlowInEasing,
                     ),
                 )
                 containerProgress.animateTo(
                     targetValue = 0f,
                     animationSpec = tween(
-                        durationMillis = 300,
+                        durationMillis = 285,
                         easing = PlanContainerCloseEasing,
                     ),
                 )
@@ -367,9 +367,7 @@ fun PlanCenterScreen(
                     bottomInsetPx = with(density) { 118.dp.toPx() },
                 )
             }
-            val geometryProgress = PlanContainerOpenEasing.transform(
-                containerProgress.value.coerceIn(0f, 1f),
-            )
+            val geometryProgress = containerProgress.value.coerceIn(0f, 1f)
             val currentRect = lerpRect(sourceRect, targetRect, geometryProgress)
             val targetRadiusDp = if (deleteCandidate != null) 28f else 30f
             val currentRadiusDp = lerpFloat(
