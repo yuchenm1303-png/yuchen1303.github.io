@@ -16,9 +16,10 @@ internal object CustomBackgroundToneProcessor {
     internal const val SOURCE_FILE_NAME = "custom_wallpaper_source.jpg"
 
     private const val METADATA_FILE_NAME = "custom_wallpaper_tone.txt"
-    private const val PROCESSOR_VERSION = 1
+    private const val PROCESSOR_VERSION = 2
     private const val JPEG_QUALITY = 94
     private const val MIN_HIGHLIGHT_GAP = 0.02f
+    private const val PROCESSING_ROW_CHUNK = 64
 
     /**
      * 处理和消费固定展示文件必须处于同一把锁内。这样快速拖动参数时，旧纹理任务不会在
@@ -70,19 +71,27 @@ internal object CustomBackgroundToneProcessor {
             return displayFile
         }
 
-        val sourceBitmap = BitmapFactory.decodeFile(
+        val decoded = BitmapFactory.decodeFile(
             sourceFile.absolutePath,
-            BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 },
+            BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+                inMutable = true
+            },
         ) ?: return null
-        val processedBitmap = sourceBitmap.applyToneProtection(normalized)
+        val sourceBitmap = if (decoded.isMutable) {
+            decoded
+        } else {
+            decoded.copy(Bitmap.Config.ARGB_8888, true).also { decoded.recycle() }
+        }
         val temporary = File(
             displayFile.parentFile,
             ".${displayFile.name}.tone-${System.nanoTime()}",
         )
 
         try {
+            sourceBitmap.applyToneProtectionInPlace(normalized)
             FileOutputStream(temporary).use { output ->
-                check(processedBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output))
+                check(sourceBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, output))
             }
             replaceFile(temporary, displayFile)
             metadataFile.writeText(fingerprint)
@@ -90,7 +99,6 @@ internal object CustomBackgroundToneProcessor {
             return displayFile
         } finally {
             temporary.delete()
-            if (processedBitmap !== sourceBitmap && !processedBitmap.isRecycled) processedBitmap.recycle()
             if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
         }
     }
@@ -116,42 +124,48 @@ internal object CustomBackgroundToneProcessor {
         backup.delete()
     }
 
-    private fun Bitmap.applyToneProtection(tone: NormalizedCustomImageTone): Bitmap {
-        val count = width * height
-        val pixels = IntArray(count)
-        getPixels(pixels, 0, width, 0, 0, width, height)
-
+    private fun Bitmap.applyToneProtectionInPlace(tone: NormalizedCustomImageTone) {
+        val rowsPerChunk = PROCESSING_ROW_CHUNK.coerceAtMost(height).coerceAtLeast(1)
+        val pixels = IntArray(width * rowsPerChunk)
         val start = tone.highlightStart
         val limit = tone.highlightLimit
         val normalizedSpan = ((limit - start) / (1f - start)).coerceIn(0.001f, 1f)
         val shoulderK = 1f / normalizedSpan - 1f
+        var top = 0
 
-        for (index in pixels.indices) {
-            val color = pixels[index]
-            val alpha = color ushr 24 and 0xFF
-            var red = (color ushr 16 and 0xFF) / 255f * tone.brightness
-            var green = (color ushr 8 and 0xFF) / 255f * tone.brightness
-            var blue = (color and 0xFF) / 255f * tone.brightness
-            val luminance = 0.2126f * red + 0.7152f * green + 0.0722f * blue
+        while (top < height) {
+            val rowCount = minOf(rowsPerChunk, height - top)
+            val pixelCount = width * rowCount
+            getPixels(pixels, 0, width, 0, top, width, rowCount)
 
-            if (luminance > start) {
-                val t = ((luminance - start) / (1f - start)).coerceIn(0f, 1f)
-                val compressedT = t / (1f + shoulderK * t)
-                val targetLuminance = start + (1f - start) * compressedT
-                val ratio = targetLuminance / max(luminance, 0.0001f)
-                red *= ratio
-                green *= ratio
-                blue *= ratio
+            for (index in 0 until pixelCount) {
+                val color = pixels[index]
+                val alpha = color ushr 24 and 0xFF
+                var red = (color ushr 16 and 0xFF) / 255f * tone.brightness
+                var green = (color ushr 8 and 0xFF) / 255f * tone.brightness
+                var blue = (color and 0xFF) / 255f * tone.brightness
+                val luminance = 0.2126f * red + 0.7152f * green + 0.0722f * blue
+
+                if (luminance > start) {
+                    val t = ((luminance - start) / (1f - start)).coerceIn(0f, 1f)
+                    val compressedT = t / (1f + shoulderK * t)
+                    val targetLuminance = start + (1f - start) * compressedT
+                    val ratio = targetLuminance / max(luminance, 0.0001f)
+                    red *= ratio
+                    green *= ratio
+                    blue *= ratio
+                }
+
+                val outRed = (red.coerceIn(0f, 1f) * 255f).roundToInt()
+                val outGreen = (green.coerceIn(0f, 1f) * 255f).roundToInt()
+                val outBlue = (blue.coerceIn(0f, 1f) * 255f).roundToInt()
+                pixels[index] =
+                    (alpha shl 24) or (outRed shl 16) or (outGreen shl 8) or outBlue
             }
 
-            val outRed = (red.coerceIn(0f, 1f) * 255f).roundToInt()
-            val outGreen = (green.coerceIn(0f, 1f) * 255f).roundToInt()
-            val outBlue = (blue.coerceIn(0f, 1f) * 255f).roundToInt()
-            pixels[index] =
-                (alpha shl 24) or (outRed shl 16) or (outGreen shl 8) or outBlue
+            setPixels(pixels, 0, width, 0, top, width, rowCount)
+            top += rowCount
         }
-
-        return Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
     }
 
     private fun BackdropDebugParams.normalizedCustomImageTone(): NormalizedCustomImageTone {
