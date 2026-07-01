@@ -81,7 +81,9 @@ internal object CustomBackgroundToneProcessor {
         val sourceBitmap = if (decoded.isMutable) {
             decoded
         } else {
-            decoded.copy(Bitmap.Config.ARGB_8888, true).also { decoded.recycle() }
+            val mutableCopy = decoded.copy(Bitmap.Config.ARGB_8888, true)
+            decoded.recycle()
+            mutableCopy ?: return null
         }
         val temporary = File(
             displayFile.parentFile,
