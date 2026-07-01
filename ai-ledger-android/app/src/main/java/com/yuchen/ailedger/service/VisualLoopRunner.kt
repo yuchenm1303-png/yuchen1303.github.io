@@ -31,7 +31,7 @@ class VisualLoopRunner(
             return AgentTaskRunResult(false, false, "Visual agent is off; forced visual loop was not started.", emptyList())
         }
         val apps = withContext(Dispatchers.IO) { installedAppIndex.getLaunchableApps(forceReload = false) }
-        val state = VisualLoopState(goal.trim().take(240))
+        val state = VisualLoopState(goal.trim())
         val session = VisualTaskSession(
             state = state,
             routeRetry = VisualRouteRetryState(),
