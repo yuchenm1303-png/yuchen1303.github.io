@@ -45,7 +45,7 @@ internal fun buildLeanVisualAgentPayload(
         put("intent", "visual_agent_step")
         put("requestType", "visual_agent_step")
         put("agentStepRequest", true)
-        put("goal", goal.trim().take(240))
+        put("goal", goal.trim())
         put("agentSessionId", agentSessionId.trim().take(120))
         put("deviceId", deviceId.trim().take(120))
         put("agentSessionProtocol", "android_visual_agent_v15_unified_execution_permit")
