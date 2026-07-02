@@ -20,7 +20,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
@@ -55,9 +54,6 @@ internal fun OrganizationPreviewDialog(
 ) {
     val preview by produceState<Bitmap?>(null, file.uri) {
         value = withContext(Dispatchers.IO) { repository.loadPreviewBitmap(file) }
-    }
-    DisposableEffect(preview) {
-        onDispose { preview?.takeIf { !it.isRecycled }?.recycle() }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
