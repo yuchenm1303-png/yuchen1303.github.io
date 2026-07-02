@@ -125,15 +125,23 @@ class MarketStageServerTest(unittest.TestCase):
             ("000001", "399001", "399006"),
         )
         self.assertEqual(
+            compact.INDEX_COMPACT_QUOTES_PATH,
+            "/api/stock/a-share/index/compact/quotes",
+        )
+        self.assertEqual(
             compact.INDEX_COMPACT_TREND_PATH,
             "/api/stock/a-share/index/compact/trend",
         )
 
-    def test_tools_index_batch_uses_one_quote_request_and_three_independent_trends(self) -> None:
-        quotes = {
-            "000001": {"code": "000001", "name": "上证指数", "price": "3000.00"},
-            "399001": {"code": "399001", "name": "深证成指", "price": "9500.00"},
-            "399006": {"code": "399006", "name": "创业板指", "price": "1900.00"},
+    def test_tools_index_batch_uses_one_quotes_lane_and_three_independent_trends(self) -> None:
+        quotes_payload = {
+            "status": "ok",
+            "items": [
+                {"code": "000001", "name": "上证指数", "price": "3000.00"},
+                {"code": "399001", "name": "深证成指", "price": "9500.00"},
+                {"code": "399006", "name": "创业板指", "price": "1900.00"},
+            ],
+            "warnings": [],
         }
 
         def trend_result(security: dict[str, str]) -> dict[str, object]:
@@ -149,7 +157,7 @@ class MarketStageServerTest(unittest.TestCase):
             }
 
         with (
-            patch.object(compact, "_load_quotes_batch", return_value=(quotes, [])) as quote_loader,
+            patch.object(compact, "_load_quotes_cached", return_value=quotes_payload) as quote_loader,
             patch.object(compact, "_load_trend_cached", side_effect=trend_result) as trend_loader,
         ):
             payload = compact._build_batch()
