@@ -84,6 +84,15 @@ data class OperationAccessibilityEventRecord(
     val eventText: String?,
     val inputLengthBucket: String?,
     val redactionApplied: Boolean,
+    val scrollDeltaX: Int = 0,
+    val scrollDeltaY: Int = 0,
+    val scrollX: Int = 0,
+    val scrollY: Int = 0,
+    val maxScrollX: Int = 0,
+    val maxScrollY: Int = 0,
+    val fromIndex: Int = -1,
+    val toIndex: Int = -1,
+    val itemCount: Int = -1,
 ) : OperationTraceRecord
 
 data class OperationNodeSnapshotRecord(
