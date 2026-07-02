@@ -65,8 +65,7 @@ internal class AssistantMemoryManagementClient(
     ): AssistantMemoryMutationReceipt {
         val ticket = request.accountTicket
             ?.takeIf { it.userId == session.userId && AssistantAccountSessionRuntime.isCurrent(it) }
-            ?: AssistantAccountSessionRuntime.currentTicket(session.userId)
-            ?: throw IOException("登录状态已失效，请重新登录。")
+            ?: throw IOException("账号已切换，本次记忆操作没有执行。")
         return mutateBound(ticket, session.accessToken, request)
     }
 
