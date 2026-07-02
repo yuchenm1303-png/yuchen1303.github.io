@@ -91,12 +91,17 @@ object AssistantMemoryRuntime {
     val state: StateFlow<AssistantMemoryRuntimeState> = mutableState.asStateFlow()
 
     /**
-     * 本地请求契约不能冒充云端命中结果。
-     * 设置页逐轮诊断只展示后端真实响应，因此这里不写入伪命中记录。
+     * 当前云端协议不会产生 Android 本地命中项，因此普通聊天不再为每轮请求分配并发布一份
+     * 永远为空的 RuntimeState。保留兼容入口；未来只有真正出现本地兼容上下文时才发布。
      */
-    fun record(@Suppress("UNUSED_PARAMETER") compilation: AssistantMemoryCompilation) {
+    fun record(compilation: AssistantMemoryCompilation) {
+        val hasLocalCompatibilityContext =
+            compilation.memorySnapshot != null ||
+                compilation.selectedMemoryIds.isNotEmpty() ||
+                compilation.sources.isNotEmpty()
+        if (!hasLocalCompatibilityContext) return
         mutableState.value = AssistantMemoryRuntimeState(
-            compilation = null,
+            compilation = compilation,
             updatedAtMillis = System.currentTimeMillis(),
         )
     }
@@ -104,7 +109,35 @@ object AssistantMemoryRuntime {
 
 object AssistantMemoryCompiler {
     /**
-     * 纯协议编译：
+     * 普通聊天专用的最轻请求契约。
+     *
+     * 不初始化长期记忆库存 Repository，也不等待 Android 管理页同步；账号设置、身份与召回
+     * 全部交给已经持有 JWT 的后端判断。这样普通聊天不会因为“可能使用记忆”而下载最多
+     * 300 条管理页库存，自定义指令仍作为独立账号配置传递。
+     */
+    fun compileBackendOwned(
+        userText: String,
+        customInstructions: String?,
+    ): AssistantMemoryCompilation {
+        val requestHasText = userText.trim().isNotBlank()
+        val instructions = customInstructions
+            ?.trim()
+            ?.takeIf { requestHasText && it.isNotBlank() }
+        return AssistantMemoryCompilation(
+            activeScopes = if (requestHasText) setOf("backend_cloud_v4") else emptySet(),
+            personaInstructions = instructions,
+            memorySnapshot = null,
+            selectedMemoryIds = emptyList(),
+            sources = emptyList(),
+            suppressedConflictCount = 0,
+            selectionStatus = if (requestHasText) "backend_cloud_requested" else "empty",
+            selectionOwner = "backend_cloud_v4",
+            memoryRequested = requestHasText,
+        )
+    }
+
+    /**
+     * 兼容管理页已加载状态的协议编译：
      * 1. 不读取 memoryState.memories；
      * 2. 不构建候选、快照或 selectedMemoryIds；
      * 3. 不按关键词、类别、作用域或正文判断；
