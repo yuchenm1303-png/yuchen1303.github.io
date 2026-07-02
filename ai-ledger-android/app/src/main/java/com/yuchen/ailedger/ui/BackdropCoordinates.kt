@@ -1,6 +1,8 @@
 package com.yuchen.ailedger.ui
 
 import android.view.Choreographer
+import android.view.View
+import android.view.ViewTreeObserver
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -13,7 +15,126 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.model.RenderQuality
+import java.util.ArrayDeque
+import java.util.IdentityHashMap
 import java.util.concurrent.CopyOnWriteArraySet
+
+/**
+ * OpenGL Shell 的最终帧提交器。
+ *
+ * 所有 placement、滚动、页面 graphicsLayer 动画和按压状态只负责标记本帧需要刷新；
+ * 真正的坐标读取统一延迟到 Android 根视图的 PreDraw，此时 Compose 本帧的布局与图层
+ * 变换已经全部落定。这样旧版单卡、新版单卡和共享 Shell 都可以消费同一时刻的最终状态，
+ * 不再各自跨一帧追踪坐标。
+ */
+internal object OpenGLFrameFinalizer {
+    private val boundRoots = IdentityHashMap<View, Int>()
+    private val activeTickers = CopyOnWriteArraySet<BackdropFrameTicker>()
+    private val pendingActions = ArrayDeque<() -> Unit>()
+
+    private var scheduledView: View? = null
+    private var scheduledObserver: ViewTreeObserver? = null
+    private var scheduledListener: ViewTreeObserver.OnPreDrawListener? = null
+
+    internal var isDispatchingFrame: Boolean = false
+        private set
+
+    fun bindHostView(view: View): () -> Unit {
+        val root = view.rootView
+        boundRoots[root] = (boundRoots[root] ?: 0) + 1
+        if (pendingActions.isNotEmpty()) schedulePreDraw()
+
+        var released = false
+        return {
+            if (!released) {
+                released = true
+                val remaining = (boundRoots[root] ?: 1) - 1
+                if (remaining <= 0) {
+                    boundRoots.remove(root)
+                    if (scheduledView === root) {
+                        detachScheduledListener()
+                        if (pendingActions.isNotEmpty()) schedulePreDraw()
+                    }
+                } else {
+                    boundRoots[root] = remaining
+                }
+            }
+        }
+    }
+
+    internal fun registerTicker(ticker: BackdropFrameTicker) {
+        activeTickers += ticker
+    }
+
+    internal fun unregisterTicker(ticker: BackdropFrameTicker) {
+        activeTickers -= ticker
+    }
+
+    /**
+     * 请求所有当前可见 OpenGL Shell 在本次 traversal 的 PreDraw 阶段提交最终快照。
+     * 返回 false 仅表示当前没有任何 OpenGL Host 订阅 ticker，调用方应走兼容回调。
+     */
+    fun requestActiveTickerFrame(frameTimeNanos: Long = System.nanoTime()): Boolean {
+        val tickers = activeTickers.toTypedArray()
+        if (tickers.isEmpty()) return false
+        for (ticker in tickers) ticker.requestFinalizedFrame(frameTimeNanos)
+        return true
+    }
+
+    internal fun dispatch(action: () -> Unit) {
+        pendingActions.addLast(action)
+        if (isDispatchingFrame) return
+        schedulePreDraw()
+    }
+
+    private fun schedulePreDraw() {
+        if (scheduledListener != null || isDispatchingFrame) return
+        val target = boundRoots.keys.firstOrNull {
+            it.isAttachedToWindow && it.viewTreeObserver.isAlive
+        }
+        if (target == null) {
+            drainPendingActions()
+            return
+        }
+
+        val observer = target.viewTreeObserver
+        val listener = object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                detachScheduledListener()
+                drainPendingActions()
+                return true
+            }
+        }
+        scheduledView = target
+        scheduledObserver = observer
+        scheduledListener = listener
+        observer.addOnPreDrawListener(listener)
+        target.postInvalidateOnAnimation()
+    }
+
+    private fun detachScheduledListener() {
+        val observer = scheduledObserver
+        val listener = scheduledListener
+        if (observer != null && listener != null && observer.isAlive) {
+            observer.removeOnPreDrawListener(listener)
+        }
+        scheduledView = null
+        scheduledObserver = null
+        scheduledListener = null
+    }
+
+    private fun drainPendingActions() {
+        if (isDispatchingFrame) return
+        isDispatchingFrame = true
+        try {
+            while (pendingActions.isNotEmpty()) {
+                pendingActions.removeFirst().invoke()
+            }
+        } finally {
+            isDispatchingFrame = false
+        }
+    }
+}
 
 class BackdropCoordinateSource {
     private var lastRootOffset: Offset? = null
@@ -69,6 +190,7 @@ class BackdropCoordinateSource {
     }
 
     private fun notifyPlacementListeners() {
+        if (OpenGLFrameFinalizer.requestActiveTickerFrame()) return
         for (listener in placementListeners) listener()
     }
 }
@@ -152,26 +274,42 @@ class GlassCoordinateSource {
     fun isAttachedNow(): Boolean = coordinates?.isAttached == true
 
     private fun notifyPlacementListeners() {
+        if (OpenGLFrameFinalizer.requestActiveTickerFrame()) return
         for (listener in placementListeners) listener()
     }
 }
 
 /**
- * 背景/玻璃位置更新统一按真实显示 VSync 合并。
+ * 背景/玻璃位置更新统一按真实显示 VSync 合并，并在同帧 PreDraw 读取最终坐标。
  *
- * 一帧内的 nested-scroll、程序化滚动和布局回调只保留最后一次请求；兼容的
- * Compose frameNanos 状态仍只写一次，OpenGL Host 可通过监听器直接消费而无需重组。
+ * 一帧内的 nested-scroll、程序化滚动、布局回调、页面动画和动态按压只保留最后一次请求；
+ * Compose frameNanos 与 OpenGL Host 监听器也在同一份最终帧提交中更新。
  */
 class BackdropFrameTicker {
     var frameNanos by mutableLongStateOf(0L)
         private set
 
     private var framePosted = false
+    private var finalDispatchQueued = false
+    private var pendingFrameNanos = 0L
     private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
 
     fun addFrameListener(listener: () -> Unit): () -> Unit {
+        val wasEmpty = frameListeners.isEmpty()
         frameListeners += listener
-        return { frameListeners -= listener }
+        if (wasEmpty && frameListeners.isNotEmpty()) {
+            OpenGLFrameFinalizer.registerTicker(this)
+        }
+        var removed = false
+        return {
+            if (!removed) {
+                removed = true
+                frameListeners -= listener
+                if (frameListeners.isEmpty()) {
+                    OpenGLFrameFinalizer.unregisterTicker(this)
+                }
+            }
+        }
     }
 
     @Suppress("UNUSED_PARAMETER")
@@ -181,10 +319,22 @@ class BackdropFrameTicker {
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
+    internal fun requestFinalizedFrame(frameTimeNanos: Long = System.nanoTime()) {
+        pendingFrameNanos = maxOf(pendingFrameNanos, frameTimeNanos.coerceAtLeast(1L))
+        if (finalDispatchQueued) return
+        finalDispatchQueued = true
+        OpenGLFrameFinalizer.dispatch {
+            finalDispatchQueued = false
+            val committedFrameNanos = pendingFrameNanos.coerceAtLeast(System.nanoTime())
+            pendingFrameNanos = 0L
+            frameNanos = committedFrameNanos
+            for (listener in frameListeners) listener()
+        }
+    }
+
     private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
         framePosted = false
-        frameNanos = frameTimeNanos
-        for (listener in frameListeners) listener()
+        requestFinalizedFrame(frameTimeNanos)
     }
 }
 
