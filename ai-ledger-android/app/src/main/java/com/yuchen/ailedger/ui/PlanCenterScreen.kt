@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -19,7 +20,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -28,8 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.layout.SubcomposeLayoutState
+import androidx.compose.ui.layout.SubcomposeSlotReusePolicy
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -39,17 +44,25 @@ import com.yuchen.ailedger.model.PlanDraft
 import com.yuchen.ailedger.model.PlanTask
 import com.yuchen.ailedger.model.PlanTaskFilter
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private val PlanPageEnterEasing = CubicBezierEasing(0.18f, 0.00f, 0.08f, 1.00f)
-private val PlanPageExitEasing = CubicBezierEasing(0.40f, 0.00f, 1.00f, 1.00f)
+private val PlanWipeEnterEasing = CubicBezierEasing(0.22f, 0.00f, 0.08f, 1.00f)
+private val PlanWipeExitEasing = CubicBezierEasing(0.34f, 0.00f, 0.76f, 1.00f)
+
+private enum class PlanPageSlot {
+    Home,
+    Editor,
+    Delete,
+}
 
 private sealed interface PlanCenterDestination {
     val depth: Int
+    val slot: PlanPageSlot
 
     data object Home : PlanCenterDestination {
         override val depth: Int = 0
+        override val slot: PlanPageSlot = PlanPageSlot.Home
     }
 
     data class Editor(
@@ -58,12 +71,14 @@ private sealed interface PlanCenterDestination {
         val draft: PlanDraft,
     ) : PlanCenterDestination {
         override val depth: Int = 1
+        override val slot: PlanPageSlot = PlanPageSlot.Editor
     }
 
     data class Delete(
         val task: PlanTask,
     ) : PlanCenterDestination {
         override val depth: Int = 1
+        override val slot: PlanPageSlot = PlanPageSlot.Delete
     }
 }
 
@@ -79,14 +94,48 @@ fun PlanCenterScreen(
     val planState = viewModel.uiState
     val transitionScope = rememberCoroutineScope()
     val homeListState = rememberLazyListState()
-    val pageAlpha = remember { Animatable(1f) }
-    val pageOffsetX = remember { Animatable(0f) }
+    val pageHostState = remember {
+        SubcomposeLayoutState(SubcomposeSlotReusePolicy(maxSlotsToRetainForReuse = 3))
+    }
+    val wipeOffsetX = remember { Animatable(0f) }
+    val warmEditorDraft = remember { defaultPlanDraft("") }
+    val warmEditorState = remember(
+        state.quality,
+        state.glassIntensity,
+        state.motionIntensity,
+    ) { state }
+    val warmHandleHolder = remember {
+        arrayOfNulls<SubcomposeLayoutState.PrecomposedSlotHandle>(1)
+    }
+
     var transitionJob by remember { mutableStateOf<Job?>(null) }
     var transitionRunning by remember { mutableStateOf(false) }
+    var wipeVisible by remember { mutableStateOf(false) }
+    var wipeForward by remember { mutableStateOf(true) }
+    var hostWidthPx by remember { mutableStateOf(0f) }
     var quickTitle by remember { mutableStateOf("") }
     var editorGeneration by remember { mutableIntStateOf(0) }
     var displayedDestination by remember {
         mutableStateOf<PlanCenterDestination>(PlanCenterDestination.Home)
+    }
+
+    LaunchedEffect(pageHostState) {
+        // 首页稳定后再预组合编辑页。预组合不测量、不放置，也不会绘制第二套页面，
+        // 但会提前建立表单、状态和玻璃节点，消除点击后的首次组合尖峰。
+        withFrameNanos { }
+        delay(320)
+        if (warmHandleHolder[0] == null) {
+            warmHandleHolder[0] = pageHostState.precompose(PlanPageSlot.Editor) {
+                PlanEditorPage(
+                    state = warmEditorState,
+                    initial = warmEditorDraft,
+                    editing = false,
+                    exactAlarmReady = true,
+                    onBack = {},
+                    onSave = {},
+                )
+            }
+        }
     }
 
     fun navigateTo(target: PlanCenterDestination) {
@@ -97,74 +146,45 @@ fun PlanCenterScreen(
         transitionRunning = true
         transitionJob = transitionScope.launch {
             try {
-                pageAlpha.stop()
-                pageOffsetX.stop()
+                wipeOffsetX.stop()
 
                 if (motionScale <= 0.05f) {
                     displayedDestination = target
-                    pageAlpha.snapTo(1f)
-                    pageOffsetX.snapTo(0f)
+                    wipeVisible = false
                     return@launch
                 }
 
-                val exitOffsetPx = with(density) {
-                    (if (forward) (-14).dp else 14.dp).toPx()
-                } * motionScale
-                val enterOffsetPx = with(density) {
-                    (if (forward) 22.dp else (-18).dp).toPx()
-                } * motionScale
+                val widthPx = hostWidthPx.takeIf { it > 1f }
+                    ?: with(density) { 360.dp.toPx() }
+                val startOffset = if (forward) widthPx else -widthPx
+                val endOffset = -startOffset
 
-                // 退出阶段只变换当前页面的根渲染层，不触发布局位移，
-                // 子玻璃不会逐帧更新坐标或重新同步背景几何。
-                coroutineScope {
-                    launch {
-                        pageAlpha.animateTo(
-                            targetValue = 0f,
-                            animationSpec = tween(
-                                durationMillis = 92,
-                                easing = PlanPageExitEasing,
-                            ),
-                        )
-                    }
-                    launch {
-                        pageOffsetX.animateTo(
-                            targetValue = exitOffsetPx,
-                            animationSpec = tween(
-                                durationMillis = 116,
-                                easing = PlanPageExitEasing,
-                            ),
-                        )
-                    }
-                }
+                wipeForward = forward
+                wipeVisible = true
+                wipeOffsetX.snapTo(startOffset)
 
-                // 旧页面完全退出后才替换页面树，任何时刻都只有一棵玻璃页面树存在。
+                // 只移动一张不透明遮片，首页和编辑页的玻璃卡片完全静止。
+                wipeOffsetX.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(
+                        durationMillis = 132,
+                        easing = PlanWipeEnterEasing,
+                    ),
+                )
+
+                // 在遮片完全覆盖时切换到已经预组合/保留的页面槽。
                 displayedDestination = target
-                pageAlpha.snapTo(0f)
-                pageOffsetX.snapTo(enterOffsetPx)
-
-                // 给新页面一帧完成组合和测量，再开始显示，避免首帧边布局边移动。
+                withFrameNanos { }
                 withFrameNanos { }
 
-                coroutineScope {
-                    launch {
-                        pageAlpha.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(
-                                durationMillis = 158,
-                                easing = PlanPageEnterEasing,
-                            ),
-                        )
-                    }
-                    launch {
-                        pageOffsetX.animateTo(
-                            targetValue = 0f,
-                            animationSpec = tween(
-                                durationMillis = 236,
-                                easing = PlanPageEnterEasing,
-                            ),
-                        )
-                    }
-                }
+                wipeOffsetX.animateTo(
+                    targetValue = endOffset,
+                    animationSpec = tween(
+                        durationMillis = 178,
+                        easing = PlanWipeExitEasing,
+                    ),
+                )
+                wipeVisible = false
             } finally {
                 transitionRunning = false
             }
@@ -199,26 +219,50 @@ fun PlanCenterScreen(
     LaunchedEffect(displayedDestination) {
         onModalVisibilityChange(displayedDestination != PlanCenterDestination.Home)
     }
-    DisposableEffect(Unit) {
+    DisposableEffect(pageHostState) {
         onDispose {
             transitionJob?.cancel()
+            warmHandleHolder[0]?.dispose()
+            warmHandleHolder[0] = null
             onModalVisibilityChange(false)
         }
     }
 
     val transitionBlocker = remember { MutableInteractionSource() }
+    val wipeBrush = remember(wipeForward) {
+        if (wipeForward) {
+            Brush.horizontalGradient(
+                colors = listOf(
+                    Color(0xFF11234A),
+                    Color(0xFF071128),
+                    Color(0xFF050B1D),
+                    Color(0xFF111839),
+                ),
+            )
+        } else {
+            Brush.horizontalGradient(
+                colors = listOf(
+                    Color(0xFF111839),
+                    Color(0xFF050B1D),
+                    Color(0xFF071128),
+                    Color(0xFF11234A),
+                ),
+            )
+        }
+    }
 
-    Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    translationX = pageOffsetX.value
-                    alpha = pageAlpha.value
-                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                },
-        ) {
-            when (val page = displayedDestination) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+            .onSizeChanged { hostWidthPx = it.width.toFloat() },
+    ) {
+        PlanRetainedPageHost(
+            state = pageHostState,
+            destination = displayedDestination,
+            modifier = Modifier.fillMaxSize(),
+        ) { page ->
+            when (page) {
                 PlanCenterDestination.Home -> {
                     PlanCenterHomePage(
                         state = state,
@@ -253,20 +297,18 @@ fun PlanCenterScreen(
                 }
 
                 is PlanCenterDestination.Editor -> {
-                    key(page.generation) {
-                        PlanEditorPage(
-                            state = state,
-                            initial = page.draft,
-                            editing = page.editingId != null,
-                            exactAlarmReady = planState.exactAlarmReady,
-                            onBack = ::returnHome,
-                            onSave = { draft ->
-                                val result = viewModel.saveTask(page.editingId, draft)
-                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                                if (result.ok) returnHome()
-                            },
-                        )
-                    }
+                    PlanEditorPage(
+                        state = state,
+                        initial = page.draft,
+                        editing = page.editingId != null,
+                        exactAlarmReady = planState.exactAlarmReady,
+                        onBack = ::returnHome,
+                        onSave = { draft ->
+                            val result = viewModel.saveTask(page.editingId, draft)
+                            Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                            if (result.ok) returnHome()
+                        },
+                    )
                 }
 
                 is PlanCenterDestination.Delete -> {
@@ -294,6 +336,40 @@ fun PlanCenterScreen(
                         onClick = {},
                     ),
             )
+        }
+
+        if (wipeVisible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { translationX = wipeOffsetX.value }
+                    .background(wipeBrush),
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlanRetainedPageHost(
+    state: SubcomposeLayoutState,
+    destination: PlanCenterDestination,
+    modifier: Modifier = Modifier,
+    content: @Composable (PlanCenterDestination) -> Unit,
+) {
+    SubcomposeLayout(
+        state = state,
+        modifier = modifier,
+    ) { constraints ->
+        val placeables = subcompose(destination.slot) {
+            content(destination)
+        }.map { measurable ->
+            measurable.measure(constraints)
+        }
+
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            placeables.forEach { placeable ->
+                placeable.placeRelative(0, 0)
+            }
         }
     }
 }
