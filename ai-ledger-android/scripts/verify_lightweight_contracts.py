@@ -175,10 +175,10 @@ def main() -> int:
     errors += require_text(
         glass,
         required=[
+            "role: GlassRole = GlassRole.Card",
             "if (role != GlassRole.Shell)",
             "NewOpenGLGlassCardLayer(",
             "role = GlassRole.Shell",
-            "role = GlassRole.Card",
         ],
     )
 
