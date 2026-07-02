@@ -128,7 +128,7 @@ class OperationWorkflowRepository private constructor(context: Context) {
                     add(check.toEntity(draft.id, OWNER_STEP, step.id, PHASE_POST))
                 }
             }
-        }.distinctBy(OperationWorkflowStateCheckEntity::id)
+        }
 
         dao.saveCompiledGraph(
             workflow = draft.toWorkflowEntity(),
@@ -333,7 +333,13 @@ class OperationWorkflowRepository private constructor(context: Context) {
         ownerId: String,
         phase: String,
     ): OperationWorkflowStateCheckEntity = OperationWorkflowStateCheckEntity(
-        id = id,
+        id = listOf(
+            workflowId,
+            ownerType,
+            ownerId,
+            phase,
+            id.substringAfterLast(CHECK_ID_SEPARATOR),
+        ).joinToString(CHECK_ID_SEPARATOR),
         workflowId = workflowId,
         ownerType = ownerType,
         ownerId = ownerId,
@@ -346,7 +352,7 @@ class OperationWorkflowRepository private constructor(context: Context) {
     )
 
     private fun OperationWorkflowStateCheckEntity.toModel(): WorkflowStateCheck = WorkflowStateCheck(
-        id = id,
+        id = id.substringAfterLast(CHECK_ID_SEPARATOR),
         type = enumValueOrDefault(type, WorkflowStateCheckType.UserConfirmed),
         expectedValue = expectedValue,
         packageName = packageName,
@@ -375,6 +381,7 @@ class OperationWorkflowRepository private constructor(context: Context) {
         private const val PHASE_PRE = "pre"
         private const val PHASE_POST = "post"
         private const val PHASE_COMPLETION = "completion"
+        private const val CHECK_ID_SEPARATOR = "|"
 
         @Volatile
         private var instance: OperationWorkflowRepository? = null
