@@ -84,6 +84,7 @@ private data class PendingStorageDelete(
 fun StorageManagementScreen(
     state: AssistantUiState,
     onBack: () -> Unit,
+    inlineFeatureContent: (@Composable () -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -295,6 +296,9 @@ fun StorageManagementScreen(
                         lineHeight = 19.sp,
                     )
                 }
+            }
+            inlineFeatureContent?.let { content ->
+                item { content() }
             }
             item {
                 StorageOverviewPanel(
