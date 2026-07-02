@@ -25,6 +25,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 private enum class StoragePhaseFourPage {
     Main,
     Organization,
+    FolderIndex,
     DeviceOptimization,
 }
 
@@ -37,6 +38,13 @@ fun StorageManagementPhaseFourHubScreen(
     when (page) {
         StoragePhaseFourPage.Organization -> {
             StorageMediaOrganizationScreen(
+                state = state,
+                onBack = { page = StoragePhaseFourPage.Main },
+            )
+            return
+        }
+        StoragePhaseFourPage.FolderIndex -> {
+            StorageFolderIndexScreen(
                 state = state,
                 onBack = { page = StoragePhaseFourPage.Main },
             )
@@ -66,45 +74,56 @@ fun StorageManagementPhaseFourHubScreen(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                PressableGlass(
-                    quality = state.quality,
-                    glassIntensity = state.glassIntensity,
-                    motionIntensity = state.motionIntensity,
-                    radius = 999,
-                    modifier = Modifier.weight(1f).height(42.dp),
-                    role = GlassRole.Floating,
-                    onClick = { page = StoragePhaseFourPage.Organization },
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            "精细整理 ›",
-                            color = Color(0xFF8DF9EA).copy(alpha = 0.94f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Black,
-                        )
-                    }
-                }
-                PressableGlass(
-                    quality = state.quality,
-                    glassIntensity = state.glassIntensity,
-                    motionIntensity = state.motionIntensity,
-                    radius = 999,
-                    modifier = Modifier.weight(1f).height(42.dp),
-                    role = GlassRole.Floating,
-                    onClick = { page = StoragePhaseFourPage.DeviceOptimization },
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            "设备优化 ›",
-                            color = Color(0xFF83F3B8).copy(alpha = 0.94f),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Black,
-                        )
-                    }
-                }
+                StoragePhaseEntry(
+                    state = state,
+                    text = "精细整理",
+                    tone = Color(0xFF8DF9EA),
+                    modifier = Modifier.weight(1f),
+                ) { page = StoragePhaseFourPage.Organization }
+                StoragePhaseEntry(
+                    state = state,
+                    text = "目录索引",
+                    tone = Color(0xFF9CD8FF),
+                    modifier = Modifier.weight(1f),
+                ) { page = StoragePhaseFourPage.FolderIndex }
+                StoragePhaseEntry(
+                    state = state,
+                    text = "设备优化",
+                    tone = Color(0xFF83F3B8),
+                    modifier = Modifier.weight(1f),
+                ) { page = StoragePhaseFourPage.DeviceOptimization }
             }
+        }
+    }
+}
+
+@Composable
+private fun StoragePhaseEntry(
+    state: AssistantUiState,
+    text: String,
+    tone: Color,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = modifier.height(42.dp),
+        role = GlassRole.Floating,
+        onClick = onClick,
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "$text ›",
+                color = tone.copy(alpha = 0.94f),
+                fontSize = 10.5.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+            )
         }
     }
 }
