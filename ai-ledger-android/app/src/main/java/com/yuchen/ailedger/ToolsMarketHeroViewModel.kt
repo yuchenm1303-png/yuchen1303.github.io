@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -69,8 +70,8 @@ private fun defaultToolsMarketIndices(): List<ToolsMarketIndexItem> =
 /**
  * 功能页顶部三大指数的应用级最高优先级数据源。
  *
- * 进程启动时先恢复本地真实缓存并预热；网络刷新拆为“报价优先、三条分时各自补齐”。
- * 页面、详情页和 OpenGL 容器只订阅同一 StateFlow，不再创建或取消自己的网络任务。
+ * 进程启动时恢复本地真实缓存并预热。网络刷新由一个专用报价请求和三条独立分时请求
+ * 四路并发完成；任意一路先返回就立即更新卡片，不再等待最慢请求或详情页数据链。
  */
 internal object ToolsMarketHeroStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -80,7 +81,10 @@ internal object ToolsMarketHeroStore {
     private val lifecycleLock = Any()
     private var appContext: Context? = null
     private var refreshJob: Job? = null
+    private var retryJob: Job? = null
     private var initialized = false
+    private var screenVisible = false
+    private var visibleRetryCount = 0
     private var lastAttemptEpochMs = 0L
 
     fun initialize(context: Context) {
@@ -106,9 +110,18 @@ internal object ToolsMarketHeroStore {
         requestRefresh(force = false)
     }
 
-    fun onVisible(context: Context) {
+    fun setVisible(context: Context, value: Boolean) {
         initialize(context)
-        requestRefresh(force = false)
+        synchronized(lifecycleLock) {
+            screenVisible = value
+            if (value) {
+                visibleRetryCount = 0
+            } else {
+                retryJob?.cancel()
+                retryJob = null
+            }
+        }
+        if (value) requestRefresh(force = false)
     }
 
     fun refresh(context: Context, force: Boolean = true) {
@@ -134,7 +147,11 @@ internal object ToolsMarketHeroStore {
             if (!force && now - lastAttemptEpochMs < FAILURE_RETRY_COOLDOWN_MS) return
             lastAttemptEpochMs = now
             refreshJob = scope.launch {
-                runRefresh(context)
+                try {
+                    runRefresh(context)
+                } finally {
+                    finishRefresh()
+                }
             }
         }
     }
@@ -149,32 +166,33 @@ internal object ToolsMarketHeroStore {
         }
 
         val anyNetworkSuccess = AtomicBoolean(false)
-        var firstError: Throwable? = null
-
-        runCatching { loadQuotes() }
-            .onSuccess { quotes ->
-                if (quotes.isNotEmpty()) {
-                    anyNetworkSuccess.set(true)
-                    state.update { current ->
-                        current.copy(
-                            indices = mergeQuoteItems(current.indices, quotes),
-                            loading = false,
-                            errorMessage = null
-                        )
-                    }
-                    persistCurrent(context)
-                }
-            }
-            .onFailure { firstError = it }
-
-        val trendErrors = ConcurrentHashMap<String, Throwable>()
+        val networkErrors = ConcurrentHashMap<String, Throwable>()
         val missingTrendRoutes = ConcurrentHashMap.newKeySet<String>()
+
         coroutineScope {
-            TOOLS_MARKET_INDEX_SPECS.map { spec ->
-                launch {
+            val jobs = mutableListOf<Job>()
+            jobs += launch {
+                runCatching { loadQuotes() }
+                    .onSuccess { quotes ->
+                        if (quotes.isNotEmpty()) {
+                            anyNetworkSuccess.set(true)
+                            state.update { current ->
+                                current.copy(
+                                    indices = mergeQuoteItems(current.indices, quotes),
+                                    loading = false,
+                                    errorMessage = null
+                                )
+                            }
+                            persistCurrent(context)
+                        }
+                    }
+                    .onFailure { networkErrors["quotes"] = it }
+            }
+            TOOLS_MARKET_INDEX_SPECS.forEach { spec ->
+                jobs += launch {
                     runCatching { loadTrend(spec) }
                         .onSuccess { trend ->
-                            if (trend.minutePoints.size >= 2) {
+                            if (trend.hasRealTrend) {
                                 anyNetworkSuccess.set(true)
                                 state.update { current ->
                                     current.copy(
@@ -187,11 +205,12 @@ internal object ToolsMarketHeroStore {
                             }
                         }
                         .onFailure { error ->
-                            trendErrors[spec.code] = error
+                            networkErrors["trend:${spec.code}"] = error
                             if (isRouteUnavailable(error)) missingTrendRoutes += spec.code
                         }
                 }
-            }.joinAll()
+            }
+            jobs.joinAll()
         }
 
         if (missingTrendRoutes.size == TOOLS_MARKET_INDEX_SPECS.size) {
@@ -209,7 +228,7 @@ internal object ToolsMarketHeroStore {
                         persistCurrent(context)
                     }
                 }
-                .onFailure { if (firstError == null) firstError = it }
+                .onFailure { networkErrors["batchFallback"] = it }
         }
 
         val finishedAt = System.currentTimeMillis()
@@ -218,9 +237,7 @@ internal object ToolsMarketHeroStore {
             current.copy(
                 loading = false,
                 errorMessage = if (usable) null else {
-                    firstError?.message
-                        ?: trendErrors.values.firstOrNull()?.message
-                        ?: "三大指数行情暂不可用"
+                    networkErrors.values.firstOrNull()?.message ?: "三大指数行情暂不可用"
                 },
                 lastSuccessfulRefreshMs = if (anyNetworkSuccess.get()) {
                     finishedAt
@@ -234,22 +251,41 @@ internal object ToolsMarketHeroStore {
                 .putLong(PREFS_KEY_UPDATED_AT, finishedAt)
                 .apply()
         }
+    }
+
+    private fun finishRefresh() {
+        var retryDelayMs = 0L
         synchronized(lifecycleLock) {
             refreshJob = null
+            val complete = state.value.indices.all { it.hasRealQuote && it.hasRealTrend }
+            if (complete) {
+                visibleRetryCount = 0
+                retryJob?.cancel()
+                retryJob = null
+            } else if (screenVisible && visibleRetryCount < MAX_VISIBLE_RETRIES) {
+                visibleRetryCount += 1
+                retryDelayMs = VISIBLE_RETRY_BASE_MS * visibleRetryCount
+            }
+        }
+        if (retryDelayMs <= 0L) return
+        synchronized(lifecycleLock) {
+            retryJob?.cancel()
+            retryJob = scope.launch {
+                delay(retryDelayMs)
+                requestRefresh(force = true)
+            }
         }
     }
 
-    /** 第一阶段：只取三大指数报价，不等待任何分时曲线。 */
+    /** 第一阶段：专用路由只取三大指数报价，不等待任何分时曲线。 */
     private fun loadQuotes(): List<ToolsMarketIndexItem> {
         val body = StockHttpClient.get(
-            url = "$PROXY_BASE_URL$INDICES_PATH",
-            timeoutMs = INDICES_TIMEOUT_MS,
+            url = "$PROXY_BASE_URL$QUOTES_PATH",
+            timeoutMs = QUOTES_TIMEOUT_MS,
             emptyMessage = "三大指数报价返回为空",
             microCacheMs = QUOTE_MICRO_CACHE_MS
         )
-        val root = JSONObject(body)
-        val container = root.optJSONObject("indices") ?: root
-        val rows = container.optJSONArray("items") ?: JSONArray()
+        val rows = JSONObject(body).optJSONArray("items") ?: JSONArray()
         return buildList {
             for (index in 0 until rows.length()) {
                 val item = rows.optJSONObject(index) ?: continue
@@ -500,20 +536,22 @@ internal object ToolsMarketHeroStore {
     }
 
     private const val PROXY_BASE_URL = "https://ai-ledger-stock-proxy.onrender.com"
-    private const val INDICES_PATH = "/api/stock/a-share/market/indices"
+    private const val QUOTES_PATH = "/api/stock/a-share/index/compact/quotes"
     private const val TREND_PATH = "/api/stock/a-share/index/compact/trend"
     private const val BATCH_PATH = "/api/stock/a-share/index/compact/batch"
     private const val PREFS_NAME = "tools_market_hero_cache"
     private const val PREFS_KEY_BATCH = "three_indices_v2"
     private const val PREFS_KEY_BATCH_LEGACY = "three_indices_v1"
     private const val PREFS_KEY_UPDATED_AT = "updated_at_epoch_ms"
-    private const val INDICES_TIMEOUT_MS = 2_800
+    private const val QUOTES_TIMEOUT_MS = 2_500
     private const val TREND_TIMEOUT_MS = 4_000
     private const val BATCH_FALLBACK_TIMEOUT_MS = 4_800
     private const val QUOTE_MICRO_CACHE_MS = 8_000L
     private const val TREND_MICRO_CACHE_MS = 10_000L
     private const val REFRESH_TTL_MS = 30_000L
     private const val FAILURE_RETRY_COOLDOWN_MS = 3_000L
+    private const val VISIBLE_RETRY_BASE_MS = 1_500L
+    private const val MAX_VISIBLE_RETRIES = 3
     private const val MAX_SPARKLINE_POINTS = 72
 }
 
@@ -527,7 +565,7 @@ class ToolsMarketHeroViewModel(
     }
 
     fun setVisible(value: Boolean) {
-        if (value) ToolsMarketHeroStore.onVisible(getApplication())
+        ToolsMarketHeroStore.setVisible(getApplication(), value)
     }
 
     fun refreshIfStale(force: Boolean = false) {
