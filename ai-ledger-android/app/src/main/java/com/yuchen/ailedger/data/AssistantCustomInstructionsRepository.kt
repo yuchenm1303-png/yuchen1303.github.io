@@ -101,7 +101,6 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                         accountEmail = session.email,
                         message = "正在加载该账号的自定义指令…"
                     )
-                    // 阻塞式网络请求不再占住账号 Flow；旧账号结果由代际票据直接丢弃。
                     scope.launch {
                         operationMutex.withLock {
                             if (sessionGuard.isCurrent(ticket)) {
@@ -233,37 +232,29 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         loadingMessage: String,
         block: suspend (SupabaseUserSession, AssistantMemorySessionTicket) -> Unit
     ) {
+        val scheduledState = _state.value
+        if (scheduledState.saving || scheduledState.loading || !scheduledState.isLoggedIn) return
+        val scheduledContext = currentSessionContext()
         if (
-            _state.value.saving ||
-            _state.value.loading ||
-            !_state.value.isLoggedIn ||
+            scheduledContext == null ||
+            scheduledState.accountUserId != scheduledContext.session.userId ||
             !mutationInFlight.compareAndSet(false, true)
         ) return
 
         scope.launch {
-            var operationTicket: AssistantMemorySessionTicket? = null
+            val operationTicket = scheduledContext.ticket
             try {
                 operationMutex.withLock {
-                    val context = currentSessionContext()
-                    if (context == null) {
-                        _state.value = AssistantCustomInstructionsState(
-                            message = "登录状态已失效，请重新登录。",
-                            error = true
-                        )
-                        return@withLock
-                    }
-                    operationTicket = context.ticket
-                    if (!sessionGuard.isCurrent(context.ticket)) return@withLock
+                    if (!sessionGuard.isCurrent(operationTicket)) return@withLock
                     _state.value = _state.value.copy(
                         saving = true,
                         message = loadingMessage,
                         error = false
                     )
-                    block(context.session, context.ticket)
+                    block(scheduledContext.session, operationTicket)
                 }
             } catch (error: Throwable) {
-                val ticket = operationTicket
-                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                if (sessionGuard.isCurrent(operationTicket)) {
                     _state.value = _state.value.copy(
                         message = error.friendlyCustomInstructionsMessage(),
                         error = true
@@ -271,8 +262,7 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                 }
             } finally {
                 mutationInFlight.set(false)
-                val ticket = operationTicket
-                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                if (sessionGuard.isCurrent(operationTicket)) {
                     _state.value = _state.value.copy(saving = false)
                 }
             }
