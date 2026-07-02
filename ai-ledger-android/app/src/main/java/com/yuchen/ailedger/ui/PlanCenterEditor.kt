@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,13 +57,23 @@ internal fun PlanEditorPage(
     onSave: (PlanDraft) -> Unit,
 ) {
     val context = LocalContext.current
-    var title by remember { mutableStateOf(initial.title) }
-    var note by remember { mutableStateOf(initial.note) }
-    var type by remember { mutableStateOf(initial.type) }
-    var repeatMode by remember { mutableStateOf(initial.repeatMode) }
-    var scheduledAt by remember { mutableStateOf(initial.scheduledAtMillis) }
+    val formListState = rememberLazyListState()
+    var title by remember(initial) { mutableStateOf(initial.title) }
+    var note by remember(initial) { mutableStateOf(initial.note) }
+    var type by remember(initial) { mutableStateOf(initial.type) }
+    var repeatMode by remember(initial) { mutableStateOf(initial.repeatMode) }
+    var scheduledAt by remember(initial) { mutableStateOf(initial.scheduledAtMillis) }
     val selected = remember(scheduledAt) {
         Instant.ofEpochMilli(scheduledAt).atZone(ZoneId.systemDefault())
+    }
+
+    LaunchedEffect(initial) {
+        if (
+            formListState.firstVisibleItemIndex != 0 ||
+            formListState.firstVisibleItemScrollOffset != 0
+        ) {
+            formListState.scrollToItem(0)
+        }
     }
 
     Column(
@@ -127,6 +139,7 @@ internal fun PlanEditorPage(
                 ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = formListState,
                         contentPadding = PaddingValues(
                             start = 2.dp,
                             top = 2.dp,
