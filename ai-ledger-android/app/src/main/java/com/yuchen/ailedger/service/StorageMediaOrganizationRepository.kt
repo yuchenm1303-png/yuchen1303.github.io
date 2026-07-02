@@ -15,6 +15,7 @@ import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 
 private const val ORGANIZATION_PREFS = "storage_media_organization"
 private const val IGNORE_FILE_KEY = "ignore_files"
@@ -24,9 +25,12 @@ private const val MAX_MEDIA_ROWS = 900
 private const val MAX_SIMILAR_IMAGE_ROWS = 320
 private const val MAX_FOLDER_ROWS = 3_000
 private const val MAX_DOWNLOAD_RESULTS = 600
+private const val MAX_QUALITY_RESULTS = 120
 private const val SIMILAR_HASH_DISTANCE = 7
 private const val SIMILAR_COLOR_DISTANCE = 78
 private const val BURST_TIME_WINDOW_MS = 4_000L
+private const val BLUR_VARIANCE_THRESHOLD = 105.0
+private const val LOW_RESOLUTION_PIXELS = 900_000L
 
 private const val KB = 1024L
 private const val MB = 1024L * KB
@@ -44,6 +48,7 @@ enum class StorageOrganizationKind(val label: String) {
     SimilarPhoto("相似照片"),
     Screenshot("截图"),
     BurstCandidate("连拍候选"),
+    QualityCandidate("画质候选"),
     Installer("安装包"),
     Archive("压缩包"),
     Document("文档"),
@@ -64,6 +69,7 @@ data class StorageOrganizationFile(
     val height: Int = 0,
     val kind: StorageOrganizationKind,
     val risk: StorageReviewRisk,
+    val reviewNote: String = "",
 ) {
     val stableId: String get() = "${source.name}:$uri"
     val parentLocation: String
@@ -93,6 +99,7 @@ data class StorageOrganizationSnapshot(
     val similarGroups: List<SimilarPhotoGroup>,
     val screenshots: List<StorageOrganizationFile>,
     val burstGroups: List<BurstPhotoGroup>,
+    val qualityCandidates: List<StorageOrganizationFile>,
     val downloadCategories: List<StorageDownloadCategory>,
     val indexedImageCount: Int,
     val perceptualHashedCount: Int,
@@ -115,7 +122,7 @@ data class StorageOrganizationIgnoreRules(
         val cleanLocation = normalizeLocation(file.location)
         return ignoredDirectories.any { prefix ->
             val cleanPrefix = normalizeLocation(prefix)
-            cleanLocation == cleanPrefix || cleanLocation.startsWith("$cleanPrefix/")
+            cleanPrefix.isNotBlank() && (cleanLocation == cleanPrefix || cleanLocation.startsWith("$cleanPrefix/"))
         }
     }
 
@@ -157,7 +164,6 @@ internal object StorageMediaOrganizationPolicy {
         val cleanName = displayName.lowercase(Locale.ROOT)
         val cleanLocation = location.lowercase(Locale.ROOT).replace('\\', '/')
         return cleanLocation.contains("screenshot") ||
-            cleanLocation.contains("screenshots") ||
             cleanName.startsWith("screenshot") ||
             cleanName.startsWith("screen_shot") ||
             cleanName.startsWith("截屏") ||
@@ -216,6 +222,7 @@ internal object StorageMediaOrganizationPolicy {
             val last = current.lastOrNull()
             val sameSeries = last != null &&
                 file.modifiedAt - last.modifiedAt in 0L..BURST_TIME_WINDOW_MS &&
+                last.parentLocation.equals(file.parentLocation, ignoreCase = true) &&
                 dimensionsCompatible(last, file)
             if (last == null || sameSeries) {
                 current += file
@@ -227,7 +234,7 @@ internal object StorageMediaOrganizationPolicy {
         flush()
         return (explicitGroups + timedGroups)
             .distinctBy { group -> group.files.joinToString("|") { it.stableId } }
-            .sortedByDescending { it.files.sumOf(StorageOrganizationFile::sizeBytes) }
+            .sortedByDescending { group -> group.files.sumOf { it.sizeBytes } }
     }
 }
 
@@ -269,14 +276,13 @@ class StorageOrganizationIgnoreStore(context: Context) {
 
     private fun writeSet(key: String, values: Set<String>) {
         val array = JSONArray()
-        values.sorted().forEach(array::put)
+        values.sorted().forEach { value -> array.put(value) }
         prefs.edit().putString(key, array.toString()).apply()
     }
 }
 
 class StorageMediaOrganizationRepository(context: Context) {
-    private val appContext = context.applicationContext
-    private val resolver = appContext.contentResolver
+    private val resolver = context.applicationContext.contentResolver
 
     fun analyze(
         includeMedia: Boolean,
@@ -288,16 +294,29 @@ class StorageMediaOrganizationRepository(context: Context) {
         val visibleImages = imageBatch.files.filterNot(ignoreRules::isIgnored)
         val screenshotFiles = visibleImages
             .filter { StorageMediaOrganizationPolicy.isScreenshot(it.displayName, it.location) }
-            .map { it.copy(kind = StorageOrganizationKind.Screenshot, risk = StorageReviewRisk.Review) }
+            .map {
+                it.copy(
+                    kind = StorageOrganizationKind.Screenshot,
+                    risk = StorageReviewRisk.Review,
+                    reviewNote = "依据截图目录或文件名识别",
+                )
+            }
             .sortedByDescending { it.modifiedAt }
         val burstGroups = StorageMediaOrganizationPolicy.buildBurstGroups(
-            visibleImages.map { it.copy(kind = StorageOrganizationKind.BurstCandidate, risk = StorageReviewRisk.Caution) },
+            visibleImages.map {
+                it.copy(
+                    kind = StorageOrganizationKind.BurstCandidate,
+                    risk = StorageReviewRisk.Caution,
+                    reviewNote = "时间相邻或文件名含连拍标记，不代表内容重复",
+                )
+            },
         )
         val similarResult = findSimilarPhotoGroups(visibleImages.take(MAX_SIMILAR_IMAGE_ROWS))
         val folderBatch = authorizedTreeUri?.let(::scanAuthorizedFolder) ?: ScanBatch(emptyList(), false)
-        val categorizedDownloads = folderBatch.files
-            .filterNot(ignoreRules::isIgnored)
-            .groupBy(StorageOrganizationFile::kind)
+        val visibleFolderFiles = folderBatch.files.filterNot(ignoreRules::isIgnored)
+        val groupedFolderFiles = visibleFolderFiles.groupBy(StorageOrganizationFile::kind)
+        val categoryLimited = groupedFolderFiles.values.any { it.size > MAX_DOWNLOAD_RESULTS }
+        val categorizedDownloads = groupedFolderFiles
             .map { (kind, files) ->
                 StorageDownloadCategory(
                     kind = kind,
@@ -309,11 +328,12 @@ class StorageMediaOrganizationRepository(context: Context) {
             similarGroups = similarResult.groups,
             screenshots = screenshotFiles,
             burstGroups = burstGroups,
+            qualityCandidates = similarResult.qualityCandidates,
             downloadCategories = categorizedDownloads,
             indexedImageCount = visibleImages.size,
             perceptualHashedCount = similarResult.hashedCount,
-            indexedFolderCount = folderBatch.files.size,
-            limited = imageBatch.limited || folderBatch.limited || similarResult.limited,
+            indexedFolderCount = visibleFolderFiles.size,
+            limited = imageBatch.limited || folderBatch.limited || categoryLimited || similarResult.limited,
             elapsedMs = (System.currentTimeMillis() - startedAt).coerceAtLeast(0L),
         )
     }
@@ -325,9 +345,7 @@ class StorageMediaOrganizationRepository(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 resolver.loadThumbnail(uri, Size(maxEdgePx, maxEdgePx), null)
             } else {
-                resolver.openInputStream(uri)?.use { stream ->
-                    BitmapFactory.decodeStream(stream)
-                }?.let { bitmap -> scaleDown(bitmap, maxEdgePx) }
+                decodeLegacyThumbnail(uri, maxEdgePx)
             }
         }.getOrNull()
     }
@@ -335,10 +353,11 @@ class StorageMediaOrganizationRepository(context: Context) {
     fun existingUris(files: List<StorageOrganizationFile>): Set<String> {
         return files.asSequence().filter { file ->
             val uri = Uri.parse(file.uri)
-            runCatching {
+            val queryExists = runCatching {
                 resolver.query(uri, arrayOf("_id"), null, null, null)?.use { it.moveToFirst() }
-                    ?: resolver.openFileDescriptor(uri, "r")?.use { true }
-                    ?: false
+            }.getOrNull()
+            queryExists ?: runCatching {
+                resolver.openFileDescriptor(uri, "r")?.use { true } ?: false
             }.getOrDefault(false)
         }.mapTo(linkedSetOf()) { it.uri }
     }
@@ -484,6 +503,7 @@ class StorageMediaOrganizationRepository(context: Context) {
                         canDelete = flags and DocumentsContract.Document.FLAG_SUPPORTS_DELETE != 0,
                         kind = classification.first,
                         risk = classification.second,
+                        reviewNote = classification.second.explanation,
                     )
                 }
             }
@@ -495,7 +515,30 @@ class StorageMediaOrganizationRepository(context: Context) {
         val signatures = files.mapNotNull { file ->
             createPerceptualSignature(file)?.let { signature -> file to signature }
         }
-        if (signatures.size < 2) return SimilarResult(emptyList(), signatures.size, false)
+        val qualityCandidates = signatures.mapNotNull { (file, signature) ->
+            if (StorageMediaOrganizationPolicy.isScreenshot(file.displayName, file.location)) return@mapNotNull null
+            val pixelCount = file.width.toLong() * file.height.toLong()
+            when {
+                signature.sharpnessVariance < BLUR_VARIANCE_THRESHOLD && min(file.width, file.height) >= 720 ->
+                    file.copy(
+                        kind = StorageOrganizationKind.QualityCandidate,
+                        risk = StorageReviewRisk.Caution,
+                        reviewNote = "缩略图锐度较低，仅为模糊候选",
+                    )
+                pixelCount in 1 until LOW_RESOLUTION_PIXELS && file.sizeBytes >= 300L * KB ->
+                    file.copy(
+                        kind = StorageOrganizationKind.QualityCandidate,
+                        risk = StorageReviewRisk.Caution,
+                        reviewNote = "分辨率较低：${file.width} × ${file.height}",
+                    )
+                else -> null
+            }
+        }.distinctBy(StorageOrganizationFile::stableId)
+            .sortedByDescending { it.sizeBytes }
+            .take(MAX_QUALITY_RESULTS)
+        if (signatures.size < 2) {
+            return SimilarResult(emptyList(), qualityCandidates, signatures.size, files.size >= MAX_SIMILAR_IMAGE_ROWS)
+        }
         val parent = IntArray(signatures.size) { it }
 
         fun find(index: Int): Int {
@@ -531,7 +574,13 @@ class StorageMediaOrganizationRepository(context: Context) {
         val groups = groupedIndexes.map { indexes ->
             val groupFiles = indexes.map { signatures[it].first }
                 .sortedByDescending { it.modifiedAt }
-                .map { it.copy(kind = StorageOrganizationKind.SimilarPhoto, risk = StorageReviewRisk.Caution) }
+                .map {
+                    it.copy(
+                        kind = StorageOrganizationKind.SimilarPhoto,
+                        risk = StorageReviewRisk.Caution,
+                        reviewNote = "缩略图视觉接近，不代表文件或内容完全相同",
+                    )
+                }
             var maximumDistance = 0
             for (first in indexes.indices) {
                 for (second in first + 1 until indexes.size) {
@@ -547,7 +596,7 @@ class StorageMediaOrganizationRepository(context: Context) {
                 maxHashDistance = maximumDistance,
             )
         }.sortedByDescending { group -> group.files.sumOf { it.sizeBytes } }
-        return SimilarResult(groups, signatures.size, files.size >= MAX_SIMILAR_IMAGE_ROWS)
+        return SimilarResult(groups, qualityCandidates, signatures.size, files.size >= MAX_SIMILAR_IMAGE_ROWS)
     }
 
     private fun createPerceptualSignature(file: StorageOrganizationFile): PerceptualSignature? {
@@ -556,11 +605,15 @@ class StorageMediaOrganizationRepository(context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 resolver.loadThumbnail(uri, Size(96, 96), null)
             } else {
-                resolver.openInputStream(uri)?.use(BitmapFactory::decodeStream)
+                decodeLegacyThumbnail(uri, 96)
             }
         }.getOrNull() ?: return null
-        val bitmap = runCatching { Bitmap.createScaledBitmap(sourceBitmap, 9, 8, true) }.getOrNull()
-            ?: return null
+        val sharpness = estimateSharpness(sourceBitmap)
+        val bitmap = runCatching { Bitmap.createScaledBitmap(sourceBitmap, 9, 8, true) }
+            .getOrElse {
+                sourceBitmap.recycle()
+                return null
+            }
         if (bitmap !== sourceBitmap) sourceBitmap.recycle()
         return try {
             var hash = 0L
@@ -576,8 +629,8 @@ class StorageMediaOrganizationRepository(context: Context) {
                     blue += pixel and 0xFF
                     if (x < 8) {
                         val next = bitmap.getPixel(x + 1, y)
-                        val currentGray = ((pixel shr 16 and 0xFF) * 30 + (pixel shr 8 and 0xFF) * 59 + (pixel and 0xFF) * 11)
-                        val nextGray = ((next shr 16 and 0xFF) * 30 + (next shr 8 and 0xFF) * 59 + (next and 0xFF) * 11)
+                        val currentGray = grayscale(pixel)
+                        val nextGray = grayscale(next)
                         if (currentGray > nextGray) hash = hash or (1L shl bitIndex)
                         bitIndex += 1
                     }
@@ -588,10 +641,67 @@ class StorageMediaOrganizationRepository(context: Context) {
                 averageRed = (red / 72L).toInt(),
                 averageGreen = (green / 72L).toInt(),
                 averageBlue = (blue / 72L).toInt(),
+                sharpnessVariance = sharpness,
             )
         } finally {
             bitmap.recycle()
         }
+    }
+
+    private fun estimateSharpness(source: Bitmap): Double {
+        val bitmap = if (source.width == 64 && source.height == 64) {
+            source
+        } else {
+            runCatching { Bitmap.createScaledBitmap(source, 64, 64, true) }.getOrNull() ?: return Double.MAX_VALUE
+        }
+        return try {
+            val pixels = IntArray(64 * 64)
+            bitmap.getPixels(pixels, 0, 64, 0, 0, 64, 64)
+            var sum = 0.0
+            var sumSquares = 0.0
+            var count = 0
+            for (y in 1 until 63) {
+                for (x in 1 until 63) {
+                    val index = y * 64 + x
+                    val center = grayscale(pixels[index])
+                    val laplacian = 4 * center -
+                        grayscale(pixels[index - 1]) -
+                        grayscale(pixels[index + 1]) -
+                        grayscale(pixels[index - 64]) -
+                        grayscale(pixels[index + 64])
+                    val value = laplacian.toDouble()
+                    sum += value
+                    sumSquares += value * value
+                    count += 1
+                }
+            }
+            if (count == 0) Double.MAX_VALUE else {
+                val mean = sum / count.toDouble()
+                (sumSquares / count.toDouble()) - mean * mean
+            }
+        } finally {
+            if (bitmap !== source) bitmap.recycle()
+        }
+    }
+
+    private fun grayscale(pixel: Int): Int {
+        return ((pixel shr 16 and 0xFF) * 30 + (pixel shr 8 and 0xFF) * 59 + (pixel and 0xFF) * 11) / 100
+    }
+
+    private fun decodeLegacyThumbnail(uri: Uri, maxEdgePx: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, bounds)
+        }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sampleSize = 1
+        val longest = max(bounds.outWidth, bounds.outHeight)
+        while (longest / sampleSize > maxEdgePx * 2) sampleSize *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize.coerceAtLeast(1) }
+        val decoded = resolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        } ?: return null
+        return scaleDown(decoded, maxEdgePx)
     }
 
     private fun scaleDown(bitmap: Bitmap, maxEdgePx: Int): Bitmap {
@@ -639,9 +749,11 @@ class StorageMediaOrganizationRepository(context: Context) {
         val averageRed: Int,
         val averageGreen: Int,
         val averageBlue: Int,
+        val sharpnessVariance: Double,
     )
     private data class SimilarResult(
         val groups: List<SimilarPhotoGroup>,
+        val qualityCandidates: List<StorageOrganizationFile>,
         val hashedCount: Int,
         val limited: Boolean,
     )
