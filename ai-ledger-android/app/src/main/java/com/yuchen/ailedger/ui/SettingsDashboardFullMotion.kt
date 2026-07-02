@@ -149,9 +149,16 @@ private fun RowScope.SettingsOpenGlTile(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val stockGlassIntensity = LocalGlassBackdrop.current
+        ?.borderStyle
+        ?.newOpenGlGlassIntensity
+        ?.takeIf { it > 0f }
+        ?.coerceIn(0.35f, 1.35f)
+        ?: (state.glassIntensity * 1.03f)
+
     OpenGlShellGlass(
         quality = state.quality,
-        glassIntensity = state.glassIntensity * 1.03f,
+        glassIntensity = stockGlassIntensity,
         motionIntensity = state.motionIntensity,
         radius = SettingsDashboardTileRadius,
         modifier = Modifier
