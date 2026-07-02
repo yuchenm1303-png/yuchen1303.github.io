@@ -86,17 +86,14 @@ class OperationWorkflowRepository private constructor(context: Context) {
         workflowStatus: WorkflowDraftStatus,
         completedAtMillis: Long,
     ) {
-        dao.finishDemonstration(
+        dao.finishDemonstrationAndUpdateWorkflow(
             demonstrationId = demonstrationId,
-            status = status,
-            redactionStatus = redactionStatus,
-            completedAtMillis = completedAtMillis,
-        )
-        dao.updateWorkflowAfterDemonstration(
             workflowId = workflowId,
-            status = workflowStatus.name,
-            demonstrationId = demonstrationId.takeIf { status == "captured" },
-            updatedAtMillis = completedAtMillis,
+            demonstrationStatus = status,
+            redactionStatus = redactionStatus,
+            workflowStatus = workflowStatus.name,
+            sourceDemonstrationId = demonstrationId.takeIf { status == "captured" },
+            completedAtMillis = completedAtMillis,
         )
     }
 
