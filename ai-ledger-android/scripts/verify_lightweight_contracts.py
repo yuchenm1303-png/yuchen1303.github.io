@@ -222,6 +222,55 @@ def main() -> int:
         ],
     )
 
+    operation_learning = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/OperationLearningScreen.kt"
+    errors += require_text(
+        operation_learning,
+        required=[
+            "private fun RecordingStatusCard(",
+            "private fun CreateIntentCard(",
+            "private fun LearningFlowCard()",
+            "private fun SafetyBoundaryCard()",
+        ],
+        forbidden=[
+            'text = if (active) "录" else "✓"',
+            'text = "意"',
+            "text = step.index",
+            'Text("＋"',
+            'text = if (thisRecording) "录" else "草"',
+            'Text("盾"',
+        ],
+    )
+
+    plan_components = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/PlanCenterComponents.kt"
+    errors += require_text(
+        plan_components,
+        required=[
+            "internal fun PlanQuickComposer(",
+            "internal fun PlanInfoBanner(",
+            "internal fun PlanEmptyCard(",
+            "internal fun PlanTaskCard(",
+        ],
+        forbidden=[
+            'Text("+",',
+            'Text("→",',
+            'Text("准",',
+            'Text("计",',
+            "task.type.shortLabel",
+        ],
+    )
+
+    plan_editor = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/PlanCenterEditor.kt"
+    errors += require_text(
+        plan_editor,
+        required=[
+            "internal fun PlanEditorPage(",
+            "internal fun PlanDeletePage(",
+        ],
+        forbidden=[
+            'Text(\n                                "删",',
+        ],
+    )
+
     memory_page = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/AssistantMemorySettingsContent.kt"
     errors += require_text(
         memory_page,
