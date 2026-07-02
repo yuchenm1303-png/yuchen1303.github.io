@@ -189,8 +189,6 @@ class AssistantMemoryRepository private constructor(context: Context) {
                         accountEmail = session.email,
                         message = "正在加载该账号的长期记忆…",
                     )
-                    // 不让阻塞式 HttpURLConnection 占住账号 Flow。切换账号或退出会先提升代际，
-                    // 旧请求稍后返回时只能被丢弃，不能覆盖新账号状态。
                     scope.launch {
                         operationMutex.withLock {
                             if (sessionGuard.isCurrent(ticket)) {
@@ -212,7 +210,6 @@ class AssistantMemoryRepository private constructor(context: Context) {
         }
     }
 
-    /** 聊天后端完成 V5 事务后，只按数据库真实回执刷新管理页库存。 */
     fun refreshAfterCloudMutation(receipt: AssistantMemoryMutationReceipt) {
         if (!receipt.inventoryMayHaveChanged) return
         scope.launch {
@@ -404,10 +401,8 @@ class AssistantMemoryRepository private constructor(context: Context) {
         return compilation
     }
 
-    /** V4 使用记录由云端在真实注入和回答完成阶段统一写入。 */
     fun recordSuccessfulUsage(ids: List<String>) = Unit
 
-    /** 只保留明确自定义指令兼容入口；长期记忆正文不再由 Android 本地拼接。 */
     fun currentSnapshotText(): String? {
         val customInstructions = AssistantCustomInstructionsRepository
             .get(appContext)
@@ -546,42 +541,33 @@ class AssistantMemoryRepository private constructor(context: Context) {
         }
     }
 
-    /**
-     * 调度前同步抢占操作令牌，阻止第二次快速点击排进 Mutex；账号 Flow 不再等待该 Mutex。
-     * 操作完成后只有原账号代际仍有效时才允许提交状态，防止旧账号迟到响应覆盖新账号。
-     */
     private fun runExclusiveOperation(
         loadingMessage: String,
         block: suspend (SupabaseUserSession, AssistantMemorySessionTicket) -> Unit,
     ) {
-        if (!_state.value.canManage || !operationInFlight.compareAndSet(false, true)) return
+        val scheduledState = _state.value
+        if (!scheduledState.canManage) return
+        val scheduledContext = currentSessionContext()
+        if (
+            scheduledContext == null ||
+            scheduledState.accountUserId != scheduledContext.session.userId ||
+            !operationInFlight.compareAndSet(false, true)
+        ) return
+
         scope.launch {
-            var operationTicket: AssistantMemorySessionTicket? = null
+            val operationTicket = scheduledContext.ticket
             try {
                 operationMutex.withLock {
-                    val context = currentSessionContext()
-                    if (context == null) {
-                        _state.value = _state.value.copy(
-                            cloudReady = false,
-                            memoryEnabled = false,
-                            memories = emptyList(),
-                            message = "登录状态已失效，请重新登录。",
-                            error = true,
-                        )
-                        return@withLock
-                    }
-                    operationTicket = context.ticket
-                    if (!sessionGuard.isCurrent(context.ticket)) return@withLock
+                    if (!sessionGuard.isCurrent(operationTicket)) return@withLock
                     _state.value = _state.value.copy(
                         saving = true,
                         message = loadingMessage,
                         error = false,
                     )
-                    block(context.session, context.ticket)
+                    block(scheduledContext.session, operationTicket)
                 }
             } catch (error: Throwable) {
-                val ticket = operationTicket
-                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                if (sessionGuard.isCurrent(operationTicket)) {
                     _state.value = _state.value.copy(
                         message = error.friendlyMemoryMessage(),
                         error = true,
@@ -589,8 +575,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 }
             } finally {
                 operationInFlight.set(false)
-                val ticket = operationTicket
-                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                if (sessionGuard.isCurrent(operationTicket)) {
                     _state.value = _state.value.copy(saving = false)
                 }
             }
