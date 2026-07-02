@@ -11,6 +11,7 @@ import com.yuchen.ailedger.model.WorkflowConfirmationPolicy
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.model.WorkflowExecutionMode
 import com.yuchen.ailedger.model.WorkflowMilestone
+import com.yuchen.ailedger.model.WorkflowRecoveryMode
 import com.yuchen.ailedger.model.WorkflowRecoveryPolicy
 import com.yuchen.ailedger.model.WorkflowRetryPolicy
 import com.yuchen.ailedger.model.WorkflowRiskLevel
@@ -23,6 +24,7 @@ import com.yuchen.ailedger.model.WorkflowVariableDefinition
 import com.yuchen.ailedger.model.WorkflowVariableType
 import java.util.UUID
 import org.json.JSONArray
+import org.json.JSONObject
 
 class OperationWorkflowRepository private constructor(context: Context) {
     private val dao = OperationWorkflowDatabase.get(context).workflowDao()
@@ -288,8 +290,6 @@ class OperationWorkflowRepository private constructor(context: Context) {
                 ),
             )
         }
-        val maximumRisk = steps.maxByOrNull { it.riskLevel.ordinal }?.riskLevel
-            ?: WorkflowRiskLevel.Medium
         val workflow = record.workflow
         return LearnedWorkflowDraft(
             id = workflow.id,
@@ -306,8 +306,8 @@ class OperationWorkflowRepository private constructor(context: Context) {
             completionChecks = checkRows
                 .filter { it.ownerType == OWNER_WORKFLOW && it.phase == PHASE_COMPLETION }
                 .map { it.toModel() },
-            riskPolicy = WorkflowRiskPolicy(maximumAllowedRisk = maximumRisk),
-            recoveryPolicy = WorkflowRecoveryPolicy(),
+            riskPolicy = workflow.riskPolicyJson.toRiskPolicy(),
+            recoveryPolicy = workflow.recoveryPolicyJson.toRecoveryPolicy(),
             executionMode = enumValueOrDefault(workflow.executionMode, WorkflowExecutionMode.Deterministic),
             status = enumValueOrDefault(workflow.status, WorkflowDraftStatus.Intent),
             createdAtMillis = workflow.createdAtMillis,
@@ -325,6 +325,8 @@ class OperationWorkflowRepository private constructor(context: Context) {
         createdAtMillis = createdAtMillis,
         updatedAtMillis = updatedAtMillis,
         sourceDemonstrationId = sourceDemonstrationId,
+        riskPolicyJson = riskPolicy.toJson(),
+        recoveryPolicyJson = recoveryPolicy.toJson(),
     )
 
     private fun WorkflowStateCheck.toEntity(
@@ -359,6 +361,46 @@ class OperationWorkflowRepository private constructor(context: Context) {
         timeoutMs = timeoutMs,
         required = required,
     )
+
+    private fun WorkflowRiskPolicy.toJson(): String = JSONObject().apply {
+        put("maximumAllowedRisk", maximumAllowedRisk.name)
+        put("requireConfirmationForHighRisk", requireConfirmationForHighRisk)
+        put("blockPasswordCapture", blockPasswordCapture)
+        put("blockOtpCapture", blockOtpCapture)
+        put("blockPaymentConfirmation", blockPaymentConfirmation)
+    }.toString()
+
+    private fun String.toRiskPolicy(): WorkflowRiskPolicy = runCatching {
+        val source = JSONObject(this)
+        WorkflowRiskPolicy(
+            maximumAllowedRisk = enumValueOrDefault(
+                source.optString("maximumAllowedRisk"),
+                WorkflowRiskLevel.Medium,
+            ),
+            requireConfirmationForHighRisk = source.optBoolean("requireConfirmationForHighRisk", true),
+            blockPasswordCapture = source.optBoolean("blockPasswordCapture", true),
+            blockOtpCapture = source.optBoolean("blockOtpCapture", true),
+            blockPaymentConfirmation = source.optBoolean("blockPaymentConfirmation", true),
+        )
+    }.getOrDefault(WorkflowRiskPolicy())
+
+    private fun WorkflowRecoveryPolicy.toJson(): String = JSONObject().apply {
+        put("mode", mode.name)
+        put("maximumAutomaticRetries", maximumAutomaticRetries)
+        put("allowRouteMutation", allowRouteMutation)
+    }.toString()
+
+    private fun String.toRecoveryPolicy(): WorkflowRecoveryPolicy = runCatching {
+        val source = JSONObject(this)
+        WorkflowRecoveryPolicy(
+            mode = enumValueOrDefault(
+                source.optString("mode"),
+                WorkflowRecoveryMode.StopAndAsk,
+            ),
+            maximumAutomaticRetries = source.optInt("maximumAutomaticRetries", 1).coerceIn(0, 5),
+            allowRouteMutation = source.optBoolean("allowRouteMutation", false),
+        )
+    }.getOrDefault(WorkflowRecoveryPolicy())
 
     private fun String.toStringList(): List<String> = runCatching {
         val source = JSONArray(this)
