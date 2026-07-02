@@ -4,6 +4,7 @@ import android.content.Context
 import com.yuchen.ailedger.AiLedgerApplication
 import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.LinkedHashMap
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,6 +16,7 @@ private const val MEMORY_DIAGNOSTICS_PREFERENCES = "assistant_memory_diagnostics
 private const val MEMORY_DIAGNOSTICS_KEY = "records"
 private const val MEMORY_DIAGNOSTICS_MAX_RECORDS = 30
 private const val MEMORY_DIAGNOSTICS_MAX_CANDIDATES_PER_STAGE = 40
+private const val MEMORY_DIAGNOSTICS_MAX_STORAGE_BYTES = 768 * 1024
 
 /** 云端记忆候选在某一处理阶段的真实状态。 */
 data class AssistantMemoryDiagnosticItem(
@@ -157,11 +159,12 @@ data class AssistantMemoryDiagnosticsState(
 
 /**
  * 仅保存排障所需的记忆元数据，不保存登录令牌、请求头、图片或完整聊天历史。
- * 每条记录最多保留有限数量的候选，防止设置页和本地存储无限增长。
+ * 内存仍保留最近 30 轮完整记录；磁盘额外受 UTF-8 字节上限约束，防止候选正文使偏好文件膨胀。
  */
 object AssistantMemoryDiagnostics {
     private val lock = Any()
     private var loaded = false
+    private val serializedRecords = LinkedHashMap<String, String>()
     private val mutableState = MutableStateFlow(AssistantMemoryDiagnosticsState())
     val state: StateFlow<AssistantMemoryDiagnosticsState> = mutableState.asStateFlow()
 
@@ -286,8 +289,16 @@ object AssistantMemoryDiagnostics {
             mutationError = mutationError,
         )
         synchronized(lock) {
-            val next = listOf(record) + mutableState.value.records.filterNot { it.requestId == requestId }
-            mutableState.value = AssistantMemoryDiagnosticsState(next.take(MEMORY_DIAGNOSTICS_MAX_RECORDS))
+            val next = buildList {
+                add(record)
+                mutableState.value.records.forEach { existing ->
+                    if (existing.requestId != requestId && size < MEMORY_DIAGNOSTICS_MAX_RECORDS) add(existing)
+                }
+            }
+            mutableState.value = AssistantMemoryDiagnosticsState(next)
+            serializedRecords[requestId] = record.toJson().toString()
+            val retainedIds = next.mapTo(HashSet(next.size)) { it.requestId }
+            serializedRecords.keys.retainAll(retainedIds)
             persistLocked()
         }
     }
@@ -296,6 +307,7 @@ object AssistantMemoryDiagnostics {
         ensureLoaded()
         synchronized(lock) {
             mutableState.value = AssistantMemoryDiagnosticsState()
+            serializedRecords.clear()
             preferences()?.edit()?.remove(MEMORY_DIAGNOSTICS_KEY)?.apply()
         }
     }
@@ -401,16 +413,37 @@ object AssistantMemoryDiagnostics {
             if (loaded) return
             val raw = preferences()?.getString(MEMORY_DIAGNOSTICS_KEY, null)
             val records = runCatching { parseRecords(raw) }.getOrDefault(emptyList())
-            mutableState.value = AssistantMemoryDiagnosticsState(records.take(MEMORY_DIAGNOSTICS_MAX_RECORDS))
+                .take(MEMORY_DIAGNOSTICS_MAX_RECORDS)
+            mutableState.value = AssistantMemoryDiagnosticsState(records)
+            serializedRecords.clear()
+            records.forEach { record -> serializedRecords[record.requestId] = record.toJson().toString() }
             loaded = true
         }
     }
 
     private fun persistLocked() {
-        val array = JSONArray().apply {
-            mutableState.value.records.forEach { put(it.toJson()) }
+        val records = mutableState.value.records
+        val payload = buildString {
+            append('[')
+            var storedBytes = 2
+            var storedCount = 0
+            for (record in records) {
+                val encoded = serializedRecords[record.requestId]
+                    ?: record.toJson().toString().also { serializedRecords[record.requestId] = it }
+                val encodedBytes = encoded.toByteArray(Charsets.UTF_8).size
+                val separatorBytes = if (storedCount == 0) 0 else 1
+                if (
+                    storedCount > 0 &&
+                    storedBytes + separatorBytes + encodedBytes > MEMORY_DIAGNOSTICS_MAX_STORAGE_BYTES
+                ) break
+                if (storedCount > 0) append(',')
+                append(encoded)
+                storedBytes += separatorBytes + encodedBytes
+                storedCount += 1
+            }
+            append(']')
         }
-        preferences()?.edit()?.putString(MEMORY_DIAGNOSTICS_KEY, array.toString())?.apply()
+        preferences()?.edit()?.putString(MEMORY_DIAGNOSTICS_KEY, payload)?.apply()
     }
 
     private fun preferences() = AiLedgerApplication.contextOrNull()
