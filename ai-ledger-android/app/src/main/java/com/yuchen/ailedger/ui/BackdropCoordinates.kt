@@ -26,6 +26,9 @@ import java.util.concurrent.CopyOnWriteArraySet
  * 真正的坐标读取统一延迟到 Android 根视图的 PreDraw，此时 Compose 本帧的布局与图层
  * 变换已经全部落定。这样旧版单卡、新版单卡和共享 Shell 都可以消费同一时刻的最终状态，
  * 不再各自跨一帧追踪坐标。
+ *
+ * 热路径只复用一个 OnPreDrawListener 和每个 Ticker 的固定提交动作，不再为每次滚动帧复制
+ * ticker 集合或创建新的监听器/lambda。
  */
 internal object OpenGLFrameFinalizer {
     private val boundRoots = IdentityHashMap<View, Int>()
@@ -34,10 +37,17 @@ internal object OpenGLFrameFinalizer {
 
     private var scheduledView: View? = null
     private var scheduledObserver: ViewTreeObserver? = null
-    private var scheduledListener: ViewTreeObserver.OnPreDrawListener? = null
 
     internal var isDispatchingFrame: Boolean = false
         private set
+
+    private val preDrawListener = object : ViewTreeObserver.OnPreDrawListener {
+        override fun onPreDraw(): Boolean {
+            detachScheduledListener()
+            drainPendingActions()
+            return true
+        }
+    }
 
     fun bindHostView(view: View): () -> Unit {
         val root = view.rootView
@@ -75,9 +85,11 @@ internal object OpenGLFrameFinalizer {
      * 返回 false 仅表示当前没有任何 OpenGL Host 订阅 ticker，调用方应走兼容回调。
      */
     fun requestActiveTickerFrame(frameTimeNanos: Long = System.nanoTime()): Boolean {
-        val tickers = activeTickers.toTypedArray()
-        if (tickers.isEmpty()) return false
-        for (ticker in tickers) ticker.requestFinalizedFrame(frameTimeNanos)
+        if (activeTickers.isEmpty()) return false
+        // CopyOnWriteArraySet 的迭代器本身就是稳定快照，无需再 toTypedArray() 复制一次。
+        for (ticker in activeTickers) {
+            ticker.requestFinalizedFrame(frameTimeNanos)
+        }
         return true
     }
 
@@ -88,9 +100,14 @@ internal object OpenGLFrameFinalizer {
     }
 
     private fun schedulePreDraw() {
-        if (scheduledListener != null || isDispatchingFrame) return
-        val target = boundRoots.keys.firstOrNull {
-            it.isAttachedToWindow && it.viewTreeObserver.isAlive
+        if (scheduledObserver != null || isDispatchingFrame) return
+
+        var target: View? = null
+        for (root in boundRoots.keys) {
+            if (root.isAttachedToWindow && root.viewTreeObserver.isAlive) {
+                target = root
+                break
+            }
         }
         if (target == null) {
             drainPendingActions()
@@ -98,29 +115,19 @@ internal object OpenGLFrameFinalizer {
         }
 
         val observer = target.viewTreeObserver
-        val listener = object : ViewTreeObserver.OnPreDrawListener {
-            override fun onPreDraw(): Boolean {
-                detachScheduledListener()
-                drainPendingActions()
-                return true
-            }
-        }
         scheduledView = target
         scheduledObserver = observer
-        scheduledListener = listener
-        observer.addOnPreDrawListener(listener)
+        observer.addOnPreDrawListener(preDrawListener)
         target.postInvalidateOnAnimation()
     }
 
     private fun detachScheduledListener() {
         val observer = scheduledObserver
-        val listener = scheduledListener
-        if (observer != null && listener != null && observer.isAlive) {
-            observer.removeOnPreDrawListener(listener)
+        if (observer != null && observer.isAlive) {
+            observer.removeOnPreDrawListener(preDrawListener)
         }
         scheduledView = null
         scheduledObserver = null
-        scheduledListener = null
     }
 
     private fun drainPendingActions() {
@@ -294,10 +301,18 @@ class BackdropFrameTicker {
     private var pendingFrameNanos = 0L
     private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
 
+    private val finalDispatchAction: () -> Unit = {
+        finalDispatchQueued = false
+        val committedFrameNanos = pendingFrameNanos.coerceAtLeast(System.nanoTime())
+        pendingFrameNanos = 0L
+        frameNanos = committedFrameNanos
+        for (listener in frameListeners) listener()
+    }
+
     fun addFrameListener(listener: () -> Unit): () -> Unit {
         val wasEmpty = frameListeners.isEmpty()
         frameListeners += listener
-        if (wasEmpty && frameListeners.isNotEmpty()) {
+        if (wasEmpty) {
             OpenGLFrameFinalizer.registerTicker(this)
         }
         var removed = false
@@ -323,13 +338,7 @@ class BackdropFrameTicker {
         pendingFrameNanos = maxOf(pendingFrameNanos, frameTimeNanos.coerceAtLeast(1L))
         if (finalDispatchQueued) return
         finalDispatchQueued = true
-        OpenGLFrameFinalizer.dispatch {
-            finalDispatchQueued = false
-            val committedFrameNanos = pendingFrameNanos.coerceAtLeast(System.nanoTime())
-            pendingFrameNanos = 0L
-            frameNanos = committedFrameNanos
-            for (listener in frameListeners) listener()
-        }
+        OpenGLFrameFinalizer.dispatch(finalDispatchAction)
     }
 
     private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
