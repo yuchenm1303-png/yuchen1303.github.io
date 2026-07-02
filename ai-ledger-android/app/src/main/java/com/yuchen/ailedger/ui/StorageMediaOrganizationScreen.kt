@@ -37,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +64,7 @@ import com.yuchen.ailedger.service.StorageCandidateSource
 import com.yuchen.ailedger.service.StorageCleanupHistoryEntry
 import com.yuchen.ailedger.service.StorageCleanupHistoryStore
 import com.yuchen.ailedger.service.StorageDownloadCategory
+import com.yuchen.ailedger.service.StorageManagementRepository
 import com.yuchen.ailedger.service.StorageMediaOrganizationRepository
 import com.yuchen.ailedger.service.StorageOrganizationFile
 import com.yuchen.ailedger.service.StorageOrganizationIgnoreRules
@@ -70,7 +72,6 @@ import com.yuchen.ailedger.service.StorageOrganizationIgnoreStore
 import com.yuchen.ailedger.service.StorageOrganizationKind
 import com.yuchen.ailedger.service.StorageOrganizationSnapshot
 import com.yuchen.ailedger.service.StorageReviewRisk
-import com.yuchen.ailedger.service.StorageManagementRepository
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,6 +85,7 @@ private enum class StorageOrganizationTab(val label: String) {
     Similar("相似照片"),
     Screenshots("截图"),
     Bursts("连拍"),
+    Quality("画质候选"),
     Downloads("下载分类"),
 }
 
@@ -191,7 +193,7 @@ fun StorageMediaOrganizationScreen(
     }
 
     fun executeDelete(files: List<StorageOrganizationFile>) {
-        val unique = files.distinctBy { it.stableId }.filter(StorageOrganizationFile::canDelete)
+        val unique = files.distinctBy { it.stableId }.filter { it.canDelete }
         if (unique.isEmpty() || operationRunning) return
         operationRunning = true
         operationMessage = null
@@ -265,7 +267,7 @@ fun StorageMediaOrganizationScreen(
                     Text("ORGANIZE", color = OrganizationAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                     Text("精细整理", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                     Text(
-                        "整理相似照片、截图、连拍候选和授权目录文件；所有结果都需要人工检查。",
+                        "整理相似照片、截图、连拍、画质候选和授权目录文件；所有结果都需要人工检查。",
                         color = Color.White.copy(alpha = 0.58f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -275,7 +277,7 @@ fun StorageMediaOrganizationScreen(
             item {
                 OrganizationInfoPanel(
                     title = "第三阶段安全边界",
-                    text = "相似照片使用缩略图感知哈希，只表示视觉接近，不代表内容完全相同；截图和连拍依据目录、名称与拍摄时间整理。页面不会自动勾选相似照片、文档或媒体文件。",
+                    text = "相似照片使用缩略图感知哈希，只表示视觉接近；画质候选使用缩略图锐度与分辨率启发式，只能作为检查线索。截图和连拍依据目录、名称与时间整理，页面不会自动勾选照片、文档或媒体文件。",
                     tone = OrganizationAccent,
                 )
             }
@@ -372,7 +374,7 @@ fun StorageMediaOrganizationScreen(
                     val groups = snapshot?.burstGroups.orEmpty()
                     item { OrganizationSectionHeader("连拍候选", "${groups.size} 组 · 时间相邻不等于重复") }
                     if (groups.isEmpty()) {
-                        item { OrganizationEmptyPanel("没有识别到明确的 BURST 文件或短时间连续照片组。") }
+                        item { OrganizationEmptyPanel("没有识别到明确的 BURST 文件或同目录短时间连续照片组。") }
                     } else {
                         items(groups, key = BurstPhotoGroup::id) { group ->
                             BurstPhotoGroupCard(
@@ -380,6 +382,22 @@ fun StorageMediaOrganizationScreen(
                                 selectedIds = selectedIds,
                                 onToggle = { selectedIds = toggleOrganizationSelection(selectedIds, it) },
                                 onPreview = { previewFile = it },
+                            )
+                        }
+                    }
+                }
+                selectedTab == StorageOrganizationTab.Quality -> {
+                    val files = snapshot?.qualityCandidates.orEmpty()
+                    item { OrganizationSectionHeader("画质候选", "${files.size} 个 · 仅供预览判断") }
+                    if (files.isEmpty()) {
+                        item { OrganizationEmptyPanel("没有识别到达到当前阈值的模糊或低分辨率候选。") }
+                    } else {
+                        items(files, key = StorageOrganizationFile::stableId) { file ->
+                            OrganizationFileCard(
+                                file = file,
+                                selected = file.stableId in selectedIds,
+                                onToggle = { selectedIds = toggleOrganizationSelection(selectedIds, file) },
+                                onPreview = { previewFile = file },
                             )
                         }
                     }
@@ -401,11 +419,11 @@ fun StorageMediaOrganizationScreen(
                                     ) { selectedDownloadKind = category.kind }
                                 }
                             }
-                            val lowRiskFiles = activeDownloadCategories.flatMap(StorageDownloadCategory::files)
+                            val lowRiskFiles = activeDownloadCategories.flatMap { it.files }
                                 .filter { it.risk == StorageReviewRisk.Low && it.canDelete }
                             if (lowRiskFiles.isNotEmpty()) {
                                 OrganizationTextAction("选择当前分类中的低风险建议 · ${lowRiskFiles.size} 个") {
-                                    selectedIds = selectedIds + lowRiskFiles.map(StorageOrganizationFile::stableId)
+                                    selectedIds = selectedIds + lowRiskFiles.map { it.stableId }
                                 }
                             }
                         }
@@ -482,9 +500,15 @@ private fun OrganizationOverview(
         OrganizationOverviewCard(
             title = "连拍候选",
             value = "${snapshot.burstGroups.size} 组 · ${snapshot.burstPhotoCount} 张",
-            detail = "依据 BURST 名称或 4 秒内连续照片识别",
+            detail = "依据 BURST 名称或同目录 4 秒内连续照片识别",
             tone = OrganizationCaution,
         ) { onOpen(StorageOrganizationTab.Bursts) }
+        OrganizationOverviewCard(
+            title = "画质候选",
+            value = "${snapshot.qualityCandidates.size} 张",
+            detail = "缩略图锐度或分辨率提示，需要人工预览",
+            tone = OrganizationWarning,
+        ) { onOpen(StorageOrganizationTab.Quality) }
         OrganizationOverviewCard(
             title = "授权目录分类",
             value = "${snapshot.downloadFileCount} 个文件",
@@ -535,7 +559,8 @@ private fun OrganizationAnalysisPanel(
             }
             snapshot?.let {
                 OrganizationMetric("图片索引", "${it.indexedImageCount} 张")
-                OrganizationMetric("感知哈希", "${it.perceptualHashedCount} 张")
+                OrganizationMetric("感知与画质分析", "${it.perceptualHashedCount} 张")
+                OrganizationMetric("画质候选", "${it.qualityCandidates.size} 张")
                 OrganizationMetric("授权目录分类", "${it.indexedFolderCount} 个")
                 OrganizationMetric("分析耗时", formatOrganizationElapsed(it.elapsedMs))
                 if (it.limited) {
@@ -618,7 +643,7 @@ private fun BurstPhotoGroupCard(
                 fontWeight = FontWeight.Black,
             )
             Text(
-                if (group.explicitBurstName) "文件名含 BURST 或连拍标记。" else "照片修改时间连续且尺寸接近，不保证来自同一次拍摄。",
+                if (group.explicitBurstName) "文件名含 BURST 或连拍标记。" else "同一目录内照片时间连续且尺寸接近，不保证来自同一次拍摄。",
                 color = Color.White.copy(alpha = 0.45f),
                 fontSize = 9.8.sp,
             )
@@ -681,6 +706,9 @@ private fun OrganizationFileCard(
                     color = Color.White.copy(alpha = 0.44f),
                     fontSize = 9.3.sp,
                 )
+                file.reviewNote.takeIf(String::isNotBlank)?.let { note ->
+                    Text(note, color = riskTone(file.risk).copy(alpha = 0.75f), fontSize = 8.9.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
                 Text(file.location, color = Color.White.copy(alpha = 0.29f), fontSize = 8.8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (!file.canDelete) {
                     Text("文档提供方未开放删除能力", color = OrganizationWarning, fontSize = 8.8.sp)
@@ -700,8 +728,13 @@ private fun OrganizationPreviewDialog(
     onIgnoreFile: () -> Unit,
     onIgnoreDirectory: () -> Unit,
 ) {
-    val preview by produceState<Bitmap?>(initialValue = null, file.uri) {
+    val preview by produceState<Bitmap?>(null, file.uri) {
         value = withContext(Dispatchers.IO) { repository.loadPreviewBitmap(file) }
+    }
+    DisposableEffect(preview) {
+        onDispose {
+            preview?.takeIf { !it.isRecycled }?.recycle()
+        }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -730,9 +763,15 @@ private fun OrganizationPreviewDialog(
                 }
                 Text(file.displayName, color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
                 Text("${formatOrganizationBytes(file.sizeBytes)} · ${file.mimeType.ifBlank { "未知类型" }}", color = Color.White.copy(alpha = 0.60f), fontSize = 11.sp)
+                if (file.width > 0 && file.height > 0) {
+                    Text("${file.width} × ${file.height}", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp)
+                }
                 Text(file.location, color = Color.White.copy(alpha = 0.43f), fontSize = 10.sp, lineHeight = 14.sp)
-                Text(file.risk.explanation, color = riskTone(file.risk), fontSize = 10.5.sp, lineHeight = 15.sp)
-                OrganizationTextAction("忽略此文件", onIgnoreFile)
+                file.reviewNote.takeIf(String::isNotBlank)?.let { note ->
+                    Text(note, color = riskTone(file.risk), fontSize = 10.5.sp, lineHeight = 15.sp)
+                }
+                Text(file.risk.explanation, color = Color.White.copy(alpha = 0.54f), fontSize = 10.5.sp, lineHeight = 15.sp)
+                OrganizationTextAction("永不提示此文件", onIgnoreFile)
                 OrganizationTextAction("忽略此目录", onIgnoreDirectory)
             }
         },
@@ -773,7 +812,7 @@ private fun OrganizationDeleteDialog(
                     Text("其中 $cautionCount 个属于谨慎处理项目，可能包含唯一照片、媒体或文档。", color = OrganizationWarning, fontSize = 11.sp, lineHeight = 16.sp)
                 }
                 Text(
-                    "相似照片和连拍候选并不等于重复文件。媒体删除仍由 Android 系统再次确认。",
+                    "相似照片、连拍和画质候选都不等于重复文件。媒体删除仍由 Android 系统再次确认。",
                     color = Color.White.copy(alpha = 0.58f),
                     fontSize = 11.5.sp,
                     lineHeight = 17.sp,
@@ -967,8 +1006,9 @@ private fun StorageOrganizationSnapshot.allOrganizationFiles(): List<StorageOrga
         similarGroups.forEach { addAll(it.files) }
         addAll(screenshots)
         burstGroups.forEach { addAll(it.files) }
+        addAll(qualityCandidates)
         downloadCategories.forEach { addAll(it.files) }
-    }.distinctBy(StorageOrganizationFile::stableId)
+    }.distinctBy { it.stableId }
 }
 
 private fun toggleOrganizationSelection(
