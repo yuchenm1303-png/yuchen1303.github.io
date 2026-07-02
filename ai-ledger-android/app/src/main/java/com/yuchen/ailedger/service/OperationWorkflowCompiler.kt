@@ -131,7 +131,6 @@ object OperationWorkflowCompiler {
             )
             stepOrder += 1
 
-            val segmentStepIds = mutableListOf<String>()
             segment.forEachIndexed { indexInSegment, action ->
                 val result = buildStep(
                     baseDraft = baseDraft,
@@ -141,7 +140,6 @@ object OperationWorkflowCompiler {
                     variableIndex = variables.size + 1,
                 )
                 steps += result.step
-                segmentStepIds += result.step.id
                 result.variable?.let { variables.putIfAbsent(it.key, it) }
                 result.issue?.let(issues::add)
                 if (result.step.riskLevel.ordinal > maximumRisk.ordinal) {
@@ -163,7 +161,7 @@ object OperationWorkflowCompiler {
             }
 
             val lastSegmentStep = steps.last()
-            val milestoneChecks = lastSegmentStep.postconditions.takeIf(List<WorkflowStateCheck>::isNotEmpty)
+            val milestoneChecks = lastSegmentStep.postconditions.takeIf { it.isNotEmpty() }
                 ?: listOf(
                     WorkflowStateCheck(
                         id = "${baseDraft.id}-milestone-$segmentOrder-user-check",
@@ -188,7 +186,11 @@ object OperationWorkflowCompiler {
             steps = steps,
             completionChecks = completionChecks,
             riskPolicy = WorkflowRiskPolicy(
-                maximumAllowedRisk = maximumRisk.coerceAtMost(WorkflowRiskLevel.High),
+                maximumAllowedRisk = if (maximumRisk == WorkflowRiskLevel.Prohibited) {
+                    WorkflowRiskLevel.High
+                } else {
+                    maximumRisk
+                },
                 requireConfirmationForHighRisk = true,
                 blockPasswordCapture = true,
                 blockOtpCapture = true,
@@ -233,10 +235,11 @@ object OperationWorkflowCompiler {
             packageVisibleCheck(baseDraft.id, "pre-$order", event.packageName),
         )
         val paymentRisk = source?.riskHints?.contains("payment") == true
-        val credentialRisk = source?.riskHints?.any { it == "password" || it == "otp" } == true
+        val sensitiveInputRisk = source?.sensitive == true ||
+            source?.riskHints?.any { it == "password" || it == "otp" } == true
 
-        if (credentialRisk || (paymentRisk && event.eventTypeLabel != "view_text_changed")) {
-            val reason = if (credentialRisk) "敏感输入" else "支付确认"
+        if (sensitiveInputRisk || paymentRisk) {
+            val reason = if (sensitiveInputRisk) "敏感输入" else "支付相关操作"
             return StepBuildResult(
                 step = WorkflowStep(
                     id = stepId,
@@ -249,7 +252,11 @@ object OperationWorkflowCompiler {
                     confirmationPolicy = WorkflowConfirmationPolicy.Always,
                 ),
                 issue = WorkflowCompilationIssue(
-                    code = if (credentialRisk) "compilation_sensitive_action_manual" else "compilation_payment_action_manual",
+                    code = if (sensitiveInputRisk) {
+                        "compilation_sensitive_action_manual"
+                    } else {
+                        "compilation_payment_action_manual"
+                    },
                     message = "$reason不会被编译为自动执行步骤，运行时必须由用户亲自完成。",
                     severity = WorkflowCompilationSeverity.Warning,
                     stepId = stepId,
