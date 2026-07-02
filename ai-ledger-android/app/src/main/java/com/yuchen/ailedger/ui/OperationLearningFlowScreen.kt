@@ -200,15 +200,26 @@ private fun OperationLearningStageActionBar(
                 }
             }
             if (!notice.isNullOrBlank()) {
-                Text(
-                    text = "收起提示",
-                    color = WorkflowReviewAccent.copy(alpha = 0.68f),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
+                PressableGlass(
+                    quality = state.quality,
+                    glassIntensity = state.glassIntensity * 0.76f,
+                    motionIntensity = state.motionIntensity,
+                    radius = 999,
                     modifier = Modifier
                         .align(Alignment.End)
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                )
+                        .height(30.dp),
+                    role = GlassRole.Chip,
+                    onClick = onDismissNotice,
+                ) {
+                    Box(Modifier.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "收起提示",
+                            color = WorkflowReviewAccent.copy(alpha = 0.68f),
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
             }
         }
     }
@@ -237,9 +248,7 @@ private fun OperationWorkflowReviewScreen(
         contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(13.dp),
     ) {
-        item {
-            ReviewBackButton(state = state, onBack = onBack)
-        }
+        item { ReviewBackButton(state = state, onBack = onBack) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
@@ -264,9 +273,7 @@ private fun OperationWorkflowReviewScreen(
             }
         }
         if (!notice.isNullOrBlank()) {
-            item {
-                ReviewNotice(text = notice, onDismiss = onDismissNotice)
-            }
+            item { ReviewNotice(state = state, text = notice, onDismiss = onDismissNotice) }
         }
         item {
             ReviewSummaryCard(
@@ -275,9 +282,7 @@ private fun OperationWorkflowReviewScreen(
                 manualStepCount = manualStepCount,
             )
         }
-        if (issues.isNotEmpty()) {
-            item { ReviewIssuesCard(issues) }
-        }
+        if (issues.isNotEmpty()) item { ReviewIssuesCard(issues) }
         if (draft.variables.isNotEmpty()) {
             item { ReviewSectionTitle("每次运行的输入", "${draft.variables.size} 项") }
             item {
@@ -654,7 +659,11 @@ private fun ReviewSectionTitle(title: String, trailing: String) {
 }
 
 @Composable
-private fun ReviewNotice(text: String, onDismiss: () -> Unit) {
+private fun ReviewNotice(
+    state: AssistantUiState,
+    text: String,
+    onDismiss: () -> Unit,
+) {
     ReviewPanel(tint = WorkflowReviewAccent) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -665,9 +674,9 @@ private fun ReviewNotice(text: String, onDismiss: () -> Unit) {
                 modifier = Modifier.weight(1f),
             )
             PressableGlass(
-                quality = com.yuchen.ailedger.model.GlassQuality.High,
-                glassIntensity = 0.7f,
-                motionIntensity = 0f,
+                quality = state.quality,
+                glassIntensity = state.glassIntensity * 0.78f,
+                motionIntensity = state.motionIntensity,
                 radius = 999,
                 modifier = Modifier
                     .padding(start = 8.dp)
