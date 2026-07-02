@@ -22,10 +22,10 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
-import kotlinx.coroutines.BufferOverflow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -296,11 +296,13 @@ class OperationTraceWriter internal constructor(
 
     private fun estimateEncryptedFrameBytes(record: OperationTraceRecord): Long {
         val plainBytes = record.toJson().toString().toByteArray(Charsets.UTF_8).size
-        return FRAME_LENGTH_PREFIX_BYTES +
-            OperationTraceStore.FRAME_IV_LENGTH_BYTES +
-            GCM_IV_BYTES +
-            plainBytes +
-            OperationTraceStore.GCM_TAG_BYTES
+        return (
+            FRAME_LENGTH_PREFIX_BYTES +
+                OperationTraceStore.FRAME_IV_LENGTH_BYTES +
+                GCM_IV_BYTES +
+                plainBytes +
+                OperationTraceStore.GCM_TAG_BYTES
+            ).toLong()
     }
 
     private fun writeEncryptedRecord(
