@@ -110,11 +110,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
 
     val customDraftReady = remember(customDraft) { customDraft.trim().isNotBlank() }
     val memoryDraftReady = remember(memoryDraft) { memoryDraft.trim().isNotBlank() }
-    val activeMemoryCount = remember(
-        memoryState.memoryEnabled,
-        memoryState.cloudReady,
-        memoryState.memories,
-    ) { memoryState.activeCount }
+    val activeMemoryCount = memoryState.activeCount
     val visibleMemories = remember(memoryState.memories, visibleMemoryCount) {
         memoryState.memories.take(visibleMemoryCount)
     }
