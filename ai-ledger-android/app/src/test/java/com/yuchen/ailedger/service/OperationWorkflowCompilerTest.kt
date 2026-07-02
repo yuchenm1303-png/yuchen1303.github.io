@@ -93,6 +93,31 @@ class OperationWorkflowCompilerTest {
     }
 
     @Test
+    fun paymentInputIsNeverCompiledAsAutomaticTextEntry() {
+        val result = OperationWorkflowCompiler.compile(
+            baseDraft = baseDraft(),
+            records = listOf(
+                event(
+                    time = 1_000L,
+                    type = "view_text_changed",
+                    source = node(
+                        viewId = "$PACKAGE:id/card_number",
+                        role = "TextField",
+                        editable = true,
+                        sensitive = true,
+                        riskHints = setOf("payment"),
+                    ),
+                ),
+            ),
+        )
+
+        val draft = requireNotNull(result.draft)
+        assertEquals(WorkflowActionType.RequestUserConfirmation, draft.steps.last().action.type)
+        assertTrue(draft.variables.isEmpty())
+        assertTrue(result.issues.any { it.code == "compilation_sensitive_action_manual" })
+    }
+
+    @Test
     fun coordinateOnlyActionBecomesManualConfirmation() {
         val result = OperationWorkflowCompiler.compile(
             baseDraft = baseDraft(),
