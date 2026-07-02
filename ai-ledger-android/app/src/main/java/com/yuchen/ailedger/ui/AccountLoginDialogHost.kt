@@ -283,6 +283,7 @@ private fun CleanModeButton(
     Box(
         modifier = modifier
             .height(36.dp)
+            .composeGlassMotionClickable(shape = shape, onClick = onClick)
             .clip(shape)
             .background(
                 if (selected) {
@@ -295,8 +296,7 @@ private fun CleanModeButton(
                 width = 1.dp,
                 color = Color.White.copy(alpha = if (selected) 0.13f else 0.06f),
                 shape = shape,
-            )
-            .clickable(onClick = onClick),
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
