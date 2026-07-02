@@ -96,20 +96,9 @@ internal fun PlanQuickComposer(
         modifier = Modifier.fillMaxWidth().height(72.dp),
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 10.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlanNativeGlassFrame(
-                state = state,
-                radius = 999,
-                role = GlassRole.Chip,
-                modifier = Modifier.size(40.dp),
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("+", color = Color.White.copy(alpha = 0.90f), fontSize = 21.sp)
-                }
-            }
-            Spacer(Modifier.width(11.dp))
             Box(
                 modifier = Modifier.weight(1f).height(44.dp),
                 contentAlignment = Alignment.CenterStart,
@@ -135,17 +124,17 @@ internal fun PlanQuickComposer(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(10.dp))
             PlanPressableGlass(
                 state = state,
                 radius = 999,
                 role = GlassRole.Floating,
                 intensityScale = 1.08f,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.width(68.dp).height(42.dp),
                 onClick = onCreate,
             ) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("→", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                    Text("创建", color = Color.White, fontSize = 10.5.sp, fontWeight = FontWeight.Black)
                 }
             }
         }
@@ -282,17 +271,6 @@ internal fun PlanInfoBanner(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PlanNativeGlassFrame(
-                state = state,
-                radius = 14,
-                role = GlassRole.Chip,
-                modifier = Modifier.size(38.dp),
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("准", color = Color(0xFFFFDFA8), fontWeight = FontWeight.Black)
-                }
-            }
-            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     "精确闹钟尚未授权",
@@ -398,24 +376,13 @@ internal fun PlanEmptyCard(
         state = state,
         radius = 28,
         role = GlassRole.Card,
-        modifier = Modifier.fillMaxWidth().height(196.dp),
+        modifier = Modifier.fillMaxWidth().height(156.dp),
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            PlanNativeGlassFrame(
-                state = state,
-                radius = 17,
-                role = GlassRole.Chip,
-                modifier = Modifier.size(48.dp),
-            ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("计", color = Color(0xFFC8BCFF), fontSize = 21.sp, fontWeight = FontWeight.Black)
-                }
-            }
-            Spacer(Modifier.height(11.dp))
             Text(
                 if (filtered) "这里暂时没有计划" else "还没有安排计划",
                 color = Color.White,
@@ -471,18 +438,6 @@ internal fun PlanTaskCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                val accent = if (task.type == PlanTaskType.Alarm) Color(0xFFC8BCFF) else Color(0xFFB7FFF4)
-                PlanNativeGlassFrame(
-                    state = state,
-                    radius = 16,
-                    role = GlassRole.Chip,
-                    modifier = Modifier.size(46.dp),
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(task.type.shortLabel, color = accent, fontWeight = FontWeight.Black)
-                    }
-                }
-                Spacer(Modifier.width(11.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         task.title,
