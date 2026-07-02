@@ -149,12 +149,6 @@ private fun SettingsGlassFrame(
     Box(
         modifier
             .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = 0.80f,
-                    stiffness = Spring.StiffnessMediumLow,
-                )
-            )
             .clip(shape)
     ) {
         GlassPanel(
