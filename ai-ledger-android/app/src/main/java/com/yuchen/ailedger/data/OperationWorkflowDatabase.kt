@@ -335,6 +335,30 @@ abstract class OperationWorkflowDao {
         deleteAppScopes(workflow.id)
         if (appScopes.isNotEmpty()) upsertAppScopes(appScopes)
     }
+
+    @Transaction
+    open suspend fun finishDemonstrationAndUpdateWorkflow(
+        demonstrationId: String,
+        workflowId: String,
+        demonstrationStatus: String,
+        redactionStatus: String,
+        workflowStatus: String,
+        sourceDemonstrationId: String?,
+        completedAtMillis: Long,
+    ) {
+        finishDemonstration(
+            demonstrationId = demonstrationId,
+            status = demonstrationStatus,
+            redactionStatus = redactionStatus,
+            completedAtMillis = completedAtMillis,
+        )
+        updateWorkflowAfterDemonstration(
+            workflowId = workflowId,
+            status = workflowStatus,
+            demonstrationId = sourceDemonstrationId,
+            updatedAtMillis = completedAtMillis,
+        )
+    }
 }
 
 @Database(
