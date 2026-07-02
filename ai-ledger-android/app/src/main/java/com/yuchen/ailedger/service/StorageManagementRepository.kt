@@ -3,7 +3,6 @@ package com.yuchen.ailedger.service
 import android.app.AppOpsManager
 import android.app.PendingIntent
 import android.app.usage.StorageStatsManager
-import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
@@ -27,6 +26,8 @@ private const val PREF_TREE_URI = "tree_uri"
 private const val MAX_FOLDER_FILES = 5_000
 private const val MAX_FOLDER_CANDIDATES = 500
 private const val MAX_MEDIA_CANDIDATES_PER_KIND = 220
+private const val APP_CACHE_TTL_MS = 10L * 60L * 1000L
+private const val FOLDER_SCAN_TTL_MS = 5L * 60L * 1000L
 
 private const val MB = 1024L * 1024L
 
@@ -149,6 +150,12 @@ class StorageManagementRepository(context: Context) {
     private val prefs = appContext.getSharedPreferences(STORAGE_PREFS, Context.MODE_PRIVATE)
     private val appRepository = AppManagementRepository(appContext)
 
+    private var cachedAppCachesAtMs: Long = 0L
+    private var cachedAppCaches: List<AppCacheUsage> = emptyList()
+    private var cachedFolderUri: String? = null
+    private var cachedFolderAtMs: Long = 0L
+    private var cachedFolderScan: AuthorizedFolderScan? = null
+
     fun loadOverview(): DeviceStorageOverview {
         val manager = appContext.getSystemService(StorageStatsManager::class.java)
         val total = runCatching { manager?.getTotalBytes(StorageManager.UUID_DEFAULT) }.getOrNull()
@@ -181,10 +188,17 @@ class StorageManagementRepository(context: Context) {
         return mode == AppOpsManager.MODE_ALLOWED
     }
 
-    fun loadAppCacheRanking(limit: Int = 40): List<AppCacheUsage> {
+    fun loadAppCacheRanking(
+        limit: Int = 40,
+        forceRefresh: Boolean = false,
+    ): List<AppCacheUsage> {
         if (!hasUsageAccess()) return emptyList()
+        val now = System.currentTimeMillis()
+        if (!forceRefresh && cachedAppCachesAtMs > 0L && now - cachedAppCachesAtMs < APP_CACHE_TTL_MS) {
+            return cachedAppCaches.take(limit.coerceIn(1, 100))
+        }
         val manager = appContext.getSystemService(StorageStatsManager::class.java) ?: return emptyList()
-        return appRepository.loadApps().mapNotNull { app ->
+        val loaded = appRepository.loadApps().mapNotNull { app ->
             val info = runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     packageManager.getApplicationInfo(
@@ -214,7 +228,9 @@ class StorageManagementRepository(context: Context) {
             )
         }.filter { it.cacheBytes > 0L }
             .sortedByDescending { it.cacheBytes }
-            .take(limit.coerceIn(1, 100))
+        cachedAppCaches = loaded
+        cachedAppCachesAtMs = now
+        return loaded.take(limit.coerceIn(1, 100))
     }
 
     fun scanAccessibleMedia(): List<StorageFileCandidate> {
@@ -235,7 +251,10 @@ class StorageManagementRepository(context: Context) {
             resolver.takePersistableUriPermission(uri, flags)
             true
         }.getOrDefault(false)
-        if (persisted) prefs.edit().putString(PREF_TREE_URI, uri.toString()).apply()
+        if (persisted) {
+            prefs.edit().putString(PREF_TREE_URI, uri.toString()).apply()
+            invalidateFolderCache()
+        }
         return persisted
     }
 
@@ -249,9 +268,26 @@ class StorageManagementRepository(context: Context) {
             }
         }
         prefs.edit().remove(PREF_TREE_URI).apply()
+        invalidateFolderCache()
     }
 
-    fun scanSavedFolder(): AuthorizedFolderScan? = savedTreeUri()?.let(::scanFolder)
+    fun scanSavedFolder(forceRefresh: Boolean = false): AuthorizedFolderScan? {
+        val uri = savedTreeUri() ?: return null
+        val now = System.currentTimeMillis()
+        if (
+            !forceRefresh &&
+            cachedFolderUri == uri.toString() &&
+            cachedFolderAtMs > 0L &&
+            now - cachedFolderAtMs < FOLDER_SCAN_TTL_MS
+        ) {
+            return cachedFolderScan
+        }
+        return scanFolder(uri).also { result ->
+            cachedFolderUri = uri.toString()
+            cachedFolderAtMs = now
+            cachedFolderScan = result
+        }
+    }
 
     fun scanFolder(treeUri: Uri): AuthorizedFolderScan {
         val rootDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
@@ -361,35 +397,38 @@ class StorageManagementRepository(context: Context) {
     }
 
     fun deleteMediaDirect(uris: List<Uri>): StorageDeleteResult {
+        val unique = uris.distinct()
         val errors = mutableListOf<String>()
         var deleted = 0
-        uris.distinct().forEach { uri ->
+        unique.forEach { uri ->
             val ok = runCatching { resolver.delete(uri, null, null) > 0 }
                 .onFailure { errors += it.message.orEmpty().ifBlank { "无法删除媒体文件：$uri" } }
                 .getOrDefault(false)
             if (ok) deleted += 1
         }
         return StorageDeleteResult(
-            requestedCount = uris.distinct().size,
+            requestedCount = unique.size,
             deletedCount = deleted,
-            failedCount = uris.distinct().size - deleted,
+            failedCount = unique.size - deleted,
             errors = errors,
         )
     }
 
     fun deleteAuthorizedDocuments(uris: List<Uri>): StorageDeleteResult {
+        val unique = uris.distinct()
         val errors = mutableListOf<String>()
         var deleted = 0
-        uris.distinct().forEach { uri ->
+        unique.forEach { uri ->
             val ok = runCatching { DocumentsContract.deleteDocument(resolver, uri) }
                 .onFailure { errors += it.message.orEmpty().ifBlank { "无法删除授权目录文件：$uri" } }
                 .getOrDefault(false)
             if (ok) deleted += 1
         }
+        if (unique.isNotEmpty()) invalidateFolderCache()
         return StorageDeleteResult(
-            requestedCount = uris.distinct().size,
+            requestedCount = unique.size,
             deletedCount = deleted,
-            failedCount = uris.distinct().size - deleted,
+            failedCount = unique.size - deleted,
             errors = errors,
         )
     }
@@ -478,6 +517,12 @@ class StorageManagementRepository(context: Context) {
                 if (cursor.moveToFirst()) cursor.safeString(0).orEmpty() else ""
             }.orEmpty()
         }.getOrDefault("")
+    }
+
+    private fun invalidateFolderCache() {
+        cachedFolderUri = null
+        cachedFolderAtMs = 0L
+        cachedFolderScan = null
     }
 
     private fun Cursor.safeString(index: Int): String? {
