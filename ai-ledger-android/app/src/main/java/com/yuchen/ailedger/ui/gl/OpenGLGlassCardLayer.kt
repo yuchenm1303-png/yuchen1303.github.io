@@ -37,7 +37,7 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val GLASS_SPEC_EPSILON_PX = 0.5f
-private const val GLASS_ORIGIN_EPSILON_PX = 0.35f
+private const val GLASS_ORIGIN_EPSILON_PX = 0.01f
 private const val GLASS_PRESS_EPSILON = 0.003f
 private const val GLASS_PRESS_CENTER_EPSILON = 0.002f
 private const val GLASS_STABLE_SURFACE_FALLBACK_ANCHOR_Y = 0.44f
