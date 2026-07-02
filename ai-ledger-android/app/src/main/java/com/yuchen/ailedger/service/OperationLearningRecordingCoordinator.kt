@@ -254,6 +254,22 @@ object OperationLearningRecordingCoordinator {
             }
         }.isSuccess
 
+        val compilationOutcome = if (captured && finalized && applicationContext != null) {
+            runCatching {
+                OperationWorkflowCompilationCoordinator.compile(
+                    context = applicationContext,
+                    workflowId = session.config.workflowId,
+                )
+            }.getOrElse { error ->
+                WorkflowCompilationOutcome(
+                    completed = false,
+                    message = "自动整理失败：${error.message ?: "未知错误"}",
+                )
+            }
+        } else {
+            null
+        }
+
         mutableState.value = when {
             captured && finalized -> OperationRecordingState(
                 phase = OperationRecordingPhase.Captured,
@@ -263,7 +279,11 @@ object OperationLearningRecordingCoordinator {
                 allowedPackages = session.config.allowedPackages,
                 startedAtMillis = session.config.startedAtMillis,
                 capturedEventCount = recordCount,
-                message = "演示已加密封存，等待整理为可审核流程。",
+                message = when {
+                    compilationOutcome?.completed == true -> compilationOutcome.message
+                    compilationOutcome != null -> "演示已加密封存，但${compilationOutcome.message}。原始轨迹仍保留，可稍后重试整理。"
+                    else -> "演示已加密封存，等待整理为可审核流程。"
+                },
             )
             !captured && finalized -> OperationRecordingState(
                 phase = OperationRecordingPhase.Idle,
