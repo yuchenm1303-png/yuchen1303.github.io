@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
 
-internal data class StorageInlineFeatureEntry(
+data class StorageInlineFeatureEntry(
     val title: String,
     val subtitle: String,
     val tone: Color,
