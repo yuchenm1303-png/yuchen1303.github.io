@@ -22,12 +22,27 @@ Fully isolated means all three conditions must hold:
 
 ## Production Shell route
 
-Assistant and Settings production Shells enter the legacy renderer through `LegacyOpenGLShellHost`.
+Assistant and Settings production Shells enter the legacy renderer through `LegacyOpenGLShellHost` by default.
 The old `LegacyOpenGLGlassPreviewShell` name remains only as a compatibility entry for laboratory previews.
 
 A production Shell has one coordinate owner. `GlassPanel` owns the `GlassCoordinateSource` placement, so
 `LegacyOpenGLShellHost` is called with `manageCoordinatePlacement = false`. Standalone previews may keep
 host-owned placement. Do not reintroduce adjacent duplicate `onPlaced` writers for the same coordinate source.
+
+### Settings dashboard exception
+
+The eight visible settings dashboard tiles are rendered through one deliberately promoted outer
+`GlassRole.Shell`, not eight OpenGL cards. The Shell is clipped into eight rounded windows while text,
+selection state and click handling remain ordinary Compose children.
+
+This reviewed container may opt into the modern multi-level renderer with
+`LocalForceNewOpenGlShellRenderer`. The opt-in must remain local to that outer Shell:
+
+- exactly one EGL / `TextureView` host for the complete dashboard;
+- no tile calls `OpenGLGlassCardLayer` directly;
+- no tile registers OpenGL geometry;
+- no tile triggers geometry synchronization;
+- ordinary settings controls remain non-OpenGL.
 
 The stable chat structure must remain intact:
 
