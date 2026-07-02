@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.data
 
+import com.yuchen.ailedger.service.AssistantMemoryManagementRequest
 import com.yuchen.ailedger.service.SupabaseUserSession
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -98,5 +99,20 @@ class AssistantMemorySessionGuardTest {
         val consumed = AssistantMemoryRequestContextRuntime.consumeCurrentThread()
         assertEquals(ticketA, consumed?.ticket)
         assertFalse(AssistantAccountSessionRuntime.isCurrent(requireNotNull(consumed?.ticket)))
+    }
+
+    @Test
+    fun managementRequestKeepsTheAccountThatCreatedIt() {
+        val ticketA = requireNotNull(AssistantAccountSessionRuntime.updateUser("user-a"))
+        val request = AssistantMemoryManagementRequest(
+            operationId = "operation-a",
+            action = "upsert",
+            content = "用户住在成都",
+        )
+
+        AssistantAccountSessionRuntime.updateUser("user-b")
+
+        assertEquals(ticketA, request.accountTicket)
+        assertFalse(AssistantAccountSessionRuntime.isCurrent(requireNotNull(request.accountTicket)))
     }
 }
