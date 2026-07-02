@@ -16,6 +16,7 @@ internal class AiWorkerHttpTransport(
         payload: JSONObject,
         route: AiWorkerModelRoute,
     ): AiChatResponse {
+        AssistantMemoryUsageBridge.beginTransportAttempt()
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
@@ -64,6 +65,7 @@ internal class AiWorkerHttpTransport(
         route: AiWorkerModelRoute,
         onDelta: (String) -> Unit,
     ): AiChatResponse {
+        AssistantMemoryUsageBridge.beginTransportAttempt()
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
