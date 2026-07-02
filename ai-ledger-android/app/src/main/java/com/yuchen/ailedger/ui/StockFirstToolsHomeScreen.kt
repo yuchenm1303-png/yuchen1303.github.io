@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -98,10 +97,8 @@ fun StockFirstToolsHomeScreen(
     onOpenAssistant: () -> Unit,
 ) {
     val pageVisible = LocalPageVisible.current
-    val pageState = if (pageVisible) {
-        state
-    } else {
-        remember(pageVisible) { state.copy(motionIntensity = 0f) }
+    val pageState = if (pageVisible) state else remember(pageVisible) {
+        state.copy(motionIntensity = 0f)
     }
     val selectedTool = pageState.selectedTool
     val heroViewModel: ToolsMarketHeroViewModel = viewModel()
@@ -115,63 +112,57 @@ fun StockFirstToolsHomeScreen(
         onDispose { heroViewModel.setVisible(false) }
     }
 
-    if (selectedTool == ToolDestination.LedgerCenter || selectedTool == ToolDestination.Statistics) {
-        val ledgerViewModel: LedgerViewModel = viewModel()
-        GlassSceneScope(GlassSceneGroup.LedgerCenterPage) {
-            NativeLedgerCenterScreen(
-                appState = pageState,
-                ledgerViewModel = ledgerViewModel,
-                statisticsOnly = selectedTool == ToolDestination.Statistics,
-                onBack = onCloseTool,
-                onOpenAssistant = onOpenAssistant,
-            )
+    when (selectedTool) {
+        ToolDestination.LedgerCenter,
+        ToolDestination.Statistics -> {
+            val ledgerViewModel: LedgerViewModel = viewModel()
+            GlassSceneScope(GlassSceneGroup.LedgerCenterPage) {
+                NativeLedgerCenterScreen(
+                    appState = pageState,
+                    ledgerViewModel = ledgerViewModel,
+                    statisticsOnly = selectedTool == ToolDestination.Statistics,
+                    onBack = onCloseTool,
+                    onOpenAssistant = onOpenAssistant,
+                )
+            }
+            return
         }
-        return
-    }
 
-    if (selectedTool == ToolDestination.Reminder) {
-        GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
-            PlanCenterScreen(
+        ToolDestination.Reminder -> {
+            GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
+                PlanCenterScreen(state = pageState, onBack = onCloseTool)
+            }
+            return
+        }
+
+        ToolDestination.AppControl -> {
+            AppManagementScreen(state = pageState, onBack = onCloseTool)
+            return
+        }
+
+        ToolDestination.StorageManagement -> {
+            StorageManagementPhaseThreeHubScreen(state = pageState, onBack = onCloseTool)
+            return
+        }
+
+        ToolDestination.Shortcuts -> {
+            GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
+                OperationLearningScreen(state = pageState, onBack = onCloseTool)
+            }
+            return
+        }
+
+        null,
+        ToolDestination.StockMarket -> Unit
+
+        else -> {
+            PendingToolScreen(
+                destination = selectedTool,
                 state = pageState,
                 onBack = onCloseTool,
             )
+            return
         }
-        return
-    }
-
-    if (selectedTool == ToolDestination.AppControl) {
-        AppManagementScreen(
-            state = pageState,
-            onBack = onCloseTool,
-        )
-        return
-    }
-
-    if (selectedTool == ToolDestination.StorageManagement) {
-        StorageManagementPhaseThreeHubScreen(
-            state = pageState,
-            onBack = onCloseTool,
-        )
-        return
-    }
-
-    if (selectedTool == ToolDestination.Shortcuts) {
-        GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
-            OperationLearningScreen(
-                state = pageState,
-                onBack = onCloseTool,
-            )
-        }
-        return
-    }
-
-    if (selectedTool != null && selectedTool != ToolDestination.StockMarket) {
-        PendingToolScreen(
-            destination = selectedTool,
-            state = pageState,
-            onBack = onCloseTool,
-        )
-        return
     }
 
     val ledgerViewModel: LedgerViewModel = viewModel()
@@ -184,13 +175,19 @@ fun StockFirstToolsHomeScreen(
 
     val monthKey = remember(ledgerState.records) { LedgerStore.todayIso().take(7) }
     val monthRecords = remember(ledgerState.records, monthKey) {
-        ledgerState.records.filter { LedgerStore.normalizeDate(it.dateLabel).startsWith(monthKey) }
+        ledgerState.records.filter {
+            LedgerStore.normalizeDate(it.dateLabel).startsWith(monthKey)
+        }
     }
     val monthExpense = remember(monthRecords) {
-        monthRecords.filter { it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }
+        monthRecords
+            .filter { it.type == LedgerRecordType.Expense }
+            .sumOf { it.amount.toDouble() }
     }
     val monthIncome = remember(monthRecords) {
-        monthRecords.filter { it.type == LedgerRecordType.Income }.sumOf { it.amount.toDouble() }
+        monthRecords
+            .filter { it.type == LedgerRecordType.Income }
+            .sumOf { it.amount.toDouble() }
     }
     val budget = ledgerState.budgetText.toDoubleOrNull() ?: 0.0
     val budgetRemaining = (budget - monthExpense).coerceAtLeast(0.0)
@@ -307,13 +304,17 @@ private fun rememberDeviceToolsSummary(active: Boolean): DeviceToolsSummary {
                 @Suppress("DEPRECATION")
                 context.packageManager.getInstalledApplications(0)
             }.getOrDefault(emptyList())
-            val statFs = runCatching { StatFs(Environment.getDataDirectory().absolutePath) }.getOrNull()
+            val statFs = runCatching {
+                StatFs(Environment.getDataDirectory().absolutePath)
+            }.getOrNull()
             val totalBytes = statFs?.totalBytes ?: 0L
             val freeBytes = statFs?.availableBytes ?: 0L
             DeviceToolsSummary(
                 loaded = true,
                 installedApps = applications.size,
-                userApps = applications.count { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 },
+                userApps = applications.count {
+                    it.flags and ApplicationInfo.FLAG_SYSTEM == 0
+                },
                 usedBytes = (totalBytes - freeBytes).coerceAtLeast(0L),
                 totalBytes = totalBytes,
             )
@@ -345,15 +346,36 @@ private fun PendingToolScreen(
                     onClick = onBack,
                 ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("‹ 返回", color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+                        Text(
+                            "‹ 返回",
+                            color = Color.White.copy(alpha = 0.88f),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                        )
                     }
                 }
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("TOOLS", color = DashboardMint.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text(destination.title, color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                    Text(destination.subtitle, color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp)
+                    Text(
+                        "TOOLS",
+                        color = DashboardMint.copy(alpha = 0.72f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        destination.title,
+                        color = Color.White,
+                        fontSize = 32.sp,
+                        lineHeight = 36.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        destination.subtitle,
+                        color = Color.White.copy(alpha = 0.56f),
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                    )
                 }
             }
             item {
@@ -373,9 +395,14 @@ private fun PendingToolScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text("功能正在建设", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Black)
                         Text(
-                            "入口已经纳入统一路由，后续会按独立功能批次完成，不再出现点击后无反馈的情况。",
+                            "功能正在建设",
+                            color = Color.White,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                        Text(
+                            "入口已经纳入统一路由，后续会按独立功能批次完成。",
                             color = Color.White.copy(alpha = 0.52f),
                             fontSize = 12.sp,
                             lineHeight = 18.sp,
@@ -408,7 +435,9 @@ private fun ToolsEntrance(
             if (delayMs > 0L) delay(delayMs)
             visible = true
         } else {
-            if (pageLeaving && delayMs > 0L) delay((delayMs / 18L).coerceAtMost(28L))
+            if (pageLeaving && delayMs > 0L) {
+                delay((delayMs / 18L).coerceAtMost(28L))
+            }
             visible = false
         }
     }
@@ -417,10 +446,23 @@ private fun ToolsEntrance(
         visible = visible,
         modifier = modifier,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-            slideInVertically(spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
-            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)),
+            slideInVertically(
+                spring(
+                    dampingRatio = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            ) { initialOffsetY } +
+            scaleIn(
+                initialScale = initialScale,
+                animationSpec = spring(
+                    dampingRatio = 0.82f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            ),
         exit = fadeOut(tween(96)) +
-            slideOutVertically(tween(108)) { (-initialOffsetY / 4).coerceIn(-8, 8) } +
+            slideOutVertically(tween(108)) {
+                (-initialOffsetY / 4).coerceIn(-8, 8)
+            } +
             scaleOut(targetScale = 0.992f, animationSpec = tween(112)),
     ) {
         content()
@@ -430,7 +472,13 @@ private fun ToolsEntrance(
 @Composable
 private fun StockToolsHeader() {
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("功能", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+        Text(
+            "功能",
+            color = Color.White,
+            fontSize = 32.sp,
+            lineHeight = 36.sp,
+            fontWeight = FontWeight.Black,
+        )
         Text(
             "重要信息与常用能力，一眼就能找到。",
             color = Color.White.copy(alpha = 0.50f),
@@ -467,7 +515,7 @@ private fun StockMarketHeroEntry(
             modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -490,7 +538,9 @@ private fun StockMarketHeroEntry(
                     ) {
                         Text(
                             "●  $statusLabel",
-                            color = DashboardMint.copy(alpha = if (heroUi.loading) 0.58f else 0.92f),
+                            color = DashboardMint.copy(
+                                alpha = if (heroUi.loading) 0.58f else 0.92f,
+                            ),
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                             maxLines = 1,
@@ -507,8 +557,8 @@ private fun StockMarketHeroEntry(
                 )
             }
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth().height(108.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 heroUi.indices.take(3).forEachIndexed { index, item ->
@@ -555,7 +605,9 @@ private fun StockHeroIndexMetric(
         )
         Text(
             item.price.ifBlank { "--" },
-            color = Color.White.copy(alpha = if (item.hasRealQuote) 0.96f else 0.54f),
+            color = Color.White.copy(
+                alpha = if (item.hasRealQuote) 0.96f else 0.54f,
+            ),
             fontSize = 16.sp,
             lineHeight = 19.sp,
             fontWeight = FontWeight.Black,
@@ -564,7 +616,9 @@ private fun StockHeroIndexMetric(
         )
         Text(
             heroIndexChangeText(item),
-            color = tone.copy(alpha = if (item.hasRealQuote) 0.92f else 0.60f),
+            color = tone.copy(
+                alpha = if (item.hasRealQuote) 0.92f else 0.60f,
+            ),
             fontSize = 9.sp,
             lineHeight = 11.sp,
             fontWeight = FontWeight.Bold,
@@ -593,7 +647,9 @@ private fun StockHeroSparkline(
     tone: Color,
     modifier: Modifier = Modifier,
 ) {
-    val rows = remember(points) { points.filter { it.price.isFinite() && it.price > 0f } }
+    val rows = remember(points) {
+        points.filter { it.price.isFinite() && it.price > 0f }
+    }
     Canvas(modifier = modifier) {
         val inset = 1.dp.toPx()
         val left = inset
@@ -721,7 +777,12 @@ private fun DashboardCardHeader(
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
-        Text("›", color = Color.White.copy(alpha = 0.42f), fontSize = 28.sp, lineHeight = 28.sp)
+        Text(
+            "›",
+            color = Color.White.copy(alpha = 0.42f),
+            fontSize = 28.sp,
+            lineHeight = 28.sp,
+        )
     }
 }
 
@@ -745,7 +806,11 @@ private fun LedgerSummaryCard(
             ) {
                 SummaryValue(
                     label = "本月支出",
-                    value = if (monthExpense > 0.0) "¥${formatMoney(monthExpense)}" else "暂无支出",
+                    value = if (monthExpense > 0.0) {
+                        "¥${formatMoney(monthExpense)}"
+                    } else {
+                        "暂无支出"
+                    },
                     modifier = Modifier.weight(1f),
                 )
                 Box(
@@ -756,7 +821,11 @@ private fun LedgerSummaryCard(
                 )
                 SummaryValue(
                     label = "预算剩余",
-                    value = if (budgetRemaining > 0.0) "¥${formatMoney(budgetRemaining)}" else "未设置",
+                    value = if (budgetRemaining > 0.0) {
+                        "¥${formatMoney(budgetRemaining)}"
+                    } else {
+                        "未设置"
+                    },
                     modifier = Modifier.weight(1f).padding(start = 10.dp),
                 )
             }
@@ -791,10 +860,18 @@ private fun StatisticsSummaryCard(
                         lineHeight = 32.sp,
                         fontWeight = FontWeight.Black,
                     )
-                    Text("本月记录", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp)
+                    Text(
+                        "本月记录",
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 10.5.sp,
+                    )
                     Text(
                         "结余 ${signedMoney(monthIncome - monthExpense)}",
-                        color = if (monthIncome - monthExpense >= 0.0) DashboardMint else DashboardWarm,
+                        color = if (monthIncome - monthExpense >= 0.0) {
+                            DashboardMint
+                        } else {
+                            DashboardWarm
+                        },
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -830,10 +907,22 @@ private fun PlanSummaryCard(
         ) {
             DashboardIcon(symbol = "✓", tone = DashboardViolet)
             Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("计划", color = Color.White.copy(alpha = 0.95f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
-                    if (title.isNullOrBlank()) "还没有创建计划" else "下一项：$title",
+                    "计划",
+                    color = Color.White.copy(alpha = 0.95f),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    if (title.isNullOrBlank()) {
+                        "还没有创建计划"
+                    } else {
+                        "下一项：$title"
+                    },
                     color = Color.White.copy(alpha = 0.54f),
                     fontSize = 12.5.sp,
                     maxLines = 1,
@@ -882,7 +971,11 @@ private fun AppControlSummaryCard(
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    if (loaded) "其中 $userApps 个用户应用" else "仅在进入功能页时读取一次",
+                    if (loaded) {
+                        "其中 $userApps 个用户应用"
+                    } else {
+                        "仅在进入功能页时读取一次"
+                    },
                     color = Color.White.copy(alpha = 0.46f),
                     fontSize = 10.sp,
                     maxLines = 1,
@@ -908,7 +1001,12 @@ private fun GenericAppDot(label: String, tone: Color) {
             .background(tone.copy(alpha = 0.16f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = tone.copy(alpha = 0.94f), fontSize = 9.sp, fontWeight = FontWeight.Black)
+        Text(
+            label,
+            color = tone.copy(alpha = 0.94f),
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Black,
+        )
     }
 }
 
@@ -921,7 +1019,11 @@ private fun StorageSummaryCard(
     modifier: Modifier,
     onClick: () -> Unit,
 ) {
-    val ratio = if (totalBytes > 0L) (usedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+    val ratio = if (totalBytes > 0L) {
+        (usedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
     DashboardShellCard(state, modifier, onClick) {
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
@@ -932,17 +1034,32 @@ private fun StorageSummaryCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("已用空间", color = Color.White.copy(alpha = 0.47f), fontSize = 10.5.sp)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     Text(
-                        if (loaded && totalBytes > 0L) formatStorage(usedBytes) else "正在读取",
+                        "已用空间",
+                        color = Color.White.copy(alpha = 0.47f),
+                        fontSize = 10.5.sp,
+                    )
+                    Text(
+                        if (loaded && totalBytes > 0L) {
+                            formatStorage(usedBytes)
+                        } else {
+                            "正在读取"
+                        },
                         color = Color.White.copy(alpha = 0.95f),
                         fontSize = 20.sp,
                         lineHeight = 23.sp,
                         fontWeight = FontWeight.Black,
                     )
                     Text(
-                        if (loaded && totalBytes > 0L) "共 ${formatStorage(totalBytes)}" else "设备容量",
+                        if (loaded && totalBytes > 0L) {
+                            "共 ${formatStorage(totalBytes)}"
+                        } else {
+                            "设备容量"
+                        },
                         color = Color.White.copy(alpha = 0.43f),
                         fontSize = 9.5.sp,
                     )
@@ -972,10 +1089,22 @@ private fun OperationLearningSummaryCard(
         ) {
             DashboardIcon(symbol = "◇", tone = DashboardWarm)
             Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("操作学习", color = Color.White.copy(alpha = 0.95f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
                 Text(
-                    if (title.isNullOrBlank()) "演示一次操作，生成可审核流程" else "最近流程：$title",
+                    "操作学习",
+                    color = Color.White.copy(alpha = 0.95f),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    if (title.isNullOrBlank()) {
+                        "演示一次操作，生成可审核流程"
+                    } else {
+                        "最近流程：$title"
+                    },
                     color = Color.White.copy(alpha = 0.52f),
                     fontSize = 12.sp,
                     maxLines = 1,
@@ -987,9 +1116,17 @@ private fun OperationLearningSummaryCard(
                     fontSize = 9.5.sp,
                 )
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
                 Text("状态", color = Color.White.copy(alpha = 0.38f), fontSize = 9.5.sp)
-                Text(status, color = DashboardBlue.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    status,
+                    color = DashboardBlue.copy(alpha = 0.92f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
             }
             Spacer(Modifier.width(9.dp))
             Text("›", color = Color.White.copy(alpha = 0.42f), fontSize = 28.sp)
@@ -1003,7 +1140,10 @@ private fun SummaryValue(
     value: String,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
         Text(label, color = Color.White.copy(alpha = 0.45f), fontSize = 9.5.sp)
         Text(
             value,
@@ -1026,14 +1166,19 @@ private fun MiniBarChart(
     Canvas(modifier = modifier) {
         if (values.isEmpty()) return@Canvas
         val gap = 4.dp.toPx()
-        val barWidth = ((size.width - gap * (values.size - 1)) / values.size).coerceAtLeast(2.dp.toPx())
+        val barWidth = (
+            (size.width - gap * (values.size - 1)) / values.size
+        ).coerceAtLeast(2.dp.toPx())
         values.forEachIndexed { index, value ->
             val normalized = value.coerceIn(0.08f, 1f)
-            val height = size.height * normalized
+            val barHeight = size.height * normalized
             drawRoundRect(
                 color = tone.copy(alpha = 0.30f + normalized * 0.45f),
-                topLeft = Offset(index * (barWidth + gap), size.height - height),
-                size = Size(barWidth, height),
+                topLeft = Offset(
+                    index * (barWidth + gap),
+                    size.height - barHeight,
+                ),
+                size = Size(barWidth, barHeight),
                 cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
             )
         }
@@ -1072,7 +1217,8 @@ private fun StorageRing(
     }
 }
 
-private fun formatMoney(value: Double): String = DecimalFormat("#,##0.##").format(value)
+private fun formatMoney(value: Double): String =
+    DecimalFormat("#,##0.##").format(value)
 
 private fun signedMoney(value: Double): String {
     val sign = if (value >= 0.0) "+" else "-"
