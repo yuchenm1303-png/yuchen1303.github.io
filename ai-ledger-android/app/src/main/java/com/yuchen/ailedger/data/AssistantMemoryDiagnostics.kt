@@ -183,11 +183,41 @@ object AssistantMemoryDiagnostics {
             ?: "local-${System.currentTimeMillis()}"
         val error = failure?.message.orEmpty().trim().take(600)
             .ifBlank { response?.optString("memoryError").orEmpty().trim().take(600) }
-        val mutationError = mutation?.optString("error")
-            ?.ifBlank { response.optString("memoryMutationError") }
-            ?.trim()
-            ?.take(600)
-            .orEmpty()
+        val mutationAction = mutation?.optString("action").orEmpty()
+            .ifBlank { response?.optString("memoryMutationAction").orEmpty() }
+            .trim()
+            .take(80)
+        val mutationStatus = mutation?.optString("status").orEmpty()
+            .ifBlank { response?.optString("memoryMutationStatus").orEmpty() }
+            .trim()
+            .take(120)
+        val mutationOperationId = mutation?.optString("operationId").orEmpty()
+            .ifBlank { mutation?.optString("operation_id").orEmpty() }
+            .ifBlank { response?.optString("memoryMutationOperationId").orEmpty() }
+            .trim()
+            .take(180)
+        val mutationAffectedCount = if (mutation != null) {
+            mutation.optInt("affectedCount", mutation.optInt("affected_count", 0))
+        } else {
+            response?.optInt("memoryMutationAffectedCount", 0) ?: 0
+        }
+        val mutationIdempotentReplay = if (mutation != null) {
+            mutation.optBoolean(
+                "idempotentReplay",
+                mutation.optBoolean("idempotent_replay", false),
+            )
+        } else {
+            response?.optBoolean("memoryMutationIdempotentReplay", false) == true
+        }
+        val mutationRequiresClarification = if (mutation != null) {
+            mutation.optBoolean("requiresClarification", false)
+        } else {
+            response?.optBoolean("memoryMutationRequiresClarification", false) == true
+        }
+        val mutationError = mutation?.optString("error").orEmpty()
+            .ifBlank { response?.optString("memoryMutationError").orEmpty() }
+            .trim()
+            .take(600)
         val hasMemoryMetadata = response?.let {
             it.has("memoryStatus") || it.has("memoryUsed") || it.has("memoryRequestId")
         } == true
@@ -200,15 +230,13 @@ object AssistantMemoryDiagnostics {
                     .trim()
                     .take(1_500)
             },
-            replyPreview = response?.optString("reply")
-                ?.ifBlank { response.optString("response") }
-                ?.trim()
-                ?.take(1_000)
-                .orEmpty(),
-            model = response?.optString("model")
-                ?.ifBlank { payload.optString("model") }
-                ?.trim()
-                .orEmpty(),
+            replyPreview = response?.optString("reply").orEmpty()
+                .ifBlank { response?.optString("response").orEmpty() }
+                .trim()
+                .take(1_000),
+            model = response?.optString("model").orEmpty()
+                .ifBlank { payload.optString("model") }
+                .trim(),
             backendVersion = response?.optString("version").orEmpty().trim(),
             requestMode = payload.optString("memoryMode")
                 .ifBlank { if (payload.optBoolean("memoryEnabled", false)) "legacy_auto" else "off" },
@@ -243,32 +271,14 @@ object AssistantMemoryDiagnostics {
             traceAvailable = trace.length() > 0,
             mutationRequested = response?.optBoolean("memoryMutationRequested", mutation != null) == true,
             mutationHandled = response?.optBoolean("memoryMutationHandled", mutation != null) == true,
-            mutationAction = mutation?.optString("action")
-                ?.ifBlank { response.optString("memoryMutationAction") }
-                ?.trim()
-                ?.take(80)
-                .orEmpty(),
-            mutationStatus = mutation?.optString("status")
-                ?.ifBlank { response.optString("memoryMutationStatus") }
-                ?.trim()
-                ?.take(120)
-                .orEmpty(),
+            mutationAction = mutationAction,
+            mutationStatus = mutationStatus,
             mutationApplied = mutation?.optBoolean("applied", false)
                 ?: (response?.optBoolean("memoryMutationApplied", false) == true),
-            mutationOperationId = mutation?.optString("operationId")
-                ?.ifBlank { mutation.optString("operation_id") }
-                ?.ifBlank { response.optString("memoryMutationOperationId") }
-                ?.trim()
-                ?.take(180)
-                .orEmpty(),
-            mutationAffectedCount = mutation?.optInt("affectedCount", mutation.optInt("affected_count", 0))
-                ?: (response?.optInt("memoryMutationAffectedCount", 0) ?: 0),
-            mutationIdempotentReplay = mutation?.optBoolean(
-                "idempotentReplay",
-                mutation.optBoolean("idempotent_replay", false),
-            ) ?: (response?.optBoolean("memoryMutationIdempotentReplay", false) == true),
-            mutationRequiresClarification = mutation?.optBoolean("requiresClarification", false)
-                ?: (response?.optBoolean("memoryMutationRequiresClarification", false) == true),
+            mutationOperationId = mutationOperationId,
+            mutationAffectedCount = mutationAffectedCount.coerceAtLeast(0),
+            mutationIdempotentReplay = mutationIdempotentReplay,
+            mutationRequiresClarification = mutationRequiresClarification,
             mutationTrigger = response?.optString("memoryMutationTrigger").orEmpty().trim().take(120),
             mutationRouterStatus = response?.optString("memoryMutationRouterStatus").orEmpty().trim().take(120),
             mutationTotalMs = response?.optLong("memoryMutationTotalMs", 0L) ?: 0L,
