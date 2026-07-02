@@ -14,6 +14,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "operation_workflows")
 data class OperationWorkflowEntity(
@@ -25,6 +27,8 @@ data class OperationWorkflowEntity(
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
     val sourceDemonstrationId: String?,
+    val riskPolicyJson: String = "{}",
+    val recoveryPolicyJson: String = "{}",
 )
 
 @Entity(
@@ -530,13 +534,24 @@ abstract class OperationWorkflowDao {
         OperationDemonstrationEntity::class,
         OperationWorkflowRunEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class OperationWorkflowDatabase : RoomDatabase() {
     abstract fun workflowDao(): OperationWorkflowDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE operation_workflows ADD COLUMN riskPolicyJson TEXT NOT NULL DEFAULT '{}'",
+                )
+                database.execSQL(
+                    "ALTER TABLE operation_workflows ADD COLUMN recoveryPolicyJson TEXT NOT NULL DEFAULT '{}'",
+                )
+            }
+        }
+
         @Volatile
         private var instance: OperationWorkflowDatabase? = null
 
@@ -546,7 +561,10 @@ abstract class OperationWorkflowDatabase : RoomDatabase() {
                     context.applicationContext,
                     OperationWorkflowDatabase::class.java,
                     "operation_learning.db",
-                ).build().also { instance = it }
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
+                    .also { instance = it }
             }
         }
     }
