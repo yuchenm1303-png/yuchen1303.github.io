@@ -245,6 +245,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
             )
             return
         }
+        val normalizedCategory = normalizeMemoryCategory(category)
         runExclusiveOperation("正在保存记忆…") { session ->
             val receipt = client.mutate(
                 session,
@@ -252,13 +253,14 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     operationId = newMemoryOperationId(),
                     action = "upsert",
                     content = clean,
-                    category = normalizeMemoryCategory(category),
+                    category = normalizedCategory,
                     scope = normalizeMemoryScope(scope),
                     priority = normalizeMemoryPriority(priority),
                     pinned = pinned,
                     validUntil = normalizeMemoryTimestamp(validUntil),
                     sourceType = normalizeMemorySourceType(sourceType),
                     confidence = normalizeMemoryConfidence(confidence),
+                    layer = memoryLayerFromCategory(normalizedCategory),
                     reason = "settings_manual_create",
                 ),
             )
@@ -279,6 +281,12 @@ class AssistantMemoryRepository private constructor(context: Context) {
         val clean = normalizeMemoryContent(content) ?: return
         if (cleanId.isBlank()) return
         val currentItem = _state.value.memories.firstOrNull { it.id == cleanId }
+        val normalizedCategory = normalizeMemoryCategory(category)
+        val resolvedLayer = if (currentItem != null && currentItem.category == normalizedCategory) {
+            currentItem.layer
+        } else {
+            memoryLayerFromCategory(normalizedCategory)
+        }
         runExclusiveOperation("正在更新记忆…") { session ->
             val receipt = client.mutate(
                 session,
@@ -287,14 +295,14 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     action = "upsert",
                     targetMemoryId = cleanId,
                     content = clean,
-                    category = normalizeMemoryCategory(category),
+                    category = normalizedCategory,
                     scope = normalizeMemoryScope(scope),
                     priority = normalizeMemoryPriority(priority),
                     pinned = pinned,
                     validUntil = normalizeMemoryTimestamp(validUntil),
                     sourceType = "manual",
                     confidence = currentItem?.confidence ?: 1.0,
-                    layer = currentItem?.layer.orEmpty(),
+                    layer = resolvedLayer,
                     namespaceType = currentItem?.namespaceType.orEmpty().ifBlank { "account" },
                     namespaceId = currentItem?.namespaceId.orEmpty().ifBlank { "account" },
                     subjectKey = currentItem?.subjectKey.orEmpty(),
@@ -504,18 +512,22 @@ class AssistantMemoryRepository private constructor(context: Context) {
     }
 
     /**
-     * 同步抢占操作令牌，再启动 IO。这样第二次快速点击不会在 saving=true 发布前排进 Mutex。
+     * 调度前同步抢占操作令牌，阻止第二次快速点击排进 Mutex；状态发布仍在 Mutex 内完成，
+     * 避免与聊天回执触发的库存刷新发生丢失更新。
      */
     private fun runExclusiveOperation(
         loadingMessage: String,
         block: suspend (SupabaseUserSession) -> Unit,
     ) {
-        val current = _state.value
-        if (!current.canManage || !operationInFlight.compareAndSet(false, true)) return
-        _state.value = current.copy(saving = true, message = loadingMessage, error = false)
+        if (!_state.value.canManage || !operationInFlight.compareAndSet(false, true)) return
         scope.launch {
             try {
                 operationMutex.withLock {
+                    _state.value = _state.value.copy(
+                        saving = true,
+                        message = loadingMessage,
+                        error = false,
+                    )
                     val session = currentSession
                     if (session == null || !session.isUsable) {
                         _state.value = _state.value.copy(
@@ -910,6 +922,15 @@ private fun normalizeMemoryNamespaceType(value: String): String {
 private fun normalizeSensitivePolicy(value: String): String {
     val clean = value.trim().lowercase()
     return clean.takeIf { it in ALLOWED_SENSITIVE_POLICIES } ?: "confirm"
+}
+
+private fun memoryLayerFromCategory(category: String): String = when (normalizeMemoryCategory(category)) {
+    "rule" -> "explicit_core"
+    "preference" -> "preference"
+    "project" -> "project"
+    "episode" -> "episodic"
+    "reflection" -> "session"
+    else -> "profile"
 }
 
 private fun categoryFromLayer(layer: String): String = when (layer.trim().lowercase()) {
