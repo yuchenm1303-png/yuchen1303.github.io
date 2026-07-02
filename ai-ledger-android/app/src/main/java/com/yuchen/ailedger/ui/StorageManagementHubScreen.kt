@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -48,6 +47,7 @@ import kotlinx.coroutines.withContext
 fun StorageManagementHubScreen(
     state: AssistantUiState,
     onBack: () -> Unit,
+    additionalFeatureEntries: List<StorageInlineFeatureEntry> = emptyList(),
 ) {
     var showIntelligence by remember { mutableStateOf(false) }
     if (showIntelligence) {
@@ -58,34 +58,23 @@ fun StorageManagementHubScreen(
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        StorageManagementScreen(
-            state = state,
-            onBack = onBack,
-        )
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity,
-            motionIntensity = state.motionIntensity,
-            radius = 999,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 14.dp)
-                .width(112.dp)
-                .height(40.dp),
-            role = GlassRole.Chip,
-            onClick = { showIntelligence = true },
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(
-                    "智能分析 ›",
-                    color = IntelligenceAccent.copy(alpha = 0.92f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                )
-            }
-        }
-    }
+    StorageManagementScreen(
+        state = state,
+        onBack = onBack,
+        inlineFeatureContent = {
+            StorageInlineFeatureSection(
+                state = state,
+                entries = listOf(
+                    StorageInlineFeatureEntry(
+                        title = "智能分析",
+                        subtitle = "完全重复文件、长期未修改大文件与清理记录",
+                        tone = IntelligenceAccent,
+                        onClick = { showIntelligence = true },
+                    ),
+                ) + additionalFeatureEntries,
+            )
+        },
+    )
 }
 
 @Composable
