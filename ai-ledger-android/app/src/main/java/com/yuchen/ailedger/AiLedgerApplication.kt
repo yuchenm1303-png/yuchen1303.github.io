@@ -3,12 +3,18 @@ package com.yuchen.ailedger
 import android.app.Application
 import android.content.Context
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
+import com.yuchen.ailedger.data.AssistantCustomInstructionsRepository
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
 import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
+import com.yuchen.ailedger.data.AssistantMemoryRepository
+import com.yuchen.ailedger.data.LedgerStore
+import com.yuchen.ailedger.data.StockWatchlistRepository
 import com.yuchen.ailedger.data.SupabaseAuthRepository
+import com.yuchen.ailedger.data.UserProfileRepository
 import com.yuchen.ailedger.data.switchAccount
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
+import com.yuchen.ailedger.service.VisualAgentHudTuningStore
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
 import com.yuchen.ailedger.ui.StartupPerformanceGate
 import kotlinx.coroutines.CoroutineScope
@@ -27,13 +33,37 @@ class AiLedgerApplication : Application() {
         appContext = applicationContext
 
         applicationScope.launch {
+            var authenticatedSettingsRepositoriesReady = false
             SupabaseAuthRepository.get(applicationContext).state.collectLatest { accountState ->
                 val ticket = AssistantAccountSessionRuntime.updateSession(
                     accountState.session?.takeIf { accountState.isLoggedIn },
                 )
                 AssistantMemoryMutationRuntime.switchAccount(ticket)
                 AssistantMemoryDiagnostics.switchAccount(ticket)
+
+                if (accountState.isLoggedIn && !authenticatedSettingsRepositoriesReady) {
+                    withTimeoutOrNull(5_000L) {
+                        StartupPerformanceGate.awaitDeferredBusinessWindow()
+                    }
+                    // 只提前创建账号相关单例；真实网络与磁盘工作仍由各仓库自己的 IO Scope 执行。
+                    // 这样打开账号和记忆详情时不会在同一帧集中初始化多个仓库。
+                    UserProfileRepository.get(applicationContext)
+                    AssistantMemoryRepository.get(applicationContext)
+                    AssistantCustomInstructionsRepository.get(applicationContext)
+                    StockWatchlistRepository.get(applicationContext)
+                    authenticatedSettingsRepositoriesReady = true
+                }
             }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            withTimeoutOrNull(5_000L) {
+                StartupPerformanceGate.awaitDeferredBusinessWindow()
+            }
+            // 首屏稳定后生成一次不可变账单快照，并提前创建轻量 HUD 参数存储。
+            // 不预热图片、表情或 OpenGL，不与首页首次渲染争抢 CPU/GPU。
+            LedgerStore(applicationContext).warmUp()
+            VisualAgentHudTuningStore.get(applicationContext)
         }
 
         // 内置表情由真实消息按需加载。冷启动阶段禁止全量解压、解码 19 张 WebP，
