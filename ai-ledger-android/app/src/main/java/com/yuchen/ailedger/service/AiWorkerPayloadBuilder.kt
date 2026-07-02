@@ -1,7 +1,8 @@
 package com.yuchen.ailedger.service
 
 import com.yuchen.ailedger.AiLedgerApplication
-import com.yuchen.ailedger.data.AssistantMemoryRepository
+import com.yuchen.ailedger.data.AssistantCustomInstructionsRepository
+import com.yuchen.ailedger.data.AssistantMemoryCompiler
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -42,7 +43,14 @@ internal object AiWorkerPayloadBuilder {
         val appContext = AiLedgerApplication.contextOrNull()
         val memoryCompilation = if (!shouldStartAgent && requestText.isNotBlank()) {
             appContext?.let { context ->
-                AssistantMemoryRepository.get(context).compileForRequest(requestText)
+                AssistantMemoryCompiler.compileBackendOwned(
+                    userText = requestText,
+                    customInstructions = AssistantCustomInstructionsRepository
+                        .get(context)
+                        .state
+                        .value
+                        .effectiveText(),
+                )
             }
         } else {
             null
