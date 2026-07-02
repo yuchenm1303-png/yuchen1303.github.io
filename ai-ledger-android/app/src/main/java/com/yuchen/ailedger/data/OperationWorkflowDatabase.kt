@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Embedded
@@ -27,8 +28,8 @@ data class OperationWorkflowEntity(
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
     val sourceDemonstrationId: String?,
-    val riskPolicyJson: String = "{}",
-    val recoveryPolicyJson: String = "{}",
+    @ColumnInfo(defaultValue = "'{}'") val riskPolicyJson: String = "{}",
+    @ColumnInfo(defaultValue = "'{}'") val recoveryPolicyJson: String = "{}",
 )
 
 @Entity(
