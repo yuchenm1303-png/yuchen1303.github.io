@@ -73,10 +73,26 @@ data class AssistantMemoryDiagnosticRecord(
     val mergedCandidates: List<AssistantMemoryDiagnosticItem>,
     val error: String,
     val traceAvailable: Boolean,
+    val mutationRequested: Boolean = false,
+    val mutationHandled: Boolean = false,
+    val mutationAction: String = "",
+    val mutationStatus: String = "",
+    val mutationApplied: Boolean = false,
+    val mutationOperationId: String = "",
+    val mutationAffectedCount: Int = 0,
+    val mutationIdempotentReplay: Boolean = false,
+    val mutationRequiresClarification: Boolean = false,
+    val mutationTrigger: String = "",
+    val mutationRouterStatus: String = "",
+    val mutationTotalMs: Long = 0L,
+    val mutationStageTimings: Map<String, Long> = emptyMap(),
+    val mutationError: String = "",
 ) {
     val statusLabel: String
         get() = when {
-            error.isNotBlank() -> "错误"
+            error.isNotBlank() || mutationError.isNotBlank() -> "错误"
+            mutationApplied -> "记忆已变更"
+            mutationRequiresClarification -> "需要确认"
             memoryUsed -> "已注入 $itemCount 条"
             memoryStatus.startsWith("disabled") -> "未启用"
             degraded -> "降级未命中"
@@ -116,6 +132,20 @@ data class AssistantMemoryDiagnosticRecord(
         put("mergedCandidates", mergedCandidates.toJsonArray())
         put("error", error)
         put("traceAvailable", traceAvailable)
+        put("mutationRequested", mutationRequested)
+        put("mutationHandled", mutationHandled)
+        put("mutationAction", mutationAction)
+        put("mutationStatus", mutationStatus)
+        put("mutationApplied", mutationApplied)
+        put("mutationOperationId", mutationOperationId)
+        put("mutationAffectedCount", mutationAffectedCount)
+        put("mutationIdempotentReplay", mutationIdempotentReplay)
+        put("mutationRequiresClarification", mutationRequiresClarification)
+        put("mutationTrigger", mutationTrigger)
+        put("mutationRouterStatus", mutationRouterStatus)
+        put("mutationTotalMs", mutationTotalMs)
+        put("mutationStageTimings", JSONObject(mutationStageTimings))
+        put("mutationError", mutationError)
     }
 }
 
@@ -140,6 +170,8 @@ object AssistantMemoryDiagnostics {
         val trace = response?.optJSONObject("memoryTrace") ?: JSONObject()
         val tracePrompt = trace.optString("prompt").trim()
         val stageTimings = parseLongMap(response?.optJSONObject("memoryStageTimings"))
+        val mutation = response?.optJSONObject("memoryMutation")
+        val mutationStageTimings = parseLongMap(response?.optJSONObject("memoryMutationStageTimings"))
         val selected = parseDiagnosticItems(
             trace.optJSONArray("selectedCandidates") ?: response?.optJSONArray("memorySelectedItems"),
             fallbackStage = "selected",
@@ -151,6 +183,11 @@ object AssistantMemoryDiagnostics {
             ?: "local-${System.currentTimeMillis()}"
         val error = failure?.message.orEmpty().trim().take(600)
             .ifBlank { response?.optString("memoryError").orEmpty().trim().take(600) }
+        val mutationError = mutation?.optString("error")
+            ?.ifBlank { response.optString("memoryMutationError") }
+            ?.trim()
+            ?.take(600)
+            .orEmpty()
         val hasMemoryMetadata = response?.let {
             it.has("memoryStatus") || it.has("memoryUsed") || it.has("memoryRequestId")
         } == true
@@ -204,6 +241,39 @@ object AssistantMemoryDiagnostics {
             mergedCandidates = parseDiagnosticItems(trace.optJSONArray("mergedCandidates"), "merged"),
             error = error,
             traceAvailable = trace.length() > 0,
+            mutationRequested = response?.optBoolean("memoryMutationRequested", mutation != null) == true,
+            mutationHandled = response?.optBoolean("memoryMutationHandled", mutation != null) == true,
+            mutationAction = mutation?.optString("action")
+                ?.ifBlank { response.optString("memoryMutationAction") }
+                ?.trim()
+                ?.take(80)
+                .orEmpty(),
+            mutationStatus = mutation?.optString("status")
+                ?.ifBlank { response.optString("memoryMutationStatus") }
+                ?.trim()
+                ?.take(120)
+                .orEmpty(),
+            mutationApplied = mutation?.optBoolean("applied", false)
+                ?: (response?.optBoolean("memoryMutationApplied", false) == true),
+            mutationOperationId = mutation?.optString("operationId")
+                ?.ifBlank { mutation.optString("operation_id") }
+                ?.ifBlank { response.optString("memoryMutationOperationId") }
+                ?.trim()
+                ?.take(180)
+                .orEmpty(),
+            mutationAffectedCount = mutation?.optInt("affectedCount", mutation.optInt("affected_count", 0))
+                ?: (response?.optInt("memoryMutationAffectedCount", 0) ?: 0),
+            mutationIdempotentReplay = mutation?.optBoolean(
+                "idempotentReplay",
+                mutation.optBoolean("idempotent_replay", false),
+            ) ?: (response?.optBoolean("memoryMutationIdempotentReplay", false) == true),
+            mutationRequiresClarification = mutation?.optBoolean("requiresClarification", false)
+                ?: (response?.optBoolean("memoryMutationRequiresClarification", false) == true),
+            mutationTrigger = response?.optString("memoryMutationTrigger").orEmpty().trim().take(120),
+            mutationRouterStatus = response?.optString("memoryMutationRouterStatus").orEmpty().trim().take(120),
+            mutationTotalMs = response?.optLong("memoryMutationTotalMs", 0L) ?: 0L,
+            mutationStageTimings = mutationStageTimings,
+            mutationError = mutationError,
         )
         synchronized(lock) {
             val next = listOf(record) + mutableState.value.records.filterNot { it.requestId == requestId }
@@ -232,7 +302,7 @@ object AssistantMemoryDiagnostics {
     }
 
     private fun buildReport(records: List<AssistantMemoryDiagnosticRecord>): String = buildString {
-        appendLine("AI Ledger 逐轮记忆诊断报告 v1")
+        appendLine("AI Ledger 逐轮记忆诊断报告 v2")
         appendLine("生成时间：${formatDiagnosticTime(System.currentTimeMillis())}")
         appendLine("记录数量：${records.size}")
         appendLine("说明：报告不包含登录令牌、请求头、图片或完整聊天历史。")
@@ -247,6 +317,27 @@ object AssistantMemoryDiagnostics {
             appendLine("客户端请求：mode=${record.requestMode}, enabled=${record.requestEnabled}, schema=${record.requestSchema}")
             appendLine("最终状态：${record.memoryStatus} / used=${record.memoryUsed} / degraded=${record.degraded}")
             appendLine("来源：${record.memorySource.ifBlank { "none" }}")
+            if (record.mutationRequested || record.mutationStatus.isNotBlank()) {
+                appendLine(
+                    "记忆变更：requested=${record.mutationRequested}, handled=${record.mutationHandled}, " +
+                        "action=${record.mutationAction.ifBlank { "none" }}, " +
+                        "status=${record.mutationStatus.ifBlank { "未返回" }}, applied=${record.mutationApplied}"
+                )
+                appendLine(
+                    "事务：operationId=${record.mutationOperationId.ifBlank { "未返回" }}, " +
+                        "affected=${record.mutationAffectedCount}, replay=${record.mutationIdempotentReplay}, " +
+                        "clarification=${record.mutationRequiresClarification}"
+                )
+                appendLine(
+                    "变更路由：trigger=${record.mutationTrigger.ifBlank { "未返回" }}, " +
+                        "router=${record.mutationRouterStatus.ifBlank { "未返回" }}"
+                )
+                appendLine(
+                    "变更耗时：total=${record.mutationTotalMs}ms" +
+                        formatStageTimings(record.mutationStageTimings)
+                )
+                if (record.mutationError.isNotBlank()) appendLine("变更错误：${record.mutationError}")
+            }
             appendLine("Gate：${record.gateStatus.ifBlank { "未返回" }} / budget=${record.budgetLevel.ifBlank { "未返回" }}")
             appendLine("Embedding：${record.embeddingStatus.ifBlank { "未返回" }}")
             appendLine("检索：${record.retrievalStatus.ifBlank { "未返回" }}")
@@ -362,6 +453,20 @@ private fun JSONObject.toDiagnosticRecordOrNull(): AssistantMemoryDiagnosticReco
         mergedCandidates = parseDiagnosticItems(optJSONArray("mergedCandidates"), "merged"),
         error = optString("error"),
         traceAvailable = optBoolean("traceAvailable", false),
+        mutationRequested = optBoolean("mutationRequested", false),
+        mutationHandled = optBoolean("mutationHandled", false),
+        mutationAction = optString("mutationAction"),
+        mutationStatus = optString("mutationStatus"),
+        mutationApplied = optBoolean("mutationApplied", false),
+        mutationOperationId = optString("mutationOperationId"),
+        mutationAffectedCount = optInt("mutationAffectedCount", 0),
+        mutationIdempotentReplay = optBoolean("mutationIdempotentReplay", false),
+        mutationRequiresClarification = optBoolean("mutationRequiresClarification", false),
+        mutationTrigger = optString("mutationTrigger"),
+        mutationRouterStatus = optString("mutationRouterStatus"),
+        mutationTotalMs = optLong("mutationTotalMs", 0L),
+        mutationStageTimings = parseLongMap(optJSONObject("mutationStageTimings")),
+        mutationError = optString("mutationError"),
     )
 }
 
