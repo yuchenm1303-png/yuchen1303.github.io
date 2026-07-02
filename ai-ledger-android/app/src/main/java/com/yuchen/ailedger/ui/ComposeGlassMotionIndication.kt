@@ -48,7 +48,7 @@ private val UnifiedReleaseEasing = CubicBezierEasing(0.14f, 0f, 0.12f, 1f)
 data class ComposeGlassMotionIndication(
     val motionIntensity: Float,
     val style: ComposeGlassMotionStyle,
-    val transformContent: Boolean = true,
+    val transformContent: Boolean = false,
 ) : IndicationNodeFactory {
     override fun create(interactionSource: InteractionSource): DelegatableNode =
         ComposeGlassMotionNode(
