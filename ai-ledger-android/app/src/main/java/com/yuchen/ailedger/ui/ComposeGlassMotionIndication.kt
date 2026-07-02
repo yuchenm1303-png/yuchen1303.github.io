@@ -15,14 +15,17 @@ import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.DrawModifierNode
@@ -37,17 +40,15 @@ private val UnifiedSinkEasing = CubicBezierEasing(0.10f, 0f, 0.08f, 1f)
 private val UnifiedReleaseEasing = CubicBezierEasing(0.14f, 0f, 0.12f, 1f)
 
 /**
- * 全局普通 Compose 点击光动效。
+ * 普通 Compose 点击光动效。
  *
- * 这是纯 Compose DrawModifierNode：不进入 OpenGL、不注册 OpenGL registry，也不触发
- * geometry sync。节点由 clickable 按需创建，空闲态没有逐帧时钟。
- *
- * [transformContent] 只允许在 indication 位于容器底色、裁剪和内容之前时开启。普通
- * LocalIndication 回退只绘制光学层，避免旧组件把背景留在外层后出现“光在动、按钮不动”。
+ * 只有显式传入真实 [shape] 时才绘制或变换。这样光效路径直接由玻璃本体使用的同一个
+ * Shape 在当前真实 size、layoutDirection 和 Density 下生成，不再根据宽高猜圆角。
  */
 data class ComposeGlassMotionIndication(
     val motionIntensity: Float,
     val style: ComposeGlassMotionStyle,
+    val shape: Shape? = null,
     val transformContent: Boolean = false,
 ) : IndicationNodeFactory {
     override fun create(interactionSource: InteractionSource): DelegatableNode =
@@ -55,6 +56,7 @@ data class ComposeGlassMotionIndication(
             interactionSource = interactionSource,
             motionIntensity = motionIntensity.coerceIn(0f, 1f),
             style = style.normalized(),
+            shape = shape,
             transformContent = transformContent,
         )
 }
@@ -62,21 +64,23 @@ data class ComposeGlassMotionIndication(
 /**
  * 完整光动效点击入口。
  *
- * 必须把这个 modifier 放在 shape / clip / background 之前；这样按钮底色、内容、形变和
- * 光效共享同一个绘制坐标系，圆角裁剪也会随按钮一起运动。
+ * [shape] 必须与玻璃 Surface/容器使用同一个 Shape 实例；本 modifier 必须位于该容器的
+ * shape、背景和内容之外。按钮实体、内容与光效随后共享同一条变换和真实 Outline。
  */
 @Composable
 fun Modifier.composeGlassMotionClickable(
+    shape: Shape,
     enabled: Boolean = true,
     onClick: () -> Unit,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val motionIntensity = LocalGlassBackdrop.current?.motionIntensity ?: 1f
     val motionStyle = ComposeGlassLabState.motionStyle
-    val indication = remember(motionIntensity, motionStyle) {
+    val indication = remember(motionIntensity, motionStyle, shape) {
         ComposeGlassMotionIndication(
             motionIntensity = motionIntensity,
             style = motionStyle,
+            shape = shape,
             transformContent = true,
         )
     }
@@ -94,6 +98,7 @@ private class ComposeGlassMotionNode(
     private val interactionSource: InteractionSource,
     private val motionIntensity: Float,
     private val style: ComposeGlassMotionStyle,
+    private val shape: Shape?,
     private val transformContent: Boolean,
 ) : Modifier.Node(), DrawModifierNode {
     private val press = Animatable(0f)
@@ -107,7 +112,7 @@ private class ComposeGlassMotionNode(
     private var sweepJob: Job? = null
 
     private val enabled: Boolean
-        get() = motionIntensity > 0.02f && style.master > 0.02f
+        get() = shape != null && motionIntensity > 0.02f && style.master > 0.02f
 
     override fun onAttach() {
         if (!enabled) return
@@ -118,12 +123,14 @@ private class ComposeGlassMotionNode(
                         currentPress = interaction
                         animatePressed(interaction.pressPosition)
                     }
+
                     is PressInteraction.Release -> {
                         if (currentPress == interaction.press) {
                             currentPress = null
                             animateReleased()
                         }
                     }
+
                     is PressInteraction.Cancel -> {
                         if (currentPress == interaction.press) {
                             currentPress = null
@@ -201,7 +208,7 @@ private class ComposeGlassMotionNode(
             sweep.stop()
             sweep.animateTo(
                 0.18f * afterglowScale.coerceAtMost(1.2f),
-                tween(260, easing = FastOutSlowInEasing),
+                tween(260, easing = UnifiedReleaseEasing),
             )
             sweep.animateTo(
                 0f,
@@ -211,13 +218,17 @@ private class ComposeGlassMotionNode(
     }
 
     override fun ContentDrawScope.draw() {
-        if (!enabled) {
+        val exactShape = shape
+        if (!enabled || exactShape == null) {
             drawContent()
             return
         }
 
         val w = size.width.coerceAtLeast(1f)
         val h = size.height.coerceAtLeast(1f)
+        val exactOutlinePath = exactShape
+            .createOutline(size = size, layoutDirection = layoutDirection, density = this)
+            .toExactPath()
         val rawCenter = pressCenter
         val center = if (rawCenter.x.isFinite() && rawCenter.y.isFinite()) {
             Offset(rawCenter.x.coerceIn(0f, w), rawCenter.y.coerceIn(0f, h))
@@ -242,21 +253,7 @@ private class ComposeGlassMotionNode(
         }
 
         if (!transformContent) {
-            drawComposeGlassMotionUnderlay(
-                press = opticsPress,
-                sweep = sweepValue,
-                center = center,
-                style = style,
-                elasticity = sizeElasticity * energy,
-            )
             drawContent()
-            drawComposeGlassMotionOverlay(
-                press = opticsPress,
-                sweep = sweepValue,
-                center = center,
-                style = style,
-                elasticity = sizeElasticity * energy,
-            )
             return
         }
 
@@ -285,6 +282,7 @@ private class ComposeGlassMotionNode(
             scale(scaleX = scaleX, scaleY = scaleY, pivot = center)
         }) {
             contentScope.drawComposeGlassMotionUnderlay(
+                outlinePath = exactOutlinePath,
                 press = opticsPress,
                 sweep = sweepValue,
                 center = center,
@@ -293,6 +291,7 @@ private class ComposeGlassMotionNode(
             )
             contentScope.drawContent()
             contentScope.drawComposeGlassMotionOverlay(
+                outlinePath = exactOutlinePath,
                 press = opticsPress,
                 sweep = sweepValue,
                 center = center,
@@ -304,6 +303,7 @@ private class ComposeGlassMotionNode(
 }
 
 private fun ContentDrawScope.drawComposeGlassMotionUnderlay(
+    outlinePath: Path,
     press: Float,
     sweep: Float,
     center: Offset,
@@ -320,57 +320,55 @@ private fun ContentDrawScope.drawComposeGlassMotionUnderlay(
     val sweepStrength = style.sweep.coerceIn(0f, 1.5f)
     val sweepProgress = composeGlassSmoothStep((sweep / 1.18f).coerceIn(0f, 1f))
     val sweepX = -0.36f + sweepProgress * 1.66f
-    val radius = composeGlassAdaptiveRadius(w, h)
-    val corner = CornerRadius(radius, radius)
 
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.092f * p * touch),
-                Color(0xFF9DFFF2).copy(alpha = 0.040f * p * touch),
-                Color(0xFFFF9BE9).copy(alpha = 0.018f * p * prism),
-                Color.Transparent,
+    clipPath(outlinePath) {
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.092f * p * touch),
+                    Color(0xFF9DFFF2).copy(alpha = 0.040f * p * touch),
+                    Color(0xFFFF9BE9).copy(alpha = 0.018f * p * prism),
+                    Color.Transparent,
+                ),
+                center = center,
+                radius = maxSide * (0.50f + 0.26f * p),
             ),
-            center = center,
-            radius = maxSide * (0.50f + 0.26f * p),
-        ),
-        size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Screen,
-    )
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color(0xFFFF7AD9).copy(alpha = 0.082f * p * prism * sweepStrength),
-                Color(0xFFFFD166).copy(alpha = 0.052f * p * prism * sweepStrength),
-                Color(0xFF7CFFEA).copy(alpha = 0.096f * p * prism * sweepStrength),
-                Color(0xFF8EA2FF).copy(alpha = 0.072f * p * prism * sweepStrength),
-                Color.Transparent,
+            size = Size(w, h),
+            blendMode = BlendMode.Screen,
+        )
+        drawRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color(0xFFFF7AD9).copy(alpha = 0.082f * p * prism * sweepStrength),
+                    Color(0xFFFFD166).copy(alpha = 0.052f * p * prism * sweepStrength),
+                    Color(0xFF7CFFEA).copy(alpha = 0.096f * p * prism * sweepStrength),
+                    Color(0xFF8EA2FF).copy(alpha = 0.072f * p * prism * sweepStrength),
+                    Color.Transparent,
+                ),
+                start = Offset(w * (sweepX - 0.46f), h * -0.10f),
+                end = Offset(w * (sweepX + 0.58f), h * 1.08f),
             ),
-            start = Offset(w * (sweepX - 0.46f), h * -0.10f),
-            end = Offset(w * (sweepX + 0.58f), h * 1.08f),
-        ),
-        size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Screen,
-    )
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color(0xFF04112A).copy(alpha = 0.016f * p),
-                Color(0xFF00030A).copy(alpha = 0.062f * p),
+            size = Size(w, h),
+            blendMode = BlendMode.Screen,
+        )
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFF04112A).copy(alpha = 0.016f * p),
+                    Color(0xFF00030A).copy(alpha = 0.062f * p),
+                ),
+                center = center,
+                radius = maxSide * (0.76f + 0.20f * p),
             ),
-            center = center,
-            radius = maxSide * (0.76f + 0.20f * p),
-        ),
-        size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Multiply,
-    )
+            size = Size(w, h),
+            blendMode = BlendMode.Multiply,
+        )
+    }
 }
 
 private fun ContentDrawScope.drawComposeGlassMotionOverlay(
+    outlinePath: Path,
     press: Float,
     sweep: Float,
     center: Offset,
@@ -387,74 +385,61 @@ private fun ContentDrawScope.drawComposeGlassMotionOverlay(
     val sweepStrength = style.sweep.coerceIn(0f, 1.5f)
     val sweepProgress = composeGlassSmoothStep((sweep / 1.18f).coerceIn(0f, 1f))
     val sweepX = -0.36f + sweepProgress * 1.66f
-    val radius = composeGlassAdaptiveRadius(w, h)
-    val corner = CornerRadius(radius, radius)
-    val inset = 0.62.dp.toPx()
-    val rimSize = Size(
-        (w - inset * 2f).coerceAtLeast(1f),
-        (h - inset * 2f).coerceAtLeast(1f),
-    )
 
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.152f * p * touch),
-                Color(0xFF9DFFF1).copy(alpha = 0.068f * p * touch),
-                Color(0xFFFF8FE7).copy(alpha = 0.032f * p * prism),
-                Color.Transparent,
+    clipPath(outlinePath) {
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.152f * p * touch),
+                    Color(0xFF9DFFF1).copy(alpha = 0.068f * p * touch),
+                    Color(0xFFFF8FE7).copy(alpha = 0.032f * p * prism),
+                    Color.Transparent,
+                ),
+                center = center,
+                radius = maxSide * (0.32f + 0.12f * p),
             ),
-            center = center,
-            radius = maxSide * (0.32f + 0.12f * p),
-        ),
-        size = Size(w, h),
-        cornerRadius = corner,
-        blendMode = BlendMode.Screen,
-    )
-    drawRoundRect(
-        brush = Brush.linearGradient(
-            colors = listOf(
-                Color.Transparent,
-                Color(0xFFFF72D2).copy(alpha = 0.23f * p * prism * sweepStrength),
-                Color(0xFFFFF0A8).copy(alpha = 0.21f * p * prism * sweepStrength),
-                Color(0xFF76FFF1).copy(alpha = 0.25f * p * prism * sweepStrength),
-                Color(0xFF9AA8FF).copy(alpha = 0.18f * p * prism * sweepStrength),
-                Color.Transparent,
+            size = Size(w, h),
+            blendMode = BlendMode.Screen,
+        )
+        drawPath(
+            path = outlinePath,
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFFFF72D2).copy(alpha = 0.23f * p * prism * sweepStrength),
+                    Color(0xFFFFF0A8).copy(alpha = 0.21f * p * prism * sweepStrength),
+                    Color(0xFF76FFF1).copy(alpha = 0.25f * p * prism * sweepStrength),
+                    Color(0xFF9AA8FF).copy(alpha = 0.18f * p * prism * sweepStrength),
+                    Color.Transparent,
+                ),
+                start = Offset(w * (sweepX - 0.24f), 0f),
+                end = Offset(w * (sweepX + 0.30f), h * 0.98f),
             ),
-            start = Offset(w * (sweepX - 0.24f), 0f),
-            end = Offset(w * (sweepX + 0.30f), h * 0.98f),
-        ),
-        topLeft = Offset(inset, inset),
-        size = rimSize,
-        cornerRadius = corner,
-        style = Stroke(0.56.dp.toPx() + 0.92.dp.toPx() * p),
-        blendMode = BlendMode.Plus,
-    )
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.060f * p * touch),
-                Color(0xFFE9FFFF).copy(alpha = 0.028f * p * touch),
-                Color.Transparent,
-                Color(0xFF000819).copy(alpha = 0.050f * p),
+            style = Stroke(0.56.dp.toPx() + 0.92.dp.toPx() * p),
+            blendMode = BlendMode.Plus,
+        )
+        drawPath(
+            path = outlinePath,
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.060f * p * touch),
+                    Color(0xFFE9FFFF).copy(alpha = 0.028f * p * touch),
+                    Color.Transparent,
+                    Color(0xFF000819).copy(alpha = 0.050f * p),
+                ),
+                startY = 0f,
+                endY = h,
             ),
-            startY = 0f,
-            endY = h,
-        ),
-        topLeft = Offset(inset, inset),
-        size = rimSize,
-        cornerRadius = corner,
-        style = Stroke(0.42.dp.toPx() + 0.62.dp.toPx() * p),
-        blendMode = BlendMode.Screen,
-    )
+            style = Stroke(0.42.dp.toPx() + 0.62.dp.toPx() * p),
+            blendMode = BlendMode.Screen,
+        )
+    }
 }
 
-private fun ContentDrawScope.composeGlassAdaptiveRadius(width: Float, height: Float): Float {
-    val minSide = minOf(width, height).coerceAtLeast(1f)
-    return if (width / height.coerceAtLeast(1f) >= 2.15f) {
-        minSide * 0.5f
-    } else {
-        minOf(minSide * 0.34f, 28.dp.toPx())
-    }
+private fun Outline.toExactPath(): Path = when (this) {
+    is Outline.Rectangle -> Path().apply { addRect(rect) }
+    is Outline.Rounded -> Path().apply { addRoundRect(roundRect) }
+    is Outline.Generic -> path
 }
 
 private fun composeGlassSizeElasticity(size: Size): Float {
