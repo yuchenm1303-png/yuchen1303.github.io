@@ -1,9 +1,11 @@
 package com.yuchen.ailedger.service
 
+import android.os.Process
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
 import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRepository
+import java.util.concurrent.Executors
 import org.json.JSONObject
 
 /**
@@ -11,12 +13,24 @@ import org.json.JSONObject
  *
  * HttpURLConnection 解析响应与成功回调发生在同一工作线程，因此用 ThreadLocal 暂存
  * 本轮最终 JSON，避免并发聊天之间互相串记录。记忆事务刷新会切到 Repository 自己的 IO scope，
- * 不阻塞当前响应解析线程。
+ * 诊断解析、历史 JSON 重建和 SharedPreferences 写入则进入独立低优先级单线程，不占用回复收尾路径。
  */
 internal object AssistantMemoryUsageBridge {
     private val responseForCurrentThread = ThreadLocal<JSONObject?>()
+    private val diagnosticsExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(
+            {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                task.run()
+            },
+            "AssistantMemoryDiagnostics",
+        ).apply { isDaemon = true }
+    }
 
     fun captureResponseJson(data: JSONObject) {
+        // 同一网络线程被连接池复用时，先清掉任何未完成异常路径遗留的上一轮引用。
+        responseForCurrentThread.remove()
+
         val mutationReceipt = AssistantMemoryMutationRuntime.captureResponse(data)
         val appContext = AiLedgerApplication.contextOrNull()
         if (
@@ -40,12 +54,20 @@ internal object AssistantMemoryUsageBridge {
     fun recordSuccessfulPayload(payload: JSONObject) {
         val response = responseForCurrentThread.get()
         responseForCurrentThread.remove()
-        AssistantMemoryDiagnostics.record(payload = payload, response = response)
+        diagnosticsExecutor.execute {
+            runCatching {
+                AssistantMemoryDiagnostics.record(payload = payload, response = response)
+            }
+        }
     }
 
     fun recordFailedPayload(payload: JSONObject, error: Throwable) {
         responseForCurrentThread.remove()
-        AssistantMemoryDiagnostics.record(payload = payload, response = null, failure = error)
+        diagnosticsExecutor.execute {
+            runCatching {
+                AssistantMemoryDiagnostics.record(payload = payload, response = null, failure = error)
+            }
+        }
     }
 
     private fun containsMemoryMetadata(data: JSONObject): Boolean {
