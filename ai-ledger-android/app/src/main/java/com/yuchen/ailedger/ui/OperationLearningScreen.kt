@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,10 +25,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,12 +42,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowDraftStatus
+import com.yuchen.ailedger.service.OperationLearningRecordingCoordinator
+import com.yuchen.ailedger.service.OperationRecordingPhase
+import com.yuchen.ailedger.service.OperationRecordingState
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationStage
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
 private val OperationLearningSurface = Color(0xFF10153A)
+private val OperationLearningDanger = Color(0xFFFFA6B2)
 
 private data class LearningFlowStep(
     val index: String,
@@ -77,16 +86,22 @@ private val learningFlowSteps = listOf(
 fun OperationLearningScreen(
     state: AssistantUiState,
     onBack: () -> Unit,
-    onStartDemonstration: (String) -> Unit = {},
     viewModel: OperationLearningViewModel = viewModel(),
 ) {
     val uiState = viewModel.uiState
+    val recordingState by OperationLearningRecordingCoordinator.state.collectAsState()
+
+    LaunchedEffect(recordingState.phase, recordingState.demonstrationId) {
+        if (recordingState.phase == OperationRecordingPhase.Captured) {
+            viewModel.refresh()
+        }
+    }
 
     BackHandler {
-        if (uiState.editorVisible) {
-            viewModel.closeIntentEditor()
-        } else {
-            onBack()
+        when {
+            uiState.editorVisible -> viewModel.closeIntentEditor()
+            recordingState.active -> Unit
+            else -> onBack()
         }
     }
 
@@ -98,6 +113,7 @@ fun OperationLearningScreen(
         item {
             OperationLearningBackButton(
                 state = state,
+                enabled = !recordingState.active,
                 onBack = {
                     if (uiState.editorVisible) viewModel.closeIntentEditor() else onBack()
                 },
@@ -105,6 +121,18 @@ fun OperationLearningScreen(
         }
 
         item { OperationLearningHeader() }
+
+        if (recordingState.phase != OperationRecordingPhase.Idle || !recordingState.message.isNullOrBlank()) {
+            item {
+                RecordingStatusCard(
+                    state = state,
+                    recordingState = recordingState,
+                    onFinish = viewModel::finishRecording,
+                    onCancel = viewModel::cancelRecording,
+                    onDismiss = OperationLearningRecordingCoordinator::resetTerminalState,
+                )
+            }
+        }
 
         uiState.notice?.let { notice ->
             item {
@@ -119,6 +147,7 @@ fun OperationLearningScreen(
             CreateIntentCard(
                 state = state,
                 editorVisible = uiState.editorVisible,
+                enabled = !recordingState.active,
                 onClick = {
                     if (uiState.editorVisible) viewModel.closeIntentEditor() else viewModel.openIntentEditor()
                 },
@@ -127,7 +156,7 @@ fun OperationLearningScreen(
 
         item {
             AnimatedVisibility(
-                visible = uiState.editorVisible,
+                visible = uiState.editorVisible && !recordingState.active,
                 enter = fadeIn() + slideInVertically { -it / 10 },
                 exit = fadeOut() + slideOutVertically { -it / 10 },
             ) {
@@ -150,7 +179,6 @@ fun OperationLearningScreen(
                 trailing = "4 个阶段",
             )
         }
-
         item { LearningFlowCard() }
 
         item {
@@ -159,13 +187,12 @@ fun OperationLearningScreen(
                 trailing = "默认确定性",
             )
         }
-
         item { DeterministicExecutionCard() }
 
         item {
             LearningSectionTitle(
                 title = "我的操作",
-                trailing = "${uiState.drafts.size} 个草稿",
+                trailing = if (uiState.loading) "读取中" else "${uiState.drafts.size} 个",
             )
         }
 
@@ -173,6 +200,7 @@ fun OperationLearningScreen(
             item {
                 LearnedOperationsEmptyCard(
                     state = state,
+                    enabled = !recordingState.active,
                     onCreate = viewModel::openIntentEditor,
                 )
             }
@@ -185,11 +213,10 @@ fun OperationLearningScreen(
                     state = state,
                     draft = draft,
                     selected = draft.id == uiState.selectedDraftId,
+                    recordingState = recordingState,
                     onSelect = { viewModel.selectDraft(draft.id) },
-                    onPrepare = {
-                        viewModel.prepareDemonstration(draft.id)
-                        onStartDemonstration(draft.id)
-                    },
+                    onStartRecording = { viewModel.startRecording(draft.id) },
+                    onFinishRecording = viewModel::finishRecording,
                     onDelete = { viewModel.deleteDraft(draft.id) },
                 )
             }
@@ -202,6 +229,7 @@ fun OperationLearningScreen(
 @Composable
 private fun OperationLearningBackButton(
     state: AssistantUiState,
+    enabled: Boolean,
     onBack: () -> Unit,
 ) {
     PressableGlass(
@@ -213,12 +241,12 @@ private fun OperationLearningBackButton(
             .fillMaxWidth(0.28f)
             .height(40.dp),
         role = GlassRole.Chip,
-        onClick = onBack,
+        onClick = if (enabled) onBack else ({ }),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = "‹ 功能",
-                color = Color.White.copy(alpha = 0.88f),
+                text = if (enabled) "‹ 功能" else "录制中",
+                color = Color.White.copy(alpha = if (enabled) 0.88f else 0.42f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
@@ -250,6 +278,148 @@ private fun OperationLearningHeader() {
             lineHeight = 19.sp,
             fontWeight = FontWeight.Medium,
         )
+    }
+}
+
+@Composable
+private fun RecordingStatusCard(
+    state: AssistantUiState,
+    recordingState: OperationRecordingState,
+    onFinish: () -> Unit,
+    onCancel: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val active = recordingState.active
+    val accent = when (recordingState.phase) {
+        OperationRecordingPhase.Failed -> OperationLearningDanger
+        OperationRecordingPhase.Captured -> OperationLearningAccent
+        else -> OperationLearningViolet
+    }
+    val title = when (recordingState.phase) {
+        OperationRecordingPhase.Starting -> "正在准备录制"
+        OperationRecordingPhase.Recording -> "正在录制演示"
+        OperationRecordingPhase.Stopping -> "正在封存轨迹"
+        OperationRecordingPhase.Captured -> "演示采集完成"
+        OperationRecordingPhase.Failed -> "录制未完成"
+        OperationRecordingPhase.Idle -> "录制状态"
+    }
+
+    FrostInfoGlassPanel(
+        radius = 19f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.092f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(27.dp))
+                .background(accent.copy(alpha = 0.07f))
+                .padding(horizontal = 17.dp, vertical = 17.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(accent.copy(alpha = 0.13f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (active) "录" else "✓",
+                        color = accent.copy(alpha = 0.90f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 11.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        text = title,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        text = recordingState.workflowTitle.ifBlank {
+                            recordingState.message.orEmpty()
+                        },
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 11.5.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (recordingState.capturedEventCount > 0) {
+                    Text(
+                        text = "${recordingState.capturedEventCount} 条证据",
+                        color = accent.copy(alpha = 0.72f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+
+            recordingState.message?.takeIf(String::isNotBlank)?.let { message ->
+                Text(
+                    text = message,
+                    color = Color.White.copy(alpha = 0.56f),
+                    fontSize = 11.5.sp,
+                    lineHeight = 17.sp,
+                )
+            }
+
+            Text(
+                text = if (active) {
+                    "输入框内容会被替换为长度区间；密码、验证码和支付敏感内容不会写入轨迹。也可以从系统通知结束或取消录制。"
+                } else {
+                    "原始轨迹仍不能直接执行，下一阶段会将它整理为可审核的步骤、选择器和成功证据。"
+                },
+                color = Color.White.copy(alpha = 0.43f),
+                fontSize = 10.5.sp,
+                lineHeight = 16.sp,
+            )
+
+            if (active) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OperationLearningActionButton(
+                        state = state,
+                        label = "取消并删除",
+                        modifier = Modifier.weight(0.42f),
+                        enabled = recordingState.phase == OperationRecordingPhase.Recording,
+                        danger = true,
+                        onClick = onCancel,
+                    )
+                    OperationLearningActionButton(
+                        state = state,
+                        label = "结束并保存",
+                        modifier = Modifier.weight(0.58f),
+                        enabled = recordingState.phase == OperationRecordingPhase.Recording,
+                        onClick = onFinish,
+                    )
+                }
+            } else {
+                OperationLearningActionButton(
+                    state = state,
+                    label = "收起状态",
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = true,
+                    onClick = onDismiss,
+                )
+            }
+        }
     }
 }
 
@@ -289,6 +459,7 @@ private fun OperationLearningNotice(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .background(Color.White.copy(alpha = 0.045f))
+                    .clickable(onClick = onDismiss)
                     .padding(horizontal = 10.dp, vertical = 7.dp),
             )
         }
@@ -299,6 +470,7 @@ private fun OperationLearningNotice(
 private fun CreateIntentCard(
     state: AssistantUiState,
     editorVisible: Boolean,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     FrostInfoGlassPanel(
@@ -369,38 +541,19 @@ private fun CreateIntentCard(
                 LearningTag("逐步验证", Modifier.weight(1f))
             }
 
-            PressableGlass(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity * 0.94f,
-                motionIntensity = state.motionIntensity,
-                radius = 999,
+            OperationLearningActionButton(
+                state = state,
+                label = when {
+                    !enabled -> "请先结束当前录制"
+                    editorVisible -> "收起草稿设置"
+                    else -> "创建操作草稿"
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
-                role = GlassRole.Card,
+                enabled = enabled,
                 onClick = onClick,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = if (editorVisible) "收起草稿设置" else "创建操作草稿",
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = if (editorVisible) "⌃" else "→",
-                        color = OperationLearningAccent.copy(alpha = 0.82f),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                }
-            }
+            )
         }
     }
 }
@@ -444,44 +597,24 @@ private fun WorkflowIntentEditor(
                 lineHeight = 17.sp,
             )
 
-            OperationLearningTextField(
-                value = uiState.titleInput,
-                onValueChange = onTitleChange,
-                label = "操作名称",
-                singleLine = true,
-            )
-            OperationLearningTextField(
-                value = uiState.goalInput,
-                onValueChange = onGoalChange,
-                label = "最终目标",
-                singleLine = false,
-            )
-            OperationLearningTextField(
-                value = uiState.appNameInput,
-                onValueChange = onAppNameChange,
-                label = "应用名称（可选）",
-                singleLine = true,
-            )
-            OperationLearningTextField(
-                value = uiState.packageNameInput,
-                onValueChange = onPackageNameChange,
-                label = "允许操作的应用包名",
-                singleLine = true,
-            )
+            OperationLearningTextField(uiState.titleInput, onTitleChange, "操作名称", true)
+            OperationLearningTextField(uiState.goalInput, onGoalChange, "最终目标", false)
+            OperationLearningTextField(uiState.appNameInput, onAppNameChange, "应用名称（可选）", true)
+            OperationLearningTextField(uiState.packageNameInput, onPackageNameChange, "允许操作的应用包名", true)
 
             if (uiState.editorIssues.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFFFF7A8A).copy(alpha = 0.075f))
+                        .background(OperationLearningDanger.copy(alpha = 0.075f))
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     uiState.editorIssues.take(3).forEach { issue ->
                         Text(
                             text = "• ${issue.message}",
-                            color = Color(0xFFFFC3CB).copy(alpha = 0.86f),
+                            color = OperationLearningDanger.copy(alpha = 0.88f),
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
                         )
@@ -497,12 +630,14 @@ private fun WorkflowIntentEditor(
                     state = state,
                     label = "取消",
                     modifier = Modifier.weight(0.38f),
+                    enabled = true,
                     onClick = onCancel,
                 )
                 OperationLearningActionButton(
                     state = state,
                     label = "保存草稿",
                     modifier = Modifier.weight(0.62f),
+                    enabled = true,
                     onClick = { onSave() },
                 )
             }
@@ -526,7 +661,7 @@ private fun OperationLearningTextField(
         minLines = if (singleLine) 1 else 3,
         maxLines = if (singleLine) 1 else 5,
         shape = RoundedCornerShape(17.dp),
-        textStyle = androidx.compose.ui.text.TextStyle(
+        textStyle = TextStyle(
             color = Color.White.copy(alpha = 0.90f),
             fontSize = 13.sp,
             lineHeight = 18.sp,
@@ -550,6 +685,8 @@ private fun OperationLearningActionButton(
     state: AssistantUiState,
     label: String,
     modifier: Modifier,
+    enabled: Boolean,
+    danger: Boolean = false,
     onClick: () -> Unit,
 ) {
     PressableGlass(
@@ -559,24 +696,26 @@ private fun OperationLearningActionButton(
         radius = 999,
         modifier = modifier.height(43.dp),
         role = GlassRole.Card,
-        onClick = onClick,
+        onClick = if (enabled) onClick else ({ }),
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = label,
-                color = Color.White.copy(alpha = 0.88f),
+                color = when {
+                    !enabled -> Color.White.copy(alpha = 0.34f)
+                    danger -> OperationLearningDanger.copy(alpha = 0.86f)
+                    else -> Color.White.copy(alpha = 0.88f)
+                },
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.Black,
+                maxLines = 1,
             )
         }
     }
 }
 
 @Composable
-private fun LearningTag(
-    text: String,
-    modifier: Modifier = Modifier,
-) {
+private fun LearningTag(text: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .height(31.dp)
@@ -595,10 +734,7 @@ private fun LearningTag(
 }
 
 @Composable
-private fun LearningSectionTitle(
-    title: String,
-    trailing: String,
-) {
+private fun LearningSectionTitle(title: String, trailing: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -699,10 +835,7 @@ private fun DeterministicExecutionCard() {
 }
 
 @Composable
-private fun PrincipleRow(
-    title: String,
-    description: String,
-) {
+private fun PrincipleRow(title: String, description: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -745,6 +878,7 @@ private fun PrincipleRow(
 @Composable
 private fun LearnedOperationsEmptyCard(
     state: AssistantUiState,
+    enabled: Boolean,
     onCreate: () -> Unit,
 ) {
     FrostInfoGlassPanel(
@@ -770,19 +904,9 @@ private fun LearnedOperationsEmptyCard(
                     .background(Color.White.copy(alpha = 0.055f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "＋",
-                    color = Color.White.copy(alpha = 0.76f),
-                    fontSize = 23.sp,
-                    fontWeight = FontWeight.Light,
-                )
+                Text("＋", color = Color.White.copy(alpha = 0.76f), fontSize = 23.sp, fontWeight = FontWeight.Light)
             }
-            Text(
-                text = "还没有操作草稿",
-                color = Color.White.copy(alpha = 0.91f),
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Black,
-            )
+            Text("还没有操作草稿", color = Color.White.copy(alpha = 0.91f), fontSize = 17.sp, fontWeight = FontWeight.Black)
             Text(
                 text = "先定义一个明确目标和允许进入的应用，再开始演示。",
                 color = Color.White.copy(alpha = 0.48f),
@@ -796,6 +920,7 @@ private fun LearnedOperationsEmptyCard(
                 modifier = Modifier
                     .fillMaxWidth(0.62f)
                     .padding(top = 5.dp),
+                enabled = enabled,
                 onClick = onCreate,
             )
         }
@@ -807,22 +932,34 @@ private fun WorkflowDraftCard(
     state: AssistantUiState,
     draft: LearnedWorkflowDraft,
     selected: Boolean,
+    recordingState: OperationRecordingState,
     onSelect: () -> Unit,
-    onPrepare: () -> Unit,
+    onStartRecording: () -> Unit,
+    onFinishRecording: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val report = OperationWorkflowValidator.validate(
-        draft = draft,
-        stage = WorkflowValidationStage.RecordingIntent,
-    )
+    val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
     val appLabel = draft.appScope.displayNames.firstOrNull()
         ?: draft.appScope.normalizedPackages.firstOrNull()
         ?: "未指定应用"
+    val thisRecording = recordingState.active && recordingState.workflowId == draft.id
+    val anotherRecording = recordingState.active && recordingState.workflowId != draft.id
+    val canStart = draft.status == WorkflowDraftStatus.Intent && report.canProceed && !recordingState.active
+    val actionLabel = when {
+        thisRecording -> "结束演示"
+        anotherRecording -> "其他操作录制中"
+        draft.status == WorkflowDraftStatus.Compiling -> "等待整理"
+        draft.status == WorkflowDraftStatus.ReadyForReview -> "等待审核"
+        draft.status == WorkflowDraftStatus.Approved -> "已批准"
+        draft.status == WorkflowDraftStatus.Verified -> "已验证"
+        canStart -> "开始演示"
+        else -> "暂不可录制"
+    }
 
     FrostInfoGlassPanel(
         radius = 18f,
         backdropAlpha = 1f,
-        frostAlpha = if (selected) 0.088f else 0.072f,
+        frostAlpha = if (selected || thisRecording) 0.088f else 0.072f,
         dimAlpha = 0f,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -831,11 +968,8 @@ private fun WorkflowDraftCard(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
                 .background(
-                    if (selected) {
-                        OperationLearningViolet.copy(alpha = 0.075f)
-                    } else {
-                        Color(0xFF11163D).copy(alpha = 0.20f)
-                    },
+                    if (selected || thisRecording) OperationLearningViolet.copy(alpha = 0.075f)
+                    else Color(0xFF11163D).copy(alpha = 0.20f),
                 )
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
@@ -885,8 +1019,8 @@ private fun WorkflowDraftCard(
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = "草",
-                        color = Color.White.copy(alpha = 0.66f),
+                        text = if (thisRecording) "录" else "草",
+                        color = if (thisRecording) OperationLearningAccent else Color.White.copy(alpha = 0.66f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Black,
                     )
@@ -898,8 +1032,8 @@ private fun WorkflowDraftCard(
                 horizontalArrangement = Arrangement.spacedBy(7.dp),
             ) {
                 DraftMeta("应用", appLabel, Modifier.weight(1f))
-                DraftMeta("步骤", if (draft.steps.isEmpty()) "待演示" else "${draft.steps.size} 步", Modifier.weight(1f))
-                DraftMeta("校验", if (report.canProceed) "可录制" else "需补充", Modifier.weight(1f))
+                DraftMeta("步骤", if (draft.steps.isEmpty()) "待整理" else "${draft.steps.size} 步", Modifier.weight(1f))
+                DraftMeta("校验", if (report.canProceed) "已通过" else "需补充", Modifier.weight(1f))
             }
 
             Row(
@@ -909,19 +1043,23 @@ private fun WorkflowDraftCard(
                 OperationLearningActionButton(
                     state = state,
                     label = if (selected) "已选择" else "查看",
-                    modifier = Modifier.weight(0.30f),
+                    modifier = Modifier.weight(0.28f),
+                    enabled = !recordingState.active,
                     onClick = onSelect,
                 )
                 OperationLearningActionButton(
                     state = state,
-                    label = "检查演示条件",
-                    modifier = Modifier.weight(0.52f),
-                    onClick = onPrepare,
+                    label = actionLabel,
+                    modifier = Modifier.weight(0.50f),
+                    enabled = thisRecording || canStart,
+                    onClick = if (thisRecording) onFinishRecording else onStartRecording,
                 )
                 OperationLearningActionButton(
                     state = state,
                     label = "删除",
-                    modifier = Modifier.weight(0.24f),
+                    modifier = Modifier.weight(0.22f),
+                    enabled = !recordingState.active,
+                    danger = true,
                     onClick = onDelete,
                 )
             }
@@ -948,11 +1086,7 @@ private fun WorkflowStatusChip(status: WorkflowDraftStatus) {
 }
 
 @Composable
-private fun DraftMeta(
-    label: String,
-    value: String,
-    modifier: Modifier,
-) {
+private fun DraftMeta(label: String, value: String, modifier: Modifier) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(14.dp))
@@ -960,12 +1094,7 @@ private fun DraftMeta(
             .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(
-            text = label,
-            color = Color.White.copy(alpha = 0.34f),
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        Text(text = label, color = Color.White.copy(alpha = 0.34f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
         Text(
             text = value,
             color = Color.White.copy(alpha = 0.74f),
@@ -1002,12 +1131,7 @@ private fun SafetyBoundaryCard() {
                     .background(OperationLearningAccent.copy(alpha = 0.10f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "盾",
-                    color = OperationLearningAccent.copy(alpha = 0.76f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                )
+                Text("盾", color = OperationLearningAccent.copy(alpha = 0.76f), fontSize = 12.sp, fontWeight = FontWeight.Black)
             }
             Column(
                 modifier = Modifier.weight(1f),
@@ -1020,7 +1144,7 @@ private fun SafetyBoundaryCard() {
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    text = "密码、验证码和支付确认不会写入流程；只依赖坐标、缺少成功证据或未经审核的草稿都不能进入执行状态。",
+                    text = "录制只在用户主动开启期间工作；离开授权应用、开始智能体任务、失败或取消后都会恢复低负载 Idle。轨迹采用本机加密短期保存。",
                     color = Color.White.copy(alpha = 0.48f),
                     fontSize = 11.5.sp,
                     lineHeight = 17.sp,
