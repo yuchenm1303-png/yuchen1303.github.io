@@ -40,10 +40,10 @@ object OperationTraceRedactor {
             .take(240)
         val eventEditable = sourceEvidence?.editable == true ||
             event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED
-        val sensitive = sourceEvidence?.sensitive == true || containsSensitiveKeyword(rawEventText)
+        val sensitiveInput = sourceEvidence?.sensitive == true
         val redactedEventText = when {
             rawEventText.isBlank() -> null
-            eventEditable || sensitive -> REDACTED_INPUT
+            eventEditable || sensitiveInput -> REDACTED_INPUT
             else -> redactVisibleText(rawEventText)
         }
         val title = event.contentDescription?.toString()
@@ -62,7 +62,7 @@ object OperationTraceRedactor {
             source = sourceEvidence,
             eventText = redactedEventText,
             inputLengthBucket = if (eventEditable) lengthBucket(rawEventText.length) else null,
-            redactionApplied = eventEditable || sensitive || redactedEventText != rawEventText,
+            redactionApplied = eventEditable || sensitiveInput || redactedEventText != rawEventText,
         )
     }
 
@@ -79,21 +79,23 @@ object OperationTraceRedactor {
             .joinToString(" ")
         val editable = node.isEditable || forceInputRedaction
         val password = runCatching { node.isPassword }.getOrDefault(false)
+        val passwordHint = containsAnyKeyword(combined, passwordKeywords)
+        val otpHint = containsAnyKeyword(combined, otpKeywords)
+        val paymentHint = containsAnyKeyword(combined, paymentKeywords)
         val riskHints = buildSet {
-            if (password || containsAny(combined, passwordKeywords)) add("password")
-            if (containsAny(combined, otpKeywords)) add("otp")
-            if (containsAny(combined, paymentKeywords)) add("payment")
+            if (password || passwordHint) add("password")
+            if (otpHint) add("otp")
+            if (paymentHint) add("payment")
         }
-        val sensitive = password || riskHints.isNotEmpty() ||
-            (editable && otpPattern.containsMatchIn(rawText.trim()))
+        val looksLikeOtpValue = editable && otpHint && otpPattern.containsMatchIn(rawText.trim())
+        val sensitive = password || (editable && (passwordHint || otpHint || paymentHint || looksLikeOtpValue))
         val bounds = Rect().also { rect -> runCatching { node.getBoundsInScreen(rect) } }
-        val redactInput = editable || sensitive
 
         return OperationNodeEvidence(
             viewId = runCatching { node.viewIdResourceName }.getOrNull()?.takeIf(String::isNotBlank),
             className = node.className?.toString()?.takeIf(String::isNotBlank),
             role = inferRole(node),
-            text = sanitizeNodeField(rawText, redactInput),
+            text = sanitizeNodeField(rawText, editable || sensitive),
             contentDescription = sanitizeNodeField(rawDescription, sensitive),
             hint = sanitizeNodeField(rawHint, sensitive),
             bounds = bounds.toCompactBounds(),
@@ -120,29 +122,39 @@ object OperationTraceRedactor {
             .take(MAX_VISIBLE_TEXT_LENGTH)
     }
 
-    fun containsSensitiveKeyword(value: String): Boolean {
-        return containsAny(value, passwordKeywords) ||
-            containsAny(value, otpKeywords) ||
-            containsAny(value, paymentKeywords)
+    fun containsCredentialHint(value: String): Boolean {
+        return containsAnyKeyword(value, passwordKeywords) || containsAnyKeyword(value, otpKeywords)
     }
+
+    fun containsPaymentHint(value: String): Boolean = containsAnyKeyword(value, paymentKeywords)
 
     private fun sanitizeNodeField(value: String, redact: Boolean): String? {
         if (value.isBlank()) return null
         return if (redact) REDACTED_INPUT else redactVisibleText(value)
     }
 
-    private fun containsAny(value: String, keywords: List<String>): Boolean {
-        val normalized = value.lowercase()
-        return keywords.any(normalized::contains)
+    private fun containsAnyKeyword(value: String, keywords: List<String>): Boolean {
+        return keywords.any { keyword -> containsKeyword(value, keyword) }
+    }
+
+    private fun containsKeyword(value: String, keyword: String): Boolean {
+        val normalizedValue = value.lowercase()
+        val normalizedKeyword = keyword.lowercase()
+        return if (normalizedKeyword.all { it.isLetterOrDigit() && it.code < 128 }) {
+            Regex("(?<![a-z0-9])${Regex.escape(normalizedKeyword)}(?![a-z0-9])")
+                .containsMatchIn(normalizedValue)
+        } else {
+            normalizedValue.contains(normalizedKeyword)
+        }
     }
 
     private fun inferRole(node: AccessibilityNodeInfo): String? {
         val className = node.className?.toString().orEmpty()
         return when {
             node.isEditable || className.contains("EditText", ignoreCase = true) -> "TextField"
-            className.contains("Button", ignoreCase = true) || node.isClickable -> "Button"
             className.contains("CheckBox", ignoreCase = true) -> "CheckBox"
             className.contains("Switch", ignoreCase = true) -> "Switch"
+            className.contains("Button", ignoreCase = true) || node.isClickable -> "Button"
             node.isScrollable -> "Scrollable"
             className.isNotBlank() -> className.substringAfterLast('.')
             else -> null
