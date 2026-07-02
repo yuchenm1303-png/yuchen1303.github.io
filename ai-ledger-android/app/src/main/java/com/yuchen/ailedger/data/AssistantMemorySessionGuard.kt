@@ -5,13 +5,6 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 
-/**
- * 全 App 统一的账号代际票据。
- *
- * 同一账号的 JWT 刷新不会切换代际；退出或切换账号会立刻提升代际。
- * 所有聊天回执、记忆管理请求、诊断记录和异步状态提交都必须携带同一张票据，
- * 旧请求即使晚到也不能写入新账号状态。
- */
 internal data class AssistantMemorySessionTicket(
     val userId: String,
     val generation: Long,
@@ -19,7 +12,6 @@ internal data class AssistantMemorySessionTicket(
 
 internal object AssistantAccountSessionRuntime {
     private var currentUserId: String? = null
-    private var currentAccessToken: String? = null
     private var generation: Long = 0L
 
     @Synchronized
@@ -29,15 +21,9 @@ internal object AssistantAccountSessionRuntime {
             currentUserId = cleanUserId
             generation += 1L
         }
-        currentAccessToken = session
-            ?.takeIf { it.isUsable && it.userId.trim() == cleanUserId }
-            ?.accessToken
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
         return cleanUserId?.let { AssistantMemorySessionTicket(it, generation) }
     }
 
-    /** 仅供无真实会话的单元测试与显式退出使用。生产代码应调用 updateSession。 */
     @Synchronized
     fun updateUser(userId: String?): AssistantMemorySessionTicket? {
         val cleanUserId = userId?.trim()?.takeIf(String::isNotBlank)
@@ -45,7 +31,6 @@ internal object AssistantAccountSessionRuntime {
             currentUserId = cleanUserId
             generation += 1L
         }
-        currentAccessToken = null
         return cleanUserId?.let { AssistantMemorySessionTicket(it, generation) }
     }
 
@@ -64,13 +49,6 @@ internal object AssistantAccountSessionRuntime {
         return ticket.userId == currentUserId && ticket.generation == generation
     }
 
-    @Synchronized
-    fun accessTokenFor(ticket: AssistantMemorySessionTicket): String? {
-        return currentAccessToken.takeIf {
-            ticket.userId == currentUserId && ticket.generation == generation && !it.isNullOrBlank()
-        }
-    }
-
     fun diagnosticsScope(ticket: AssistantMemorySessionTicket): String {
         val bytes = MessageDigest.getInstance("SHA-256")
             .digest(ticket.userId.toByteArray(Charsets.UTF_8))
@@ -78,9 +56,6 @@ internal object AssistantAccountSessionRuntime {
     }
 }
 
-/**
- * 兼容原有单元测试与局部调用；真实代际权威统一委托给全 App Runtime。
- */
 internal class AssistantMemorySessionGuard {
     fun updateUser(userId: String?): AssistantMemorySessionTicket? =
         AssistantAccountSessionRuntime.updateUser(userId)
@@ -97,12 +72,6 @@ internal data class AssistantOperationOwner(
     val operationId: String,
 )
 
-/**
- * 带账号所有权的异步操作门。
- *
- * 账号切换时可以立即放行新账号；旧请求 finally 只能 CAS 释放自己的 owner，
- * 不可能把新账号正在执行的操作错误解锁。
- */
 internal class AssistantOperationGate {
     private val owner = AtomicReference<AssistantOperationOwner?>(null)
 
@@ -130,22 +99,15 @@ internal class AssistantOperationGate {
 internal data class AssistantMemoryRequestContext(
     val token: String,
     val ticket: AssistantMemorySessionTicket?,
-    val userAccessToken: String?,
 )
 
-/**
- * 普通聊天构建、网络解析和成功/失败回调均在同一同步调用线程完成。
- * 用请求级 ThreadLocal 把“发起时账号”绑定到最终记忆回执，不把票据发送到云端。
- */
 internal object AssistantMemoryRequestContextRuntime {
     private val currentThreadContext = ThreadLocal<AssistantMemoryRequestContext?>()
 
     fun stageCurrentThread(): AssistantMemoryRequestContext {
-        val ticket = AssistantAccountSessionRuntime.currentTicket()
         val context = AssistantMemoryRequestContext(
             token = UUID.randomUUID().toString(),
-            ticket = ticket,
-            userAccessToken = ticket?.let(AssistantAccountSessionRuntime::accessTokenFor),
+            ticket = AssistantAccountSessionRuntime.currentTicket(),
         )
         currentThreadContext.set(context)
         return context
