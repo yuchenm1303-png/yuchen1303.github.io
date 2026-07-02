@@ -59,6 +59,51 @@ class OperationWorkflowRepository private constructor(context: Context) {
         dao.saveIntent(workflow, appScopes)
     }
 
+    suspend fun beginDemonstration(
+        demonstrationId: String,
+        workflowId: String,
+        encryptedTracePath: String,
+        createdAtMillis: Long,
+    ) {
+        dao.upsertDemonstration(
+            OperationDemonstrationEntity(
+                id = demonstrationId,
+                workflowId = workflowId,
+                status = "recording",
+                encryptedTracePath = encryptedTracePath,
+                redactionStatus = "active",
+                createdAtMillis = createdAtMillis,
+                completedAtMillis = null,
+            ),
+        )
+    }
+
+    suspend fun finishDemonstration(
+        demonstrationId: String,
+        workflowId: String,
+        status: String,
+        redactionStatus: String,
+        workflowStatus: WorkflowDraftStatus,
+        completedAtMillis: Long,
+    ) {
+        dao.finishDemonstration(
+            demonstrationId = demonstrationId,
+            status = status,
+            redactionStatus = redactionStatus,
+            completedAtMillis = completedAtMillis,
+        )
+        dao.updateWorkflowAfterDemonstration(
+            workflowId = workflowId,
+            status = workflowStatus.name,
+            demonstrationId = demonstrationId.takeIf { status == "captured" },
+            updatedAtMillis = completedAtMillis,
+        )
+    }
+
+    suspend fun sealInterruptedDemonstrations(nowMillis: Long = System.currentTimeMillis()) {
+        dao.sealInterruptedDemonstrations(nowMillis)
+    }
+
     suspend fun deleteDraft(draftId: String) {
         dao.deleteWorkflow(draftId)
     }
