@@ -32,6 +32,10 @@ class AiLedgerApplication : Application() {
         super.onCreate()
         appContext = applicationContext
 
+        // 三大指数是功能页屏幕内最高优先级数据。这里只恢复极小的本地缓存并启动独立 IO 预热，
+        // 不加载股票详情、市场榜单、图片或 OpenGL，也不占用主线程做网络工作。
+        ToolsMarketHeroStore.prewarm(applicationContext)
+
         applicationScope.launch {
             var authenticatedSettingsRepositoriesReady = false
             SupabaseAuthRepository.get(applicationContext).state.collectLatest { accountState ->
