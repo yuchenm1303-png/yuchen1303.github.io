@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -120,6 +119,8 @@ fun GlassDebugFloatingPanel(
 
 @Composable
 private fun ComposeGlassMotionPreview() {
+    val chipShape = RoundedCornerShape(999.dp)
+    val cardShape = RoundedCornerShape(22.dp)
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(9.dp),
@@ -129,9 +130,9 @@ private fun ComposeGlassMotionPreview() {
             modifier = Modifier
                 .weight(0.82f)
                 .height(46.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xFF8DF9EA).copy(alpha = 0.085f))
-                .clickable(onClick = {}),
+                .composeGlassMotionClickable(shape = chipShape, onClick = {})
+                .clip(chipShape)
+                .background(Color(0xFF8DF9EA).copy(alpha = 0.085f)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -145,9 +146,9 @@ private fun ComposeGlassMotionPreview() {
             modifier = Modifier
                 .weight(1.18f)
                 .height(72.dp)
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color.White.copy(alpha = 0.055f))
-                .clickable(onClick = {}),
+                .composeGlassMotionClickable(shape = cardShape, onClick = {})
+                .clip(cardShape)
+                .background(Color.White.copy(alpha = 0.055f)),
             contentAlignment = Alignment.CenterStart,
         ) {
             Column(
@@ -296,10 +297,12 @@ private fun GlassLabFoldout(
 @Composable
 private fun Group(title: String, subtitle: String, state: AssistantUiState, content: @Composable () -> Unit) {
     var expanded by rememberSaveable(title) { mutableStateOf(true) }
+    val groupShape = RoundedCornerShape(20.dp)
+    val actionShape = RoundedCornerShape(999.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(groupShape)
             .background(Color.White.copy(alpha = 0.045f))
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -315,10 +318,10 @@ private fun Group(title: String, subtitle: String, state: AssistantUiState, cont
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    .composeGlassMotionClickable(shape = actionShape) { expanded = !expanded }
+                    .clip(actionShape)
                     .background(Color.White.copy(alpha = 0.060f))
                     .padding(horizontal = 10.dp, vertical = 6.dp)
-                    .clickable { expanded = !expanded }
             )
         }
         GlassFoldoutAnimatedContent(
