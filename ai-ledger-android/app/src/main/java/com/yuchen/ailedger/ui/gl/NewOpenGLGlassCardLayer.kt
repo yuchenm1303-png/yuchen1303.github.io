@@ -41,9 +41,16 @@ val LocalNewOpenGlGlassStyleOverride =
     staticCompositionLocalOf<((GlassBorderStyle) -> GlassBorderStyle)?> { null }
 
 /**
+ * 仅允许经过架构审查的独立 Shell 在 Assistant / Settings 场景中显式切换新版 Renderer。
+ * 默认仍保持旧 Renderer，普通 Card / Chip 等组件也不会读取这个开关。
+ */
+val LocalForceNewOpenGlShellRenderer = staticCompositionLocalOf { false }
+
+/**
  * Shell 级 OpenGL Renderer 路由。
  *
- * Assistant / Settings 继续使用经过验证的旧 Renderer；其他场景使用新版多档 Renderer。
+ * Assistant / Settings 默认继续使用经过验证的旧 Renderer；只有显式提升为 Shell 的独立
+ * 大容器可通过 [LocalForceNewOpenGlShellRenderer] 进入新版多档 Renderer。
  * 普通 Card、Chip、Floating、Nav 和 Flex 永远不会进入本入口。
  */
 @Composable
@@ -58,9 +65,11 @@ fun NewOpenGLGlassCardLayer(
     dynamicState: OpenGLGlassDynamicState? = null,
 ) {
     val sceneGroup = LocalGlassSceneGroup
-    val usesLegacyShellRenderer =
+    val forceNewRenderer = LocalForceNewOpenGlShellRenderer.current
+    val usesLegacyShellRenderer = !forceNewRenderer && (
         sceneGroup == GlassSceneGroup.SettingsPage ||
             sceneGroup == GlassSceneGroup.AssistantPage
+        )
     val localBackdrop = LocalBlurredBackdrop.current
     val backdrop = if (usesLegacyShellRenderer) {
         OpenGlStartupBackdropBridge.backdrop ?: localBackdrop
