@@ -57,10 +57,7 @@ data class OperationWorkflowAppScopeEntity(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [
-        Index("workflowId"),
-        Index(value = ["workflowId", "variableKey"], unique = true),
-    ],
+    indices = [Index("workflowId"), Index(value = ["workflowId", "variableKey"], unique = true)],
 )
 data class OperationWorkflowVariableEntity(
     @PrimaryKey val id: String,
@@ -85,10 +82,7 @@ data class OperationWorkflowVariableEntity(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [
-        Index("workflowId"),
-        Index(value = ["workflowId", "sortOrder"], unique = true),
-    ],
+    indices = [Index("workflowId"), Index(value = ["workflowId", "sortOrder"], unique = true)],
 )
 data class OperationWorkflowMilestoneEntity(
     @PrimaryKey val id: String,
@@ -169,10 +163,7 @@ data class OperationWorkflowSelectorEntity(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [
-        Index("workflowId"),
-        Index(value = ["ownerType", "ownerId"]),
-    ],
+    indices = [Index("workflowId"), Index(value = ["ownerType", "ownerId"])],
 )
 data class OperationWorkflowStateCheckEntity(
     @PrimaryKey val id: String,
@@ -197,10 +188,7 @@ data class OperationWorkflowStateCheckEntity(
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [
-        Index("workflowId"),
-        Index(value = ["workflowId", "versionNumber"], unique = true),
-    ],
+    indices = [Index("workflowId"), Index(value = ["workflowId", "versionNumber"], unique = true)],
 )
 data class OperationWorkflowVersionEntity(
     @PrimaryKey val id: String,
@@ -264,10 +252,7 @@ data class OperationWorkflowRunEntity(
 
 data class OperationWorkflowWithScopes(
     @Embedded val workflow: OperationWorkflowEntity,
-    @Relation(
-        parentColumn = "id",
-        entityColumn = "workflowId",
-    )
+    @Relation(parentColumn = "id", entityColumn = "workflowId")
     val appScopes: List<OperationWorkflowAppScopeEntity>,
 )
 
@@ -289,11 +274,57 @@ abstract class OperationWorkflowDao {
     @Upsert
     abstract suspend fun upsertAppScopes(entities: List<OperationWorkflowAppScopeEntity>)
 
+    @Upsert
+    abstract suspend fun upsertDemonstration(entity: OperationDemonstrationEntity)
+
     @Query("DELETE FROM operation_workflow_app_scopes WHERE workflowId = :workflowId")
     abstract suspend fun deleteAppScopes(workflowId: String)
 
     @Query("DELETE FROM operation_workflows WHERE id = :workflowId")
     abstract suspend fun deleteWorkflow(workflowId: String)
+
+    @Query(
+        """
+        UPDATE operation_demonstrations
+        SET status = :status,
+            redactionStatus = :redactionStatus,
+            completedAtMillis = :completedAtMillis
+        WHERE id = :demonstrationId
+        """,
+    )
+    abstract suspend fun finishDemonstration(
+        demonstrationId: String,
+        status: String,
+        redactionStatus: String,
+        completedAtMillis: Long,
+    )
+
+    @Query(
+        """
+        UPDATE operation_workflows
+        SET status = :status,
+            sourceDemonstrationId = :demonstrationId,
+            updatedAtMillis = :updatedAtMillis
+        WHERE id = :workflowId
+        """,
+    )
+    abstract suspend fun updateWorkflowAfterDemonstration(
+        workflowId: String,
+        status: String,
+        demonstrationId: String?,
+        updatedAtMillis: Long,
+    )
+
+    @Query(
+        """
+        UPDATE operation_demonstrations
+        SET status = 'interrupted',
+            redactionStatus = 'sealed_after_interruption',
+            completedAtMillis = :completedAtMillis
+        WHERE status = 'recording'
+        """,
+    )
+    abstract suspend fun sealInterruptedDemonstrations(completedAtMillis: Long)
 
     @Transaction
     open suspend fun saveIntent(
