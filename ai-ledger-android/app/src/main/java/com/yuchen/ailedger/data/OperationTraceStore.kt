@@ -13,17 +13,16 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.security.KeyStore
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 import kotlinx.coroutines.BufferOverflow
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
@@ -107,18 +106,28 @@ class OperationTraceWriter internal constructor(
     header: OperationTraceRecord,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val accepting = AtomicBoolean(true)
     private val records = Channel<OperationTraceRecord>(
         capacity = MAX_BUFFERED_RECORDS,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     private val writerJob = scope.launch {
-        DataOutputStream(BufferedOutputStream(FileOutputStream(file, false))).use { output ->
-            writeEncryptedRecord(output, header)
-            for (record in records) {
-                if (file.length() >= MAX_TRACE_BYTES) break
-                writeEncryptedRecord(output, record)
+        var writtenBytes = 0L
+        try {
+            DataOutputStream(BufferedOutputStream(FileOutputStream(file, false))).use { output ->
+                writtenBytes += writeEncryptedRecord(output, header)
+                for (record in records) {
+                    val estimated = estimateEncryptedFrameBytes(record)
+                    if (writtenBytes + estimated > MAX_TRACE_BYTES) {
+                        accepting.set(false)
+                        break
+                    }
+                    writtenBytes += writeEncryptedRecord(output, record)
+                }
+                output.flush()
             }
-            output.flush()
+        } finally {
+            accepting.set(false)
         }
     }
 
@@ -126,33 +135,43 @@ class OperationTraceWriter internal constructor(
         get() = file.absolutePath
 
     fun append(record: OperationTraceRecord): Boolean {
-        if (!writerJob.isActive) return false
+        if (!accepting.get() || !writerJob.isActive) return false
         return records.trySend(record).isSuccess
     }
 
     suspend fun close(finalRecord: OperationTraceRecord? = null) {
-        finalRecord?.let(::append)
-        records.close()
+        if (accepting.compareAndSet(true, false)) {
+            finalRecord?.let { records.send(it) }
+            records.close()
+        } else {
+            records.close()
+        }
         writerJob.join()
         scope.cancel()
+    }
+
+    private fun estimateEncryptedFrameBytes(record: OperationTraceRecord): Long {
+        val plainBytes = record.toJson().toString().toByteArray(Charsets.UTF_8).size
+        return FRAME_LENGTH_PREFIX_BYTES + FRAME_IV_LENGTH_BYTES + GCM_IV_BYTES + plainBytes + GCM_TAG_BYTES
     }
 
     private fun writeEncryptedRecord(
         output: DataOutputStream,
         record: OperationTraceRecord,
-    ) {
+    ): Long {
         val plain = record.toJson().toString().toByteArray(Charsets.UTF_8)
-        if (plain.size > MAX_RECORD_BYTES) return
+        if (plain.size > MAX_RECORD_BYTES) return 0L
         val cipher = Cipher.getInstance(CIPHER_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
         cipher.updateAAD(sessionId.toByteArray(Charsets.UTF_8))
         val encrypted = cipher.doFinal(plain)
         val iv = cipher.iv
-        val frameSize = 1 + iv.size + encrypted.size
+        val frameSize = FRAME_IV_LENGTH_BYTES + iv.size + encrypted.size
         output.writeInt(frameSize)
         output.writeByte(iv.size)
         output.write(iv)
         output.write(encrypted)
+        return (FRAME_LENGTH_PREFIX_BYTES + frameSize).toLong()
     }
 
     private fun OperationTraceRecord.toJson(): JSONObject = when (this) {
@@ -214,5 +233,9 @@ class OperationTraceWriter internal constructor(
         private const val MAX_BUFFERED_RECORDS = 256
         private const val MAX_RECORD_BYTES = 512 * 1024
         private const val MAX_TRACE_BYTES = 8L * 1024L * 1024L
+        private const val FRAME_LENGTH_PREFIX_BYTES = 4
+        private const val FRAME_IV_LENGTH_BYTES = 1
+        private const val GCM_IV_BYTES = 12
+        private const val GCM_TAG_BYTES = 16
     }
 }
