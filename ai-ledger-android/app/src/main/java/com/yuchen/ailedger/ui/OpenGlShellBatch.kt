@@ -20,8 +20,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -110,7 +113,7 @@ internal fun OpenGlShellBatchItemSurface(
     val pressScope = rememberCoroutineScope()
     val interaction = remember { MutableInteractionSource() }
     val prismEdgeHighlight = LocalRainbowPrismStyle.current.edgeHighlight.coerceIn(0f, 2f)
-    var pressSize = remember { Size(1f, 1f) }
+    var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
 
     SideEffect {
         batchState.upsert(
