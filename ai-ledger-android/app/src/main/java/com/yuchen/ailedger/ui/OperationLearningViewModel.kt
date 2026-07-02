@@ -4,6 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.OperationWorkflowRepository
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowAppScope
 import com.yuchen.ailedger.model.WorkflowDraftStatus
@@ -12,9 +15,11 @@ import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationIssue
 import com.yuchen.ailedger.service.WorkflowValidationStage
 import java.util.UUID
+import kotlinx.coroutines.launch
 
 data class OperationLearningUiState(
     val drafts: List<LearnedWorkflowDraft> = emptyList(),
+    val loading: Boolean = false,
     val editorVisible: Boolean = false,
     val titleInput: String = "",
     val goalInput: String = "",
@@ -26,8 +31,37 @@ data class OperationLearningUiState(
 )
 
 class OperationLearningViewModel : ViewModel() {
+    private val repository = AiLedgerApplication.contextOrNull()?.let(OperationWorkflowRepository::get)
+
     var uiState by mutableStateOf(OperationLearningUiState())
         private set
+
+    init {
+        refresh()
+    }
+
+    fun refresh() {
+        val activeRepository = repository ?: return
+        uiState = uiState.copy(loading = true)
+        viewModelScope.launch {
+            runCatching { activeRepository.loadDrafts() }
+                .onSuccess { drafts ->
+                    uiState = uiState.copy(
+                        drafts = drafts,
+                        loading = false,
+                        selectedDraftId = uiState.selectedDraftId?.takeIf { selected ->
+                            drafts.any { it.id == selected }
+                        },
+                    )
+                }
+                .onFailure {
+                    uiState = uiState.copy(
+                        loading = false,
+                        notice = "操作草稿加载失败，请稍后重试。",
+                    )
+                }
+        }
+    }
 
     fun openIntentEditor() {
         uiState = uiState.copy(
@@ -98,6 +132,19 @@ class OperationLearningViewModel : ViewModel() {
             selectedDraftId = draft.id,
             notice = "已创建操作草稿。下一阶段将从这个明确目标启动演示录制。",
         )
+
+        repository?.let { activeRepository ->
+            viewModelScope.launch {
+                runCatching { activeRepository.saveIntent(draft) }
+                    .onFailure {
+                        uiState = uiState.copy(
+                            drafts = uiState.drafts.filterNot { it.id == draft.id },
+                            selectedDraftId = uiState.selectedDraftId.takeUnless { it == draft.id },
+                            notice = "草稿未能保存到本机，请重新创建。",
+                        )
+                    }
+            }
+        }
         return true
     }
 
@@ -124,11 +171,26 @@ class OperationLearningViewModel : ViewModel() {
 
     fun deleteDraft(draftId: String) {
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
+        val previousDrafts = uiState.drafts
+        val previousSelection = uiState.selectedDraftId
         uiState = uiState.copy(
-            drafts = uiState.drafts.filterNot { it.id == draftId },
-            selectedDraftId = uiState.selectedDraftId.takeUnless { it == draftId },
+            drafts = previousDrafts.filterNot { it.id == draftId },
+            selectedDraftId = previousSelection.takeUnless { it == draftId },
             notice = "已删除草稿“${draft.title}”。",
         )
+
+        repository?.let { activeRepository ->
+            viewModelScope.launch {
+                runCatching { activeRepository.deleteDraft(draftId) }
+                    .onFailure {
+                        uiState = uiState.copy(
+                            drafts = previousDrafts,
+                            selectedDraftId = previousSelection,
+                            notice = "删除失败，草稿已恢复。",
+                        )
+                    }
+            }
+        }
     }
 
     fun clearNotice() {
