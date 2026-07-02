@@ -33,6 +33,7 @@ import com.yuchen.ailedger.ui.LocalBackdropFrameTicker
 import com.yuchen.ailedger.ui.LocalBackdropOrigin
 import com.yuchen.ailedger.ui.LocalBlurredBackdrop
 import com.yuchen.ailedger.ui.LocalGlassBackdrop
+import com.yuchen.ailedger.ui.OpenGLFrameFinalizer
 import com.yuchen.ailedger.ui.PerformanceRuntimeMetrics
 import com.yuchen.ailedger.ui.StartupPerformanceGate
 import java.nio.ByteBuffer
@@ -68,7 +69,7 @@ private const val FULL_VERTEX_FLOATS = MAX_BATCH_ITEMS * ITEM_VERTEX_FLOATS
 
 private const val BATCH_REFERENCE_SHORT_EDGE_DP = 160f
 private const val BATCH_MINIMUM_OPTICAL_SCALE = 0.28f
-private const val BATCH_FRAME_EPSILON_PX = 0.35f
+private const val BATCH_FRAME_EPSILON_PX = 0.01f
 private const val BATCH_INTENSITY_EPSILON = 0.004f
 private const val BATCH_PRESS_EPSILON = 0.002f
 private const val BATCH_CLEAR_PADDING_PX = 4
@@ -144,7 +145,9 @@ internal class OpenGLShellBatchItem(
                 attached = false
                 width = 0f
                 height = 0f
-                geometryListeners.forEach { it() }
+                if (!OpenGLFrameFinalizer.requestActiveTickerFrame()) {
+                    geometryListeners.forEach { it() }
+                }
             }
             return
         }
@@ -164,7 +167,9 @@ internal class OpenGLShellBatchItem(
         localTop = local.y
         width = nextWidth
         height = nextHeight
-        if (changed) geometryListeners.forEach { it() }
+        if (changed && !OpenGLFrameFinalizer.requestActiveTickerFrame()) {
+            geometryListeners.forEach { it() }
+        }
     }
 }
 
@@ -411,6 +416,14 @@ private class WebOpenGLGlassBatchHostView(context: Context) : FrameLayout(contex
     }
 
     fun requestRenderOnNextAnimationFrame() {
+        if (OpenGLFrameFinalizer.isDispatchingFrame) {
+            if (renderPosted) {
+                removeCallbacks(renderRunnable)
+                renderPosted = false
+            }
+            if (isAttachedToWindow && syncPacket()) textureView.requestRender()
+            return
+        }
         if (renderPosted) return
         renderPosted = true
         postOnAnimation(renderRunnable)
