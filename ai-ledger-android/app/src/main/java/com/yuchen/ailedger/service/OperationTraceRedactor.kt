@@ -63,6 +63,15 @@ object OperationTraceRedactor {
             eventText = redactedEventText,
             inputLengthBucket = if (eventEditable) lengthBucket(rawEventText.length) else null,
             redactionApplied = eventEditable || sensitiveInput || redactedEventText != rawEventText,
+            scrollDeltaX = event.scrollDeltaX,
+            scrollDeltaY = event.scrollDeltaY,
+            scrollX = event.scrollX,
+            scrollY = event.scrollY,
+            maxScrollX = event.maxScrollX,
+            maxScrollY = event.maxScrollY,
+            fromIndex = event.fromIndex,
+            toIndex = event.toIndex,
+            itemCount = event.itemCount,
         )
     }
 
