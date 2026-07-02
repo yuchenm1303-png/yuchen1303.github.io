@@ -18,13 +18,13 @@ internal object AssistantMemoryUsageBridge {
 
     fun captureResponseJson(data: JSONObject) {
         val mutationReceipt = AssistantMemoryMutationRuntime.captureResponse(data)
+        val appContext = AiLedgerApplication.contextOrNull()
         if (
             mutationReceipt != null &&
+            appContext != null &&
             AssistantMemoryMutationRuntime.markInventoryRefreshNeeded(mutationReceipt)
         ) {
-            AiLedgerApplication.contextOrNull()?.let { context ->
-                AssistantMemoryRepository.get(context).refreshAfterCloudMutation(mutationReceipt)
-            }
+            AssistantMemoryRepository.get(appContext).refreshAfterCloudMutation(mutationReceipt)
         }
 
         val response = sequenceOf(
@@ -52,9 +52,6 @@ internal object AssistantMemoryUsageBridge {
         return data.has("memoryStatus") ||
             data.has("memoryUsed") ||
             data.has("memoryRequestId") ||
-            data.has("memoryTrace") ||
-            data.has("memoryMutation") ||
-            data.has("memoryMutationStatus") ||
-            data.has("memoryMutationOperationId")
+            data.has("memoryTrace")
     }
 }
