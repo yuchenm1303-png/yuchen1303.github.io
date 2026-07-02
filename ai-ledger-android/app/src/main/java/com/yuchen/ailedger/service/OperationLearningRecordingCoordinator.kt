@@ -179,12 +179,15 @@ object OperationLearningRecordingCoordinator {
     fun append(record: OperationTraceRecord): Boolean {
         val session = activeSession ?: return false
         if (mutableState.value.phase != OperationRecordingPhase.Recording) return false
-        val nextCount = session.eventCount.incrementAndGet()
         val appended = session.writer.append(record)
         if (!appended) {
-            requestStop(null, OperationRecordingStopReason.InternalError)
+            if (session.stopRequested.compareAndSet(false, true)) {
+                requestStop(null, OperationRecordingStopReason.InternalError)
+            }
             return false
         }
+
+        val nextCount = session.eventCount.incrementAndGet()
         if (nextCount == 1 || nextCount % STATE_EVENT_COUNT_STEP == 0) {
             mutableState.value = mutableState.value.copy(capturedEventCount = nextCount)
         }
@@ -207,9 +210,10 @@ object OperationLearningRecordingCoordinator {
     ): Boolean = mutex.withLock {
         val session = activeSession ?: return false
         activeSession = null
+        val recordCount = session.eventCount.get()
         mutableState.value = mutableState.value.copy(
             phase = OperationRecordingPhase.Stopping,
-            capturedEventCount = session.eventCount.get(),
+            capturedEventCount = recordCount,
             message = "正在封存加密轨迹…",
         )
 
@@ -219,59 +223,58 @@ object OperationLearningRecordingCoordinator {
 
         val applicationContext = context?.applicationContext
             ?: AiAgentAccessibilityService.applicationContextOrNull()
-        val captured = reason in setOf(
+        val userAcceptedCapture = reason in setOf(
             OperationRecordingStopReason.UserFinished,
             OperationRecordingStopReason.NotificationFinished,
             OperationRecordingStopReason.DurationLimit,
             OperationRecordingStopReason.EventLimit,
         )
+        val captured = userAcceptedCapture && recordCount > 0
         val finalMarker = OperationRecordingMarkerRecord(
             capturedAtMillis = System.currentTimeMillis(),
             marker = if (captured) "session_captured" else "session_aborted",
-            detail = "reason=${reason.storageValue};records=${session.eventCount.get()}",
+            detail = "reason=${reason.storageValue};records=$recordCount",
         )
 
         val finalized = runCatching {
+            val resolvedContext = requireNotNull(applicationContext) { "application context unavailable" }
             withContext(Dispatchers.IO) {
                 session.writer.close(finalMarker)
-                if (applicationContext != null) {
-                    val repository = OperationWorkflowRepository.get(applicationContext)
-                    val traceStore = OperationTraceStore(applicationContext)
-                    if (!captured) traceStore.deleteTrace(session.writer.path)
-                    repository.finishDemonstration(
-                        demonstrationId = session.config.demonstrationId,
-                        workflowId = session.config.workflowId,
-                        status = if (captured) "captured" else "aborted",
-                        redactionStatus = if (captured) "sealed" else "trace_deleted",
-                        workflowStatus = if (captured) WorkflowDraftStatus.Compiling else WorkflowDraftStatus.Intent,
-                        completedAtMillis = System.currentTimeMillis(),
-                    )
-                }
+                val repository = OperationWorkflowRepository.get(resolvedContext)
+                val traceStore = OperationTraceStore(resolvedContext)
+                if (!captured) traceStore.deleteTrace(session.writer.path)
+                repository.finishDemonstration(
+                    demonstrationId = session.config.demonstrationId,
+                    workflowId = session.config.workflowId,
+                    status = if (captured) "captured" else "aborted",
+                    redactionStatus = if (captured) "sealed" else "trace_deleted",
+                    workflowStatus = if (captured) WorkflowDraftStatus.Compiling else WorkflowDraftStatus.Intent,
+                    completedAtMillis = System.currentTimeMillis(),
+                )
             }
         }.isSuccess
 
-        mutableState.value = if (captured && finalized) {
-            OperationRecordingState(
+        mutableState.value = when {
+            captured && finalized -> OperationRecordingState(
                 phase = OperationRecordingPhase.Captured,
                 workflowId = session.config.workflowId,
                 demonstrationId = session.config.demonstrationId,
                 workflowTitle = session.config.workflowTitle,
                 allowedPackages = session.config.allowedPackages,
                 startedAtMillis = session.config.startedAtMillis,
-                capturedEventCount = session.eventCount.get(),
+                capturedEventCount = recordCount,
                 message = "演示已加密封存，等待整理为可审核流程。",
             )
-        } else if (!captured && finalized) {
-            OperationRecordingState(
+            !captured && finalized -> OperationRecordingState(
                 phase = OperationRecordingPhase.Idle,
-                message = when (reason) {
-                    OperationRecordingStopReason.ScopeViolation -> "检测到未授权应用，录制已停止且轨迹已删除。"
-                    OperationRecordingStopReason.TaskStarted -> "智能体任务已启动，操作录制已安全结束。"
+                message = when {
+                    userAcceptedCapture && recordCount == 0 -> "没有采集到有效操作，录制已结束且未保留空轨迹。"
+                    reason == OperationRecordingStopReason.ScopeViolation -> "检测到未授权应用，录制已停止且轨迹已删除。"
+                    reason == OperationRecordingStopReason.TaskStarted -> "智能体任务已启动，操作录制已安全结束。"
                     else -> "录制已取消，未保留轨迹。"
                 },
             )
-        } else {
-            OperationRecordingState(
+            else -> OperationRecordingState(
                 phase = OperationRecordingPhase.Failed,
                 workflowId = session.config.workflowId,
                 workflowTitle = session.config.workflowTitle,
