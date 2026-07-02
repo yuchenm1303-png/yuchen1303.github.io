@@ -339,7 +339,7 @@ private object AssistantMemorySettingsRefreshCoordinator {
         payload.remove("memorySettingsRefreshGeneration")
 
         val requestContext = AssistantMemoryRequestContextRuntime.peekCurrentThread() ?: return
-        val ticket = requestContext.ticket
+        val ticket = requestContext.ticket ?: return
         if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
         val appContext = AiLedgerApplication.contextOrNull() ?: return
         val memoryState = AssistantMemoryRepository.get(appContext).state.value
@@ -382,7 +382,7 @@ private object AssistantMemorySettingsRefreshCoordinator {
         val generation = payload.optLong("memorySettingsRefreshGeneration", 0L)
         if (generation <= 0L) return
         val requestContext = AssistantMemoryRequestContextRuntime.peekCurrentThread() ?: return
-        val ticket = requestContext.ticket
+        val ticket = requestContext.ticket ?: return
         if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
         val scope = AssistantAccountSessionRuntime.diagnosticsScope(ticket)
 
