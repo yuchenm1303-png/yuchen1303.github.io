@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -22,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
@@ -56,9 +58,17 @@ internal fun CachedTabPageLayer(
     val parentGlassBackdrop = LocalGlassBackdrop.current
     val parentBlurredBackdrop = LocalBlurredBackdrop.current
     val parentBackdropTicker = LocalBackdropFrameTicker.current
+    val hostView = LocalView.current
     val active = tab == currentTab
     val initialAlpha = if (tab == initialTab && activationKey == 1) 1f else 0f
     val alphaState = remember(tab) { Animatable(initialAlpha) }
+
+    // 所有缓存页面共用 Activity 根视图的 PreDraw。引用计数只负责确保最终帧提交器
+    // 在页面切换期间始终绑定到真实 Android traversal，不介入任何 Compose 布局尺寸。
+    DisposableEffect(hostView) {
+        val release = OpenGLFrameFinalizer.bindHostView(hostView)
+        onDispose(release)
+    }
 
     LaunchedEffect(active) {
         alphaState.animateTo(
@@ -78,6 +88,7 @@ internal fun CachedTabPageLayer(
     val visualEffectsEnabled = visibleDuringTransition &&
         pageHeavyEffectsReady &&
         !diagnostics.openGlGlassOff
+    val openGlFrameSyncEnabled = visibleDuringTransition && !diagnostics.openGlGlassOff
     val sceneGroup = tab.defaultGlassSceneGroup()
     val ordinaryRenderMode = if (visibleDuringTransition) {
         OrdinaryGlassParentDrawController.renderModeFor(sceneGroup)
@@ -86,6 +97,15 @@ internal fun CachedTabPageLayer(
     }
     val pageOffsetDp = if (active) PAGE_ENTER_OFFSET_DP else PAGE_EXIT_OFFSET_DP
     val pageScale = PAGE_MIN_SCALE + (1f - PAGE_MIN_SCALE) * alpha
+
+    // graphicsLayer 动画不会保证触发 onPlaced。每次 alpha/translation/scale 推进时直接标记
+    // 当前 traversal，在同帧 PreDraw 读取最终 localToRoot，避免 OpenGL 本体追后一帧。
+    LaunchedEffect(visibleDuringTransition, parentBackdropTicker, alphaState) {
+        if (!visibleDuringTransition || parentBackdropTicker == null) return@LaunchedEffect
+        snapshotFlow { alphaState.value }.collect {
+            OpenGLFrameFinalizer.requestActiveTickerFrame()
+        }
+    }
 
     OrdinaryGlassSceneHost(
         group = sceneGroup,
@@ -110,7 +130,9 @@ internal fun CachedTabPageLayer(
                 LocalOpenGLGlassViewportActive provides false,
                 LocalGlassBackdrop provides if (visibleDuringTransition) parentGlassBackdrop else null,
                 LocalBlurredBackdrop provides if (visibleDuringTransition) parentBlurredBackdrop else null,
-                LocalBackdropFrameTicker provides if (visualEffectsEnabled) parentBackdropTicker else null,
+                // 离场页面仍在 graphicsLayer 中移动，必须保留 ticker 直到 alpha 真正归零。
+                // heavyEffectsReady 只控制动态视觉，不再切断坐标同步链。
+                LocalBackdropFrameTicker provides if (openGlFrameSyncEnabled) parentBackdropTicker else null,
             ) {
                 key(tab) {
                     BottomDockBoundedPageViewport(tab = tab) {
