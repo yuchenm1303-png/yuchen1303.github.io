@@ -59,56 +59,102 @@ data class AssistantMemoryMutationReceipt(
                 else -> "记忆操作已完成。"
             }
             "noop" -> "记忆内容没有变化，无需重复保存。"
-            "conflict" -> "这条记忆已在其他设备上发生变化，已重新同步，请确认后再试。"
+            "conflict" -> when (error) {
+                "canonical_slot_occupied_by_another_memory",
+                "active_canonical_slot_already_exists" ->
+                    "同一记忆槽位已经存在另一条活动记忆，已重新同步，请先确认现有内容。"
+                else -> "这条记忆已在其他设备或页面发生变化，已重新同步，请确认后再试。"
+            }
             "not_found" -> "这条记忆已不存在，列表已重新同步。"
-            "confirmation_required" -> "该记忆操作还需要明确确认。"
-            "operation_id_conflict" -> "记忆操作标识发生冲突，请重新发起。"
+            "confirmation_required", "needs_clarification" ->
+                "这条记忆还不够明确，数据库没有被修改；请把内容写得更具体后再试。"
+            "blocked_memory_disabled" -> "长期记忆当前已关闭，因此没有修改任何内容。"
+            "blocked_sensitive_policy" -> "当前敏感信息策略不允许保存这条内容。"
             "blocked_forget_tombstone" -> "这条内容已被明确遗忘，未重新写入。"
+            "blocked_login_required" -> "登录状态已失效，请重新登录后再试。"
+            "settings_unavailable" -> "暂时无法读取记忆设置，数据库没有被修改。"
+            "invalid_request" -> error.ifBlank { "记忆管理请求不完整，数据库没有被修改。" }
+            "router_failed" -> "云端没有完成记忆规范化，数据库没有被修改。"
+            "rpc_failed" -> "云端记忆事务没有完成，数据库没有被修改。"
+            "operation_id_conflict" -> "记忆操作标识发生冲突，请重新发起。"
             else -> error.ifBlank { "记忆操作未完成，请稍后再试。" }
         }
     }
 }
 
 data class AssistantMemoryMutationRuntimeState(
+    val accountScope: String = "",
     val latestReceipt: AssistantMemoryMutationReceipt? = null,
     val updatedAtMillis: Long = 0L,
 )
 
-/**
- * 接收聊天最终响应里的云端记忆事务回执。
- *
- * 这里只保存真实回执并为同一 operationId 去重刷新信号。
- * 不在 Android 端重新判断自然语言记忆意图，也不修改云端事务结论。
- */
 object AssistantMemoryMutationRuntime {
     private val lock = Any()
     private val refreshedOperationIds = LinkedHashSet<String>()
     private val mutableState = MutableStateFlow(AssistantMemoryMutationRuntimeState())
     val state: StateFlow<AssistantMemoryMutationRuntimeState> = mutableState.asStateFlow()
 
-    fun captureResponse(response: JSONObject): AssistantMemoryMutationReceipt? {
+    private var activeScope: String? = null
+
+    internal fun switchAccount(ticket: AssistantMemorySessionTicket?) {
+        val nextScope = ticket
+            ?.takeIf(AssistantAccountSessionRuntime::isCurrent)
+            ?.let(AssistantAccountSessionRuntime::diagnosticsScope)
+        synchronized(lock) {
+            if (activeScope == nextScope) return
+            activeScope = nextScope
+            refreshedOperationIds.clear()
+            mutableState.value = AssistantMemoryMutationRuntimeState(
+                accountScope = nextScope.orEmpty(),
+            )
+        }
+    }
+
+    internal fun captureResponse(
+        response: JSONObject,
+        ticket: AssistantMemorySessionTicket,
+    ): AssistantMemoryMutationReceipt? {
+        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return null
         val receipt = response.findAssistantMemoryMutationReceipt() ?: return null
-        mutableState.value = AssistantMemoryMutationRuntimeState(
-            latestReceipt = receipt,
-            updatedAtMillis = System.currentTimeMillis(),
-        )
+        val scope = AssistantAccountSessionRuntime.diagnosticsScope(ticket)
+        synchronized(lock) {
+            if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return null
+            if (activeScope != scope) {
+                activeScope = scope
+                refreshedOperationIds.clear()
+            }
+            mutableState.value = AssistantMemoryMutationRuntimeState(
+                accountScope = scope,
+                latestReceipt = receipt,
+                updatedAtMillis = System.currentTimeMillis(),
+            )
+        }
         return receipt
     }
 
-    fun markInventoryRefreshNeeded(receipt: AssistantMemoryMutationReceipt): Boolean {
-        if (!receipt.inventoryMayHaveChanged || receipt.operationId.isBlank()) return false
-        return markRefreshNeeded(receipt.operationId)
-    }
-
-    private fun markRefreshNeeded(operationId: String): Boolean = synchronized(lock) {
-        if (!refreshedOperationIds.add(operationId)) return@synchronized false
-        while (refreshedOperationIds.size > MEMORY_MUTATION_REFRESH_DEDUP_LIMIT) {
-            val iterator = refreshedOperationIds.iterator()
-            if (!iterator.hasNext()) break
-            iterator.next()
-            iterator.remove()
+    internal fun markInventoryRefreshNeeded(
+        receipt: AssistantMemoryMutationReceipt,
+        ticket: AssistantMemorySessionTicket,
+    ): Boolean {
+        if (
+            !receipt.inventoryMayHaveChanged ||
+            receipt.operationId.isBlank() ||
+            !AssistantAccountSessionRuntime.isCurrent(ticket)
+        ) return false
+        val scope = AssistantAccountSessionRuntime.diagnosticsScope(ticket)
+        return synchronized(lock) {
+            if (!AssistantAccountSessionRuntime.isCurrent(ticket) || activeScope != scope) {
+                return@synchronized false
+            }
+            if (!refreshedOperationIds.add(receipt.operationId)) return@synchronized false
+            while (refreshedOperationIds.size > MEMORY_MUTATION_REFRESH_DEDUP_LIMIT) {
+                val iterator = refreshedOperationIds.iterator()
+                if (!iterator.hasNext()) break
+                iterator.next()
+                iterator.remove()
+            }
+            true
         }
-        true
     }
 }
 
