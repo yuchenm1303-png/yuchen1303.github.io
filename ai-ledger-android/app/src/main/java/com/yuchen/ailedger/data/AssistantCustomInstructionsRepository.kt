@@ -7,6 +7,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +26,10 @@ const val ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH = 2_000
 private const val CUSTOM_INSTRUCTIONS_TABLE = "assistant_custom_instructions"
 private const val CUSTOM_INSTRUCTIONS_CONNECT_TIMEOUT_MS = 12_000
 private const val CUSTOM_INSTRUCTIONS_READ_TIMEOUT_MS = 18_000
+private val CUSTOM_INSTRUCTIONS_CONTROL_CHAR_REGEX =
+    Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]")
+private val CUSTOM_INSTRUCTIONS_INLINE_SPACE_REGEX = Regex("[\\t ]+")
+private val CUSTOM_INSTRUCTIONS_EXCESS_BLANK_LINES_REGEX = Regex("\n{4,}")
 
 data class AssistantCustomInstructionsState(
     val loading: Boolean = false,
@@ -63,6 +68,8 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
     private val client = SupabaseCustomInstructionsClient()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val operationMutex = Mutex()
+    private val mutationInFlight = AtomicBoolean(false)
+    private val sessionGuard = AssistantMemorySessionGuard()
 
     private val _state = MutableStateFlow(AssistantCustomInstructionsState())
     val state: StateFlow<AssistantCustomInstructionsState> = _state.asStateFlow()
@@ -74,19 +81,33 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         scope.launch {
             authRepository.state.collectLatest { accountState ->
                 val session = accountState.session?.takeIf { accountState.isLoggedIn }
-                operationMutex.withLock {
-                    if (session == null) {
-                        currentSession = null
-                        _state.value = AssistantCustomInstructionsState(
-                            message = "登录后可设置自定义指令。"
-                        )
-                        return@withLock
-                    }
+                val previousUserId = currentSession?.userId
+                currentSession = session
+                val ticket = sessionGuard.updateUser(session?.userId)
 
-                    val userChanged = currentSession?.userId != session.userId
-                    currentSession = session
-                    if (userChanged || _state.value.accountUserId == null) {
-                        loadForSessionLocked(session)
+                if (session == null || ticket == null) {
+                    mutationInFlight.set(false)
+                    _state.value = AssistantCustomInstructionsState(
+                        message = "登录后可设置自定义指令。"
+                    )
+                    return@collectLatest
+                }
+
+                val userChanged = previousUserId != session.userId
+                if (userChanged || _state.value.accountUserId == null) {
+                    _state.value = AssistantCustomInstructionsState(
+                        loading = true,
+                        accountUserId = session.userId,
+                        accountEmail = session.email,
+                        message = "正在加载该账号的自定义指令…"
+                    )
+                    // 阻塞式网络请求不再占住账号 Flow；旧账号结果由代际票据直接丢弃。
+                    scope.launch {
+                        operationMutex.withLock {
+                            if (sessionGuard.isCurrent(ticket)) {
+                                loadForSessionLocked(session, ticket)
+                            }
+                        }
                     }
                 }
             }
@@ -96,7 +117,8 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
     fun refresh() {
         scope.launch {
             operationMutex.withLock {
-                currentSession?.let { loadForSessionLocked(it) }
+                val context = currentSessionContext() ?: return@withLock
+                loadForSessionLocked(context.session, context.ticket)
             }
         }
     }
@@ -112,8 +134,9 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
             return
         }
 
-        runMutation("正在保存自定义指令…") { session ->
+        runMutation("正在保存自定义指令…") { session, ticket ->
             val next = client.upsert(session, clean, enabled && clean.isNotBlank())
+            if (!sessionGuard.isCurrent(ticket)) return@runMutation
             _state.value = next.copy(
                 loading = false,
                 saving = false,
@@ -150,8 +173,9 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
     }
 
     fun clear() {
-        runMutation("正在清除自定义指令…") { session ->
+        runMutation("正在清除自定义指令…") { session, ticket ->
             client.delete(session)
+            if (!sessionGuard.isCurrent(ticket)) return@runMutation
             _state.value = AssistantCustomInstructionsState(
                 accountUserId = session.userId,
                 accountEmail = session.email,
@@ -165,7 +189,11 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
 
     fun currentInstructionsText(): String? = state.value.effectiveText()
 
-    private suspend fun loadForSessionLocked(session: SupabaseUserSession) {
+    private suspend fun loadForSessionLocked(
+        session: SupabaseUserSession,
+        ticket: AssistantMemorySessionTicket,
+    ) {
+        if (!sessionGuard.isCurrent(ticket)) return
         _state.value = AssistantCustomInstructionsState(
             loading = true,
             accountUserId = session.userId,
@@ -174,6 +202,7 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         )
         try {
             val loaded = client.load(session)
+            if (!sessionGuard.isCurrent(ticket)) return
             val overLimit = !loaded.isWithinLimit
             _state.value = loaded.copy(
                 loading = false,
@@ -189,6 +218,7 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                 error = overLimit
             )
         } catch (error: Throwable) {
+            if (!sessionGuard.isCurrent(ticket)) return
             _state.value = AssistantCustomInstructionsState(
                 accountUserId = session.userId,
                 accountEmail = session.email,
@@ -201,35 +231,58 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
 
     private fun runMutation(
         loadingMessage: String,
-        block: suspend (SupabaseUserSession) -> Unit
+        block: suspend (SupabaseUserSession, AssistantMemorySessionTicket) -> Unit
     ) {
-        if (_state.value.saving || _state.value.loading || !_state.value.isLoggedIn) return
+        if (
+            _state.value.saving ||
+            _state.value.loading ||
+            !_state.value.isLoggedIn ||
+            !mutationInFlight.compareAndSet(false, true)
+        ) return
+
         scope.launch {
-            operationMutex.withLock {
-                val session = currentSession
-                if (session == null || !session.isUsable) {
-                    _state.value = AssistantCustomInstructionsState(
-                        message = "登录状态已失效，请重新登录。",
-                        error = true
-                    )
-                    return@withLock
-                }
-                _state.value = _state.value.copy(
-                    saving = true,
-                    message = loadingMessage,
-                    error = false
-                )
-                try {
-                    block(session)
-                } catch (error: Throwable) {
+            var operationTicket: AssistantMemorySessionTicket? = null
+            try {
+                operationMutex.withLock {
+                    val context = currentSessionContext()
+                    if (context == null) {
+                        _state.value = AssistantCustomInstructionsState(
+                            message = "登录状态已失效，请重新登录。",
+                            error = true
+                        )
+                        return@withLock
+                    }
+                    operationTicket = context.ticket
+                    if (!sessionGuard.isCurrent(context.ticket)) return@withLock
                     _state.value = _state.value.copy(
-                        saving = false,
+                        saving = true,
+                        message = loadingMessage,
+                        error = false
+                    )
+                    block(context.session, context.ticket)
+                }
+            } catch (error: Throwable) {
+                val ticket = operationTicket
+                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                    _state.value = _state.value.copy(
                         message = error.friendlyCustomInstructionsMessage(),
                         error = true
                     )
                 }
+            } finally {
+                mutationInFlight.set(false)
+                val ticket = operationTicket
+                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                    _state.value = _state.value.copy(saving = false)
+                }
             }
         }
+    }
+
+    private fun currentSessionContext(): CustomInstructionsSessionContext? {
+        val session = currentSession?.takeIf { it.isUsable } ?: return null
+        val ticket = sessionGuard.currentTicket(session.userId) ?: return null
+        return CustomInstructionsSessionContext(session, ticket)
     }
 
     companion object {
@@ -245,6 +298,11 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         }
     }
 }
+
+private data class CustomInstructionsSessionContext(
+    val session: SupabaseUserSession,
+    val ticket: AssistantMemorySessionTicket,
+)
 
 private class SupabaseCustomInstructionsClient(
     private val supabaseUrl: String = SupabaseAuthClient.DEFAULT_SUPABASE_URL,
@@ -368,14 +426,14 @@ private class SupabaseCustomInstructionsClient(
 
 internal fun normalizeCustomInstructions(value: String): String {
     val withoutControl = value
-        .replace(Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]"), " ")
+        .replace(CUSTOM_INSTRUCTIONS_CONTROL_CHAR_REGEX, " ")
         .replace("\r\n", "\n")
         .replace('\r', '\n')
     return withoutControl
         .lineSequence()
-        .map { line -> line.replace(Regex("[\\t ]+"), " ").trimEnd() }
+        .map { line -> line.replace(CUSTOM_INSTRUCTIONS_INLINE_SPACE_REGEX, " ").trimEnd() }
         .joinToString("\n")
-        .replace(Regex("\n{4,}"), "\n\n\n")
+        .replace(CUSTOM_INSTRUCTIONS_EXCESS_BLANK_LINES_REGEX, "\n\n\n")
         .trim()
 }
 
