@@ -6,6 +6,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import com.yuchen.ailedger.ui.OpenGLFrameFinalizer
 import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.math.max
 
@@ -39,7 +40,7 @@ internal data class OpenGLGlassDynamicSnapshot(
  * Shell 动态效果的非布局状态通道。
  *
  * 热路径只更新 primitive pending 字段，不再为同一显示帧内的每次指针/动画写入创建
- * data class 副本。每帧最多生成一份最终快照，并在 Compose 与 OpenGL Host 之间复用。
+ * data class 副本。每帧最多生成一份最终快照，并与位置、背景原点一起在 PreDraw 提交。
  */
 @Stable
 class OpenGLGlassDynamicState {
@@ -147,12 +148,17 @@ class OpenGLGlassDynamicState {
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
-    private val frameCallback = Choreographer.FrameCallback {
+    private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
         framePosted = false
         val next = latestSnapshot()
         if (committedState.value == next) return@FrameCallback
         committedState.value = next
-        for (listener in frameListeners) listener()
+
+        // 有可见 OpenGL Host 时，动态状态与最终坐标统一在本帧 PreDraw 提交；
+        // 预览、测试或无 ticker 环境仍保留原有直接监听兼容路径。
+        if (!OpenGLFrameFinalizer.requestActiveTickerFrame(frameTimeNanos)) {
+            for (listener in frameListeners) listener()
+        }
     }
 }
 
