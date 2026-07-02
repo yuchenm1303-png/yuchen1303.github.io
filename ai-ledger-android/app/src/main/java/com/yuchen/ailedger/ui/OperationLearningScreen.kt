@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -54,29 +53,24 @@ private val OperationLearningSurface = Color(0xFF10153A)
 private val OperationLearningDanger = Color(0xFFFFA6B2)
 
 private data class LearningFlowStep(
-    val index: String,
     val title: String,
     val description: String,
 )
 
 private val learningFlowSteps = listOf(
     LearningFlowStep(
-        index = "01",
         title = "定义目标与范围",
         description = "先明确最终结果、允许进入的应用，以及每次运行会变化的输入。",
     ),
     LearningFlowStep(
-        index = "02",
         title = "亲自演示一次",
         description = "录制期间由你操作手机，系统只采集动作、控件证据和页面变化。",
     ),
     LearningFlowStep(
-        index = "03",
         title = "审核结构化流程",
         description = "检查步骤、变量、选择器、成功证据和风险确认，不直接保存原始点击轨迹。",
     ),
     LearningFlowStep(
-        index = "04",
         title = "逐步执行并验证",
         description = "默认按已批准路线确定性执行，每一步完成后都验证页面状态。",
     ),
@@ -323,24 +317,8 @@ private fun RecordingStatusCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(accent.copy(alpha = 0.13f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = if (active) "录" else "✓",
-                        color = accent.copy(alpha = 0.90f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                }
                 Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 11.dp),
+                    modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
@@ -488,48 +466,29 @@ private fun CreateIntentCard(
                 .padding(horizontal = 18.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Text(
-                        text = "第一步 · 定义意图",
-                        color = OperationLearningAccent.copy(alpha = 0.78f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                    Text(
-                        text = "先说清楚要学什么",
-                        color = Color.White,
-                        fontSize = 24.sp,
-                        lineHeight = 29.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                    Text(
-                        text = "创建草稿时只记录目标和允许操作的应用，不会立即开启无障碍监听。",
-                        color = Color.White.copy(alpha = 0.56f),
-                        fontSize = 12.5.sp,
-                        lineHeight = 18.sp,
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(OperationLearningViolet.copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = "意",
-                        color = Color.White.copy(alpha = 0.92f),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                }
+                Text(
+                    text = "第一步 · 定义意图",
+                    color = OperationLearningAccent.copy(alpha = 0.78f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    text = "先说清楚要学什么",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    lineHeight = 29.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    text = "创建草稿时只记录目标和允许操作的应用，不会立即开启无障碍监听。",
+                    color = Color.White.copy(alpha = 0.56f),
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                )
             }
 
             Row(
@@ -775,34 +734,22 @@ private fun LearningFlowCard() {
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
             learningFlowSteps.forEach { step ->
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top,
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = step.index,
-                        color = OperationLearningViolet.copy(alpha = 0.72f),
-                        fontSize = 12.sp,
+                        text = step.title,
+                        color = Color.White.copy(alpha = 0.93f),
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Black,
                     )
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(3.dp),
-                    ) {
-                        Text(
-                            text = step.title,
-                            color = Color.White.copy(alpha = 0.93f),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Black,
-                        )
-                        Text(
-                            text = step.description,
-                            color = Color.White.copy(alpha = 0.49f),
-                            fontSize = 11.5.sp,
-                            lineHeight = 17.sp,
-                        )
-                    }
+                    Text(
+                        text = step.description,
+                        color = Color.White.copy(alpha = 0.49f),
+                        fontSize = 11.5.sp,
+                        lineHeight = 17.sp,
+                    )
                 }
             }
         }
@@ -836,42 +783,22 @@ private fun DeterministicExecutionCard() {
 
 @Composable
 private fun PrincipleRow(title: String, description: String) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.Top,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(25.dp)
-                .clip(RoundedCornerShape(9.dp))
-                .background(OperationLearningAccent.copy(alpha = 0.10f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "✓",
-                color = OperationLearningAccent.copy(alpha = 0.80f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Black,
-            )
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(
-                text = title,
-                color = Color.White.copy(alpha = 0.90f),
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                text = description,
-                color = Color.White.copy(alpha = 0.46f),
-                fontSize = 11.sp,
-                lineHeight = 16.sp,
-            )
-        }
+        Text(
+            text = title,
+            color = Color.White.copy(alpha = 0.90f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Black,
+        )
+        Text(
+            text = description,
+            color = Color.White.copy(alpha = 0.46f),
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+        )
     }
 }
 
@@ -893,19 +820,10 @@ private fun LearnedOperationsEmptyCard(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
                 .background(Color(0xFF12163D).copy(alpha = 0.20f))
-                .padding(horizontal = 18.dp, vertical = 22.dp),
+                .padding(horizontal = 18.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(17.dp))
-                    .background(Color.White.copy(alpha = 0.055f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("＋", color = Color.White.copy(alpha = 0.76f), fontSize = 23.sp, fontWeight = FontWeight.Light)
-            }
             Text("还没有操作草稿", color = Color.White.copy(alpha = 0.91f), fontSize = 17.sp, fontWeight = FontWeight.Black)
             Text(
                 text = "先定义一个明确目标和允许进入的应用，再开始演示。",
@@ -974,57 +892,38 @@ private fun WorkflowDraftCard(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
-                    ) {
-                        WorkflowStatusChip(draft.status)
-                        Text(
-                            text = draft.executionMode.label,
-                            color = Color.White.copy(alpha = 0.38f),
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
+                    WorkflowStatusChip(draft.status)
                     Text(
-                        text = draft.title,
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = draft.goal,
-                        color = Color.White.copy(alpha = 0.50f),
-                        fontSize = 11.5.sp,
-                        lineHeight = 17.sp,
-                        maxLines = 3,
-                        overflow = TextOverflow.Ellipsis,
+                        text = draft.executionMode.label,
+                        color = Color.White.copy(alpha = 0.38f),
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(13.dp))
-                        .background(Color.White.copy(alpha = 0.05f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = if (thisRecording) "录" else "草",
-                        color = if (thisRecording) OperationLearningAccent else Color.White.copy(alpha = 0.66f),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                }
+                Text(
+                    text = draft.title,
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = draft.goal,
+                    color = Color.White.copy(alpha = 0.50f),
+                    fontSize = 11.5.sp,
+                    lineHeight = 17.sp,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
 
             Row(
@@ -1115,41 +1014,26 @@ private fun SafetyBoundaryCard() {
         dimAlpha = 0f,
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(24.dp))
                 .background(Color(0xFF101536).copy(alpha = 0.18f))
                 .padding(horizontal = 16.dp, vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.Top,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(35.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(OperationLearningAccent.copy(alpha = 0.10f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("盾", color = OperationLearningAccent.copy(alpha = 0.76f), fontSize = 12.sp, fontWeight = FontWeight.Black)
-            }
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = "原始演示不能直接执行",
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Black,
-                )
-                Text(
-                    text = "录制只在用户主动开启期间工作；离开授权应用、开始智能体任务、失败或取消后都会恢复低负载 Idle。轨迹采用本机加密短期保存。",
-                    color = Color.White.copy(alpha = 0.48f),
-                    fontSize = 11.5.sp,
-                    lineHeight = 17.sp,
-                )
-            }
+            Text(
+                text = "原始演示不能直接执行",
+                color = Color.White.copy(alpha = 0.9f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Black,
+            )
+            Text(
+                text = "录制只在用户主动开启期间工作；离开授权应用、开始智能体任务、失败或取消后都会恢复低负载 Idle。轨迹采用本机加密短期保存。",
+                color = Color.White.copy(alpha = 0.48f),
+                fontSize = 11.5.sp,
+                lineHeight = 17.sp,
+            )
         }
     }
 }
