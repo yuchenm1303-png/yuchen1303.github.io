@@ -38,6 +38,7 @@ import com.yuchen.ailedger.service.StorageMediaOrganizationRepository
 import com.yuchen.ailedger.service.StorageOrganizationFile
 import com.yuchen.ailedger.service.StorageOrganizationSnapshot
 import com.yuchen.ailedger.service.loadCachedOrganizationThumbnail
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -263,7 +264,7 @@ private fun OrganizationInlineThumbnail(file: StorageOrganizationFile) {
     val repository = remember(context.applicationContext) {
         StorageMediaOrganizationRepository(context.applicationContext)
     }
-    val state by produceState(
+    val thumbnailState by produceState(
         initialValue = InlineThumbnailState(),
         key1 = file.uri,
         key2 = file.modifiedAt,
@@ -273,19 +274,20 @@ private fun OrganizationInlineThumbnail(file: StorageOrganizationFile) {
         }
         value = InlineThumbnailState(bitmap = bitmap, complete = true)
     }
+    val bitmap = thumbnailState.bitmap
 
     Box(
         modifier = Modifier.size(62.dp).clip(shape).background(Color.White.copy(alpha = 0.055f)),
         contentAlignment = Alignment.Center,
     ) {
         when {
-            state.bitmap != null -> Image(
-                bitmap = state.bitmap.asImageBitmap(),
+            bitmap != null -> Image(
+                bitmap = bitmap.asImageBitmap(),
                 contentDescription = "${file.displayName} 缩略图",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
             )
-            !state.complete -> CircularProgressIndicator(
+            !thumbnailState.complete -> CircularProgressIndicator(
                 modifier = Modifier.size(16.dp),
                 strokeWidth = 1.5.dp,
                 color = OrganizationAccent.copy(alpha = 0.70f),
