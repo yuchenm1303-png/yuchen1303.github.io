@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.ui.gl.LocalOpenGLShellBatchState
 
 enum class OpenGlShellMood {
     Hero,
@@ -22,6 +23,9 @@ enum class OpenGlShellMood {
  * - hidden cached pages release OpenGL and fall back to a lightweight Card;
  * - diagnostics.openGlGlassOff still hard-disables Shell OpenGL;
  * - heavy-effects readiness only controls motion intensity, never Shell/Card identity.
+ *
+ * 当页面提供 [LocalOpenGLShellBatchState] 时，仍复用同一个入口、动态参数和点击行为，
+ * 但底层 OpenGL 输出登记到父级共享宿主，由父级在同一帧内逐卡执行同一着色器。
  */
 @Composable
 fun OpenGlShellGlass(
@@ -42,6 +46,20 @@ fun OpenGlShellGlass(
     val useOpenGlShell = wantsOpenGlShell && pageVisible && !diagnostics.openGlGlassOff
     val resolvedMotionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f
     val surfaceModifier = modifier
+    val batchState = LocalOpenGLShellBatchState.current
+
+    if (useOpenGlShell && batchState != null) {
+        OpenGlShellBatchItemSurface(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = resolvedMotionIntensity,
+            radius = radius,
+            modifier = surfaceModifier,
+            onClick = onClick,
+            content = content,
+        )
+        return
+    }
 
     if (useOpenGlShell) {
         val interaction = remember { MutableInteractionSource() }
