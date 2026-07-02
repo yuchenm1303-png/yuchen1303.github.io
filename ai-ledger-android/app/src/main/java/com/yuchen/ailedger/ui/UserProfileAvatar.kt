@@ -1,6 +1,8 @@
 package com.yuchen.ailedger.ui
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,8 +28,91 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+
+private const val PROFILE_AVATAR_CACHE_EDGE_PX = 320
+private const val PROFILE_AVATAR_CACHE_BYTES = 12 * 1024 * 1024
+
+/**
+ * 设置首页与账号详情会同时显示同一张头像。这里按“文件路径 + 云端版本”共享一次
+ * 采样解码和一份 ImageBitmap，避免两个 Composable 各自解码原始相册大图并重复上传纹理。
+ */
+private object UserProfileAvatarBitmapCache {
+    private val loaderScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val inFlight = ConcurrentHashMap<String, Deferred<ImageBitmap?>>()
+    private val cache = object : LruCache<String, ImageBitmap>(PROFILE_AVATAR_CACHE_BYTES) {
+        override fun sizeOf(key: String, value: ImageBitmap): Int {
+            return (value.width.toLong() * value.height.toLong() * 4L)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+        }
+    }
+
+    fun cached(path: String, version: Long): ImageBitmap? = cache.get(cacheKey(path, version))
+
+    suspend fun load(path: String, version: Long): ImageBitmap? {
+        val key = cacheKey(path, version)
+        cache.get(key)?.let { return it }
+
+        val deferred = inFlight.computeIfAbsent(key) {
+            loaderScope.async {
+                decodeSampledAvatar(path)?.also { image -> cache.put(key, image) }
+            }
+        }
+        return try {
+            deferred.await()
+        } finally {
+            if (deferred.isCompleted) inFlight.remove(key, deferred)
+        }
+    }
+
+    private fun cacheKey(path: String, version: Long): String = "$path#$version"
+
+    private fun decodeSampledAvatar(path: String): ImageBitmap? {
+        val file = File(path).takeIf(File::isFile) ?: return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val sourceWidth = bounds.outWidth
+        val sourceHeight = bounds.outHeight
+        if (sourceWidth <= 0 || sourceHeight <= 0) return null
+
+        val sourceMaxEdge = maxOf(sourceWidth, sourceHeight)
+        var sampleSize = 1
+        while (sourceMaxEdge / (sampleSize * 2) >= PROFILE_AVATAR_CACHE_EDGE_PX) {
+            sampleSize *= 2
+        }
+
+        val decoded = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inScaled = false
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            },
+        ) ?: return null
+
+        val decodedMaxEdge = maxOf(decoded.width, decoded.height)
+        val bitmap = if (decodedMaxEdge > PROFILE_AVATAR_CACHE_EDGE_PX) {
+            val scale = PROFILE_AVATAR_CACHE_EDGE_PX.toFloat() / decodedMaxEdge.toFloat()
+            val scaled = Bitmap.createScaledBitmap(
+                decoded,
+                (decoded.width * scale).toInt().coerceAtLeast(1),
+                (decoded.height * scale).toInt().coerceAtLeast(1),
+                true,
+            )
+            if (scaled !== decoded) decoded.recycle()
+            scaled
+        } else {
+            decoded
+        }
+        return bitmap.asImageBitmap()
+    }
+}
 
 @Composable
 internal fun UserProfileAvatar(
@@ -38,18 +123,17 @@ internal fun UserProfileAvatar(
     loggedIn: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val effectiveAvatarPath = localAvatarPath.takeIf { loggedIn }
+    val effectiveAvatarPath = localAvatarPath.takeIf { loggedIn && !it.isNullOrBlank() }
+    val initialImage = effectiveAvatarPath?.let {
+        UserProfileAvatarBitmapCache.cached(it, avatarVersion)
+    }
     val avatarBitmap by produceState<ImageBitmap?>(
-        initialValue = null,
+        initialValue = initialImage,
         key1 = effectiveAvatarPath,
         key2 = avatarVersion,
     ) {
-        value = withContext(Dispatchers.IO) {
-            effectiveAvatarPath
-                ?.takeIf { it.isNotBlank() }
-                ?.let(::File)
-                ?.takeIf(File::isFile)
-                ?.let { file -> BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap() }
+        value = effectiveAvatarPath?.let {
+            UserProfileAvatarBitmapCache.load(it, avatarVersion)
         }
     }
 
