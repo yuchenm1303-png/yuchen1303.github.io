@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import org.json.JSONArray
 import org.json.JSONObject
@@ -37,13 +38,14 @@ class LedgerStore(context: Context) {
     fun observeSnapshots(): Flow<LedgerSnapshot> {
         return changeEvents
             .onStart { emit(Unit) }
-            .map { cachedSnapshot ?: currentSnapshot().also(::publishBridge) }
-            .distinctUntilChanged()
+            .map { cachedSnapshot ?: currentSnapshot() }
             .flowOn(Dispatchers.IO)
+            .distinctUntilChanged()
+            .onEach(::publishBridge)
     }
 
     fun warmUp() {
-        publishBridge(currentSnapshot())
+        cachedSnapshot = currentSnapshot()
     }
 
     fun loadRecords(): List<LedgerRecord> {
