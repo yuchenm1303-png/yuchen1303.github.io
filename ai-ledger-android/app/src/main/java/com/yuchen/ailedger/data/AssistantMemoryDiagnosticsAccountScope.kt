@@ -4,6 +4,7 @@ import org.json.JSONObject
 
 private object AssistantMemoryDiagnosticsAccountGate {
     private val lock = Any()
+    private var initialized = false
     private var activeTicket: AssistantMemorySessionTicket? = null
 
     fun switchAccount(
@@ -12,15 +13,17 @@ private object AssistantMemoryDiagnosticsAccountGate {
     ) {
         val normalized = ticket?.takeIf(AssistantAccountSessionRuntime::isCurrent)
         val changed = synchronized(lock) {
-            if (activeTicket == normalized) return@synchronized false
+            if (initialized && activeTicket == normalized) return@synchronized false
+            initialized = true
             activeTicket = normalized
             true
         }
+        // 首次初始化即使是未登录状态也必须清空旧进程遗留记录，防止退出后重启仍看到上一账号诊断。
         if (changed) diagnostics.clear()
     }
 
     fun accepts(ticket: AssistantMemorySessionTicket): Boolean = synchronized(lock) {
-        activeTicket == ticket && AssistantAccountSessionRuntime.isCurrent(ticket)
+        initialized && activeTicket == ticket && AssistantAccountSessionRuntime.isCurrent(ticket)
     }
 }
 
