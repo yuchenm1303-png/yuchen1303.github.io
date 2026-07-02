@@ -3,6 +3,7 @@ package com.yuchen.ailedger.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,6 +44,7 @@ fun GlassDebugFloatingPanel(
 ) {
     val params = state.backdropParams
     val border = state.glassBorderStyle
+    val motion = ComposeGlassLabState.motionStyle
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -55,6 +57,42 @@ fun GlassDebugFloatingPanel(
                 enabled = parentDrawEnabled,
                 onEnabledChange = GlassFoldoutParentDrawGate::setUserEnabled
             )
+            GlassLabFoldout(
+                "Compose光动效效果",
+                "全局小按钮与卡片的按压形变、触点白光、棱彩扫光和余辉",
+                true,
+                state,
+            ) {
+                ComposeGlassMotionPreview()
+                LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..1.5f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(master = it))
+                }
+                LabSlider("按压形变", "控制横向膨胀、纵向压缩和下沉幅度", motion.deformation, 0f..1.5f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
+                }
+                LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..1.8f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
+                }
+                LabSlider("棱彩色散", "控制粉黄青蓝色散，默认保持白光为主", motion.prism, 0f..1.5f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(prism = it))
+                }
+                LabSlider("棱彩扫光", "控制按下后沿组件横向流动的彩色光带", motion.sweep, 0f..1.5f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(sweep = it))
+                }
+                LabSlider("释放回弹", "控制松手后的反向弹起幅度", motion.rebound, 0f..1.5f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
+                }
+                LabSlider("松手余辉", "控制透镜亮度和扫光在松手后的消散时间", motion.afterglow, 0f..1.5f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
+                }
+                LabActionButton(
+                    title = "恢复光动效默认值",
+                    subtitle = "白光约 75% · 棱彩约 25%",
+                    state = state,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = ComposeGlassLabState::resetMotion,
+                )
+            }
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
                 OpenGlGlassLab(state, params, legacyBorder) { legacyBorder = it }
             }
@@ -76,6 +114,49 @@ fun GlassDebugFloatingPanel(
                 }
             }
             RestoredGlassLabSections(state)
+        }
+    }
+}
+
+@Composable
+private fun ComposeGlassMotionPreview() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(0.82f)
+                .height(46.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color(0xFF8DF9EA).copy(alpha = 0.085f))
+                .clickable(onClick = {}),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "按住小按钮",
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .weight(1.18f)
+                .height(72.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White.copy(alpha = 0.055f))
+                .clickable(onClick = {}),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 13.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text("按住卡片", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
+                Text("实时预览全局参数", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
