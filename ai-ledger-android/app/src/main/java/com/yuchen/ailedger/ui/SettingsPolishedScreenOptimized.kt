@@ -109,85 +109,87 @@ internal fun SettingsPolishedScreenOptimized(
 
     SyncGlassBackdropToScroll(listState)
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp),
-    ) {
-        item(key = "settings-header") {
-            SettingsOptimizedEntrance("settings-header", entranceSessions, 0, -8, 0.985f) {
-                SettingsOptimizedHeader()
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            item(key = "settings-header") {
+                SettingsOptimizedEntrance("settings-header", entranceSessions, 0, -8, 0.985f) {
+                    SettingsOptimizedHeader()
+                }
             }
-        }
-        item(key = "settings-overview") {
-            SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
-                SettingsPersonalSpaceCard(
-                    state = state,
-                    onLoginClick = { showLoginDialog = true },
-                    onAvatarEditClick = { avatarPicker.launch("image/*") },
-                    onNicknameEditClick = {
-                        selectedPanel = SettingsDetailSection.Service
-                        coroutineScope.launch {
-                            delay(70)
-                            listState.animateScrollToItem(4)
-                        }
-                    },
-                )
+            item(key = "settings-overview") {
+                SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
+                    SettingsPersonalSpaceCard(
+                        state = state,
+                        onLoginClick = { showLoginDialog = true },
+                        onAvatarEditClick = { avatarPicker.launch("image/*") },
+                        onNicknameEditClick = {
+                            selectedPanel = SettingsDetailSection.Service
+                            coroutineScope.launch {
+                                delay(70)
+                                listState.animateScrollToItem(4)
+                            }
+                        },
+                    )
+                }
             }
-        }
-        item(key = "settings-section-title") {
-            SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
-                SettingsOptimizedSectionTitle(
-                    "常用设置",
-                    "选中的入口会保持静态高亮，方便快速定位当前面板。",
-                )
+            item(key = "settings-section-title") {
+                SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
+                    SettingsOptimizedSectionTitle(
+                        "常用设置",
+                        "选中的入口会保持静态高亮，方便快速定位当前面板。",
+                    )
+                }
             }
-        }
-        item(key = "settings-dashboard") {
-            SettingsOptimizedEntrance("settings-dashboard", entranceSessions, 260, 20, 0.965f) {
-                SettingsDashboardGridFullMotion(
-                    state = state,
-                    aiEndpoint = aiEndpoint,
-                    selectedPanel = selectedPanel,
-                    onSelected = { selectedPanel = it },
-                )
+            item(key = "settings-dashboard") {
+                SettingsOptimizedEntrance("settings-dashboard", entranceSessions, 260, 20, 0.965f) {
+                    SettingsDashboardGridFullMotion(
+                        state = state,
+                        aiEndpoint = aiEndpoint,
+                        selectedPanel = selectedPanel,
+                        onSelected = { selectedPanel = it },
+                    )
+                }
             }
-        }
-        item(key = "settings-detail") {
-            SettingsOptimizedEntrance("settings-detail", entranceSessions, 370, 22, 0.965f) {
-                SettingsDetailPanel(
-                    panel = selectedPanel,
-                    state = state,
-                    aiEndpoint = aiEndpoint,
-                    onQualityChange = onQualityChange,
-                    onPreviewConversationChange = onPreviewConversationChange,
-                    onGlassPresetChange = onGlassPresetChange,
-                    onBackgroundThemeChange = onBackgroundThemeChange,
-                    onGlassIntensityChange = onGlassIntensityChange,
-                    onMotionIntensityChange = onMotionIntensityChange,
-                    onRainbowPrismChange = onRainbowPrismChange,
-                    onBackdropChange = onBackdropChange,
-                    onBorderChange = onBorderChange,
-                    onUploadBackgroundClick = onUploadBackgroundClick,
-                    onClearCustomBackgroundClick = onClearCustomBackgroundClick,
-                )
+            item(key = "settings-detail") {
+                SettingsOptimizedEntrance("settings-detail", entranceSessions, 370, 22, 0.965f) {
+                    SettingsDetailPanel(
+                        panel = selectedPanel,
+                        state = state,
+                        aiEndpoint = aiEndpoint,
+                        onQualityChange = onQualityChange,
+                        onPreviewConversationChange = onPreviewConversationChange,
+                        onGlassPresetChange = onGlassPresetChange,
+                        onBackgroundThemeChange = onBackgroundThemeChange,
+                        onGlassIntensityChange = onGlassIntensityChange,
+                        onMotionIntensityChange = onMotionIntensityChange,
+                        onRainbowPrismChange = onRainbowPrismChange,
+                        onBackdropChange = onBackdropChange,
+                        onBorderChange = onBorderChange,
+                        onUploadBackgroundClick = onUploadBackgroundClick,
+                        onClearCustomBackgroundClick = onClearCustomBackgroundClick,
+                    )
+                }
             }
-        }
-        item(key = "settings-lab-entry") {
-            SettingsOptimizedEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
-                SettingsLabEntry(state, selectedPanel == SettingsDetailSection.Debug) {
-                    selectedPanel = SettingsDetailSection.Debug
+            item(key = "settings-lab-entry") {
+                SettingsOptimizedEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
+                    SettingsLabEntry(state, selectedPanel == SettingsDetailSection.Debug) {
+                        selectedPanel = SettingsDetailSection.Debug
+                    }
                 }
             }
         }
-    }
 
-    AccountLoginDialogHost(
-        visible = showLoginDialog,
-        state = state,
-        onDismiss = { showLoginDialog = false },
-    )
+        AccountLoginDialogHost(
+            visible = showLoginDialog,
+            state = state,
+            onDismiss = { showLoginDialog = false },
+        )
+    }
 }
 
 @Composable
@@ -511,21 +513,30 @@ private fun SettingsPersonalLoginButton(
     state: AssistantUiState,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(999.dp)
     PressableGlass(
         quality = state.quality,
         glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 999,
         modifier = Modifier
-            .width(78.dp)
+            .width(82.dp)
             .height(42.dp),
         role = GlassRole.Chip,
+        intensity = (state.glassIntensity * 1.16f).coerceIn(0.90f, 1.30f),
         onClick = onClick,
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(Color.White.copy(alpha = 0.095f))
+                .border(1.dp, Color.White.copy(alpha = 0.16f), shape),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
                 text = "登录  →",
-                color = Color.White.copy(alpha = 0.92f),
+                color = Color.White.copy(alpha = 0.96f),
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
