@@ -1,11 +1,18 @@
 package com.yuchen.ailedger.service
 
+import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
+import com.yuchen.ailedger.data.AssistantMemoryRepository
+import com.yuchen.ailedger.data.AssistantMemoryRequestContextRuntime
 import java.io.BufferedReader
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
+import java.util.LinkedHashMap
 import org.json.JSONObject
+
+private const val MEMORY_SETTINGS_REFRESH_MAX_SCOPES = 16
 
 internal class AiWorkerHttpTransport(
     private val config: AiWorkerConfig,
@@ -17,6 +24,7 @@ internal class AiWorkerHttpTransport(
         route: AiWorkerModelRoute,
     ): AiChatResponse {
         AssistantMemoryUsageBridge.beginTransportAttempt()
+        AssistantMemorySettingsRefreshCoordinator.decoratePayload(payload)
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
@@ -48,7 +56,9 @@ internal class AiWorkerHttpTransport(
                 body = body,
                 payload = payload,
                 route = route,
-            )
+            ).also {
+                AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
+            }
         } catch (error: SocketTimeoutException) {
             throw IOException(
                 "云端 AI 请求超时：${endpoint.substringAfter("://")}",
@@ -66,6 +76,7 @@ internal class AiWorkerHttpTransport(
         onDelta: (String) -> Unit,
     ): AiChatResponse {
         AssistantMemoryUsageBridge.beginTransportAttempt()
+        AssistantMemorySettingsRefreshCoordinator.decoratePayload(payload)
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
@@ -111,7 +122,9 @@ internal class AiWorkerHttpTransport(
                     body = body,
                     payload = payload,
                     route = route,
-                )
+                ).also {
+                    AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
+                }
             }
 
             val streamedReply = StringBuilder()
@@ -156,6 +169,8 @@ internal class AiWorkerHttpTransport(
                     },
                 )
                 else -> throw IOException("云端流式回复结束，但没有返回有效内容")
+            }.also {
+                AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
             }
         } catch (error: SocketTimeoutException) {
             throw IOException(
@@ -307,4 +322,88 @@ internal class AiWorkerHttpTransport(
     }
 
     private fun String?.notBlankOrNull(): String? = this?.takeIf { it.isNotBlank() }
+}
+
+private object AssistantMemorySettingsRefreshCoordinator {
+    private data class RefreshEntry(
+        val settingsFingerprint: String,
+        val pendingGeneration: Long?,
+    )
+
+    private val lock = Any()
+    private val entries = LinkedHashMap<String, RefreshEntry>(16, 0.75f, true)
+    private var generationCounter = 0L
+
+    fun decoratePayload(payload: JSONObject) {
+        payload.remove("memorySettingsRefresh")
+        payload.remove("memorySettingsRefreshGeneration")
+
+        val requestContext = AssistantMemoryRequestContextRuntime.peekCurrentThread() ?: return
+        val ticket = requestContext.ticket
+        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
+        val appContext = AiLedgerApplication.contextOrNull() ?: return
+        val memoryState = AssistantMemoryRepository.get(appContext).state.value
+        if (!memoryState.cloudReady || memoryState.accountUserId != ticket.userId) return
+
+        val scope = AssistantAccountSessionRuntime.diagnosticsScope(ticket)
+        val fingerprint = buildString {
+            append(memoryState.memoryEnabled)
+            append('|')
+            append(memoryState.autoMemoryEnabled)
+            append('|')
+            append(memoryState.historyReferenceEnabled)
+            append('|')
+            append(memoryState.sensitivePolicy.trim().lowercase())
+        }
+        val pendingGeneration = synchronized(lock) {
+            val existing = entries[scope]
+            val next = when {
+                existing == null -> RefreshEntry(
+                    settingsFingerprint = fingerprint,
+                    pendingGeneration = nextGenerationLocked(),
+                )
+                existing.settingsFingerprint != fingerprint -> RefreshEntry(
+                    settingsFingerprint = fingerprint,
+                    pendingGeneration = nextGenerationLocked(),
+                )
+                else -> existing
+            }
+            entries[scope] = next
+            trimLocked()
+            next.pendingGeneration
+        } ?: return
+
+        payload.put("memorySettingsRefresh", true)
+        payload.put("memorySettingsRefreshGeneration", pendingGeneration)
+    }
+
+    fun acknowledgeSuccessfulPayload(payload: JSONObject) {
+        if (!payload.optBoolean("memorySettingsRefresh", false)) return
+        val generation = payload.optLong("memorySettingsRefreshGeneration", 0L)
+        if (generation <= 0L) return
+        val requestContext = AssistantMemoryRequestContextRuntime.peekCurrentThread() ?: return
+        val ticket = requestContext.ticket
+        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
+        val scope = AssistantAccountSessionRuntime.diagnosticsScope(ticket)
+
+        synchronized(lock) {
+            val existing = entries[scope] ?: return@synchronized
+            if (existing.pendingGeneration != generation) return@synchronized
+            entries[scope] = existing.copy(pendingGeneration = null)
+        }
+    }
+
+    private fun nextGenerationLocked(): Long {
+        generationCounter = if (generationCounter == Long.MAX_VALUE) 1L else generationCounter + 1L
+        return generationCounter
+    }
+
+    private fun trimLocked() {
+        while (entries.size > MEMORY_SETTINGS_REFRESH_MAX_SCOPES) {
+            val iterator = entries.entries.iterator()
+            if (!iterator.hasNext()) return
+            iterator.next()
+            iterator.remove()
+        }
+    }
 }
