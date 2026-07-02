@@ -30,7 +30,7 @@ app = stock_server.app
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.production")
 _PROCESS_STARTED_AT = monotonic()
 _PROCESS_STARTED_ISO = datetime.now(timezone.utc).isoformat()
-_SERVICE_VERSION = "0.9.8-tools-index-priority-split"
+_SERVICE_VERSION = "0.9.9-tools-index-four-lane"
 _HOT_TICK_INTERVAL_SECONDS = 0.9
 _HOT_TICK_MIN_AGE_SECONDS = 0.72
 _HOT_SYMBOL_TTL_SECONDS = 30.0
@@ -218,6 +218,7 @@ def health() -> dict[str, Any]:
         "indexCompact": {
             "path": index_compact_server.INDEX_COMPACT_PATH,
             "batchPath": index_compact_server.INDEX_COMPACT_BATCH_PATH,
+            "quotesPath": index_compact_server.INDEX_COMPACT_QUOTES_PATH,
             "trendPath": index_compact_server.INDEX_COMPACT_TREND_PATH,
             "version": index_compact_server.INDEX_COMPACT_CACHE_VERSION,
             "batchCodes": list(index_compact_server.INDEX_COMPACT_BATCH_CODES),
