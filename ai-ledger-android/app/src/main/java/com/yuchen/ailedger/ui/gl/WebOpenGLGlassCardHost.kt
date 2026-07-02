@@ -22,7 +22,7 @@ import kotlin.math.abs
 import kotlin.math.max
 
 private const val WEB_GLASS_SPEC_EPSILON_PX = 0.5f
-private const val WEB_GLASS_ORIGIN_EPSILON_PX = 0.35f
+private const val WEB_GLASS_ORIGIN_EPSILON_PX = 0.01f
 private const val WEB_GLASS_INTENSITY_EPSILON = 0.006f
 private const val WEB_GLASS_PRESS_EPSILON = 0.003f
 private const val WEB_GLASS_PRESS_CENTER_EPSILON = 0.002f
