@@ -36,6 +36,7 @@ import com.yuchen.ailedger.service.StorageMediaOrganizationRepository
 import com.yuchen.ailedger.service.StorageOrganizationFile
 import com.yuchen.ailedger.service.StorageOrganizationSnapshot
 import com.yuchen.ailedger.service.StorageReviewRisk
+import com.yuchen.ailedger.service.loadCachedOrganizationThumbnail
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -52,8 +53,10 @@ internal fun OrganizationPreviewDialog(
     onIgnoreFile: () -> Unit,
     onIgnoreDirectory: () -> Unit,
 ) {
-    val preview by produceState<Bitmap?>(null, file.uri) {
-        value = withContext(Dispatchers.IO) { repository.loadPreviewBitmap(file) }
+    val preview by produceState<Bitmap?>(null, file.uri, file.modifiedAt) {
+        value = withContext(Dispatchers.IO) {
+            repository.loadCachedOrganizationThumbnail(file, maxEdgePx = 720)
+        }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
