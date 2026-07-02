@@ -257,7 +257,7 @@ object OperationWorkflowCompiler {
                     } else {
                         "compilation_payment_action_manual"
                     },
-                    message = "$reason不会被编译为自动执行步骤，运行时必须由用户亲自完成。",
+                    message = "${reason}不会被编译为自动执行步骤，运行时必须由用户亲自完成。",
                     severity = WorkflowCompilationSeverity.Warning,
                     stepId = stepId,
                 ),
