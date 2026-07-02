@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.data
 
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -185,15 +186,29 @@ object AssistantMemoryCompiler {
     }
 }
 
+private const val INVALID_PARSED_INSTANT_MILLIS = Long.MIN_VALUE
+private const val PARSED_INSTANT_CACHE_MAX_ENTRIES = 1_024
+private val parsedInstantMillisCache = ConcurrentHashMap<String, Long>()
+
 internal fun parseIsoInstantMillis(value: String): Long? {
     val clean = value.trim()
     if (clean.isBlank()) return null
-    return runCatching { Instant.parse(clean).toEpochMilli() }
+    parsedInstantMillisCache[clean]?.let { cached ->
+        return cached.takeUnless { it == INVALID_PARSED_INSTANT_MILLIS }
+    }
+
+    val parsed = runCatching { Instant.parse(clean).toEpochMilli() }
         .recoverCatching {
             val normalized = clean.replace(" ", "T").let { if (it.endsWith("Z")) it else "${it}Z" }
             Instant.parse(normalized).toEpochMilli()
         }
         .getOrNull()
+
+    if (parsedInstantMillisCache.size >= PARSED_INSTANT_CACHE_MAX_ENTRIES) {
+        parsedInstantMillisCache.clear()
+    }
+    parsedInstantMillisCache.putIfAbsent(clean, parsed ?: INVALID_PARSED_INSTANT_MILLIS)
+    return parsed
 }
 
 internal fun AssistantMemoryItem.isActiveAt(nowMillis: Long = System.currentTimeMillis()): Boolean {
