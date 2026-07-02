@@ -1,21 +1,19 @@
 package com.yuchen.ailedger.data
 
 import android.content.Context
-import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Relation
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.Upsert
 
 @Entity(tableName = "operation_workflows")
 data class OperationWorkflowEntity(
@@ -285,14 +283,14 @@ abstract class OperationWorkflowDao {
     )
     abstract suspend fun loadActiveWorkflows(): List<OperationWorkflowWithScopes>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    protected abstract suspend fun upsertWorkflow(entity: OperationWorkflowEntity)
+    @Upsert
+    abstract suspend fun upsertWorkflow(entity: OperationWorkflowEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    protected abstract suspend fun insertAppScopes(entities: List<OperationWorkflowAppScopeEntity>)
+    @Upsert
+    abstract suspend fun upsertAppScopes(entities: List<OperationWorkflowAppScopeEntity>)
 
     @Query("DELETE FROM operation_workflow_app_scopes WHERE workflowId = :workflowId")
-    protected abstract suspend fun deleteAppScopes(workflowId: String)
+    abstract suspend fun deleteAppScopes(workflowId: String)
 
     @Query("DELETE FROM operation_workflows WHERE id = :workflowId")
     abstract suspend fun deleteWorkflow(workflowId: String)
@@ -304,7 +302,7 @@ abstract class OperationWorkflowDao {
     ) {
         upsertWorkflow(workflow)
         deleteAppScopes(workflow.id)
-        if (appScopes.isNotEmpty()) insertAppScopes(appScopes)
+        if (appScopes.isNotEmpty()) upsertAppScopes(appScopes)
     }
 }
 
