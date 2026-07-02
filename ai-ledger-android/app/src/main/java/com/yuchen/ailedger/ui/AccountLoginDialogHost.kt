@@ -67,6 +67,7 @@ internal fun AccountLoginDialogHost(
     BackHandler(enabled = visible, onBack = onDismiss)
 
     val outsideInteraction = remember { MutableInteractionSource() }
+    val panelInteraction = remember { MutableInteractionSource() }
 
     Box(
         modifier = Modifier
@@ -106,10 +107,22 @@ internal fun AccountLoginDialogHost(
                     targetOffsetY = { fullHeight -> fullHeight },
                 ),
         ) {
-            CleanAccountLoginPanel(
-                state = state,
-                onDismiss = onDismiss,
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(CleanLoginPanelHeight)
+                    .clickable(
+                        interactionSource = panelInteraction,
+                        indication = null,
+                        onClick = {},
+                    ),
+                propagateMinConstraints = true,
+            ) {
+                CleanAccountLoginPanel(
+                    state = state,
+                    onDismiss = onDismiss,
+                )
+            }
         }
     }
 }
@@ -155,7 +168,7 @@ private fun CleanAccountLoginPanel(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(CleanLoginPanelShape)
-                .background(Color(0xFF06122E).copy(alpha = 0.965f))
+                .background(Color(0xFF06122E).copy(alpha = 0.90f))
                 .border(
                     width = 1.dp,
                     color = Color.White.copy(alpha = 0.10f),
@@ -164,29 +177,19 @@ private fun CleanAccountLoginPanel(
                 .padding(horizontal = 16.dp, vertical = 15.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = if (mode == CleanLoginMode.Login) {
-                        "登录 AI Ledger"
-                    } else {
-                        "创建 AI Ledger 账号"
-                    },
-                    modifier = Modifier.weight(1f),
-                    color = Color.White.copy(alpha = 0.97f),
-                    fontSize = 18.sp,
-                    lineHeight = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                CleanCloseButton(
-                    state = state,
-                    onClick = onDismiss,
-                )
-            }
+            Text(
+                text = if (mode == CleanLoginMode.Login) {
+                    "登录 AI Ledger"
+                } else {
+                    "创建 AI Ledger 账号"
+                },
+                color = Color.White.copy(alpha = 0.97f),
+                fontSize = 18.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.ExtraBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -265,43 +268,6 @@ private fun CleanAccountLoginPanel(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun CleanCloseButton(
-    state: AssistantUiState,
-    onClick: () -> Unit,
-) {
-    val shape = RoundedCornerShape(999.dp)
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 999,
-        modifier = Modifier
-            .height(32.dp)
-            .padding(start = 2.dp),
-        role = GlassRole.Chip,
-        intensity = (state.glassIntensity * 0.96f).coerceIn(0.82f, 1.16f),
-        onClick = onClick,
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(shape)
-                .background(Color.White.copy(alpha = 0.07f))
-                .padding(horizontal = 11.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = "×",
-                color = Color.White.copy(alpha = 0.82f),
-                fontSize = 17.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.Medium,
-            )
         }
     }
 }
