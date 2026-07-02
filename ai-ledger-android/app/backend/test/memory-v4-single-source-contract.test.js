@@ -53,7 +53,8 @@ test("authenticated chat never sends local custom-instruction or memory bodies",
   const payloadBuilder = read("src/main/java/com/yuchen/ailedger/service/AiWorkerPayloadBuilder.kt");
 
   assert.match(compiler, /fun personaConfigJson\(\): JSONObject\? = null/);
-  assert.match(compiler, /memorySnapshot = null/);
+  assert.match(compiler, /val memorySnapshot: JSONObject\? = null/);
+  assert.doesNotMatch(compiler, /\bmemorySnapshot\s*=\s*(?!null\b)/);
   assert.doesNotMatch(payloadBuilder, /AssistantCustomInstructionsRepository/);
   assert.doesNotMatch(payloadBuilder, /currentInstructionsText|effectiveText/);
 });
