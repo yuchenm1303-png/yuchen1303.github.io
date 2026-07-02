@@ -89,6 +89,11 @@
             android:exported="false" />
 
         <receiver
+            android:name=".service.OperationRecordingActionReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <receiver
             android:name=".service.NotificationRestoreReceiver"
             android:enabled="true"
             android:exported="true">
