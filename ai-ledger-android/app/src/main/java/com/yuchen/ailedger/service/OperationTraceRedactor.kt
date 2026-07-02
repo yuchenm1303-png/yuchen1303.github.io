@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import android.graphics.Rect
+import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -50,6 +51,8 @@ object OperationTraceRedactor {
             ?.takeIf(String::isNotBlank)
             ?.let(::redactVisibleText)
             ?: event.className?.toString()?.takeIf(String::isNotBlank)
+        val scrollDeltaX = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) event.scrollDeltaX else 0
+        val scrollDeltaY = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) event.scrollDeltaY else 0
 
         return OperationAccessibilityEventRecord(
             capturedAtMillis = System.currentTimeMillis(),
@@ -63,8 +66,8 @@ object OperationTraceRedactor {
             eventText = redactedEventText,
             inputLengthBucket = if (eventEditable) lengthBucket(rawEventText.length) else null,
             redactionApplied = eventEditable || sensitiveInput || redactedEventText != rawEventText,
-            scrollDeltaX = event.scrollDeltaX,
-            scrollDeltaY = event.scrollDeltaY,
+            scrollDeltaX = scrollDeltaX,
+            scrollDeltaY = scrollDeltaY,
             scrollX = event.scrollX,
             scrollY = event.scrollY,
             maxScrollX = event.maxScrollX,
