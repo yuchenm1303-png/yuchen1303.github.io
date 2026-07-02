@@ -11,6 +11,8 @@ import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowAppScope
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.model.WorkflowExecutionMode
+import com.yuchen.ailedger.service.OperationLearningRecordingCoordinator
+import com.yuchen.ailedger.service.OperationRecordingStopReason
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationIssue
 import com.yuchen.ailedger.service.WorkflowValidationStage
@@ -130,7 +132,7 @@ class OperationLearningViewModel : ViewModel() {
             packageNameInput = "",
             editorIssues = emptyList(),
             selectedDraftId = draft.id,
-            notice = "已创建操作草稿。下一阶段将从这个明确目标启动演示录制。",
+            notice = "已创建操作草稿，可以开始演示。",
         )
 
         repository?.let { activeRepository ->
@@ -153,23 +155,61 @@ class OperationLearningViewModel : ViewModel() {
         uiState = uiState.copy(selectedDraftId = draftId, notice = null)
     }
 
-    fun prepareDemonstration(draftId: String) {
+    fun startRecording(draftId: String) {
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
+        val context = AiLedgerApplication.contextOrNull()
+        if (context == null) {
+            uiState = uiState.copy(notice = "应用上下文尚未准备完成，请重新进入页面。")
+            return
+        }
+        if (draft.status != WorkflowDraftStatus.Intent) {
+            uiState = uiState.copy(notice = "当前草稿已进入后续阶段，不能重复覆盖原始演示。")
+            return
+        }
         val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
-        uiState = if (report.canProceed) {
-            uiState.copy(
-                selectedDraftId = draft.id,
-                notice = "目标和应用范围已通过录制前校验；录制器接入后将从该草稿启动。",
-            )
-        } else {
-            uiState.copy(
+        if (!report.canProceed) {
+            uiState = uiState.copy(
                 selectedDraftId = draft.id,
                 notice = report.blockingIssues.firstOrNull()?.message ?: "草稿尚未满足录制条件。",
             )
+            return
+        }
+
+        uiState = uiState.copy(selectedDraftId = draft.id, notice = "正在启动录制…")
+        viewModelScope.launch {
+            val result = OperationLearningRecordingCoordinator.start(context, draft)
+            uiState = uiState.copy(notice = result.message)
+        }
+    }
+
+    fun finishRecording() {
+        val context = AiLedgerApplication.contextOrNull()
+        viewModelScope.launch {
+            OperationLearningRecordingCoordinator.stop(
+                context = context,
+                reason = OperationRecordingStopReason.UserFinished,
+            )
+            refresh()
+        }
+    }
+
+    fun cancelRecording() {
+        val context = AiLedgerApplication.contextOrNull()
+        viewModelScope.launch {
+            OperationLearningRecordingCoordinator.stop(
+                context = context,
+                reason = OperationRecordingStopReason.UserCancelled,
+            )
+            refresh()
         }
     }
 
     fun deleteDraft(draftId: String) {
+        val recordingWorkflowId = OperationLearningRecordingCoordinator.state.value.workflowId
+        if (OperationLearningRecordingCoordinator.state.value.active && recordingWorkflowId == draftId) {
+            uiState = uiState.copy(notice = "请先结束或取消当前录制，再删除草稿。")
+            return
+        }
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
         val previousDrafts = uiState.drafts
         val previousSelection = uiState.selectedDraftId
