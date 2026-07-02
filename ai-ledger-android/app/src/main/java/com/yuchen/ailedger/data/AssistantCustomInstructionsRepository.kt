@@ -3,11 +3,11 @@ package com.yuchen.ailedger.data
 import android.content.Context
 import com.yuchen.ailedger.service.SupabaseAuthClient
 import com.yuchen.ailedger.service.SupabaseUserSession
+import com.yuchen.ailedger.service.applySupabaseSessionHeaders
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -41,7 +41,7 @@ data class AssistantCustomInstructionsState(
     val content: String = "",
     val updatedAt: String = "",
     val message: String = "登录后可设置自定义指令。",
-    val error: Boolean = false
+    val error: Boolean = false,
 ) {
     val isLoggedIn: Boolean
         get() = accountUserId != null
@@ -55,6 +55,7 @@ data class AssistantCustomInstructionsState(
     val effectiveLength: Int
         get() = if (enabled && cloudReady && isWithinLimit) contentLength else 0
 
+    /** 仅供设置页展示与编辑；普通聊天不再读取或发送这份本地正文。 */
     fun effectiveText(): String? {
         return normalizeCustomInstructions(content).takeIf {
             enabled && cloudReady && isWithinLimit && it.isNotBlank()
@@ -68,8 +69,7 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
     private val client = SupabaseCustomInstructionsClient()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val operationMutex = Mutex()
-    private val mutationInFlight = AtomicBoolean(false)
-    private val sessionGuard = AssistantMemorySessionGuard()
+    private val operationGate = AssistantOperationGate()
 
     private val _state = MutableStateFlow(AssistantCustomInstructionsState())
     val state: StateFlow<AssistantCustomInstructionsState> = _state.asStateFlow()
@@ -83,12 +83,12 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                 val session = accountState.session?.takeIf { accountState.isLoggedIn }
                 val previousUserId = currentSession?.userId
                 currentSession = session
-                val ticket = sessionGuard.updateUser(session?.userId)
+                val ticket = AssistantAccountSessionRuntime.updateSession(session)
+                operationGate.invalidateOwnersNotMatching(ticket)
 
                 if (session == null || ticket == null) {
-                    mutationInFlight.set(false)
                     _state.value = AssistantCustomInstructionsState(
-                        message = "登录后可设置自定义指令。"
+                        message = "登录后可设置自定义指令。",
                     )
                     return@collectLatest
                 }
@@ -99,11 +99,11 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                         loading = true,
                         accountUserId = session.userId,
                         accountEmail = session.email,
-                        message = "正在加载该账号的自定义指令…"
+                        message = "正在加载该账号的自定义指令…",
                     )
                     scope.launch {
                         operationMutex.withLock {
-                            if (sessionGuard.isCurrent(ticket)) {
+                            if (AssistantAccountSessionRuntime.isCurrent(ticket)) {
                                 loadForSessionLocked(session, ticket)
                             }
                         }
@@ -128,14 +128,14 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         if (characterCount > ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH) {
             _state.value = _state.value.copy(
                 message = customInstructionsTooLongMessage(characterCount),
-                error = true
+                error = true,
             )
             return
         }
 
         runMutation("正在保存自定义指令…") { session, ticket ->
             val next = client.upsert(session, clean, enabled && clean.isNotBlank())
-            if (!sessionGuard.isCurrent(ticket)) return@runMutation
+            if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return@runMutation
             _state.value = next.copy(
                 loading = false,
                 saving = false,
@@ -147,7 +147,7 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                     next.content.isBlank() -> "自定义指令已清空。"
                     else -> "自定义指令已保存，但当前未启用。"
                 },
-                error = false
+                error = false,
             )
         }
     }
@@ -157,14 +157,14 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         if (!current.cloudReady || current.content.isBlank()) {
             _state.value = current.copy(
                 message = "请先填写并保存自定义指令。",
-                error = true
+                error = true,
             )
             return
         }
         if (!current.isWithinLimit) {
             _state.value = current.copy(
                 message = customInstructionsTooLongMessage(current.contentLength),
-                error = true
+                error = true,
             )
             return
         }
@@ -174,14 +174,14 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
     fun clear() {
         runMutation("正在清除自定义指令…") { session, ticket ->
             client.delete(session)
-            if (!sessionGuard.isCurrent(ticket)) return@runMutation
+            if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return@runMutation
             _state.value = AssistantCustomInstructionsState(
                 accountUserId = session.userId,
                 accountEmail = session.email,
                 cloudReady = true,
                 enabled = false,
                 content = "",
-                message = "自定义指令已清除。"
+                message = "自定义指令已清除。",
             )
         }
     }
@@ -192,16 +192,16 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
         session: SupabaseUserSession,
         ticket: AssistantMemorySessionTicket,
     ) {
-        if (!sessionGuard.isCurrent(ticket)) return
+        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
         _state.value = AssistantCustomInstructionsState(
             loading = true,
             accountUserId = session.userId,
             accountEmail = session.email,
-            message = "正在加载该账号的自定义指令…"
+            message = "正在加载该账号的自定义指令…",
         )
         try {
             val loaded = client.load(session)
-            if (!sessionGuard.isCurrent(ticket)) return
+            if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
             val overLimit = !loaded.isWithinLimit
             _state.value = loaded.copy(
                 loading = false,
@@ -214,55 +214,51 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
                     overLimit -> "自定义指令已同步，但超过 ${ASSISTANT_CUSTOM_INSTRUCTIONS_MAX_LENGTH} 个字符；精简并重新保存后才会生效。"
                     else -> "自定义指令已同步。"
                 },
-                error = overLimit
+                error = overLimit,
             )
         } catch (error: Throwable) {
-            if (!sessionGuard.isCurrent(ticket)) return
+            if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
             _state.value = AssistantCustomInstructionsState(
                 accountUserId = session.userId,
                 accountEmail = session.email,
                 cloudReady = false,
                 message = error.friendlyCustomInstructionsMessage(),
-                error = true
+                error = true,
             )
         }
     }
 
     private fun runMutation(
         loadingMessage: String,
-        block: suspend (SupabaseUserSession, AssistantMemorySessionTicket) -> Unit
+        block: suspend (SupabaseUserSession, AssistantMemorySessionTicket) -> Unit,
     ) {
         val scheduledState = _state.value
         if (scheduledState.saving || scheduledState.loading || !scheduledState.isLoggedIn) return
-        val scheduledContext = currentSessionContext()
-        if (
-            scheduledContext == null ||
-            scheduledState.accountUserId != scheduledContext.session.userId ||
-            !mutationInFlight.compareAndSet(false, true)
-        ) return
+        val scheduledContext = currentSessionContext() ?: return
+        if (scheduledState.accountUserId != scheduledContext.session.userId) return
+        val owner = operationGate.tryAcquire(scheduledContext.ticket) ?: return
 
         scope.launch {
-            val operationTicket = scheduledContext.ticket
             try {
                 operationMutex.withLock {
-                    if (!sessionGuard.isCurrent(operationTicket)) return@withLock
+                    if (!AssistantAccountSessionRuntime.isCurrent(owner.ticket)) return@withLock
                     _state.value = _state.value.copy(
                         saving = true,
                         message = loadingMessage,
-                        error = false
+                        error = false,
                     )
-                    block(scheduledContext.session, operationTicket)
+                    block(scheduledContext.session, owner.ticket)
                 }
             } catch (error: Throwable) {
-                if (sessionGuard.isCurrent(operationTicket)) {
+                if (AssistantAccountSessionRuntime.isCurrent(owner.ticket)) {
                     _state.value = _state.value.copy(
                         message = error.friendlyCustomInstructionsMessage(),
-                        error = true
+                        error = true,
                     )
                 }
             } finally {
-                mutationInFlight.set(false)
-                if (sessionGuard.isCurrent(operationTicket)) {
+                operationGate.release(owner)
+                if (AssistantAccountSessionRuntime.isCurrent(owner.ticket)) {
                     _state.value = _state.value.copy(saving = false)
                 }
             }
@@ -271,7 +267,7 @@ class AssistantCustomInstructionsRepository private constructor(context: Context
 
     private fun currentSessionContext(): CustomInstructionsSessionContext? {
         val session = currentSession?.takeIf { it.isUsable } ?: return null
-        val ticket = sessionGuard.currentTicket(session.userId) ?: return null
+        val ticket = AssistantAccountSessionRuntime.currentTicket(session.userId) ?: return null
         return CustomInstructionsSessionContext(session, ticket)
     }
 
@@ -296,27 +292,27 @@ private data class CustomInstructionsSessionContext(
 
 private class SupabaseCustomInstructionsClient(
     private val supabaseUrl: String = SupabaseAuthClient.DEFAULT_SUPABASE_URL,
-    private val publishableKey: String = SupabaseAuthClient.DEFAULT_SUPABASE_PUBLISHABLE_KEY
+    private val publishableKey: String = SupabaseAuthClient.DEFAULT_SUPABASE_PUBLISHABLE_KEY,
 ) {
     fun load(session: SupabaseUserSession): AssistantCustomInstructionsState {
         val response = request(
             session = session,
             path = "/rest/v1/$CUSTOM_INSTRUCTIONS_TABLE?select=content,enabled,updated_at&user_id=eq.${session.userId.urlEncode()}&limit=1",
-            method = "GET"
+            method = "GET",
         )
         val item = JSONArray(response).optJSONObject(0)
         return AssistantCustomInstructionsState(
             cloudReady = true,
             enabled = item?.optBoolean("enabled", false) == true,
             content = normalizeCustomInstructions(item?.optString("content").orEmpty()),
-            updatedAt = item?.optString("updated_at").orEmpty()
+            updatedAt = item?.optString("updated_at").orEmpty(),
         )
     }
 
     fun upsert(
         session: SupabaseUserSession,
         content: String,
-        enabled: Boolean
+        enabled: Boolean,
     ): AssistantCustomInstructionsState {
         val body = JSONObject()
             .put("user_id", session.userId)
@@ -327,7 +323,7 @@ private class SupabaseCustomInstructionsClient(
             path = "/rest/v1/$CUSTOM_INSTRUCTIONS_TABLE?on_conflict=user_id",
             method = "POST",
             body = body,
-            prefer = "resolution=merge-duplicates,return=representation"
+            prefer = "resolution=merge-duplicates,return=representation",
         )
         val item = JSONArray(response).optJSONObject(0)
             ?: throw IOException("云端没有返回有效的自定义指令数据。")
@@ -335,7 +331,7 @@ private class SupabaseCustomInstructionsClient(
             cloudReady = true,
             enabled = item.optBoolean("enabled", false),
             content = normalizeCustomInstructions(item.optString("content")),
-            updatedAt = item.optString("updated_at")
+            updatedAt = item.optString("updated_at"),
         )
     }
 
@@ -343,7 +339,7 @@ private class SupabaseCustomInstructionsClient(
         request(
             session = session,
             path = "/rest/v1/$CUSTOM_INSTRUCTIONS_TABLE?user_id=eq.${session.userId.urlEncode()}",
-            method = "DELETE"
+            method = "DELETE",
         )
     }
 
@@ -352,7 +348,7 @@ private class SupabaseCustomInstructionsClient(
         path: String,
         method: String,
         body: JSONObject? = null,
-        prefer: String? = null
+        prefer: String? = null,
     ): String {
         val base = supabaseUrl.trim().trimEnd('/')
         if (base.isBlank() || publishableKey.isBlank()) {
@@ -364,8 +360,7 @@ private class SupabaseCustomInstructionsClient(
             readTimeout = CUSTOM_INSTRUCTIONS_READ_TIMEOUT_MS
             doInput = true
             doOutput = body != null
-            setRequestProperty("apikey", publishableKey)
-            setRequestProperty("Authorization", "Bearer ${session.accessToken}")
+            applySupabaseSessionHeaders(session, publishableKey)
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
             setRequestProperty("Accept", "application/json")
             if (!prefer.isNullOrBlank()) setRequestProperty("Prefer", prefer)
