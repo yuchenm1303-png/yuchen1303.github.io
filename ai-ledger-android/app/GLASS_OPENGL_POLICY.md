@@ -34,15 +34,26 @@ host-owned placement. Do not reintroduce adjacent duplicate `onPlaced` writers f
 The eight settings dashboard tiles continue to enter through the shared `OpenGlShellGlass` component used by
 the stock-market Hero. They are eight independent Shell glass items, not one large Shell clipped into eight holes.
 
-The dashboard uses one parent OpenGL batch host only to share expensive resources:
+The dashboard uses one parent OpenGL batch host to share all expensive resources:
 
 - one `TextureView` and EGL context;
 - one shader program;
 - one clear texture and one low / medium / high blur pyramid;
-- one VSync-coalesced render request for the dashboard.
+- one VSync-coalesced render request for the dashboard;
+- one dynamic VBO containing the eight independent card quads.
 
-Within each frame the parent host draws every registered Shell separately with the same modern stock-Hero
-fragment shader. Every tile therefore keeps its own:
+A full dashboard refresh packs the eight independent rectangles into one VBO and submits one `glDrawArrays`
+call. Each vertex carries its card's own rectangle, sampling origin, radius, intensity and press state into the
+same stock-Hero fragment shader. This is a real multi-rectangle optical batch, not a large optical rectangle with
+a visual clip mask.
+
+When EGL preserved-buffer support is available, a single-card press updates only that card's VBO range, clears
+only the union of its previous and current bounds, and redraws only that card. Scrolling still refreshes all
+visible cards because every background sampling origin changes, but it remains one draw call and does not clear
+the whole TextureView unless geometry or visibility changes. Devices without preserved-buffer support fall back
+to the safe full clear/full batch path.
+
+Every tile keeps its own:
 
 - rectangle and corner radius;
 - background sampling origin;
@@ -118,6 +129,7 @@ Special glass components such as frosted panels, inset slots and backdrop-crop s
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/BackdropCoordinates.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/NewOpenGLGlassCardLayer.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLShellBatchLayer.kt`
+- `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/WebOpenGLGlassBatchShaders.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLGlassCardLayer.kt`
 - any file that introduces an OpenGL registry, batched OpenGL layer, or geometry sync
 
