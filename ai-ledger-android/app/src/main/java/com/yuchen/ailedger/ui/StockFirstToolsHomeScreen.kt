@@ -117,7 +117,7 @@ fun StockFirstToolsHomeScreen(
     }
 
     if (selectedTool == ToolDestination.StorageManagement) {
-        StorageManagementScreen(
+        StorageManagementHubScreen(
             state = pageState,
             onBack = onCloseTool,
         )
