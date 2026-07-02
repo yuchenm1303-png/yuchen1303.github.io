@@ -29,20 +29,33 @@ A production Shell has one coordinate owner. `GlassPanel` owns the `GlassCoordin
 `LegacyOpenGLShellHost` is called with `manageCoordinatePlacement = false`. Standalone previews may keep
 host-owned placement. Do not reintroduce adjacent duplicate `onPlaced` writers for the same coordinate source.
 
-### Settings dashboard exception
+### Settings dashboard reviewed batch route
 
-The eight visible settings dashboard tiles are rendered through one deliberately promoted outer
-`GlassRole.Shell`, not eight OpenGL cards. The Shell is clipped into eight rounded windows while text,
-selection state and click handling remain ordinary Compose children.
+The eight settings dashboard tiles continue to enter through the shared `OpenGlShellGlass` component used by
+the stock-market Hero. They are eight independent Shell glass items, not one large Shell clipped into eight holes.
 
-This reviewed container may opt into the modern multi-level renderer with
-`LocalForceNewOpenGlShellRenderer`. The opt-in must remain local to that outer Shell:
+The dashboard uses one parent OpenGL batch host only to share expensive resources:
 
-- exactly one EGL / `TextureView` host for the complete dashboard;
-- no tile calls `OpenGLGlassCardLayer` directly;
-- no tile registers OpenGL geometry;
-- no tile triggers geometry synchronization;
-- ordinary settings controls remain non-OpenGL.
+- one `TextureView` and EGL context;
+- one shader program;
+- one clear texture and one low / medium / high blur pyramid;
+- one VSync-coalesced render request for the dashboard.
+
+Within each frame the parent host draws every registered Shell separately with the same modern stock-Hero
+fragment shader. Every tile therefore keeps its own:
+
+- rectangle and corner radius;
+- background sampling origin;
+- short-edge optical scaling;
+- refraction and rounded-shoulder field;
+- press center, press progress, compression and rebound state;
+- edge-flow and press-light overlay.
+
+The batch route must never be replaced with a single large optical rectangle plus a Compose clip mask. Clipping
+changes visibility only and cannot create independent optical fields.
+
+Only these reviewed settings dashboard Shells register with `OpenGLShellBatchState`. Ordinary settings controls,
+`GlassRole.Card`, `GlassRole.Chip`, sliders, inset slots and frosted panels remain outside every OpenGL registry.
 
 The stable chat structure must remain intact:
 
@@ -98,10 +111,13 @@ Special glass components such as frosted panels, inset slots and backdrop-crop s
 ## Files to check before changing this rule
 
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/Glass.kt`
+- `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellGlass.kt`
+- `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellBatch.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/LegacyOpenGLGlassPreviewShell.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/CachedTabHost.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/BackdropCoordinates.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/NewOpenGLGlassCardLayer.kt`
+- `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLShellBatchLayer.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLGlassCardLayer.kt`
 - any file that introduces an OpenGL registry, batched OpenGL layer, or geometry sync
 
