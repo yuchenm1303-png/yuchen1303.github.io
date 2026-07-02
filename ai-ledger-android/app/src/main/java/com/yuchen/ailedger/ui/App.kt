@@ -14,6 +14,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -117,6 +118,13 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     var settingsPageGeneration by remember { mutableStateOf(0) }
     val effectiveMotionIntensity = if (diagnostics.continuousAnimationsOff) 0f else state.motionIntensity
+    val composeGlassMotionStyle = ComposeGlassLabState.motionStyle
+    val composeGlassMotionIndication = remember(effectiveMotionIntensity, composeGlassMotionStyle) {
+        ComposeGlassMotionIndication(
+            motionIntensity = effectiveMotionIntensity,
+            style = composeGlassMotionStyle,
+        )
+    }
 
     // Insets 的像素值在输入法动画期间每帧变化。只在协程中观察像素，Compose 根节点
     // 仅接收“折叠”和“完全隐藏”两个离散状态，避免整棵页面树随每个像素重组。
@@ -364,6 +372,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             CompositionLocalProvider(
                 LocalPerformanceDiagnostics provides diagnostics,
                 LocalOverscrollConfiguration provides null,
+                LocalIndication provides composeGlassMotionIndication,
                 LocalGlassBackdrop provides glassBackdropSpec,
                 LocalBlurredBackdrop provides blurredBackdrop,
                 LocalBackdropOrigin provides backdropOrigin,
