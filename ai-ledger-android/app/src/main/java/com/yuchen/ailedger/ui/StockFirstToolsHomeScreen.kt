@@ -1,5 +1,8 @@
 package com.yuchen.ailedger.ui
 
+import android.content.pm.ApplicationInfo
+import android.os.Environment
+import android.os.StatFs
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -17,11 +20,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -36,11 +43,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,13 +61,34 @@ import com.yuchen.ailedger.LedgerViewModel
 import com.yuchen.ailedger.ToolsMarketHeroUiState
 import com.yuchen.ailedger.ToolsMarketHeroViewModel
 import com.yuchen.ailedger.ToolsMarketIndexItem
+import com.yuchen.ailedger.data.LedgerStore
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.StockMinutePoint
 import com.yuchen.ailedger.model.ToolDestination
+import java.text.DecimalFormat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
 const val STOCK_MARKET_TOOL_TITLE = "股票行情"
+
+private val DashboardBlue = Color(0xFF8FB2FF)
+private val DashboardViolet = Color(0xFFB49BFF)
+private val DashboardMint = Color(0xFF7BE8D2)
+private val DashboardWarm = Color(0xFFFFC58A)
+
+private data class DeviceToolsSummary(
+    val loaded: Boolean = false,
+    val installedApps: Int = 0,
+    val userApps: Int = 0,
+    val usedBytes: Long = 0L,
+    val totalBytes: Long = 0L,
+)
 
 @Composable
 fun StockFirstToolsHomeScreen(
@@ -143,39 +174,152 @@ fun StockFirstToolsHomeScreen(
         return
     }
 
+    val ledgerViewModel: LedgerViewModel = viewModel()
+    val planViewModel: PlanCenterViewModel = viewModel()
+    val operationViewModel: OperationLearningViewModel = viewModel()
+    val ledgerState = ledgerViewModel.state
+    val planState = planViewModel.uiState
+    val operationState = operationViewModel.uiState
+    val deviceSummary = rememberDeviceToolsSummary(active = pageVisible)
+
+    val monthKey = remember(ledgerState.records) { LedgerStore.todayIso().take(7) }
+    val monthRecords = remember(ledgerState.records, monthKey) {
+        ledgerState.records.filter { LedgerStore.normalizeDate(it.dateLabel).startsWith(monthKey) }
+    }
+    val monthExpense = remember(monthRecords) {
+        monthRecords.filter { it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }
+    }
+    val monthIncome = remember(monthRecords) {
+        monthRecords.filter { it.type == LedgerRecordType.Income }.sumOf { it.amount.toDouble() }
+    }
+    val budget = ledgerState.budgetText.toDoubleOrNull() ?: 0.0
+    val budgetRemaining = (budget - monthExpense).coerceAtLeast(0.0)
+    val nextPlan = remember(planState.tasks) {
+        val now = System.currentTimeMillis()
+        planState.tasks.firstOrNull { task ->
+            task.enabled && task.nextRunAtMillis?.let { it >= now } == true
+        }
+    }
+    val latestWorkflow = remember(operationState.drafts) {
+        operationState.drafts.maxByOrNull { it.updatedAtMillis }
+    }
+
     GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
-            verticalArrangement = Arrangement.spacedBy(11.dp)
+            verticalArrangement = Arrangement.spacedBy(13.dp),
         ) {
             item {
-                ToolsEntrance(delayMs = 0, initialOffsetY = -8, initialScale = 0.985f) {
+                ToolsEntrance(delayMs = 0, initialOffsetY = -5, initialScale = 0.99f) {
                     StockToolsHeader()
                 }
             }
             item {
-                ToolsEntrance(delayMs = 95, initialOffsetY = 18, initialScale = 0.966f) {
+                ToolsEntrance(delayMs = 70, initialOffsetY = 12, initialScale = 0.982f) {
                     StockMarketHeroEntry(pageState, heroUi, onOpenTool)
                 }
             }
-            ToolDestination.entries.forEachIndexed { index, destination ->
-                item(key = "tool-entry-${destination.name}") {
-                    ToolsEntrance(
-                        delayMs = 255L + index * 60L,
-                        initialOffsetY = 20 + (index.coerceAtMost(3) * 2),
-                        initialScale = 0.966f - index.coerceAtMost(3) * 0.002f,
+            item {
+                ToolsEntrance(delayMs = 130, initialOffsetY = 13, initialScale = 0.985f) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        StockToolEntryCard(
-                            destination = destination,
+                        LedgerSummaryCard(
                             state = pageState,
-                            onClick = { onOpenTool(destination) },
+                            monthExpense = monthExpense,
+                            budgetRemaining = budgetRemaining,
+                            modifier = Modifier.weight(1f).height(148.dp),
+                            onClick = { onOpenTool(ToolDestination.LedgerCenter) },
+                        )
+                        StatisticsSummaryCard(
+                            state = pageState,
+                            recordCount = monthRecords.size,
+                            monthIncome = monthIncome,
+                            monthExpense = monthExpense,
+                            modifier = Modifier.weight(1f).height(148.dp),
+                            onClick = { onOpenTool(ToolDestination.Statistics) },
                         )
                     }
                 }
             }
+            item {
+                ToolsEntrance(delayMs = 185, initialOffsetY = 13, initialScale = 0.987f) {
+                    PlanSummaryCard(
+                        state = pageState,
+                        title = nextPlan?.title,
+                        nextRunAtMillis = nextPlan?.nextRunAtMillis,
+                        activeCount = planState.tasks.count { it.enabled && !it.isFinished },
+                        onClick = { onOpenTool(ToolDestination.Reminder) },
+                    )
+                }
+            }
+            item {
+                ToolsEntrance(delayMs = 240, initialOffsetY = 13, initialScale = 0.985f) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AppControlSummaryCard(
+                            state = pageState,
+                            installedApps = deviceSummary.installedApps,
+                            userApps = deviceSummary.userApps,
+                            loaded = deviceSummary.loaded,
+                            modifier = Modifier.weight(1f).height(148.dp),
+                            onClick = { onOpenTool(ToolDestination.AppControl) },
+                        )
+                        StorageSummaryCard(
+                            state = pageState,
+                            usedBytes = deviceSummary.usedBytes,
+                            totalBytes = deviceSummary.totalBytes,
+                            loaded = deviceSummary.loaded,
+                            modifier = Modifier.weight(1f).height(148.dp),
+                            onClick = { onOpenTool(ToolDestination.StorageManagement) },
+                        )
+                    }
+                }
+            }
+            item {
+                ToolsEntrance(delayMs = 295, initialOffsetY = 13, initialScale = 0.987f) {
+                    OperationLearningSummaryCard(
+                        state = pageState,
+                        title = latestWorkflow?.title,
+                        status = workflowStatusLabel(latestWorkflow?.status?.name),
+                        draftCount = operationState.drafts.size,
+                        onClick = { onOpenTool(ToolDestination.Shortcuts) },
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun rememberDeviceToolsSummary(active: Boolean): DeviceToolsSummary {
+    val context = LocalContext.current.applicationContext
+    var summary by remember(context) { mutableStateOf(DeviceToolsSummary()) }
+
+    LaunchedEffect(context, active) {
+        if (!active || summary.loaded) return@LaunchedEffect
+        summary = withContext(Dispatchers.Default) {
+            val applications = runCatching {
+                @Suppress("DEPRECATION")
+                context.packageManager.getInstalledApplications(0)
+            }.getOrDefault(emptyList())
+            val statFs = runCatching { StatFs(Environment.getDataDirectory().absolutePath) }.getOrNull()
+            val totalBytes = statFs?.totalBytes ?: 0L
+            val freeBytes = statFs?.availableBytes ?: 0L
+            DeviceToolsSummary(
+                loaded = true,
+                installedApps = applications.size,
+                userApps = applications.count { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 },
+                usedBytes = (totalBytes - freeBytes).coerceAtLeast(0L),
+                totalBytes = totalBytes,
+            )
+        }
+    }
+    return summary
 }
 
 @Composable
@@ -207,7 +351,7 @@ private fun PendingToolScreen(
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("TOOLS", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("TOOLS", color = DashboardMint.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                     Text(destination.title, color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                     Text(destination.subtitle, color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp)
                 }
@@ -248,9 +392,9 @@ private fun PendingToolScreen(
 private fun ToolsEntrance(
     delayMs: Long,
     modifier: Modifier = Modifier,
-    initialOffsetY: Int = 24,
-    initialScale: Float = 0.96f,
-    content: @Composable () -> Unit
+    initialOffsetY: Int = 18,
+    initialScale: Float = 0.982f,
+    content: @Composable () -> Unit,
 ) {
     val pageActive = LocalPageActive.current
     val pageLeaving = LocalPageLeaving.current
@@ -264,7 +408,7 @@ private fun ToolsEntrance(
             if (delayMs > 0L) delay(delayMs)
             visible = true
         } else {
-            if (pageLeaving && delayMs > 0L) delay((delayMs / 16L).coerceAtMost(34L))
+            if (pageLeaving && delayMs > 0L) delay((delayMs / 18L).coerceAtMost(28L))
             visible = false
         }
     }
@@ -273,11 +417,11 @@ private fun ToolsEntrance(
         visible = visible,
         modifier = modifier,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-            slideInVertically(spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
-            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)),
-        exit = fadeOut(tween(104)) +
-            slideOutVertically(tween(118)) { (-initialOffsetY / 3).coerceIn(-10, 10) } +
-            scaleOut(targetScale = 0.986f, animationSpec = tween(126))
+            slideInVertically(spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)) { initialOffsetY } +
+            scaleIn(initialScale = initialScale, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)),
+        exit = fadeOut(tween(96)) +
+            slideOutVertically(tween(108)) { (-initialOffsetY / 4).coerceIn(-8, 8) } +
+            scaleOut(targetScale = 0.992f, animationSpec = tween(112)),
     ) {
         content()
     }
@@ -285,10 +429,15 @@ private fun ToolsEntrance(
 
 @Composable
 private fun StockToolsHeader() {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("TOOLS", color = Color(0xFF8DF9EA).copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text("功能", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-        Text("把行情、记账和常用工具整理成可以执行的入口。", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.Medium)
+        Text(
+            "重要信息与常用能力，一眼就能找到。",
+            color = Color.White.copy(alpha = 0.50f),
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 
@@ -296,11 +445,11 @@ private fun StockToolsHeader() {
 private fun StockMarketHeroEntry(
     state: AssistantUiState,
     heroUi: ToolsMarketHeroUiState,
-    onOpenTool: (ToolDestination) -> Unit
+    onOpenTool: (ToolDestination) -> Unit,
 ) {
     val statusLabel = when {
         heroUi.loading -> "同步中"
-        heroUi.indices.any { it.hasRealQuote } -> "实时指数"
+        heroUi.indices.any { it.hasRealQuote } -> "实时更新"
         !heroUi.errorMessage.isNullOrBlank() -> "待恢复"
         else -> "等待数据"
     }
@@ -309,48 +458,71 @@ private fun StockMarketHeroEntry(
         quality = state.quality,
         glassIntensity = state.glassIntensity * 1.03f,
         motionIntensity = state.motionIntensity,
-        radius = 28,
-        modifier = Modifier.fillMaxWidth().height(224.dp),
+        radius = 29,
+        modifier = Modifier.fillMaxWidth().height(236.dp),
         mood = OpenGlShellMood.Hero,
-        onClick = { onOpenTool(ToolDestination.StockMarket) }
+        onClick = { onOpenTool(ToolDestination.StockMarket) },
     ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 17.dp, vertical = 15.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "市场入口",
-                        color = Color.White.copy(alpha = 0.52f),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
+                        ToolDestination.StockMarket.title,
+                        color = Color.White,
+                        fontSize = 27.sp,
+                        lineHeight = 31.sp,
+                        fontWeight = FontWeight.Black,
                         maxLines = 1,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     )
-                    Text(
-                        statusLabel,
-                        color = Color(0xFF8DF9EA).copy(alpha = if (heroUi.loading) 0.54f else 0.76f),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1
-                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(DashboardMint.copy(alpha = 0.11f))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "●  $statusLabel",
+                            color = DashboardMint.copy(alpha = if (heroUi.loading) 0.58f else 0.92f),
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            maxLines = 1,
+                        )
+                    }
                 }
-                Text(ToolDestination.StockMarket.title, color = Color.White, fontSize = 26.sp, lineHeight = 30.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                Text("三大指数、真实分时、热榜、板块和资金流", color = Color.White.copy(alpha = 0.56f), fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "三大指数、真实分时、热榜、板块和资金流",
+                    color = Color.White.copy(alpha = 0.56f),
+                    fontSize = 13.sp,
+                    lineHeight = 17.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Row(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                verticalAlignment = Alignment.CenterVertically
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth().height(108.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                heroUi.indices.take(3).forEach { item ->
+                heroUi.indices.take(3).forEachIndexed { index, item ->
+                    if (index > 0) {
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .fillMaxHeight(0.72f)
+                                .background(Color.White.copy(alpha = 0.09f)),
+                        )
+                    }
                     StockHeroIndexMetric(
                         item = item,
-                        modifier = Modifier.weight(1f).fillMaxHeight()
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
             }
@@ -361,7 +533,7 @@ private fun StockMarketHeroEntry(
 @Composable
 private fun StockHeroIndexMetric(
     item: ToolsMarketIndexItem,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val tone = when {
         !item.hasRealQuote -> Color.White.copy(alpha = 0.44f)
@@ -369,44 +541,41 @@ private fun StockHeroIndexMetric(
         else -> StockFall
     }
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(17.dp))
-            .background(Color(0xFF101742).copy(alpha = 0.26f))
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.SpaceBetween
+        modifier = modifier.padding(horizontal = 2.dp, vertical = 5.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
             item.name,
-            color = Color.White.copy(alpha = 0.58f),
-            fontSize = 9.5.sp,
-            lineHeight = 12.sp,
+            color = Color.White.copy(alpha = 0.56f),
+            fontSize = 10.sp,
+            lineHeight = 13.sp,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             item.price.ifBlank { "--" },
-            color = Color.White.copy(alpha = if (item.hasRealQuote) 0.94f else 0.54f),
-            fontSize = 15.sp,
-            lineHeight = 18.sp,
+            color = Color.White.copy(alpha = if (item.hasRealQuote) 0.96f else 0.54f),
+            fontSize = 16.sp,
+            lineHeight = 19.sp,
             fontWeight = FontWeight.Black,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
         Text(
             heroIndexChangeText(item),
             color = tone.copy(alpha = if (item.hasRealQuote) 0.92f else 0.60f),
-            fontSize = 8.5.sp,
+            fontSize = 9.sp,
             lineHeight = 11.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis,
         )
         StockHeroSparkline(
             points = item.minutePoints,
             previousClose = item.previousClose,
             tone = tone,
-            modifier = Modifier.fillMaxWidth().height(25.dp)
+            modifier = Modifier.fillMaxWidth().height(28.dp),
         )
     }
 }
@@ -422,7 +591,7 @@ private fun StockHeroSparkline(
     points: List<StockMinutePoint>,
     previousClose: Float,
     tone: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val rows = remember(points) { points.filter { it.price.isFinite() && it.price > 0f } }
     Canvas(modifier = modifier) {
@@ -439,7 +608,7 @@ private fun StockHeroSparkline(
                 start = Offset(left, y),
                 end = Offset(right, y),
                 strokeWidth = 1.dp.toPx(),
-                cap = StrokeCap.Round
+                cap = StrokeCap.Round,
             )
             return@Canvas
         }
@@ -470,7 +639,7 @@ private fun StockHeroSparkline(
                 start = Offset(left, referenceY),
                 end = Offset(right, referenceY),
                 strokeWidth = 0.8.dp.toPx(),
-                cap = StrokeCap.Round
+                cap = StrokeCap.Round,
             )
         }
 
@@ -483,46 +652,447 @@ private fun StockHeroSparkline(
         drawPath(
             path = path,
             color = tone.copy(alpha = 0.96f),
-            style = Stroke(width = 1.45.dp.toPx(), cap = StrokeCap.Round)
+            style = Stroke(width = 1.45.dp.toPx(), cap = StrokeCap.Round),
         )
     }
 }
 
 @Composable
-private fun StockToolEntryCard(
-    destination: ToolDestination,
+private fun DashboardShellCard(
     state: AssistantUiState,
-    onClick: () -> Unit
+    modifier: Modifier,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    val intensity = state.glassIntensity * if (destination == ToolDestination.StockMarket) 1.02f else 0.92f
-    PressableGlass(
+    OpenGlShellGlass(
         quality = state.quality,
-        glassIntensity = intensity,
+        glassIntensity = state.glassIntensity * 0.96f,
         motionIntensity = state.motionIntensity,
-        radius = 24,
-        modifier = Modifier.fillMaxWidth().height(76.dp),
-        role = GlassRole.Card,
+        radius = 25,
+        modifier = modifier,
+        mood = OpenGlShellMood.Hero,
         onClick = onClick,
     ) {
-        StockToolEntryContent(destination)
+        content()
     }
 }
 
 @Composable
-private fun StockToolEntryContent(destination: ToolDestination) {
-    val subtitle = when (destination) {
-        ToolDestination.AppControl -> "查看全部应用、存储、权限与内部控制"
-        ToolDestination.StorageManagement -> "安全扫描缓存、大文件与授权目录"
-        else -> destination.subtitle
+private fun DashboardIcon(
+    symbol: String,
+    tone: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(tone.copy(alpha = 0.14f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            symbol,
+            color = tone.copy(alpha = 0.96f),
+            fontSize = 17.sp,
+            lineHeight = 19.sp,
+            fontWeight = FontWeight.Black,
+        )
     }
+}
+
+@Composable
+private fun DashboardCardHeader(
+    symbol: String,
+    title: String,
+    tone: Color,
+) {
     Row(
-        Modifier.fillMaxSize().padding(horizontal = 15.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(destination.title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text(if (destination.available) "进入" else "规划中", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        DashboardIcon(symbol = symbol, tone = tone)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            title,
+            color = Color.White.copy(alpha = 0.95f),
+            fontSize = 18.sp,
+            lineHeight = 22.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        Text("›", color = Color.White.copy(alpha = 0.42f), fontSize = 28.sp, lineHeight = 28.sp)
     }
+}
+
+@Composable
+private fun LedgerSummaryCard(
+    state: AssistantUiState,
+    monthExpense: Double,
+    budgetRemaining: Double,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    DashboardShellCard(state, modifier, onClick) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            DashboardCardHeader(symbol = "¥", title = "账单中心", tone = DashboardBlue)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                SummaryValue(
+                    label = "本月支出",
+                    value = if (monthExpense > 0.0) "¥${formatMoney(monthExpense)}" else "暂无支出",
+                    modifier = Modifier.weight(1f),
+                )
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(35.dp)
+                        .background(Color.White.copy(alpha = 0.08f)),
+                )
+                SummaryValue(
+                    label = "预算剩余",
+                    value = if (budgetRemaining > 0.0) "¥${formatMoney(budgetRemaining)}" else "未设置",
+                    modifier = Modifier.weight(1f).padding(start = 10.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatisticsSummaryCard(
+    state: AssistantUiState,
+    recordCount: Int,
+    monthIncome: Double,
+    monthExpense: Double,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    DashboardShellCard(state, modifier, onClick) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            DashboardCardHeader(symbol = "▥", title = "数据统计", tone = DashboardViolet)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Column(modifier = Modifier.weight(0.72f)) {
+                    Text(
+                        recordCount.toString(),
+                        color = Color.White.copy(alpha = 0.96f),
+                        fontSize = 30.sp,
+                        lineHeight = 32.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text("本月记录", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp)
+                    Text(
+                        "结余 ${signedMoney(monthIncome - monthExpense)}",
+                        color = if (monthIncome - monthExpense >= 0.0) DashboardMint else DashboardWarm,
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                MiniBarChart(
+                    values = listOf(0.38f, 0.62f, 0.44f, 0.78f, 0.56f, 0.90f, 0.68f),
+                    tone = DashboardViolet,
+                    modifier = Modifier.weight(1f).height(49.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanSummaryCard(
+    state: AssistantUiState,
+    title: String?,
+    nextRunAtMillis: Long?,
+    activeCount: Int,
+    onClick: () -> Unit,
+) {
+    DashboardShellCard(
+        state = state,
+        modifier = Modifier.fillMaxWidth().height(102.dp),
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DashboardIcon(symbol = "✓", tone = DashboardViolet)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("计划", color = Color.White.copy(alpha = 0.95f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+                Text(
+                    if (title.isNullOrBlank()) "还没有创建计划" else "下一项：$title",
+                    color = Color.White.copy(alpha = 0.54f),
+                    fontSize = 12.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "$activeCount 项进行中",
+                    color = DashboardViolet.copy(alpha = 0.80f),
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                nextRunAtMillis?.let(::formatPlanTime) ?: "去创建",
+                color = DashboardBlue.copy(alpha = 0.92f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            Spacer(Modifier.width(10.dp))
+            Text("›", color = Color.White.copy(alpha = 0.42f), fontSize = 28.sp)
+        }
+    }
+}
+
+@Composable
+private fun AppControlSummaryCard(
+    state: AssistantUiState,
+    installedApps: Int,
+    userApps: Int,
+    loaded: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    DashboardShellCard(state, modifier, onClick) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            DashboardCardHeader(symbol = "▦", title = "应用控制", tone = DashboardMint)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    if (loaded) "$installedApps 个应用" else "正在读取应用",
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = 22.sp,
+                    lineHeight = 25.sp,
+                    fontWeight = FontWeight.Black,
+                )
+                Text(
+                    if (loaded) "其中 $userApps 个用户应用" else "仅在进入功能页时读取一次",
+                    color = Color.White.copy(alpha = 0.46f),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    GenericAppDot("讯", Color(0xFF5AE58A))
+                    GenericAppDot("工", DashboardBlue)
+                    GenericAppDot("付", Color(0xFF62C6FF))
+                    GenericAppDot("••", Color.White.copy(alpha = 0.54f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GenericAppDot(label: String, tone: Color) {
+    Box(
+        modifier = Modifier
+            .size(27.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(tone.copy(alpha = 0.16f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = tone.copy(alpha = 0.94f), fontSize = 9.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
+private fun StorageSummaryCard(
+    state: AssistantUiState,
+    usedBytes: Long,
+    totalBytes: Long,
+    loaded: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    val ratio = if (totalBytes > 0L) (usedBytes.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+    DashboardShellCard(state, modifier, onClick) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+        ) {
+            DashboardCardHeader(symbol = "◉", title = "存储管理", tone = DashboardBlue)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("已用空间", color = Color.White.copy(alpha = 0.47f), fontSize = 10.5.sp)
+                    Text(
+                        if (loaded && totalBytes > 0L) formatStorage(usedBytes) else "正在读取",
+                        color = Color.White.copy(alpha = 0.95f),
+                        fontSize = 20.sp,
+                        lineHeight = 23.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        if (loaded && totalBytes > 0L) "共 ${formatStorage(totalBytes)}" else "设备容量",
+                        color = Color.White.copy(alpha = 0.43f),
+                        fontSize = 9.5.sp,
+                    )
+                }
+                StorageRing(ratio = ratio, modifier = Modifier.size(58.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperationLearningSummaryCard(
+    state: AssistantUiState,
+    title: String?,
+    status: String,
+    draftCount: Int,
+    onClick: () -> Unit,
+) {
+    DashboardShellCard(
+        state = state,
+        modifier = Modifier.fillMaxWidth().height(108.dp),
+        onClick = onClick,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DashboardIcon(symbol = "◇", tone = DashboardWarm)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("操作学习", color = Color.White.copy(alpha = 0.95f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+                Text(
+                    if (title.isNullOrBlank()) "演示一次操作，生成可审核流程" else "最近流程：$title",
+                    color = Color.White.copy(alpha = 0.52f),
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "$draftCount 个流程草稿",
+                    color = Color.White.copy(alpha = 0.36f),
+                    fontSize = 9.5.sp,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("状态", color = Color.White.copy(alpha = 0.38f), fontSize = 9.5.sp)
+                Text(status, color = DashboardBlue.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Spacer(Modifier.width(9.dp))
+            Text("›", color = Color.White.copy(alpha = 0.42f), fontSize = 28.sp)
+        }
+    }
+}
+
+@Composable
+private fun SummaryValue(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, color = Color.White.copy(alpha = 0.45f), fontSize = 9.5.sp)
+        Text(
+            value,
+            color = Color.White.copy(alpha = 0.94f),
+            fontSize = 15.sp,
+            lineHeight = 18.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun MiniBarChart(
+    values: List<Float>,
+    tone: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        if (values.isEmpty()) return@Canvas
+        val gap = 4.dp.toPx()
+        val barWidth = ((size.width - gap * (values.size - 1)) / values.size).coerceAtLeast(2.dp.toPx())
+        values.forEachIndexed { index, value ->
+            val normalized = value.coerceIn(0.08f, 1f)
+            val height = size.height * normalized
+            drawRoundRect(
+                color = tone.copy(alpha = 0.30f + normalized * 0.45f),
+                topLeft = Offset(index * (barWidth + gap), size.height - height),
+                size = Size(barWidth, height),
+                cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun StorageRing(
+    ratio: Float,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize()) {
+            val stroke = 6.dp.toPx()
+            drawArc(
+                color = Color.White.copy(alpha = 0.10f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+            drawArc(
+                color = DashboardBlue.copy(alpha = 0.94f),
+                startAngle = -90f,
+                sweepAngle = 360f * ratio,
+                useCenter = false,
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+        }
+        Text(
+            "${(ratio * 100f).toInt()}%",
+            color = Color.White.copy(alpha = 0.94f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Black,
+        )
+    }
+}
+
+private fun formatMoney(value: Double): String = DecimalFormat("#,##0.##").format(value)
+
+private fun signedMoney(value: Double): String {
+    val sign = if (value >= 0.0) "+" else "-"
+    return "$sign¥${formatMoney(kotlin.math.abs(value))}"
+}
+
+private fun formatStorage(bytes: Long): String {
+    val gib = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+    return "${DecimalFormat("0.#").format(gib)}GB"
+}
+
+private fun formatPlanTime(value: Long): String =
+    SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).format(Date(value))
+
+private fun workflowStatusLabel(statusName: String?): String = when (statusName) {
+    "Intent" -> "待演示"
+    "Recording" -> "演示中"
+    "Compiling" -> "生成中"
+    "ReadyForReview" -> "待审核"
+    "Approved" -> "已批准"
+    "Verified" -> "已验证"
+    else -> "可开始"
 }
