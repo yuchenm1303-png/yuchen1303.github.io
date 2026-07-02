@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.SubcomposeLayoutState
 import androidx.compose.ui.layout.SubcomposeSlotReusePolicy
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.model.AssistantUiState
@@ -106,7 +107,6 @@ fun PlanCenterScreen(
     }
 
     LaunchedEffect(pageHostState) {
-        // 首页稳定后预组合创建页，把首次构建表单和玻璃节点的工作移出点击关键帧。
         withFrameNanos { }
         delay(320)
         if (warmHandleHolder[0] == null) {
@@ -138,8 +138,6 @@ fun PlanCenterScreen(
                     return@launch
                 }
 
-                // 只修改页面根 RenderNode 的透明度。卡片不移动、不重新布局，
-                // 玻璃坐标和背景采样在整个转场过程中保持稳定。
                 pageAlpha.animateTo(
                     targetValue = 0f,
                     animationSpec = tween(
@@ -148,11 +146,8 @@ fun PlanCenterScreen(
                     ),
                 )
 
-                // 页面完全不可见时切换到已经预组合或保留的页面槽。
                 displayedDestination = target
                 pageAlpha.snapTo(0f)
-
-                // 新页面在透明状态下完成测量与第一帧绘制，避免可见阶段突然停顿。
                 withFrameNanos { }
                 withFrameNanos { }
 
@@ -214,7 +209,6 @@ fun PlanCenterScreen(
                 .fillMaxSize()
                 .graphicsLayer {
                     alpha = pageAlpha.value
-                    // 不创建全屏离屏缓冲，仅在 RenderNode 合成阶段调节透明度。
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                 },
         ) {
