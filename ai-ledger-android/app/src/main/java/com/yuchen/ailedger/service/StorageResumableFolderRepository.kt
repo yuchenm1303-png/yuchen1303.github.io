@@ -101,8 +101,8 @@ class StorageResumableFolderRepository(context: Context) {
         }
         val guard = productRepository.readDeviceGuard()
         if (!guard.heavyWorkAllowed) {
-            val current = loadState()
-            return current.copy(deviceGuard = guard, blockedReason = guard.reason)
+            val currentState = loadState()
+            return currentState.copy(deviceGuard = guard, blockedReason = guard.reason)
         }
         var persisted = readPersistedState()
         if (persisted == null || persisted.progress.treeUri != treeUri.toString()) {
@@ -138,11 +138,11 @@ class StorageResumableFolderRepository(context: Context) {
                 break
             }
             if (current == null) {
-                current = queue.removeFirstOrNull()
+                current = if (queue.isEmpty()) null else queue.removeFirst()
                 childOffset = 0
-                if (current == null) break
             }
-            val parentId = runCatching { DocumentsContract.getDocumentId(current.uri) }.getOrNull()
+            val activeNode = current ?: break
+            val parentId = runCatching { DocumentsContract.getDocumentId(activeNode.uri) }.getOrNull()
             if (parentId == null) {
                 firstError = firstError ?: "部分目录标识已失效，已跳过。"
                 current = null
@@ -183,23 +183,24 @@ class StorageResumableFolderRepository(context: Context) {
                 val sizeIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
                 val modifiedIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                 while (it.moveToNext()) {
-                    if (rowIndex++ < childOffset) continue
+                    if (rowIndex < childOffset) {
+                        rowIndex += 1
+                        continue
+                    }
+                    rowIndex += 1
                     if (stopSignal.get() || processedThisPage >= boundedPageSize) {
                         fullyConsumed = false
                         break
                     }
-                    val documentId = it.safeString(idIndex) ?: run {
-                        childOffset = rowIndex
-                        continue
-                    }
+                    childOffset = rowIndex
+                    val documentId = it.safeString(idIndex) ?: continue
                     val name = it.safeString(nameIndex).orEmpty().ifBlank { "未命名文件" }
                     val mime = it.safeString(mimeIndex).orEmpty()
                     val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
-                    val path = "${current.path.trimEnd('/')}/$name"
-                    childOffset = rowIndex
+                    val path = "${activeNode.path.trimEnd('/')}/$name"
                     if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                        if (current.depth < FOLDER_INDEX_MAX_DEPTH) {
-                            queue.addLast(FolderNode(documentUri, path, current.depth + 1))
+                        if (activeNode.depth < FOLDER_INDEX_MAX_DEPTH) {
+                            queue.addLast(FolderNode(documentUri, path, activeNode.depth + 1))
                             discoveredDirectories += 1
                         }
                         continue
@@ -224,7 +225,7 @@ class StorageResumableFolderRepository(context: Context) {
                             treeUri = treeUri,
                             rootName = persisted.progress.rootName,
                             queue = queue,
-                            current = current,
+                            current = activeNode,
                             currentChildOffset = childOffset,
                             scannedFiles = scannedFiles,
                             scannedBytes = scannedBytes,
@@ -243,8 +244,10 @@ class StorageResumableFolderRepository(context: Context) {
                 completedDirectories += 1
                 current = null
                 childOffset = 0
+            } else {
+                current = activeNode
+                break
             }
-            if (!fullyConsumed) break
         }
 
         if (stopSignal.get()) interrupted = true
@@ -339,8 +342,8 @@ class StorageResumableFolderRepository(context: Context) {
         val stateJson = JSONObject()
             .put("progress", progress.toJson())
             .put("current", current?.toJson() ?: JSONObject.NULL)
-            .put("queue", JSONArray().apply { queue.forEach { put(it.toJson()) } })
-        val topJson = JSONArray().apply { topFiles.forEach { put(it.toJson()) } }
+            .put("queue", JSONArray().apply { queue.forEach { node -> put(node.toJson()) } })
+        val topJson = JSONArray().apply { topFiles.forEach { file -> put(file.toJson()) } }
         prefs.edit()
             .putString(FOLDER_INDEX_STATE_KEY, stateJson.toString())
             .putString(FOLDER_INDEX_TOP_KEY, topJson.toString())
