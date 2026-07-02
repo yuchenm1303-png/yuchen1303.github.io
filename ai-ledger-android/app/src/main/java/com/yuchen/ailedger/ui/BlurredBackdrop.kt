@@ -51,6 +51,15 @@ private const val MAX_BACKDROP_BLUR_AMOUNT = 4f
 private const val FULL_BACKDROP_BLUR_LEVEL_COUNT = 3
 private const val BACKDROP_TEXTURE_DIMENSION_BUCKET = 8
 private const val CUSTOM_BACKGROUND_TONE_SETTLE_MS = 180L
+private const val MIN_TEXTURE_SCALE = 0.28f
+private const val MAX_TEXTURE_SCALE = 0.72f
+private const val MAX_TEXTURE_ITERATIONS = 12
+private const val MIN_TEXTURE_BRIGHTNESS = 0.40f
+private const val MAX_TEXTURE_BRIGHTNESS = 2.20f
+private const val MIN_TEXTURE_CONTRAST = 0.50f
+private const val MAX_TEXTURE_CONTRAST = 1.80f
+private const val MIN_TEXTURE_SATURATION = 0.30f
+private const val MAX_TEXTURE_SATURATION = 1.80f
 
 private const val OPENGL_BACKDROP_PHASE_EMPTY = 0
 private const val OPENGL_BACKDROP_PHASE_CRITICAL = 1
@@ -246,6 +255,10 @@ private object BackdropBuildRegistry {
     private val inFlight = mutableMapOf<String, Deferred<BackdropBuildResult?>>()
     private var latestRequestedKey: String? = null
 
+    fun markLatest(key: String) = synchronized(inFlight) {
+        latestRequestedKey = key
+    }
+
     fun request(
         key: String,
         block: suspend () -> BackdropBuildResult?
@@ -280,7 +293,11 @@ private object BackdropDiskCache {
 
     private var latestPersistGeneration = 0L
 
-    fun load(context: Context, textureKey: String): BackdropTextureSet? = runCatching {
+    fun load(
+        context: Context,
+        textureKey: String,
+        onCriticalReady: ((BackdropTextureSet) -> Unit)? = null,
+    ): BackdropTextureSet? = runCatching {
         val directory = entryDirectory(context, textureKey)
         val metadata = File(directory, METADATA_FILE).takeIf { it.isFile }?.readLines().orEmpty()
         if (metadata.size < 6 || metadata[0].toIntOrNull() != CACHE_VERSION) return@runCatching null
@@ -290,13 +307,27 @@ private object BackdropDiskCache {
         val blurScale = metadata[3].toFloatOrNull()?.takeIf { it > 0f } ?: return@runCatching null
         if (metadata[4] != textureKey) return@runCatching null
         val highAliasesMedium = metadata[5].toBooleanStrictOrNull() ?: false
+
+        // 先恢复 Shell 真正需要的清晰镜片与 medium 纹理，其余层继续在同一后台线程解码。
+        val clear = decodeBitmap(File(directory, "clear.png")) ?: return@runCatching null
+        val medium = decodeBitmap(File(directory, "medium.png")) ?: return@runCatching null
+        onCriticalReady?.invoke(
+            BackdropTextureSet(
+                clearImage = clear,
+                blurLowImage = medium,
+                blurMediumImage = medium,
+                blurHighImage = medium,
+                luminanceMap = BackdropLuminanceMap.Neutral,
+                fullWidthPx = fullWidth,
+                fullHeightPx = fullHeight,
+                blurScale = blurScale,
+            )
+        )
+
         val luminanceMap = readLuminanceMap(File(directory, LUMINANCE_FILE))
             ?.takeIf { it.matchesDimensions(fullWidth, fullHeight) }
             ?: return@runCatching null
-
-        val clear = decodeBitmap(File(directory, "clear.png")) ?: return@runCatching null
         val low = decodeBitmap(File(directory, "low.png")) ?: return@runCatching null
-        val medium = decodeBitmap(File(directory, "medium.png")) ?: return@runCatching null
         val high = if (highAliasesMedium) {
             medium
         } else {
@@ -485,6 +516,8 @@ fun rememberBlurredBackdropBitmap(
     }
 
     LaunchedEffect(textureKey) {
+        // 即使当前键直接命中内存，也要同步更新“最新请求”，让队列中的旧参数任务提前退出。
+        BackdropBuildRegistry.markLatest(textureKey)
         BlurredBackdropMemoryCache.get(textureKey)?.let { cached ->
             textures = cached
             OpenGlStartupBackdropBridge.publishComplete(textureKey, cached.withBlurAmount(blurAmount))
@@ -493,7 +526,16 @@ fun rememberBlurredBackdropBitmap(
         }
 
         val result = BackdropBuildRegistry.request(textureKey) {
-            val diskCached = BackdropDiskCache.load(context, textureKey)
+            val diskCached = BackdropDiskCache.load(
+                context = context,
+                textureKey = textureKey,
+                onCriticalReady = { critical ->
+                    OpenGlStartupBackdropBridge.publishCritical(
+                        textureKey,
+                        critical.withBlurAmount(blurAmount)
+                    )
+                },
+            )
             if (diskCached != null) {
                 BackdropBuildResult(diskCached, shouldPersist = false)
             } else {
@@ -573,41 +615,32 @@ private fun BackdropDebugParams.textureCacheKey(
     includeThemeLayers: Boolean,
     includeCustomTone: Boolean,
 ): String = buildString {
-    if (includeScale) append(scale.round2()).append('|')
-    append(iterations.roundToInt()).append('|')
-    append(brightness.round2()).append('|')
-    append(contrast.round2()).append('|')
-    append(saturation.round2())
-    if (includeThemeLayers) {
-        append('|').append(cloudAlpha.round2())
-        append('|').append(cloudSoftness.round2())
-        append('|').append(cloudStretchX.round2())
-        append('|').append(cloudStretchY.round2())
-        append('|').append(cloudHighlightAlpha.round2())
-        append('|').append(moonScale.round2())
-        append('|').append(moonHaloAlpha.round2())
-        append('|').append(moonRimAlpha.round2())
-    }
+    if (includeScale) append(effectiveTextureScale().round2()).append('|')
+    append(effectiveTextureIterations()).append('|')
+    append(brightness.coerceIn(MIN_TEXTURE_BRIGHTNESS, MAX_TEXTURE_BRIGHTNESS).round2()).append('|')
+    append(contrast.coerceIn(MIN_TEXTURE_CONTRAST, MAX_TEXTURE_CONTRAST).round2()).append('|')
+    append(saturation.coerceIn(MIN_TEXTURE_SATURATION, MAX_TEXTURE_SATURATION).round2())
+    // 当前内置主题玻璃纹理生成器只消费 cloudAlpha；其他云层/月亮参数由主背景直接绘制。
+    if (includeThemeLayers) append('|').append(cloudAlpha.round2())
     if (includeCustomTone) append('|').append(customImageToneCacheKey())
 }
 
 private fun BackdropDebugParams.quantizedForTextures(): BackdropDebugParams = copy(
-    scale = scale.round2(),
-    iterations = iterations.roundToInt().toFloat(),
-    brightness = brightness.round2(),
-    contrast = contrast.round2(),
-    saturation = saturation.round2(),
+    scale = effectiveTextureScale().round2(),
+    iterations = effectiveTextureIterations().toFloat(),
+    brightness = brightness.coerceIn(MIN_TEXTURE_BRIGHTNESS, MAX_TEXTURE_BRIGHTNESS).round2(),
+    contrast = contrast.coerceIn(MIN_TEXTURE_CONTRAST, MAX_TEXTURE_CONTRAST).round2(),
+    saturation = saturation.coerceIn(MIN_TEXTURE_SATURATION, MAX_TEXTURE_SATURATION).round2(),
     customImageBrightness = customImageBrightness.round2(),
     customImageHighlightStart = customImageHighlightStart.round2(),
     customImageHighlightLimit = customImageHighlightLimit.round2(),
     cloudAlpha = cloudAlpha.round2(),
-    cloudSoftness = cloudSoftness.round2(),
-    cloudStretchX = cloudStretchX.round2(),
-    cloudStretchY = cloudStretchY.round2(),
-    cloudHighlightAlpha = cloudHighlightAlpha.round2(),
-    moonScale = moonScale.round2(),
-    moonHaloAlpha = moonHaloAlpha.round2(),
-    moonRimAlpha = moonRimAlpha.round2(),
 )
+
+private fun BackdropDebugParams.effectiveTextureScale(): Float =
+    scale.coerceIn(MIN_TEXTURE_SCALE, MAX_TEXTURE_SCALE)
+
+private fun BackdropDebugParams.effectiveTextureIterations(): Int =
+    iterations.roundToInt().coerceIn(1, MAX_TEXTURE_ITERATIONS)
 
 private fun Float.round2(): Float = (this * 100f).roundToInt() / 100f
