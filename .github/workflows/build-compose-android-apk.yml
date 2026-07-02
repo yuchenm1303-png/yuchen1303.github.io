@@ -9,6 +9,10 @@ on:
       - "ai-ledger-android/**"
       - ".github/workflows/build-compose-android-apk.yml"
 
+concurrency:
+  group: build-compose-android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   actions: read
@@ -18,8 +22,12 @@ jobs:
     name: Test backend and lightweight source contracts
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
+      - name: Checkout Android project
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            ai-ledger-android
       - name: Use Node.js 22
         uses: actions/setup-node@v4
         with:
@@ -32,11 +40,14 @@ jobs:
 
   debug_test:
     name: Test and build debug APK
-    needs: backend_contract
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
+      - name: Checkout Android project
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            ai-ledger-android
       - name: Use JDK 17
         uses: actions/setup-java@v4
         with:
@@ -50,19 +61,7 @@ jobs:
         working-directory: ai-ledger-android
         env:
           AI_LEDGER_CLIENT_TOKEN: ${{ secrets.AI_LEDGER_CLIENT_TOKEN }}
-        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug --stacktrace
-      - name: Upload materialized home sources
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: materialized-home-sources
-          path: |
-            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt
-            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/NetworkDropletCapsule.kt
-            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/FrostInfoGlassPanel.kt
-            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/UnifiedModelStackSelector.kt
-            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLDropletGlassLayer.kt
-          if-no-files-found: error
+        run: gradle -p . :app:testDebugUnitTest :app:assembleDebug --build-cache --max-workers=4 --stacktrace
       - name: Upload Compose debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -73,11 +72,14 @@ jobs:
 
   performance:
     name: Build performance APK
-    needs: backend_contract
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
+      - name: Checkout Android project
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            ai-ledger-android
       - name: Use JDK 17
         uses: actions/setup-java@v4
         with:
@@ -92,7 +94,14 @@ jobs:
         working-directory: ai-ledger-android
         env:
           AI_LEDGER_CLIENT_TOKEN: ${{ secrets.AI_LEDGER_CLIENT_TOKEN }}
-        run: gradle -p . :app:assemblePerformance --stacktrace
+        run: gradle -p . :app:assemblePerformance --build-cache --max-workers=4 --stacktrace
+      - name: Upload Compose performance APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-assistant-compose-performance-apk
+          path: ai-ledger-android/app/build/outputs/apk/performance/app-performance.apk
+          if-no-files-found: error
+          compression-level: 0
       - name: Download previous performance APK baseline
         env:
           GH_TOKEN: ${{ github.token }}
@@ -164,10 +173,3 @@ jobs:
           name: ai-assistant-apk-regression-report
           path: ai-ledger-android/app/build/reports/apk-regression.md
           if-no-files-found: warn
-      - name: Upload Compose performance APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-assistant-compose-performance-apk
-          path: ai-ledger-android/app/build/outputs/apk/performance/app-performance.apk
-          if-no-files-found: error
-          compression-level: 0
