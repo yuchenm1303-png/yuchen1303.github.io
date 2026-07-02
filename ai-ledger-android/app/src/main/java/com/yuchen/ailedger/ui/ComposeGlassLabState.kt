@@ -12,6 +12,26 @@ enum class ComposeGlassPreset {
     Aurora
 }
 
+data class ComposeGlassMotionStyle(
+    val master: Float = 1f,
+    val deformation: Float = 0.92f,
+    val touchLight: Float = 1f,
+    val prism: Float = 0.68f,
+    val sweep: Float = 0.90f,
+    val rebound: Float = 0.90f,
+    val afterglow: Float = 0.86f,
+) {
+    internal fun normalized(): ComposeGlassMotionStyle = copy(
+        master = master.coerceIn(0f, 1.5f),
+        deformation = deformation.coerceIn(0f, 1.5f),
+        touchLight = touchLight.coerceIn(0f, 1.8f),
+        prism = prism.coerceIn(0f, 1.5f),
+        sweep = sweep.coerceIn(0f, 1.5f),
+        rebound = rebound.coerceIn(0f, 1.5f),
+        afterglow = afterglow.coerceIn(0f, 1.5f),
+    )
+}
+
 data class ComposeGlassStyle(
     val preset: ComposeGlassPreset,
     val backdrop: Float,
@@ -53,8 +73,15 @@ object ComposeGlassLabState {
     var style by mutableStateOf(defaultComposeGlassStyle())
         private set
 
+    var motionStyle by mutableStateOf(defaultComposeGlassMotionStyle())
+        private set
+
     fun update(next: ComposeGlassStyle) {
         style = next
+    }
+
+    fun updateMotion(next: ComposeGlassMotionStyle) {
+        motionStyle = next.normalized()
     }
 
     fun usePreset(preset: ComposeGlassPreset) {
@@ -65,10 +92,17 @@ object ComposeGlassLabState {
         style = defaultComposeGlassStyle(style.preset)
     }
 
+    fun resetMotion() {
+        motionStyle = defaultComposeGlassMotionStyle()
+    }
+
     fun resetAll() {
         style = defaultComposeGlassStyle()
+        motionStyle = defaultComposeGlassMotionStyle()
     }
 }
+
+private fun defaultComposeGlassMotionStyle(): ComposeGlassMotionStyle = ComposeGlassMotionStyle()
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
     ComposeGlassPreset.Clear -> ComposeGlassStyle(
