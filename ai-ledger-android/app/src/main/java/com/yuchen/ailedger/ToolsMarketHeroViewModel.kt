@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.yuchen.ailedger.data.StockHttpClient
 import com.yuchen.ailedger.model.StockMinutePoint
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -147,15 +148,19 @@ internal object ToolsMarketHeroStore {
             )
         }
 
-        var anyNetworkSuccess = false
+        val anyNetworkSuccess = AtomicBoolean(false)
         var firstError: Throwable? = null
 
         runCatching { loadQuotes() }
             .onSuccess { quotes ->
                 if (quotes.isNotEmpty()) {
-                    anyNetworkSuccess = true
+                    anyNetworkSuccess.set(true)
                     state.update { current ->
-                        current.copy(indices = mergeQuoteItems(current.indices, quotes))
+                        current.copy(
+                            indices = mergeQuoteItems(current.indices, quotes),
+                            loading = false,
+                            errorMessage = null
+                        )
                     }
                     persistCurrent(context)
                 }
@@ -170,10 +175,12 @@ internal object ToolsMarketHeroStore {
                     runCatching { loadTrend(spec) }
                         .onSuccess { trend ->
                             if (trend.minutePoints.size >= 2) {
-                                anyNetworkSuccess = true
+                                anyNetworkSuccess.set(true)
                                 state.update { current ->
                                     current.copy(
-                                        indices = mergeTrendItem(current.indices, trend)
+                                        indices = mergeTrendItem(current.indices, trend),
+                                        loading = false,
+                                        errorMessage = null
                                     )
                                 }
                                 persistCurrent(context)
@@ -191,9 +198,13 @@ internal object ToolsMarketHeroStore {
             runCatching { loadBatchFallback() }
                 .onSuccess { items ->
                     if (items.isNotEmpty()) {
-                        anyNetworkSuccess = true
+                        anyNetworkSuccess.set(true)
                         state.update { current ->
-                            current.copy(indices = mergeKeepingExisting(current.indices, items))
+                            current.copy(
+                                indices = mergeKeepingExisting(current.indices, items),
+                                loading = false,
+                                errorMessage = null
+                            )
                         }
                         persistCurrent(context)
                     }
@@ -211,14 +222,14 @@ internal object ToolsMarketHeroStore {
                         ?: trendErrors.values.firstOrNull()?.message
                         ?: "三大指数行情暂不可用"
                 },
-                lastSuccessfulRefreshMs = if (anyNetworkSuccess) {
+                lastSuccessfulRefreshMs = if (anyNetworkSuccess.get()) {
                     finishedAt
                 } else {
                     current.lastSuccessfulRefreshMs
                 }
             )
         }
-        if (anyNetworkSuccess) {
+        if (anyNetworkSuccess.get()) {
             preferences(context).edit()
                 .putLong(PREFS_KEY_UPDATED_AT, finishedAt)
                 .apply()
@@ -413,7 +424,10 @@ internal object ToolsMarketHeroStore {
     }
 
     private fun restorePersistedItems(context: Context): List<ToolsMarketIndexItem> {
-        val stored = preferences(context).getString(PREFS_KEY_BATCH, null).orEmpty()
+        val prefs = preferences(context)
+        val stored = prefs.getString(PREFS_KEY_BATCH, null)
+            ?: prefs.getString(PREFS_KEY_BATCH_LEGACY, null)
+            ?: return emptyList()
         if (stored.isBlank()) return emptyList()
         return runCatching { parseBatch(JSONObject(stored)) }.getOrDefault(emptyList())
     }
@@ -453,6 +467,7 @@ internal object ToolsMarketHeroStore {
         root.put("items", array)
         preferences(context).edit()
             .putString(PREFS_KEY_BATCH, root.toString())
+            .remove(PREFS_KEY_BATCH_LEGACY)
             .apply()
     }
 
@@ -490,6 +505,7 @@ internal object ToolsMarketHeroStore {
     private const val BATCH_PATH = "/api/stock/a-share/index/compact/batch"
     private const val PREFS_NAME = "tools_market_hero_cache"
     private const val PREFS_KEY_BATCH = "three_indices_v2"
+    private const val PREFS_KEY_BATCH_LEGACY = "three_indices_v1"
     private const val PREFS_KEY_UPDATED_AT = "updated_at_epoch_ms"
     private const val INDICES_TIMEOUT_MS = 2_800
     private const val TREND_TIMEOUT_MS = 4_000
