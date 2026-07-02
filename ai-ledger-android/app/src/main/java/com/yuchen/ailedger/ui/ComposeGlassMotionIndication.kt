@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.node.DelegatableNode
 import androidx.compose.ui.node.DrawModifierNode
+import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
@@ -174,7 +175,6 @@ private class ComposeGlassMotionNode(
 
         val w = size.width.coerceAtLeast(1f)
         val h = size.height.coerceAtLeast(1f)
-        val maxSide = maxOf(w, h)
         val rawCenter = pressCenter
         val center = if (rawCenter.x.isFinite() && rawCenter.y.isFinite()) {
             Offset(rawCenter.x.coerceIn(0f, w), rawCenter.y.coerceIn(0f, h))
