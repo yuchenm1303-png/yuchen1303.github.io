@@ -37,7 +37,7 @@ class LedgerStore(context: Context) {
     fun observeSnapshots(): Flow<LedgerSnapshot> {
         return changeEvents
             .onStart { emit(Unit) }
-            .map { currentSnapshot().also(::publishBridge) }
+            .map { cachedSnapshot ?: currentSnapshot().also(::publishBridge) }
             .distinctUntilChanged()
             .flowOn(Dispatchers.IO)
     }
