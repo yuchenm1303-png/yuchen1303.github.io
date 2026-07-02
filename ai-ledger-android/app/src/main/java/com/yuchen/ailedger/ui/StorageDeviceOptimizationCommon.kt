@@ -236,7 +236,7 @@ internal fun formatOptimizeBytes(bytes: Long): String {
     return String.format(Locale.CHINA, "%.${digits}f %s", value, units[index])
 }
 
-internal fun formatOptionalBytes(bytes: Long?): String = bytes?.let(::formatOptimizeBytes) ?: "需授权"
+internal fun formatOptimizeOptionalBytes(bytes: Long?): String = bytes?.let(::formatOptimizeBytes) ?: "需授权"
 
 internal fun formatOptimizeDateTime(timestamp: Long): String {
     if (timestamp <= 0L) return "未知时间"
