@@ -5,6 +5,7 @@ import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
 import com.yuchen.ailedger.data.AssistantMemoryMutationReceipt
 import com.yuchen.ailedger.data.AssistantMemoryRequestContextRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRequestSource
+import com.yuchen.ailedger.data.AssistantMemorySessionTicket
 import com.yuchen.ailedger.model.ChatModel
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -29,6 +30,8 @@ internal data class AssistantMemoryManagementRequest(
     val expectedUpdatedAt: String = "",
     val deleteScope: String = "current_only",
     val reason: String = "settings_manual",
+    /** 创建请求时即绑定账号代际；排队期间切换账号不会借用新账号令牌。 */
+    val accountTicket: AssistantMemorySessionTicket? = AssistantAccountSessionRuntime.currentTicket(),
 )
 
 internal class AssistantMemoryManagementClient(
@@ -48,10 +51,10 @@ internal class AssistantMemoryManagementClient(
 
     @Throws(IOException::class)
     fun mutate(request: AssistantMemoryManagementRequest): AssistantMemoryMutationReceipt {
-        val ticket = AssistantAccountSessionRuntime.currentTicket()
+        val ticket = request.accountTicket
             ?: throw IOException("登录状态已失效，请重新登录。")
         val accessToken = AssistantAccountSessionRuntime.accessTokenFor(ticket)
-            ?: throw IOException("登录状态已失效，请重新登录。")
+            ?: throw IOException("账号已切换或登录状态已失效，本次记忆操作没有执行。")
         return mutateBound(ticket, accessToken, request)
     }
 
@@ -60,16 +63,21 @@ internal class AssistantMemoryManagementClient(
         session: SupabaseUserSession,
         request: AssistantMemoryManagementRequest,
     ): AssistantMemoryMutationReceipt {
-        val ticket = AssistantAccountSessionRuntime.currentTicket(session.userId)
+        val ticket = request.accountTicket
+            ?.takeIf { it.userId == session.userId && AssistantAccountSessionRuntime.isCurrent(it) }
+            ?: AssistantAccountSessionRuntime.currentTicket(session.userId)
             ?: throw IOException("登录状态已失效，请重新登录。")
         return mutateBound(ticket, session.accessToken, request)
     }
 
     private fun mutateBound(
-        ticket: com.yuchen.ailedger.data.AssistantMemorySessionTicket,
+        ticket: AssistantMemorySessionTicket,
         accessToken: String,
         request: AssistantMemoryManagementRequest,
     ): AssistantMemoryMutationReceipt {
+        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) {
+            throw IOException("账号已切换，本次记忆操作没有执行。")
+        }
         val payload = request.toJson()
         val route = AiWorkerModelRoute(
             requested = ChatModel.Kimi,
@@ -84,6 +92,9 @@ internal class AssistantMemoryManagementClient(
 
         for (endpoint in endpoints.asSequence().map(String::trim).filter(String::isNotBlank).distinct()) {
             for (candidate in endpointCandidates(endpoint.trimEnd('/'))) {
+                if (!AssistantAccountSessionRuntime.isCurrent(ticket)) {
+                    throw IOException("账号已切换，本次记忆操作没有执行。")
+                }
                 AssistantMemoryRequestContextRuntime.clearCurrentThread()
                 AssistantMemoryRequestContextRuntime.stageCurrentThread(
                     source = AssistantMemoryRequestSource.Management,
