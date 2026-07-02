@@ -92,7 +92,6 @@ internal fun SettingsPolishedScreenOptimized(
     onBorderChange: (GlassBorderStyle) -> Unit,
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit,
-    onRequestLogin: () -> Unit,
 ) {
     val context = LocalContext.current.applicationContext
     val profileRepository = remember(context) { UserProfileRepository.get(context) }
@@ -100,6 +99,7 @@ internal fun SettingsPolishedScreenOptimized(
     val coroutineScope = rememberCoroutineScope()
     val entranceSessions = remember { mutableStateMapOf<String, Int>() }
     var selectedPanel by rememberSaveable { mutableStateOf(SettingsDetailSection.Service) }
+    var showLoginDialog by remember { mutableStateOf(false) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -124,7 +124,7 @@ internal fun SettingsPolishedScreenOptimized(
             SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
                 SettingsPersonalSpaceCard(
                     state = state,
-                    onLoginClick = onRequestLogin,
+                    onLoginClick = { showLoginDialog = true },
                     onAvatarEditClick = { avatarPicker.launch("image/*") },
                     onNicknameEditClick = {
                         selectedPanel = SettingsDetailSection.Service
@@ -182,6 +182,12 @@ internal fun SettingsPolishedScreenOptimized(
             }
         }
     }
+
+    AccountLoginDialogHost(
+        visible = showLoginDialog,
+        state = state,
+        onDismiss = { showLoginDialog = false },
+    )
 }
 
 @Composable
