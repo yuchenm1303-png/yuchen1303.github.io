@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import android.content.Intent
+import android.os.storage.StorageManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -330,7 +331,10 @@ fun StorageDeviceOptimizationScreen(
                                 "打开 Android 存储管理器",
                                 enabled = true,
                             ) {
-                                openIntent(Intent(Settings.ACTION_MANAGE_STORAGE), Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS))
+                                openIntent(
+                                    Intent(StorageManager.ACTION_MANAGE_STORAGE),
+                                    Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS),
+                                )
                             }
                         }
                     }
