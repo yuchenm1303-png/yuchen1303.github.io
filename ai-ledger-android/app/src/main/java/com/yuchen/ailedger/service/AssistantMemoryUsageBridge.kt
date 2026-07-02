@@ -9,6 +9,7 @@ import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRepository
 import com.yuchen.ailedger.data.AssistantMemoryRequestContextRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRequestSource
+import com.yuchen.ailedger.data.record
 import java.util.concurrent.Executors
 import org.json.JSONObject
 
