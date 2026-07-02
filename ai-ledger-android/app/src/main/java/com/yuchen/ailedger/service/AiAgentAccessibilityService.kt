@@ -17,7 +17,10 @@ import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Base64
 import android.util.DisplayMetrics
 import android.util.Log
@@ -45,10 +48,22 @@ class AiAgentAccessibilityService : AccessibilityService() {
     @Volatile private var lastWindowHintKey: String = ""
     @Volatile private var currentAccessibilityMode: AccessibilityRuntimeMode = AccessibilityRuntimeMode.Idle
     @Volatile private var foregroundNotificationStarted: Boolean = false
+    @Volatile private var recordingConfig: OperationRecordingConfig? = null
 
     private val modeLock = Any()
     private var workingSessionDepth: Int = 0
     private var taskSessionDepth: Int = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var recordingSnapshotPackage: String? = null
+    private var lastRecordingEventKey: String = ""
+    private var lastRecordingEventAtMs: Long = 0L
+    private val recordingSnapshotRunnable = Runnable { captureRecordingNodeSnapshot() }
+    private val recordingDurationRunnable = Runnable {
+        OperationLearningRecordingCoordinator.requestStop(
+            context = applicationContext,
+            reason = OperationRecordingStopReason.DurationLimit,
+        )
+    }
     private val reusableExecutionCaptureState = VisualExecutionCaptureState<RootCapture>(
         elapsedRealtime = SystemClock::elapsedRealtime,
         ttlMs = REUSABLE_EXECUTION_CAPTURE_TTL_MS,
@@ -59,6 +74,14 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
     private val deviceShellBridge by lazy(LazyThreadSafetyMode.NONE) {
         DeviceShellBridge(applicationContext)
+    }
+    private val homePackageName by lazy(LazyThreadSafetyMode.NONE) {
+        runCatching {
+            packageManager.resolveActivity(
+                Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME),
+                0,
+            )?.activityInfo?.packageName.orEmpty()
+        }.getOrDefault("")
     }
     private var visualHudHost: VisualAgentHudHost? = null
 
@@ -73,15 +96,22 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // 只有短暂 Working 窗口才处理事件，Idle 完全忽略。
-        if (!isWorkingMode()) return
-        val type = event?.eventType ?: return
+        val safeEvent = event ?: return
+        when (currentAccessibilityMode) {
+            AccessibilityRuntimeMode.Idle -> Unit
+            AccessibilityRuntimeMode.Working -> handleWorkingAccessibilityEvent(safeEvent)
+            AccessibilityRuntimeMode.Recording -> handleOperationRecordingEvent(safeEvent)
+        }
+    }
+
+    private fun handleWorkingAccessibilityEvent(event: AccessibilityEvent) {
+        val type = event.eventType
         if (type != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && type != AccessibilityEvent.TYPE_WINDOWS_CHANGED) return
 
         val packageName = event.packageName?.toString().orEmpty()
         if (packageName.isBlank() || isSystemSurfacePackage(packageName)) return
 
-        val windowTitle = event.text?.firstOrNull()?.toString().orEmpty()
+        val windowTitle = event.text.firstOrNull()?.toString().orEmpty()
         val now = System.currentTimeMillis()
         val key = "$packageName|$windowTitle"
         if (key == lastWindowHintKey && now - lastWindowHintAtMs < WINDOW_HINT_THROTTLE_MS) return
@@ -91,9 +121,133 @@ class AiAgentAccessibilityService : AccessibilityService() {
         ScreenObservationStore.updateWindowHint(packageName, windowTitle)
     }
 
-    override fun onInterrupt() = Unit
+    private fun handleOperationRecordingEvent(event: AccessibilityEvent) {
+        val config = recordingConfig ?: return
+        val packageName = event.packageName?.toString().orEmpty()
+        if (packageName.isBlank() || isRecordingTransitionPackage(packageName)) return
+
+        if (packageName !in config.allowedPackages) {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
+                event.eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED
+            ) {
+                OperationLearningRecordingCoordinator.append(
+                    OperationRecordingMarkerRecord(
+                        capturedAtMillis = System.currentTimeMillis(),
+                        marker = "scope_violation",
+                        detail = "unauthorized_package",
+                    ),
+                )
+                OperationLearningRecordingCoordinator.requestStop(
+                    context = applicationContext,
+                    reason = OperationRecordingStopReason.ScopeViolation,
+                )
+            }
+            return
+        }
+
+        val frame = currentTapReferenceFrame()
+        val record = OperationTraceRedactor.fromEvent(
+            event = event,
+            screenWidth = frame.width,
+            screenHeight = frame.height,
+        )
+        val now = System.currentTimeMillis()
+        val eventKey = buildString {
+            append(record.eventType).append('|')
+            append(record.packageName).append('|')
+            append(record.source?.viewId.orEmpty()).append('|')
+            append(record.source?.bounds.orEmpty()).append('|')
+            append(record.inputLengthBucket.orEmpty())
+        }
+        val throttleMs = if (record.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED) {
+            RECORDING_TEXT_EVENT_THROTTLE_MS
+        } else {
+            RECORDING_EVENT_THROTTLE_MS
+        }
+        if (eventKey == lastRecordingEventKey && now - lastRecordingEventAtMs < throttleMs) return
+        lastRecordingEventKey = eventKey
+        lastRecordingEventAtMs = now
+
+        if (!OperationLearningRecordingCoordinator.append(record)) return
+        if (record.eventType in RECORDING_SNAPSHOT_EVENT_TYPES) {
+            recordingSnapshotPackage = packageName
+            mainHandler.removeCallbacks(recordingSnapshotRunnable)
+            mainHandler.postDelayed(recordingSnapshotRunnable, RECORDING_SNAPSHOT_SETTLE_MS)
+        }
+    }
+
+    private fun captureRecordingNodeSnapshot() {
+        val config = recordingConfig ?: return
+        val expectedPackage = recordingSnapshotPackage ?: return
+        val selected = selectBestRootCapture(
+            limit = RECORDING_SNAPSHOT_NODES,
+            timeBudgetMs = RECORDING_SNAPSHOT_BUDGET_MS,
+        ) ?: return
+        if (selected.packageName != expectedPackage || selected.packageName !in config.allowedPackages) return
+
+        val frame = currentTapReferenceFrame()
+        val nodes = selected.capture.handles
+            .map { handle ->
+                OperationTraceRedactor.fromNode(
+                    node = handle.node,
+                    screenWidth = frame.width,
+                    screenHeight = frame.height,
+                )
+            }
+            .distinctBy { evidence ->
+                listOf(
+                    evidence.viewId.orEmpty(),
+                    evidence.className.orEmpty(),
+                    evidence.bounds.orEmpty(),
+                    evidence.text.orEmpty(),
+                ).joinToString("|")
+            }
+            .take(RECORDING_SNAPSHOT_NODES)
+        OperationLearningRecordingCoordinator.append(
+            OperationNodeSnapshotRecord(
+                capturedAtMillis = System.currentTimeMillis(),
+                packageName = selected.packageName,
+                windowTitle = OperationTraceRedactor.redactVisibleText(selected.windowTitle).takeIf(String::isNotBlank),
+                nodes = nodes,
+                rawNodeCount = selected.capture.rawNodeCount,
+                truncated = selected.capture.truncated,
+            ),
+        )
+    }
+
+    private fun isRecordingTransitionPackage(packageName: String): Boolean {
+        if (packageName == applicationContext.packageName) return true
+        if (packageName == homePackageName) return true
+        if (packageName == currentInputMethodPackage()) return true
+        if (packageName in RECORDING_PRIVATE_SYSTEM_PACKAGES) return true
+        return false
+    }
+
+    private fun currentInputMethodPackage(): String {
+        return runCatching {
+            Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+                .orEmpty()
+                .substringBefore('/')
+        }.getOrDefault("")
+    }
+
+    override fun onInterrupt() {
+        if (recordingConfig != null) {
+            OperationLearningRecordingCoordinator.requestStop(
+                context = applicationContext,
+                reason = OperationRecordingStopReason.ServiceInterrupted,
+            )
+        }
+    }
 
     override fun onDestroy() {
+        if (recordingConfig != null) {
+            OperationLearningRecordingCoordinator.requestStop(
+                context = applicationContext,
+                reason = OperationRecordingStopReason.ServiceInterrupted,
+            )
+        }
+        synchronized(modeLock) { clearRecordingRuntimeLocked() }
         reusableExecutionCaptureState.clear()
         visualHudHost?.destroy()
         visualHudHost = null
@@ -103,8 +257,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
         ScreenObservationStore.markDisabled()
         super.onDestroy()
     }
-
-    private fun isWorkingMode(): Boolean = currentAccessibilityMode == AccessibilityRuntimeMode.Working
 
     private fun configureIdleServiceInfo(force: Boolean = false) {
         if (!force && currentAccessibilityMode == AccessibilityRuntimeMode.Idle) return
@@ -117,7 +269,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
         lastWindowHintKey = ""
         lastWindowHintAtMs = 0L
         currentAccessibilityMode = AccessibilityRuntimeMode.Idle
-        if (taskSessionDepth == 0 && workingSessionDepth == 0) stopTaskForegroundNotification()
+        if (taskSessionDepth == 0 && workingSessionDepth == 0 && recordingConfig == null) {
+            stopTaskForegroundNotification()
+        }
     }
 
     private fun configureWorkingServiceInfo() {
@@ -131,8 +285,34 @@ class AiAgentAccessibilityService : AccessibilityService() {
         currentAccessibilityMode = AccessibilityRuntimeMode.Working
     }
 
+    private fun configureRecordingServiceInfo(force: Boolean = false) {
+        if (!force && currentAccessibilityMode == AccessibilityRuntimeMode.Recording) return
+        val current = serviceInfo ?: return
+        current.eventTypes = RECORDING_EVENT_TYPES
+        current.feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
+        current.flags = RECORDING_ACCESSIBILITY_FLAGS
+        current.notificationTimeout = RECORDING_NOTIFICATION_TIMEOUT_MS
+        serviceInfo = current
+        currentAccessibilityMode = AccessibilityRuntimeMode.Recording
+    }
+
+    private fun restorePassiveServiceInfo(force: Boolean = false) {
+        if (recordingConfig != null) {
+            configureRecordingServiceInfo(force)
+        } else {
+            configureIdleServiceInfo(force)
+        }
+    }
+
     private fun beginTaskWorkingSession() {
         synchronized(modeLock) {
+            if (recordingConfig != null) {
+                clearRecordingRuntimeLocked()
+                OperationLearningRecordingCoordinator.requestStop(
+                    context = applicationContext,
+                    reason = OperationRecordingStopReason.TaskStarted,
+                )
+            }
             reusableExecutionCaptureState.clear()
             taskSessionDepth += 1
             startTaskForegroundNotification()
@@ -146,7 +326,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
         synchronized(modeLock) {
             reusableExecutionCaptureState.clear()
             taskSessionDepth = (taskSessionDepth - 1).coerceAtLeast(0)
-            if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
+            if (workingSessionDepth == 0) restorePassiveServiceInfo(force = true)
         }
     }
 
@@ -160,8 +340,44 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun endWorkingSession() {
         synchronized(modeLock) {
             workingSessionDepth = (workingSessionDepth - 1).coerceAtLeast(0)
-            if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
+            if (workingSessionDepth == 0) restorePassiveServiceInfo(force = true)
         }
+    }
+
+    private fun beginOperationRecordingInternal(config: OperationRecordingConfig): Boolean {
+        synchronized(modeLock) {
+            if (recordingConfig != null || taskSessionDepth > 0 || workingSessionDepth > 0) return false
+            if (config.allowedPackages.isEmpty()) return false
+            recordingConfig = config
+            recordingSnapshotPackage = null
+            lastRecordingEventKey = ""
+            lastRecordingEventAtMs = 0L
+            reusableExecutionCaptureState.clear()
+            configureRecordingServiceInfo(force = true)
+            startRecordingForegroundNotification(config)
+            mainHandler.removeCallbacks(recordingDurationRunnable)
+            mainHandler.postDelayed(recordingDurationRunnable, MAX_RECORDING_DURATION_MS)
+            return true
+        }
+    }
+
+    private fun endOperationRecordingInternal(demonstrationId: String): Boolean {
+        synchronized(modeLock) {
+            val current = recordingConfig ?: return false
+            if (current.demonstrationId != demonstrationId) return false
+            clearRecordingRuntimeLocked()
+            if (workingSessionDepth == 0) configureIdleServiceInfo(force = true)
+            return true
+        }
+    }
+
+    private fun clearRecordingRuntimeLocked() {
+        mainHandler.removeCallbacks(recordingSnapshotRunnable)
+        mainHandler.removeCallbacks(recordingDurationRunnable)
+        recordingSnapshotPackage = null
+        lastRecordingEventKey = ""
+        lastRecordingEventAtMs = 0L
+        recordingConfig = null
     }
 
     private inline fun <T> withWorkingAccessibilityMode(block: () -> T): T {
@@ -1284,7 +1500,6 @@ class AiAgentAccessibilityService : AccessibilityService() {
     }
 
     private fun startTaskForegroundNotification() {
-        if (foregroundNotificationStarted) return
         ensureNotificationChannel()
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -1305,7 +1520,54 @@ class AiAgentAccessibilityService : AccessibilityService() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
+        showForegroundNotification(notification)
+    }
 
+    private fun startRecordingForegroundNotification(config: OperationRecordingConfig) {
+        ensureNotificationChannel()
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            this,
+            RECORDING_OPEN_REQUEST_CODE,
+            openAppIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val finishIntent = Intent(this, OperationRecordingActionReceiver::class.java).apply {
+            action = OperationRecordingActionReceiver.ACTION_FINISH
+        }
+        val finishPendingIntent = PendingIntent.getBroadcast(
+            this,
+            RECORDING_FINISH_REQUEST_CODE,
+            finishIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val cancelIntent = Intent(this, OperationRecordingActionReceiver::class.java).apply {
+            action = OperationRecordingActionReceiver.ACTION_CANCEL
+        }
+        val cancelPendingIntent = PendingIntent.getBroadcast(
+            this,
+            RECORDING_CANCEL_REQUEST_CODE,
+            cancelIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(this, AGENT_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("正在录制：${config.workflowTitle.take(24)}")
+            .setContentText("仅采集已授权应用内的脱敏动作证据")
+            .setContentIntent(openPendingIntent)
+            .addAction(R.mipmap.ic_launcher, "结束并保存", finishPendingIntent)
+            .addAction(R.mipmap.ic_launcher, "取消并删除", cancelPendingIntent)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+        showForegroundNotification(notification)
+    }
+
+    private fun showForegroundNotification(notification: Notification) {
         try {
             startForeground(AGENT_NOTIFICATION_ID, notification)
             foregroundNotificationStarted = true
@@ -1337,7 +1599,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
             "AI 助手智能体",
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "保持 AI 助手智能体待命，用于用户主动发起的屏幕观察。"
+            description = "用于用户主动发起的智能体任务和操作演示录制。"
             setShowBadge(false)
         }
         manager.createNotificationChannel(channel)
@@ -1346,7 +1608,7 @@ class AiAgentAccessibilityService : AccessibilityService() {
     private fun formatCoordinate(value: Float): String =
         String.format(Locale.US, "%.3f", value)
 
-    private enum class AccessibilityRuntimeMode { Idle, Working }
+    private enum class AccessibilityRuntimeMode { Idle, Working, Recording }
 
     private data class RootCapture(
         val root: AccessibilityNodeInfo,
@@ -1381,12 +1643,22 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
         fun isConnected(): Boolean = activeService != null
 
+        fun applicationContextOrNull(): Context? = activeService?.applicationContext
+
         fun beginTaskSession() {
             activeService?.beginTaskWorkingSession()
         }
 
         fun endTaskSession() {
             activeService?.endTaskWorkingSession()
+        }
+
+        fun beginOperationRecording(config: OperationRecordingConfig): Boolean {
+            return activeService?.beginOperationRecordingInternal(config) == true
+        }
+
+        fun endOperationRecording(demonstrationId: String): Boolean {
+            return activeService?.endOperationRecordingInternal(demonstrationId) == true
         }
 
         fun captureFreshSnapshot(forceVisual: Boolean = false): ScreenObservation {
@@ -1414,8 +1686,42 @@ class AiAgentAccessibilityService : AccessibilityService() {
             AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
             AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
 
+        // Recording 只在用户显式发起演示期间开启，结束后立即恢复 Idle。
+        private const val RECORDING_EVENT_TYPES = AccessibilityEvent.TYPE_VIEW_CLICKED or
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED or
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or
+            AccessibilityEvent.TYPE_VIEW_SCROLLED or
+            AccessibilityEvent.TYPE_VIEW_FOCUSED or
+            AccessibilityEvent.TYPE_VIEW_SELECTED or
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED
+        private const val RECORDING_ACCESSIBILITY_FLAGS = AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+            AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS or
+            AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+        private val RECORDING_SNAPSHOT_EVENT_TYPES = setOf(
+            AccessibilityEvent.TYPE_VIEW_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_LONG_CLICKED,
+            AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED,
+            AccessibilityEvent.TYPE_VIEW_SCROLLED,
+            AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED,
+        )
+        private val RECORDING_PRIVATE_SYSTEM_PACKAGES = setOf(
+            "android",
+            "com.android.systemui",
+            "com.android.permissioncontroller",
+            "com.google.android.permissioncontroller",
+        )
+
         private const val IDLE_NOTIFICATION_TIMEOUT_MS = 10_000L
         private const val WORKING_NOTIFICATION_TIMEOUT_MS = 120L
+        private const val RECORDING_NOTIFICATION_TIMEOUT_MS = 80L
+        private const val RECORDING_EVENT_THROTTLE_MS = 90L
+        private const val RECORDING_TEXT_EVENT_THROTTLE_MS = 320L
+        private const val RECORDING_SNAPSHOT_SETTLE_MS = 260L
+        private const val RECORDING_SNAPSHOT_BUDGET_MS = 140L
+        private const val RECORDING_SNAPSHOT_NODES = 48
+        private const val MAX_RECORDING_DURATION_MS = 10L * 60L * 1_000L
 
         private const val OWN_OVERLAY_WINDOW_PENALTY = 10_000
         private const val SYSTEM_SURFACE_WINDOW_PENALTY = 40_000
@@ -1425,6 +1731,9 @@ class AiAgentAccessibilityService : AccessibilityService() {
 
         private const val AGENT_CHANNEL_ID = "ai_agent_accessibility_status"
         private const val AGENT_NOTIFICATION_ID = 7301
+        private const val RECORDING_OPEN_REQUEST_CODE = 7311
+        private const val RECORDING_FINISH_REQUEST_CODE = 7312
+        private const val RECORDING_CANCEL_REQUEST_CODE = 7313
 
         // 彻底轻量化后的节点规模与时间预算。
         private const val MAX_SNAPSHOT_NODES = 48
