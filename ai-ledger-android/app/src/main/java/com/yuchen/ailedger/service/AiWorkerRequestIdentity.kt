@@ -14,13 +14,6 @@ internal enum class AiWorkerIdentityMode {
     AppAndOptionalUser,
 }
 
-/**
- * Worker 请求身份的唯一组装入口。
- *
- * X-AI-Ledger-Token 只证明请求来自受支持的 App；
- * Authorization Bearer 只承载当前 Supabase 登录用户的访问令牌。
- * 普通聊天优先使用“构建该请求时”绑定的令牌，账号切换不能让旧消息借用新账号身份。
- */
 internal object AiWorkerRequestIdentity {
     fun defaultAppClientToken(): String? = normalize(
         BuildConfig.AI_LEDGER_CLIENT_TOKEN,
@@ -68,22 +61,21 @@ internal object AiWorkerRequestIdentity {
     }
 
     private fun resolveUserAccessToken(provider: (() -> String?)?): String? {
+        val stagedContext = AssistantMemoryRequestContextRuntime.peekCurrentThread()
         val raw = when {
             provider != null -> runCatching(provider).getOrNull()
-            else -> AssistantMemoryRequestContextRuntime.peekCurrentThread()
-                ?.userAccessToken
-                ?.takeIf(String::isNotBlank)
-                ?: run {
-                    val context = AiLedgerApplication.contextOrNull() ?: return null
-                    runCatching {
-                        SupabaseAuthRepository.get(context)
-                            .state
-                            .value
-                            .session
-                            ?.takeIf { it.isUsable }
-                            ?.accessToken
-                    }.getOrNull()
-                }
+            stagedContext != null -> stagedContext.userAccessToken
+            else -> {
+                val context = AiLedgerApplication.contextOrNull() ?: return null
+                runCatching {
+                    SupabaseAuthRepository.get(context)
+                        .state
+                        .value
+                        .session
+                        ?.takeIf { it.isUsable }
+                        ?.accessToken
+                }.getOrNull()
+            }
         }
         return normalize(raw, MAX_USER_ACCESS_TOKEN_CHARS)
     }
