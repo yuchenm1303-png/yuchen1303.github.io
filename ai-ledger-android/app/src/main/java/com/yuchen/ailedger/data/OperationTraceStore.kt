@@ -18,6 +18,8 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.KeyStore
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -25,7 +27,6 @@ import javax.crypto.spec.GCMParameterSpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -260,27 +261,24 @@ class OperationTraceWriter internal constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val accepting = AtomicBoolean(true)
-    private val records = Channel<OperationTraceRecord>(
-        capacity = MAX_BUFFERED_RECORDS,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    private val writerFailure = AtomicReference<Throwable?>(null)
+    private val records = Channel<OperationTraceRecord>(capacity = MAX_BUFFERED_RECORDS)
+    private val reservedBytes = AtomicLong(estimateEncryptedFrameBytes(header))
     private val writerJob = scope.launch {
-        var writtenBytes = 0L
         try {
             DataOutputStream(BufferedOutputStream(FileOutputStream(file, false))).use { output ->
-                writtenBytes += writeEncryptedRecord(output, header)
+                writeEncryptedRecord(output, header)
                 for (record in records) {
-                    val estimated = estimateEncryptedFrameBytes(record)
-                    if (writtenBytes + estimated > MAX_TRACE_BYTES) {
-                        accepting.set(false)
-                        break
-                    }
-                    writtenBytes += writeEncryptedRecord(output, record)
+                    writeEncryptedRecord(output, record)
                 }
                 output.flush()
             }
+        } catch (error: Throwable) {
+            writerFailure.compareAndSet(null, error)
+            throw error
         } finally {
             accepting.set(false)
+            records.close()
         }
     }
 
@@ -288,23 +286,51 @@ class OperationTraceWriter internal constructor(
         get() = file.absolutePath
 
     fun append(record: OperationTraceRecord): Boolean {
-        if (!accepting.get() || !writerJob.isActive) return false
-        return records.trySend(record).isSuccess
+        if (!accepting.get() || !writerJob.isActive || writerFailure.get() != null) return false
+        val estimatedBytes = estimateEncryptedFrameBytesOrNull(record) ?: return false
+        if (!reserveBytes(estimatedBytes, MAX_TRACE_BYTES - FINAL_MARKER_RESERVE_BYTES)) return false
+        val result = records.trySend(record)
+        if (result.isFailure) {
+            reservedBytes.addAndGet(-estimatedBytes)
+            return false
+        }
+        return true
     }
 
     suspend fun close(finalRecord: OperationTraceRecord? = null) {
         if (accepting.compareAndSet(true, false)) {
-            finalRecord?.let { records.send(it) }
+            finalRecord?.let { record ->
+                val estimatedBytes = estimateEncryptedFrameBytesOrNull(record)
+                if (estimatedBytes != null && reserveBytes(estimatedBytes, MAX_TRACE_BYTES)) {
+                    records.send(record)
+                }
+            }
             records.close()
         } else {
             records.close()
         }
         writerJob.join()
         scope.cancel()
+        writerFailure.get()?.let { throw it }
+    }
+
+    private fun reserveBytes(bytes: Long, limit: Long): Boolean {
+        while (true) {
+            val current = reservedBytes.get()
+            if (current + bytes > limit) return false
+            if (reservedBytes.compareAndSet(current, current + bytes)) return true
+        }
     }
 
     private fun estimateEncryptedFrameBytes(record: OperationTraceRecord): Long {
+        return requireNotNull(estimateEncryptedFrameBytesOrNull(record)) {
+            "operation trace record exceeds maximum size"
+        }
+    }
+
+    private fun estimateEncryptedFrameBytesOrNull(record: OperationTraceRecord): Long? {
         val plainBytes = record.toJson().toString().toByteArray(Charsets.UTF_8).size
+        if (plainBytes > OperationTraceStore.MAX_RECORD_BYTES) return null
         return (
             FRAME_LENGTH_PREFIX_BYTES +
                 OperationTraceStore.FRAME_IV_LENGTH_BYTES +
@@ -319,7 +345,7 @@ class OperationTraceWriter internal constructor(
         record: OperationTraceRecord,
     ): Long {
         val plain = record.toJson().toString().toByteArray(Charsets.UTF_8)
-        if (plain.size > OperationTraceStore.MAX_RECORD_BYTES) return 0L
+        require(plain.size <= OperationTraceStore.MAX_RECORD_BYTES) { "operation trace record too large" }
         val cipher = Cipher.getInstance(OperationTraceStore.CIPHER_TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, key)
         cipher.updateAAD(sessionId.toByteArray(Charsets.UTF_8))
@@ -399,6 +425,7 @@ class OperationTraceWriter internal constructor(
     companion object {
         private const val MAX_BUFFERED_RECORDS = 256
         private const val MAX_TRACE_BYTES = 8L * 1024L * 1024L
+        private const val FINAL_MARKER_RESERVE_BYTES = 4L * 1024L
         private const val FRAME_LENGTH_PREFIX_BYTES = 4
         private const val GCM_IV_BYTES = 12
     }
