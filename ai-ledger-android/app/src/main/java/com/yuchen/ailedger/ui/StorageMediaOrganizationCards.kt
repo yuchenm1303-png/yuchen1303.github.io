@@ -1,11 +1,14 @@
 package com.yuchen.ailedger.ui
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -14,18 +17,29 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.service.BurstPhotoGroup
 import com.yuchen.ailedger.service.SimilarPhotoGroup
+import com.yuchen.ailedger.service.StorageMediaOrganizationRepository
 import com.yuchen.ailedger.service.StorageOrganizationFile
 import com.yuchen.ailedger.service.StorageOrganizationSnapshot
+import com.yuchen.ailedger.service.loadCachedOrganizationThumbnail
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun OrganizationOverview(
@@ -184,9 +198,9 @@ internal fun OrganizationFileCard(
         border = BorderStroke(1.dp, riskTone(file.risk).copy(alpha = if (selected) 0.34f else 0.11f)),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(
                 modifier = Modifier.size(23.dp)
@@ -197,6 +211,7 @@ internal fun OrganizationFileCard(
             ) {
                 Text(if (selected) "✓" else "", color = Color(0xFF101638), fontSize = 11.sp, fontWeight = FontWeight.Black)
             }
+            OrganizationInlineThumbnail(file)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -220,3 +235,79 @@ internal fun OrganizationFileCard(
         }
     }
 }
+
+@Composable
+private fun OrganizationInlineThumbnail(file: StorageOrganizationFile) {
+    val shape = RoundedCornerShape(12.dp)
+    val isImage = file.mimeType.startsWith("image/", ignoreCase = true)
+    if (!isImage) {
+        Box(
+            modifier = Modifier.size(62.dp).clip(shape).background(Color.White.copy(alpha = 0.055f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = organizationFileTypeLabel(file),
+                color = Color.White.copy(alpha = 0.50f),
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                lineHeight = 11.sp,
+                modifier = Modifier.padding(5.dp),
+            )
+        }
+        return
+    }
+
+    val context = LocalContext.current
+    val repository = remember(context.applicationContext) {
+        StorageMediaOrganizationRepository(context.applicationContext)
+    }
+    val state by produceState(
+        initialValue = InlineThumbnailState(),
+        key1 = file.uri,
+        key2 = file.modifiedAt,
+    ) {
+        val bitmap = withContext(Dispatchers.IO) {
+            repository.loadCachedOrganizationThumbnail(file, maxEdgePx = 160)
+        }
+        value = InlineThumbnailState(bitmap = bitmap, complete = true)
+    }
+
+    Box(
+        modifier = Modifier.size(62.dp).clip(shape).background(Color.White.copy(alpha = 0.055f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            state.bitmap != null -> Image(
+                bitmap = state.bitmap.asImageBitmap(),
+                contentDescription = "${file.displayName} 缩略图",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            !state.complete -> CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
+                strokeWidth = 1.5.dp,
+                color = OrganizationAccent.copy(alpha = 0.70f),
+            )
+            else -> Text(
+                "无预览",
+                color = Color.White.copy(alpha = 0.36f),
+                fontSize = 8.5.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+private fun organizationFileTypeLabel(file: StorageOrganizationFile): String {
+    val extension = file.displayName.substringAfterLast('.', missingDelimiterValue = "")
+        .uppercase(Locale.ROOT)
+        .take(5)
+    return extension.ifBlank { file.kind.label.take(4) }
+}
+
+private data class InlineThumbnailState(
+    val bitmap: Bitmap? = null,
+    val complete: Boolean = false,
+)
