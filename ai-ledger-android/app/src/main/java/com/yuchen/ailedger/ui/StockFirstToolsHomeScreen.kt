@@ -116,6 +116,14 @@ fun StockFirstToolsHomeScreen(
         return
     }
 
+    if (selectedTool == ToolDestination.StorageManagement) {
+        StorageManagementScreen(
+            state = pageState,
+            onBack = onCloseTool,
+        )
+        return
+    }
+
     if (selectedTool != null && selectedTool != ToolDestination.StockMarket) {
         PendingToolScreen(
             destination = selectedTool,
@@ -492,9 +500,11 @@ private fun StockToolEntryCard(
 
 @Composable
 private fun StockToolEntryContent(destination: ToolDestination) {
-    val appControl = destination == ToolDestination.AppControl
-    val subtitle = if (appControl) "查看全部应用、存储、权限与内部控制" else destination.subtitle
-    val available = destination.available || appControl
+    val subtitle = when (destination) {
+        ToolDestination.AppControl -> "查看全部应用、存储、权限与内部控制"
+        ToolDestination.StorageManagement -> "安全扫描缓存、大文件与授权目录"
+        else -> destination.subtitle
+    }
     Row(
         Modifier.fillMaxSize().padding(horizontal = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -503,6 +513,6 @@ private fun StockToolEntryContent(destination: ToolDestination) {
             Text(destination.title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(if (available) "进入" else "规划中", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        Text(if (destination.available) "进入" else "规划中", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
