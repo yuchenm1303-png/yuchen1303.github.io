@@ -54,18 +54,28 @@ internal object AssistantMemoryUsageBridge {
     fun recordSuccessfulPayload(payload: JSONObject) {
         val response = responseForCurrentThread.get()
         responseForCurrentThread.remove()
+        val payloadSnapshot = compactMemoryDiagnosticPayload(payload)
+        val responseSnapshot = response?.let(::compactMemoryDiagnosticResponse)
         diagnosticsExecutor.execute {
             runCatching {
-                AssistantMemoryDiagnostics.record(payload = payload, response = response)
+                AssistantMemoryDiagnostics.record(
+                    payload = payloadSnapshot,
+                    response = responseSnapshot,
+                )
             }
         }
     }
 
     fun recordFailedPayload(payload: JSONObject, error: Throwable) {
         responseForCurrentThread.remove()
+        val payloadSnapshot = compactMemoryDiagnosticPayload(payload)
         diagnosticsExecutor.execute {
             runCatching {
-                AssistantMemoryDiagnostics.record(payload = payload, response = null, failure = error)
+                AssistantMemoryDiagnostics.record(
+                    payload = payloadSnapshot,
+                    response = null,
+                    failure = error,
+                )
             }
         }
     }
