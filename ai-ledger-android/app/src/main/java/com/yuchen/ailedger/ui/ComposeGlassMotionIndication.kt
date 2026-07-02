@@ -205,20 +205,21 @@ private class ComposeGlassMotionNode(
             rebound * 0.030f * elasticity
         val translationY = compression * (0.70f + 3.90f * elasticity) -
             rebound * 1.55f * elasticity
+        val contentScope = this
 
         withTransform({
             translate(top = translationY)
             scale(scaleX = scaleX, scaleY = scaleY, pivot = center)
         }) {
-            drawComposeGlassMotionUnderlay(
+            contentScope.drawComposeGlassMotionUnderlay(
                 press = opticsPress,
                 sweep = sweepValue,
                 center = center,
                 style = style,
                 elasticity = elasticity,
             )
-            drawContent()
-            drawComposeGlassMotionOverlay(
+            contentScope.drawContent()
+            contentScope.drawComposeGlassMotionOverlay(
                 press = opticsPress,
                 sweep = sweepValue,
                 center = center,
