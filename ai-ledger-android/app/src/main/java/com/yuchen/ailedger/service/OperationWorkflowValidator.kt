@@ -3,7 +3,9 @@ package com.yuchen.ailedger.service
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowActionType
 import com.yuchen.ailedger.model.WorkflowConfirmationPolicy
+import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.model.WorkflowExecutionMode
+import com.yuchen.ailedger.model.WorkflowRecoveryMode
 import com.yuchen.ailedger.model.WorkflowRiskLevel
 import com.yuchen.ailedger.model.WorkflowSelectorKind
 import com.yuchen.ailedger.model.WorkflowVariableType
@@ -41,6 +43,8 @@ data class WorkflowValidationReport(
 }
 
 object OperationWorkflowValidator {
+    private val packageNamePattern = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
+
     fun validate(
         draft: LearnedWorkflowDraft,
         stage: WorkflowValidationStage,
@@ -74,10 +78,17 @@ object OperationWorkflowValidator {
     }
 
     private fun MutableList<WorkflowValidationIssue>.validateScope(draft: LearnedWorkflowDraft) {
-        if (draft.appScope.normalizedPackages.isEmpty()) {
+        val packages = draft.appScope.normalizedPackages
+        if (packages.isEmpty()) {
             blocking("workflow_app_scope_missing", "至少指定一个允许操作的应用包名。")
+            return
         }
-        if (draft.appScope.normalizedPackages.size > 4) {
+        packages.forEach { packageName ->
+            if (!packageNamePattern.matches(packageName)) {
+                blocking("workflow_app_package_invalid", "应用包名“$packageName”格式无效。")
+            }
+        }
+        if (packages.size > 4) {
             warning("workflow_app_scope_wide", "当前流程跨越较多应用，建议拆成更小、更稳定的操作。")
         }
         if (draft.appScope.allowSystemSurfaces) {
@@ -119,6 +130,11 @@ object OperationWorkflowValidator {
         }
         if (draft.recoveryPolicy.allowRouteMutation && draft.executionMode == WorkflowExecutionMode.Deterministic) {
             blocking("workflow_route_mutation_in_deterministic_mode", "确定性执行模式不能自动改写操作路线。")
+        }
+        if (draft.executionMode == WorkflowExecutionMode.AssistedRepair &&
+            draft.recoveryPolicy.mode != WorkflowRecoveryMode.AssistedRepairAfterConsent
+        ) {
+            blocking("workflow_assisted_mode_without_consent_gate", "受控辅助修复必须设置为经用户同意后启用。")
         }
     }
 
@@ -259,13 +275,13 @@ object OperationWorkflowValidator {
     }
 
     private fun MutableList<WorkflowValidationIssue>.validateExecutionReadiness(draft: LearnedWorkflowDraft) {
-        if (draft.executionMode != WorkflowExecutionMode.Deterministic &&
-            draft.recoveryPolicy.mode.name != "AssistedRepairAfterConsent"
+        if (draft.status !in setOf(WorkflowDraftStatus.Approved, WorkflowDraftStatus.Verified)) {
+            blocking("workflow_not_approved", "流程尚未通过用户审核，不能执行。")
+        }
+        if (draft.executionMode == WorkflowExecutionMode.AssistedRepair &&
+            draft.recoveryPolicy.mode != WorkflowRecoveryMode.AssistedRepairAfterConsent
         ) {
             blocking("workflow_assisted_mode_without_consent_gate", "受控辅助修复必须经过用户同意后才能启用。")
-        }
-        if (draft.status.name !in setOf("Approved", "Verified")) {
-            blocking("workflow_not_approved", "流程尚未通过用户审核，不能执行。")
         }
     }
 
