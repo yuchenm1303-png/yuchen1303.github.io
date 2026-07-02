@@ -37,19 +37,24 @@ class CustomBackgroundStore(
             BitmapFactory.decodeStream(stream, null, options)
         } ?: error("无法读取图片")
 
-        val rotated = decoded.applyExifRotation(uri)
-        val fitted = rotated.scaleToMaxEdge(MAX_STORE_EDGE)
-        val target = customBackgroundFile
+        var rotated = decoded
+        var fitted = decoded
+        try {
+            rotated = decoded.applyExifRotation(uri)
+            fitted = rotated.scaleToMaxEdge(MAX_STORE_EDGE)
+            val target = customBackgroundFile
 
-        // 原图只压缩一次，展示文件直接复制同一份 JPEG，避免上传时重复执行昂贵编码。
-        writeJpeg(fitted, customBackgroundSourceFile)
-        copyFileAtomically(customBackgroundSourceFile, target)
-        CustomBackgroundToneProcessor.invalidate(target)
-
-        if (fitted !== rotated) fitted.recycle()
-        if (rotated !== decoded) rotated.recycle()
-        if (!decoded.isRecycled) decoded.recycle()
-        return target.absolutePath
+            // 原图只压缩一次，展示文件直接复制同一份 JPEG，避免上传时重复执行昂贵编码。
+            writeJpeg(fitted, customBackgroundSourceFile)
+            copyFileAtomically(customBackgroundSourceFile, target)
+            CustomBackgroundToneProcessor.invalidate(target)
+            return target.absolutePath
+        } finally {
+            // 编码、复制或替换文件失败时也立即释放所有临时位图，避免异常路径保留大图内存。
+            if (fitted !== rotated && !fitted.isRecycled) fitted.recycle()
+            if (rotated !== decoded && !rotated.isRecycled) rotated.recycle()
+            if (!decoded.isRecycled) decoded.recycle()
+        }
     }
 
     fun clearCustomBackground() {
