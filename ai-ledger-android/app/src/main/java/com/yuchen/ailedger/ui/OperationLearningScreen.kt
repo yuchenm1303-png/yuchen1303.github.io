@@ -216,8 +216,6 @@ private fun StartDemonstrationCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFF101743).copy(alpha = 0.24f))
                 .padding(horizontal = 18.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
@@ -344,8 +342,6 @@ private fun DemonstrationPreparationCard() {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF141842).copy(alpha = 0.22f))
                 .padding(horizontal = 17.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -453,8 +449,6 @@ private fun LearningFlowCard() {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(Color(0xFF10153A).copy(alpha = 0.22f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
@@ -508,8 +502,6 @@ private fun LearnedOperationsEmptyCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(Color(0xFF12163D).copy(alpha = 0.20f))
                 .padding(horizontal = 18.dp, vertical = 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -581,8 +573,6 @@ private fun SafetyBoundaryCard() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF101536).copy(alpha = 0.18f))
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top,
