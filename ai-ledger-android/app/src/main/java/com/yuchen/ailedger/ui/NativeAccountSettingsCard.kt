@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -102,9 +102,7 @@ fun NativeAccountSettingsCard(state: AssistantUiState) {
     }
 
     LaunchedEffect(session?.userId, profile?.displayName) {
-        if (session != null) {
-            nicknameInput = displayName
-        }
+        if (session != null) nicknameInput = displayName
     }
 
     FrostInfoGlassPanel(
@@ -261,8 +259,8 @@ internal fun AccountLoginModalHost(
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(0f),
-            enter = fadeIn(tween(170)),
-            exit = fadeOut(tween(135)),
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(120)),
         ) {
             Box(
                 Modifier
@@ -270,9 +268,9 @@ internal fun AccountLoginModalHost(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color(0xFF07132D).copy(alpha = 0.10f),
-                                Color(0xFF07132D).copy(alpha = 0.20f),
-                                Color(0xFF03091F).copy(alpha = 0.46f),
+                                Color(0xFF07132D).copy(alpha = 0.015f),
+                                Color(0xFF07132D).copy(alpha = 0.055f),
+                                Color(0xFF02081C).copy(alpha = 0.16f),
                             )
                         )
                     )
@@ -289,19 +287,18 @@ internal fun AccountLoginModalHost(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .navigationBarsPadding()
                 .imePadding()
-                .padding(horizontal = 12.dp, vertical = 14.dp)
+                .padding(start = 2.dp, end = 2.dp, bottom = 86.dp)
                 .zIndex(1f),
-            enter = fadeIn(tween(165)) +
+            enter = fadeIn(tween(155)) +
                 slideInVertically(
                     animationSpec = spring(
-                        dampingRatio = 0.86f,
+                        dampingRatio = 0.88f,
                         stiffness = Spring.StiffnessMediumLow,
                     )
                 ) { fullHeight -> fullHeight },
-            exit = fadeOut(tween(115)) +
-                slideOutVertically(tween(165)) { fullHeight -> fullHeight },
+            exit = fadeOut(tween(105)) +
+                slideOutVertically(tween(155)) { fullHeight -> fullHeight },
         ) {
             Box(
                 Modifier
@@ -345,16 +342,19 @@ internal fun AccountLoginBottomCard(
         else -> ""
     }
 
-    FrostInfoGlassPanel(
-        radius = 30f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.22f,
-        dimAlpha = 0.32f,
+    GlassPanel(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 30,
         modifier = Modifier.fillMaxWidth(),
+        role = GlassRole.Card,
+        intensity = (state.glassIntensity * 1.20f).coerceIn(0.92f, 1.34f),
     ) {
         Column(
             Modifier
                 .fillMaxWidth()
+                .background(Color(0xFF07132D).copy(alpha = 0.23f))
                 .padding(horizontal = 16.dp, vertical = 15.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -372,40 +372,23 @@ internal fun AccountLoginBottomCard(
                         } else {
                             "创建 AI Ledger 账号"
                         },
-                        color = Color.White.copy(alpha = 0.96f),
+                        color = Color.White.copy(alpha = 0.97f),
                         fontSize = 18.sp,
                         lineHeight = 22.sp,
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
                         text = "同步昵称、头像、记忆与自选数据",
-                        color = Color.White.copy(alpha = 0.46f),
+                        color = Color.White.copy(alpha = 0.54f),
                         fontSize = 10.5.sp,
                         lineHeight = 14.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                PressableGlass(
-                    quality = state.quality,
-                    glassIntensity = state.glassIntensity,
-                    motionIntensity = state.motionIntensity,
-                    radius = 999,
-                    modifier = Modifier
-                        .width(34.dp)
-                        .height(32.dp),
-                    role = GlassRole.Chip,
+                VisibleCloseButton(
+                    state = state,
                     onClick = onDismiss,
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = "×",
-                            color = Color.White.copy(alpha = 0.68f),
-                            fontSize = 17.sp,
-                            lineHeight = 18.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                }
+                )
             }
 
             AccountLoginModeSwitch(
@@ -471,6 +454,42 @@ internal fun AccountLoginBottomCard(
 }
 
 @Composable
+private fun VisibleCloseButton(
+    state: AssistantUiState,
+    onClick: () -> Unit,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = Modifier
+            .width(34.dp)
+            .height(32.dp),
+        role = GlassRole.Floating,
+        intensity = (state.glassIntensity * 1.18f).coerceIn(0.92f, 1.30f),
+        onClick = onClick,
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.085f))
+                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(999.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = "×",
+                color = Color.White.copy(alpha = 0.90f),
+                fontSize = 17.sp,
+                lineHeight = 18.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
+    }
+}
+
+@Composable
 private fun AccountLoginModeSwitch(
     state: AssistantUiState,
     selected: AccountAuthMode,
@@ -480,7 +499,8 @@ private fun AccountLoginModeSwitch(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFF08132E).copy(alpha = 0.28f))
+            .background(Color(0xFF08132E).copy(alpha = 0.38f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
             .padding(3.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -509,19 +529,36 @@ private fun AccountLoginModeButton(
     modifier: Modifier,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(15.dp)
     PressableGlass(
         quality = state.quality,
-        glassIntensity = state.glassIntensity * if (selected) 1f else 0.82f,
+        glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 15,
         modifier = modifier.height(36.dp),
         role = if (selected) GlassRole.Floating else GlassRole.Chip,
+        intensity = (state.glassIntensity * if (selected) 1.20f else 1.02f)
+            .coerceIn(0.84f, 1.32f),
         onClick = onClick,
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(
+                    if (selected) Color.White.copy(alpha = 0.12f)
+                    else Color.White.copy(alpha = 0.045f)
+                )
+                .border(
+                    1.dp,
+                    Color.White.copy(alpha = if (selected) 0.17f else 0.07f),
+                    shape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
                 text = text,
-                color = Color.White.copy(alpha = if (selected) 0.94f else 0.52f),
+                color = Color.White.copy(alpha = if (selected) 0.96f else 0.68f),
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
@@ -536,21 +573,39 @@ private fun AccountLoginPrimaryButton(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(20.dp)
     PressableGlass(
         quality = state.quality,
-        glassIntensity = state.glassIntensity * if (enabled) 1.04f else 0.68f,
+        glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 20,
         modifier = Modifier
             .fillMaxWidth()
             .height(50.dp),
         role = GlassRole.Floating,
+        intensity = (state.glassIntensity * if (enabled) 1.24f else 0.98f)
+            .coerceIn(0.82f, 1.36f),
         onClick = { if (enabled) onClick() },
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(
+                    if (enabled) Color(0xFF8DF9EA).copy(alpha = 0.105f)
+                    else Color.White.copy(alpha = 0.055f)
+                )
+                .border(
+                    1.dp,
+                    if (enabled) Color(0xFFB9FFF6).copy(alpha = 0.19f)
+                    else Color.White.copy(alpha = 0.09f),
+                    shape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
                 text = title,
-                color = Color.White.copy(alpha = if (enabled) 0.96f else 0.40f),
+                color = Color.White.copy(alpha = if (enabled) 0.97f else 0.66f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
@@ -641,7 +696,8 @@ private fun AccountProfileEditor(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
-            .background(Color.White.copy(alpha = 0.050f))
+            .background(Color.White.copy(alpha = 0.065f))
+            .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(22.dp))
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp),
     ) {
@@ -747,6 +803,7 @@ private fun AccountStatusPill(loggedIn: Boolean, loading: Boolean) {
                     else -> Color.White.copy(alpha = 0.08f)
                 }
             )
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(999.dp))
             .padding(horizontal = 11.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -771,19 +828,36 @@ private fun AccountModeChip(
     modifier: Modifier,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(999.dp)
     PressableGlass(
-        state.quality,
-        state.glassIntensity,
-        state.motionIntensity,
-        999,
-        modifier.height(40.dp),
-        if (selected) GlassRole.Floating else GlassRole.Chip,
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 999,
+        modifier = modifier.height(40.dp),
+        role = if (selected) GlassRole.Floating else GlassRole.Chip,
+        intensity = (state.glassIntensity * if (selected) 1.18f else 1.00f)
+            .coerceIn(0.82f, 1.30f),
         onClick = onClick,
     ) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clip(shape)
+                .background(
+                    if (selected) Color.White.copy(alpha = 0.11f)
+                    else Color.White.copy(alpha = 0.045f)
+                )
+                .border(
+                    1.dp,
+                    Color.White.copy(alpha = if (selected) 0.16f else 0.07f),
+                    shape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
             Text(
                 text,
-                color = Color.White.copy(alpha = if (selected) 0.96f else 0.62f),
+                color = Color.White.copy(alpha = if (selected) 0.96f else 0.68f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
@@ -800,31 +874,41 @@ private fun AccountActionButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val shape = RoundedCornerShape(23.dp)
     PressableGlass(
-        state.quality,
-        state.glassIntensity * if (enabled) 1f else 0.72f,
-        state.motionIntensity,
-        23,
-        modifier.height(58.dp),
-        GlassRole.Chip,
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = 23,
+        modifier = modifier.height(58.dp),
+        role = GlassRole.Chip,
+        intensity = (state.glassIntensity * if (enabled) 1.08f else 0.88f)
+            .coerceIn(0.76f, 1.28f),
         onClick = { if (enabled) onClick() },
     ) {
         Column(
             Modifier
                 .fillMaxSize()
+                .clip(shape)
+                .background(Color.White.copy(alpha = if (enabled) 0.070f else 0.042f))
+                .border(
+                    1.dp,
+                    Color.White.copy(alpha = if (enabled) 0.11f else 0.07f),
+                    shape,
+                )
                 .padding(horizontal = 12.dp, vertical = 9.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 title,
-                color = Color.White.copy(alpha = if (enabled) 1f else 0.48f),
+                color = Color.White.copy(alpha = if (enabled) 0.96f else 0.64f),
                 fontSize = 15.sp,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
             )
             Text(
                 subtitle,
-                color = Color.White.copy(alpha = if (enabled) 0.52f else 0.30f),
+                color = Color.White.copy(alpha = if (enabled) 0.54f else 0.38f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
@@ -841,7 +925,8 @@ private fun AccountInfoRow(title: String, value: String) {
             .fillMaxWidth()
             .height(52.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = 0.060f))
+            .background(Color.White.copy(alpha = 0.070f))
+            .border(1.dp, Color.White.copy(alpha = 0.065f), RoundedCornerShape(18.dp))
             .padding(horizontal = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -874,12 +959,18 @@ private fun AccountTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     enabled: Boolean = true,
 ) {
+    val shape = RoundedCornerShape(18.dp)
     Box(
         Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color.White.copy(alpha = if (enabled) 0.070f else 0.040f))
+            .clip(shape)
+            .background(Color.White.copy(alpha = if (enabled) 0.105f else 0.060f))
+            .border(
+                1.dp,
+                Color.White.copy(alpha = if (enabled) 0.115f else 0.070f),
+                shape,
+            )
             .padding(horizontal = 13.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -889,7 +980,7 @@ private fun AccountTextField(
             enabled = enabled,
             singleLine = true,
             textStyle = TextStyle(
-                color = Color.White.copy(alpha = if (enabled) 0.92f else 0.46f),
+                color = Color.White.copy(alpha = if (enabled) 0.94f else 0.58f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Bold,
             ),
@@ -904,7 +995,7 @@ private fun AccountTextField(
         if (value.isBlank()) {
             Text(
                 placeholder,
-                color = Color.White.copy(alpha = if (enabled) 0.38f else 0.24f),
+                color = Color.White.copy(alpha = if (enabled) 0.48f else 0.30f),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
