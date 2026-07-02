@@ -21,6 +21,24 @@ def require_text(path: Path, required: list[str], forbidden: list[str] | None = 
     return errors
 
 
+def require_absent(paths: list[Path]) -> list[str]:
+    errors: list[str] = []
+    for path in paths:
+        if path.exists():
+            errors.append(f"{path.relative_to(ROOT)} must remain absent")
+    return errors
+
+
+def forbid_tokens_in_tree(root: Path, forbidden: list[str]) -> list[str]:
+    errors: list[str] = []
+    for path in root.rglob("*.kt"):
+        text = path.read_text(encoding="utf-8")
+        for token in forbidden:
+            if token in text:
+                errors.append(f"{path.relative_to(ROOT)} contains globally forbidden contract: {token}")
+    return errors
+
+
 def main() -> int:
     errors: list[str] = []
     accessibility = ROOT / "app/src/main/res/xml/ai_agent_accessibility_service.xml"
@@ -31,6 +49,7 @@ def main() -> int:
             'android:canRetrieveWindowContent="true"',
             'android:canPerformGestures="true"',
             'android:canTakeScreenshot="true"',
+            'android:description="@string/ai_agent_accessibility_description"',
             'android:notificationTimeout="1000"',
         ],
         forbidden=[
@@ -46,6 +65,27 @@ def main() -> int:
         ],
     )
 
+    accessibility_service = ROOT / "app/src/main/java/com/yuchen/ailedger/service/AiAgentAccessibilityService.kt"
+    errors += require_text(
+        accessibility_service,
+        required=[
+            "private const val IDLE_EVENT_TYPES = 0",
+            "private const val IDLE_ACCESSIBILITY_FLAGS = 0",
+            "configureIdleServiceInfo(force = true)",
+            "if (workingSessionDepth == 0) restorePassiveServiceInfo(force = true)",
+            "withWorkingAccessibilityMode",
+        ],
+    )
+    accessibility_service_text = accessibility_service.read_text(encoding="utf-8")
+    begin_task_marker = "private fun beginTaskWorkingSession()"
+    end_task_marker = "private fun endTaskWorkingSession()"
+    if begin_task_marker in accessibility_service_text and end_task_marker in accessibility_service_text:
+        begin_task_block = accessibility_service_text.split(begin_task_marker, 1)[1].split(end_task_marker, 1)[0]
+        if "configureIdleServiceInfo(force = true)" not in begin_task_block:
+            errors.append("AiAgentAccessibilityService task session must remain Idle outside short working scopes")
+        if "configureWorkingServiceInfo()" in begin_task_block:
+            errors.append("AiAgentAccessibilityService task session must not enter persistent Working mode")
+
     home = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt"
     errors += require_text(
         home,
@@ -54,9 +94,11 @@ def main() -> int:
             "modelPanelVisualHeight",
             "modelExpandDelta",
             "LocalOpenGLGlassSurfaceAnchor",
+            "LocalOpenGLGlassSurfaceAnchor provides shellAnchor",
             "ChatPanelV2(",
             "viewportTopInset = modelExpandDelta",
             "AnimatedMessageBubbleV2",
+            "revealedMessageIds",
             "rememberRevealTextStateV2",
             "GeneratingMessageContentV2",
             "StreamingAssistantContentV2",
@@ -64,10 +106,87 @@ def main() -> int:
             "TypewriterTrailV2",
             "LongReplyToggleV2",
             "ThinkingDotsV2",
+            "thinkingPearlSurface",
+            "RichMessageContent",
             "MessageActionsV2",
             "MessageAttachmentListV2",
             "MessageBadgeV2",
             "MessageDataCards",
+        ],
+    )
+
+    coordinates = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/BackdropCoordinates.kt"
+    errors += require_text(
+        coordinates,
+        required=[
+            "internal object OpenGLFrameFinalizer",
+            "private val preDrawListener",
+            "private val finalDispatchAction",
+            "observer.addOnPreDrawListener(preDrawListener)",
+            "OpenGLFrameFinalizer.dispatch(finalDispatchAction)",
+        ],
+        forbidden=[
+            "activeTickers.toTypedArray()",
+            "OpenGLPresentationFence",
+            "awaitPendingSwaps",
+            "Thread.sleep",
+        ],
+    )
+
+    cached_page = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/CachedTabPageLayer.kt"
+    errors += require_text(
+        cached_page,
+        required=[
+            "OpenGLFrameFinalizer.bindHostView(hostView)",
+            "OpenGLFrameFinalizer.requestActiveTickerFrame()",
+            "NonOpenGLGlassBatchHost(",
+        ],
+        forbidden=[
+            "OpenGLPageShellCompositor",
+            "OpenGLPageWebShellLayer",
+            "OpenGLPageBatchShellLayer",
+            "LocalPageLegacyOpenGLShellState",
+            "LocalPageWebOpenGLShellState",
+            "LocalPageOpenGLShellBatchState",
+        ],
+    )
+
+    removed_page_hosts = [
+        ROOT / "app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLPageShellCompositor.kt",
+        ROOT / "app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLPageWebShellLayer.kt",
+        ROOT / "app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLPageBatchShellLayer.kt",
+        ROOT / "app/src/main/java/com/yuchen/ailedger/ui/OpenGLPresentationFence.kt",
+    ]
+    errors += require_absent(removed_page_hosts)
+    errors += forbid_tokens_in_tree(
+        ROOT / "app/src/main/java",
+        forbidden=[
+            "OpenGLPresentationFence",
+            "awaitPendingSwaps",
+            "OpenGLPageShellCompositor",
+            "OpenGLPageWebShellLayer",
+            "OpenGLPageBatchShellLayer",
+        ],
+    )
+
+    glass = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/Glass.kt"
+    errors += require_text(
+        glass,
+        required=[
+            "if (role != GlassRole.Shell)",
+            "NewOpenGLGlassCardLayer(",
+            "role = GlassRole.Shell",
+            "role = GlassRole.Card",
+        ],
+    )
+
+    shell_route = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellGlass.kt"
+    errors += require_text(
+        shell_route,
+        required=[
+            "val wantsOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl",
+            "role = GlassRole.Shell",
+            "role = GlassRole.Card",
         ],
     )
 
