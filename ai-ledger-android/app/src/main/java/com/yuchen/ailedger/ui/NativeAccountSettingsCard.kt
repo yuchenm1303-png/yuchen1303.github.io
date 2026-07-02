@@ -1,8 +1,19 @@
 package com.yuchen.ailedger.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +22,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.data.SupabaseAccountMessageTone
 import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.data.UserProfileRepository
@@ -227,6 +242,86 @@ fun NativeAccountSettingsCard(state: AssistantUiState) {
 }
 
 @Composable
+internal fun AccountLoginModalHost(
+    visible: Boolean,
+    state: AssistantUiState,
+    onDismiss: () -> Unit,
+) {
+    BackHandler(enabled = visible, onBack = onDismiss)
+    val backdropInteraction = remember { MutableInteractionSource() }
+    val cardInteraction = remember { MutableInteractionSource() }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .zIndex(5000f)
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(0f),
+            enter = fadeIn(tween(170)),
+            exit = fadeOut(tween(135)),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color(0xFF07132D).copy(alpha = 0.10f),
+                                Color(0xFF07132D).copy(alpha = 0.20f),
+                                Color(0xFF03091F).copy(alpha = 0.46f),
+                            )
+                        )
+                    )
+                    .clickable(
+                        interactionSource = backdropInteraction,
+                        indication = null,
+                        onClick = onDismiss,
+                    )
+            )
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 12.dp, vertical = 14.dp)
+                .zIndex(1f),
+            enter = fadeIn(tween(165)) +
+                slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = 0.86f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    )
+                ) { fullHeight -> fullHeight },
+            exit = fadeOut(tween(115)) +
+                slideOutVertically(tween(165)) { fullHeight -> fullHeight },
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = cardInteraction,
+                        indication = null,
+                        onClick = {},
+                    )
+            ) {
+                AccountLoginBottomCard(
+                    state = state,
+                    onDismiss = onDismiss,
+                )
+            }
+        }
+    }
+}
+
+@Composable
 internal fun AccountLoginBottomCard(
     state: AssistantUiState,
     onDismiss: () -> Unit,
@@ -237,24 +332,29 @@ internal fun AccountLoginBottomCard(
     var authMode by rememberSaveable { mutableStateOf(AccountAuthMode.Login) }
     var emailInput by rememberSaveable { mutableStateOf("") }
     var passwordInput by rememberSaveable { mutableStateOf("") }
+    var submitted by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(accountState.isLoggedIn) {
         if (accountState.isLoggedIn) onDismiss()
     }
 
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 30,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(338.dp),
-        role = GlassRole.Card,
+    val statusMessage = when {
+        accountState.loading && submitted -> accountState.message
+        submitted && accountState.tone != SupabaseAccountMessageTone.Normal -> accountState.message
+        submitted && accountState.requiresEmailConfirmation -> accountState.message
+        else -> ""
+    }
+
+    FrostInfoGlassPanel(
+        radius = 30f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.22f,
+        dimAlpha = 0.32f,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
             Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 15.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -267,17 +367,21 @@ internal fun AccountLoginBottomCard(
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                 ) {
                     Text(
-                        text = if (authMode == AccountAuthMode.Login) "登录 AI Ledger" else "创建 AI Ledger 账号",
+                        text = if (authMode == AccountAuthMode.Login) {
+                            "登录 AI Ledger"
+                        } else {
+                            "创建 AI Ledger 账号"
+                        },
                         color = Color.White.copy(alpha = 0.96f),
-                        fontSize = 20.sp,
-                        lineHeight = 24.sp,
+                        fontSize = 18.sp,
+                        lineHeight = 22.sp,
                         fontWeight = FontWeight.ExtraBold,
                     )
                     Text(
-                        text = "登录后同步昵称、头像、记忆与自选数据。",
-                        color = Color.White.copy(alpha = 0.48f),
-                        fontSize = 11.sp,
-                        lineHeight = 15.sp,
+                        text = "同步昵称、头像、记忆与自选数据",
+                        color = Color.White.copy(alpha = 0.46f),
+                        fontSize = 10.5.sp,
+                        lineHeight = 14.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -287,32 +391,62 @@ internal fun AccountLoginBottomCard(
                     motionIntensity = state.motionIntensity,
                     radius = 999,
                     modifier = Modifier
-                        .width(38.dp)
-                        .height(34.dp),
+                        .width(34.dp)
+                        .height(32.dp),
                     role = GlassRole.Chip,
                     onClick = onDismiss,
                 ) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = "×",
-                            color = Color.White.copy(alpha = 0.72f),
-                            fontSize = 18.sp,
+                            color = Color.White.copy(alpha = 0.68f),
+                            fontSize = 17.sp,
+                            lineHeight = 18.sp,
                             fontWeight = FontWeight.Medium,
                         )
                     }
                 }
             }
 
-            AccountAuthForm(
+            AccountLoginModeSwitch(
                 state = state,
-                authMode = authMode,
-                onAuthModeChange = { authMode = it },
-                emailInput = emailInput,
-                onEmailChange = { emailInput = it.take(80) },
-                passwordInput = passwordInput,
-                onPasswordChange = { passwordInput = it.take(72) },
-                loading = accountState.loading,
-                onSubmit = {
+                selected = authMode,
+                onSelected = {
+                    authMode = it
+                    submitted = false
+                },
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                AccountTextField(
+                    value = emailInput,
+                    onValueChange = { emailInput = it.take(80) },
+                    placeholder = "邮箱 name@example.com",
+                    keyboardType = KeyboardType.Email,
+                    enabled = !accountState.loading,
+                )
+                AccountTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it.take(72) },
+                    placeholder = "密码至少 6 位",
+                    keyboardType = KeyboardType.Password,
+                    visualTransformation = PasswordVisualTransformation(),
+                    enabled = !accountState.loading,
+                )
+            }
+
+            AccountLoginPrimaryButton(
+                state = state,
+                title = when {
+                    accountState.loading -> "处理中…"
+                    authMode == AccountAuthMode.Register -> "创建账号"
+                    else -> "登录"
+                },
+                enabled = !accountState.loading &&
+                    emailInput.isNotBlank() &&
+                    passwordInput.length >= 6,
+                onClick = {
+                    submitted = true
                     if (authMode == AccountAuthMode.Register) {
                         authRepository.signUp(emailInput, passwordInput)
                     } else {
@@ -321,14 +455,104 @@ internal fun AccountLoginBottomCard(
                 },
             )
 
+            if (statusMessage.isNotBlank()) {
+                Text(
+                    text = statusMessage,
+                    color = accountMessageColor(accountState.tone),
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountLoginModeSwitch(
+    state: AssistantUiState,
+    selected: AccountAuthMode,
+    onSelected: (AccountAuthMode) -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFF08132E).copy(alpha = 0.28f))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        AccountLoginModeButton(
+            text = "登录",
+            selected = selected == AccountAuthMode.Login,
+            state = state,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelected(AccountAuthMode.Login) },
+        )
+        AccountLoginModeButton(
+            text = "注册",
+            selected = selected == AccountAuthMode.Register,
+            state = state,
+            modifier = Modifier.weight(1f),
+            onClick = { onSelected(AccountAuthMode.Register) },
+        )
+    }
+}
+
+@Composable
+private fun AccountLoginModeButton(
+    text: String,
+    selected: Boolean,
+    state: AssistantUiState,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * if (selected) 1f else 0.82f,
+        motionIntensity = state.motionIntensity,
+        radius = 15,
+        modifier = modifier.height(36.dp),
+        role = if (selected) GlassRole.Floating else GlassRole.Chip,
+        onClick = onClick,
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = accountState.message,
-                color = accountMessageColor(accountState.tone),
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                text = text,
+                color = Color.White.copy(alpha = if (selected) 0.94f else 0.52f),
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.ExtraBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AccountLoginPrimaryButton(
+    state: AssistantUiState,
+    title: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity * if (enabled) 1.04f else 0.68f,
+        motionIntensity = state.motionIntensity,
+        radius = 20,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(50.dp),
+        role = GlassRole.Floating,
+        onClick = { if (enabled) onClick() },
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = title,
+                color = Color.White.copy(alpha = if (enabled) 0.96f else 0.40f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.ExtraBold,
             )
         }
     }
