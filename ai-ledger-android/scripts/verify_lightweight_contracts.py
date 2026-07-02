@@ -241,6 +241,55 @@ def main() -> int:
         ],
     )
 
+    trace_store = ROOT / "app/src/main/java/com/yuchen/ailedger/data/OperationTraceStore.kt"
+    errors += require_text(
+        trace_store,
+        required=[
+            "private val writerFailure = AtomicReference<Throwable?>(null)",
+            "private val records = Channel<OperationTraceRecord>(capacity = MAX_BUFFERED_RECORDS)",
+            "private fun reserveBytes(bytes: Long, limit: Long): Boolean",
+            "writerFailure.get()?.let { throw it }",
+            "private const val FINAL_MARKER_RESERVE_BYTES",
+        ],
+        forbidden=[
+            "BufferOverflow.DROP_OLDEST",
+            "onBufferOverflow = BufferOverflow.DROP_OLDEST",
+        ],
+    )
+
+    workflow_database = ROOT / "app/src/main/java/com/yuchen/ailedger/data/OperationWorkflowDatabase.kt"
+    errors += require_text(
+        workflow_database,
+        required=[
+            "@ColumnInfo(defaultValue = \"'{}'\") val riskPolicyJson",
+            "@ColumnInfo(defaultValue = \"'{}'\") val recoveryPolicyJson",
+            "private val MIGRATION_1_2 = object : Migration(1, 2)",
+            ".addMigrations(MIGRATION_1_2)",
+            "version = 2",
+        ],
+    )
+
+    workflow_repository = ROOT / "app/src/main/java/com/yuchen/ailedger/data/OperationWorkflowRepository.kt"
+    errors += require_text(
+        workflow_repository,
+        required=[
+            "riskPolicy = workflow.riskPolicyJson.toRiskPolicy()",
+            "recoveryPolicy = workflow.recoveryPolicyJson.toRecoveryPolicy()",
+            "riskPolicyJson = riskPolicy.toJson()",
+            "recoveryPolicyJson = recoveryPolicy.toJson()",
+        ],
+    )
+
+    recording_coordinator = ROOT / "app/src/main/java/com/yuchen/ailedger/service/OperationLearningRecordingCoordinator.kt"
+    errors += require_text(
+        recording_coordinator,
+        required=[
+            "OperationWorkflowCompilationCoordinator.compile(",
+            "compilationOutcome?.completed == true",
+            "原始轨迹仍保留，可稍后重试整理",
+        ],
+    )
+
     plan_components = ROOT / "app/src/main/java/com/yuchen/ailedger/ui/PlanCenterComponents.kt"
     errors += require_text(
         plan_components,
