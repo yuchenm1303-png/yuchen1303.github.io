@@ -2,6 +2,11 @@ package com.yuchen.ailedger
 
 import android.app.Application
 import android.content.Context
+import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
+import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
+import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
+import com.yuchen.ailedger.data.SupabaseAuthRepository
+import com.yuchen.ailedger.data.switchAccount
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
@@ -20,6 +25,16 @@ class AiLedgerApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         appContext = applicationContext
+
+        applicationScope.launch {
+            SupabaseAuthRepository.get(applicationContext).state.collectLatest { accountState ->
+                val ticket = AssistantAccountSessionRuntime.updateSession(
+                    accountState.session?.takeIf { accountState.isLoggedIn },
+                )
+                AssistantMemoryMutationRuntime.switchAccount(ticket)
+                AssistantMemoryDiagnostics.switchAccount(ticket)
+            }
+        }
 
         // 内置表情由真实消息按需加载。冷启动阶段禁止全量解压、解码 19 张 WebP，
         // 避免与首页 Compose 入场、背景纹理生成和 OpenGL 首次编译争抢 CPU 与内存带宽。
