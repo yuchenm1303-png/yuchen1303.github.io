@@ -510,26 +510,19 @@ private fun StockToolEntryCard(
 
 @Composable
 private fun StockToolEntryContent(destination: ToolDestination) {
-    val title = when (destination) {
-        ToolDestination.Shortcuts -> "操作学习"
-        else -> destination.title
-    }
     val subtitle = when (destination) {
         ToolDestination.AppControl -> "查看全部应用、存储、权限与内部控制"
         ToolDestination.StorageManagement -> "安全扫描缓存、大文件与授权目录"
-        ToolDestination.Shortcuts -> "演示一次，让助手学会重复操作"
         else -> destination.subtitle
     }
-    val available = destination.available || destination == ToolDestination.Shortcuts
-
     Row(
         Modifier.fillMaxSize().padding(horizontal = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(destination.title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
             Text(subtitle, color = Color.White.copy(alpha = 0.52f), fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(if (available) "进入" else "规划中", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        Text(if (destination.available) "进入" else "规划中", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
