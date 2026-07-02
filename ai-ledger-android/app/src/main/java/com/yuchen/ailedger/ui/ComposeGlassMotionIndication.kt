@@ -7,8 +7,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -36,16 +41,52 @@ private val UnifiedReleaseEasing = CubicBezierEasing(0.14f, 0f, 0.12f, 1f)
  *
  * 这是纯 Compose DrawModifierNode：不进入 OpenGL、不注册 OpenGL registry，也不触发
  * geometry sync。节点由 clickable 按需创建，空闲态没有逐帧时钟。
+ *
+ * [transformContent] 只允许在 indication 位于容器底色、裁剪和内容之前时开启。普通
+ * LocalIndication 回退只绘制光学层，避免旧组件把背景留在外层后出现“光在动、按钮不动”。
  */
 data class ComposeGlassMotionIndication(
     val motionIntensity: Float,
     val style: ComposeGlassMotionStyle,
+    val transformContent: Boolean = true,
 ) : IndicationNodeFactory {
     override fun create(interactionSource: InteractionSource): DelegatableNode =
         ComposeGlassMotionNode(
             interactionSource = interactionSource,
             motionIntensity = motionIntensity.coerceIn(0f, 1f),
             style = style.normalized(),
+            transformContent = transformContent,
+        )
+}
+
+/**
+ * 完整光动效点击入口。
+ *
+ * 必须把这个 modifier 放在 shape / clip / background 之前；这样按钮底色、内容、形变和
+ * 光效共享同一个绘制坐标系，圆角裁剪也会随按钮一起运动。
+ */
+@Composable
+fun Modifier.composeGlassMotionClickable(
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    val motionIntensity = LocalGlassBackdrop.current?.motionIntensity ?: 1f
+    val motionStyle = ComposeGlassLabState.motionStyle
+    val indication = remember(motionIntensity, motionStyle) {
+        ComposeGlassMotionIndication(
+            motionIntensity = motionIntensity,
+            style = motionStyle,
+            transformContent = true,
+        )
+    }
+    return this
+        .indication(interactionSource, indication)
+        .clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            onClick = onClick,
         )
 }
 
@@ -53,6 +94,7 @@ private class ComposeGlassMotionNode(
     private val interactionSource: InteractionSource,
     private val motionIntensity: Float,
     private val style: ComposeGlassMotionStyle,
+    private val transformContent: Boolean,
 ) : Modifier.Node(), DrawModifierNode {
     private val press = Animatable(0f)
     private val lens = Animatable(0f)
@@ -199,12 +241,43 @@ private class ComposeGlassMotionNode(
             return
         }
 
-        val scaleX = 1f + compression * (0.006f + 0.049f * elasticity) -
-            rebound * 0.018f * elasticity
-        val scaleY = 1f - compression * (0.010f + 0.064f * elasticity) +
-            rebound * 0.030f * elasticity
-        val translationY = compression * (0.70f + 3.90f * elasticity) -
-            rebound * 1.55f * elasticity
+        if (!transformContent) {
+            drawComposeGlassMotionUnderlay(
+                press = opticsPress,
+                sweep = sweepValue,
+                center = center,
+                style = style,
+                elasticity = sizeElasticity * energy,
+            )
+            drawContent()
+            drawComposeGlassMotionOverlay(
+                press = opticsPress,
+                sweep = sweepValue,
+                center = center,
+                style = style,
+                elasticity = sizeElasticity * energy,
+            )
+            return
+        }
+
+        val widthDp = w / density
+        val aspect = w / h
+        val outwardAllowance = when {
+            widthDp >= 220f || aspect >= 3.25f -> 0f
+            widthDp >= 160f || aspect >= 2.45f -> 0.34f
+            else -> 1f
+        }
+        val outwardScale = compression * (0.004f + 0.036f * elasticity) * outwardAllowance
+        val containedCompression = compression * (0.004f + 0.010f * elasticity) * (1f - outwardAllowance)
+        val reboundCompression = rebound * 0.007f * elasticity
+        val scaleX = 1f + outwardScale - containedCompression - reboundCompression
+        val scaleY = 1f - compression * (0.010f + 0.060f * elasticity) - reboundCompression * 0.72f
+
+        val desiredTranslationY = compression * (0.55f + 3.45f * elasticity) -
+            rebound * 1.10f * elasticity
+        val availableTop = center.y * (1f - scaleY).coerceAtLeast(0f)
+        val availableBottom = (h - center.y) * (1f - scaleY).coerceAtLeast(0f)
+        val translationY = desiredTranslationY.coerceIn(-availableTop, availableBottom)
         val contentScope = this
 
         withTransform({
