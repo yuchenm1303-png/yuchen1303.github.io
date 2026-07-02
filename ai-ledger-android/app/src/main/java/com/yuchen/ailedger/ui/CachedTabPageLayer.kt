@@ -3,15 +3,25 @@ package com.yuchen.ailedger.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
@@ -22,6 +32,14 @@ private const val PAGE_ENTER_OFFSET_DP = 8f
 private const val PAGE_EXIT_OFFSET_DP = -4f
 private const val PAGE_MIN_SCALE = 0.992f
 private const val PAGE_HIDDEN_ALPHA_EPSILON = 0.001f
+
+/**
+ * 底部导航栏的可视高度为 56 dp，外层底边距为 6 dp。
+ * 再向上保留 8 dp 安全间隔，使普通页面的卡片、雾面玻璃和点击区域
+ * 在进入导航栏假折射区域之前就被真实布局边界截断。
+ */
+private val BOTTOM_DOCK_CONTENT_BOUNDARY_INSET = 70.dp
+private val BOTTOM_DOCK_IME_OPEN_THRESHOLD = 48.dp
 
 @Composable
 internal fun CachedTabPageLayer(
@@ -95,14 +113,86 @@ internal fun CachedTabPageLayer(
                 LocalBackdropFrameTicker provides if (visualEffectsEnabled) parentBackdropTicker else null,
             ) {
                 key(tab) {
-                    NonOpenGLGlassBatchHost(
-                        modifier = Modifier.fillMaxSize(),
-                        includeAdaptiveSettingsFrost = tab == AppTab.Settings,
-                    ) {
-                        content(tab)
+                    BottomDockBoundedPageViewport(tab = tab) {
+                        NonOpenGLGlassBatchHost(
+                            modifier = Modifier.fillMaxSize(),
+                            includeAdaptiveSettingsFrost = tab == AppTab.Settings,
+                        ) {
+                            content(tab)
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * 只约束功能页和设置页。聊天页保持原始满高尺寸，避免介入
+ * FixedHeightOverflowSlot / OpenGL anchor / viewportTopInset 稳定链。
+ */
+@Composable
+private fun BottomDockBoundedPageViewport(
+    tab: AppTab,
+    content: @Composable () -> Unit,
+) {
+    if (tab == AppTab.Assistant) {
+        content()
+        return
+    }
+
+    val boundaryVisible = rememberBottomDockBoundaryVisible()
+    val bottomInset = if (boundaryVisible) BOTTOM_DOCK_CONTENT_BOUNDARY_INSET else 0.dp
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(bottom = bottomInset),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds(),
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * 与 App.kt 的导航栏收起逻辑保持一致：键盘展开时撤销边界，
+ * 键盘开始回落时立即恢复边界，避免导航栏先出现而内容仍穿到其下方。
+ */
+@Composable
+private fun rememberBottomDockBoundaryVisible(): Boolean {
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    val imeOpenThresholdPx = with(density) {
+        BOTTOM_DOCK_IME_OPEN_THRESHOLD.toPx()
+    }.toInt()
+    var boundaryVisible by remember(imeInsets, density, imeOpenThresholdPx) {
+        mutableStateOf(imeInsets.getBottom(density) < imeOpenThresholdPx)
+    }
+
+    LaunchedEffect(imeInsets, density, imeOpenThresholdPx) {
+        var previousImeBottomPx = imeInsets.getBottom(density)
+        var dockCollapsed = previousImeBottomPx >= imeOpenThresholdPx
+        boundaryVisible = !dockCollapsed
+
+        snapshotFlow { imeInsets.getBottom(density) }.collect { imeBottomPx ->
+            val retreating = imeBottomPx > 0 && imeBottomPx < previousImeBottomPx
+            dockCollapsed = when {
+                imeBottomPx == 0 || retreating -> false
+                imeBottomPx >= imeOpenThresholdPx -> true
+                else -> dockCollapsed
+            }
+            val nextBoundaryVisible = !dockCollapsed
+            if (boundaryVisible != nextBoundaryVisible) {
+                boundaryVisible = nextBoundaryVisible
+            }
+            previousImeBottomPx = imeBottomPx
+        }
+    }
+
+    return boundaryVisible
 }
