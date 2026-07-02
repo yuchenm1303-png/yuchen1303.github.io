@@ -573,7 +573,7 @@ private fun StorageAccessRow(
             Text(detail, color = Color.White.copy(alpha = 0.46f), fontSize = 10.sp, lineHeight = 14.sp)
         }
         Surface(
-            modifier = Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = onAction),
+            modifier = Modifier.composeGlassMotionClickable(onClick = onAction),
             shape = RoundedCornerShape(999.dp),
             color = StorageAccent.copy(alpha = 0.10f),
             border = BorderStroke(1.dp, StorageAccent.copy(alpha = 0.20f)),
@@ -602,8 +602,8 @@ private fun StorageCandidateCard(
         else -> StorageAccent
     }
     Surface(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-            .clickable(enabled = candidate.canDelete, onClick = onToggle),
+        modifier = Modifier.fillMaxWidth()
+            .composeGlassMotionClickable(enabled = candidate.canDelete, onClick = onToggle),
         shape = RoundedCornerShape(22.dp),
         color = tone.copy(alpha = if (selected) 0.14f else 0.055f),
         border = BorderStroke(1.dp, tone.copy(alpha = if (selected) 0.40f else 0.12f)),
@@ -657,7 +657,7 @@ private fun StorageCandidateCard(
 @Composable
 private fun AppCacheCard(app: AppCacheUsage, onOpen: () -> Unit) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(21.dp)).clickable(onClick = onOpen),
+        modifier = Modifier.fillMaxWidth().composeGlassMotionClickable(onClick = onOpen),
         shape = RoundedCornerShape(21.dp),
         color = Color.White.copy(alpha = 0.06f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
@@ -766,7 +766,7 @@ private fun StorageMetricRow(label: String, value: String) {
 @Composable
 private fun StorageFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = onClick),
+        modifier = Modifier.composeGlassMotionClickable(onClick = onClick),
         shape = RoundedCornerShape(999.dp),
         color = if (selected) StorageAccent.copy(alpha = 0.17f) else Color.White.copy(alpha = 0.075f),
         border = BorderStroke(1.dp, if (selected) StorageAccent.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.12f)),
@@ -784,8 +784,8 @@ private fun StorageFilterChip(label: String, selected: Boolean, onClick: () -> U
 @Composable
 private fun StoragePrimaryAction(text: String, enabled: Boolean, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(17.dp))
-            .clickable(enabled = enabled, onClick = onClick),
+        modifier = Modifier.fillMaxWidth()
+            .composeGlassMotionClickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(17.dp),
         color = StorageCritical.copy(alpha = if (enabled) 0.12f else 0.04f),
         border = BorderStroke(1.dp, StorageCritical.copy(alpha = if (enabled) 0.28f else 0.08f)),
@@ -803,7 +803,7 @@ private fun StoragePrimaryAction(text: String, enabled: Boolean, onClick: () -> 
 @Composable
 private fun StorageSmallAction(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
-        modifier = modifier.clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick),
+        modifier = modifier.composeGlassMotionClickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         color = Color.White.copy(alpha = 0.065f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
@@ -821,7 +821,7 @@ private fun StorageSmallAction(text: String, modifier: Modifier = Modifier, onCl
 @Composable
 private fun StorageInlineAction(text: String, onClick: () -> Unit) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().composeGlassMotionClickable(onClick = onClick),
         shape = RoundedCornerShape(15.dp),
         color = Color.White.copy(alpha = 0.045f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
