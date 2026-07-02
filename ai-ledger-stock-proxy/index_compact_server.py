@@ -21,8 +21,9 @@ LOGGER = logging.getLogger("ai-ledger-stock-proxy.index-compact")
 
 INDEX_COMPACT_PATH = "/api/stock/a-share/index/compact"
 INDEX_COMPACT_BATCH_PATH = "/api/stock/a-share/index/compact/batch"
+INDEX_COMPACT_QUOTES_PATH = "/api/stock/a-share/index/compact/quotes"
 INDEX_COMPACT_TREND_PATH = "/api/stock/a-share/index/compact/trend"
-INDEX_COMPACT_CACHE_VERSION = "v4-priority-split"
+INDEX_COMPACT_CACHE_VERSION = "v5-priority-four-lane"
 INDEX_COMPACT_FRESH_SECONDS = 10.0
 INDEX_COMPACT_STALE_SECONDS = 6 * 60 * 60.0
 INDEX_COMPACT_BATCH_CODES = ("000001", "399001", "399006")
@@ -53,11 +54,17 @@ _HERO_TRENDS_URLS = (
     "https://push2his.eastmoney.com/api/qt/stock/trends2/get",
     "https://push2.eastmoney.com/api/qt/stock/trends2/get",
 )
+_QUOTES_CACHE_KEY = legacy._cache_key(
+    "tools-index-quotes",
+    "000001,399001,399006",
+    INDEX_COMPACT_CACHE_VERSION,
+)
 _BATCH_CACHE_KEY = legacy._cache_key(
     "tools-index-hero",
     "000001,399001,399006",
     INDEX_COMPACT_CACHE_VERSION,
 )
+_QUOTES_LOCK = Lock()
 _BATCH_LOCK = Lock()
 _TREND_LOCKS_GUARD = Lock()
 _TREND_LOCKS: dict[str, Lock] = {}
@@ -125,6 +132,23 @@ def _load_quotes_batch() -> tuple[dict[str, dict[str, Any]], list[str]]:
     if not quotes:
         raise ValueError("tools index batch quotes are empty")
     return quotes, warnings
+
+
+def _build_quotes_payload() -> dict[str, Any]:
+    started_at = monotonic()
+    quotes, warnings = _load_quotes_batch()
+    items = [deepcopy(quotes[code]) for code in INDEX_COMPACT_BATCH_CODES if code in quotes]
+    return {
+        "provider": "eastmoney_tools_index_quotes",
+        "status": "ok" if len(items) == len(INDEX_COMPACT_BATCH_CODES) else "partial",
+        "priority": "highest",
+        "items": items,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "cacheHit": False,
+        "cacheAgeMs": 0,
+        "latencyMs": int((monotonic() - started_at) * 1000),
+        "warnings": warnings,
+    }
 
 
 def _parse_minutes(raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -208,6 +232,28 @@ def _with_cache_label(payload: dict[str, Any], age_seconds: float, stale: bool) 
     return cached
 
 
+def _load_quotes_cached() -> dict[str, Any]:
+    fresh = legacy._cache_get_seconds(_QUOTES_CACHE_KEY, INDEX_COMPACT_FRESH_SECONDS)
+    if fresh is not None:
+        payload, age = fresh
+        return _with_cache_label(payload, age, stale=False)
+    with _QUOTES_LOCK:
+        fresh = legacy._cache_get_seconds(_QUOTES_CACHE_KEY, INDEX_COMPACT_FRESH_SECONDS)
+        if fresh is not None:
+            payload, age = fresh
+            return _with_cache_label(payload, age, stale=False)
+        stale = legacy._cache_get_seconds(_QUOTES_CACHE_KEY, INDEX_COMPACT_STALE_SECONDS)
+        try:
+            payload = _build_quotes_payload()
+        except Exception:
+            if stale is not None:
+                old, age = stale
+                return _with_cache_label(old, age, stale=True)
+            raise
+        legacy._cache_put(_QUOTES_CACHE_KEY, payload)
+        return payload
+
+
 def _load_trend_cached(security: dict[str, str]) -> dict[str, Any]:
     key = legacy._cache_key(
         "tools-index-trend",
@@ -239,7 +285,7 @@ def _build_batch() -> dict[str, Any]:
     started_at = monotonic()
     results: dict[str, Any] = {}
     tasks: dict[str, Callable[[], Any]] = {
-        "quotes": _load_quotes_batch,
+        "quotes": _load_quotes_cached,
         **{
             f"trend:{security['code']}": lambda security=security: _load_trend_cached(security)
             for security in _HERO_SECURITIES
@@ -255,9 +301,11 @@ def _build_batch() -> dict[str, Any]:
             except Exception as exc:
                 errors[name] = f"{type(exc).__name__}: {exc}"
 
-    quote_result = results.get("quotes")
-    quotes = dict(quote_result[0]) if quote_result else {}
-    shared_warnings = list(quote_result[1]) if quote_result else []
+    quote_payload = dict(results.get("quotes") or {})
+    quotes = {
+        str(item.get("code") or ""): item
+        for item in list(quote_payload.get("items") or [])
+    }
     if not quotes:
         raise ValueError(errors.get("quotes") or "tools index quotes unavailable")
 
@@ -265,7 +313,7 @@ def _build_batch() -> dict[str, Any]:
     for security in _HERO_SECURITIES:
         trend = dict(results.get(f"trend:{security['code']}") or {})
         quote = deepcopy(quotes.get(security["code"]) or {})
-        warnings = list(shared_warnings) + list(trend.get("warnings") or [])
+        warnings = list(quote_payload.get("warnings") or []) + list(trend.get("warnings") or [])
         trend_error = errors.get(f"trend:{security['code']}")
         if trend_error:
             warnings.append(f"minutePoints: {trend_error}")
@@ -403,6 +451,18 @@ async def _stop_tools_index_hero_warmup() -> None:
         _warm_task.cancel()
         await asyncio.gather(_warm_task, return_exceptions=True)
     _warm_task = None
+
+
+@app.get(INDEX_COMPACT_QUOTES_PATH)
+async def a_share_index_compact_quotes() -> dict[str, Any]:
+    try:
+        return await asyncio.to_thread(_load_quotes_cached)
+    except Exception as exc:
+        LOGGER.exception("tools index quotes failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"三大指数报价暂不可用：{type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @app.get(INDEX_COMPACT_TREND_PATH)
