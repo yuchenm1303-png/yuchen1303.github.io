@@ -20,11 +20,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,8 +55,7 @@ private val BatchShellPressPulseEasing = CubicBezierEasing(0.16f, 0.00f, 0.12f, 
 
 /**
  * 一个页面级 TextureView / EGL 宿主，内部的每个 Shell 仍保留独立几何、采样原点与动态状态。
- * 它不是把一块大玻璃裁成多块，而是在同一 OpenGL 帧中按卡片逐个执行股票 Hero 使用的
- * 同一 fragment shader。
+ * 完整刷新时八张卡合并成一次 draw call；单卡按压时只更新该卡的 VBO 区间与脏矩形。
  */
 @Composable
 internal fun OpenGlShellBatchHost(
@@ -69,6 +65,9 @@ internal fun OpenGlShellBatchHost(
     val state = rememberOpenGLShellBatchState()
     val parentCoordinates = remember { GlassCoordinateSource() }
 
+    SideEffect {
+        state.bindParent(parentCoordinates)
+    }
     DisposableEffect(state) {
         onDispose { state.clear() }
     }
@@ -104,30 +103,30 @@ internal fun OpenGlShellBatchItemSurface(
 ) {
     val batchState = LocalOpenGLShellBatchState.current ?: return
     val effectiveRadius = if (radius >= 999) radius else radius.coerceAtLeast(30)
-    val coordinates = remember { GlassCoordinateSource() }
     val itemId = remember { Any() }
     val shellPressEnabled = motionIntensity > 0.02f
     val shellPress = remember { Animatable(0f) }
     val shellOpenGlPressAnim = remember { Animatable(0f) }
     val dynamicState = remember { OpenGLGlassDynamicState() }
+    val item = remember(itemId, effectiveRadius, dynamicState) {
+        OpenGLShellBatchItem(
+            id = itemId,
+            radiusDp = effectiveRadius,
+            dynamicState = dynamicState,
+            baseIntensity = glassIntensity,
+        )
+    }
     val pressScope = rememberCoroutineScope()
     val interaction = remember { MutableInteractionSource() }
     val prismEdgeHighlight = LocalRainbowPrismStyle.current.edgeHighlight.coerceIn(0f, 2f)
-    var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
+    val pressSize = remember { FloatArray(2) { 1f } }
 
     SideEffect {
-        batchState.upsert(
-            OpenGLShellBatchItem(
-                id = itemId,
-                coordinates = coordinates,
-                radiusDp = effectiveRadius,
-                baseIntensity = glassIntensity,
-                dynamicState = dynamicState,
-            )
-        )
+        item.updateBaseIntensity(glassIntensity)
     }
-    DisposableEffect(batchState, itemId) {
-        onDispose { batchState.remove(itemId) }
+    DisposableEffect(batchState, item) {
+        batchState.register(item)
+        onDispose { batchState.remove(item.id) }
     }
 
     LaunchedEffect(shellPressEnabled, shellPress, shellOpenGlPressAnim, dynamicState) {
@@ -144,18 +143,16 @@ internal fun OpenGlShellBatchItemSurface(
     val pressModifier = if (shellPressEnabled) {
         Modifier
             .onSizeChanged { size ->
-                pressSize = Size(
-                    size.width.coerceAtLeast(1).toFloat(),
-                    size.height.coerceAtLeast(1).toFloat(),
-                )
+                pressSize[0] = size.width.coerceAtLeast(1).toFloat()
+                pressSize[1] = size.height.coerceAtLeast(1).toFloat()
             }
             .pointerInput(motionIntensity, dynamicState) {
                 awaitEachGesture {
                     fun updatePressCenter(position: Offset) {
                         dynamicState.updatePressCenter(
                             Offset(
-                                x = (position.x / pressSize.width).coerceIn(0f, 1f),
-                                y = (position.y / pressSize.height).coerceIn(0f, 1f),
+                                x = (position.x / pressSize[0]).coerceIn(0f, 1f),
+                                y = (position.y / pressSize[1]).coerceIn(0f, 1f),
                             )
                         )
                     }
@@ -304,7 +301,7 @@ internal fun OpenGlShellBatchItemSurface(
         modifier = modifier
             .then(clickableModifier)
             .then(pressModifier)
-            .onPlaced { coordinates.coordinates = it }
+            .onPlaced(item::updatePlacement)
             .then(transformModifier),
     ) {
         Box(
