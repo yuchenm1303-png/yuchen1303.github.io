@@ -30,6 +30,11 @@ internal object AssistantMemoryUsageBridge {
         ).apply { isDaemon = true }
     }
 
+    /** 每个真实网络尝试独立聚合，备用端点不能继承上一端点的半截回执。 */
+    fun beginTransportAttempt() {
+        responseForCurrentThread.remove()
+    }
+
     fun captureResponseJson(data: JSONObject) {
         val requestContext = AssistantMemoryRequestContextRuntime.peekCurrentThread() ?: return
         val candidate = bestMemoryEnvelope(data) ?: return
