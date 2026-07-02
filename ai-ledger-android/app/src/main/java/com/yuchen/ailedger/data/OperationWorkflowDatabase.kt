@@ -268,6 +268,35 @@ abstract class OperationWorkflowDao {
     )
     abstract suspend fun loadActiveWorkflows(): List<OperationWorkflowWithScopes>
 
+    @Transaction
+    @Query("SELECT * FROM operation_workflows WHERE id = :workflowId LIMIT 1")
+    abstract suspend fun loadWorkflow(workflowId: String): OperationWorkflowWithScopes?
+
+    @Query("SELECT * FROM operation_workflow_variables WHERE workflowId = :workflowId ORDER BY variableKey")
+    abstract suspend fun loadVariables(workflowId: String): List<OperationWorkflowVariableEntity>
+
+    @Query("SELECT * FROM operation_workflow_milestones WHERE workflowId = :workflowId ORDER BY sortOrder")
+    abstract suspend fun loadMilestones(workflowId: String): List<OperationWorkflowMilestoneEntity>
+
+    @Query("SELECT * FROM operation_workflow_steps WHERE workflowId = :workflowId ORDER BY sortOrder")
+    abstract suspend fun loadSteps(workflowId: String): List<OperationWorkflowStepEntity>
+
+    @Query(
+        """
+        SELECT selector.* FROM operation_workflow_selectors AS selector
+        INNER JOIN operation_workflow_steps AS step ON selector.stepId = step.id
+        WHERE step.workflowId = :workflowId
+        ORDER BY step.sortOrder, selector.weight DESC
+        """,
+    )
+    abstract suspend fun loadSelectors(workflowId: String): List<OperationWorkflowSelectorEntity>
+
+    @Query("SELECT * FROM operation_workflow_state_checks WHERE workflowId = :workflowId ORDER BY id")
+    abstract suspend fun loadStateChecks(workflowId: String): List<OperationWorkflowStateCheckEntity>
+
+    @Query("SELECT * FROM operation_demonstrations WHERE id = :demonstrationId LIMIT 1")
+    abstract suspend fun loadDemonstration(demonstrationId: String): OperationDemonstrationEntity?
+
     @Upsert
     abstract suspend fun upsertWorkflow(entity: OperationWorkflowEntity)
 
@@ -275,10 +304,43 @@ abstract class OperationWorkflowDao {
     abstract suspend fun upsertAppScopes(entities: List<OperationWorkflowAppScopeEntity>)
 
     @Upsert
+    abstract suspend fun upsertVariables(entities: List<OperationWorkflowVariableEntity>)
+
+    @Upsert
+    abstract suspend fun upsertMilestones(entities: List<OperationWorkflowMilestoneEntity>)
+
+    @Upsert
+    abstract suspend fun upsertSteps(entities: List<OperationWorkflowStepEntity>)
+
+    @Upsert
+    abstract suspend fun upsertSelectors(entities: List<OperationWorkflowSelectorEntity>)
+
+    @Upsert
+    abstract suspend fun upsertStateChecks(entities: List<OperationWorkflowStateCheckEntity>)
+
+    @Upsert
     abstract suspend fun upsertDemonstration(entity: OperationDemonstrationEntity)
+
+    @Upsert
+    abstract suspend fun upsertVersion(entity: OperationWorkflowVersionEntity)
 
     @Query("DELETE FROM operation_workflow_app_scopes WHERE workflowId = :workflowId")
     abstract suspend fun deleteAppScopes(workflowId: String)
+
+    @Query("DELETE FROM operation_workflow_selectors WHERE stepId IN (SELECT id FROM operation_workflow_steps WHERE workflowId = :workflowId)")
+    abstract suspend fun deleteSelectors(workflowId: String)
+
+    @Query("DELETE FROM operation_workflow_state_checks WHERE workflowId = :workflowId")
+    abstract suspend fun deleteStateChecks(workflowId: String)
+
+    @Query("DELETE FROM operation_workflow_steps WHERE workflowId = :workflowId")
+    abstract suspend fun deleteSteps(workflowId: String)
+
+    @Query("DELETE FROM operation_workflow_milestones WHERE workflowId = :workflowId")
+    abstract suspend fun deleteMilestones(workflowId: String)
+
+    @Query("DELETE FROM operation_workflow_variables WHERE workflowId = :workflowId")
+    abstract suspend fun deleteVariables(workflowId: String)
 
     @Query("DELETE FROM operation_workflows WHERE id = :workflowId")
     abstract suspend fun deleteWorkflow(workflowId: String)
@@ -301,6 +363,17 @@ abstract class OperationWorkflowDao {
 
     @Query(
         """
+        UPDATE operation_demonstrations
+        SET status = 'compiled',
+            encryptedTracePath = NULL,
+            redactionStatus = 'compiled'
+        WHERE id = :demonstrationId
+        """,
+    )
+    abstract suspend fun markDemonstrationCompiled(demonstrationId: String)
+
+    @Query(
+        """
         UPDATE operation_workflows
         SET status = :status,
             sourceDemonstrationId = :demonstrationId,
@@ -317,6 +390,20 @@ abstract class OperationWorkflowDao {
 
     @Query(
         """
+        UPDATE operation_workflows
+        SET status = :status,
+            updatedAtMillis = :updatedAtMillis
+        WHERE id = :workflowId
+        """,
+    )
+    abstract suspend fun updateWorkflowStatus(
+        workflowId: String,
+        status: String,
+        updatedAtMillis: Long,
+    )
+
+    @Query(
+        """
         UPDATE operation_demonstrations
         SET status = 'interrupted',
             redactionStatus = 'sealed_after_interruption',
@@ -325,6 +412,9 @@ abstract class OperationWorkflowDao {
         """,
     )
     abstract suspend fun sealInterruptedDemonstrations(completedAtMillis: Long)
+
+    @Query("SELECT COALESCE(MAX(versionNumber), 0) FROM operation_workflow_versions WHERE workflowId = :workflowId")
+    abstract suspend fun latestVersionNumber(workflowId: String): Int
 
     @Transaction
     open suspend fun saveIntent(
@@ -357,6 +447,72 @@ abstract class OperationWorkflowDao {
             status = workflowStatus,
             demonstrationId = sourceDemonstrationId,
             updatedAtMillis = completedAtMillis,
+        )
+    }
+
+    @Transaction
+    open suspend fun saveCompiledGraph(
+        workflow: OperationWorkflowEntity,
+        variables: List<OperationWorkflowVariableEntity>,
+        milestones: List<OperationWorkflowMilestoneEntity>,
+        steps: List<OperationWorkflowStepEntity>,
+        selectors: List<OperationWorkflowSelectorEntity>,
+        stateChecks: List<OperationWorkflowStateCheckEntity>,
+        demonstrationId: String,
+    ) {
+        deleteSelectors(workflow.id)
+        deleteStateChecks(workflow.id)
+        deleteSteps(workflow.id)
+        deleteMilestones(workflow.id)
+        deleteVariables(workflow.id)
+        upsertWorkflow(workflow)
+        if (variables.isNotEmpty()) upsertVariables(variables)
+        if (milestones.isNotEmpty()) upsertMilestones(milestones)
+        if (steps.isNotEmpty()) upsertSteps(steps)
+        if (selectors.isNotEmpty()) upsertSelectors(selectors)
+        if (stateChecks.isNotEmpty()) upsertStateChecks(stateChecks)
+        markDemonstrationCompiled(demonstrationId)
+    }
+
+    @Transaction
+    open suspend fun approveWorkflow(
+        workflowId: String,
+        versionId: String,
+        snapshotJson: String,
+        changeSummary: String,
+        approvedAtMillis: Long,
+    ): Int {
+        val nextVersion = latestVersionNumber(workflowId) + 1
+        upsertVersion(
+            OperationWorkflowVersionEntity(
+                id = versionId,
+                workflowId = workflowId,
+                versionNumber = nextVersion,
+                snapshotJson = snapshotJson,
+                approvedAtMillis = approvedAtMillis,
+                verifiedAtMillis = null,
+                changeSummary = changeSummary,
+            ),
+        )
+        updateWorkflowStatus(workflowId, "Approved", approvedAtMillis)
+        return nextVersion
+    }
+
+    @Transaction
+    open suspend fun resetCompiledGraph(
+        workflowId: String,
+        updatedAtMillis: Long,
+    ) {
+        deleteSelectors(workflowId)
+        deleteStateChecks(workflowId)
+        deleteSteps(workflowId)
+        deleteMilestones(workflowId)
+        deleteVariables(workflowId)
+        updateWorkflowAfterDemonstration(
+            workflowId = workflowId,
+            status = "Intent",
+            demonstrationId = null,
+            updatedAtMillis = updatedAtMillis,
         )
     }
 }
