@@ -132,6 +132,15 @@ class OperationTraceStore(private val context: Context) {
                 eventText = source.optNullableString("eventText"),
                 inputLengthBucket = source.optNullableString("inputLengthBucket"),
                 redactionApplied = source.optBoolean("redactionApplied"),
+                scrollDeltaX = source.optInt("scrollDeltaX"),
+                scrollDeltaY = source.optInt("scrollDeltaY"),
+                scrollX = source.optInt("scrollX"),
+                scrollY = source.optInt("scrollY"),
+                maxScrollX = source.optInt("maxScrollX"),
+                maxScrollY = source.optInt("maxScrollY"),
+                fromIndex = source.optInt("fromIndex", -1),
+                toIndex = source.optInt("toIndex", -1),
+                itemCount = source.optInt("itemCount", -1),
             )
 
             "node_snapshot" -> OperationNodeSnapshotRecord(
@@ -228,7 +237,7 @@ class OperationTraceStore(private val context: Context) {
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
         private const val KEY_ALIAS = "ai_ledger_operation_trace_v1"
         private const val TRACE_DIRECTORY = "operation-traces"
-        private const val TRACE_FORMAT_VERSION = 1
+        private const val TRACE_FORMAT_VERSION = 2
         private const val TRACE_RETENTION_MS = 24L * 60L * 60L * 1_000L
         private const val DEFAULT_MAX_READ_RECORDS = 1_200
         private const val MAX_READ_RECORDS = 2_000
@@ -338,6 +347,15 @@ class OperationTraceWriter internal constructor(
             put("eventText", eventText ?: JSONObject.NULL)
             put("inputLengthBucket", inputLengthBucket ?: JSONObject.NULL)
             put("redactionApplied", redactionApplied)
+            put("scrollDeltaX", scrollDeltaX)
+            put("scrollDeltaY", scrollDeltaY)
+            put("scrollX", scrollX)
+            put("scrollY", scrollY)
+            put("maxScrollX", maxScrollX)
+            put("maxScrollY", maxScrollY)
+            put("fromIndex", fromIndex)
+            put("toIndex", toIndex)
+            put("itemCount", itemCount)
         }
 
         is OperationNodeSnapshotRecord -> JSONObject().apply {
