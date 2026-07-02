@@ -367,21 +367,6 @@ internal fun PlanDeletePage(
                     modifier = Modifier.fillMaxWidth().padding(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    PlanNativeGlassFrame(
-                        state = state,
-                        radius = 18,
-                        role = GlassRole.Chip,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                "删",
-                                color = Color(0xFFFFA8A8),
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Black,
-                            )
-                        }
-                    }
                     Text(
                         task.title,
                         color = Color.White,
