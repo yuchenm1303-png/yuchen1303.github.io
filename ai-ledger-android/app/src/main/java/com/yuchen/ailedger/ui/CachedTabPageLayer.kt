@@ -20,7 +20,8 @@ import androidx.compose.runtime.saveable.SaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -34,6 +35,7 @@ private const val PAGE_ENTER_OFFSET_DP = 8f
 private const val PAGE_EXIT_OFFSET_DP = -4f
 private const val PAGE_MIN_SCALE = 0.992f
 private const val PAGE_HIDDEN_ALPHA_EPSILON = 0.001f
+private const val PAGE_HORIZONTAL_UNBOUNDED_CLIP_PX = 1_000_000f
 
 /**
  * 底部导航栏的可视高度为 56 dp，外层底边距为 6 dp。
@@ -174,10 +176,26 @@ private fun BottomDockBoundedPageViewport(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clipToBounds(),
+                .clipPageGlassVertically(),
         ) {
             content()
         }
+    }
+}
+
+/**
+ * 页面层只保留顶部和底部的真实可见区域限制。
+ * 左右使用远大于任何设备宽度的有限裁剪范围，允许玻璃边缘光、阴影和折射越过内容边距，
+ * 最终仍由 Activity 根视图和物理屏幕边界负责裁剪。
+ */
+private fun Modifier.clipPageGlassVertically(): Modifier = drawWithContent {
+    clipRect(
+        left = -PAGE_HORIZONTAL_UNBOUNDED_CLIP_PX,
+        top = 0f,
+        right = PAGE_HORIZONTAL_UNBOUNDED_CLIP_PX,
+        bottom = size.height,
+    ) {
+        this@drawWithContent.drawContent()
     }
 }
 
