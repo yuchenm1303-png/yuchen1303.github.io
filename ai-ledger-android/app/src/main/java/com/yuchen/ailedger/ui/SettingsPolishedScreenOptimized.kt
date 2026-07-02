@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -16,7 +15,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,7 +24,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -95,6 +92,7 @@ internal fun SettingsPolishedScreenOptimized(
     onBorderChange: (GlassBorderStyle) -> Unit,
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit,
+    onRequestLogin: () -> Unit,
 ) {
     val context = LocalContext.current.applicationContext
     val profileRepository = remember(context) { UserProfileRepository.get(context) }
@@ -102,7 +100,6 @@ internal fun SettingsPolishedScreenOptimized(
     val coroutineScope = rememberCoroutineScope()
     val entranceSessions = remember { mutableStateMapOf<String, Int>() }
     var selectedPanel by rememberSaveable { mutableStateOf(SettingsDetailSection.Service) }
-    var showLoginCard by rememberSaveable { mutableStateOf(false) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -111,117 +108,78 @@ internal fun SettingsPolishedScreenOptimized(
     }
 
     SyncGlassBackdropToScroll(listState)
-    BackHandler(enabled = showLoginCard) { showLoginCard = false }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
-            verticalArrangement = Arrangement.spacedBy(13.dp),
-        ) {
-            item(key = "settings-header") {
-                SettingsOptimizedEntrance("settings-header", entranceSessions, 0, -8, 0.985f) {
-                    SettingsOptimizedHeader()
-                }
-            }
-            item(key = "settings-overview") {
-                SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
-                    SettingsPersonalSpaceCard(
-                        state = state,
-                        onLoginClick = { showLoginCard = true },
-                        onAvatarEditClick = { avatarPicker.launch("image/*") },
-                        onNicknameEditClick = {
-                            selectedPanel = SettingsDetailSection.Service
-                            coroutineScope.launch {
-                                delay(70)
-                                listState.animateScrollToItem(4)
-                            }
-                        },
-                    )
-                }
-            }
-            item(key = "settings-section-title") {
-                SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
-                    SettingsOptimizedSectionTitle(
-                        "常用设置",
-                        "选中的入口会保持静态高亮，方便快速定位当前面板。",
-                    )
-                }
-            }
-            item(key = "settings-dashboard") {
-                SettingsOptimizedEntrance("settings-dashboard", entranceSessions, 260, 20, 0.965f) {
-                    SettingsDashboardGridFullMotion(
-                        state = state,
-                        aiEndpoint = aiEndpoint,
-                        selectedPanel = selectedPanel,
-                        onSelected = { selectedPanel = it },
-                    )
-                }
-            }
-            item(key = "settings-detail") {
-                SettingsOptimizedEntrance("settings-detail", entranceSessions, 370, 22, 0.965f) {
-                    SettingsDetailPanel(
-                        panel = selectedPanel,
-                        state = state,
-                        aiEndpoint = aiEndpoint,
-                        onQualityChange = onQualityChange,
-                        onPreviewConversationChange = onPreviewConversationChange,
-                        onGlassPresetChange = onGlassPresetChange,
-                        onBackgroundThemeChange = onBackgroundThemeChange,
-                        onGlassIntensityChange = onGlassIntensityChange,
-                        onMotionIntensityChange = onMotionIntensityChange,
-                        onRainbowPrismChange = onRainbowPrismChange,
-                        onBackdropChange = onBackdropChange,
-                        onBorderChange = onBorderChange,
-                        onUploadBackgroundClick = onUploadBackgroundClick,
-                        onClearCustomBackgroundClick = onClearCustomBackgroundClick,
-                    )
-                }
-            }
-            item(key = "settings-lab-entry") {
-                SettingsOptimizedEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
-                    SettingsLabEntry(state, selectedPanel == SettingsDetailSection.Debug) {
-                        selectedPanel = SettingsDetailSection.Debug
-                    }
-                }
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 132.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp),
+    ) {
+        item(key = "settings-header") {
+            SettingsOptimizedEntrance("settings-header", entranceSessions, 0, -8, 0.985f) {
+                SettingsOptimizedHeader()
             }
         }
-
-        AnimatedVisibility(
-            visible = showLoginCard,
-            modifier = Modifier.fillMaxSize(),
-            enter = fadeIn(tween(150)),
-            exit = fadeOut(tween(120)),
-        ) {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.34f))
-                    .clickable { showLoginCard = false }
-            )
+        item(key = "settings-overview") {
+            SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
+                SettingsPersonalSpaceCard(
+                    state = state,
+                    onLoginClick = onRequestLogin,
+                    onAvatarEditClick = { avatarPicker.launch("image/*") },
+                    onNicknameEditClick = {
+                        selectedPanel = SettingsDetailSection.Service
+                        coroutineScope.launch {
+                            delay(70)
+                            listState.animateScrollToItem(4)
+                        }
+                    },
+                )
+            }
         }
-
-        AnimatedVisibility(
-            visible = showLoginCard,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 12.dp, vertical = 90.dp)
-                .imePadding(),
-            enter = fadeIn(tween(170)) +
-                slideInVertically(
-                    animationSpec = spring(
-                        dampingRatio = 0.82f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    )
-                ) { fullHeight -> fullHeight },
-            exit = fadeOut(tween(120)) +
-                slideOutVertically(tween(170)) { fullHeight -> fullHeight },
-        ) {
-            AccountLoginBottomCard(
-                state = state,
-                onDismiss = { showLoginCard = false },
-            )
+        item(key = "settings-section-title") {
+            SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
+                SettingsOptimizedSectionTitle(
+                    "常用设置",
+                    "选中的入口会保持静态高亮，方便快速定位当前面板。",
+                )
+            }
+        }
+        item(key = "settings-dashboard") {
+            SettingsOptimizedEntrance("settings-dashboard", entranceSessions, 260, 20, 0.965f) {
+                SettingsDashboardGridFullMotion(
+                    state = state,
+                    aiEndpoint = aiEndpoint,
+                    selectedPanel = selectedPanel,
+                    onSelected = { selectedPanel = it },
+                )
+            }
+        }
+        item(key = "settings-detail") {
+            SettingsOptimizedEntrance("settings-detail", entranceSessions, 370, 22, 0.965f) {
+                SettingsDetailPanel(
+                    panel = selectedPanel,
+                    state = state,
+                    aiEndpoint = aiEndpoint,
+                    onQualityChange = onQualityChange,
+                    onPreviewConversationChange = onPreviewConversationChange,
+                    onGlassPresetChange = onGlassPresetChange,
+                    onBackgroundThemeChange = onBackgroundThemeChange,
+                    onGlassIntensityChange = onGlassIntensityChange,
+                    onMotionIntensityChange = onMotionIntensityChange,
+                    onRainbowPrismChange = onRainbowPrismChange,
+                    onBackdropChange = onBackdropChange,
+                    onBorderChange = onBorderChange,
+                    onUploadBackgroundClick = onUploadBackgroundClick,
+                    onClearCustomBackgroundClick = onClearCustomBackgroundClick,
+                )
+            }
+        }
+        item(key = "settings-lab-entry") {
+            SettingsOptimizedEntrance("settings-lab-entry", entranceSessions, 470, 24, 0.96f) {
+                SettingsLabEntry(state, selectedPanel == SettingsDetailSection.Debug) {
+                    selectedPanel = SettingsDetailSection.Debug
+                }
+            }
         }
     }
 }
@@ -560,9 +518,9 @@ private fun SettingsPersonalLoginButton(
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = "登录",
+                text = "登录  →",
                 color = Color.White.copy(alpha = 0.92f),
-                fontSize = 13.sp,
+                fontSize = 12.5.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
         }
