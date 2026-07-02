@@ -3,18 +3,28 @@ package com.yuchen.ailedger.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class OperationRecordingActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        when (intent.action) {
-            ACTION_FINISH -> OperationLearningRecordingCoordinator.requestStop(
-                context = context.applicationContext,
-                reason = OperationRecordingStopReason.NotificationFinished,
-            )
-            ACTION_CANCEL -> OperationLearningRecordingCoordinator.requestStop(
-                context = context.applicationContext,
-                reason = OperationRecordingStopReason.UserCancelled,
-            )
+        val reason = when (intent.action) {
+            ACTION_FINISH -> OperationRecordingStopReason.NotificationFinished
+            ACTION_CANCEL -> OperationRecordingStopReason.UserCancelled
+            else -> return
+        }
+        val pendingResult = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                OperationLearningRecordingCoordinator.stop(
+                    context = context.applicationContext,
+                    reason = reason,
+                )
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 
