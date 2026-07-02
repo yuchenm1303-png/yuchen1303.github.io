@@ -23,7 +23,8 @@ enum class ToolDestination(
     LedgerCenter("账单中心", "查看和管理收入支出", "账", true),
     Statistics("数据统计", "按周、月、年查看趋势", "统", true),
     Reminder("计划", "安排提醒、闹钟与周期任务", "计", true),
-    AppControl("应用控制", "打开常用应用入口", "控"),
+    AppControl("应用控制", "打开常用应用入口", "控", true),
+    StorageManagement("存储管理", "安全扫描缓存、大文件与授权目录", "存", true),
     Shortcuts("快捷指令", "保存常用任务", "捷"),
     TaskHistory("任务记录", "查看助手执行历史", "记");
 }
