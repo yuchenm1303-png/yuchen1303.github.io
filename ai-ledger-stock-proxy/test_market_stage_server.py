@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from fastapi import Response
 
+import index_compact_server as compact
 import market_stage_server as stage
 
 
@@ -116,6 +117,101 @@ class MarketStageServerTest(unittest.TestCase):
 
     def test_full_market_refresh_window_is_not_aggressive(self) -> None:
         self.assertGreaterEqual(stage.MARKET_REFRESH_SECONDS, 30.0)
+
+    def test_tools_index_chain_is_independent_from_index_detail(self) -> None:
+        self.assertFalse(hasattr(compact, "detail"))
+        self.assertEqual(
+            compact.INDEX_COMPACT_BATCH_CODES,
+            ("000001", "399001", "399006"),
+        )
+        self.assertEqual(
+            compact.INDEX_COMPACT_TREND_PATH,
+            "/api/stock/a-share/index/compact/trend",
+        )
+
+    def test_tools_index_batch_uses_one_quote_request_and_three_independent_trends(self) -> None:
+        quotes = {
+            "000001": {"code": "000001", "name": "上证指数", "price": "3000.00"},
+            "399001": {"code": "399001", "name": "深证成指", "price": "9500.00"},
+            "399006": {"code": "399006", "name": "创业板指", "price": "1900.00"},
+        }
+
+        def trend_result(security: dict[str, str]) -> dict[str, object]:
+            return {
+                "status": "ok",
+                "code": security["code"],
+                "name": security["name"],
+                "minutePoints": [
+                    {"time": "09:30", "price": 100.0, "average": 100.0},
+                    {"time": "09:31", "price": 101.0, "average": 100.5},
+                ],
+                "warnings": [],
+            }
+
+        with (
+            patch.object(compact, "_load_quotes_batch", return_value=(quotes, [])) as quote_loader,
+            patch.object(compact, "_load_trend_cached", side_effect=trend_result) as trend_loader,
+        ):
+            payload = compact._build_batch()
+
+        quote_loader.assert_called_once_with()
+        self.assertEqual(trend_loader.call_count, 3)
+        self.assertTrue(payload["dedicated"])
+        self.assertTrue(payload["splitPriority"])
+        self.assertEqual(payload["loadedCount"], 3)
+        self.assertEqual(payload["completeCount"], 3)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(
+            [item["code"] for item in payload["items"]],
+            ["000001", "399001", "399006"],
+        )
+
+    def test_tools_index_partial_refresh_preserves_previous_real_curve(self) -> None:
+        current = {
+            "status": "partial",
+            "items": [
+                {
+                    "code": "000001",
+                    "name": "上证指数",
+                    "quote": {"price": "3010.00"},
+                    "minutePoints": [],
+                    "warnings": [],
+                }
+            ],
+        }
+        stale = {
+            "status": "ok",
+            "items": [
+                {
+                    "code": "000001",
+                    "name": "上证指数",
+                    "quote": {"price": "3000.00"},
+                    "minutePoints": [{"time": "09:30", "price": 3000.0}],
+                    "warnings": [],
+                },
+                {
+                    "code": "399001",
+                    "name": "深证成指",
+                    "quote": {"price": "9500.00"},
+                    "minutePoints": [{"time": "09:30", "price": 9500.0}],
+                    "warnings": [],
+                },
+                {
+                    "code": "399006",
+                    "name": "创业板指",
+                    "quote": {"price": "1900.00"},
+                    "minutePoints": [{"time": "09:30", "price": 1900.0}],
+                    "warnings": [],
+                },
+            ],
+        }
+
+        merged = compact._merge_with_stale(current, stale)
+
+        self.assertEqual(merged["items"][0]["quote"]["price"], "3010.00")
+        self.assertTrue(merged["items"][0]["minutePoints"])
+        self.assertEqual(merged["loadedCount"], 3)
+        self.assertEqual(merged["completeCount"], 3)
 
 
 if __name__ == "__main__":
