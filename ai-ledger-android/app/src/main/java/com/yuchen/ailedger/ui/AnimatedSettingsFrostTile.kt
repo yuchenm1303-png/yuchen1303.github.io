@@ -40,6 +40,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
@@ -214,25 +215,44 @@ private fun SettingsTileContent(
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, Color.White.copy(alpha = titleAlpha), 20.sp, lineHeight = 23.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, Color.White.copy(alpha = secondaryAlpha), 11.5.sp, lineHeight = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            SettingsTileText(title, Color.White.copy(alpha = titleAlpha), 20.sp, 23.sp, FontWeight.Black)
+            SettingsTileText(subtitle, Color.White.copy(alpha = secondaryAlpha), 11.5.sp, 15.sp, FontWeight.ExtraBold)
         }
         SettingsAnimatedTileHairline(Modifier.height(1.dp), 0.105f + selection * 0.125f + press * 0.025f)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("当前", Color.White.copy(alpha = 0.34f + selection * 0.10f), 10.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+            SettingsTileText("当前", Color.White.copy(alpha = 0.34f + selection * 0.10f), 10.sp, weight = FontWeight.ExtraBold)
             Spacer(Modifier.weight(1f))
-            Text(
+            SettingsTileText(
                 value,
                 Color.White.copy(alpha = valueAlpha),
                 13.sp,
-                lineHeight = 16.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.End,
+                16.sp,
+                FontWeight.ExtraBold,
+                align = TextAlign.End,
             )
         }
     }
+}
+
+@Composable
+private fun SettingsTileText(
+    text: String,
+    color: Color,
+    size: TextUnit,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    weight: FontWeight? = null,
+    align: TextAlign? = null,
+) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = size,
+        lineHeight = lineHeight,
+        fontWeight = weight,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        textAlign = align,
+    )
 }
 
 @Composable
@@ -316,15 +336,13 @@ private fun SettingsTileCapsuleSurface(
             val glintHalfWidth = capsuleWidth * 0.18f
             drawRoundRect(
                 Brush.linearGradient(
-                    arrayOf(
-                        0f to Color.Transparent,
-                        0.38f to Color.Transparent,
-                        0.50f to Color.White.copy(alpha = 0.105f * easedSelection * pulse),
-                        0.62f to Color.Transparent,
-                        1f to Color.Transparent,
-                    ),
-                    Offset(glintCenter - glintHalfWidth, insetY),
-                    Offset(glintCenter + glintHalfWidth, h - insetY),
+                    0f to Color.Transparent,
+                    0.38f to Color.Transparent,
+                    0.50f to Color.White.copy(alpha = 0.105f * easedSelection * pulse),
+                    0.62f to Color.Transparent,
+                    1f to Color.Transparent,
+                    start = Offset(glintCenter - glintHalfWidth, insetY),
+                    end = Offset(glintCenter + glintHalfWidth, h - insetY),
                 ),
                 capsuleTopLeft,
                 Size(capsuleWidth, capsuleHeight),
