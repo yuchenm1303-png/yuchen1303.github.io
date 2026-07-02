@@ -2,14 +2,28 @@ package com.yuchen.ailedger.data
 
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class AssistantMemoryMutationRuntimeTest {
+    @Before
+    fun resetBefore() {
+        AssistantAccountSessionRuntime.updateUser(null)
+        AssistantMemoryMutationRuntime.switchAccount(null)
+    }
+
+    @After
+    fun resetAfter() {
+        AssistantAccountSessionRuntime.updateUser(null)
+        AssistantMemoryMutationRuntime.switchAccount(null)
+    }
+
     @Test
     fun nestedFinalReceiptIsParsedWithoutFlatteningTheResponse() {
         val data = JSONObject().put(
@@ -59,7 +73,9 @@ class AssistantMemoryMutationRuntimeTest {
     }
 
     @Test
-    fun oneOperationIdOnlySchedulesOneInventoryRefresh() {
+    fun oneOperationIdOnlySchedulesOneInventoryRefreshWithinItsAccount() {
+        val ticket = requireNotNull(AssistantAccountSessionRuntime.updateUser("user-a"))
+        AssistantMemoryMutationRuntime.switchAccount(ticket)
         val receipt = AssistantMemoryMutationReceipt(
             operationId = "operation-dedupe-${System.nanoTime()}",
             action = "upsert",
@@ -67,8 +83,41 @@ class AssistantMemoryMutationRuntimeTest {
             applied = true,
         )
 
-        assertTrue(AssistantMemoryMutationRuntime.markInventoryRefreshNeeded(receipt))
-        assertFalse(AssistantMemoryMutationRuntime.markInventoryRefreshNeeded(receipt))
+        assertNotNull(AssistantMemoryMutationRuntime.captureResponse(
+            JSONObject().put("memoryMutation", JSONObject()
+                .put("operationId", receipt.operationId)
+                .put("action", "upsert")
+                .put("status", "applied")
+                .put("applied", true)),
+            ticket,
+        ))
+        assertTrue(AssistantMemoryMutationRuntime.markInventoryRefreshNeeded(receipt, ticket))
+        assertFalse(AssistantMemoryMutationRuntime.markInventoryRefreshNeeded(receipt, ticket))
+    }
+
+    @Test
+    fun accountSwitchClearsReceiptAndRejectsLateOldAccountResponse() {
+        val ticketA = requireNotNull(AssistantAccountSessionRuntime.updateUser("user-a"))
+        AssistantMemoryMutationRuntime.switchAccount(ticketA)
+        val response = JSONObject().put(
+            "memoryMutation",
+            JSONObject()
+                .put("operationId", "operation-a")
+                .put("action", "upsert")
+                .put("status", "applied")
+                .put("applied", true),
+        )
+        assertNotNull(AssistantMemoryMutationRuntime.captureResponse(response, ticketA))
+
+        val ticketB = requireNotNull(AssistantAccountSessionRuntime.updateUser("user-b"))
+        AssistantMemoryMutationRuntime.switchAccount(ticketB)
+
+        assertNull(AssistantMemoryMutationRuntime.state.value.latestReceipt)
+        assertNull(AssistantMemoryMutationRuntime.captureResponse(response, ticketA))
+        assertEquals(
+            AssistantAccountSessionRuntime.diagnosticsScope(ticketB),
+            AssistantMemoryMutationRuntime.state.value.accountScope,
+        )
     }
 
     @Test
@@ -87,7 +136,6 @@ class AssistantMemoryMutationRuntimeTest {
 
         assertTrue(noop.succeeded)
         assertFalse(noop.inventoryMayHaveChanged)
-        assertFalse(AssistantMemoryMutationRuntime.markInventoryRefreshNeeded(noop))
         assertFalse(clarification.succeeded)
         assertFalse(clarification.inventoryMayHaveChanged)
     }
@@ -103,22 +151,18 @@ class AssistantMemoryMutationRuntimeTest {
                 .put(
                     "candidates",
                     JSONArray()
-                        .put(
-                            JSONObject()
-                                .put("id", "memory-a")
-                                .put("content", "第一条候选")
-                                .put("namespaceType", "account")
-                                .put("subjectKey", "food.preference")
-                                .put("retrievalScore", 0.82),
-                        )
-                        .put(
-                            JSONObject()
-                                .put("id", "memory-b")
-                                .put("content", "第二条候选")
-                                .put("namespace_type", "project")
-                                .put("subject_key", "android.project")
-                                .put("retrieval_score", 0.63),
-                        ),
+                        .put(JSONObject()
+                            .put("id", "memory-a")
+                            .put("content", "第一条候选")
+                            .put("namespaceType", "account")
+                            .put("subjectKey", "food.preference")
+                            .put("retrievalScore", 0.82))
+                        .put(JSONObject()
+                            .put("id", "memory-b")
+                            .put("content", "第二条候选")
+                            .put("namespace_type", "project")
+                            .put("subject_key", "android.project")
+                            .put("retrieval_score", 0.63)),
                 ),
         )
 

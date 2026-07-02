@@ -12,6 +12,7 @@ internal data class AssistantMemorySessionTicket(
 
 internal object AssistantAccountSessionRuntime {
     private var currentUserId: String? = null
+    private var currentAccessToken: String? = null
     private var generation: Long = 0L
 
     @Synchronized
@@ -21,9 +22,15 @@ internal object AssistantAccountSessionRuntime {
             currentUserId = cleanUserId
             generation += 1L
         }
+        currentAccessToken = session
+            ?.takeIf { it.userId.trim() == cleanUserId && it.isUsable }
+            ?.accessToken
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
         return cleanUserId?.let { AssistantMemorySessionTicket(it, generation) }
     }
 
+    /** 仅用于无真实 Supabase 会话的单元测试。 */
     @Synchronized
     fun updateUser(userId: String?): AssistantMemorySessionTicket? {
         val cleanUserId = userId?.trim()?.takeIf(String::isNotBlank)
@@ -31,6 +38,7 @@ internal object AssistantAccountSessionRuntime {
             currentUserId = cleanUserId
             generation += 1L
         }
+        currentAccessToken = null
         return cleanUserId?.let { AssistantMemorySessionTicket(it, generation) }
     }
 
@@ -49,6 +57,13 @@ internal object AssistantAccountSessionRuntime {
         return ticket.userId == currentUserId && ticket.generation == generation
     }
 
+    @Synchronized
+    fun accessTokenFor(ticket: AssistantMemorySessionTicket): String? {
+        return currentAccessToken.takeIf {
+            ticket.userId == currentUserId && ticket.generation == generation && !it.isNullOrBlank()
+        }
+    }
+
     fun diagnosticsScope(ticket: AssistantMemorySessionTicket): String {
         val bytes = MessageDigest.getInstance("SHA-256")
             .digest(ticket.userId.toByteArray(Charsets.UTF_8))
@@ -56,6 +71,7 @@ internal object AssistantAccountSessionRuntime {
     }
 }
 
+/** 兼容原有局部调用，真实权威统一委托给全 App Runtime。 */
 internal class AssistantMemorySessionGuard {
     fun updateUser(userId: String?): AssistantMemorySessionTicket? =
         AssistantAccountSessionRuntime.updateUser(userId)
@@ -63,7 +79,7 @@ internal class AssistantMemorySessionGuard {
     fun currentTicket(userId: String): AssistantMemorySessionTicket? =
         AssistantAccountSessionRuntime.currentTicket(userId)
 
-    fun isCurrent(ticket: AssistantMemorySessionTicket): Boolean =
+    fun isCurrent(ticket: AssistantMemorySessionTickket): Boolean =
         AssistantAccountSessionRuntime.isCurrent(ticket)
 }
 
@@ -96,18 +112,45 @@ internal class AssistantOperationGate {
     }
 }
 
+internal enum class AssistantMemoryRequestSource {
+    Chat,
+    Management,
+}
+
 internal data class AssistantMemoryRequestContext(
     val token: String,
     val ticket: AssistantMemorySessionTicket?,
+    val userAccessToken: String?,
+    val source: AssistantMemoryRequestSource,
 )
 
 internal object AssistantMemoryRequestContextRuntime {
     private val currentThreadContext = ThreadLocal<AssistantMemoryRequestContext?>()
 
-    fun stageCurrentThread(): AssistantMemoryRequestContext {
+    fun stageCurrentThread(
+        source: AssistantMemoryRequestSource = AssistantMemoryRequestSource.Chat,
+    ): AssistantMemoryRequestContext {
+        val ticket = AssistantAccountSessionRuntime.currentTicket()
         val context = AssistantMemoryRequestContext(
             token = UUID.randomUUID().toString(),
-            ticket = AssistantAccountSessionRuntime.currentTicket(),
+            ticket = ticket,
+            userAccessToken = ticket?.let(AssistantAccountSessionRuntime::accessTokenFor),
+            source = source,
+        )
+        currentThreadContext.set(context)
+        return context
+    }
+
+    fun stageForSession(
+        session: SupabaseUserSession,
+        source: AssistantMemoryRequestSource,
+    ): AssistantMemoryRequestContext {
+        val ticket = AssistantAccountSessionRuntime.currentTicket(session.userId)
+        val context = AssistantMemoryRequestContext(
+            token = UUID.randomUUID().toString(),
+            ticket = ticket,
+            userAccessToken = session.accessToken.trim().takeIf(String::isNotBlank),
+            source = source,
         )
         currentThreadContext.set(context)
         return context

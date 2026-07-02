@@ -1,17 +1,31 @@
 package com.yuchen.ailedger.data
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class AssistantMemoryBackendOwnedCompilerTest {
+    @Before
+    fun resetAccount() {
+        AssistantMemoryRequestContextRuntime.clearCurrentThread()
+        AssistantAccountSessionRuntime.updateUser(null)
+    }
+
+    @After
+    fun cleanup() {
+        AssistantMemoryRequestContextRuntime.clearCurrentThread()
+        AssistantAccountSessionRuntime.updateUser(null)
+    }
+
     @Test
-    fun backendOwnedChatContractDoesNotNeedLocalInventoryState() {
+    fun backendOwnedChatContractDoesNotNeedLocalInventoryOrInstructionBody() {
+        AssistantAccountSessionRuntime.updateUser("user-a")
         val compilation = AssistantMemoryCompiler.compileBackendOwned(
             userText = "继续处理 Android 项目",
-            customInstructions = "回答保持简洁。",
         )
 
         assertTrue(compilation.memoryRequested)
@@ -20,17 +34,18 @@ class AssistantMemoryBackendOwnedCompilerTest {
         assertEquals("backend_cloud_requested", compilation.selectionStatus)
         assertEquals("backend_cloud_v4", compilation.selectionOwner)
         assertEquals(setOf("backend_cloud_v4"), compilation.activeScopes)
-        assertEquals("回答保持简洁。", compilation.personaConfigJson()?.optString("customInstructions"))
+        assertNull(compilation.personaConfigJson())
         assertNull(compilation.memorySnapshot)
         assertTrue(compilation.selectedMemoryIds.isEmpty())
         assertTrue(compilation.sources.isEmpty())
+        assertEquals("user-a", AssistantMemoryRequestContextRuntime.peekCurrentThread()?.ticket?.userId)
     }
 
     @Test
-    fun blankInputDoesNotRequestMemoryOrSendInstructions() {
+    fun blankInputDoesNotRequestMemoryOrKeepRequestContext() {
+        AssistantAccountSessionRuntime.updateUser("user-a")
         val compilation = AssistantMemoryCompiler.compileBackendOwned(
             userText = "   ",
-            customInstructions = "回答简洁。",
         )
 
         assertFalse(compilation.memoryRequested)
@@ -38,5 +53,6 @@ class AssistantMemoryBackendOwnedCompilerTest {
         assertEquals("off", compilation.requestMode)
         assertNull(compilation.personaConfigJson())
         assertEquals("empty", compilation.selectionStatus)
+        assertNull(AssistantMemoryRequestContextRuntime.peekCurrentThread())
     }
 }

@@ -4,10 +4,11 @@ import android.os.Process
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
+import com.yuchen.ailedger.data.AssistantMemoryMutationReceipt
 import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRepository
 import com.yuchen.ailedger.data.AssistantMemoryRequestContextRuntime
-import com.yuchen.ailedger.data.record
+import com.yuchen.ailedger.data.AssistantMemoryRequestSource
 import java.util.concurrent.Executors
 import org.json.JSONObject
 
@@ -40,20 +41,15 @@ internal object AssistantMemoryUsageBridge {
         candidate.keys().forEach { key ->
             merged.put(key, deepCopyMemoryEnvelopeValue(candidate.opt(key)))
         }
-        responseForCurrentThread.set(
-            CapturedResponse(
-                requestToken = requestContext.token,
-                response = merged,
-            ),
-        )
+        responseForCurrentThread.set(CapturedResponse(requestContext.token, merged))
     }
 
-    fun recordSuccessfulPayload(payload: JSONObject) {
+    fun recordSuccessfulPayload(payload: JSONObject): AssistantMemoryMutationReceipt? {
         val requestContext = AssistantMemoryRequestContextRuntime.consumeCurrentThread()
         val captured = responseForCurrentThread.get()
         responseForCurrentThread.remove()
-        val ticket = requestContext?.ticket ?: return
-        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
+        val ticket = requestContext?.ticket ?: return null
+        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return null
 
         val response = captured
             ?.takeIf { it.requestToken == requestContext.token }
@@ -61,6 +57,7 @@ internal object AssistantMemoryUsageBridge {
         val mutationReceipt = response?.let { AssistantMemoryMutationRuntime.captureResponse(it, ticket) }
         val appContext = AiLedgerApplication.contextOrNull()
         if (
+            requestContext.source == AssistantMemoryRequestSource.Chat &&
             mutationReceipt != null &&
             appContext != null &&
             AssistantMemoryMutationRuntime.markInventoryRefreshNeeded(mutationReceipt, ticket)
@@ -80,6 +77,7 @@ internal object AssistantMemoryUsageBridge {
                 )
             }
         }
+        return mutationReceipt
     }
 
     fun recordFailedPayload(payload: JSONObject, error: Throwable) {

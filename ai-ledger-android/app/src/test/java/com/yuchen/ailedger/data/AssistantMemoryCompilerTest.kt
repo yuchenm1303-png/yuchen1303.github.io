@@ -1,14 +1,28 @@
 package com.yuchen.ailedger.data
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class AssistantMemoryCompilerTest {
+    @Before
+    fun resetBefore() {
+        AssistantAccountSessionRuntime.updateUser(null)
+        AssistantMemoryRequestContextRuntime.clearCurrentThread()
+    }
+
+    @After
+    fun resetAfter() {
+        AssistantAccountSessionRuntime.updateUser(null)
+        AssistantMemoryRequestContextRuntime.clearCurrentThread()
+    }
+
     @Test
-    fun normalChatOnlyRequestsBackendMemoryWithoutLocalContent() {
+    fun normalChatOnlyRequestsBackendMemoryWithoutLocalContentOrInstructions() {
         val memory = AssistantMemoryItem(
             id = "profile-name",
             content = "用户姓名为测试用户",
@@ -17,7 +31,6 @@ class AssistantMemoryCompilerTest {
         )
         val compilation = AssistantMemoryCompiler.compile(
             userText = "你还记得我吗",
-            customInstructions = "回答保持通俗。",
             memoryState = readyState(listOf(memory)),
         )
 
@@ -30,6 +43,7 @@ class AssistantMemoryCompilerTest {
         assertTrue(compilation.selectedMemoryIds.isEmpty())
         assertTrue(compilation.sources.isEmpty())
         assertNull(compilation.memorySnapshot)
+        assertNull(compilation.personaConfigJson())
         assertFalse(compilation.diagnosticsJson().toString().contains("测试用户"))
     }
 
@@ -39,12 +53,12 @@ class AssistantMemoryCompilerTest {
             listOf(
                 AssistantMemoryItem(id = "name", content = "用户姓名为测试用户", category = "profile"),
                 AssistantMemoryItem(id = "english", content = "英语单词需要例句", category = "preference"),
-            )
+            ),
         )
 
-        val identityQuestion = AssistantMemoryCompiler.compile("你认识我吗", null, state)
-        val englishQuestion = AssistantMemoryCompiler.compile("resilient 是什么意思", null, state)
-        val projectQuestion = AssistantMemoryCompiler.compile("继续处理 Android 项目", null, state)
+        val identityQuestion = AssistantMemoryCompiler.compile("你认识我吗", state)
+        val englishQuestion = AssistantMemoryCompiler.compile("resilient 是什么意思", state)
+        val projectQuestion = AssistantMemoryCompiler.compile("继续处理 Android 项目", state)
 
         listOf(identityQuestion, englishQuestion, projectQuestion).forEach { compilation ->
             assertTrue(compilation.memoryRequested)
@@ -53,14 +67,14 @@ class AssistantMemoryCompilerTest {
             assertTrue(compilation.selectedMemoryIds.isEmpty())
             assertTrue(compilation.sources.isEmpty())
             assertNull(compilation.memorySnapshot)
+            assertNull(compilation.personaConfigJson())
         }
     }
 
     @Test
-    fun customInstructionsRemainIndependentFromLongTermMemory() {
+    fun locallyDisabledMemoryDoesNotReenableThroughInstructions() {
         val compilation = AssistantMemoryCompiler.compile(
             userText = "解释一下这个概念",
-            customInstructions = "回答保持简洁。",
             memoryState = AssistantMemoryState(
                 accountUserId = "user-test",
                 cloudReady = true,
@@ -72,14 +86,13 @@ class AssistantMemoryCompilerTest {
         assertFalse(compilation.hasAnyContext)
         assertEquals("off", compilation.requestMode)
         assertEquals("disabled_by_user", compilation.selectionStatus)
-        assertEquals("回答保持简洁。", compilation.personaConfigJson()?.optString("customInstructions"))
+        assertNull(compilation.personaConfigJson())
     }
 
     @Test
     fun unknownLocalIdentityStillDelegatesAuthenticationToBackend() {
         val compilation = AssistantMemoryCompiler.compile(
             userText = "你好",
-            customInstructions = null,
             memoryState = AssistantMemoryState(),
         )
 
@@ -94,7 +107,6 @@ class AssistantMemoryCompilerTest {
     fun cloudInventoryUnavailableStillDelegatesDecisionToBackend() {
         val compilation = AssistantMemoryCompiler.compile(
             userText = "继续上次的项目",
-            customInstructions = null,
             memoryState = AssistantMemoryState(
                 accountUserId = "user-test",
                 cloudReady = false,
@@ -113,7 +125,6 @@ class AssistantMemoryCompilerTest {
     fun cloudInventoryFailureDoesNotBecomeAConfirmedUserOptOut() {
         val compilation = AssistantMemoryCompiler.compile(
             userText = "你还记得我的偏好吗",
-            customInstructions = null,
             memoryState = AssistantMemoryState(
                 accountUserId = "user-test",
                 cloudReady = false,
@@ -127,33 +138,31 @@ class AssistantMemoryCompilerTest {
     }
 
     @Test
-    fun blankInputDoesNotRequestMemoryOrSendInstructions() {
+    fun blankInputDoesNotRequestMemoryOrKeepContext() {
         val compilation = AssistantMemoryCompiler.compile(
             userText = "   ",
-            customInstructions = "回答简洁。",
             memoryState = readyState(emptyList()),
         )
 
         assertFalse(compilation.memoryRequested)
         assertNull(compilation.personaConfigJson())
         assertEquals("empty", compilation.selectionStatus)
+        assertNull(AssistantMemoryRequestContextRuntime.peekCurrentThread())
     }
 
     @Test
     fun localMemoryInventoryDoesNotAffectRequestDecision() {
         val withoutItems = AssistantMemoryCompiler.compile(
             userText = "继续",
-            customInstructions = null,
             memoryState = readyState(emptyList()),
         )
         val withItems = AssistantMemoryCompiler.compile(
             userText = "继续",
-            customInstructions = null,
             memoryState = readyState(
                 listOf(
                     AssistantMemoryItem(id = "one", content = "任意正文"),
                     AssistantMemoryItem(id = "two", content = "另一条正文", enabled = false, status = "archived"),
-                )
+                ),
             ),
         )
 

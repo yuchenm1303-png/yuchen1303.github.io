@@ -3,8 +3,8 @@ package com.yuchen.ailedger.service
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
 import com.yuchen.ailedger.data.AssistantMemoryMutationReceipt
-import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRequestContextRuntime
+import com.yuchen.ailedger.data.AssistantMemoryRequestSource
 import com.yuchen.ailedger.model.ChatModel
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -47,8 +47,11 @@ internal class AssistantMemoryManagementClient(
     }
 
     @Throws(IOException::class)
-    fun mutate(request: AssistantMemoryManagementRequest): AssistantMemoryMutationReceipt {
-        val ticket = AssistantAccountSessionRuntime.currentTicket()
+    fun mutate(
+        session: SupabaseUserSession,
+        request: AssistantMemoryManagementRequest,
+    ): AssistantMemoryMutationReceipt {
+        val ticket = AssistantAccountSessionRuntime.currentTicket(session.userId)
             ?: throw IOException("登录状态已失效，请重新登录。")
         val payload = request.toJson()
         val route = AiWorkerModelRoute(
@@ -57,7 +60,7 @@ internal class AssistantMemoryManagementClient(
             reason = "memory_management",
         )
         val transport = AiWorkerHttpTransport(
-            config = AiWorkerConfig(),
+            config = AiWorkerConfig(userAccessTokenProvider = { session.accessToken }),
             resolvedClientId = resolvedClientId,
         )
         var lastError: IOException? = null
@@ -65,14 +68,16 @@ internal class AssistantMemoryManagementClient(
         for (endpoint in endpoints.asSequence().map(String::trim).filter(String::isNotBlank).distinct()) {
             for (candidate in endpointCandidates(endpoint.trimEnd('/'))) {
                 AssistantMemoryRequestContextRuntime.clearCurrentThread()
-                AssistantMemoryRequestContextRuntime.stageCurrentThread()
+                AssistantMemoryRequestContextRuntime.stageForSession(
+                    session = session,
+                    source = AssistantMemoryRequestSource.Management,
+                )
                 try {
                     transport.postChat(candidate, payload, route)
-                    AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
+                    val receipt = AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
                     if (!AssistantAccountSessionRuntime.isCurrent(ticket)) {
                         throw IOException("账号已切换，本次记忆操作结果已丢弃。")
                     }
-                    val receipt = AssistantMemoryMutationRuntime.state.value.latestReceipt
                     if (receipt != null && receipt.operationId == request.operationId) return receipt
                     throw IOException("云端没有返回匹配的记忆事务回执。")
                 } catch (error: IOException) {

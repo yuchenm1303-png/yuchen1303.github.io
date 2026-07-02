@@ -7,7 +7,6 @@ import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
 import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRequestContextRuntime
 import com.yuchen.ailedger.data.SupabaseAuthRepository
-import com.yuchen.ailedger.data.switchAccount
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
@@ -261,11 +260,19 @@ internal object AiWorkerPayloadBuilder {
     private fun resolveExplicitAgentGoal(text: String): String? {
         val clean = text.trim()
         val prefixes = listOf(
-            "/agent", "/智能体", "智能体：", "智能体:",
-            "Agent：", "Agent:", "agent：", "agent:",
+            "/agent",
+            "/智能体",
+            "智能体：",
+            "智能体:",
+            "Agent：",
+            "Agent:",
+            "agent：",
+            "agent:",
         )
         return prefixes.firstOrNull { clean.startsWith(it, ignoreCase = true) }
-            ?.let { prefix -> clean.drop(prefix.length).trim().takeIf { it.isNotBlank() } }
+            ?.let { prefix ->
+                clean.drop(prefix.length).trim().takeIf { goal -> goal.isNotBlank() }
+            }
     }
 
     private fun commandProtocolSystemPrompt(): String = """
@@ -279,31 +286,41 @@ internal object AiWorkerPayloadBuilder {
         如果请求里 agentStartRequested=true 或 intent=agent_start，后端可以返回 agentAction.capability=run_agent_task，goal 使用请求里的 agentGoal/message。
     """.trimIndent()
 
-    private fun latestUserText(messages: List<ChatMessage>): String = messages.lastOrNull {
-        it.role == MessageRole.User && it.text.isNotBlank()
-    }?.text.orEmpty()
-
-    private fun List<ChatMessage>.latestUserMessage(): ChatMessage? = lastOrNull {
-        it.role == MessageRole.User && it.status != MessageStatus.Sending
+    private fun latestUserText(messages: List<ChatMessage>): String {
+        return messages.lastOrNull {
+            it.role == MessageRole.User && it.text.isNotBlank()
+        }?.text.orEmpty()
     }
 
-    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> =
-        latestUserMessage()?.attachments?.filter {
-            it.mimeType.startsWith("image/") && it.base64Data.isNotBlank()
-        }.orEmpty()
+    private fun List<ChatMessage>.latestUserMessage(): ChatMessage? {
+        return lastOrNull {
+            it.role == MessageRole.User && it.status != MessageStatus.Sending
+        }
+    }
 
-    private fun List<ChatAttachment>.toImageJsonArray(): JSONArray = JSONArray().apply {
-        forEach { attachment ->
-            put(JSONObject().apply {
-                put("id", attachment.id)
-                put("type", "image")
-                put("mimeType", attachment.mimeType)
-                put("base64Data", attachment.base64Data)
-                put("fileName", attachment.fileName.orEmpty())
-                attachment.width?.let { put("width", it) }
-                attachment.height?.let { put("height", it) }
-                attachment.sizeBytes?.let { put("sizeBytes", it) }
-            })
+    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> {
+        return latestUserMessage()
+            ?.attachments
+            ?.filter { attachment ->
+                attachment.mimeType.startsWith("image/") && attachment.base64Data.isNotBlank()
+            }
+            .orEmpty()
+    }
+
+    private fun List<ChatAttachment>.toImageJsonArray(): JSONArray {
+        return JSONArray().apply {
+            forEach { attachment ->
+                put(JSONObject().apply {
+                    put("id", attachment.id)
+                    put("type", "image")
+                    put("mimeType", attachment.mimeType)
+                    put("base64Data", attachment.base64Data)
+                    put("fileName", attachment.fileName.orEmpty())
+                    attachment.width?.let { put("width", it) }
+                    attachment.height?.let { put("height", it) }
+                    attachment.sizeBytes?.let { put("sizeBytes", it) }
+                })
+            }
         }
     }
 
@@ -324,7 +341,10 @@ internal object AiWorkerPayloadBuilder {
             })
             clean.forEach { message ->
                 put(JSONObject().apply {
-                    put("role", if (message.role == MessageRole.User) "user" else "assistant")
+                    put(
+                        "role",
+                        if (message.role == MessageRole.User) "user" else "assistant",
+                    )
                     put("content", message.text)
                 })
             }
@@ -334,8 +354,14 @@ internal object AiWorkerPayloadBuilder {
     private fun ChatMessage.isCloudAssistantContextMessage(): Boolean {
         if (text.isBlank() || status != MessageStatus.Sent) return false
         return when (source) {
-            null, "", "local", "local_ledger", "local_mobile", "local_agent",
-            "cloud_fetch_failed", "cloud_error_normalized" -> false
+            null,
+            "",
+            "local",
+            "local_ledger",
+            "local_mobile",
+            "local_agent",
+            "cloud_fetch_failed",
+            "cloud_error_normalized" -> false
             else -> true
         }
     }
