@@ -233,8 +233,8 @@ internal fun OptimizationAppCard(
             Text(app.suggestionReason, color = Color.White.copy(alpha = 0.55f), fontSize = 10.sp, lineHeight = 14.sp)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 OptimizeTinyMetric("应用", formatOptimizeBytes(app.appBytes ?: app.apkBytes), Modifier.weight(1f))
-                OptimizeTinyMetric("数据", formatOptionalBytes(app.dataBytes), Modifier.weight(1f))
-                OptimizeTinyMetric("缓存", formatOptionalBytes(app.cacheBytes), Modifier.weight(1f))
+                OptimizeTinyMetric("数据", formatOptimizeOptionalBytes(app.dataBytes), Modifier.weight(1f))
+                OptimizeTinyMetric("缓存", formatOptimizeOptionalBytes(app.cacheBytes), Modifier.weight(1f))
             }
             Text("点击进入系统应用信息页", color = Color.White.copy(alpha = 0.34f), fontSize = 9.sp)
         }
