@@ -90,6 +90,9 @@ private val ALLOWED_MEMORY_LAYERS = setOf(
 
 private val ALLOWED_MEMORY_NAMESPACE_TYPES = setOf("account", "project", "session")
 private val ALLOWED_SENSITIVE_POLICIES = setOf("confirm", "block", "allow")
+private val MEMORY_CONTROL_CHAR_REGEX = Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]")
+private val MEMORY_INLINE_SPACE_REGEX = Regex("[\\t ]+")
+private val MEMORY_EXCESS_BLANK_LINES_REGEX = Regex("\n{4,}")
 
 data class AssistantMemoryItem(
     val id: String,
@@ -156,6 +159,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val operationMutex = Mutex()
     private val operationInFlight = AtomicBoolean(false)
+    private val sessionGuard = AssistantMemorySessionGuard()
 
     private val _state = MutableStateFlow(AssistantMemoryState())
     val state: StateFlow<AssistantMemoryState> = _state.asStateFlow()
@@ -167,18 +171,32 @@ class AssistantMemoryRepository private constructor(context: Context) {
         scope.launch {
             authRepository.state.collectLatest { accountState ->
                 val session = accountState.session?.takeIf { accountState.isLoggedIn }
-                operationMutex.withLock {
-                    if (session == null) {
-                        currentSession = null
-                        operationInFlight.set(false)
-                        _state.value = AssistantMemoryState(message = "登录后可使用长期记忆。")
-                        return@withLock
-                    }
+                val previousUserId = currentSession?.userId
+                currentSession = session
+                val ticket = sessionGuard.updateUser(session?.userId)
 
-                    val userChanged = currentSession?.userId != session.userId
-                    currentSession = session
-                    if (userChanged || _state.value.accountUserId == null) {
-                        loadForSessionLocked(session)
+                if (session == null || ticket == null) {
+                    operationInFlight.set(false)
+                    _state.value = AssistantMemoryState(message = "登录后可使用长期记忆。")
+                    return@collectLatest
+                }
+
+                val userChanged = previousUserId != session.userId
+                if (userChanged || _state.value.accountUserId == null) {
+                    _state.value = AssistantMemoryState(
+                        loading = true,
+                        accountUserId = session.userId,
+                        accountEmail = session.email,
+                        message = "正在加载该账号的长期记忆…",
+                    )
+                    // 不让阻塞式 HttpURLConnection 占住账号 Flow。切换账号或退出会先提升代际，
+                    // 旧请求稍后返回时只能被丢弃，不能覆盖新账号状态。
+                    scope.launch {
+                        operationMutex.withLock {
+                            if (sessionGuard.isCurrent(ticket)) {
+                                loadForSessionLocked(session, ticket)
+                            }
+                        }
                     }
                 }
             }
@@ -188,7 +206,8 @@ class AssistantMemoryRepository private constructor(context: Context) {
     fun refresh() {
         scope.launch {
             operationMutex.withLock {
-                currentSession?.takeIf { it.isUsable }?.let { loadForSessionLocked(it) }
+                val context = currentSessionContext() ?: return@withLock
+                loadForSessionLocked(context.session, context.ticket)
             }
         }
     }
@@ -198,9 +217,10 @@ class AssistantMemoryRepository private constructor(context: Context) {
         if (!receipt.inventoryMayHaveChanged) return
         scope.launch {
             operationMutex.withLock {
-                val session = currentSession?.takeIf { it.isUsable } ?: return@withLock
+                val context = currentSessionContext() ?: return@withLock
                 refreshMemoriesAfterMutationLocked(
-                    session = session,
+                    session = context.session,
+                    ticket = context.ticket,
                     receipt = receipt,
                     fallbackMessage = receipt.userFacingMessage(),
                 )
@@ -246,7 +266,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
             return
         }
         val normalizedCategory = normalizeMemoryCategory(category)
-        runExclusiveOperation("正在保存记忆…") { session ->
+        runExclusiveOperation("正在保存记忆…") { session, ticket ->
             val receipt = client.mutate(
                 session,
                 AssistantMemoryMutationRequest(
@@ -264,7 +284,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     reason = "settings_manual_create",
                 ),
             )
-            applyLocalMutationReceiptLocked(session, receipt)
+            applyLocalMutationReceiptLocked(session, ticket, receipt)
         }
     }
 
@@ -287,7 +307,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
         } else {
             memoryLayerFromCategory(normalizedCategory)
         }
-        runExclusiveOperation("正在更新记忆…") { session ->
+        runExclusiveOperation("正在更新记忆…") { session, ticket ->
             val receipt = client.mutate(
                 session,
                 AssistantMemoryMutationRequest(
@@ -311,7 +331,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     reason = "settings_manual_update",
                 ),
             )
-            applyLocalMutationReceiptLocked(session, receipt)
+            applyLocalMutationReceiptLocked(session, ticket, receipt)
         }
     }
 
@@ -319,7 +339,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
         val cleanId = id.trim()
         if (cleanId.isBlank()) return
         val currentItem = _state.value.memories.firstOrNull { it.id == cleanId }
-        runExclusiveOperation(if (enabled) "正在启用记忆…" else "正在停用记忆…") { session ->
+        runExclusiveOperation(if (enabled) "正在启用记忆…" else "正在停用记忆…") { session, ticket ->
             val receipt = client.mutate(
                 session,
                 AssistantMemoryMutationRequest(
@@ -330,7 +350,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     reason = if (enabled) "settings_manual_restore" else "settings_manual_archive",
                 ),
             )
-            applyLocalMutationReceiptLocked(session, receipt)
+            applyLocalMutationReceiptLocked(session, ticket, receipt)
         }
     }
 
@@ -338,7 +358,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
         val cleanId = id.trim()
         if (cleanId.isBlank()) return
         val currentItem = _state.value.memories.firstOrNull { it.id == cleanId }
-        runExclusiveOperation("正在删除记忆…") { session ->
+        runExclusiveOperation("正在删除记忆…") { session, ticket ->
             val receipt = client.mutate(
                 session,
                 AssistantMemoryMutationRequest(
@@ -350,12 +370,12 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     reason = "settings_manual_delete",
                 ),
             )
-            applyLocalMutationReceiptLocked(session, receipt)
+            applyLocalMutationReceiptLocked(session, ticket, receipt)
         }
     }
 
     fun clearAll() {
-        runExclusiveOperation("正在清除全部记忆…") { session ->
+        runExclusiveOperation("正在清除全部记忆…") { session, ticket ->
             val receipt = client.mutate(
                 session,
                 AssistantMemoryMutationRequest(
@@ -365,7 +385,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                     reason = "settings_explicit_clear",
                 ),
             )
-            applyLocalMutationReceiptLocked(session, receipt)
+            applyLocalMutationReceiptLocked(session, ticket, receipt)
         }
     }
 
@@ -405,9 +425,10 @@ class AssistantMemoryRepository private constructor(context: Context) {
     ) {
         val current = _state.value
         if (!current.canManage) return
-        runExclusiveOperation(message) { session ->
+        runExclusiveOperation(message) { session, ticket ->
             val desired = transform(current.toSettings())
             val saved = client.upsertSettings(session, desired)
+            if (!sessionGuard.isCurrent(ticket)) return@runExclusiveOperation
             _state.value = _state.value.copy(
                 memoryEnabled = saved.memoryEnabled,
                 autoMemoryEnabled = saved.autoMemoryEnabled,
@@ -421,17 +442,21 @@ class AssistantMemoryRepository private constructor(context: Context) {
 
     private suspend fun applyLocalMutationReceiptLocked(
         session: SupabaseUserSession,
+        ticket: AssistantMemorySessionTicket,
         receipt: AssistantMemoryMutationReceipt,
     ) {
+        if (!sessionGuard.isCurrent(ticket)) return
         val shouldRefresh = receipt.succeeded || receipt.shouldRefreshAfterConflict || receipt.idempotentReplay
         if (shouldRefresh) {
             refreshMemoriesAfterMutationLocked(
                 session = session,
+                ticket = ticket,
                 receipt = receipt,
                 fallbackMessage = receipt.userFacingMessage(),
             )
             return
         }
+        if (!sessionGuard.isCurrent(ticket)) return
         _state.value = _state.value.copy(
             lastMutationReceipt = receipt,
             message = receipt.userFacingMessage(),
@@ -441,11 +466,13 @@ class AssistantMemoryRepository private constructor(context: Context) {
 
     private suspend fun refreshMemoriesAfterMutationLocked(
         session: SupabaseUserSession,
+        ticket: AssistantMemorySessionTicket,
         receipt: AssistantMemoryMutationReceipt,
         fallbackMessage: String,
     ) {
         try {
             val memories = client.list(session)
+            if (!sessionGuard.isCurrent(ticket)) return
             _state.value = _state.value.copy(
                 accountUserId = session.userId,
                 accountEmail = session.email,
@@ -456,6 +483,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 error = !receipt.succeeded,
             )
         } catch (error: Throwable) {
+            if (!sessionGuard.isCurrent(ticket)) return
             _state.value = _state.value.copy(
                 lastMutationReceipt = receipt,
                 message = if (receipt.succeeded) {
@@ -468,7 +496,11 @@ class AssistantMemoryRepository private constructor(context: Context) {
         }
     }
 
-    private suspend fun loadForSessionLocked(session: SupabaseUserSession) {
+    private suspend fun loadForSessionLocked(
+        session: SupabaseUserSession,
+        ticket: AssistantMemorySessionTicket,
+    ) {
+        if (!sessionGuard.isCurrent(ticket)) return
         val previous = _state.value
         val previousReceipt = previous.lastMutationReceipt.takeIf { previous.accountUserId == session.userId }
         _state.value = AssistantMemoryState(
@@ -480,7 +512,9 @@ class AssistantMemoryRepository private constructor(context: Context) {
         )
         try {
             val settings = client.loadSettings(session)
+            if (!sessionGuard.isCurrent(ticket)) return
             val memories = client.list(session)
+            if (!sessionGuard.isCurrent(ticket)) return
             _state.value = AssistantMemoryState(
                 accountUserId = session.userId,
                 accountEmail = session.email,
@@ -498,6 +532,7 @@ class AssistantMemoryRepository private constructor(context: Context) {
                 },
             )
         } catch (error: Throwable) {
+            if (!sessionGuard.isCurrent(ticket)) return
             _state.value = AssistantMemoryState(
                 accountUserId = session.userId,
                 accountEmail = session.email,
@@ -512,24 +547,20 @@ class AssistantMemoryRepository private constructor(context: Context) {
     }
 
     /**
-     * 调度前同步抢占操作令牌，阻止第二次快速点击排进 Mutex；状态发布仍在 Mutex 内完成，
-     * 避免与聊天回执触发的库存刷新发生丢失更新。
+     * 调度前同步抢占操作令牌，阻止第二次快速点击排进 Mutex；账号 Flow 不再等待该 Mutex。
+     * 操作完成后只有原账号代际仍有效时才允许提交状态，防止旧账号迟到响应覆盖新账号。
      */
     private fun runExclusiveOperation(
         loadingMessage: String,
-        block: suspend (SupabaseUserSession) -> Unit,
+        block: suspend (SupabaseUserSession, AssistantMemorySessionTicket) -> Unit,
     ) {
         if (!_state.value.canManage || !operationInFlight.compareAndSet(false, true)) return
         scope.launch {
+            var operationTicket: AssistantMemorySessionTicket? = null
             try {
                 operationMutex.withLock {
-                    _state.value = _state.value.copy(
-                        saving = true,
-                        message = loadingMessage,
-                        error = false,
-                    )
-                    val session = currentSession
-                    if (session == null || !session.isUsable) {
+                    val context = currentSessionContext()
+                    if (context == null) {
                         _state.value = _state.value.copy(
                             cloudReady = false,
                             memoryEnabled = false,
@@ -539,18 +570,37 @@ class AssistantMemoryRepository private constructor(context: Context) {
                         )
                         return@withLock
                     }
-                    block(session)
+                    operationTicket = context.ticket
+                    if (!sessionGuard.isCurrent(context.ticket)) return@withLock
+                    _state.value = _state.value.copy(
+                        saving = true,
+                        message = loadingMessage,
+                        error = false,
+                    )
+                    block(context.session, context.ticket)
                 }
             } catch (error: Throwable) {
-                _state.value = _state.value.copy(
-                    message = error.friendlyMemoryMessage(),
-                    error = true,
-                )
+                val ticket = operationTicket
+                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                    _state.value = _state.value.copy(
+                        message = error.friendlyMemoryMessage(),
+                        error = true,
+                    )
+                }
             } finally {
                 operationInFlight.set(false)
-                _state.value = _state.value.copy(saving = false)
+                val ticket = operationTicket
+                if (ticket != null && sessionGuard.isCurrent(ticket)) {
+                    _state.value = _state.value.copy(saving = false)
+                }
             }
         }
+    }
+
+    private fun currentSessionContext(): MemorySessionContext? {
+        val session = currentSession?.takeIf { it.isUsable } ?: return null
+        val ticket = sessionGuard.currentTicket(session.userId) ?: return null
+        return MemorySessionContext(session, ticket)
     }
 
     private fun normalizeMemoryContent(content: String): String? {
@@ -575,6 +625,11 @@ class AssistantMemoryRepository private constructor(context: Context) {
         }
     }
 }
+
+private data class MemorySessionContext(
+    val session: SupabaseUserSession,
+    val ticket: AssistantMemorySessionTicket,
+)
 
 private data class AssistantMemoryMutationRequest(
     val operationId: String,
@@ -861,14 +916,14 @@ private fun AssistantMemoryState.toSettings(): AssistantMemorySettings = Assista
 
 internal fun normalizeMemoryMultilineText(value: String): String {
     val withoutControl = value
-        .replace(Regex("[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]"), " ")
+        .replace(MEMORY_CONTROL_CHAR_REGEX, " ")
         .replace("\r\n", "\n")
         .replace('\r', '\n')
     return withoutControl
         .lineSequence()
-        .map { line -> line.replace(Regex("[\\t ]+"), " ").trimEnd() }
+        .map { line -> line.replace(MEMORY_INLINE_SPACE_REGEX, " ").trimEnd() }
         .joinToString("\n")
-        .replace(Regex("\n{4,}"), "\n\n\n")
+        .replace(MEMORY_EXCESS_BLANK_LINES_REGEX, "\n\n\n")
         .trim()
         .take(ASSISTANT_MEMORY_MAX_CONTENT_LENGTH)
 }
