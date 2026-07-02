@@ -42,7 +42,7 @@ private val UnifiedReleaseEasing = CubicBezierEasing(0.14f, 0f, 0.12f, 1f)
 /**
  * 普通 Compose 点击光动效。
  *
- * 只有显式传入真实 [shape] 时才绘制或变换。这样光效路径直接由玻璃本体使用的同一个
+ * 只有显式传入真实 [shape] 时才绘制或变换。光效路径直接由玻璃本体使用的同一个
  * Shape 在当前真实 size、layoutDirection 和 Density 下生成，不再根据宽高猜圆角。
  */
 data class ComposeGlassMotionIndication(
@@ -257,23 +257,18 @@ private class ComposeGlassMotionNode(
             return
         }
 
-        val widthDp = w / density
-        val aspect = w / h
-        val outwardAllowance = when {
-            widthDp >= 220f || aspect >= 3.25f -> 0f
-            widthDp >= 160f || aspect >= 2.45f -> 0.34f
-            else -> 1f
-        }
-        val outwardScale = compression * (0.004f + 0.036f * elasticity) * outwardAllowance
-        val containedCompression = compression * (0.004f + 0.010f * elasticity) * (1f - outwardAllowance)
-        val reboundCompression = rebound * 0.007f * elasticity
-        val scaleX = 1f + outwardScale - containedCompression - reboundCompression
-        val scaleY = 1f - compression * (0.010f + 0.060f * elasticity) - reboundCompression * 0.72f
+        // 所有普通 Compose 玻璃都采用“边界内形变”。不再向布局区域外膨胀，避免被
+        // LazyColumn、页面 viewport 或父级圆角裁剪。光效、本体和内容仍共享同一矩阵。
+        val horizontalCompression = compression * (0.006f + 0.012f * elasticity)
+        val verticalCompression = compression * (0.012f + 0.058f * elasticity)
+        val reboundCompression = rebound * 0.006f * elasticity
+        val scaleX = (1f - horizontalCompression - reboundCompression).coerceIn(0.92f, 1f)
+        val scaleY = (1f - verticalCompression - reboundCompression * 0.72f).coerceIn(0.88f, 1f)
 
-        val desiredTranslationY = compression * (0.55f + 3.45f * elasticity) -
-            rebound * 1.10f * elasticity
-        val availableTop = center.y * (1f - scaleY).coerceAtLeast(0f)
-        val availableBottom = (h - center.y) * (1f - scaleY).coerceAtLeast(0f)
+        val desiredTranslationY = compression * (0.48f + 3.10f * elasticity) -
+            rebound * 0.92f * elasticity
+        val availableTop = center.y * (1f - scaleY)
+        val availableBottom = (h - center.y) * (1f - scaleY)
         val translationY = desiredTranslationY.coerceIn(-availableTop, availableBottom)
         val contentScope = this
 
