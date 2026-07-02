@@ -47,12 +47,29 @@ internal class AssistantMemoryManagementClient(
     }
 
     @Throws(IOException::class)
+    fun mutate(request: AssistantMemoryManagementRequest): AssistantMemoryMutationReceipt {
+        val ticket = AssistantAccountSessionRuntime.currentTicket()
+            ?: throw IOException("登录状态已失效，请重新登录。")
+        val accessToken = AssistantAccountSessionRuntime.accessTokenFor(ticket)
+            ?: throw IOException("登录状态已失效，请重新登录。")
+        return mutateBound(ticket, accessToken, request)
+    }
+
+    @Throws(IOException::class)
     fun mutate(
         session: SupabaseUserSession,
         request: AssistantMemoryManagementRequest,
     ): AssistantMemoryMutationReceipt {
         val ticket = AssistantAccountSessionRuntime.currentTicket(session.userId)
             ?: throw IOException("登录状态已失效，请重新登录。")
+        return mutateBound(ticket, session.accessToken, request)
+    }
+
+    private fun mutateBound(
+        ticket: com.yuchen.ailedger.data.AssistantMemorySessionTicket,
+        accessToken: String,
+        request: AssistantMemoryManagementRequest,
+    ): AssistantMemoryMutationReceipt {
         val payload = request.toJson()
         val route = AiWorkerModelRoute(
             requested = ChatModel.Kimi,
@@ -60,7 +77,7 @@ internal class AssistantMemoryManagementClient(
             reason = "memory_management",
         )
         val transport = AiWorkerHttpTransport(
-            config = AiWorkerConfig(userAccessTokenProvider = { session.accessToken }),
+            config = AiWorkerConfig(userAccessTokenProvider = { accessToken }),
             resolvedClientId = resolvedClientId,
         )
         var lastError: IOException? = null
@@ -68,8 +85,7 @@ internal class AssistantMemoryManagementClient(
         for (endpoint in endpoints.asSequence().map(String::trim).filter(String::isNotBlank).distinct()) {
             for (candidate in endpointCandidates(endpoint.trimEnd('/'))) {
                 AssistantMemoryRequestContextRuntime.clearCurrentThread()
-                AssistantMemoryRequestContextRuntime.stageForSession(
-                    session = session,
+                AssistantMemoryRequestContextRuntime.stageCurrentThread(
                     source = AssistantMemoryRequestSource.Management,
                 )
                 try {
