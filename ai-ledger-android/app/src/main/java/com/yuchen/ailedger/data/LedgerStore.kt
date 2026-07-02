@@ -8,10 +8,12 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import org.json.JSONArray
@@ -28,25 +30,25 @@ class LedgerStore(context: Context) {
         Context.MODE_PRIVATE
     )
 
+    /**
+     * JSON 解析和日期排序固定在 IO 调度器执行，避免设置页首次订阅时占用主线程。
+     * 所有实例共享最近一次不可变快照，设置首页、账单页和数据卡读取同一份结果。
+     */
     fun observeSnapshots(): Flow<LedgerSnapshot> {
         return changeEvents
             .onStart { emit(Unit) }
             .map { currentSnapshot().also(::publishBridge) }
             .distinctUntilChanged()
+            .flowOn(Dispatchers.IO)
+    }
+
+    fun warmUp() {
+        publishBridge(currentSnapshot())
     }
 
     fun loadRecords(): List<LedgerRecord> {
-        val raw = preferences.getString(KEY_RECORDS, null).orEmpty()
-        if (raw.isBlank()) return emptyList()
-        return runCatching {
-            val array = JSONArray(raw)
-            buildList {
-                for (index in 0 until array.length()) {
-                    val json = array.optJSONObject(index) ?: continue
-                    parseRecord(json)?.let(::add)
-                }
-            }.sortedWith(compareByDescending<LedgerRecord> { normalizeDate(it.dateLabel) }.thenByDescending { it.id })
-        }.getOrDefault(emptyList())
+        cachedSnapshot?.let { return it.records }
+        return readRecordsFromPreferences()
     }
 
     fun saveRecords(records: List<LedgerRecord>) {
@@ -68,10 +70,8 @@ class LedgerStore(context: Context) {
     }
 
     fun loadBudget(): String {
-        return preferences.getString(KEY_BUDGET, null)
-            ?.trim()
-            ?.takeIf { it.toDoubleOrNull() != null }
-            ?: DEFAULT_BUDGET
+        cachedSnapshot?.let { return it.budgetText }
+        return readBudgetFromPreferences()
     }
 
     fun hasSavedBudget(): Boolean = preferences.contains(KEY_BUDGET)
@@ -134,7 +134,34 @@ class LedgerStore(context: Context) {
         )
     }
 
-    private fun currentSnapshot(): LedgerSnapshot = LedgerSnapshot(loadRecords(), loadBudget())
+    private fun currentSnapshot(): LedgerSnapshot = LedgerSnapshot(
+        records = readRecordsFromPreferences(),
+        budgetText = readBudgetFromPreferences(),
+    )
+
+    private fun readRecordsFromPreferences(): List<LedgerRecord> {
+        val raw = preferences.getString(KEY_RECORDS, null).orEmpty()
+        if (raw.isBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(raw)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val json = array.optJSONObject(index) ?: continue
+                    parseRecord(json)?.let(::add)
+                }
+            }.sortedWith(
+                compareByDescending<LedgerRecord> { normalizeDate(it.dateLabel) }
+                    .thenByDescending { it.id }
+            )
+        }.getOrDefault(emptyList())
+    }
+
+    private fun readBudgetFromPreferences(): String {
+        return preferences.getString(KEY_BUDGET, null)
+            ?.trim()
+            ?.takeIf { it.toDoubleOrNull() != null }
+            ?: DEFAULT_BUDGET
+    }
 
     private fun publishCurrentSnapshot() {
         publishBridge(currentSnapshot())
@@ -142,6 +169,7 @@ class LedgerStore(context: Context) {
     }
 
     private fun publishBridge(snapshot: LedgerSnapshot) {
+        cachedSnapshot = snapshot
         LedgerStateBridge.update(snapshot.records, snapshot.budgetText)
     }
 
@@ -169,6 +197,9 @@ class LedgerStore(context: Context) {
     companion object {
         const val DEFAULT_BUDGET = "3000"
         val LEDGER_CATEGORIES = listOf("餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他")
+
+        @Volatile
+        private var cachedSnapshot: LedgerSnapshot? = null
 
         private val changeEvents = MutableSharedFlow<Unit>(
             replay = 0,
