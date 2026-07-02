@@ -79,7 +79,7 @@ internal class AssistantMemorySessionGuard {
     fun currentTicket(userId: String): AssistantMemorySessionTicket? =
         AssistantAccountSessionRuntime.currentTicket(userId)
 
-    fun isCurrent(ticket: AssistantMemorySessionTickket): Boolean =
+    fun isCurrent(ticket: AssistantMemorySessionTicket): Boolean =
         AssistantAccountSessionRuntime.isCurrent(ticket)
 }
 
