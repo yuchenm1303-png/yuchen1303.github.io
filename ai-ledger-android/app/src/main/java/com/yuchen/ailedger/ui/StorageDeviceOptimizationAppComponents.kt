@@ -161,7 +161,7 @@ internal fun AppAnalysisControlPanel(
             AppProgressSummaryInline(analysis)
             if (!analysis.usageAccessGranted) {
                 OptimizeInfoPanel("使用情况权限未开启", "可以分析安装包大小，但无法可靠判断最近使用时间和私有数据占用。", OptimizeWarning)
-                OptimizePrimaryAction("开启使用情况访问", true, onGrantUsageAccess)
+                OptimizePrimaryAction("开启使用情况访问", true, onClick = onGrantUsageAccess)
             }
             if (!analysis.deviceGuard.heavyWorkAllowed) {
                 OptimizeInfoPanel("设备保护已触发", analysis.deviceGuard.reason, OptimizeCritical)
