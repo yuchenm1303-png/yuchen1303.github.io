@@ -54,6 +54,15 @@ class StorageMediaOrganizationPolicyTest {
     }
 
     @Test
+    fun timedBurstDoesNotCrossDirectories() {
+        val first = photo("content://1", 1_000L, 4_000, 3_000, location = "DCIM/Camera")
+        val second = photo("content://2", 2_000L, 4_000, 3_000, location = "Pictures/Imported")
+        val third = photo("content://3", 3_000L, 4_000, 3_000, location = "DCIM/Camera")
+
+        assertTrue(StorageMediaOrganizationPolicy.buildBurstGroups(listOf(first, second, third)).isEmpty())
+    }
+
+    @Test
     fun incompatibleAspectRatioBreaksTimedBurst() {
         val first = photo("content://1", 1_000L, 4_000, 3_000)
         val second = photo("content://2", 2_000L, 4_000, 3_000)
@@ -79,6 +88,7 @@ class StorageMediaOrganizationPolicyTest {
         width: Int,
         height: Int,
         name: String = "IMG.jpg",
+        location: String = "DCIM/Camera",
     ): StorageOrganizationFile {
         return StorageOrganizationFile(
             uri = uri,
@@ -86,7 +96,7 @@ class StorageMediaOrganizationPolicyTest {
             sizeBytes = 3L * 1024L * 1024L,
             mimeType = "image/jpeg",
             modifiedAt = modifiedAt,
-            location = "DCIM/Camera/$name",
+            location = "$location/$name",
             source = StorageCandidateSource.MediaStore,
             canDelete = true,
             width = width,
