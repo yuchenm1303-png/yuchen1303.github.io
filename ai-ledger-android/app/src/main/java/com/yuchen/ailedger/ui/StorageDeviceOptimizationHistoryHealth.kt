@@ -214,7 +214,9 @@ internal fun ShizukuHealthPanel(shellStatus: DeviceShellStatus?, onRequest: () -
                 fontSize = 10.5.sp,
                 lineHeight = 15.sp,
             )
-            if (available && !granted) OptimizePrimaryAction("请求 Shizuku 授权", true, onRequest)
+            if (available && !granted) {
+                OptimizePrimaryAction("请求 Shizuku 授权", true, onClick = onRequest)
+            }
         }
     }
 }
