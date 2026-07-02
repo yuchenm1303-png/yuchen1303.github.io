@@ -61,7 +61,9 @@ private object UserProfileAvatarBitmapCache {
 
         val deferred = inFlight.computeIfAbsent(key) {
             loaderScope.async {
-                decodeSampledAvatar(path)?.also { image -> cache.put(key, image) }
+                runCatching { decodeSampledAvatar(path) }
+                    .getOrNull()
+                    ?.also { image -> cache.put(key, image) }
             }
         }
         return try {
