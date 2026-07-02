@@ -12,7 +12,7 @@ import discussion_server  # noqa: F401  注册个股讨论与评论路由
 import discussion_post_server  # noqa: F401  注册帖子正文按需路由
 import hot_rank_server  # noqa: F401  注册实时热点榜路由
 import index_detail_server  # noqa: F401  注册指数详情路由
-import index_compact_server  # noqa: F401  注册指数轻量分时路由
+import index_compact_server  # noqa: F401  注册功能页三大指数独立报价与分时路由
 import market_home_server
 import market_kline_server  # noqa: F401  注册扩展历史K线路由
 import sector_detail_server  # noqa: F401  注册板块详情与成分股路由
@@ -30,7 +30,7 @@ app = stock_server.app
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.production")
 _PROCESS_STARTED_AT = monotonic()
 _PROCESS_STARTED_ISO = datetime.now(timezone.utc).isoformat()
-_SERVICE_VERSION = "0.9.5-index-compact-hero"
+_SERVICE_VERSION = "0.9.8-tools-index-priority-split"
 _HOT_TICK_INTERVAL_SECONDS = 0.9
 _HOT_TICK_MIN_AGE_SECONDS = 0.72
 _HOT_SYMBOL_TTL_SECONDS = 30.0
@@ -216,8 +216,11 @@ def health() -> dict[str, Any]:
             "importError": MARKET_STAGE_IMPORT_ERROR,
         },
         "indexCompact": {
-            "path": "/api/stock/a-share/index/compact",
+            "path": index_compact_server.INDEX_COMPACT_PATH,
+            "batchPath": index_compact_server.INDEX_COMPACT_BATCH_PATH,
+            "trendPath": index_compact_server.INDEX_COMPACT_TREND_PATH,
             "version": index_compact_server.INDEX_COMPACT_CACHE_VERSION,
+            "batchCodes": list(index_compact_server.INDEX_COMPACT_BATCH_CODES),
         },
         "realtime": {
             **_safe_runtime_diagnostics(),
