@@ -302,8 +302,8 @@ private fun SettingsPersonalSpaceCard(
     val watchlistState by watchlistRepository.state.collectAsState()
     val ledgerSnapshot by ledgerSnapshots.collectAsState(
         initial = LedgerSnapshot(
-            records = ledgerStore.loadRecords(),
-            budgetText = ledgerStore.loadBudget(),
+            records = state.ledgerRecords,
+            budgetText = state.ledgerBudgetText,
         )
     )
     val agentProgress by AgentRuntimeController.progress.collectAsState()
