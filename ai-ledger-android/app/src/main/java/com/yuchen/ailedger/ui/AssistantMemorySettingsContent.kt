@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,7 +93,6 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
     val customRepository = remember(context) { AssistantCustomInstructionsRepository.get(context) }
     val memoryState by memoryRepository.state.collectAsState()
     val customState by customRepository.state.collectAsState()
-    val diagnosticsState by AssistantMemoryDiagnostics.state.collectAsState()
     val accountUserId = memoryState.accountUserId ?: customState.accountUserId
 
     var customDraft by rememberSaveable(accountUserId) { mutableStateOf("") }
@@ -107,6 +107,17 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
     var pendingDeleteId by rememberSaveable(accountUserId) { mutableStateOf<String?>(null) }
     var clearAllConfirmation by rememberSaveable(accountUserId) { mutableStateOf(false) }
     var visibleMemoryCount by rememberSaveable(accountUserId) { mutableIntStateOf(MEMORY_PAGE_SIZE) }
+
+    val customDraftReady = remember(customDraft) { customDraft.trim().isNotBlank() }
+    val memoryDraftReady = remember(memoryDraft) { memoryDraft.trim().isNotBlank() }
+    val activeMemoryCount = remember(
+        memoryState.memoryEnabled,
+        memoryState.cloudReady,
+        memoryState.memories,
+    ) { memoryState.activeCount }
+    val visibleMemories = remember(memoryState.memories, visibleMemoryCount) {
+        memoryState.memories.take(visibleMemoryCount)
+    }
 
     LaunchedEffect(customState.accountUserId, customState.content, customState.updatedAt) {
         customDraft = customState.content
@@ -126,39 +137,15 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
         visibleMemoryCount = MEMORY_PAGE_SIZE
     }
 
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        MemoryMetric(
-            label = "明确指令",
-            value = when {
-                customState.accountUserId == null -> "需要登录"
-                !customState.cloudReady -> "未配置"
-                customState.enabled -> "已启用"
-                else -> "已关闭"
-            },
-            modifier = Modifier.weight(1f),
-        )
-        MemoryMetric(
-            label = "可检索",
-            value = "${memoryState.activeCount} 条",
-            modifier = Modifier.weight(1f),
-        )
-        MemoryMetric(
-            label = "上一轮注入",
-            value = diagnosticsState.latest?.itemCount?.let { "$it 条" } ?: "暂无",
-            modifier = Modifier.weight(1f),
-        )
-    }
-
-    SectionInlineTitle(
-        title = "逐轮记忆诊断",
-        subtitle = "每一句普通聊天都会记录请求、召回、过滤、重排和最终注入结果，可一键复制完整报告。",
-    )
-    AssistantMemoryDiagnosticsPanel(
+    MemoryDiagnosticsOverview(
         state = state,
-        diagnosticsState = diagnosticsState,
+        customInstructionsValue = when {
+            customState.accountUserId == null -> "需要登录"
+            !customState.cloudReady -> "未配置"
+            customState.enabled -> "已启用"
+            else -> "已关闭"
+        },
+        activeMemoryCount = activeMemoryCount,
     )
 
     if (accountUserId == null) {
@@ -210,10 +197,10 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                 Switch(
                     checked = customState.enabled,
                     onCheckedChange = { enabled ->
-                        if (customDraft.trim().isNotBlank()) customRepository.save(customDraft, enabled)
+                        if (customDraftReady) customRepository.save(customDraft, enabled)
                         else customRepository.setEnabled(enabled)
                     },
-                    enabled = !customState.saving && customDraft.trim().isNotBlank(),
+                    enabled = !customState.saving && customDraftReady,
                 )
             }
             MemoryTextEditor(
@@ -236,7 +223,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                 Spacer(Modifier.weight(1f))
                 MemoryTextAction(
                     text = if (customState.saving) "保存中" else "保存",
-                    enabled = !customState.saving && customDraft.trim().isNotBlank(),
+                    enabled = !customState.saving && customDraftReady,
                     emphasized = true,
                 ) { customRepository.save(customDraft, customState.enabled) }
                 Spacer(Modifier.size(14.dp))
@@ -307,7 +294,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                 }
                 Text(
                     if (memoryState.memoryEnabled) {
-                        "当前有 ${memoryState.activeCount} 条可检索记忆。诊断面板会显示其中哪些进入候选池和最终提示词。"
+                        "当前有 $activeMemoryCount 条可检索记忆。诊断面板会显示其中哪些进入候选池和最终提示词。"
                     } else {
                         "记忆仍保存在账号中，但关闭期间不会参与聊天请求。"
                     },
@@ -424,7 +411,7 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                         Spacer(Modifier.size(14.dp))
                         MemoryTextAction(
                             text = if (memoryState.saving) "保存中" else "保存",
-                            enabled = !memoryState.saving && memoryDraft.trim().isNotBlank(),
+                            enabled = !memoryState.saving && memoryDraftReady,
                             emphasized = true,
                         ) {
                             val id = editingId
@@ -466,35 +453,37 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
                     description = "事实放进个人信息，回答方式放进偏好，必须执行的流程放进长期规则。",
                 )
             } else {
-                memoryState.memories.take(visibleMemoryCount).forEach { item ->
-                    MemoryItemCard(
-                        item = item,
-                        saving = memoryState.saving,
-                        confirmDelete = pendingDeleteId == item.id,
-                        onToggle = { memoryRepository.setItemEnabled(item.id, it) },
-                        onEdit = {
-                            editingId = item.id
-                            memoryDraft = item.content
-                            categoryDraft = item.category
-                            scopeDraft = item.scope
-                            priorityDraft = item.priority
-                            pinnedDraft = item.pinned
-                            editorVisible = true
-                            pendingDeleteId = null
-                            clearAllConfirmation = false
-                        },
-                        onDelete = {
-                            if (pendingDeleteId == item.id) {
-                                memoryRepository.deleteMemory(item.id)
+                visibleMemories.forEach { item ->
+                    key(item.id) {
+                        MemoryItemCard(
+                            item = item,
+                            saving = memoryState.saving,
+                            confirmDelete = pendingDeleteId == item.id,
+                            onToggle = { memoryRepository.setItemEnabled(item.id, it) },
+                            onEdit = {
+                                editingId = item.id
+                                memoryDraft = item.content
+                                categoryDraft = item.category
+                                scopeDraft = item.scope
+                                priorityDraft = item.priority
+                                pinnedDraft = item.pinned
+                                editorVisible = true
                                 pendingDeleteId = null
-                            } else {
-                                pendingDeleteId = item.id
-                                editorVisible = false
                                 clearAllConfirmation = false
-                            }
-                        },
-                        onCancelDelete = { pendingDeleteId = null },
-                    )
+                            },
+                            onDelete = {
+                                if (pendingDeleteId == item.id) {
+                                    memoryRepository.deleteMemory(item.id)
+                                    pendingDeleteId = null
+                                } else {
+                                    pendingDeleteId = item.id
+                                    editorVisible = false
+                                    clearAllConfirmation = false
+                                }
+                            },
+                            onCancelDelete = { pendingDeleteId = null },
+                        )
+                    }
                 }
                 if (visibleMemoryCount < memoryState.memories.size) {
                     MemoryGlassAction(
@@ -528,6 +517,44 @@ fun AccountMemorySettingsContent(state: AssistantUiState) {
             PersonalizationMessage(memoryState.message, memoryState.error)
         }
     }
+}
+
+@Composable
+private fun MemoryDiagnosticsOverview(
+    state: AssistantUiState,
+    customInstructionsValue: String,
+    activeMemoryCount: Int,
+) {
+    val diagnosticsState by AssistantMemoryDiagnostics.state.collectAsState()
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        MemoryMetric(
+            label = "明确指令",
+            value = customInstructionsValue,
+            modifier = Modifier.weight(1f),
+        )
+        MemoryMetric(
+            label = "可检索",
+            value = "$activeMemoryCount 条",
+            modifier = Modifier.weight(1f),
+        )
+        MemoryMetric(
+            label = "上一轮注入",
+            value = diagnosticsState.latest?.itemCount?.let { "$it 条" } ?: "暂无",
+            modifier = Modifier.weight(1f),
+        )
+    }
+
+    SectionInlineTitle(
+        title = "逐轮记忆诊断",
+        subtitle = "每一句普通聊天都会记录请求、召回、过滤、重排和最终注入结果，可一键复制完整报告。",
+    )
+    AssistantMemoryDiagnosticsPanel(
+        state = state,
+        diagnosticsState = diagnosticsState,
+    )
 }
 
 @Composable
