@@ -12,13 +12,17 @@ function read(relativePath) {
   return fs.readFileSync(path.resolve(appRoot, relativePath), "utf8");
 }
 
-test("V4 is the only Android long-term-memory data source", () => {
+test("V4 remains the only Android long-term-memory table and V5 is the mutation entry", () => {
   const repository = read("src/main/java/com/yuchen/ailedger/data/AssistantMemoryRepository.kt");
   assert.match(repository, /MEMORY_TABLE = "assistant_memory_items_v4"/);
   assert.match(repository, /MEMORY_SETTINGS_TABLE = "assistant_memory_settings"/);
+  assert.match(repository, /MEMORY_MUTATION_RPC = "apply_assistant_memory_mutation_v5"/);
   assert.doesNotMatch(repository, /MEMORY_TABLE = "assistant_memories"/);
-  assert.doesNotMatch(repository, /record_assistant_memory_usage"/);
-  assert.match(repository, /update_assistant_memory_v4_manual/);
+  assert.doesNotMatch(repository, /record_assistant_memory_usage/);
+  assert.doesNotMatch(
+    repository,
+    /create_assistant_memory_v4_manual|update_assistant_memory_v4_manual|set_assistant_memory_v4_enabled|delete_assistant_memory_v4|clear_all_assistant_memories_v4/,
+  );
 });
 
 test("account memory settings and V4 management RPCs are declared", () => {
