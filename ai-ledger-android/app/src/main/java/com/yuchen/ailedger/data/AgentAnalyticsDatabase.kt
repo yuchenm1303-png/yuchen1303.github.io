@@ -180,6 +180,9 @@ interface AgentAnalyticsDao {
     @Query("SELECT * FROM agent_task_analytics ORDER BY startedAtMillis DESC LIMIT :limit")
     fun observeRecentTasks(limit: Int): Flow<List<AgentTaskAnalyticsEntity>>
 
+    @Query("SELECT COALESCE(MAX(durationMs), 0) FROM agent_task_analytics")
+    fun observeLongestTaskDurationMs(): Flow<Long>
+
     @Query("SELECT * FROM agent_model_usage ORDER BY totalTokens DESC, calls DESC")
     fun observeModelUsage(): Flow<List<AgentModelUsageEntity>>
 
