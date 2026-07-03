@@ -26,6 +26,10 @@ import org.json.JSONObject
 class VisualDemonstrationStore(context: Context) {
     private val applicationContext = context.applicationContext
     private val root = File(applicationContext.noBackupFilesDir, DIRECTORY).apply { mkdirs() }
+    private val keyLock = Any()
+
+    @Volatile
+    private var cachedKey: SecretKey? = null
 
     fun createSession(
         demonstrationId: String,
@@ -149,21 +153,28 @@ class VisualDemonstrationStore(context: Context) {
     }
 
     private fun getOrCreateKey(): SecretKey {
-        val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
-        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEY_STORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .setUserAuthenticationRequired(false)
-                .build(),
-        )
-        return generator.generateKey()
+        cachedKey?.let { return it }
+        return synchronized(keyLock) {
+            cachedKey?.let { return@synchronized it }
+            val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
+            val key = (keyStore.getKey(KEY_ALIAS, null) as? SecretKey) ?: run {
+                val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEY_STORE)
+                generator.init(
+                    KeyGenParameterSpec.Builder(
+                        KEY_ALIAS,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                    )
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(256)
+                        .setUserAuthenticationRequired(false)
+                        .build(),
+                )
+                generator.generateKey()
+            }
+            cachedKey = key
+            key
+        }
     }
 
     private fun encodeManifest(manifest: VisualDemonstrationManifest): JSONObject = JSONObject().apply {
@@ -269,8 +280,7 @@ class VisualDemonstrationSession internal constructor(
         bytes: ByteArray,
     ): Boolean {
         if (sealed || manifest.frames.size >= MAX_FRAMES) return false
-        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-            .joinToString("") { byte -> "%02x".format(byte) }
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes).toHexString()
         if (manifest.frames.lastOrNull()?.digest == digest) return false
         val index = manifest.frames.size
         val id = "${manifest.demonstrationId}-frame-$index"
@@ -310,5 +320,17 @@ class VisualDemonstrationSession internal constructor(
         const val MAX_FRAMES = 24
     }
 }
+
+private fun ByteArray.toHexString(): String {
+    val chars = CharArray(size * 2)
+    forEachIndexed { index, byte ->
+        val value = byte.toInt() and 0xFF
+        chars[index * 2] = HEX_DIGITS[value ushr 4]
+        chars[index * 2 + 1] = HEX_DIGITS[value and 0x0F]
+    }
+    return String(chars)
+}
+
+private val HEX_DIGITS = "0123456789abcdef".toCharArray()
 
 private fun String.safeFileToken(): String = replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
