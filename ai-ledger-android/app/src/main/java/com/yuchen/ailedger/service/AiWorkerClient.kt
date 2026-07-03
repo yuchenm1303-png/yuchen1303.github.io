@@ -51,7 +51,7 @@ data class CloudClientToolCall(
     val finalModel: String? = null,
 ) {
     init {
-        // Reserved for mechanical client-tool correlation.
+        if (name == "computer_run_task") ClientToolCallRegistry.attachVisual(this)
     }
 
     fun toJson(): JSONObject = JSONObject().apply {
