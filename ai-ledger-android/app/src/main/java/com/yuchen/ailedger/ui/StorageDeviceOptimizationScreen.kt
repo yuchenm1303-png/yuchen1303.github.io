@@ -153,7 +153,7 @@ fun StorageDeviceOptimizationScreen(
                     stateResult.blockedReason != null -> stateResult.blockedReason
                     stateResult.progress.complete -> "应用分析已完成，共处理 ${stateResult.progress.processedCount} 个用户应用。"
                     stateResult.progress.interrupted -> "分析已暂停，断点保存在 ${stateResult.progress.processedCount}/${stateResult.progress.totalCount}。"
-                    else -> "已完成一批，当前进度 ${stateResult.progress.processedCount}/${stateResult.progress.totalCount}。"
+                    else -> "当前进度 ${stateResult.progress.processedCount}/${stateResult.progress.totalCount}。"
                 }
             }.onFailure { error ->
                 message = error.message?.takeIf(String::isNotBlank) ?: "应用分析失败，已保留当前断点"
@@ -197,7 +197,7 @@ fun StorageDeviceOptimizationScreen(
                     Text("DEVICE OPTIMIZE", color = OptimizeAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                     Text("设备优化", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                     Text(
-                        "补全应用占用、长期未用建议、清理趋势、断点恢复、设备保护和权限诊断。",
+                        "完整分析应用占用、长期未用建议、清理趋势、断点恢复和权限状态。",
                         color = Color.White.copy(alpha = 0.58f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -216,7 +216,7 @@ fun StorageDeviceOptimizationScreen(
                 item { OptimizeInfoPanel("增强控制结果", result.message, if (result.ok) OptimizeSuccess else OptimizeWarning) }
             }
             if (loading || current == null) {
-                item { OptimizeLoadingPanel("正在读取设备状态、清理历史和应用分析断点…") }
+                item { OptimizeLoadingPanel("正在读取设备状态、全部清理历史和应用分析断点…") }
             } else {
                 item {
                     Row(
@@ -257,9 +257,9 @@ fun StorageDeviceOptimizationScreen(
                         val unusedApps = current.appAnalysis.longUnusedApps
                         item { OptimizeSectionHeader("长期未用建议", "${unusedApps.size} 个 · 90 天阈值") }
                         if (unusedApps.isEmpty()) {
-                            item { OptimizeEmptyPanel("当前已分析范围内没有达到 90 天阈值的应用，或尚未授予使用情况访问权限。") }
+                            item { OptimizeEmptyPanel("当前完整分析结果中没有达到 90 天阈值的应用，或尚未授予使用情况访问权限。") }
                         } else {
-                            items(unusedApps.take(40), key = { "unused-${it.packageName}" }) { app ->
+                            items(unusedApps, key = { "unused-${it.packageName}" }) { app ->
                                 OptimizationAppCard(app, highlightUnused = true) {
                                     openAppDetails(context, app.packageName)
                                 }
@@ -269,7 +269,7 @@ fun StorageDeviceOptimizationScreen(
                         if (current.appAnalysis.items.isEmpty()) {
                             item { OptimizeEmptyPanel("开始应用分析后显示应用、数据和缓存占用。") }
                         } else {
-                            items(current.appAnalysis.largestApps.take(50), key = { "large-${it.packageName}" }) { app ->
+                            items(current.appAnalysis.largestApps, key = { "large-${it.packageName}" }) { app ->
                                 OptimizationAppCard(app, highlightUnused = false) {
                                     openAppDetails(context, app.packageName)
                                 }
@@ -278,7 +278,7 @@ fun StorageDeviceOptimizationScreen(
                     }
                     StorageOptimizationTab.Trends -> {
                         item { CleanupTrendSummary(current.cleanupHistory) }
-                        item { OptimizeSectionHeader("最近清理趋势", "${current.cleanupTrend.size} 天") }
+                        item { OptimizeSectionHeader("清理趋势", "${current.cleanupTrend.size} 天") }
                         if (current.cleanupTrend.isEmpty()) {
                             item { OptimizeEmptyPanel("完成智能清理或精细整理后，这里会按日期汇总实际释放空间。") }
                         } else {
@@ -288,17 +288,17 @@ fun StorageDeviceOptimizationScreen(
                         }
                         item { OptimizeSectionHeader("设备空间快照", "${current.capacitySnapshots.size} 个") }
                         if (current.capacitySnapshots.isEmpty()) {
-                            item { OptimizeEmptyPanel("打开设备优化页后会按时间或空间变化记录轻量快照。") }
+                            item { OptimizeEmptyPanel("打开设备优化页后会记录空间快照。") }
                         } else {
-                            items(current.capacitySnapshots.takeLast(20).reversed(), key = StorageCapacitySnapshot::createdAt) { snapshot ->
+                            items(current.capacitySnapshots.asReversed(), key = StorageCapacitySnapshot::createdAt) { snapshot ->
                                 CapacitySnapshotCard(snapshot)
                             }
                         }
-                        item { OptimizeSectionHeader("清理历史详情", "最近 ${current.cleanupHistory.size.coerceAtMost(20)} 次") }
+                        item { OptimizeSectionHeader("清理历史详情", "共 ${current.cleanupHistory.size} 次") }
                         if (current.cleanupHistory.isEmpty()) {
                             item { OptimizeEmptyPanel("暂无清理记录。") }
                         } else {
-                            items(current.cleanupHistory.take(20), key = StorageCleanupHistoryEntry::id) { entry ->
+                            items(current.cleanupHistory, key = StorageCleanupHistoryEntry::id) { entry ->
                                 OptimizeHistoryCard(entry)
                             }
                         }
