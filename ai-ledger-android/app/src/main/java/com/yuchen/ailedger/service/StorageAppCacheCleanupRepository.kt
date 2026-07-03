@@ -1,6 +1,9 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.os.storage.StorageManager
 
 private const val ALL_APP_CACHE_TRIM_TARGET_BYTES = 999_999_999_999L
 
@@ -28,46 +31,65 @@ data class StorageAppCacheCleanupResult(
 class StorageAppCacheCleanupRepository(context: Context) {
     private val appContext = context.applicationContext
     private val storageRepository = StorageManagementRepository(appContext)
+    private val specialCleanupRepository = StorageSpecialCleanupRepository(appContext)
     private val shellBridge = DeviceShellBridge(appContext)
 
     fun hasUsageAccess(): Boolean = storageRepository.hasUsageAccess()
 
+    fun hasAllFilesAccess(): Boolean = specialCleanupRepository.hasGlobalSharedStorageAccess()
+
+    fun allFilesAccessIntent(): Intent = specialCleanupRepository.globalSharedStorageAccessIntent()
+
+    fun canUseSystemCacheCleanup(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasAllFilesAccess()
+    }
+
+    fun systemCacheCleanupIntent(): Intent {
+        return Intent(StorageManager.ACTION_CLEAR_APP_CACHE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
     fun loadRanking(forceRefresh: Boolean = false): List<AppCacheUsage> {
         return storageRepository.loadAppCacheRanking(forceRefresh = forceRefresh)
+    }
+
+    fun cacheTotal(forceRefresh: Boolean = false): Long? {
+        if (!hasUsageAccess()) return null
+        return loadRanking(forceRefresh = forceRefresh).sumOf(AppCacheUsage::cacheBytes)
     }
 
     fun shellStatus(forceRefresh: Boolean = false): DeviceShellStatus = shellBridge.probe(forceRefresh)
 
     fun requestShizukuPermission(): DeviceShellExecResult = shellBridge.requestShizukuPermission()
 
-    fun clearAllAppCaches(): StorageAppCacheCleanupResult {
+    fun clearAllAppCachesEnhanced(): StorageAppCacheCleanupResult {
         val command = StorageAppCacheCleanupPolicy.command()
         check(StorageAppCacheCleanupPolicy.isCacheOnlyCommand(command)) {
             "应用缓存清理命令未通过固定策略校验"
         }
-        val before = loadRanking(forceRefresh = true).takeIf { hasUsageAccess() }?.sumOf(AppCacheUsage::cacheBytes)
+        val before = cacheTotal(forceRefresh = true)
         val shell = shellBridge.runEnhancedCommand(
             title = "清理全机应用缓存",
             command = command,
-            timeoutMs = 30_000L,
+            timeoutMs = 6_000L,
         )
         if (!shell.ok) {
             return StorageAppCacheCleanupResult(
                 ok = false,
-                message = shell.error.ifBlank { "系统没有完成应用缓存清理请求。" },
+                message = shell.error.ifBlank { "系统没有完成应用缓存回收请求。" },
                 beforeBytes = before,
                 afterBytes = null,
                 releasedBytes = null,
                 shellResult = shell,
             )
         }
-        Thread.sleep(450L)
-        val after = loadRanking(forceRefresh = true).takeIf { hasUsageAccess() }?.sumOf(AppCacheUsage::cacheBytes)
+        Thread.sleep(1_500L)
+        val after = cacheTotal(forceRefresh = true)
         val released = if (before != null && after != null) (before - after).coerceAtLeast(0L) else null
         val message = when {
-            released == null -> "系统已执行全机缓存回收请求；未授权使用情况访问，因此无法读取清理前后缓存总量。"
-            released > 0L -> "系统已完成缓存回收，统计到的应用缓存减少了 ${formatCacheBytes(released)}。"
-            else -> "系统已执行缓存回收请求，但当前统计没有发现可释放缓存；部分应用可能没有缓存或系统选择保留正在使用的缓存。"
+            released == null -> "Shizuku/ADB Shell 已执行缓存回收命令；未授权使用情况访问，因此无法核验清理前后体积。"
+            released > 0L -> "增强缓存回收已完成，统计到的应用缓存减少了 ${formatCacheBytes(released)}。"
+            else -> "增强缓存回收命令执行成功，但当前统计没有发现可释放缓存；系统可能保留了正在使用的缓存。"
         }
         return StorageAppCacheCleanupResult(
             ok = true,
