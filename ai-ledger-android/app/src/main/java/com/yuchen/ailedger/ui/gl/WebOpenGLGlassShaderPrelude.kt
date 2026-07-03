@@ -26,9 +26,30 @@ internal object WebOpenGLGlassShaderPrelude {
         uniform float uIntensity;
         uniform float uTextureReady;
         uniform float uBlurAmount;
+        float glassOpticalScale(){return 1.0;}
     """
 
     const val FUNCTIONS = """
+        vec4 glassBodyLensA(){
+            float scale=glassOpticalScale();
+            return vec4(uBodyLensA.x*scale,uBodyLensA.y*scale,uBodyLensA.z,uBodyLensA.w);
+        }
+        vec4 glassBodyLensB(){
+            float scale=glassOpticalScale();
+            return vec4(uBodyLensB.x*scale,uBodyLensB.y*scale,uBodyLensB.z,uBodyLensB.w);
+        }
+        vec4 glassShoulder(){
+            float scale=glassOpticalScale();
+            return vec4(uShoulder.x*scale,uShoulder.y,uShoulder.z,uShoulder.w);
+        }
+        vec2 glassShoulderFlow(){
+            float scale=glassOpticalScale();
+            return vec2(uShoulderFlow.x*scale,uShoulderFlow.y);
+        }
+        vec4 glassDispersion(){
+            float scale=glassOpticalScale();
+            return vec4(uDispersion.x,uDispersion.y*scale,uDispersion.z*scale,uDispersion.w);
+        }
         float sat(float x){return clamp(x,0.0,1.0);}
         float roundedBoxSdfPrepared(vec2 p,vec2 halfSize,vec2 core,float r){
             vec2 q=abs(p-halfSize)-core;
@@ -91,7 +112,7 @@ internal object WebOpenGLGlassShaderPrelude {
             return vec2(0.0,local.y<0.0?-1.0:1.0);
         }
         float bodyLensReach(float minSize,float r){
-            float requested=max(uBodyLensB.y,8.0);
+            float requested=max(glassBodyLensB().y,8.0);
             float curvatureSafe=max(r*0.96,8.0);
             return min(requested,min(curvatureSafe,minSize*0.46));
         }
