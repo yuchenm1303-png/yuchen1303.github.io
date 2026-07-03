@@ -228,7 +228,7 @@ internal class OperationRecordingOverlayHost(
             else -> "正在学习：${state.workflowTitle.take(16)}"
         }
         metaView?.text = buildString {
-            append(formatDuration(state.startedAtMillis))
+            append(formatDuration(state.startedAtMillis ?: 0L))
             append(" · ")
             append(state.capturedEventCount)
             append(" 帧")
@@ -281,6 +281,7 @@ internal class OperationRecordingOverlayHost(
         if (key == lastNotificationKey) return
         lastNotificationKey = key
         ensureNotificationChannel()
+        val startedAtMillis = state.startedAtMillis ?: 0L
 
         val openIntent = Intent(service, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -312,8 +313,8 @@ internal class OperationRecordingOverlayHost(
             .setContentTitle("正在学习：${state.workflowTitle.take(24)}")
             .setContentText("已采集 ${state.capturedEventCount} 帧视觉证据")
             .setContentIntent(openPendingIntent)
-            .setWhen(state.startedAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis())
-            .setUsesChronometer(state.startedAtMillis > 0L)
+            .setWhen(startedAtMillis.takeIf { it > 0L } ?: System.currentTimeMillis())
+            .setUsesChronometer(startedAtMillis > 0L)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(true)
