@@ -68,6 +68,46 @@ changes visibility only and cannot create independent optical fields.
 Only these reviewed settings dashboard Shells register with `OpenGLShellBatchState`. Ordinary settings controls,
 `GlassRole.Card`, `GlassRole.Chip`, sliders, inset slots and frosted panels remain outside every OpenGL registry.
 
+### Tools home lossless batch route
+
+The Tools home keeps every existing OpenGL Shell and its original visual behavior. Performance work must optimize
+resource ownership rather than demote cards to ordinary Compose glass.
+
+Only the four two-column summary cards with the reviewed specification may join the shared batch:
+
+- measured short edge: `147..149 dp` around the fixed `148 dp` height;
+- call-site radius: exactly `25 dp`;
+- complete low / medium / high backdrop pyramid ready;
+- the normal Tools-page new OpenGL renderer route.
+
+The stock-market Hero (`236 dp`), Plan card (`102 dp`) and Operation Learning card (`108 dp`) remain on their
+standalone OpenGL routes. They must not be mixed into the summary batch because the new renderer scales shoulder,
+refraction and dispersion distances from the surface short edge. Mixing these sizes into one global batch optical
+scale would alter the visual result.
+
+A card that misses any reviewed dimension automatically falls back to the original standalone `GlassPanel`
+Shell. This includes narrow screens where the two-column card width becomes smaller than `148 dp`, and startup
+frames before the complete backdrop pyramid is ready.
+
+The lossless batch keeps the renderer and Compose frame parameter paths separate:
+
+- the GPU renderer resolves `LocalNewOpenGlGlassStyleOverride` and `newOpenGlGlassIntensity` exactly like the
+  standalone new OpenGL host;
+- the Compose outer frame keeps the original call-site intensity and press-driven intensity scale;
+- all press timings, transforms, rim-flow values and overlay formulas remain unchanged;
+- no shader constant, texture level, radius, layout height, text layout or entrance animation may be changed as
+  part of this batching optimization.
+
+The batch implementation is split into stable layers:
+
+- `OpenGlShellBatch.kt`: shared host and eligibility policy only;
+- `OpenGlShellBatchSurface.kt`: registration, geometry, click and gesture state;
+- `OpenGlShellBatchContent.kt`: dynamic frame content and exact standalone intensity resolution;
+- `OpenGlShellBatchOptics.kt`: unchanged press optics and outer-frame formulas.
+
+This split is a recomposition boundary, not a visual redesign. Dynamic frame changes must not restart registry,
+coordinate, pointer-input or click-state groups.
+
 The stable chat structure must remain intact:
 
 - `FixedHeightOverflowSlot`
@@ -124,6 +164,9 @@ Special glass components such as frosted panels, inset slots and backdrop-crop s
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/Glass.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellGlass.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellBatch.kt`
+- `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellBatchSurface.kt`
+- `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellBatchContent.kt`
+- `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/OpenGlShellBatchOptics.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/LegacyOpenGLGlassPreviewShell.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/CachedTabHost.kt`
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/BackdropCoordinates.kt`
@@ -133,4 +176,5 @@ Special glass components such as frosted panels, inset slots and backdrop-crop s
 - `ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/gl/OpenGLGlassCardLayer.kt`
 - any file that introduces an OpenGL registry, batched OpenGL layer, or geometry sync
 
-The performance target is: large glass can be OpenGL, ordinary glass must never be pulled into OpenGL by default.
+The performance target is: reviewed OpenGL Shells keep their exact visual result while sharing expensive runtime
+resources; ordinary glass must never be pulled into OpenGL by default.
