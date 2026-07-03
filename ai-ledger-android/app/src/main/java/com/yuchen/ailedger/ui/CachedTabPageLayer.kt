@@ -38,6 +38,13 @@ private const val PAGE_HIDDEN_ALPHA_EPSILON = 0.001f
 private const val PAGE_HORIZONTAL_UNBOUNDED_CLIP_PX = 1_000_000f
 
 /**
+ * 功能页四张双列摘要卡固定为 148 dp 高。只把这一组同规格 Shell 放进同一个批宿主，
+ * 顶部股票 Hero、计划卡和操作学习卡继续使用各自原来的独立宿主，确保每种短边尺寸仍使用
+ * 原有的光学缩放，视觉参数完全不变。
+ */
+private val TOOLS_SUMMARY_BATCH_SHORT_EDGE_DP = 140f..160f
+
+/**
  * 底部导航栏的可视高度为 56 dp，外层底边距为 6 dp。
  * 再向上保留 8 dp 安全间隔，使普通页面的卡片、雾面玻璃和点击区域
  * 在进入导航栏假折射区域之前就被真实布局边界截断。
@@ -142,7 +149,17 @@ internal fun CachedTabPageLayer(
                             modifier = Modifier.fillMaxSize(),
                             includeAdaptiveSettingsFrost = tab == AppTab.Settings,
                         ) {
-                            content(tab)
+                            if (tab == AppTab.Tools) {
+                                OpenGlShellBatchHost(
+                                    modifier = Modifier.fillMaxSize(),
+                                    acceptedShortEdgeDp = TOOLS_SUMMARY_BATCH_SHORT_EDGE_DP,
+                                    preserveStandaloneFrame = true,
+                                ) {
+                                    content(tab)
+                                }
+                            } else {
+                                content(tab)
+                            }
                         }
                     }
                 }
