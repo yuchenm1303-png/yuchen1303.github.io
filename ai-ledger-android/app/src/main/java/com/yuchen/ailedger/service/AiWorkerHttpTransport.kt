@@ -35,8 +35,10 @@ internal class AiWorkerHttpTransport(
             applyClientHeaders(this, stream = false)
         }
         return try {
+            val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
+            AssistantMemoryUsageBridge.captureRequestBytes(requestBytes.size)
             connection.outputStream.use { output ->
-                output.write(payload.toString().toByteArray(Charsets.UTF_8))
+                output.write(requestBytes)
             }
             val status = connection.responseCode
             val body = readBody(connection, status)
@@ -92,8 +94,10 @@ internal class AiWorkerHttpTransport(
         val deltaCoalescer = StreamingDeltaCoalescer(onDelta = onDelta)
 
         return try {
+            val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
+            AssistantMemoryUsageBridge.captureRequestBytes(requestBytes.size)
             connection.outputStream.use { output ->
-                output.write(payload.toString().toByteArray(Charsets.UTF_8))
+                output.write(requestBytes)
             }
             val status = connection.responseCode
             val contentType = connection.contentType.orEmpty().lowercase()
@@ -229,6 +233,9 @@ internal class AiWorkerHttpTransport(
         val sseData = StringBuilder()
         while (true) {
             val line = readLine() ?: break
+            AssistantMemoryUsageBridge.addResponseBytes(
+                line.toByteArray(Charsets.UTF_8).size + 1,
+            )
             when {
                 line.isBlank() -> {
                     val payload = sseData.toString().trim()
@@ -307,10 +314,12 @@ internal class AiWorkerHttpTransport(
         } else {
             connection.errorStream
         }
-        return stream
+        val body = stream
             ?.bufferedReader(Charsets.UTF_8)
             ?.use { reader -> reader.readText() }
             .orEmpty()
+        AssistantMemoryUsageBridge.addResponseBytes(body.toByteArray(Charsets.UTF_8).size)
+        return body
     }
 
     private fun String.toJsonOrNull(): JSONObject? = try {
