@@ -87,6 +87,12 @@ private val DashboardViolet = Color(0xFFB49BFF)
 private val DashboardMint = Color(0xFF7BE8D2)
 private val DashboardWarm = Color(0xFFFFC58A)
 
+private enum class DashboardArtIcon {
+    Statistics,
+    AppControl,
+    OperationLearning,
+}
+
 private data class DeviceToolsSummary(
     val loaded: Boolean = false,
     val installedApps: Int = 0,
@@ -793,16 +799,152 @@ private fun DashboardIcon(
 }
 
 @Composable
+private fun DashboardArtIcon(
+    art: DashboardArtIcon,
+    tone: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(tone.copy(alpha = 0.14f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(24.dp)) {
+            val stroke = 1.65.dp.toPx()
+            when (art) {
+                DashboardArtIcon.Statistics -> {
+                    val barWidth = 3.4.dp.toPx()
+                    val bottom = size.height * 0.84f
+                    val heights = listOf(0.34f, 0.57f, 0.82f)
+                    val xPositions = listOf(0.16f, 0.42f, 0.68f)
+                    heights.forEachIndexed { index, ratio ->
+                        val barHeight = size.height * ratio
+                        drawRoundRect(
+                            color = tone.copy(alpha = 0.55f + index * 0.16f),
+                            topLeft = Offset(size.width * xPositions[index], bottom - barHeight),
+                            size = Size(barWidth, barHeight),
+                            cornerRadius = CornerRadius(barWidth, barWidth),
+                        )
+                    }
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.92f),
+                        radius = 1.7.dp.toPx(),
+                        center = Offset(size.width * 0.79f, size.height * 0.14f),
+                    )
+                }
+
+                DashboardArtIcon.AppControl -> {
+                    val cell = 6.2.dp.toPx()
+                    val radius = CornerRadius(2.2.dp.toPx(), 2.2.dp.toPx())
+                    val left = size.width * 0.16f
+                    val top = size.height * 0.16f
+                    val gap = 3.2.dp.toPx()
+                    drawRoundRect(
+                        color = tone.copy(alpha = 0.92f),
+                        topLeft = Offset(left, top),
+                        size = Size(cell, cell),
+                        cornerRadius = radius,
+                    )
+                    drawRoundRect(
+                        color = tone.copy(alpha = 0.56f),
+                        topLeft = Offset(left + cell + gap, top),
+                        size = Size(cell, cell),
+                        cornerRadius = radius,
+                    )
+                    drawRoundRect(
+                        color = tone.copy(alpha = 0.56f),
+                        topLeft = Offset(left, top + cell + gap),
+                        size = Size(cell, cell),
+                        cornerRadius = radius,
+                    )
+                    val controlCenter = Offset(
+                        left + cell + gap + cell / 2f,
+                        top + cell + gap + cell / 2f,
+                    )
+                    drawCircle(
+                        color = tone.copy(alpha = 0.95f),
+                        radius = cell * 0.48f,
+                        center = controlCenter,
+                        style = Stroke(width = stroke),
+                    )
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.92f),
+                        radius = 1.45.dp.toPx(),
+                        center = controlCenter,
+                    )
+                }
+
+                DashboardArtIcon.OperationLearning -> {
+                    val start = Offset(size.width * 0.13f, size.height * 0.72f)
+                    val middle = Offset(size.width * 0.50f, size.height * 0.28f)
+                    val end = Offset(size.width * 0.87f, size.height * 0.72f)
+                    val route = Path().apply {
+                        moveTo(start.x, start.y)
+                        cubicTo(
+                            size.width * 0.31f,
+                            size.height * 0.72f,
+                            size.width * 0.29f,
+                            size.height * 0.28f,
+                            middle.x,
+                            middle.y,
+                        )
+                        cubicTo(
+                            size.width * 0.71f,
+                            size.height * 0.28f,
+                            size.width * 0.69f,
+                            size.height * 0.72f,
+                            end.x,
+                            end.y,
+                        )
+                    }
+                    drawPath(
+                        path = route,
+                        color = tone.copy(alpha = 0.76f),
+                        style = Stroke(width = stroke, cap = StrokeCap.Round),
+                    )
+                    listOf(start, middle, end).forEachIndexed { index, point ->
+                        drawCircle(
+                            color = tone.copy(alpha = if (index == 1) 0.98f else 0.74f),
+                            radius = if (index == 1) 3.1.dp.toPx() else 2.5.dp.toPx(),
+                            center = point,
+                        )
+                    }
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.94f),
+                        radius = 1.25.dp.toPx(),
+                        center = middle,
+                    )
+                    drawLine(
+                        color = tone.copy(alpha = 0.82f),
+                        start = Offset(end.x - 2.9.dp.toPx(), end.y - 2.4.dp.toPx()),
+                        end = end,
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun DashboardCardHeader(
     symbol: String,
     title: String,
     tone: Color,
+    art: DashboardArtIcon? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        DashboardIcon(symbol = symbol, tone = tone)
+        if (art == null) {
+            DashboardIcon(symbol = symbol, tone = tone)
+        } else {
+            DashboardArtIcon(art = art, tone = tone)
+        }
         Spacer(Modifier.width(10.dp))
         Text(
             title,
@@ -883,7 +1025,12 @@ private fun StatisticsSummaryCard(
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            DashboardCardHeader(symbol = "▥", title = "数据统计", tone = DashboardViolet)
+            DashboardCardHeader(
+                symbol = "",
+                title = "数据统计",
+                tone = DashboardViolet,
+                art = DashboardArtIcon.Statistics,
+            )
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
@@ -998,7 +1145,12 @@ private fun AppControlSummaryCard(
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            DashboardCardHeader(symbol = "▦", title = "应用控制", tone = DashboardMint)
+            DashboardCardHeader(
+                symbol = "",
+                title = "应用控制",
+                tone = DashboardMint,
+                art = DashboardArtIcon.AppControl,
+            )
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text(
                     if (loaded) "$installedApps 个应用" else "正在读取应用",
@@ -1140,7 +1292,10 @@ private fun OperationLearningSummaryCard(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DashboardIcon(symbol = "◇", tone = DashboardWarm)
+            DashboardArtIcon(
+                art = DashboardArtIcon.OperationLearning,
+                tone = DashboardViolet,
+            )
             Spacer(Modifier.width(12.dp))
             Column(
                 modifier = Modifier.weight(1f),
