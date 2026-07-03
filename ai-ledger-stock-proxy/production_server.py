@@ -30,7 +30,7 @@ app = stock_server.app
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.production")
 _PROCESS_STARTED_AT = monotonic()
 _PROCESS_STARTED_ISO = datetime.now(timezone.utc).isoformat()
-_SERVICE_VERSION = "0.9.9-tools-index-four-lane"
+_SERVICE_VERSION = "0.9.10-stock-request-priority"
 _HOT_TICK_INTERVAL_SECONDS = 0.9
 _HOT_TICK_MIN_AGE_SECONDS = 0.72
 _HOT_SYMBOL_TTL_SECONDS = 30.0
@@ -41,6 +41,23 @@ _STAGE_PATHS = (
 )
 _hot_tick_task: asyncio.Task[None] | None = None
 _hot_tick_semaphore = asyncio.Semaphore(4)
+
+
+def _disable_index_compact_startup_warmup() -> None:
+    """生产冷启动不主动抓三大指数，避免和首个个股请求争抢单实例资源。"""
+    warm_handler = getattr(index_compact_server, "_warm_tools_index_hero", None)
+    stop_handler = getattr(index_compact_server, "_stop_tools_index_hero_warmup", None)
+    if warm_handler is not None:
+        app.router.on_startup[:] = [
+            handler for handler in app.router.on_startup if handler is not warm_handler
+        ]
+    if stop_handler is not None:
+        app.router.on_shutdown[:] = [
+            handler for handler in app.router.on_shutdown if handler is not stop_handler
+        ]
+
+
+_disable_index_compact_startup_warmup()
 
 
 def _remove_get_routes(paths: set[str]) -> None:
@@ -222,6 +239,7 @@ def health() -> dict[str, Any]:
             "trendPath": index_compact_server.INDEX_COMPACT_TREND_PATH,
             "version": index_compact_server.INDEX_COMPACT_CACHE_VERSION,
             "batchCodes": list(index_compact_server.INDEX_COMPACT_BATCH_CODES),
+            "startupWarmup": False,
         },
         "realtime": {
             **_safe_runtime_diagnostics(),
