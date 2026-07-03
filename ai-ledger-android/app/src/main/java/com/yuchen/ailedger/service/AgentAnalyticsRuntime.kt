@@ -56,6 +56,8 @@ internal object AgentAnalyticsRuntime {
         var userInputsSubmitted: Long = 0L,
         var userTakeovers: Long = 0L,
         var takeoverResumes: Long = 0L,
+        var lastActionText: String = "",
+        val knownAppLabels: MutableSet<String> = linkedSetOf(),
         val seenConfirmationIds: MutableSet<Long> = mutableSetOf(),
         val seenInputIds: MutableSet<Long> = mutableSetOf(),
         val actionUsage: MutableMap<String, MutableUsageCounter> = linkedMapOf(),
@@ -107,12 +109,13 @@ internal object AgentAnalyticsRuntime {
                     when {
                         entry.startsWith("结果：") -> recordActionResultLocked(
                             task = task,
-                            actionText = progress.currentAction,
+                            actionText = task.lastActionText.ifBlank { progress.currentAction },
                             success = progress.status != "重新规划",
                         )
                         entry.startsWith("确认：继续执行") -> task.confirmationsAccepted += 1L
                         entry.startsWith("输入：用户已提供内容") -> task.userInputsSubmitted += 1L
                         entry.startsWith("恢复：") -> task.takeoverResumes += 1L
+                        isActionLogEntry(entry) -> task.lastActionText = entry.trim().take(MAX_ACTION_TEXT_CHARS)
                     }
                 }
 
@@ -242,10 +245,17 @@ internal object AgentAnalyticsRuntime {
             repository()?.recordModelCall(call)
             if (taskId <= 0L) return@runCatching
             synchronized(lock) {
+                val currentProgress = AgentRuntimeController.progress.value
+                    .takeIf { it.taskId == taskId }
+                val fallbackGoal = currentProgress
+                    ?.logs
+                    ?.firstOrNull { it.startsWith("目标：") }
+                    ?.removePrefix("目标：")
+                    .orEmpty()
                 val task = tasks[taskId] ?: ensureTaskLocked(
                     taskId = taskId,
-                    goal = payload.optString("goal"),
-                    startedAtMillis = System.currentTimeMillis(),
+                    goal = payload.optString("goal").ifBlank { fallbackGoal },
+                    startedAtMillis = currentProgress?.updatedAt ?: System.currentTimeMillis(),
                 )
                 task.modelCalls += 1L
                 if (!success) task.modelFailures += 1L
@@ -271,11 +281,11 @@ internal object AgentAnalyticsRuntime {
             RunningTask(
                 taskId = taskId,
                 goal = goal.trim().take(MAX_GOAL_CHARS),
-                startedAtMillis = startedAtMillis,
+                startedAtMillis = startedAtMillis.coerceAtLeast(1L),
             ).also { task -> repository()?.beginTask(taskId, task.goal, task.startedAtMillis) }
         }.also { task ->
             if (task.goal.isBlank() && goal.isNotBlank()) task.goal = goal.trim().take(MAX_GOAL_CHARS)
-            task.startedAtMillis = minOf(task.startedAtMillis, startedAtMillis)
+            task.startedAtMillis = minOf(task.startedAtMillis, startedAtMillis.coerceAtLeast(1L))
         }
     }
 
@@ -284,9 +294,13 @@ internal object AgentAnalyticsRuntime {
         val parts = clean.split(" · ").map(String::trim).filter(String::isNotBlank)
         val actionLabel = parts.firstOrNull().orEmpty().ifBlank { "未知动作" }.take(MAX_LABEL_CHARS)
         val actionKey = normalizeKey(actionLabel)
-        val appLabel = parts.getOrNull(1)
-            ?.takeIf { it.isNotBlank() && !it.startsWith("节点 ") && !it.startsWith("输入 ") }
-            ?.take(MAX_LABEL_CHARS)
+        val secondPart = parts.getOrNull(1)?.take(MAX_LABEL_CHARS)
+        val isOpenApp = actionLabel.contains("打开应用") ||
+            actionLabel.contains("启动应用") ||
+            actionLabel.equals("open app", ignoreCase = true)
+        if (isOpenApp && !secondPart.isNullOrBlank()) task.knownAppLabels += secondPart
+        // 只有被 open_app 明确验证过的名称才作为应用统计，避免把按钮文字或输入目标误存成 App 名。
+        val appLabel = secondPart?.takeIf { it in task.knownAppLabels }
 
         task.executedActions += 1L
         if (success) task.successfulActions += 1L else task.failedActions += 1L
@@ -364,6 +378,12 @@ internal object AgentAnalyticsRuntime {
         return current
     }
 
+    private fun isActionLogEntry(entry: String): Boolean {
+        val clean = entry.trim()
+        if (clean.isBlank()) return false
+        return LOG_PREFIXES.none(clean::startsWith)
+    }
+
     private fun normalizeStatus(status: String): String = when (status.trim()) {
         "已完成" -> "completed"
         "执行失败", "失败", "任务异常" -> "failed"
@@ -400,9 +420,14 @@ internal object AgentAnalyticsRuntime {
             ?.also { repositoryCache = it }
     }
 
+    private val LOG_PREFIXES = listOf(
+        "目标：", "结果：", "诊断：", "模型：", "模型续：", "等待确认：", "确认：",
+        "等待输入：", "输入：", "接管：", "恢复：", "完成：", "失败：", "暂停：", "停止：", "上限：",
+    )
     private const val MAX_CURSOR_COUNT = 64
     private const val MAX_GOAL_CHARS = 240
     private const val MAX_RESULT_CHARS = 320
+    private const val MAX_ACTION_TEXT_CHARS = 180
     private const val MAX_KEY_CHARS = 120
     private const val MAX_LABEL_CHARS = 80
 }
