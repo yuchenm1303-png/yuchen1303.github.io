@@ -19,6 +19,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class LedgerSyncPhase {
@@ -54,15 +56,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val authClient = SupabaseAuthClient()
     private val ledgerClient = SupabaseLedgerClient()
     private val idSeed = AtomicLong(System.currentTimeMillis())
+    private val persistenceMutex = Mutex()
     private var syncJob: Job? = null
     private var delayedSyncJob: Job? = null
 
-    var state by mutableStateOf(
-        LedgerScreenState(
-            records = ledgerStore.loadRecords(),
-            budgetText = ledgerStore.loadBudget()
-        )
-    )
+    var state by mutableStateOf(LedgerScreenState())
         private set
 
     init {
@@ -82,28 +80,35 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun reloadLocalState() {
-        state = state.copy(
-            records = ledgerStore.loadRecords(),
-            budgetText = ledgerStore.loadBudget()
-        )
+        viewModelScope.launch {
+            val snapshot = withContext(Dispatchers.IO) {
+                ledgerStore.loadRecords() to ledgerStore.loadBudget()
+            }
+            state = state.copy(
+                records = snapshot.first,
+                budgetText = snapshot.second,
+            )
+        }
     }
 
     fun refreshAccountAndSync() {
-        val stored = sessionStore.load()
-        if (stored == null || !stored.isUsable) {
+        viewModelScope.launch {
+            val stored = withContext(Dispatchers.IO) { sessionStore.load() }
+            if (stored == null || !stored.isUsable) {
+                state = state.copy(
+                    accountEmail = null,
+                    syncPhase = LedgerSyncPhase.LocalOnly,
+                    syncMessage = "登录后自动开启云同步"
+                )
+                return@launch
+            }
             state = state.copy(
-                accountEmail = null,
-                syncPhase = LedgerSyncPhase.LocalOnly,
-                syncMessage = "登录后自动开启云同步"
+                accountEmail = stored.email,
+                syncPhase = if (state.syncPhase == LedgerSyncPhase.Synced) state.syncPhase else LedgerSyncPhase.Ready,
+                syncMessage = if (state.syncPhase == LedgerSyncPhase.Synced) state.syncMessage else "账号已连接，准备同步"
             )
-            return
+            syncNow()
         }
-        state = state.copy(
-            accountEmail = stored.email,
-            syncPhase = if (state.syncPhase == LedgerSyncPhase.Synced) state.syncPhase else LedgerSyncPhase.Ready,
-            syncMessage = if (state.syncPhase == LedgerSyncPhase.Synced) state.syncMessage else "账号已连接，准备同步"
-        )
-        syncNow()
     }
 
     fun updateTitle(value: String) {
@@ -132,7 +137,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         val clean = sanitizeMoney(value)
         state = state.copy(budgetText = clean)
         clean.toDoubleOrNull()?.let {
-            ledgerStore.saveBudget(clean)
+            persist { ledgerStore.saveBudget(clean) }
             scheduleSync()
         }
     }
@@ -166,7 +171,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }
                 .thenByDescending { it.id }
         )
-        ledgerStore.saveRecords(next)
+        persist { ledgerStore.saveRecords(next) }
         state = state.copy(
             records = next,
             draftTitle = "",
@@ -204,8 +209,10 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         if (id.isBlank()) return
         val next = state.records.filterNot { it.id == id }
         if (next.size == state.records.size) return
-        ledgerStore.saveRecords(next)
-        ledgerStore.markDeleted(id)
+        persist {
+            ledgerStore.saveRecords(next)
+            ledgerStore.markDeleted(id)
+        }
         state = state.copy(
             records = next,
             editingRecordId = state.editingRecordId?.takeUnless { it == id },
@@ -233,27 +240,29 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             )
             try {
                 val result = withContext(Dispatchers.IO) {
-                    val localRecords = ledgerStore.loadRecords()
-                    val deletedIds = ledgerStore.loadDeletedIds()
-                    if (deletedIds.isNotEmpty()) ledgerClient.deleteRecords(session, deletedIds)
-                    val remoteRecords = ledgerClient.fetchRecords(session).filterNot { it.id in deletedIds }
-                    val mergedMap = LinkedHashMap<String, LedgerRecord>()
-                    remoteRecords.forEach { mergedMap[it.id] = it }
-                    localRecords.forEach { mergedMap[it.id] = it }
-                    val merged = mergedMap.values.sortedWith(
-                        compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }
-                            .thenByDescending { it.id }
-                    )
-                    ledgerStore.saveRecords(merged)
-                    if (merged.isNotEmpty()) ledgerClient.upsertRecords(session, merged)
+                    persistenceMutex.withLock {
+                        val localRecords = ledgerStore.loadRecords()
+                        val deletedIds = ledgerStore.loadDeletedIds()
+                        if (deletedIds.isNotEmpty()) ledgerClient.deleteRecords(session, deletedIds)
+                        val remoteRecords = ledgerClient.fetchRecords(session).filterNot { it.id in deletedIds }
+                        val mergedMap = LinkedHashMap<String, LedgerRecord>()
+                        remoteRecords.forEach { mergedMap[it.id] = it }
+                        localRecords.forEach { mergedMap[it.id] = it }
+                        val merged = mergedMap.values.sortedWith(
+                            compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }
+                                .thenByDescending { it.id }
+                        )
+                        ledgerStore.saveRecords(merged)
+                        if (merged.isNotEmpty()) ledgerClient.upsertRecords(session, merged)
 
-                    val localBudget = ledgerStore.loadBudget()
-                    val remoteBudget = ledgerClient.fetchBudget(session)
-                    val finalBudget = if (!ledgerStore.hasSavedBudget() && remoteBudget != null) remoteBudget else localBudget
-                    ledgerStore.saveBudget(finalBudget)
-                    if (remoteBudget == null || ledgerStore.hasSavedBudget()) ledgerClient.upsertBudget(session, finalBudget)
-                    if (deletedIds.isNotEmpty()) ledgerStore.clearDeletedIds(deletedIds)
-                    merged to finalBudget
+                        val localBudget = ledgerStore.loadBudget()
+                        val remoteBudget = ledgerClient.fetchBudget(session)
+                        val finalBudget = if (!ledgerStore.hasSavedBudget() && remoteBudget != null) remoteBudget else localBudget
+                        ledgerStore.saveBudget(finalBudget)
+                        if (remoteBudget == null || ledgerStore.hasSavedBudget()) ledgerClient.upsertBudget(session, finalBudget)
+                        if (deletedIds.isNotEmpty()) ledgerStore.clearDeletedIds(deletedIds)
+                        merged to finalBudget
+                    }
                 }
                 state = state.copy(
                     records = result.first,
@@ -275,12 +284,20 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun exportJson(): String = ledgerStore.exportJson(state.records, state.budgetText)
 
+    private fun persist(block: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            persistenceMutex.withLock { block() }
+        }
+    }
+
     private fun scheduleSync() {
-        if (!state.isLoggedIn && sessionStore.load() == null) return
         delayedSyncJob?.cancel()
         delayedSyncJob = viewModelScope.launch {
             delay(650L)
-            syncNow()
+            val hasSession = state.isLoggedIn || withContext(Dispatchers.IO) {
+                sessionStore.load() != null
+            }
+            if (hasSession) syncNow()
         }
     }
 
