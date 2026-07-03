@@ -11,6 +11,21 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+internal enum class AgentAnalyticsCloudSyncSource {
+    Network,
+    Cache,
+    Skipped,
+    Failed,
+}
+
+internal data class AgentAnalyticsCloudSyncResult(
+    val otherDevicesDaily: List<AgentDailyActivity> = emptyList(),
+    val source: AgentAnalyticsCloudSyncSource = AgentAnalyticsCloudSyncSource.Skipped,
+    val syncedAtMillis: Long = 0L,
+    val uploadedDayCount: Int = 0,
+    val errorMessage: String? = null,
+)
+
 /** 登录账号的每日聚合统计同步，只在统计页可见期间触发。 */
 internal class AgentAnalyticsCloudRepository private constructor(context: Context) {
     private data class CacheEntry(
@@ -34,13 +49,25 @@ internal class AgentAnalyticsCloudRepository private constructor(context: Contex
     suspend fun sync(
         owner: AgentAnalyticsOwner,
         local: AgentAnalyticsSnapshot,
-    ): List<AgentDailyActivity> = withContext(Dispatchers.IO) {
-        if (owner.isGuest || owner.userId.isNullOrBlank() || !local.loaded) return@withContext emptyList()
+    ): List<AgentDailyActivity> = syncWithStatus(owner, local).otherDevicesDaily
+
+    suspend fun syncWithStatus(
+        owner: AgentAnalyticsOwner,
+        local: AgentAnalyticsSnapshot,
+    ): AgentAnalyticsCloudSyncResult = withContext(Dispatchers.IO) {
+        if (owner.isGuest || owner.userId.isNullOrBlank() || !local.loaded) {
+            return@withContext AgentAnalyticsCloudSyncResult()
+        }
         mutex.withLock {
             val accountState = authRepository.state.value
             val session = accountState.session
                 ?.takeIf { accountState.isLoggedIn && it.userId == owner.userId && it.isUsable }
-                ?: return@withLock emptyList()
+                ?: return@withLock AgentAnalyticsCloudSyncResult(
+                    source = AgentAnalyticsCloudSyncSource.Skipped,
+                    syncedAtMillis = lastSuccessAt(owner),
+                    errorMessage = "登录状态不可用，当前仅显示本机数据。",
+                )
+
             val now = System.currentTimeMillis()
             val localLastActivity = local.dailyActivity.maxOfOrNull {
                 it.lastActivityAtMillis.coerceAtLeast(0L)
@@ -50,7 +77,11 @@ internal class AgentAnalyticsCloudRepository private constructor(context: Contex
                     now - entry.fetchedAtMillis < CACHE_TTL_MS &&
                     localLastActivity <= entry.localLastActivityAtMillis
                 ) {
-                    return@withLock entry.otherDevicesDaily
+                    return@withLock AgentAnalyticsCloudSyncResult(
+                        otherDevicesDaily = entry.otherDevicesDaily,
+                        source = AgentAnalyticsCloudSyncSource.Cache,
+                        syncedAtMillis = entry.fetchedAtMillis,
+                    )
                 }
             }
 
@@ -59,35 +90,62 @@ internal class AgentAnalyticsCloudRepository private constructor(context: Contex
             val changedDaily = local.dailyActivity.filter {
                 it.lastActivityAtMillis.coerceAtLeast(0L) > uploadedThrough
             }
-            val remoteDaily = runCatching {
+            val remoteDaily = try {
                 client.syncDaily(
                     session = session,
                     deviceId = AgentClientIdentity.getOrCreateDeviceId(appContext),
                     changedDaily = changedDaily,
                     sinceDateKey = DEFAULT_SINCE_DATE,
                 )
-            }.getOrElse {
-                return@withLock cache[owner.storageKey]?.otherDevicesDaily.orEmpty()
+            } catch (_: Throwable) {
+                val cached = cache[owner.storageKey]
+                return@withLock AgentAnalyticsCloudSyncResult(
+                    otherDevicesDaily = cached?.otherDevicesDaily.orEmpty(),
+                    source = AgentAnalyticsCloudSyncSource.Failed,
+                    syncedAtMillis = cached?.fetchedAtMillis ?: lastSuccessAt(owner),
+                    errorMessage = "云端同步暂时不可用，当前继续显示本机统计。",
+                )
             }
 
-            if (authRepository.state.value.userId != owner.userId) return@withLock emptyList()
+            if (authRepository.state.value.userId != owner.userId) {
+                return@withLock AgentAnalyticsCloudSyncResult(
+                    source = AgentAnalyticsCloudSyncSource.Skipped,
+                    errorMessage = "账号已经切换，本次同步结果已忽略。",
+                )
+            }
+
             val uploadedMax = changedDaily.maxOfOrNull {
                 it.lastActivityAtMillis.coerceAtLeast(0L)
             } ?: uploadedThrough
-            if (uploadedMax > uploadedThrough) {
-                preferences.edit().putLong(watermarkKey, uploadedMax).apply()
-            }
+            val successAt = System.currentTimeMillis()
+            preferences.edit()
+                .apply {
+                    if (uploadedMax > uploadedThrough) putLong(watermarkKey, uploadedMax)
+                    putLong(lastSuccessKey(owner), successAt)
+                }
+                .apply()
             cache[owner.storageKey] = CacheEntry(
-                fetchedAtMillis = now,
+                fetchedAtMillis = successAt,
                 localLastActivityAtMillis = localLastActivity,
                 otherDevicesDaily = remoteDaily,
             )
-            remoteDaily
+            AgentAnalyticsCloudSyncResult(
+                otherDevicesDaily = remoteDaily,
+                source = AgentAnalyticsCloudSyncSource.Network,
+                syncedAtMillis = successAt,
+                uploadedDayCount = changedDaily.size,
+            )
         }
     }
 
     private fun watermarkKey(owner: AgentAnalyticsOwner): String =
         "uploaded_through_${owner.databaseName.removeSuffix(".db")}".take(120)
+
+    private fun lastSuccessKey(owner: AgentAnalyticsOwner): String =
+        "last_success_${owner.databaseName.removeSuffix(".db")}".take(120)
+
+    private fun lastSuccessAt(owner: AgentAnalyticsOwner): Long =
+        preferences.getLong(lastSuccessKey(owner), 0L).coerceAtLeast(0L)
 
     companion object {
         private const val CACHE_TTL_MS = 5L * 60L * 1_000L
