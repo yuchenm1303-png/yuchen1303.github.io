@@ -103,10 +103,6 @@ class AgentAnalyticsRepository private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeMutex = Mutex()
 
-    /**
-     * 统计页关闭时不持续读取和映射历史数据。运行时写入仍直接进入 Room；只有页面订阅后
-     * 才加载热力图、最近任务、模型与能力聚合，避免把统计基础变成常驻启动负担。
-     */
     val state: StateFlow<AgentAnalyticsSnapshot> = combine(
         dao.observeDailyActivity(),
         dao.observeRecentTasks(RECENT_TASK_STATE_LIMIT),
@@ -143,7 +139,6 @@ class AgentAnalyticsRepository private constructor(context: Context) {
 
     internal fun beginTask(taskId: Long, goal: String, startedAtMillis: Long) {
         if (taskId <= 0L) return
-        // 先在调用线程立即取得写锁，再转入 IO 挂起；终态写入不能越过任务开始写入。
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             writeMutex.withLock {
                 if (dao.getTask(taskId) != null) return@withLock
@@ -170,7 +165,6 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 val at = write.modelCall.occurredAtMillis.coerceAtLeast(1L)
                 updateDayLocked(at) { day ->
                     day.copy(
-                        // 成功请求代表一轮实际对话；最终失败只进入失败与模型调用统计。
                         chatCalls = safeAdd(day.chatCalls, if (write.modelCall.success) 1L else 0L),
                         chatFailures = safeAdd(day.chatFailures, if (write.modelCall.success) 0L else 1L),
                         webSearches = safeAdd(day.webSearches, if (write.webSearchUsed) 1L else 0L),
@@ -209,15 +203,26 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                     )
                 val merged = existing.merge(write)
                 val firstTerminalWrite = existing.endedAtMillis == null
+                val completedNow = firstTerminalWrite && isCompletedStatus(merged.status)
+                val assistedCompletion = completedNow && merged.hasUserIntervention()
                 dao.upsertTask(merged)
                 updateDayLocked(write.endedAtMillis.coerceAtLeast(merged.startedAtMillis)) { day ->
-                    val outcome = if (firstTerminalWrite) outcomeDelta(write.status) else OutcomeDelta()
+                    val outcome = if (firstTerminalWrite) outcomeDelta(merged.status) else OutcomeDelta()
                     day.copy(
                         completedTasks = safeAdd(day.completedTasks, outcome.completed),
+                        autonomousCompletedTasks = safeAdd(
+                            day.autonomousCompletedTasks,
+                            if (completedNow && !assistedCompletion) 1L else 0L,
+                        ),
+                        assistedCompletedTasks = safeAdd(
+                            day.assistedCompletedTasks,
+                            if (assistedCompletion) 1L else 0L,
+                        ),
                         failedTasks = safeAdd(day.failedTasks, outcome.failed),
                         pausedTasks = safeAdd(day.pausedTasks, outcome.paused),
                         cancelledTasks = safeAdd(day.cancelledTasks, outcome.cancelled),
                         budgetExceededTasks = safeAdd(day.budgetExceededTasks, outcome.budgetExceeded),
+                        agentModelTurns = safeAdd(day.agentModelTurns, positiveDelta(merged.modelTurns, existing.modelTurns)),
                         taskDurationMs = safeAdd(day.taskDurationMs, positiveDelta(merged.durationMs, existing.durationMs)),
                         executedActions = safeAdd(day.executedActions, positiveDelta(merged.executedActions, existing.executedActions)),
                         successfulActions = safeAdd(day.successfulActions, positiveDelta(merged.successfulActions, existing.successfulActions)),
@@ -281,6 +286,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 val at = updated.endedAtMillis ?: System.currentTimeMillis()
                 updateDayLocked(at) { day ->
                     day.copy(
+                        agentModelTurns = safeAdd(day.agentModelTurns, positiveDelta(updated.modelTurns, existing.modelTurns)),
                         executedActions = safeAdd(day.executedActions, positiveDelta(updated.executedActions, existing.executedActions)),
                         observations = safeAdd(day.observations, positiveDelta(updated.observations, existing.observations)),
                         reobservations = safeAdd(day.reobservations, positiveDelta(updated.reobservations, existing.reobservations)),
@@ -295,10 +301,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
     private suspend fun recoverInterruptedTasksLocked(nowMillis: Long) {
         dao.getOpenTasks().forEach { task ->
             val aggregate = dao.getTaskTokenAggregate(task.taskId)
-            val duration = maxOf(
-                task.durationMs,
-                (nowMillis - task.startedAtMillis).coerceAtLeast(0L),
-            )
+            val duration = maxOf(task.durationMs, (nowMillis - task.startedAtMillis).coerceAtLeast(0L))
             val recovered = task.copy(
                 status = STATUS_INTERRUPTED,
                 endedAtMillis = nowMillis,
@@ -441,8 +444,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         if (uses <= 0L) return
         val normalizedKind = kind.trim().ifBlank { "feature" }.take(MAX_KEY_CHARS)
         val normalizedKey = key.trim().ifBlank { "unknown" }.take(MAX_KEY_CHARS)
-        val normalizedLabel = sanitizeStoredText(displayName, MAX_LABEL_CHARS)
-            .ifBlank { normalizedKey }
+        val normalizedLabel = sanitizeStoredText(displayName, MAX_LABEL_CHARS).ifBlank { normalizedKey }
         val old = dao.getCapabilityUsage(normalizedKind, normalizedKey)
         dao.upsertCapabilityUsage(
             (old ?: AgentCapabilityUsageEntity(normalizedKind, normalizedKey, normalizedLabel)).copy(
@@ -474,6 +476,8 @@ class AgentAnalyticsRepository private constructor(context: Context) {
             )
         }
         val completed = daily.sumOf(AgentDailyActivity::completedTasks)
+        val autonomous = daily.sumOf(AgentDailyActivity::autonomousCompletedTasks)
+        val assisted = daily.sumOf(AgentDailyActivity::assistedCompletedTasks)
         val streaks = calculateStreaks(daily)
         return AgentAnalyticsSnapshot(
             dailyActivity = daily,
@@ -488,12 +492,12 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 chatCalls = daily.sumOf(AgentDailyActivity::chatCalls),
                 agentTasks = daily.sumOf(AgentDailyActivity::agentTasks),
                 completedTasks = completed,
-                taskSuccessRate = if (terminalTasks > 0L) {
-                    completed.toFloat() / terminalTasks.toFloat()
-                } else {
-                    0f
-                },
+                autonomousCompletedTasks = autonomous,
+                assistedCompletedTasks = assisted,
+                taskSuccessRate = if (terminalTasks > 0L) completed.toFloat() / terminalTasks.toFloat() else 0f,
+                autonomousCompletionRate = if (completed > 0L) autonomous.toFloat() / completed.toFloat() else 0f,
                 executedActions = daily.sumOf(AgentDailyActivity::executedActions),
+                agentModelTurns = daily.sumOf(AgentDailyActivity::agentModelTurns),
                 modelCalls = daily.sumOf(AgentDailyActivity::modelCalls),
                 totalTaskDurationMs = daily.sumOf(AgentDailyActivity::taskDurationMs),
                 longestTaskDurationMs = longestTaskDurationMs.coerceAtLeast(0L),
@@ -572,6 +576,9 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         )
     }
 
+    private fun AgentTaskAnalyticsEntity.hasUserIntervention(): Boolean =
+        confirmationRequests > 0L || userInputRequests > 0L || userTakeovers > 0L
+
     private data class OutcomeDelta(
         val completed: Long = 0L,
         val failed: Long = 0L,
@@ -587,6 +594,8 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         "budget_exceeded", "已达上限" -> OutcomeDelta(budgetExceeded = 1L)
         else -> OutcomeDelta(failed = 1L)
     }
+
+    private fun isCompletedStatus(status: String): Boolean = status.lowercase() in setOf("completed", "已完成")
 
     private fun Map<String, AgentUsageCounter>.toJson(): String = JSONObject().apply {
         this@toJson.forEach { (key, counter) ->
@@ -618,12 +627,15 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         chatFailures = chatFailures,
         agentTasks = agentTasks,
         completedTasks = completedTasks,
+        autonomousCompletedTasks = autonomousCompletedTasks,
+        assistedCompletedTasks = assistedCompletedTasks,
         failedTasks = failedTasks,
         pausedTasks = pausedTasks,
         cancelledTasks = cancelledTasks,
         budgetExceededTasks = budgetExceededTasks,
         modelCalls = modelCalls,
         modelFailures = modelFailures,
+        agentModelTurns = agentModelTurns,
         inputTokens = inputTokens,
         outputTokens = outputTokens,
         reasoningTokens = reasoningTokens,
