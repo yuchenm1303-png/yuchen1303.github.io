@@ -3,6 +3,7 @@ package com.yuchen.ailedger.service
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -77,46 +78,49 @@ class DeviceControlSpecsTest {
     }
 
     @Test
-    fun routerPreservesBrightnessAliasForStrictValidation() {
-        val step = DeviceControlRouter.fromDeviceControlJson(
-            JSONObject()
-                .put("capability", "system.brightness.set")
-                .put("brightness", 40)
+    fun clientToolCallRejectsBrightnessAliasBeforeExecution() {
+        val step = DeviceControlRouter.fromClientToolCall(
+            JSONObject().apply {
+                put("schema", AI_WORKER_CLIENT_TOOL_CALL_SCHEMA)
+                put("id", "brightness-alias")
+                put("name", "device_control")
+                put("arguments", JSONObject().apply {
+                    put("action", "system.brightness.set")
+                    put("args", JSONObject().put("brightness", 40))
+                })
+            },
         )
 
-        assertEquals("set_brightness", step?.type)
-        assertEquals(40, step?.toolArgs?.optInt("brightness"))
-        assertFalse(step?.toolArgs?.has("percent") == true)
-
-        val validation = DeviceControlSpecs.validate(step!!)
-        assertFalse(validation.ok)
-        assertEquals("non_canonical_args:brightness", validation.reason)
+        assertNull(step)
     }
 
     @Test
-    fun routerPreservesBooleanAndTimeoutAliasesForStrictValidation() {
-        val wifi = DeviceControlRouter.fromDeviceControlJson(
-            JSONObject()
-                .put("capability", "network.wifi_toggle")
-                .put("on", "enabled")
+    fun clientToolCallRejectsBooleanAndTimeoutAliasesBeforeExecution() {
+        val wifi = DeviceControlRouter.fromClientToolCall(
+            JSONObject().apply {
+                put("schema", AI_WORKER_CLIENT_TOOL_CALL_SCHEMA)
+                put("id", "wifi-alias")
+                put("name", "device_control")
+                put("arguments", JSONObject().apply {
+                    put("action", "network.wifi_toggle")
+                    put("args", JSONObject().put("on", "enabled"))
+                })
+            },
         )
-        val timeout = DeviceControlRouter.fromDeviceControlJson(
-            JSONObject()
-                .put("capability", "system.screen_timeout.set")
-                .put("minutes", 2)
+        val timeout = DeviceControlRouter.fromClientToolCall(
+            JSONObject().apply {
+                put("schema", AI_WORKER_CLIENT_TOOL_CALL_SCHEMA)
+                put("id", "timeout-alias")
+                put("name", "device_control")
+                put("arguments", JSONObject().apply {
+                    put("action", "system.screen_timeout.set")
+                    put("args", JSONObject().put("minutes", 2))
+                })
+            },
         )
 
-        assertEquals("enabled", wifi?.toolArgs?.optString("on"))
-        assertFalse(wifi?.toolArgs?.has("enabled") == true)
-        val wifiValidation = DeviceControlSpecs.validate(wifi!!)
-        assertFalse(wifiValidation.ok)
-        assertEquals("non_canonical_args:on", wifiValidation.reason)
-
-        assertEquals(2, timeout?.toolArgs?.optInt("minutes"))
-        assertFalse(timeout?.toolArgs?.has("timeoutMs") == true)
-        val timeoutValidation = DeviceControlSpecs.validate(timeout!!)
-        assertFalse(timeoutValidation.ok)
-        assertEquals("non_canonical_args:minutes", timeoutValidation.reason)
+        assertNull(wifi)
+        assertNull(timeout)
     }
 
     @Test
@@ -124,17 +128,17 @@ class DeviceControlSpecsTest {
         val brightness = DeviceControlRouter.fromDeviceControlJson(
             JSONObject()
                 .put("capability", "system.brightness.set")
-                .put("percent", 40)
+                .put("percent", 40),
         )
         val wifi = DeviceControlRouter.fromDeviceControlJson(
             JSONObject()
                 .put("capability", "network.wifi_toggle")
-                .put("enabled", true)
+                .put("enabled", true),
         )
         val timeout = DeviceControlRouter.fromDeviceControlJson(
             JSONObject()
                 .put("capability", "system.screen_timeout.set")
-                .put("timeoutMs", 120_000)
+                .put("timeoutMs", 120_000),
         )
 
         assertTrue(DeviceControlSpecs.validate(brightness!!).ok)
