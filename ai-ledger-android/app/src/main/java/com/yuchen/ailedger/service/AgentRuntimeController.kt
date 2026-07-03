@@ -280,6 +280,9 @@ object AgentRuntimeController {
             val current = mutableProgress.value
             if (taskId <= 0L || current.taskId != taskId) return@synchronized false
 
+            // 任意终态都立即作废旧 Runner 的代数，并清空所有任务级待处理状态。
+            // 终态只保留一条用户可见结果，不保留旧目标、动作历史或 taskId。
+            manualStopGeneration += 1L
             completePendingConfirmation(false)
             completePendingUserInput(null)
             userTakeoverPaused = false
@@ -288,15 +291,18 @@ object AgentRuntimeController {
             val presentation = outcome.toTerminalPresentation()
             val resultText = outcome.message.trim().take(72).ifBlank { presentation.defaultMessage }
             publishProgress(
-                current.copy(
+                AgentOverlayProgress(
+                    taskId = 0L,
+                    enabled = mutableEnabled.value,
                     running = false,
+                    title = "AI 智能体",
                     status = presentation.status,
-                    currentAction = presentation.currentAction,
+                    currentAction = if (mutableEnabled.value) "等待新任务" else "强制视觉智能体已关闭",
                     lastResult = resultText,
+                    logs = listOf("${presentation.logPrefix}：$resultText"),
                     pendingConfirmation = null,
                     pendingUserInput = null,
                     userTakeoverPaused = false,
-                    logs = (current.logs + "${presentation.logPrefix}：$resultText").takeLast(MAX_LOGS),
                     updatedAt = System.currentTimeMillis(),
                 )
             )
