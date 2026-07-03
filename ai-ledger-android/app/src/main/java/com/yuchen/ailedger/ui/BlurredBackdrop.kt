@@ -94,6 +94,7 @@ internal data class BackdropTextureSet(
         fullWidthPx = fullWidthPx,
         fullHeightPx = fullHeightPx,
         scale = blurScale,
+        // lensImage 现在只代表同一模糊金字塔的 level-0 原始背景，不再作为额外叠加层。
         lensImage = clearImage,
         blurLowImage = blurLowImage,
         blurMediumImage = blurMediumImage,
@@ -113,12 +114,8 @@ internal class BackdropPixelScratch(pixelCount: Int) {
 val LocalBlurredBackdrop = compositionLocalOf<BlurredBackdropBitmap?> { null }
 
 /**
- * Only the single Shell OpenGL host observes this bridge. Ordinary Card/Chip/Floating/Nav/Flex
- * components continue to read LocalBlurredBackdrop and therefore never see a partial pyramid.
- *
- * The critical phase contains the exact clear lens and exact medium blur used by the legacy Shell.
- * Low/high temporarily alias medium only inside the OpenGL bridge because that renderer never samples
- * those slots. Phase ordering prevents a delayed critical callback from overwriting the complete set.
+ * 只有 Shell OpenGL Host 读取阶段性纹理。critical 阶段提供 level-0 和 medium；普通
+ * Card/Chip/Floating/Nav/Flex 继续等待完整金字塔，不会接触半成品。
  */
 internal object OpenGlStartupBackdropBridge {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -194,10 +191,6 @@ internal object OpenGlStartupBackdropBridge {
     }
 }
 
-/**
- * CPU 模糊与磁盘解码共用单个后台优先级构建线程，保证同一时刻只有一套大像素缓冲区工作。
- * PNG 压缩和磁盘持久化独立到另一个低优先级线程，避免缓存写入阻塞最新纹理生成。
- */
 private object BackdropBuildRuntime {
     val dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { task ->
         Thread(
@@ -247,10 +240,6 @@ private data class BackdropBuildResult(
     val shouldPersist: Boolean
 )
 
-/**
- * 同一纹理键只生成一次。参数连续变化时，已经运行的任务允许安全完成，排队中的任务则只让
- * 当前最后请求的键进入磁盘解码和大像素计算；快速调回旧值时也能正确把旧键重新标记为最新。
- */
 private object BackdropBuildRegistry {
     private val inFlight = mutableMapOf<String, Deferred<BackdropBuildResult?>>()
     private var latestRequestedKey: String? = null
@@ -279,15 +268,12 @@ private object BackdropBuildRegistry {
     }
 }
 
-/**
- * V6 在 V5 纹理缓存基础上同步保存亮度积分表。磁盘命中后直接读取小型二进制表，
- * 不再缩放 medium Bitmap、读取像素并重新计算积分数据。
- */
+/** V7 使零迭代和 level-0 单背景语义与旧缓存彻底隔离。 */
 private object BackdropDiskCache {
-    private const val CACHE_VERSION = 6
+    private const val CACHE_VERSION = 7
     private const val MAX_ENTRIES = 2
-    private const val ROOT_DIRECTORY = "glass_backdrop_v6"
-    private const val LEGACY_ROOT_DIRECTORY = "glass_backdrop_v5"
+    private const val ROOT_DIRECTORY = "glass_backdrop_v7"
+    private const val LEGACY_ROOT_DIRECTORY = "glass_backdrop_v6"
     private const val METADATA_FILE = "metadata.txt"
     private const val LUMINANCE_FILE = "luminance.bin"
 
@@ -308,7 +294,6 @@ private object BackdropDiskCache {
         if (metadata[4] != textureKey) return@runCatching null
         val highAliasesMedium = metadata[5].toBooleanStrictOrNull() ?: false
 
-        // 先恢复 Shell 真正需要的清晰镜片与 medium 纹理，其余层继续在同一后台线程解码。
         val clear = decodeBitmap(File(directory, "clear.png")) ?: return@runCatching null
         val medium = decodeBitmap(File(directory, "medium.png")) ?: return@runCatching null
         onCriticalReady?.invoke(
@@ -500,7 +485,7 @@ fun rememberBlurredBackdropBitmap(
             "custom:${identityFile.absolutePath}:${identityFile.lastModified()}:${identityFile.length()}"
         }
     }
-    val textureKey = "v6|$width×$height|$textureParamsKey|levels:$FULL_BACKDROP_BLUR_LEVEL_COUNT|$sourceKey"
+    val textureKey = "v7|$width×$height|$textureParamsKey|levels:$FULL_BACKDROP_BLUR_LEVEL_COUNT|$sourceKey"
     val blurAmount = params.radius.coerceIn(0f, MAX_BACKDROP_BLUR_AMOUNT)
     var textures by remember(textureKey) {
         mutableStateOf(BlurredBackdropMemoryCache.get(textureKey))
@@ -516,7 +501,6 @@ fun rememberBlurredBackdropBitmap(
     }
 
     LaunchedEffect(textureKey) {
-        // 即使当前键直接命中内存，也要同步更新“最新请求”，让队列中的旧参数任务提前退出。
         BackdropBuildRegistry.markLatest(textureKey)
         BlurredBackdropMemoryCache.get(textureKey)?.let { cached ->
             textures = cached
@@ -620,7 +604,6 @@ private fun BackdropDebugParams.textureCacheKey(
     append(brightness.coerceIn(MIN_TEXTURE_BRIGHTNESS, MAX_TEXTURE_BRIGHTNESS).round2()).append('|')
     append(contrast.coerceIn(MIN_TEXTURE_CONTRAST, MAX_TEXTURE_CONTRAST).round2()).append('|')
     append(saturation.coerceIn(MIN_TEXTURE_SATURATION, MAX_TEXTURE_SATURATION).round2())
-    // 当前内置主题玻璃纹理生成器只消费 cloudAlpha；其他云层/月亮参数由主背景直接绘制。
     if (includeThemeLayers) append('|').append(cloudAlpha.round2())
     if (includeCustomTone) append('|').append(customImageToneCacheKey())
 }
@@ -641,6 +624,6 @@ private fun BackdropDebugParams.effectiveTextureScale(): Float =
     scale.coerceIn(MIN_TEXTURE_SCALE, MAX_TEXTURE_SCALE)
 
 private fun BackdropDebugParams.effectiveTextureIterations(): Int =
-    iterations.roundToInt().coerceIn(1, MAX_TEXTURE_ITERATIONS)
+    iterations.roundToInt().coerceIn(0, MAX_TEXTURE_ITERATIONS)
 
 private fun Float.round2(): Float = (this * 100f).roundToInt() / 100f
