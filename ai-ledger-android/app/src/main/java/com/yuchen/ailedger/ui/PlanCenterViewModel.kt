@@ -30,6 +30,7 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
     private val store = PlanTaskStore(application)
     private val scheduler = PlanScheduler(application)
     private var loadJob: Job? = null
+    private var loadGeneration = 0
 
     var uiState by mutableStateOf(PlanCenterUiState())
         private set
@@ -43,17 +44,18 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
      * 这里仅在 IO 线程解析本地快照，不重新注册 AlarmManager，也不做任何磁盘写回。
      */
     private fun loadLightweightSnapshot() {
-        loadJob?.cancel()
+        val generation = beginLoad()
         loadJob = viewModelScope.launch {
             val snapshot = withContext(Dispatchers.IO) {
                 store.loadTasks().sortedForDisplay() to scheduler.exactAlarmReady()
             }
+            if (generation != loadGeneration) return@launch
             uiState = uiState.copy(
                 tasks = snapshot.first,
                 exactAlarmReady = snapshot.second,
                 lastError = null,
             )
-            loadJob = null
+            finishLoad(generation)
         }
     }
 
@@ -62,17 +64,18 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
      * 整条恢复链固定在 IO 调度器，避免首次进入功能首页时阻塞 Compose 入场帧。
      */
     fun refresh() {
-        loadJob?.cancel()
+        val generation = beginLoad()
         loadJob = viewModelScope.launch {
             val snapshot = withContext(Dispatchers.IO) {
                 scheduler.restoreEnabledTasks().sortedForDisplay() to scheduler.exactAlarmReady()
             }
+            if (generation != loadGeneration) return@launch
             uiState = uiState.copy(
                 tasks = snapshot.first,
                 exactAlarmReady = snapshot.second,
                 lastError = null,
             )
-            loadJob = null
+            finishLoad(generation)
         }
     }
 
@@ -171,7 +174,18 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
         uiState = uiState.copy(tasks = updated, lastError = null)
     }
 
+    private fun beginLoad(): Int {
+        loadJob?.cancel()
+        loadGeneration += 1
+        return loadGeneration
+    }
+
+    private fun finishLoad(generation: Int) {
+        if (generation == loadGeneration) loadJob = null
+    }
+
     private fun cancelPendingLoad() {
+        loadGeneration += 1
         loadJob?.cancel()
         loadJob = null
     }
