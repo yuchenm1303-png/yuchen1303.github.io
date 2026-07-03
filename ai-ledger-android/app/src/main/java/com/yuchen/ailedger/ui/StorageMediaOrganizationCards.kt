@@ -18,8 +18,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -135,6 +137,7 @@ internal fun SimilarPhotoGroupCard(
     onToggle: (StorageOrganizationFile) -> Unit,
     onPreview: (StorageOrganizationFile) -> Unit,
 ) {
+    var expanded by remember(group.id) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(23.dp),
@@ -144,7 +147,14 @@ internal fun SimilarPhotoGroupCard(
         Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("视觉相似 · ${group.files.size} 张", color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black)
             Text("最大感知距离 ${group.maxHashDistance} · 批量选择只会加入待清理列表，删除前仍需预览确认。", color = Color.White.copy(alpha = 0.45f), fontSize = 9.8.sp)
-            group.files.forEach { file ->
+            StorageLongListControls(
+                totalCount = group.files.size,
+                expanded = expanded,
+                previewCount = STORAGE_HISTORY_PREVIEW_COUNT,
+                onToggleExpanded = { expanded = !expanded },
+                tone = OrganizationCaution,
+            )
+            storagePreviewItems(group.files, expanded, STORAGE_HISTORY_PREVIEW_COUNT).forEach { file ->
                 OrganizationFileCard(file, file.stableId in selectedIds, { onToggle(file) }, { onPreview(file) })
             }
         }
@@ -158,6 +168,7 @@ internal fun BurstPhotoGroupCard(
     onToggle: (StorageOrganizationFile) -> Unit,
     onPreview: (StorageOrganizationFile) -> Unit,
 ) {
+    var expanded by remember(group.id) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(23.dp),
@@ -176,7 +187,14 @@ internal fun BurstPhotoGroupCard(
                 color = Color.White.copy(alpha = 0.45f),
                 fontSize = 9.8.sp,
             )
-            group.files.forEach { file ->
+            StorageLongListControls(
+                totalCount = group.files.size,
+                expanded = expanded,
+                previewCount = STORAGE_HISTORY_PREVIEW_COUNT,
+                onToggleExpanded = { expanded = !expanded },
+                tone = OrganizationCaution,
+            )
+            storagePreviewItems(group.files, expanded, STORAGE_HISTORY_PREVIEW_COUNT).forEach { file ->
                 OrganizationFileCard(file, file.stableId in selectedIds, { onToggle(file) }, { onPreview(file) })
             }
         }
