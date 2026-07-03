@@ -33,6 +33,33 @@ class AgentAnalyticsTokenParserTest {
     }
 
     @Test
+    fun parsesNestedOpenAiTokenDetails() {
+        val response = JSONObject(
+            """
+            {
+              "usage": {
+                "prompt_tokens": 180,
+                "completion_tokens": 70,
+                "total_tokens": 250,
+                "prompt_tokens_details": {
+                  "cached_tokens": 64
+                },
+                "completion_tokens_details": {
+                  "reasoning_tokens": 42
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val usage = requireNotNull(AgentAnalyticsTokenParser.parseProviderUsage(response))
+
+        assertEquals(64L, usage.cachedInputTokens)
+        assertEquals(42L, usage.reasoningTokens)
+        assertEquals(250L, usage.normalizedTotal)
+    }
+
+    @Test
     fun parsesGeminiUsageMetadata() {
         val response = JSONObject(
             """
@@ -68,6 +95,22 @@ class AgentAnalyticsTokenParserTest {
         assertEquals(AgentTokenAccuracy.Estimated, usage.accuracy)
         assertTrue(usage.inputTokens in 1_024L..1_100L)
         assertTrue(usage.outputTokens > 0L)
+    }
+
+    @Test
+    fun deduplicatesCompatibilityAliasesInEstimatedInput() {
+        val payload = JSONObject().apply {
+            put("message", "请解释三相异步电动机的工作原理")
+            put("prompt", "请解释三相异步电动机的工作原理")
+            put("text", "请解释三相异步电动机的工作原理")
+            put("content", "请解释三相异步电动机的工作原理")
+        }
+        val single = JSONObject().put("message", "请解释三相异步电动机的工作原理")
+
+        val repeatedUsage = AgentAnalyticsTokenParser.estimateUsage(payload, JSONObject())
+        val singleUsage = AgentAnalyticsTokenParser.estimateUsage(single, JSONObject())
+
+        assertEquals(singleUsage.inputTokens, repeatedUsage.inputTokens)
     }
 
     @Test
