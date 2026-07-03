@@ -5,7 +5,9 @@ from unittest.mock import Mock, patch
 
 from fastapi import Response
 
+import fast_stock_server as fast
 import index_compact_server as compact
+import market_breadth_server as breadth
 import market_stage_server as stage
 
 
@@ -93,7 +95,7 @@ class MarketStageServerTest(unittest.TestCase):
         self.assertIn("market_stage: discovery_read_only", discovery["warnings"])
 
     def test_only_breadth_can_start_full_market_refresh(self) -> None:
-        breadth = {
+        breadth_payload = {
             "status": "ok",
             "source": "test",
             "sourceUrlType": "test",
@@ -102,7 +104,7 @@ class MarketStageServerTest(unittest.TestCase):
             "cacheAgeMs": 0,
         }
         with (
-            patch.object(stage, "_cached_breadth", return_value=breadth),
+            patch.object(stage, "_cached_breadth", return_value=breadth_payload),
             patch.object(stage, "_market_refresh_due", return_value=True),
             patch.object(
                 stage.home,
@@ -114,9 +116,94 @@ class MarketStageServerTest(unittest.TestCase):
 
         start.assert_called_once_with()
         self.assertIn("market_stage: background_refresh_started", payload["warnings"])
+        self.assertIn("breadthDiagnostics", payload)
 
     def test_full_market_refresh_window_is_not_aggressive(self) -> None:
         self.assertGreaterEqual(stage.MARKET_REFRESH_SECONDS, 30.0)
+        self.assertEqual(stage.STAGE_VERSION, "v6-full-universe-breadth")
+
+    def test_market_breadth_counts_full_universe_and_board_limits(self) -> None:
+        rows = [
+            {"f12": "600001", "f14": "沪股", "f3": 10.0, "f6": 100.0},
+            {"f12": "000001", "f14": "深股", "f3": -10.0, "f6": 200.0},
+            {"f12": "300001", "f14": "创业板", "f3": 20.0, "f6": 300.0},
+            {"f12": "830001", "f14": "北交所", "f3": -30.0, "f6": 400.0},
+        ]
+        with patch.object(
+            breadth,
+            "_load_full_market_universe",
+            return_value=(rows, 4, 1, ["test full universe"]),
+        ):
+            payload = breadth._build_market_breadth()
+
+        items = payload["items"]
+        self.assertEqual(items["sampleCount"], 4)
+        self.assertEqual(items["reportedTotal"], 4)
+        self.assertEqual(items["coverageRate"], 100.0)
+        self.assertEqual(items["upCount"], 2)
+        self.assertEqual(items["downCount"], 2)
+        self.assertEqual(items["limitUpCount"], 2)
+        self.assertEqual(items["limitDownCount"], 2)
+        self.assertEqual(items["redRate"], 50.0)
+        self.assertEqual(items["moneyMakingEffect"], 50.0)
+
+    def test_market_breadth_rejects_incomplete_page_coverage(self) -> None:
+        rows = [
+            {"f12": f"{index:06d}", "f13": 0, "f14": f"股票{index}", "f3": 1.0, "f6": 1.0}
+            for index in range(100)
+        ]
+
+        def request_page(page: int):
+            if page == 1:
+                return 500, rows, []
+            return 500, [], []
+
+        with (
+            patch.object(breadth, "_request_page", side_effect=request_page),
+            patch.object(breadth, "MARKET_BREADTH_MIN_ROWS", 1),
+            patch.object(breadth, "MARKET_BREADTH_MIN_COVERAGE", 0.95),
+        ):
+            with self.assertRaisesRegex(ValueError, "universe incomplete"):
+                breadth._load_full_market_universe()
+
+    def test_realtime_ticks_are_bounded_snapshot_not_growing_delta(self) -> None:
+        ticks = [
+            {
+                "time": f"09:30:{index:02d}",
+                "price": f"10.{index:02d}",
+                "volume": str(index + 1),
+                "direction": "买",
+            }
+            for index in range(60)
+        ]
+        payload = {
+            "minutePoints": [],
+            "tradeTicks": ticks,
+            "warnings": [],
+        }
+        result = fast._apply_incremental_payload(
+            payload,
+            ndays=1,
+            since_minute_key="",
+            since_trade_key="09:30:10|10.10|11|买",
+            compact=True,
+        )
+
+        self.assertTrue(result["ticksAreSnapshot"])
+        self.assertNotIn("newTradeTicks", result)
+        self.assertEqual(result["tradeTickWindowLimit"], fast.REALTIME_TICK_WINDOW)
+        self.assertEqual(len(result["tradeTicks"]), fast.REALTIME_TICK_WINDOW)
+        self.assertEqual(result["tradeTicks"][0]["time"], "09:30:20")
+
+    def test_delta_cursor_does_not_repeat_cursor_row(self) -> None:
+        points = [
+            {"time": "09:30:01", "price": "10.00", "volume": "1", "direction": "买"},
+            {"time": "09:30:02", "price": "10.01", "volume": "2", "direction": "买"},
+            {"time": "09:30:03", "price": "10.02", "volume": "3", "direction": "卖"},
+        ]
+        cursor = fast._trade_key(points[1])
+        delta = fast._delta_from_cursor(points, cursor, fast._trade_key)
+        self.assertEqual(delta, [points[2]])
 
     def test_tools_index_chain_is_independent_from_index_detail(self) -> None:
         self.assertFalse(hasattr(compact, "detail"))
