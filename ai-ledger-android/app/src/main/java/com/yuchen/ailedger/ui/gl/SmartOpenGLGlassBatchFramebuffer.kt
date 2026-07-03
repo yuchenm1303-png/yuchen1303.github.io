@@ -58,12 +58,12 @@ internal class SmartOpenGLGlassBatchFramebuffer {
         GLES20.glTexParameteri(
             GLES20.GL_TEXTURE_2D,
             GLES20.GL_TEXTURE_MIN_FILTER,
-            GLES20.GL_LINEAR,
+            GLES20.GL_NEAREST,
         )
         GLES20.glTexParameteri(
             GLES20.GL_TEXTURE_2D,
             GLES20.GL_TEXTURE_MAG_FILTER,
-            GLES20.GL_LINEAR,
+            GLES20.GL_NEAREST,
         )
         GLES20.glTexParameteri(
             GLES20.GL_TEXTURE_2D,
@@ -124,6 +124,7 @@ internal class SmartOpenGLGlassBatchFramebuffer {
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_BLEND)
+        GLES20.glDisable(GLES20.GL_DITHER)
         GLES20.glUseProgram(presentProgram)
 
         GLES20.glActiveTexture(PRESENT_TEXTURE_UNIT)
@@ -156,6 +157,7 @@ internal class SmartOpenGLGlassBatchFramebuffer {
         GLES20.glDisableVertexAttribArray(textureCoordinateHandle)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glEnable(GLES20.GL_DITHER)
     }
 
     fun onRelease() {
@@ -206,7 +208,7 @@ internal class SmartOpenGLGlassBatchFramebuffer {
 
     private companion object {
         private const val PRESENT_TEXTURE_INDEX = 4
-        private const val PRESENT_TEXTURE_UNIT = GLES20.GL_TEXTURE0 + PRESENT_TEXTURE_INDEX
+        private val PRESENT_TEXTURE_UNIT = GLES20.GL_TEXTURE0 + PRESENT_TEXTURE_INDEX
         private const val FULLSCREEN_VERTEX_STRIDE_BYTES = 4 * 4
 
         private val FULLSCREEN_QUAD = floatArrayOf(
