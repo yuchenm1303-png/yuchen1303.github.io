@@ -40,6 +40,7 @@ internal class VisualAgentHudHost(
     private val tuningStore = VisualAgentHudTuningStore.get(service.applicationContext)
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     private val capsuleHost = VisualAgentCapsuleHost(service)
+    private val recordingOverlayHost = OperationRecordingOverlayHost(service)
 
     private var webView: WebView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
@@ -55,6 +56,7 @@ internal class VisualAgentHudHost(
     fun start() {
         if (started) return
         started = true
+        recordingOverlayHost.start()
         scope.launch {
             combine(
                 AgentRuntimeController.progress,
@@ -70,11 +72,13 @@ internal class VisualAgentHudHost(
     fun destroy() {
         if (!started && webView == null) {
             capsuleHost.destroy()
+            recordingOverlayHost.destroy()
             return
         }
         started = false
         tuningStore.setPreviewEnabled(false)
         capsuleHost.destroy()
+        recordingOverlayHost.destroy()
         scope.cancel()
         destroyOverlay()
     }
