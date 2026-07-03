@@ -2,7 +2,6 @@ package com.yuchen.ailedger.ui.gl
 
 import android.content.Context
 import android.widget.FrameLayout
-import androidx.compose.ui.geometry.Offset
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.BackdropCoordinateSource
 import com.yuchen.ailedger.ui.BackdropFrameTicker
@@ -30,8 +29,7 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
     private var borderStyle = GlassBorderStyle()
 
     private var previousActiveMask = 0
-    private var lastParentRoot = Offset(Float.NaN, Float.NaN)
-    private var lastBackdropRoot = Offset(Float.NaN, Float.NaN)
+    private var rootSamplingDirty = true
     private var fullDrawRequested = true
     private var clearAllRequested = true
     private var renderPosted = false
@@ -75,8 +73,7 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
         this.backdropOrigin = backdropOrigin
         this.frameTicker = frameTicker
         previousActiveMask = 0
-        lastParentRoot = Offset(Float.NaN, Float.NaN)
-        lastBackdropRoot = Offset(Float.NaN, Float.NaN)
+        rootSamplingDirty = true
         fullDrawRequested = true
         clearAllRequested = true
         if (isAttachedToWindow) installSubscriptions()
@@ -108,7 +105,10 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
         this.densityScale = densityScale.coerceAtLeast(0.001f)
         this.borderStyle = borderStyle
 
-        if (surfaceChanged || rootChanged) clearAllRequested = true
+        if (surfaceChanged || rootChanged) {
+            rootSamplingDirty = true
+            clearAllRequested = true
+        }
         if (surfaceChanged || rootChanged || styleChanged) {
             fullDrawRequested = true
             requestRenderOnNextAnimationFrame()
@@ -165,6 +165,7 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         textureView.layout(0, 0, right - left, bottom - top)
         if (changed) {
+            rootSamplingDirty = true
             clearAllRequested = true
             fullDrawRequested = true
         }
@@ -179,14 +180,20 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
             removeItemListeners.isNotEmpty()
         ) return
 
-        removeParent = parentCoordinates?.addPlacementListener(::requestRenderOnNextAnimationFrame)
-        removeBackdrop = backdropOrigin?.addPlacementListener(::requestRenderOnNextAnimationFrame)
-        removeTicker = frameTicker?.addFrameListener(::requestRenderOnNextAnimationFrame)
+        removeParent = parentCoordinates?.addPlacementListener(::requestRootSamplingFrame)
+        removeBackdrop = backdropOrigin?.addPlacementListener(::requestRootSamplingFrame)
+        removeTicker = frameTicker?.addFrameListener(::requestRootSamplingFrame)
         items.forEach { item ->
             removeItemListeners += item.addGeometryListener(::requestRenderOnNextAnimationFrame)
             removeItemListeners += item.addPropertyListener(::requestRenderOnNextAnimationFrame)
             removeItemListeners += item.dynamicState.addFrameListener(::requestRenderOnNextAnimationFrame)
         }
+    }
+
+    private fun requestRootSamplingFrame() {
+        rootSamplingDirty = true
+        fullDrawRequested = true
+        requestRenderOnNextAnimationFrame()
     }
 
     private fun uninstallSubscriptions() {
@@ -201,11 +208,9 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
     }
 
     private fun syncPacket(): Boolean {
-        val parentRoot = parentCoordinates?.rootOffsetNow() ?: Offset.Zero
-        val backdropRoot = backdropOrigin?.rootOffsetNow() ?: Offset.Zero
-        val rootSampleChanged =
-            offsetChanged(lastParentRoot, parentRoot) ||
-                offsetChanged(lastBackdropRoot, backdropRoot)
+        val forceRootSampling = rootSamplingDirty
+        val parentRoot = parentCoordinates?.rootOffsetNow() ?: androidx.compose.ui.geometry.Offset.Zero
+        val backdropRoot = backdropOrigin?.rootOffsetNow() ?: androidx.compose.ui.geometry.Offset.Zero
         val density = densityScale.coerceAtLeast(0.001f)
 
         nextValues.fill(0f)
@@ -264,16 +269,12 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
 
         val activeChangedMask = activeMask xor previousActiveMask
         var dirtyMask = geometryMask or originMask or propertyMask or activeChangedMask
-        if (rootSampleChanged) dirtyMask = dirtyMask or activeMask or previousActiveMask
+        if (forceRootSampling) dirtyMask = dirtyMask or activeMask or previousActiveMask
         val clearMask = geometryMask or activeChangedMask
-        val fullDraw = fullDrawRequested || rootSampleChanged || Integer.bitCount(dirtyMask) > 1
+        val fullDraw = fullDrawRequested || forceRootSampling || Integer.bitCount(dirtyMask) > 1
         val clearAll = clearAllRequested
 
-        if (!fullDraw && !clearAll && dirtyMask == 0 && clearMask == 0) {
-            lastParentRoot = parentRoot
-            lastBackdropRoot = backdropRoot
-            return false
-        }
+        if (!fullDraw && !clearAll && dirtyMask == 0 && clearMask == 0) return false
 
         System.arraycopy(nextValues, 0, packet.values, 0, nextValues.size)
         packet.activeMask = activeMask
@@ -289,11 +290,10 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
 
         textureView.setPacket(packet)
         previousActiveMask = activeMask
-        lastParentRoot = parentRoot
-        lastBackdropRoot = backdropRoot
+        rootSamplingDirty = false
         fullDrawRequested = false
         clearAllRequested = false
-        return fullDraw || clearAll || dirtyMask != 0 || clearMask != 0
+        return true
     }
 
     private fun frameChanged(base: Int, fields: IntArray): Boolean {
@@ -303,12 +303,6 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
         }
         return false
     }
-
-    private fun offsetChanged(previous: Offset, next: Offset): Boolean =
-        !previous.x.isFinite() ||
-            !previous.y.isFinite() ||
-            abs(previous.x - next.x) > BATCH_FRAME_EPSILON_PX ||
-            abs(previous.y - next.y) > BATCH_FRAME_EPSILON_PX
 
     companion object {
         private val GEOMETRY_FIELDS = intArrayOf(
