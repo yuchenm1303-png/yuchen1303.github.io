@@ -14,6 +14,19 @@ data class ForegroundPackageProbeResult(
     val detail: String = "",
 )
 
+internal object ForegroundPackageEvidenceRuntime {
+    @Volatile private var reportedPackage: String = ""
+
+    fun recordReported(packageName: String) {
+        reportedPackage = packageName.trim().take(120)
+    }
+
+    fun reportedOr(fallback: String): String {
+        val reported = reportedPackage
+        return reported.takeIf(String::isNotBlank) ?: fallback.trim()
+    }
+}
+
 object ForegroundPackageEvidenceResolver {
     fun resolve(
         accessibilityPackage: String,
@@ -22,6 +35,7 @@ object ForegroundPackageEvidenceResolver {
         transientPackages: Set<String> = VisualSurfacePackagePolicy.transientSystemPackages,
     ): ForegroundPackageProbeResult {
         val accessibility = accessibilityPackage.trim()
+        ForegroundPackageEvidenceRuntime.recordReported(accessibility)
         if (!needsForegroundFallback(accessibility, assistantHostPackage, transientPackages)) {
             return ForegroundPackageProbeResult(
                 packageName = accessibility,
