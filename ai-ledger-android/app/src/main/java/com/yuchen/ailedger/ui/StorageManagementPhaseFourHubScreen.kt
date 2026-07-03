@@ -87,19 +87,19 @@ fun StorageManagementPhaseFourHubScreen(
                 entries = listOf(
                     StorageInlineFeatureEntry(
                         title = "下载与安装包",
-                        subtitle = "整理安装包、压缩包、下载残留、长期未整理和大型下载文件",
+                        subtitle = "全机扫描安装包、压缩包、下载残留和下载目录",
                         tone = Color(0xFF9CD8FF),
                         onClick = { page = StoragePhaseFourPage.Downloads },
                     ),
                     StorageInlineFeatureEntry(
                         title = "基础垃圾文件",
-                        subtitle = "检查零字节文件、空文件夹、旧临时文件、日志和备份",
+                        subtitle = "全机扫描零字节文件、空文件夹、旧临时文件、日志和备份",
                         tone = Color(0xFFFFCA72),
                         onClick = { page = StoragePhaseFourPage.Junk },
                     ),
                     StorageInlineFeatureEntry(
                         title = "全机应用缓存",
-                        subtitle = "统计应用缓存，并通过 Shizuku/ADB Shell 请求系统安全回收",
+                        subtitle = "一键清理全部应用缓存，并核验实际释放空间",
                         tone = Color(0xFFFFB47A),
                         onClick = { page = StoragePhaseFourPage.AppCache },
                     ),
