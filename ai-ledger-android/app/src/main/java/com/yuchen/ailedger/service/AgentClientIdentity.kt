@@ -67,7 +67,7 @@ internal object VisualTaskInvocationRuntime {
 
     fun begin(goal: String): VisualTaskInvocation {
         val cleanGoal = goal.trim()
-        val call = synchronized(lock) {
+        val call = ClientToolCallRegistry.consumeVisual(cleanGoal) ?: synchronized(lock) {
             pruneLocked(System.currentTimeMillis())
             val items = pendingVisualCalls.toList()
             val selected = items.lastOrNull { it.call.visualGoal() == cleanGoal }
