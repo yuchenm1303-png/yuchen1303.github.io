@@ -4,7 +4,6 @@ import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.AgentAnalyticsRepository
 import com.yuchen.ailedger.data.AgentChatCallWrite
 import com.yuchen.ailedger.data.AgentModelCallWrite
-import com.yuchen.ailedger.data.AgentTaskMetricsPatch
 import com.yuchen.ailedger.data.AgentTaskWrite
 import com.yuchen.ailedger.data.AgentUsageCounter
 import com.yuchen.ailedger.model.AgentTokenAccuracy
@@ -148,24 +147,61 @@ internal object AgentAnalyticsRuntime {
     ) {
         if (taskId <= 0L) return
         runCatching {
-            val patch = AgentTaskMetricsPatch(
-                modelTurns = modelTurns.toLong().coerceAtLeast(0L),
-                executedActions = executedActions.toLong().coerceAtLeast(0L),
-                observations = (modelTurns.toLong() + reobservations.toLong()).coerceAtLeast(0L),
-                reobservations = reobservations.toLong().coerceAtLeast(0L),
-                rejectedPlans = rejectedPlans.toLong().coerceAtLeast(0L),
-                executionFailures = executionFailures.toLong().coerceAtLeast(0L),
-            )
-            // 即使终态已经移出内存，也能补写数据库中的最终循环指标。
-            repository()?.patchTaskMetrics(taskId, patch)
             synchronized(lock) {
-                val task = tasks[taskId] ?: return@synchronized
-                task.modelTurns = maxOf(task.modelTurns, patch.modelTurns)
-                task.executedActions = maxOf(task.executedActions, patch.executedActions)
-                task.reobservations = maxOf(task.reobservations, patch.reobservations)
-                task.observations = maxOf(task.observations, patch.observations)
-                task.rejectedPlans = maxOf(task.rejectedPlans, patch.rejectedPlans)
-                task.executionFailures = maxOf(task.executionFailures, patch.executionFailures)
+                val currentProgress = AgentRuntimeController.progress.value
+                    .takeIf { it.taskId == taskId }
+                val fallbackGoal = currentProgress
+                    ?.logs
+                    ?.firstOrNull { it.startsWith("目标：") }
+                    ?.removePrefix("目标：")
+                    .orEmpty()
+                val task = tasks[taskId] ?: ensureTaskLocked(
+                    taskId = taskId,
+                    goal = fallbackGoal,
+                    startedAtMillis = currentProgress?.updatedAt ?: System.currentTimeMillis(),
+                )
+
+                val nextModelTurns = maxOf(task.modelTurns, modelTurns.toLong().coerceAtLeast(0L))
+                val nextExecutedActions = maxOf(
+                    task.executedActions,
+                    executedActions.toLong().coerceAtLeast(0L),
+                )
+                val nextReobservations = maxOf(
+                    task.reobservations,
+                    reobservations.toLong().coerceAtLeast(0L),
+                )
+                val nextObservations = maxOf(
+                    task.observations,
+                    nextModelTurns + nextReobservations,
+                )
+                val nextRejectedPlans = maxOf(
+                    task.rejectedPlans,
+                    rejectedPlans.toLong().coerceAtLeast(0L),
+                )
+                val nextExecutionFailures = maxOf(
+                    task.executionFailures,
+                    executionFailures.toLong().coerceAtLeast(0L),
+                )
+
+                if (
+                    nextModelTurns == task.modelTurns &&
+                    nextExecutedActions == task.executedActions &&
+                    nextReobservations == task.reobservations &&
+                    nextObservations == task.observations &&
+                    nextRejectedPlans == task.rejectedPlans &&
+                    nextExecutionFailures == task.executionFailures
+                ) {
+                    return@synchronized
+                }
+
+                // 高频循环指标只更新任务内存快照，任务终态由 finishTask 一次性落库。
+                // 这样不会在每次观察、候选清理或重规划时向 Room 排队读写。
+                task.modelTurns = nextModelTurns
+                task.executedActions = nextExecutedActions
+                task.reobservations = nextReobservations
+                task.observations = nextObservations
+                task.rejectedPlans = nextRejectedPlans
+                task.executionFailures = nextExecutionFailures
             }
         }
     }
@@ -299,7 +335,6 @@ internal object AgentAnalyticsRuntime {
             actionLabel.contains("启动应用") ||
             actionLabel.equals("open app", ignoreCase = true)
         if (isOpenApp && !secondPart.isNullOrBlank()) task.knownAppLabels += secondPart
-        // 只有被 open_app 明确验证过的名称才作为应用统计，避免把按钮文字或输入目标误存成 App 名。
         val appLabel = secondPart?.takeIf { it in task.knownAppLabels }
 
         task.executedActions += 1L
