@@ -8,7 +8,11 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -17,6 +21,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -32,7 +37,7 @@ class LedgerStore(context: Context) {
     )
 
     /**
-     * JSON 解析和日期排序固定在 IO 调度器执行，避免设置页首次订阅时占用主线程。
+     * JSON 解析和日期排序固定在 IO 调度器执行，避免页面首次订阅时占用主线程。
      * 所有实例共享最近一次不可变快照，设置首页、账单页和数据卡读取同一份结果。
      */
     fun observeSnapshots(): Flow<LedgerSnapshot> {
@@ -54,21 +59,32 @@ class LedgerStore(context: Context) {
     }
 
     fun saveRecords(records: List<LedgerRecord>) {
-        val array = JSONArray()
-        records.forEach { record ->
-            val safe = normalizeRecord(record) ?: return@forEach
-            array.put(
-                JSONObject()
-                    .put("id", safe.id)
-                    .put("title", safe.title)
-                    .put("amount", safe.amount.toDouble())
-                    .put("type", if (safe.type == LedgerRecordType.Income) "income" else "expense")
-                    .put("category", safe.category)
-                    .put("date", normalizeDate(safe.dateLabel))
-            )
+        val normalizedRecords = records
+            .mapNotNull(::normalizeRecord)
+            .sortedWith(RECORD_ORDER)
+        val snapshot = LedgerSnapshot(
+            records = normalizedRecords,
+            budgetText = cachedSnapshot?.budgetText ?: readBudgetFromPreferences(),
+        )
+
+        // 用户操作先立即更新进程内唯一快照；所有页面马上看到一致结果。
+        // JSON 序列化与磁盘提交进入单线程队列，避免主线程重复构建、读回和排序整份账本。
+        publishSnapshot(snapshot)
+        persistenceScope.launch {
+            val array = JSONArray()
+            normalizedRecords.forEach { safe ->
+                array.put(
+                    JSONObject()
+                        .put("id", safe.id)
+                        .put("title", safe.title)
+                        .put("amount", safe.amount.toDouble())
+                        .put("type", if (safe.type == LedgerRecordType.Income) "income" else "expense")
+                        .put("category", safe.category)
+                        .put("date", safe.dateLabel)
+                )
+            }
+            preferences.edit().putString(KEY_RECORDS, array.toString()).commit()
         }
-        preferences.edit().putString(KEY_RECORDS, array.toString()).apply()
-        publishCurrentSnapshot()
     }
 
     fun loadBudget(): String {
@@ -80,8 +96,17 @@ class LedgerStore(context: Context) {
 
     fun saveBudget(value: String) {
         val amount = value.toDoubleOrNull()?.coerceAtLeast(0.0) ?: return
-        preferences.edit().putString(KEY_BUDGET, formatPlainNumber(amount)).apply()
-        publishCurrentSnapshot()
+        val formatted = formatPlainNumber(amount)
+        val snapshot = LedgerSnapshot(
+            records = cachedSnapshot?.records ?: readRecordsFromPreferences(),
+            budgetText = formatted,
+        )
+
+        // 预算输入同样先更新共享快照，只把标量持久化放入顺序后台队列。
+        publishSnapshot(snapshot)
+        persistenceScope.launch {
+            preferences.edit().putString(KEY_BUDGET, formatted).commit()
+        }
     }
 
     fun loadDeletedIds(): Set<String> {
@@ -130,7 +155,9 @@ class LedgerStore(context: Context) {
         val amount = record.amount
         if (record.id.isBlank() || !amount.isFinite() || amount <= 0f) return null
         return record.copy(
-            title = record.title.trim().ifBlank { if (record.type == LedgerRecordType.Income) "未命名收入" else "未命名支出" }.take(30),
+            title = record.title.trim().ifBlank {
+                if (record.type == LedgerRecordType.Income) "未命名收入" else "未命名支出"
+            }.take(30),
             category = record.category.trim().takeIf { it in LEDGER_CATEGORIES } ?: "其他",
             dateLabel = normalizeDate(record.dateLabel)
         )
@@ -151,10 +178,7 @@ class LedgerStore(context: Context) {
                     val json = array.optJSONObject(index) ?: continue
                     parseRecord(json)?.let(::add)
                 }
-            }.sortedWith(
-                compareByDescending<LedgerRecord> { normalizeDate(it.dateLabel) }
-                    .thenByDescending { it.id }
-            )
+            }.sortedWith(RECORD_ORDER)
         }.getOrDefault(emptyList())
     }
 
@@ -165,8 +189,8 @@ class LedgerStore(context: Context) {
             ?: DEFAULT_BUDGET
     }
 
-    private fun publishCurrentSnapshot() {
-        publishBridge(currentSnapshot())
+    private fun publishSnapshot(snapshot: LedgerSnapshot) {
+        publishBridge(snapshot)
         changeEvents.tryEmit(Unit)
     }
 
@@ -200,6 +224,9 @@ class LedgerStore(context: Context) {
         const val DEFAULT_BUDGET = "3000"
         val LEDGER_CATEGORIES = listOf("餐饮", "交通", "购物", "居住", "饮品", "工资", "礼物", "其他")
 
+        private val RECORD_ORDER = compareByDescending<LedgerRecord> { normalizeDate(it.dateLabel) }
+            .thenByDescending { it.id }
+
         @Volatile
         private var cachedSnapshot: LedgerSnapshot? = null
 
@@ -208,6 +235,11 @@ class LedgerStore(context: Context) {
             extraBufferCapacity = 1,
             onBufferOverflow = BufferOverflow.DROP_OLDEST,
         )
+
+        private val persistenceDispatcher = Executors.newSingleThreadExecutor { task ->
+            Thread(task, "ai-ledger-persistence").apply { isDaemon = true }
+        }.asCoroutineDispatcher()
+        private val persistenceScope = CoroutineScope(SupervisorJob() + persistenceDispatcher)
 
         fun todayIso(): String = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
