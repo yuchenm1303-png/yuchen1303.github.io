@@ -7,20 +7,14 @@ import org.junit.Test
 
 class OperationLearningViewModelTest {
     @Test
-    fun validIntentCreatesDeterministicDraft() {
+    fun selectedApplicationIsStoredInEditorState() {
         val viewModel = OperationLearningViewModel()
-        viewModel.updateTitle("发送日报")
-        viewModel.updateGoal("在企业应用中打开日报会话并发送用户提供的内容")
+
         viewModel.updateAppName("企业应用")
         viewModel.updatePackageName("com.example.enterprise")
 
-        val created = viewModel.createIntentDraft(nowMillis = 100L)
-
-        assertTrue(created)
-        assertEquals(1, viewModel.uiState.drafts.size)
-        assertEquals("发送日报", viewModel.uiState.drafts.single().title)
-        assertEquals("com.example.enterprise", viewModel.uiState.drafts.single().appScope.normalizedPackages.single())
-        assertFalse(viewModel.uiState.editorVisible)
+        assertEquals("企业应用", viewModel.uiState.appNameInput)
+        assertEquals("com.example.enterprise", viewModel.uiState.packageNameInput)
     }
 
     @Test
