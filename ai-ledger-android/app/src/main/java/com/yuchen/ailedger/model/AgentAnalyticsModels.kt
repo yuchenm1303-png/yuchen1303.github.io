@@ -145,6 +145,25 @@ data class AgentCapabilityAnalytics(
     val lastUsedAtMillis: Long,
 )
 
+/** 操作学习形成的长期 Skill 资产，不与一次性工具调用混为一类。 */
+@Immutable
+data class AgentSkillInventory(
+    val totalSkills: Long = 0L,
+    val intentSkills: Long = 0L,
+    val compilingSkills: Long = 0L,
+    val reviewSkills: Long = 0L,
+    val approvedSkills: Long = 0L,
+    val verifiedSkills: Long = 0L,
+    val pausedSkills: Long = 0L,
+    val totalSteps: Long = 0L,
+    val scopedApps: Long = 0L,
+    val demonstrations: Long = 0L,
+    val totalRuns: Long = 0L,
+    val successfulRuns: Long = 0L,
+) {
+    val usableSkills: Long get() = approvedSkills + verifiedSkills
+}
+
 @Immutable
 data class AgentAnalyticsTotals(
     val totalTokens: Long = 0L,
@@ -169,6 +188,7 @@ data class AgentAnalyticsSnapshot(
     val recentTasks: List<AgentTaskAnalytics> = emptyList(),
     val modelUsage: List<AgentModelAnalytics> = emptyList(),
     val capabilityUsage: List<AgentCapabilityAnalytics> = emptyList(),
+    val skillInventory: AgentSkillInventory = AgentSkillInventory(),
     val totals: AgentAnalyticsTotals = AgentAnalyticsTotals(),
     val loaded: Boolean = false,
 )
