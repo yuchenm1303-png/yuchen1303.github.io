@@ -229,7 +229,9 @@ def main() -> int:
             "private fun RecordingStatusCard(",
             "private fun CreateIntentCard(",
             "private fun LearningFlowCard()",
+            "private fun CloudAuthorityCard()",
             "private fun SafetyBoundaryCard()",
+            "云端理解你的方法并生成 Skill",
         ],
         forbidden=[
             'text = if (active) "录" else "✓"',
@@ -238,6 +240,7 @@ def main() -> int:
             'Text("＋"',
             'text = if (thisRecording) "录" else "草"',
             'Text("盾"',
+            "Resource ID 和固定选择器",
         ],
     )
 
@@ -284,9 +287,51 @@ def main() -> int:
     errors += require_text(
         recording_coordinator,
         required=[
+            "VisualDemonstrationRecorder(",
+            "OperationSkillLearningCoordinator.learn(",
+            "本地不会扫描或编译控件节点",
+            "fun append(@Suppress(\"UNUSED_PARAMETER\") record: OperationTraceRecord): Boolean = false",
+        ],
+        forbidden=[
             "OperationWorkflowCompilationCoordinator.compile(",
-            "compilationOutcome?.completed == true",
-            "原始轨迹仍保留，可稍后重试整理",
+            "OperationTraceWriter",
+            "beginOperationRecording(",
+        ],
+    )
+
+    visual_recorder = ROOT / "app/src/main/java/com/yuchen/ailedger/service/VisualDemonstrationRecorder.kt"
+    errors += require_text(
+        visual_recorder,
+        required=[
+            "captureFreshSnapshot(forceVisual = true)",
+            "packageName !in allowedPackages",
+            "session.appendFrame(",
+        ],
+        forbidden=[
+            "OperationTraceRedactor",
+            "OperationNodeSnapshotRecord",
+            "viewIdResourceName",
+        ],
+    )
+
+    skill_cloud = ROOT / "app/src/main/java/com/yuchen/ailedger/service/OperationSkillCloudClient.kt"
+    errors += require_text(
+        skill_cloud,
+        required=[
+            "不得输出固定坐标、Resource ID、无障碍节点、选择器、页面指纹或机械点击脚本",
+            "AiWorkerClient",
+            "LearnedVisualSkill(",
+        ],
+    )
+
+    visual_store = ROOT / "app/src/main/java/com/yuchen/ailedger/data/VisualDemonstrationStore.kt"
+    errors += require_text(
+        visual_store,
+        required=[
+            "AES/GCM/NoPadding",
+            "AndroidKeyStore",
+            "cleanupExpired",
+            "MAX_FRAMES = 24",
         ],
     )
 
