@@ -12,6 +12,8 @@ import com.yuchen.ailedger.data.mergeAgentAnalyticsDaily
 import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
 import com.yuchen.ailedger.model.AgentDailyActivity
 import com.yuchen.ailedger.model.AgentSkillInventory
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 
 /**
  * 智能体统计页面数据入口。
@@ -49,7 +52,10 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     ) { local, remoteDaily ->
         mergeAgentAnalyticsDaily(local, remoteDaily)
     }
-        .catch { emit(EMPTY_LOADED_SNAPSHOT) }
+        .catch { error ->
+            if (error is CancellationException) throw error
+            emit(EMPTY_LOADED_SNAPSHOT)
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000L),
@@ -77,7 +83,11 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
 
                     supervisorScope {
                         val repository = try {
-                            AgentAnalyticsRepository.get(appContext, activeOwner.storageKey)
+                            withContext(Dispatchers.IO) {
+                                AgentAnalyticsRepository.get(appContext, activeOwner.storageKey)
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
                         } catch (_: Throwable) {
                             localSnapshot.value = EMPTY_LOADED_SNAPSHOT
                             return@supervisorScope
@@ -85,7 +95,10 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
 
                         launch {
                             repository.state
-                                .catch { emit(EMPTY_LOADED_SNAPSHOT) }
+                                .catch { error ->
+                                    if (error is CancellationException) throw error
+                                    emit(EMPTY_LOADED_SNAPSHOT)
+                                }
                                 .collectLatest { snapshot ->
                                     if (
                                         pageVisible &&
@@ -100,7 +113,10 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                             launch {
                                 try {
                                     val local = repository.state
-                                        .catch { emit(EMPTY_LOADED_SNAPSHOT) }
+                                        .catch { error ->
+                                            if (error is CancellationException) throw error
+                                            emit(EMPTY_LOADED_SNAPSHOT)
+                                        }
                                         .first { it.loaded }
                                     val remote = AgentAnalyticsCloudRepository
                                         .get(appContext)
@@ -111,6 +127,8 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                                     ) {
                                         otherDevicesDaily.value = remote
                                     }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
                                 } catch (_: Throwable) {
                                     // 云端统计是可选增强，失败时继续展示本机账号数据。
                                 }
@@ -120,6 +138,8 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Throwable) {
                 localSnapshot.value = EMPTY_LOADED_SNAPSHOT
                 otherDevicesDaily.value = emptyList()
@@ -144,7 +164,11 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         skillLoadedOwnerKey = ownerKey
         viewModelScope.launch {
             val inventory = try {
-                AgentSkillInventoryRepository.get(appContext).loadSnapshot()
+                withContext(Dispatchers.IO) {
+                    AgentSkillInventoryRepository.get(appContext).loadSnapshot()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Throwable) {
                 AgentSkillInventory()
             }
