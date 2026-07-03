@@ -19,8 +19,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 enum class LedgerSyncPhase {
@@ -56,7 +54,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val authClient = SupabaseAuthClient()
     private val ledgerClient = SupabaseLedgerClient()
     private val idSeed = AtomicLong(System.currentTimeMillis())
-    private val persistenceMutex = Mutex()
+    private val persistenceLock = Any()
     private var syncJob: Job? = null
     private var delayedSyncJob: Job? = null
 
@@ -137,7 +135,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         val clean = sanitizeMoney(value)
         state = state.copy(budgetText = clean)
         clean.toDoubleOrNull()?.let {
-            persist { ledgerStore.saveBudget(clean) }
+            synchronized(persistenceLock) { ledgerStore.saveBudget(clean) }
             scheduleSync()
         }
     }
@@ -171,7 +169,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }
                 .thenByDescending { it.id }
         )
-        persist { ledgerStore.saveRecords(next) }
+        synchronized(persistenceLock) { ledgerStore.saveRecords(next) }
         state = state.copy(
             records = next,
             draftTitle = "",
@@ -209,7 +207,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         if (id.isBlank()) return
         val next = state.records.filterNot { it.id == id }
         if (next.size == state.records.size) return
-        persist {
+        synchronized(persistenceLock) {
             ledgerStore.saveRecords(next)
             ledgerStore.markDeleted(id)
         }
@@ -240,7 +238,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             )
             try {
                 val result = withContext(Dispatchers.IO) {
-                    val deletedIds = persistenceMutex.withLock {
+                    val deletedIds = synchronized(persistenceLock) {
                         ledgerStore.loadDeletedIds()
                     }
                     if (deletedIds.isNotEmpty()) {
@@ -248,7 +246,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     }
                     val remoteRecords = ledgerClient.fetchRecords(session)
 
-                    val merged = persistenceMutex.withLock {
+                    val merged = synchronized(persistenceLock) {
                         val latestLocalRecords = ledgerStore.loadRecords()
                         val latestDeletedIds = ledgerStore.loadDeletedIds()
                         val mergedMap = LinkedHashMap<String, LedgerRecord>()
@@ -271,7 +269,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                     }
 
                     val remoteBudget = ledgerClient.fetchBudget(session)
-                    val budgetState = persistenceMutex.withLock {
+                    val budgetState = synchronized(persistenceLock) {
                         val localBudget = ledgerStore.loadBudget()
                         val hadSavedBudget = ledgerStore.hasSavedBudget()
                         val finalBudget = if (!hadSavedBudget && remoteBudget != null) remoteBudget else localBudget
@@ -302,12 +300,6 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun exportJson(): String = ledgerStore.exportJson(state.records, state.budgetText)
-
-    private fun persist(block: () -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            persistenceMutex.withLock { block() }
-        }
-    }
 
     private fun scheduleSync() {
         delayedSyncJob?.cancel()
