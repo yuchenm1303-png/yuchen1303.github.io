@@ -59,6 +59,9 @@ internal fun StorageIntelligenceCompleteScreen(
     var analyzing by remember { mutableStateOf(false) }
     var analysisError by remember { mutableStateOf<String?>(null) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var duplicatesExpanded by remember { mutableStateOf(false) }
+    var oldFilesExpanded by remember { mutableStateOf(false) }
+    var historyExpanded by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<List<StorageIntelligenceFile>?>(null) }
     var operationRunning by remember { mutableStateOf(false) }
     var operationMessage by remember { mutableStateOf<String?>(null) }
@@ -104,7 +107,7 @@ internal fun StorageIntelligenceCompleteScreen(
                 deletedCount = deleted.size,
                 failedCount = (requested.size - deleted.size).coerceAtLeast(0),
                 releasedBytes = deleted.sumOf { it.sizeBytes },
-                label = "智能存储清理",
+                label = "智能文件清理",
             ),
         )
         history = historyStore.load()
@@ -171,8 +174,19 @@ internal fun StorageIntelligenceCompleteScreen(
     val duplicateIds by remember(analysis) {
         derivedStateOf { analysis?.duplicateGroups.orEmpty().flatMapTo(hashSetOf()) { it.files.map(StorageIntelligenceFile::stableId) } }
     }
+    val suggestedDuplicateIds by remember(analysis) {
+        derivedStateOf {
+            analysis?.duplicateGroups.orEmpty().flatMapTo(linkedSetOf()) { it.suggestedDeleteIds }
+        }
+    }
     val oldFiles by remember(analysis, duplicateIds) {
         derivedStateOf { analysis?.oldFiles.orEmpty().filterNot { it.stableId in duplicateIds } }
+    }
+    val oldFileIds by remember(oldFiles) {
+        derivedStateOf {
+            oldFiles.asSequence().filter(StorageIntelligenceFile::canDelete)
+                .mapTo(linkedSetOf(), StorageIntelligenceFile::stableId)
+        }
     }
     val allFiles by remember(analysis, oldFiles) {
         derivedStateOf {
@@ -184,6 +198,28 @@ internal fun StorageIntelligenceCompleteScreen(
     }
     val selectedFiles by remember(allFiles, selectedIds) {
         derivedStateOf { allFiles.filter { it.stableId in selectedIds && it.canDelete } }
+    }
+    val duplicateGroups = analysis?.duplicateGroups.orEmpty()
+    val displayedDuplicateGroups by remember(duplicateGroups, duplicatesExpanded) {
+        derivedStateOf {
+            storagePreviewItems(duplicateGroups, duplicatesExpanded, STORAGE_GROUP_PREVIEW_COUNT)
+        }
+    }
+    val displayedOldFiles by remember(oldFiles, oldFilesExpanded) {
+        derivedStateOf {
+            storagePreviewItems(oldFiles, oldFilesExpanded, STORAGE_FILE_PREVIEW_COUNT)
+        }
+    }
+    val displayedHistory by remember(history, historyExpanded) {
+        derivedStateOf {
+            storagePreviewItems(history, historyExpanded, STORAGE_HISTORY_PREVIEW_COUNT)
+        }
+    }
+    val selectedDuplicateCount by remember(duplicateIds, selectedIds) {
+        derivedStateOf { selectedIds.count { it in duplicateIds } }
+    }
+    val selectedOldFileCount by remember(oldFileIds, selectedIds) {
+        derivedStateOf { selectedIds.count { it in oldFileIds } }
     }
 
     GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
@@ -210,7 +246,7 @@ internal fun StorageIntelligenceCompleteScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("INTELLIGENCE", color = IntelligenceAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text("智能存储分析", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                    Text("智能文件分析", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                     Text("完整索引可访问文件，并对重复候选完成内容校验。", color = Color.White.copy(alpha = 0.58f), fontSize = 13.sp, lineHeight = 19.sp)
                 }
             }
@@ -242,15 +278,31 @@ internal fun StorageIntelligenceCompleteScreen(
                     )
                 }
             }
-            val duplicateGroups = analysis?.duplicateGroups.orEmpty()
             if (analysis != null) {
                 item {
-                    IntelligenceSectionHeader("完全重复文件", "${duplicateGroups.size} 组 · 可释放约 ${formatIntelligenceBytes(analysis?.recoverableBytes ?: 0L)}")
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        IntelligenceSectionHeader("完全重复文件", "${duplicateGroups.size} 组 · 可释放约 ${formatIntelligenceBytes(analysis?.recoverableBytes ?: 0L)}")
+                        StorageLongListControls(
+                            totalCount = duplicateGroups.size,
+                            expanded = duplicatesExpanded,
+                            previewCount = STORAGE_GROUP_PREVIEW_COUNT,
+                            selectedCount = selectedDuplicateCount,
+                            selectAllLabel = "全选建议副本",
+                            onToggleExpanded = { duplicatesExpanded = !duplicatesExpanded },
+                            onSelectAll = if (suggestedDuplicateIds.isEmpty()) null else ({
+                                selectedIds = selectedIds + suggestedDuplicateIds
+                            }),
+                            onClearSelection = if (selectedDuplicateCount == 0) null else ({
+                                selectedIds = selectedIds - duplicateIds
+                            }),
+                            tone = IntelligenceAccent,
+                        )
+                    }
                 }
                 if (duplicateGroups.isEmpty()) {
                     item { IntelligenceEmptyPanel("没有发现经过完整哈希确认的重复文件。") }
                 } else {
-                    items(duplicateGroups, key = { it.id }) { group ->
+                    items(displayedDuplicateGroups, key = { it.id }) { group ->
                         DuplicateGroupCard(
                             group = group,
                             selectedIds = selectedIds,
@@ -259,11 +311,29 @@ internal fun StorageIntelligenceCompleteScreen(
                         )
                     }
                 }
-                item { IntelligenceSectionHeader("长期未修改的大文件", "${oldFiles.size} 个 · 仅供检查") }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        IntelligenceSectionHeader("长期未修改的大文件", "${oldFiles.size} 个 · 仅供检查")
+                        StorageLongListControls(
+                            totalCount = oldFiles.size,
+                            expanded = oldFilesExpanded,
+                            previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                            selectedCount = selectedOldFileCount,
+                            onToggleExpanded = { oldFilesExpanded = !oldFilesExpanded },
+                            onSelectAll = if (oldFileIds.isEmpty()) null else ({
+                                selectedIds = selectedIds + oldFileIds
+                            }),
+                            onClearSelection = if (selectedOldFileCount == 0) null else ({
+                                selectedIds = selectedIds - oldFileIds
+                            }),
+                            tone = IntelligenceWarning,
+                        )
+                    }
+                }
                 if (oldFiles.isEmpty()) {
                     item { IntelligenceEmptyPanel("没有发现超过 20 MB 且 180 天未修改、同时不属于重复组的文件。") }
                 } else {
-                    items(oldFiles, key = { it.stableId }) { file ->
+                    items(displayedOldFiles, key = { it.stableId }) { file ->
                         IntelligenceFileCard(
                             file = file,
                             selected = file.stableId in selectedIds,
@@ -274,11 +344,22 @@ internal fun StorageIntelligenceCompleteScreen(
                     }
                 }
             }
-            item { IntelligenceSectionHeader("清理记录", if (history.isEmpty()) "暂无记录" else "共 ${history.size} 次") }
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    IntelligenceSectionHeader("清理记录", if (history.isEmpty()) "暂无记录" else "共 ${history.size} 次")
+                    StorageLongListControls(
+                        totalCount = history.size,
+                        expanded = historyExpanded,
+                        previewCount = STORAGE_HISTORY_PREVIEW_COUNT,
+                        onToggleExpanded = { historyExpanded = !historyExpanded },
+                        tone = IntelligenceSuccess,
+                    )
+                }
+            }
             if (history.isEmpty()) {
                 item { IntelligenceEmptyPanel("完成一次智能清理后，这里会记录实际删除数量和核验后的释放空间。") }
             } else {
-                items(history, key = { it.id }) { CleanupHistoryCard(it) }
+                items(displayedHistory, key = { it.id }) { CleanupHistoryCard(it) }
                 item {
                     IntelligenceTextAction("清空清理记录") {
                         historyStore.clear()
