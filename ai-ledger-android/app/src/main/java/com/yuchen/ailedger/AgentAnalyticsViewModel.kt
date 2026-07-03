@@ -4,10 +4,13 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.data.AgentAnalyticsCloudRepository
+import com.yuchen.ailedger.data.AgentAnalyticsCloudSyncSource
 import com.yuchen.ailedger.data.AgentAnalyticsOwner
 import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
 import com.yuchen.ailedger.data.AgentAnalyticsSnapshotReader
 import com.yuchen.ailedger.data.AgentSkillInventoryRepository
+import com.yuchen.ailedger.data.SupabaseAccountState
+import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.data.mergeAgentAnalyticsDaily
 import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
 import com.yuchen.ailedger.model.AgentDailyActivity
@@ -26,15 +29,38 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class AgentAnalyticsSyncPhase {
+    Checking,
+    Guest,
+    Syncing,
+    Synced,
+    Cached,
+    LocalOnly,
+    Failed,
+}
+
+data class AgentAnalyticsSyncUiState(
+    val phase: AgentAnalyticsSyncPhase = AgentAnalyticsSyncPhase.Checking,
+    val message: String = "正在确认账号与同步状态…",
+    val lastSyncedAtMillis: Long = 0L,
+    val uploadedDayCount: Int = 0,
+    val remoteDayCount: Int = 0,
+)
+
 /**
  * 智能体统计页面数据入口。
  *
- * 页面每次可见时只在 IO 线程读取一次不可变快照，不再订阅 Repository 内部的 Room stateIn。
- * 账号变化会取消旧账号读取并重新加载，页面关闭后没有统计数据库观察器或同步协程残留。
+ * 页面每次可见时只在 IO 线程读取一次不可变快照，不订阅 Repository 内部的 Room stateIn。
+ * 登录账号在页面可见期间按需同步每日聚合；访客数据始终留在本机且不会自动并入账号。
  */
 class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
+    private val authRepository = SupabaseAuthRepository.get(appContext)
+    private val cloudRepository by lazy(LazyThreadSafetyMode.NONE) {
+        AgentAnalyticsCloudRepository.get(appContext)
+    }
 
+    val accountState: StateFlow<SupabaseAccountState> = authRepository.state
     val owner: StateFlow<AgentAnalyticsOwner> = AgentAnalyticsOwnerRuntime.owner.also {
         AgentAnalyticsOwnerRuntime.initialize(appContext)
     }
@@ -57,11 +83,15 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
             initialValue = AgentAnalyticsSnapshot(),
         )
 
+    private val mutableSyncState = MutableStateFlow(AgentAnalyticsSyncUiState())
+    val syncState: StateFlow<AgentAnalyticsSyncUiState> = mutableSyncState.asStateFlow()
+
     private val mutableSkillInventory = MutableStateFlow(AgentSkillInventory())
     val skillInventory: StateFlow<AgentSkillInventory> = mutableSkillInventory.asStateFlow()
 
     private var pageVisible = false
     private var ownerCollectionJob: Job? = null
+    private var syncJob: Job? = null
     private var skillInventoryRequested = false
     private var skillLoadedOwnerKey: String? = null
 
@@ -70,10 +100,20 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         pageVisible = true
         ownerCollectionJob = viewModelScope.launch {
             owner.collectLatest { activeOwner ->
+                syncJob?.cancel()
+                syncJob = null
                 localSnapshot.value = AgentAnalyticsSnapshot()
                 otherDevicesDaily.value = emptyList()
                 mutableSkillInventory.value = AgentSkillInventory()
                 skillLoadedOwnerKey = null
+                mutableSyncState.value = if (activeOwner.isGuest) {
+                    guestSyncState()
+                } else {
+                    AgentAnalyticsSyncUiState(
+                        phase = AgentAnalyticsSyncPhase.Checking,
+                        message = "正在读取账号统计…",
+                    )
+                }
 
                 val local = try {
                     withContext(Dispatchers.IO) {
@@ -91,22 +131,85 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                 localSnapshot.value = local
 
                 if (!activeOwner.isGuest) {
-                    val remote = try {
-                        AgentAnalyticsCloudRepository.get(appContext).sync(activeOwner, local)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Throwable) {
-                        emptyList()
-                    }
-                    if (
-                        pageVisible &&
-                        owner.value.storageKey == activeOwner.storageKey
-                    ) {
-                        otherDevicesDaily.value = remote
-                    }
+                    startCloudSync(activeOwner, local)
                 } else if (skillInventoryRequested) {
                     loadGuestSkillInventory(activeOwner.storageKey)
                 }
+            }
+        }
+    }
+
+    fun retryCloudSync() {
+        if (!pageVisible) return
+        val activeOwner = owner.value
+        val local = localSnapshot.value
+        if (activeOwner.isGuest || !local.loaded || mutableSyncState.value.phase == AgentAnalyticsSyncPhase.Syncing) {
+            return
+        }
+        startCloudSync(activeOwner, local)
+    }
+
+    private fun startCloudSync(
+        activeOwner: AgentAnalyticsOwner,
+        local: AgentAnalyticsSnapshot,
+    ) {
+        syncJob?.cancel()
+        syncJob = viewModelScope.launch {
+            mutableSyncState.value = AgentAnalyticsSyncUiState(
+                phase = AgentAnalyticsSyncPhase.Syncing,
+                message = "正在同步账号每日聚合…",
+                lastSyncedAtMillis = mutableSyncState.value.lastSyncedAtMillis,
+            )
+            val result = try {
+                cloudRepository.syncWithStatus(activeOwner, local)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                null
+            }
+
+            if (!pageVisible || owner.value.storageKey != activeOwner.storageKey) return@launch
+            if (result == null) {
+                mutableSyncState.value = AgentAnalyticsSyncUiState(
+                    phase = AgentAnalyticsSyncPhase.Failed,
+                    message = "云端同步暂时不可用，当前继续显示本机统计。",
+                )
+                return@launch
+            }
+
+            otherDevicesDaily.value = result.otherDevicesDaily
+            mutableSyncState.value = when (result.source) {
+                AgentAnalyticsCloudSyncSource.Network -> AgentAnalyticsSyncUiState(
+                    phase = AgentAnalyticsSyncPhase.Synced,
+                    message = if (result.uploadedDayCount > 0) {
+                        "已上传 ${result.uploadedDayCount} 个变更日，并合并其他设备统计。"
+                    } else {
+                        "云端已是最新，已合并其他设备统计。"
+                    },
+                    lastSyncedAtMillis = result.syncedAtMillis,
+                    uploadedDayCount = result.uploadedDayCount,
+                    remoteDayCount = result.otherDevicesDaily.size,
+                )
+
+                AgentAnalyticsCloudSyncSource.Cache -> AgentAnalyticsSyncUiState(
+                    phase = AgentAnalyticsSyncPhase.Cached,
+                    message = "本机数据没有变化，已复用最近一次同步结果。",
+                    lastSyncedAtMillis = result.syncedAtMillis,
+                    remoteDayCount = result.otherDevicesDaily.size,
+                )
+
+                AgentAnalyticsCloudSyncSource.Skipped -> AgentAnalyticsSyncUiState(
+                    phase = AgentAnalyticsSyncPhase.LocalOnly,
+                    message = result.errorMessage ?: "当前登录状态不可用，仅显示本机账号统计。",
+                    lastSyncedAtMillis = result.syncedAtMillis,
+                )
+
+                AgentAnalyticsCloudSyncSource.Failed -> AgentAnalyticsSyncUiState(
+                    phase = AgentAnalyticsSyncPhase.Failed,
+                    message = result.errorMessage ?: "云端同步暂时不可用，当前继续显示本机统计。",
+                    lastSyncedAtMillis = result.syncedAtMillis,
+                    remoteDayCount = result.otherDevicesDaily.size,
+                )
             }
         }
     }
@@ -115,6 +218,8 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         pageVisible = false
         ownerCollectionJob?.cancel()
         ownerCollectionJob = null
+        syncJob?.cancel()
+        syncJob = null
     }
 
     fun ensureSkillInventoryLoaded() {
@@ -145,6 +250,11 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
             }
         }
     }
+
+    private fun guestSyncState() = AgentAnalyticsSyncUiState(
+        phase = AgentAnalyticsSyncPhase.Guest,
+        message = "访客统计只保存在当前设备；登录后会使用独立账号空间并启用跨设备聚合。",
+    )
 
     override fun onCleared() {
         onScreenHidden()
