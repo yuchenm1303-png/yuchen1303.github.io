@@ -91,6 +91,11 @@ data class AgentScreenSnapshot(
 
 fun ScreenObservation.toAgentScreenSnapshot(): AgentScreenSnapshot {
     val observedPackage = packageName.ifBlank { "unknown" }
+    val reportedPackage = if (windowTitle.contains("foreground=trusted_base")) {
+        ForegroundPackageEvidenceRuntime.reportedOr(observedPackage)
+    } else {
+        observedPackage.also(ForegroundPackageEvidenceRuntime::recordReported)
+    }
     val expectedPackage = ForegroundTargetBinding.current()
     val foregroundResolution = AiLedgerApplication.contextOrNull()?.let { context ->
         ForegroundPackageResolver.resolve(
@@ -140,6 +145,7 @@ fun ScreenObservation.toAgentScreenSnapshot(): AgentScreenSnapshot {
         inputNodes = sourceInputs.toAgentNodes(SNAPSHOT_INPUT_LIMIT),
         scrollableNodes = sourceScrollable.toAgentNodes(SNAPSHOT_SCROLLABLE_LIMIT),
         visual = visual?.toAgentVisual(),
+        reportedForegroundPackage = reportedPackage,
     )
 }
 
