@@ -78,6 +78,11 @@ fun StorageDeviceOptimizationScreen(
     var dashboard by remember { mutableStateOf<StorageProductDashboard?>(null) }
     var loading by remember { mutableStateOf(true) }
     var analyzingApps by remember { mutableStateOf(false) }
+    var unusedAppsExpanded by remember { mutableStateOf(false) }
+    var largestAppsExpanded by remember { mutableStateOf(false) }
+    var cleanupTrendExpanded by remember { mutableStateOf(false) }
+    var capacitySnapshotsExpanded by remember { mutableStateOf(false) }
+    var cleanupHistoryExpanded by remember { mutableStateOf(false) }
     var refreshGeneration by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
     var shellStatus by remember { mutableStateOf<DeviceShellStatus?>(null) }
@@ -255,21 +260,50 @@ fun StorageDeviceOptimizationScreen(
                             )
                         }
                         val unusedApps = current.appAnalysis.longUnusedApps
-                        item { OptimizeSectionHeader("长期未用建议", "${unusedApps.size} 个 · 90 天阈值") }
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                OptimizeSectionHeader("长期未用建议", "${unusedApps.size} 个 · 90 天阈值")
+                                StorageLongListControls(
+                                    totalCount = unusedApps.size,
+                                    expanded = unusedAppsExpanded,
+                                    previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                                    onToggleExpanded = { unusedAppsExpanded = !unusedAppsExpanded },
+                                    tone = OptimizeWarning,
+                                )
+                            }
+                        }
                         if (unusedApps.isEmpty()) {
                             item { OptimizeEmptyPanel("当前完整分析结果中没有达到 90 天阈值的应用，或尚未授予使用情况访问权限。") }
                         } else {
-                            items(unusedApps, key = { "unused-${it.packageName}" }) { app ->
+                            items(
+                                storagePreviewItems(unusedApps, unusedAppsExpanded, STORAGE_FILE_PREVIEW_COUNT),
+                                key = { "unused-${it.packageName}" },
+                            ) { app ->
                                 OptimizationAppCard(app, highlightUnused = true) {
                                     openAppDetails(context, app.packageName)
                                 }
                             }
                         }
-                        item { OptimizeSectionHeader("应用占用排行", "已分析 ${current.appAnalysis.items.size} 个") }
-                        if (current.appAnalysis.items.isEmpty()) {
+                        val largestApps = current.appAnalysis.largestApps
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                OptimizeSectionHeader("应用占用排行", "已分析 ${current.appAnalysis.items.size} 个")
+                                StorageLongListControls(
+                                    totalCount = largestApps.size,
+                                    expanded = largestAppsExpanded,
+                                    previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                                    onToggleExpanded = { largestAppsExpanded = !largestAppsExpanded },
+                                    tone = OptimizeAccent,
+                                )
+                            }
+                        }
+                        if (largestApps.isEmpty()) {
                             item { OptimizeEmptyPanel("开始应用分析后显示应用、数据和缓存占用。") }
                         } else {
-                            items(current.appAnalysis.largestApps, key = { "large-${it.packageName}" }) { app ->
+                            items(
+                                storagePreviewItems(largestApps, largestAppsExpanded, STORAGE_FILE_PREVIEW_COUNT),
+                                key = { "large-${it.packageName}" },
+                            ) { app ->
                                 OptimizationAppCard(app, highlightUnused = false) {
                                     openAppDetails(context, app.packageName)
                                 }
@@ -278,27 +312,70 @@ fun StorageDeviceOptimizationScreen(
                     }
                     StorageOptimizationTab.Trends -> {
                         item { CleanupTrendSummary(current.cleanupHistory) }
-                        item { OptimizeSectionHeader("清理趋势", "${current.cleanupTrend.size} 天") }
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                OptimizeSectionHeader("清理趋势", "${current.cleanupTrend.size} 天")
+                                StorageLongListControls(
+                                    totalCount = current.cleanupTrend.size,
+                                    expanded = cleanupTrendExpanded,
+                                    previewCount = STORAGE_HISTORY_PREVIEW_COUNT,
+                                    onToggleExpanded = { cleanupTrendExpanded = !cleanupTrendExpanded },
+                                    tone = OptimizeAccent,
+                                )
+                            }
+                        }
                         if (current.cleanupTrend.isEmpty()) {
-                            item { OptimizeEmptyPanel("完成智能清理或精细整理后，这里会按日期汇总实际释放空间。") }
+                            item { OptimizeEmptyPanel("完成智能清理或照片与授权目录整理后，这里会按日期汇总实际释放空间。") }
                         } else {
-                            items(current.cleanupTrend, key = { it.day.toString() }) { point ->
+                            items(
+                                storagePreviewItems(current.cleanupTrend, cleanupTrendExpanded, STORAGE_HISTORY_PREVIEW_COUNT),
+                                key = { it.day.toString() },
+                            ) { point ->
                                 CleanupTrendCard(point, current.cleanupTrend.maxOfOrNull { it.releasedBytes } ?: 0L)
                             }
                         }
-                        item { OptimizeSectionHeader("设备空间快照", "${current.capacitySnapshots.size} 个") }
-                        if (current.capacitySnapshots.isEmpty()) {
+                        val reversedSnapshots = current.capacitySnapshots.asReversed()
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                OptimizeSectionHeader("设备空间快照", "${current.capacitySnapshots.size} 个")
+                                StorageLongListControls(
+                                    totalCount = reversedSnapshots.size,
+                                    expanded = capacitySnapshotsExpanded,
+                                    previewCount = STORAGE_HISTORY_PREVIEW_COUNT,
+                                    onToggleExpanded = { capacitySnapshotsExpanded = !capacitySnapshotsExpanded },
+                                    tone = OptimizeSuccess,
+                                )
+                            }
+                        }
+                        if (reversedSnapshots.isEmpty()) {
                             item { OptimizeEmptyPanel("打开设备优化页后会记录空间快照。") }
                         } else {
-                            items(current.capacitySnapshots.asReversed(), key = StorageCapacitySnapshot::createdAt) { snapshot ->
+                            items(
+                                storagePreviewItems(reversedSnapshots, capacitySnapshotsExpanded, STORAGE_HISTORY_PREVIEW_COUNT),
+                                key = StorageCapacitySnapshot::createdAt,
+                            ) { snapshot ->
                                 CapacitySnapshotCard(snapshot)
                             }
                         }
-                        item { OptimizeSectionHeader("清理历史详情", "共 ${current.cleanupHistory.size} 次") }
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                OptimizeSectionHeader("清理历史详情", "共 ${current.cleanupHistory.size} 次")
+                                StorageLongListControls(
+                                    totalCount = current.cleanupHistory.size,
+                                    expanded = cleanupHistoryExpanded,
+                                    previewCount = STORAGE_HISTORY_PREVIEW_COUNT,
+                                    onToggleExpanded = { cleanupHistoryExpanded = !cleanupHistoryExpanded },
+                                    tone = OptimizeSuccess,
+                                )
+                            }
+                        }
                         if (current.cleanupHistory.isEmpty()) {
                             item { OptimizeEmptyPanel("暂无清理记录。") }
                         } else {
-                            items(current.cleanupHistory, key = StorageCleanupHistoryEntry::id) { entry ->
+                            items(
+                                storagePreviewItems(current.cleanupHistory, cleanupHistoryExpanded, STORAGE_HISTORY_PREVIEW_COUNT),
+                                key = StorageCleanupHistoryEntry::id,
+                            ) { entry ->
                                 OptimizeHistoryCard(entry)
                             }
                         }
