@@ -44,10 +44,7 @@ class StorageAppCacheCleanupRepository(context: Context) {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasAllFilesAccess()
     }
 
-    fun systemCacheCleanupIntent(): Intent {
-        return Intent(StorageManager.ACTION_CLEAR_APP_CACHE)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
+    fun systemCacheCleanupIntent(): Intent = Intent(StorageManager.ACTION_CLEAR_APP_CACHE)
 
     fun loadRanking(forceRefresh: Boolean = false): List<AppCacheUsage> {
         return storageRepository.loadAppCacheRanking(forceRefresh = forceRefresh)
