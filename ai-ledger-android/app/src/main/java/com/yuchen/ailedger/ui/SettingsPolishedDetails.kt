@@ -2,6 +2,10 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -9,10 +13,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -67,31 +67,26 @@ internal fun SettingsDetailPanel(
         AnimatedContent(
             targetState = panel,
             transitionSpec = {
-                val direction = if (
-                    targetState.settingsOrder() >= initialState.settingsOrder()
-                ) 1 else -1
+                val direction = if (targetState.settingsOrder() >= initialState.settingsOrder()) 1 else -1
                 fadeIn(
                     animationSpec = tween(
                         170,
                         delayMillis = 42,
                         easing = FastOutSlowInEasing,
                     )
-                ) +
-                    slideInVertically(
-                        animationSpec = tween(310, easing = FastOutSlowInEasing)
-                    ) { 46 * direction } +
-                    scaleIn(
-                        initialScale = 0.955f,
-                        animationSpec = tween(310, easing = FastOutSlowInEasing),
-                    ) togetherWith
-                    fadeOut(animationSpec = tween(135, easing = FastOutSlowInEasing)) +
-                    slideOutVertically(
-                        animationSpec = tween(170, easing = FastOutSlowInEasing)
-                    ) { -30 * direction } +
-                    scaleOut(
-                        targetScale = 0.982f,
-                        animationSpec = tween(170, easing = FastOutSlowInEasing),
-                    )
+                ) + slideInVertically(
+                    animationSpec = tween(310, easing = FastOutSlowInEasing)
+                ) { 46 * direction } + scaleIn(
+                    initialScale = 0.955f,
+                    animationSpec = tween(310, easing = FastOutSlowInEasing),
+                ) togetherWith fadeOut(
+                    animationSpec = tween(135, easing = FastOutSlowInEasing)
+                ) + slideOutVertically(
+                    animationSpec = tween(170, easing = FastOutSlowInEasing)
+                ) { -30 * direction } + scaleOut(
+                    targetScale = 0.982f,
+                    animationSpec = tween(170, easing = FastOutSlowInEasing),
+                )
             },
             label = "settings-detail-panel-switch",
         ) { activePanel ->
@@ -146,11 +141,7 @@ private fun SettingsGlassFrame(
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(radius.dp)
-    Box(
-        modifier
-            .fillMaxWidth()
-            .clip(shape)
-    ) {
+    Box(modifier.fillMaxWidth().clip(shape)) {
         GlassPanel(
             quality = state.quality,
             glassIntensity = state.glassIntensity,
@@ -159,9 +150,7 @@ private fun SettingsGlassFrame(
             modifier = Modifier.matchParentSize(),
             role = GlassRole.Card,
         ) {}
-        Box(Modifier.fillMaxWidth()) {
-            content()
-        }
+        Box(Modifier.fillMaxWidth()) { content() }
     }
 }
 
@@ -299,8 +288,8 @@ private fun GlassContent(
     }
 
     SettingsParameterGroup(
-        title = "三层背景模糊",
-        subtitle = "清晰纹理与低、中、高三档模糊缓存",
+        title = "背景模糊金字塔",
+        subtitle = "单一背景源的清晰、低、中、高四级采样",
     ) {
         SettingsParameterSlider(
             title = "缓存分辨率",
@@ -311,16 +300,16 @@ private fun GlassContent(
         ) { onBackdropChange(backdrop.copy(scale = it)) }
         SettingsParameterSlider(
             title = "模糊层级",
-            description = "在清晰、低、中、高模糊纹理之间调节玻璃实际采样强度。",
+            description = "0=清晰，1=低，2=中，4=高；中间值连续插值。",
             value = backdrop.radius,
             valueRange = 0f..4f,
             valueText = { "${it.settingsRoundedValue()} 级" },
         ) { onBackdropChange(backdrop.copy(radius = it)) }
         SettingsParameterSlider(
             title = "模糊迭代",
-            description = "控制低、中、高三档模糊缓存的生成轮数。",
+            description = "0 跳过全部模糊 pass；1–12 控制低、中、高缓存生成轮数。",
             value = backdrop.iterations,
-            valueRange = 1f..16f,
+            valueRange = 0f..12f,
             valueText = { "${it.roundToInt()} 次" },
         ) { onBackdropChange(backdrop.copy(iterations = it.roundToInt().toFloat())) }
     }
@@ -464,7 +453,6 @@ private fun SettingsParameterGroup(
 ) {
     var expanded by rememberSaveable(title) { mutableStateOf(false) }
     val shape = RoundedCornerShape(20.dp)
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -517,7 +505,6 @@ private fun SettingsParameterGroup(
                 maxLines = 1,
             )
         }
-
         if (expanded) {
             Column(
                 modifier = Modifier
@@ -578,9 +565,7 @@ private fun DataContent(state: AssistantUiState) {
 
 @Composable
 private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) {
-    SettingsNestedOrdinaryGlassHost {
-        NativeAccountSettingsCard(state)
-    }
+    SettingsNestedOrdinaryGlassHost { NativeAccountSettingsCard(state) }
     SettingInfoRow(
         "AI 接口",
         if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint,
@@ -610,9 +595,7 @@ private fun ChatPageSettingsContent() {
         onValueChange = { InlineStickerDisplaySettings.updateSizeDp(context, it) },
         valueText = "${stickerSizeDp.roundToInt()} dp",
     )
-    SettingsNestedOrdinaryGlassHost {
-        InlineStickerExpressionSettingsControls()
-    }
+    SettingsNestedOrdinaryGlassHost { InlineStickerExpressionSettingsControls() }
     Column(
         Modifier
             .fillMaxWidth()
@@ -646,10 +629,6 @@ private fun ChatPageSettingsContent() {
     }
 }
 
-/**
- * 嵌套在雾面信息卡中的普通玻璃必须在信息卡内容层内批绘制，
- * 否则页面总父层会把它们画到外层雾面背景下面。
- */
 @Composable
 private fun SettingsNestedOrdinaryGlassHost(content: @Composable () -> Unit) {
     OrdinaryGlassSceneHost(
