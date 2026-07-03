@@ -7,6 +7,7 @@ import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.service.AgentExecutionResult
 import com.yuchen.ailedger.service.AgentTaskRunResult
 import com.yuchen.ailedger.service.AiWorkerClient
+import com.yuchen.ailedger.service.ClientToolCallRegistry
 import com.yuchen.ailedger.service.CloudAgentStep
 import com.yuchen.ailedger.service.CloudClientToolCall
 import kotlinx.coroutines.Dispatchers
@@ -41,20 +42,26 @@ internal suspend fun AiWorkerClient.buildNaturalInternalControlMessage(
     statusOverride: String? = null,
     detailOverride: String? = null,
     clientToolCall: CloudClientToolCall? = null,
-    modelPreference: ChatModel = clientToolCall?.finalModel
-        ?.let { ChatModel.fromId(it) }
-        ?.takeIf { it != ChatModel.Auto }
-        ?: ChatModel.Auto,
+    modelPreference: ChatModel = ChatModel.Auto,
 ): ChatMessage {
+    val resolvedCall = clientToolCall ?: ClientToolCallRegistry.consume(step)
+    val resolvedModel = if (modelPreference != ChatModel.Auto) {
+        modelPreference
+    } else {
+        resolvedCall?.finalModel
+            ?.let { ChatModel.fromId(it) }
+            ?.takeIf { it != ChatModel.Auto }
+            ?: ChatModel.Auto
+    }
     val receipt = clientToolReceipt(
         goal = goal,
         step = step,
         execution = execution,
         statusOverride = statusOverride,
         detailOverride = detailOverride,
-        clientToolCall = clientToolCall,
+        clientToolCall = resolvedCall,
     )
-    return reportClientToolReceipt(id, receipt, modelPreference)
+    return reportClientToolReceipt(id, receipt, resolvedModel)
 }
 
 private suspend fun AiWorkerClient.reportClientToolReceipt(
