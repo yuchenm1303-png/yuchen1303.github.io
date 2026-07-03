@@ -11,6 +11,8 @@ import com.yuchen.ailedger.data.AgentAnalyticsSnapshotReader
 import com.yuchen.ailedger.data.AgentSkillInventoryRepository
 import com.yuchen.ailedger.data.SupabaseAccountState
 import com.yuchen.ailedger.data.SupabaseAuthRepository
+import com.yuchen.ailedger.data.UserProfileRepository
+import com.yuchen.ailedger.data.UserProfileState
 import com.yuchen.ailedger.data.mergeAgentAnalyticsDaily
 import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
 import com.yuchen.ailedger.model.AgentDailyActivity
@@ -56,11 +58,15 @@ data class AgentAnalyticsSyncUiState(
 class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
     private val authRepository = SupabaseAuthRepository.get(appContext)
+    private val profileRepository by lazy(LazyThreadSafetyMode.NONE) {
+        UserProfileRepository.get(appContext)
+    }
     private val cloudRepository by lazy(LazyThreadSafetyMode.NONE) {
         AgentAnalyticsCloudRepository.get(appContext)
     }
 
     val accountState: StateFlow<SupabaseAccountState> = authRepository.state
+    val profileState: StateFlow<UserProfileState> = profileRepository.state
     val owner: StateFlow<AgentAnalyticsOwner> = AgentAnalyticsOwnerRuntime.owner.also {
         AgentAnalyticsOwnerRuntime.initialize(appContext)
     }
