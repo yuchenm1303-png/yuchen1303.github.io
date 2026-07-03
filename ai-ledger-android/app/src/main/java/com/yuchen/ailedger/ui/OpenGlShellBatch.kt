@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -20,12 +21,16 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -45,6 +50,7 @@ import com.yuchen.ailedger.ui.gl.NewOpenGLGlassBatchLayer
 import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
 import com.yuchen.ailedger.ui.gl.OpenGLShellBatchItem
 import com.yuchen.ailedger.ui.gl.rememberOpenGLShellBatchState
+import kotlin.math.min
 import kotlin.random.Random
 import kotlinx.coroutines.launch
 
@@ -53,22 +59,30 @@ private val BatchShellPressSinkEasing = CubicBezierEasing(0.14f, 0.00f, 0.10f, 1
 private val BatchShellPressReleaseEasing = CubicBezierEasing(0.18f, 0.00f, 0.16f, 1.00f)
 private val BatchShellPressPulseEasing = CubicBezierEasing(0.16f, 0.00f, 0.12f, 1.00f)
 
+private val LocalOpenGlShellBatchAcceptedShortEdgeDp =
+    staticCompositionLocalOf<ClosedFloatingPointRange<Float>?> { null }
+private val LocalOpenGlShellBatchPreserveStandaloneFrame =
+    staticCompositionLocalOf { false }
+
 /**
  * 一个页面级 TextureView / EGL 宿主，内部的每个 Shell 仍保留独立几何、采样原点与动态状态。
- * 完整刷新时八张卡合并成一次 draw call；单卡按压时只更新该卡的 VBO 区间与脏矩形。
+ * 完整刷新时卡片合并进同一批次；单卡按压时只更新该卡的 VBO 区间与脏矩形。
+ *
+ * [acceptedShortEdgeDp] 允许页面只合并光学短边一致的一组 Shell。未命中的 Shell 保持原来的
+ * 独立 OpenGL 路线，因此可以在不改变折射距离、圆肩宽度和色散尺度的前提下减少宿主数量。
  */
 @Composable
 internal fun OpenGlShellBatchHost(
     modifier: Modifier = Modifier,
+    acceptedShortEdgeDp: ClosedFloatingPointRange<Float>? = null,
+    preserveStandaloneFrame: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val state = rememberOpenGLShellBatchState()
     val parentCoordinates = remember { GlassCoordinateSource() }
 
-    SideEffect {
+    DisposableEffect(state, parentCoordinates) {
         state.bindParent(parentCoordinates)
-    }
-    DisposableEffect(state) {
         onDispose { state.clear() }
     }
 
@@ -80,15 +94,19 @@ internal fun OpenGlShellBatchHost(
             parentCoordinates = parentCoordinates,
             modifier = Modifier.matchParentSize(),
         )
-        CompositionLocalProvider(LocalOpenGLShellBatchState provides state) {
+        CompositionLocalProvider(
+            LocalOpenGLShellBatchState provides state,
+            LocalOpenGlShellBatchAcceptedShortEdgeDp provides acceptedShortEdgeDp,
+            LocalOpenGlShellBatchPreserveStandaloneFrame provides preserveStandaloneFrame,
+        ) {
             content()
         }
     }
 }
 
 /**
- * OpenGlShellGlass 在批宿主中的单卡实现。按压曲线、折射动态状态和光学叠层与单卡 Shell
- * 保持一致；这里只把底层 OpenGL 输出登记给父级共享宿主。
+ * OpenGlShellGlass 在批宿主中的入口。按压曲线、折射动态状态和光学叠层与单卡 Shell
+ * 保持一致；当尺寸不属于当前批次时，原位回退到原来的独立 Shell，不改变布局或视觉参数。
  */
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -102,6 +120,94 @@ internal fun OpenGlShellBatchItemSurface(
     content: @Composable () -> Unit,
 ) {
     val batchState = LocalOpenGLShellBatchState.current ?: return
+    val acceptedShortEdgeDp = LocalOpenGlShellBatchAcceptedShortEdgeDp.current
+
+    if (acceptedShortEdgeDp == null) {
+        OpenGlShellBatchRegisteredSurface(
+            batchState = batchState,
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = motionIntensity,
+            radius = radius,
+            modifier = modifier,
+            onClick = onClick,
+            content = content,
+        )
+        return
+    }
+
+    BoxWithConstraints(modifier = modifier) {
+        val shortEdgeDp = min(maxWidth.value, maxHeight.value)
+        if (shortEdgeDp in acceptedShortEdgeDp) {
+            OpenGlShellBatchRegisteredSurface(
+                batchState = batchState,
+                quality = quality,
+                glassIntensity = glassIntensity,
+                motionIntensity = motionIntensity,
+                radius = radius,
+                modifier = Modifier.fillMaxSize(),
+                onClick = onClick,
+                content = content,
+            )
+        } else {
+            OpenGlShellStandaloneSurface(
+                quality = quality,
+                glassIntensity = glassIntensity,
+                motionIntensity = motionIntensity,
+                radius = radius,
+                modifier = Modifier.fillMaxSize(),
+                onClick = onClick,
+                content = content,
+            )
+        }
+    }
+}
+
+@Composable
+private fun OpenGlShellStandaloneSurface(
+    quality: RenderQuality,
+    glassIntensity: Float,
+    motionIntensity: Float,
+    radius: Int,
+    modifier: Modifier,
+    onClick: (() -> Unit)?,
+    content: @Composable () -> Unit,
+) {
+    val currentOnClick by rememberUpdatedState(onClick)
+    val interaction = remember { MutableInteractionSource() }
+    val stableClick = remember { { currentOnClick?.invoke() } }
+    val clickableModifier = if (onClick != null) {
+        Modifier.clickable(
+            interactionSource = interaction,
+            indication = null,
+            onClick = stableClick,
+        )
+    } else {
+        Modifier
+    }
+
+    GlassPanel(
+        quality = quality,
+        glassIntensity = glassIntensity,
+        motionIntensity = motionIntensity,
+        radius = radius,
+        modifier = modifier.then(clickableModifier),
+        role = GlassRole.Shell,
+        content = content,
+    )
+}
+
+@Composable
+private fun OpenGlShellBatchRegisteredSurface(
+    batchState: com.yuchen.ailedger.ui.gl.OpenGLShellBatchState,
+    quality: RenderQuality,
+    glassIntensity: Float,
+    motionIntensity: Float,
+    radius: Int,
+    modifier: Modifier,
+    onClick: (() -> Unit)?,
+    content: @Composable () -> Unit,
+) {
     val effectiveRadius = if (radius >= 999) radius else radius.coerceAtLeast(30)
     val itemId = remember { Any() }
     val shellPressEnabled = motionIntensity > 0.02f
@@ -118,7 +224,10 @@ internal fun OpenGlShellBatchItemSurface(
     }
     val pressScope = rememberCoroutineScope()
     val interaction = remember { MutableInteractionSource() }
+    val currentOnClick by rememberUpdatedState(onClick)
+    val stableClick = remember { { currentOnClick?.invoke() } }
     val prismEdgeHighlight = LocalRainbowPrismStyle.current.edgeHighlight.coerceIn(0f, 2f)
+    val preserveStandaloneFrame = LocalOpenGlShellBatchPreserveStandaloneFrame.current
     val pressSize = remember { FloatArray(2) { 1f } }
 
     SideEffect {
@@ -134,10 +243,14 @@ internal fun OpenGlShellBatchItemSurface(
             dynamicState.reset()
             return@LaunchedEffect
         }
-        snapshotFlow { shellPress.value to shellOpenGlPressAnim.value }
-            .collect { (pressValue, openGlPress) ->
-                dynamicState.updateAnimation(pressValue, openGlPress)
-            }
+        snapshotFlow {
+            packBatchAnimationValues(shellPress.value, shellOpenGlPressAnim.value)
+        }.collect { packed ->
+            dynamicState.updateAnimation(
+                pressValue = Float.fromBits((packed ushr 32).toInt()),
+                openGlPress = Float.fromBits(packed.toInt()),
+            )
+        }
     }
 
     val pressModifier = if (shellPressEnabled) {
@@ -289,13 +402,21 @@ internal fun OpenGlShellBatchItemSurface(
         Modifier.clickable(
             interactionSource = interaction,
             indication = null,
-            onClick = onClick,
+            onClick = stableClick,
         )
     } else {
         Modifier
     }
     val shape = remember(effectiveRadius) { RoundedCornerShape(effectiveRadius.dp) }
     val backdropReady = LocalBlurredBackdrop.current?.isReady == true
+    val contentFrameModifier = if (preserveStandaloneFrame) {
+        Modifier.batchStandaloneShellFrame(
+            radius = effectiveRadius,
+            glassIntensity = glassIntensity,
+        )
+    } else {
+        Modifier.clip(shape)
+    }
 
     Box(
         modifier = modifier
@@ -307,7 +428,7 @@ internal fun OpenGlShellBatchItemSurface(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(shape),
+                .then(contentFrameModifier),
         ) {
             if (!backdropReady) {
                 Box(
@@ -335,6 +456,29 @@ internal fun OpenGlShellBatchItemSurface(
             }
         }
     }
+}
+
+private fun packBatchAnimationValues(pressValue: Float, openGlPress: Float): Long =
+    (pressValue.toRawBits().toLong() shl 32) or
+        (openGlPress.toRawBits().toLong() and 0xFFFF_FFFFL)
+
+private fun Modifier.batchStandaloneShellFrame(
+    radius: Int,
+    glassIntensity: Float,
+): Modifier {
+    val shape = RoundedCornerShape(radius.dp)
+    val safeIntensity = glassIntensity.coerceIn(0.25f, 1.45f)
+    return shadow(
+        elevation = 5.dp,
+        shape = shape,
+        clip = false,
+        ambientColor = Color.Black.copy(
+            alpha = (0.028f * safeIntensity).coerceIn(0.004f, 0.080f),
+        ),
+        spotColor = Color.White.copy(
+            alpha = (0.0035f * safeIntensity).coerceIn(0.001f, 0.014f),
+        ),
+    ).clip(shape)
 }
 
 private fun batchGlassSmoothStep(value: Float): Float {
