@@ -217,6 +217,7 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
         for (index in 0 until BATCH_RENDER_LIMIT) {
             if (index >= items.size) continue
             val item = items[index]
+            item.refreshPlacementNow(notify = false)
             if (!item.attached || item.width <= 1f || item.height <= 1f) continue
 
             val bit = 1 shl index
