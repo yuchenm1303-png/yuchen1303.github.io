@@ -231,6 +231,9 @@ def main() -> int:
             "private fun LearningFlowCard()",
             "private fun CloudAuthorityCard()",
             "private fun SafetyBoundaryCard()",
+            "private fun InstalledAppPickerDialog(",
+            "InstalledLaunchableAppCatalog.load(context)",
+            "应用包名由系统自动处理",
             "云端理解你的方法并生成 Skill",
         ],
         forbidden=[
@@ -241,6 +244,18 @@ def main() -> int:
             'text = if (thisRecording) "录" else "草"',
             'Text("盾"',
             "默认按已批准路线确定性执行",
+            '"允许观察的应用包名"',
+        ],
+    )
+
+    app_catalog = ROOT / "app/src/main/java/com/yuchen/ailedger/service/InstalledLaunchableAppCatalog.kt"
+    errors += require_text(
+        app_catalog,
+        required=[
+            "Intent.ACTION_MAIN",
+            "Intent.CATEGORY_LAUNCHER",
+            "distinctBy(InstalledLaunchableApp::packageName)",
+            "packageName == applicationContext.packageName",
         ],
     )
 
