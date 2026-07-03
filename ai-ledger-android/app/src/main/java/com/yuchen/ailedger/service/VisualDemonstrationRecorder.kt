@@ -2,7 +2,9 @@ package com.yuchen.ailedger.service
 
 import android.util.Base64
 import com.yuchen.ailedger.data.VisualDemonstrationSession
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * 只从权威屏幕截图中采样演示关键帧，不读取、不保存、也不解释无障碍节点。
@@ -18,21 +20,22 @@ class VisualDemonstrationRecorder(
 
     suspend fun runCaptureLoop() {
         captureFrame()
-        while (!stopped && session.frameCount < VisualDemonstrationSession.MAX_FRAMES) {
+        while (!stopped && session.frameCount < VisualDemonstrationSession.MAX_FRAMES - FINAL_FRAME_RESERVE) {
             delay(CAPTURE_INTERVAL_MS)
             if (!stopped) captureFrame()
         }
     }
 
-    suspend fun captureFinalFrame() {
+    suspend fun captureFinalFrame() = withContext(Dispatchers.Default) {
         if (!stopped) captureFrame()
+        Unit
     }
 
     fun stop() {
         stopped = true
     }
 
-    private suspend fun captureFrame(): Boolean {
+    private fun captureFrame(): Boolean {
         val observation = runCatching {
             AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = true)
         }.getOrNull() ?: return false
@@ -59,6 +62,7 @@ class VisualDemonstrationRecorder(
     }
 
     companion object {
-        private const val CAPTURE_INTERVAL_MS = 1_250L
+        private const val FINAL_FRAME_RESERVE = 1
+        private const val CAPTURE_INTERVAL_MS = 2_250L
     }
 }
