@@ -96,6 +96,7 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
         }
 
         private val instances = mutableMapOf<String, AgentAnalyticsDatabase>()
+        private val unavailableDatabaseNames = mutableSetOf<String>()
 
         fun get(context: Context): AgentAnalyticsDatabase {
             val owner = AgentAnalyticsOwnerRuntime.current(context.applicationContext)
@@ -103,8 +104,11 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
         }
 
         fun get(context: Context, databaseName: String): AgentAnalyticsDatabase {
-            val safeName = databaseName.trim().takeIf { it.endsWith(".db") } ?: "agent_analytics.db"
+            val safeName = safeDatabaseName(databaseName)
             return synchronized(instances) {
+                check(safeName !in unavailableDatabaseNames) {
+                    "智能体统计数据库在本次进程中不可用：$safeName"
+                }
                 instances[safeName] ?: Room.databaseBuilder(
                     context.applicationContext,
                     AgentAnalyticsDatabase::class.java,
@@ -118,10 +122,25 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
 
         /**
          * 仅由统计详情页在 IO 线程调用，提前完成 Room 迁移与 schema 校验。
-         * 运行时旁路写入仍保持延迟打开，避免应用启动或智能体进度回调发生同步磁盘访问。
+         * 校验失败后关闭并移除该实例，同时在本次进程中禁用对应统计库，确保聊天、智能体和首页
+         * 后续即使继续产生旁路统计，也只会放弃统计写入，不会再次触发同一个数据库异常。
          */
         fun validate(context: Context, databaseName: String) {
-            get(context.applicationContext, databaseName).openHelper.writableDatabase
+            val safeName = safeDatabaseName(databaseName)
+            val database = get(context.applicationContext, safeName)
+            try {
+                database.openHelper.writableDatabase
+            } catch (error: Throwable) {
+                synchronized(instances) {
+                    if (instances[safeName] === database) instances.remove(safeName)
+                    unavailableDatabaseNames += safeName
+                }
+                runCatching { database.close() }
+                throw error
+            }
         }
+
+        private fun safeDatabaseName(databaseName: String): String =
+            databaseName.trim().takeIf { it.endsWith(".db") } ?: "agent_analytics.db"
     }
 }
