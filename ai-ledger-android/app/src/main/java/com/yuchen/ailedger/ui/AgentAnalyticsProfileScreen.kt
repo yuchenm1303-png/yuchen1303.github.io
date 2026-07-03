@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,7 +37,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -67,7 +65,7 @@ private val ProfileStatsViolet = Color(0xFFB49BFF)
 private val ProfileStatsMint = Color(0xFF7BE8D2)
 private val ProfileStatsWarm = Color(0xFFFFC58A)
 private val ProfileStatsDanger = Color(0xFFFF9EAF)
-private val ProfileStatsCard = Color(0xFF11152F).copy(alpha = 0.78f)
+private val ProfileStatsCardColor = Color(0xFF11152F).copy(alpha = 0.78f)
 
 private enum class ProfileStatsTab(val label: String) {
     Overview("总览"), Tokens("Token"), Tasks("任务"), Capabilities("能力")
@@ -75,7 +73,12 @@ private enum class ProfileStatsTab(val label: String) {
 
 private data class ProfileMetric(val label: String, val value: String, val detail: String)
 private data class ProfileHeatCell(val column: Int, val row: Int, val tokens: Long, val future: Boolean)
-private data class ProfileHeatmap(val weeks: Int, val cells: List<ProfileHeatCell>, val maxTokens: Long, val activeDays: Int)
+private data class ProfileHeatmap(
+    val weeks: Int,
+    val cells: List<ProfileHeatCell>,
+    val maxTokens: Long,
+    val activeDays: Int,
+)
 
 /**
  * 账号化智能体统计页面。
@@ -146,7 +149,9 @@ internal fun AgentAnalyticsProfileScreen(
                 ProfileStatsTab.Overview -> {
                     item(key = "profile-stats-heatmap") { ProfileStatsHeatmap(snapshot.dailyActivity) }
                     item(key = "profile-stats-runtime") { ProfileStatsRuntime(snapshot) }
-                    item(key = "profile-stats-recent-title") { ProfileStatsSectionTitle("最近任务", "本机任务摘要") }
+                    item(key = "profile-stats-recent-title") {
+                        ProfileStatsSectionTitle("最近任务", "本机任务摘要")
+                    }
                     if (snapshot.recentTasks.isEmpty()) {
                         item(key = "profile-stats-recent-empty") { ProfileStatsEmpty("还没有智能体任务记录") }
                     } else {
@@ -206,7 +211,9 @@ internal fun AgentAnalyticsProfileScreen(
 
                 ProfileStatsTab.Capabilities -> {
                     item(key = "profile-skill-summary") { ProfileStatsSkillCard(skills) }
-                    item(key = "profile-capability-title") { ProfileStatsSectionTitle("能力使用", "工具、功能、动作与应用") }
+                    item(key = "profile-capability-title") {
+                        ProfileStatsSectionTitle("能力使用", "工具、功能、动作与应用")
+                    }
                     if (snapshot.capabilityUsage.isEmpty()) {
                         item(key = "profile-capability-empty") { ProfileStatsEmpty("暂无能力使用数据") }
                     } else {
@@ -261,7 +268,11 @@ private fun ProfileStatsIdentity(
     val email = accountState.email.orEmpty()
     val displayName = if (loggedIn) {
         profileState.profile?.displayName?.takeIf(String::isNotBlank)
-            ?: email.substringBefore('@').replace(Regex("[._-]+"), " ").trim().take(24).ifBlank { "AI Ledger 用户" }
+            ?: email.substringBefore('@')
+                .replace(Regex("[._-]+"), " ")
+                .trim()
+                .take(24)
+                .ifBlank { "AI Ledger 用户" }
     } else {
         "本地用户"
     }
@@ -330,10 +341,17 @@ private fun ProfileStatsIdentity(
         ) {
             metrics.forEachIndexed { index, metric ->
                 if (index > 0) {
-                    Box(Modifier.width(1.dp).height(44.dp).background(Color.White.copy(alpha = 0.07f)))
+                    Box(
+                        Modifier
+                            .width(1.dp)
+                            .height(44.dp)
+                            .background(Color.White.copy(alpha = 0.07f))
+                    )
                 }
                 Column(
-                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -416,8 +434,15 @@ private fun ProfileStatsSyncCard(
                         .width(76.dp)
                         .height(36.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(if (syncing) Color.White.copy(alpha = 0.045f) else ProfileStatsBlue.copy(alpha = 0.13f))
-                        .border(1.dp, ProfileStatsBlue.copy(alpha = if (syncing) 0.08f else 0.20f), RoundedCornerShape(14.dp))
+                        .background(
+                            if (syncing) Color.White.copy(alpha = 0.045f)
+                            else ProfileStatsBlue.copy(alpha = 0.13f)
+                        )
+                        .border(
+                            1.dp,
+                            ProfileStatsBlue.copy(alpha = if (syncing) 0.08f else 0.20f),
+                            RoundedCornerShape(14.dp),
+                        )
                         .clickable(enabled = !syncing, onClick = onSync),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -434,9 +459,14 @@ private fun ProfileStatsSyncCard(
 }
 
 @Composable
-private fun ProfileStatsTabs(selected: ProfileStatsTab, onSelected: (ProfileStatsTab) -> Unit) {
+private fun ProfileStatsTabs(
+    selected: ProfileStatsTab,
+    onSelected: (ProfileStatsTab) -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ProfileStatsTab.entries.forEach { tab ->
@@ -446,8 +476,16 @@ private fun ProfileStatsTabs(selected: ProfileStatsTab, onSelected: (ProfileStat
                     .width(78.dp)
                     .height(38.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(if (active) ProfileStatsViolet.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.045f))
-                    .border(1.dp, if (active) ProfileStatsViolet.copy(alpha = 0.28f) else Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
+                    .background(
+                        if (active) ProfileStatsViolet.copy(alpha = 0.20f)
+                        else Color.White.copy(alpha = 0.045f)
+                    )
+                    .border(
+                        1.dp,
+                        if (active) ProfileStatsViolet.copy(alpha = 0.28f)
+                        else Color.White.copy(alpha = 0.06f),
+                        RoundedCornerShape(16.dp),
+                    )
                     .clickable(enabled = !active) { onSelected(tab) },
                 contentAlignment = Alignment.Center,
             ) {
@@ -479,14 +517,20 @@ private fun ProfileStatsRuntime(snapshot: AgentAnalyticsSnapshot) {
 }
 
 @Composable
-private fun ProfileStatsRows(title: String, subtitle: String, rows: List<Triple<String, String, Color>>) {
+private fun ProfileStatsRows(
+    title: String,
+    subtitle: String,
+    rows: List<Triple<String, String, Color>>,
+) {
     ProfileStatsCard {
         Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
         Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp)
         Spacer(Modifier.height(9.dp))
         rows.forEach { row ->
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 5.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -529,7 +573,10 @@ private fun ProfileStatsHeatmap(daily: List<AgentDailyActivity>) {
                     }
                     drawRoundRect(
                         color = color,
-                        topLeft = Offset(entry.column * (cellPx + gapPx), entry.row * (cellPx + gapPx)),
+                        topLeft = Offset(
+                            entry.column * (cellPx + gapPx),
+                            entry.row * (cellPx + gapPx),
+                        ),
                         size = Size(cellPx, cellPx),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
                     )
@@ -563,7 +610,9 @@ private fun ProfileStatsTaskRow(task: AgentTaskAnalytics) {
 private fun ProfileStatsModelRow(model: AgentModelAnalytics) {
     val successRate = if (model.calls > 0L) {
         (model.calls - model.failures).coerceAtLeast(0L).toFloat() / model.calls.toFloat()
-    } else 0f
+    } else {
+        0f
+    }
     ProfileStatsCard {
         Text(
             model.displayName,
@@ -619,7 +668,9 @@ private fun ProfileStatsSkillCard(skills: AgentSkillInventory) {
 @Composable
 private fun ProfileStatsInline(label: String, value: String, tone: Color) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -635,7 +686,7 @@ private fun ProfileStatsCard(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(ProfileStatsCard)
+            .background(ProfileStatsCardColor)
             .border(1.dp, Color.White.copy(alpha = 0.065f), shape)
             .padding(horizontal = 16.dp, vertical = 15.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp),
@@ -653,10 +704,15 @@ private fun ProfileStatsSectionTitle(title: String, subtitle: String) {
 
 @Composable
 private fun ProfileStatsEmpty(message: String) {
-    ProfileStatsCard { Text(message, color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp) }
+    ProfileStatsCard {
+        Text(message, color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp)
+    }
 }
 
-private fun profileBuildHeatmap(daily: List<AgentDailyActivity>, requestedWeeks: Int): ProfileHeatmap {
+private fun profileBuildHeatmap(
+    daily: List<AgentDailyActivity>,
+    requestedWeeks: Int,
+): ProfileHeatmap {
     val weeks = requestedWeeks.coerceIn(1, 52)
     val today = LocalDate.now(ZoneId.systemDefault())
     val endSunday = today.plusDays((7 - today.dayOfWeek.value).toLong())
@@ -701,7 +757,12 @@ private fun profileSyncTone(phase: AgentAnalyticsSyncPhase): Color = when (phase
 private fun profileSyncTime(timestampMillis: Long): String {
     if (timestampMillis <= 0L) return "尚未成功同步"
     val time = Instant.ofEpochMilli(timestampMillis).atZone(ZoneId.systemDefault())
-    return "%d月%d日 %02d:%02d".format(time.monthValue, time.dayOfMonth, time.hour, time.minute)
+    return "%d月%d日 %02d:%02d".format(
+        time.monthValue,
+        time.dayOfMonth,
+        time.hour,
+        time.minute,
+    )
 }
 
 private fun profileTaskStatus(status: String): String = when (status.lowercase()) {
