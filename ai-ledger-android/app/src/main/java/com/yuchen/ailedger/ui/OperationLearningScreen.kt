@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.model.AssistantUiState
+import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.service.OperationLearningRecordingCoordinator
@@ -59,20 +60,20 @@ private data class LearningFlowStep(
 
 private val learningFlowSteps = listOf(
     LearningFlowStep(
-        title = "定义目标与范围",
-        description = "先明确最终结果、允许进入的应用，以及每次运行会变化的输入。",
+        title = "描述想教会助手的任务",
+        description = "告诉云端最终目标、适用应用，以及哪些信息在每次运行时可能变化。",
     ),
     LearningFlowStep(
-        title = "亲自演示一次",
-        description = "录制期间由你操作手机，系统只采集动作、控件证据和页面变化。",
+        title = "亲自完成一次视觉演示",
+        description = "本地只加密采样授权应用的屏幕关键帧，不保存控件节点，也不编译固定点击路线。",
     ),
     LearningFlowStep(
-        title = "审核结构化流程",
-        description = "检查步骤、变量、选择器、成功证据和风险确认，不直接保存原始点击轨迹。",
+        title = "云端理解并生成 Skill",
+        description = "云端从整次演示提炼触发场景、输入、操作原则、成功标准和安全边界。",
     ),
     LearningFlowStep(
-        title = "逐步执行并验证",
-        description = "默认按已批准路线确定性执行，每一步完成后都验证页面状态。",
+        title = "审核后交给视觉智能执行",
+        description = "Replay 时重新观察当前屏幕并完成目标，不机械复读录制坐标。",
     ),
 )
 
@@ -86,9 +87,7 @@ fun OperationLearningScreen(
     val recordingState by OperationLearningRecordingCoordinator.state.collectAsState()
 
     LaunchedEffect(recordingState.phase, recordingState.demonstrationId) {
-        if (recordingState.phase == OperationRecordingPhase.Captured) {
-            viewModel.refresh()
-        }
+        if (recordingState.phase == OperationRecordingPhase.Captured) viewModel.refresh()
     }
 
     BackHandler {
@@ -113,7 +112,6 @@ fun OperationLearningScreen(
                 },
             )
         }
-
         item { OperationLearningHeader() }
 
         if (recordingState.phase != OperationRecordingPhase.Idle || !recordingState.message.isNullOrBlank()) {
@@ -154,7 +152,7 @@ fun OperationLearningScreen(
                 enter = fadeIn() + slideInVertically { -it / 10 },
                 exit = fadeOut() + slideOutVertically { -it / 10 },
             ) {
-                WorkflowIntentEditor(
+                SkillIntentEditor(
                     state = state,
                     uiState = uiState,
                     onTitleChange = viewModel::updateTitle,
@@ -167,25 +165,13 @@ fun OperationLearningScreen(
             }
         }
 
-        item {
-            LearningSectionTitle(
-                title = "工作方式",
-                trailing = "4 个阶段",
-            )
-        }
+        item { LearningSectionTitle("工作方式", "云端理解") }
         item { LearningFlowCard() }
-
+        item { LearningSectionTitle("架构原则", "薄客户端") }
+        item { CloudAuthorityCard() }
         item {
             LearningSectionTitle(
-                title = "执行原则",
-                trailing = "默认确定性",
-            )
-        }
-        item { DeterministicExecutionCard() }
-
-        item {
-            LearningSectionTitle(
-                title = "我的操作",
+                title = "我的 Skill",
                 trailing = if (uiState.loading) "读取中" else "${uiState.drafts.size} 个",
             )
         }
@@ -203,9 +189,10 @@ fun OperationLearningScreen(
                 items = uiState.drafts,
                 key = { it.id },
             ) { draft ->
-                WorkflowDraftCard(
+                SkillDraftCard(
                     state = state,
                     draft = draft,
+                    skill = uiState.skillArtifacts[draft.id],
                     selected = draft.id == uiState.selectedDraftId,
                     recordingState = recordingState,
                     onSelect = { viewModel.selectDraft(draft.id) },
@@ -239,7 +226,7 @@ private fun OperationLearningBackButton(
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = if (enabled) "‹ 功能" else "录制中",
+                text = if (enabled) "‹ 功能" else "演示中",
                 color = Color.White.copy(alpha = if (enabled) 0.88f else 0.42f),
                 fontSize = 14.sp,
                 fontWeight = FontWeight.ExtraBold,
@@ -252,7 +239,7 @@ private fun OperationLearningBackButton(
 private fun OperationLearningHeader() {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
-            text = "LEARN BY DEMONSTRATION",
+            text = "TEACH A VISUAL SKILL",
             color = OperationLearningAccent.copy(alpha = 0.74f),
             fontSize = 10.sp,
             fontWeight = FontWeight.Black,
@@ -266,7 +253,7 @@ private fun OperationLearningHeader() {
             fontWeight = FontWeight.Black,
         )
         Text(
-            text = "你演示一次，助手整理成可检查的操作流程；运行时按你批准的路线逐步执行并验证。",
+            text = "你演示一次，云端理解你的方法并生成 Skill；以后由视觉智能根据当前界面重新完成。",
             color = Color.White.copy(alpha = 0.58f),
             fontSize = 13.sp,
             lineHeight = 19.sp,
@@ -290,12 +277,12 @@ private fun RecordingStatusCard(
         else -> OperationLearningViolet
     }
     val title = when (recordingState.phase) {
-        OperationRecordingPhase.Starting -> "正在准备录制"
-        OperationRecordingPhase.Recording -> "正在录制演示"
-        OperationRecordingPhase.Stopping -> "正在封存轨迹"
-        OperationRecordingPhase.Captured -> "演示采集完成"
-        OperationRecordingPhase.Failed -> "录制未完成"
-        OperationRecordingPhase.Idle -> "录制状态"
+        OperationRecordingPhase.Starting -> "正在准备视觉演示"
+        OperationRecordingPhase.Recording -> "正在观看你的演示"
+        OperationRecordingPhase.Stopping -> "云端正在理解演示"
+        OperationRecordingPhase.Captured -> "Skill 草稿已生成"
+        OperationRecordingPhase.Failed -> "演示未完成"
+        OperationRecordingPhase.Idle -> "视觉演示状态"
     }
 
     FrostInfoGlassPanel(
@@ -311,26 +298,16 @@ private fun RecordingStatusCard(
                 .clip(RoundedCornerShape(27.dp))
                 .background(accent.copy(alpha = 0.07f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Text(
-                        text = title,
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                    Text(
-                        text = recordingState.workflowTitle.ifBlank {
-                            recordingState.message.orEmpty()
-                        },
+                        text = recordingState.workflowTitle.ifBlank { recordingState.message.orEmpty() },
                         color = Color.White.copy(alpha = 0.48f),
                         fontSize = 11.5.sp,
                         maxLines = 2,
@@ -339,39 +316,28 @@ private fun RecordingStatusCard(
                 }
                 if (recordingState.capturedEventCount > 0) {
                     Text(
-                        text = "${recordingState.capturedEventCount} 条证据",
+                        text = "${recordingState.capturedEventCount} 帧",
                         color = accent.copy(alpha = 0.72f),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Black,
                     )
                 }
             }
-
             recordingState.message?.takeIf(String::isNotBlank)?.let { message ->
-                Text(
-                    text = message,
-                    color = Color.White.copy(alpha = 0.56f),
-                    fontSize = 11.5.sp,
-                    lineHeight = 17.sp,
-                )
+                Text(message, color = Color.White.copy(alpha = 0.56f), fontSize = 11.5.sp, lineHeight = 17.sp)
             }
-
             Text(
                 text = if (active) {
-                    "输入框内容会被替换为长度区间；密码、验证码和支付敏感内容不会写入轨迹。也可以从系统通知结束或取消录制。"
+                    "请切到授权应用并完整做一遍。系统只保存加密视觉关键帧，不记录节点树，也不会在本地猜测流程。"
                 } else {
-                    "原始轨迹仍不能直接执行，下一阶段会将它整理为可审核的步骤、选择器和成功证据。"
+                    "云端生成的是任务方法、输入和成功标准，不是固定坐标脚本。"
                 },
                 color = Color.White.copy(alpha = 0.43f),
                 fontSize = 10.5.sp,
                 lineHeight = 16.sp,
             )
-
             if (active) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OperationLearningActionButton(
                         state = state,
                         label = "取消并删除",
@@ -382,16 +348,16 @@ private fun RecordingStatusCard(
                     )
                     OperationLearningActionButton(
                         state = state,
-                        label = "结束并保存",
+                        label = "结束并生成 Skill",
                         modifier = Modifier.weight(0.58f),
                         enabled = recordingState.phase == OperationRecordingPhase.Recording,
                         onClick = onFinish,
                     )
                 }
-            } else {
+            } else if (recordingState.phase == OperationRecordingPhase.Captured || recordingState.phase == OperationRecordingPhase.Failed) {
                 OperationLearningActionButton(
                     state = state,
-                    label = "收起状态",
+                    label = "知道了",
                     modifier = Modifier.fillMaxWidth(),
                     enabled = true,
                     onClick = onDismiss,
@@ -402,44 +368,29 @@ private fun RecordingStatusCard(
 }
 
 @Composable
-private fun OperationLearningNotice(
-    text: String,
-    onDismiss: () -> Unit,
-) {
-    FrostInfoGlassPanel(
-        radius = 15f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.074f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
+private fun OperationLearningNotice(text: String, onDismiss: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.055f))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(22.dp))
-                .background(OperationLearningAccent.copy(alpha = 0.055f))
-                .padding(horizontal = 15.dp, vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Text(text, modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.70f), fontSize = 11.5.sp, lineHeight = 17.sp)
+        PressableGlass(
+            quality = com.yuchen.ailedger.model.RenderQuality.Smooth,
+            glassIntensity = 0.7f,
+            motionIntensity = 0f,
+            radius = 999,
+            modifier = Modifier.height(32.dp),
+            role = GlassRole.Chip,
+            onClick = onDismiss,
         ) {
-            Text(
-                text = text,
-                color = Color.White.copy(alpha = 0.72f),
-                fontSize = 11.5.sp,
-                lineHeight = 17.sp,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = "知道了",
-                color = OperationLearningAccent.copy(alpha = 0.78f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.045f))
-                    .clickable(onClick = onDismiss)
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
-            )
+            Box(Modifier.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
+                Text("关闭", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -452,64 +403,40 @@ private fun CreateIntentCard(
     onClick: () -> Unit,
 ) {
     FrostInfoGlassPanel(
-        radius = 20f,
+        radius = 18f,
         backdropAlpha = 1f,
-        frostAlpha = 0.092f,
+        frostAlpha = 0.082f,
         dimAlpha = 0f,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xFF101743).copy(alpha = 0.24f))
-                .padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+                .clip(RoundedCornerShape(25.dp))
+                .background(OperationLearningViolet.copy(alpha = 0.055f))
+                .padding(horizontal = 17.dp, vertical = 17.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                Text(
-                    text = "第一步 · 定义意图",
-                    color = OperationLearningAccent.copy(alpha = 0.78f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
-                )
-                Text(
-                    text = "先说清楚要学什么",
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    lineHeight = 29.sp,
-                    fontWeight = FontWeight.Black,
-                )
-                Text(
-                    text = "创建草稿时只记录目标和允许操作的应用，不会立即开启无障碍监听。",
-                    color = Color.White.copy(alpha = 0.56f),
-                    fontSize = 12.5.sp,
-                    lineHeight = 18.sp,
-                )
+            Text("教助手一个新 Skill", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+            Text(
+                "先说明最终目标和允许观察的应用。演示结束后，云端会解释自己学到了什么。",
+                color = Color.White.copy(alpha = 0.50f),
+                fontSize = 11.5.sp,
+                lineHeight = 17.sp,
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                LearningTag("视觉关键帧", Modifier.weight(1f))
+                LearningTag("云端理解", Modifier.weight(1f))
+                LearningTag("动态 Replay", Modifier.weight(1f))
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                LearningTag("显式录制", Modifier.weight(1f))
-                LearningTag("流程确认", Modifier.weight(1f))
-                LearningTag("逐步验证", Modifier.weight(1f))
-            }
-
             OperationLearningActionButton(
                 state = state,
                 label = when {
-                    !enabled -> "请先结束当前录制"
-                    editorVisible -> "收起草稿设置"
-                    else -> "创建操作草稿"
+                    !enabled -> "请先结束当前演示"
+                    editorVisible -> "收起教学设置"
+                    else -> "创建 Skill 教学"
                 },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
+                modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
                 onClick = onClick,
             )
@@ -518,7 +445,7 @@ private fun CreateIntentCard(
 }
 
 @Composable
-private fun WorkflowIntentEditor(
+private fun SkillIntentEditor(
     state: AssistantUiState,
     uiState: OperationLearningUiState,
     onTitleChange: (String) -> Unit,
@@ -543,23 +470,17 @@ private fun WorkflowIntentEditor(
                 .padding(horizontal = 16.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text("教学目标", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
             Text(
-                text = "录制前目标草稿",
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                text = "这一步只冻结意图和应用边界。步骤、选择器与成功证据将在演示后生成，再由你审核。",
+                "描述你想教会助手的任务。不要在这里编写点击步骤，云端会从视觉演示中理解方法。",
                 color = Color.White.copy(alpha = 0.50f),
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
             )
-
-            OperationLearningTextField(uiState.titleInput, onTitleChange, "操作名称", true)
-            OperationLearningTextField(uiState.goalInput, onGoalChange, "最终目标", false)
+            OperationLearningTextField(uiState.titleInput, onTitleChange, "Skill 名称", true)
+            OperationLearningTextField(uiState.goalInput, onGoalChange, "想完成什么，以及哪些内容可能变化", false)
             OperationLearningTextField(uiState.appNameInput, onAppNameChange, "应用名称（可选）", true)
-            OperationLearningTextField(uiState.packageNameInput, onPackageNameChange, "允许操作的应用包名", true)
+            OperationLearningTextField(uiState.packageNameInput, onPackageNameChange, "允许观察的应用包名", true)
 
             if (uiState.editorIssues.isNotEmpty()) {
                 Column(
@@ -571,34 +492,14 @@ private fun WorkflowIntentEditor(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     uiState.editorIssues.take(3).forEach { issue ->
-                        Text(
-                            text = "• ${issue.message}",
-                            color = OperationLearningDanger.copy(alpha = 0.88f),
-                            fontSize = 11.sp,
-                            lineHeight = 16.sp,
-                        )
+                        Text("• ${issue.message}", color = OperationLearningDanger.copy(alpha = 0.88f), fontSize = 11.sp, lineHeight = 16.sp)
                     }
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(9.dp),
-            ) {
-                OperationLearningActionButton(
-                    state = state,
-                    label = "取消",
-                    modifier = Modifier.weight(0.38f),
-                    enabled = true,
-                    onClick = onCancel,
-                )
-                OperationLearningActionButton(
-                    state = state,
-                    label = "保存草稿",
-                    modifier = Modifier.weight(0.62f),
-                    enabled = true,
-                    onClick = { onSave() },
-                )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                OperationLearningActionButton(state, "取消", Modifier.weight(0.38f), true, onClick = onCancel)
+                OperationLearningActionButton(state, "保存教学草稿", Modifier.weight(0.62f), true, onClick = { onSave() })
             }
         }
     }
@@ -620,11 +521,7 @@ private fun OperationLearningTextField(
         minLines = if (singleLine) 1 else 3,
         maxLines = if (singleLine) 1 else 5,
         shape = RoundedCornerShape(17.dp),
-        textStyle = TextStyle(
-            color = Color.White.copy(alpha = 0.90f),
-            fontSize = 13.sp,
-            lineHeight = 18.sp,
-        ),
+        textStyle = TextStyle(color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, lineHeight = 18.sp),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = Color.White.copy(alpha = 0.92f),
             unfocusedTextColor = Color.White.copy(alpha = 0.84f),
@@ -682,13 +579,7 @@ private fun LearningTag(text: String, modifier: Modifier = Modifier) {
             .background(Color.White.copy(alpha = 0.055f)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = text,
-            color = Color.White.copy(alpha = 0.61f),
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-        )
+        Text(text, color = Color.White.copy(alpha = 0.61f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
 }
 
@@ -700,19 +591,8 @@ private fun LearningSectionTitle(title: String, trailing: String) {
             .padding(top = 5.dp, start = 2.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = title,
-            color = Color.White.copy(alpha = 0.92f),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Black,
-            modifier = Modifier.weight(1f),
-        )
-        Text(
-            text = trailing,
-            color = Color.White.copy(alpha = 0.38f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+        Text(trailing, color = Color.White.copy(alpha = 0.38f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -734,22 +614,9 @@ private fun LearningFlowCard() {
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
             learningFlowSteps.forEach { step ->
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        text = step.title,
-                        color = Color.White.copy(alpha = 0.93f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                    Text(
-                        text = step.description,
-                        color = Color.White.copy(alpha = 0.49f),
-                        fontSize = 11.5.sp,
-                        lineHeight = 17.sp,
-                    )
+                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(step.title, color = Color.White.copy(alpha = 0.93f), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                    Text(step.description, color = Color.White.copy(alpha = 0.49f), fontSize = 11.5.sp, lineHeight = 17.sp)
                 }
             }
         }
@@ -757,7 +624,7 @@ private fun LearningFlowCard() {
 }
 
 @Composable
-private fun DeterministicExecutionCard() {
+private fun CloudAuthorityCard() {
     FrostInfoGlassPanel(
         radius = 18f,
         backdropAlpha = 1f,
@@ -773,32 +640,19 @@ private fun DeterministicExecutionCard() {
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            PrincipleRow("路线不可静默改写", "找不到目标时停止，不允许自行发明新步骤。")
-            PrincipleRow("坐标只能做弱线索", "必须同时满足页面指纹和稳定选择器，不能单独依赖录制坐标。")
-            PrincipleRow("成功证据优先", "每一步和最终任务都必须有可检查的完成条件。")
-            PrincipleRow("辅助修复需再次同意", "视觉循环只作为受控升级能力，不是默认执行内核。")
+            PrincipleRow("云端负责理解与决策", "本地不复制一套规划、验证和恢复规则去限制视觉模型。")
+            PrincipleRow("视觉是唯一感知权威", "节点树、Resource ID 和固定选择器不进入新 Skill 主链。")
+            PrincipleRow("本地只负责可靠执行", "提供截图、点击、滑动、返回和输入等基础能力。")
+            PrincipleRow("安全边界仍由本地掌握", "授权范围、敏感操作确认、停止和加密存储不会交给模型绕过。")
         }
     }
 }
 
 @Composable
 private fun PrincipleRow(title: String, description: String) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Text(
-            text = title,
-            color = Color.White.copy(alpha = 0.90f),
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Black,
-        )
-        Text(
-            text = description,
-            color = Color.White.copy(alpha = 0.46f),
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
-        )
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
+        Text(description, color = Color.White.copy(alpha = 0.46f), fontSize = 11.sp, lineHeight = 16.sp)
     }
 }
 
@@ -824,9 +678,9 @@ private fun LearnedOperationsEmptyCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Text("还没有操作草稿", color = Color.White.copy(alpha = 0.91f), fontSize = 17.sp, fontWeight = FontWeight.Black)
+            Text("还没有视觉 Skill", color = Color.White.copy(alpha = 0.91f), fontSize = 17.sp, fontWeight = FontWeight.Black)
             Text(
-                text = "先定义一个明确目标和允许进入的应用，再开始演示。",
+                text = "先描述一个目标，然后让助手观看你完整完成一次。",
                 color = Color.White.copy(alpha = 0.48f),
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
@@ -834,10 +688,8 @@ private fun LearnedOperationsEmptyCard(
             )
             OperationLearningActionButton(
                 state = state,
-                label = "创建第一个草稿",
-                modifier = Modifier
-                    .fillMaxWidth(0.62f)
-                    .padding(top = 5.dp),
+                label = "创建第一个 Skill",
+                modifier = Modifier.fillMaxWidth(0.62f).padding(top = 5.dp),
                 enabled = enabled,
                 onClick = onCreate,
             )
@@ -846,9 +698,10 @@ private fun LearnedOperationsEmptyCard(
 }
 
 @Composable
-private fun WorkflowDraftCard(
+private fun SkillDraftCard(
     state: AssistantUiState,
     draft: LearnedWorkflowDraft,
+    skill: LearnedVisualSkill?,
     selected: Boolean,
     recordingState: OperationRecordingState,
     onSelect: () -> Unit,
@@ -865,13 +718,13 @@ private fun WorkflowDraftCard(
     val canStart = draft.status == WorkflowDraftStatus.Intent && report.canProceed && !recordingState.active
     val actionLabel = when {
         thisRecording -> "结束演示"
-        anotherRecording -> "其他操作录制中"
-        draft.status == WorkflowDraftStatus.Compiling -> "等待整理"
+        anotherRecording -> "其他 Skill 演示中"
+        draft.status == WorkflowDraftStatus.Compiling -> "云端理解中"
         draft.status == WorkflowDraftStatus.ReadyForReview -> "等待审核"
         draft.status == WorkflowDraftStatus.Approved -> "已批准"
         draft.status == WorkflowDraftStatus.Verified -> "已验证"
-        canStart -> "开始演示"
-        else -> "暂不可录制"
+        canStart -> "开始视觉演示"
+        else -> "暂不可演示"
     }
 
     FrostInfoGlassPanel(
@@ -892,60 +745,25 @@ private fun WorkflowDraftCard(
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
-                    WorkflowStatusChip(draft.status)
-                    Text(
-                        text = draft.executionMode.label,
-                        color = Color.White.copy(alpha = 0.38f),
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Text(
-                    text = draft.title,
-                    color = Color.White.copy(alpha = 0.94f),
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = draft.goal,
-                    color = Color.White.copy(alpha = 0.50f),
-                    fontSize = 11.5.sp,
-                    lineHeight = 17.sp,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                WorkflowStatusChip(draft.status)
+                Text(draft.executionMode.label, color = Color.White.copy(alpha = 0.38f), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
             }
+            Text(draft.title, color = Color.White.copy(alpha = 0.94f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(draft.goal, color = Color.White.copy(alpha = 0.50f), fontSize = 11.5.sp, lineHeight = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 DraftMeta("应用", appLabel, Modifier.weight(1f))
-                DraftMeta("步骤", if (draft.steps.isEmpty()) "待整理" else "${draft.steps.size} 步", Modifier.weight(1f))
-                DraftMeta("校验", if (report.canProceed) "已通过" else "需补充", Modifier.weight(1f))
+                DraftMeta("输入", skill?.inputs?.size?.let { "$it 项" } ?: "待学习", Modifier.weight(1f))
+                DraftMeta("置信度", skill?.let { "${(it.confidence * 100).toInt()}%" } ?: "--", Modifier.weight(1f))
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OperationLearningActionButton(
-                    state = state,
-                    label = if (selected) "已选择" else "查看",
-                    modifier = Modifier.weight(0.28f),
-                    enabled = !recordingState.active,
-                    onClick = onSelect,
-                )
+            if (selected && skill != null) {
+                SkillUnderstandingPanel(skill)
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OperationLearningActionButton(state, if (selected) "已展开" else "查看", Modifier.weight(0.28f), !recordingState.active, onClick = onSelect)
                 OperationLearningActionButton(
                     state = state,
                     label = actionLabel,
@@ -953,15 +771,34 @@ private fun WorkflowDraftCard(
                     enabled = thisRecording || canStart,
                     onClick = if (thisRecording) onFinishRecording else onStartRecording,
                 )
-                OperationLearningActionButton(
-                    state = state,
-                    label = "删除",
-                    modifier = Modifier.weight(0.22f),
-                    enabled = !recordingState.active,
-                    danger = true,
-                    onClick = onDelete,
-                )
+                OperationLearningActionButton(state, "删除", Modifier.weight(0.22f), !recordingState.active, danger = true, onClick = onDelete)
             }
+        }
+    }
+}
+
+@Composable
+private fun SkillUnderstandingPanel(skill: LearnedVisualSkill) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp))
+            .background(Color.White.copy(alpha = 0.045f))
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Text("云端学到的方法", color = OperationLearningAccent.copy(alpha = 0.82f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+        Text(
+            text = skill.cloudSummary.ifBlank { skill.description },
+            color = Color.White.copy(alpha = 0.66f),
+            fontSize = 11.sp,
+            lineHeight = 16.dp.value.sp,
+        )
+        skill.operatingPrinciples.take(3).forEach { principle ->
+            Text("• $principle", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp, lineHeight = 15.sp)
+        }
+        if (skill.successCriteria.isNotEmpty()) {
+            Text("成功：${skill.successCriteria.first()}", color = OperationLearningViolet.copy(alpha = 0.70f), fontSize = 10.5.sp, lineHeight = 15.sp)
         }
     }
 }
@@ -975,12 +812,7 @@ private fun WorkflowStatusChip(status: WorkflowDraftStatus) {
             .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = status.label,
-            color = OperationLearningAccent.copy(alpha = 0.78f),
-            fontSize = 9.5.sp,
-            fontWeight = FontWeight.Black,
-        )
+        Text(status.label, color = OperationLearningAccent.copy(alpha = 0.78f), fontSize = 9.5.sp, fontWeight = FontWeight.Black)
     }
 }
 
@@ -993,15 +825,8 @@ private fun DraftMeta(label: String, value: String, modifier: Modifier) {
             .padding(horizontal = 9.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        Text(text = label, color = Color.White.copy(alpha = 0.34f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
-        Text(
-            text = value,
-            color = Color.White.copy(alpha = 0.74f),
-            fontSize = 10.5.sp,
-            fontWeight = FontWeight.Black,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Text(label, color = Color.White.copy(alpha = 0.34f), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = Color.White.copy(alpha = 0.74f), fontSize = 10.5.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -1022,14 +847,9 @@ private fun SafetyBoundaryCard() {
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Text("智能交给云端，边界留在本地", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Black)
             Text(
-                text = "原始演示不能直接执行",
-                color = Color.White.copy(alpha = 0.9f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                text = "录制只在用户主动开启期间工作；离开授权应用、开始智能体任务、失败或取消后都会恢复低负载 Idle。轨迹采用本机加密短期保存。",
+                text = "只采集授权应用画面；视觉证据本机加密短期保存，Skill 生成成功后删除。密码、验证码、支付和不可逆操作仍受本地确认保护。",
                 color = Color.White.copy(alpha = 0.48f),
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
