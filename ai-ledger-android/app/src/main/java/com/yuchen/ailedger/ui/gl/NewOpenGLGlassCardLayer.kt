@@ -40,13 +40,6 @@ private const val NewOpenGlMinimumOpticalScale = 0.28f
 val LocalNewOpenGlGlassStyleOverride =
     staticCompositionLocalOf<((GlassBorderStyle) -> GlassBorderStyle)?> { null }
 
-/**
- * Shell 级 OpenGL Renderer 路由。
- *
- * 所有 OpenGL 路线只接收一套中度模糊颜色背景。旧版 Renderer 会自动把原镜片槽别名到
- * 同一 Bitmap，新版 Renderer 的 clear 参数也直接复用 medium Bitmap，因此不会再把一张
- * 独立清晰背景叠入玻璃。普通 Card、Chip、Floating、Nav 和 Flex 永远不会进入本入口。
- */
 @Composable
 fun NewOpenGLGlassCardLayer(
     radius: Int,
@@ -60,8 +53,7 @@ fun NewOpenGLGlassCardLayer(
 ) {
     val sceneGroup = LocalGlassSceneGroup
     val usesLegacyShellRenderer =
-        sceneGroup == GlassSceneGroup.SettingsPage ||
-            sceneGroup == GlassSceneGroup.AssistantPage
+        sceneGroup == GlassSceneGroup.SettingsPage || sceneGroup == GlassSceneGroup.AssistantPage
     val localBackdrop = LocalBlurredBackdrop.current
     val backdrop = if (usesLegacyShellRenderer) {
         OpenGlStartupBackdropBridge.backdrop ?: localBackdrop
@@ -70,17 +62,8 @@ fun NewOpenGLGlassCardLayer(
     } ?: return
 
     if (!backdrop.isReady) {
-        Box(
-            modifier = modifier.startupStaticGlassLayer(
-                radius = radius,
-                glassIntensity = glassIntensity
-            )
-        ) {}
+        Box(modifier = modifier.startupStaticGlassLayer(radius, glassIntensity)) {}
         return
-    }
-
-    val singleBackdrop = remember(backdrop) {
-        backdrop.copy(lensImage = backdrop.blurMediumImage)
     }
 
     if (usesLegacyShellRenderer) {
@@ -88,11 +71,10 @@ fun NewOpenGLGlassCardLayer(
         val legacySpec = remember(currentSpec) {
             currentSpec?.copy(borderStyle = legacyOpenGlReferenceStyle())
         }
-
         if (legacySpec != null) {
             CompositionLocalProvider(
                 LocalGlassBackdrop provides legacySpec,
-                LocalBlurredBackdrop provides singleBackdrop,
+                LocalBlurredBackdrop provides backdrop,
             ) {
                 LegacyOpenGLShellHost(
                     quality = legacySpec.quality,
@@ -109,7 +91,7 @@ fun NewOpenGLGlassCardLayer(
                 ) {}
             }
         } else {
-            CompositionLocalProvider(LocalBlurredBackdrop provides singleBackdrop) {
+            CompositionLocalProvider(LocalBlurredBackdrop provides backdrop) {
                 OpenGLGlassCardLayer(
                     radius = radius,
                     glassIntensity = glassIntensity,
@@ -127,9 +109,7 @@ fun NewOpenGLGlassCardLayer(
 
     val baseBorder = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val styleOverride = LocalNewOpenGlGlassStyleOverride.current
-    val border = remember(baseBorder, styleOverride) {
-        styleOverride?.invoke(baseBorder) ?: baseBorder
-    }
+    val border = remember(baseBorder, styleOverride) { styleOverride?.invoke(baseBorder) ?: baseBorder }
     val rendererBorder = remember(border) { border.onlyWebOpenGLRendererFields() }
     val backdropOrigin = LocalBackdropOrigin.current
     val backdropTicker = LocalBackdropFrameTicker.current
@@ -141,16 +121,10 @@ fun NewOpenGLGlassCardLayer(
     val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
     foldoutClipRegistry?.version
 
-    val blurLowBitmap = remember(singleBackdrop.blurLowImage) {
-        singleBackdrop.blurLowImage.asAndroidBitmap()
-    }
-    val blurMediumBitmap = remember(singleBackdrop.blurMediumImage) {
-        singleBackdrop.blurMediumImage.asAndroidBitmap()
-    }
-    val blurHighBitmap = remember(singleBackdrop.blurHighImage) {
-        singleBackdrop.blurHighImage.asAndroidBitmap()
-    }
-
+    val clearBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
+    val blurLowBitmap = remember(backdrop.blurLowImage) { backdrop.blurLowImage.asAndroidBitmap() }
+    val blurMediumBitmap = remember(backdrop.blurMediumImage) { backdrop.blurMediumImage.asAndroidBitmap() }
+    val blurHighBitmap = remember(backdrop.blurHighImage) { backdrop.blurHighImage.asAndroidBitmap() }
     val intensity = border.newOpenGlGlassIntensity.takeIf { it > 0f }?.coerceIn(0.35f, 1.35f)
         ?: glassIntensity.coerceIn(0.35f, 1.35f)
     val staticPress = pressProgress.coerceIn(0f, 1f)
@@ -167,38 +141,23 @@ fun NewOpenGLGlassCardLayer(
         val scaledRendererBorder = remember(rendererBorder, opticalScale) {
             rendererBorder.scaleNewOpenGlOpticalDistances(opticalScale)
         }
-        val radiusPx = if (radius >= 999) {
-            shortEdgePx * 0.5f
-        } else {
+        val radiusPx = if (radius >= 999) shortEdgePx * 0.5f else
             with(density) { radius.dp.toPx() }.coerceIn(0f, shortEdgePx * 0.5f)
-        }
         val safeViewportTopInsetPx = effectiveViewportTopInsetPx
             .coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
         val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
-        val rootWidthPx = singleBackdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
-        val rootHeightPx = singleBackdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
-
+        val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
+        val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
         val safeSurfaceAnchor = surfaceAnchor.coerceIn(0f, 1f)
         val stableSurfaceWidthPx = max(widthPx, rootWidthPx)
-        val stableSurfaceHeightPx = max(
-            heightPx,
-            rootHeightPx * (1f - safeSurfaceAnchor)
-        )
+        val stableSurfaceHeightPx = max(heightPx, rootHeightPx * (1f - safeSurfaceAnchor))
 
         AndroidView(
             modifier = Modifier.matchParentSize(),
             factory = { context -> WebOpenGLGlassCardHostView(context) },
             update = { view ->
-                view.applyGlassFoldoutClip(
-                    registry = foldoutClipRegistry,
-                    coordinates = coordinateSource?.coordinates
-                )
-                view.bindDynamicSources(
-                    coordinateSource = coordinateSource,
-                    backdropOrigin = backdropOrigin,
-                    frameTicker = backdropTicker,
-                    dynamicState = dynamicState,
-                )
+                view.applyGlassFoldoutClip(foldoutClipRegistry, coordinateSource?.coordinates)
+                view.bindDynamicSources(coordinateSource, backdropOrigin, backdropTicker, dynamicState)
                 val frameDirty = view.setFrameSpec(
                     width = widthPx,
                     fullHeight = heightPx,
@@ -213,70 +172,57 @@ fun NewOpenGLGlassCardLayer(
                     staticPressCenterY = staticPressY,
                 )
                 val textureDirty = view.setBackdropTextures(
-                    clearBitmap = blurMediumBitmap,
-                    blurLowBitmap = blurLowBitmap,
-                    blurMediumBitmap = blurMediumBitmap,
-                    blurHighBitmap = blurHighBitmap
+                    clearBitmap,
+                    blurLowBitmap,
+                    blurMediumBitmap,
+                    blurHighBitmap,
                 )
-                val blurDirty = view.setBackdropBlurAmount(singleBackdrop.blurAmount)
+                val blurDirty = view.setBackdropBlurAmount(backdrop.blurAmount)
                 val styleDirty = view.setGlassStyle(scaledRendererBorder, densityScale)
                 val surfaceDirty = view.setStableSurfaceSize(
                     stableSurfaceWidthPx.roundToInt(),
                     stableSurfaceHeightPx.roundToInt(),
                     rootWidthPx.roundToInt(),
-                    rootHeightPx.roundToInt()
+                    rootHeightPx.roundToInt(),
                 )
-
                 if (surfaceDirty || frameDirty || textureDirty || blurDirty || styleDirty) {
                     view.requestRenderOnNextAnimationFrame()
                 }
-            }
+            },
         )
     }
 }
 
-private fun Modifier.startupStaticGlassLayer(
-    radius: Int,
-    glassIntensity: Float
-): Modifier = drawWithCache {
-    val cornerRadiusPx = if (radius >= 999) {
-        min(size.width, size.height) * 0.5f
-    } else {
-        radius.dp.toPx().coerceAtLeast(0f)
-    }
+private fun Modifier.startupStaticGlassLayer(radius: Int, glassIntensity: Float): Modifier = drawWithCache {
+    val cornerRadiusPx = if (radius >= 999) min(size.width, size.height) * 0.5f
+    else radius.dp.toPx().coerceAtLeast(0f)
     val intensity = glassIntensity.coerceIn(0.35f, 1.35f)
     val fill = Color(0xFF17345B).copy(alpha = (0.34f * intensity).coerceIn(0.18f, 0.48f))
     val innerLift = Color.White.copy(alpha = (0.040f * intensity).coerceIn(0.018f, 0.065f))
     val edge = Color.White.copy(alpha = (0.16f * intensity).coerceIn(0.08f, 0.22f))
     val strokeWidth = 1.dp.toPx().coerceAtLeast(1f)
     val corner = CornerRadius(cornerRadiusPx, cornerRadiusPx)
-
     onDrawBehind {
         drawRoundRect(color = fill, cornerRadius = corner)
         drawRoundRect(
             color = innerLift,
             topLeft = Offset(strokeWidth, strokeWidth),
             size = Size(
-                width = (size.width - strokeWidth * 2f).coerceAtLeast(0f),
-                height = (size.height - strokeWidth * 2f).coerceAtLeast(0f)
+                (size.width - strokeWidth * 2f).coerceAtLeast(0f),
+                (size.height - strokeWidth * 2f).coerceAtLeast(0f),
             ),
             cornerRadius = CornerRadius(
                 (cornerRadiusPx - strokeWidth).coerceAtLeast(0f),
-                (cornerRadiusPx - strokeWidth).coerceAtLeast(0f)
-            )
+                (cornerRadiusPx - strokeWidth).coerceAtLeast(0f),
+            ),
         )
-        drawRoundRect(
-            color = edge,
-            cornerRadius = corner,
-            style = Stroke(width = strokeWidth)
-        )
+        drawRoundRect(color = edge, cornerRadius = corner, style = Stroke(width = strokeWidth))
     }
 }
 
 private fun GlassBorderStyle.scaleNewOpenGlOpticalDistances(scale: Float): GlassBorderStyle {
     val safeScale = scale.coerceIn(NewOpenGlMinimumOpticalScale, 1f)
     if (safeScale >= 0.999f) return this
-
     return copy(
         newOpenGlBodyLensBasePull = newOpenGlBodyLensBasePull * safeScale,
         newOpenGlBodyLensPullDp = newOpenGlBodyLensPullDp * safeScale,
@@ -285,7 +231,7 @@ private fun GlassBorderStyle.scaleNewOpenGlOpticalDistances(scale: Float): Glass
         newOpenGlShoulderWidthDp = newOpenGlShoulderWidthDp * safeScale,
         newOpenGlShoulderCaptureWidthDp = newOpenGlShoulderCaptureWidthDp * safeScale,
         newOpenGlDispersionDistanceDp = newOpenGlDispersionDistanceDp * safeScale,
-        newOpenGlDispersionEdgeWidthDp = newOpenGlDispersionEdgeWidthDp * safeScale
+        newOpenGlDispersionEdgeWidthDp = newOpenGlDispersionEdgeWidthDp * safeScale,
     )
 }
 
@@ -313,5 +259,5 @@ private fun GlassBorderStyle.onlyWebOpenGLRendererFields(): GlassBorderStyle = G
     newOpenGlDispersionStrength = newOpenGlDispersionStrength,
     newOpenGlDispersionDistanceDp = newOpenGlDispersionDistanceDp,
     newOpenGlDispersionEdgeWidthDp = newOpenGlDispersionEdgeWidthDp,
-    newOpenGlDispersionConcentration = newOpenGlDispersionConcentration
+    newOpenGlDispersionConcentration = newOpenGlDispersionConcentration,
 )
