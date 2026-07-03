@@ -63,7 +63,8 @@ internal object StockHttpClient {
         timeoutMs: Int,
         emptyMessage: String,
         microCacheMs: Long = DEFAULT_MICRO_CACHE_MS,
-        allowColdStartWait: Boolean = false
+        allowColdStartWait: Boolean = false,
+        requestGroup: String? = null
     ): String {
         val effectiveTimeoutMs = effectiveTimeoutMs(url, timeoutMs, allowColdStartWait)
         recent(url, microCacheMs)?.let { return it }
@@ -83,13 +84,16 @@ internal object StockHttpClient {
             }
             recentTransportFailure(url)?.let { throw it }
 
-            val request = Request.Builder()
+            val requestBuilder = Request.Builder()
                 .url(url)
                 .get()
                 .header("User-Agent", "AI-Ledger-Android/1.0")
                 .header("Accept", "application/json")
                 .header("Cache-Control", "no-cache")
-                .build()
+            if (!requestGroup.isNullOrBlank()) {
+                requestBuilder.tag(String::class.java, requestGroup)
+            }
+            val request = requestBuilder.build()
             val call = client.newCall(request)
             call.timeout().timeout(effectiveTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
             val body = call.execute().use { response ->
@@ -126,6 +130,16 @@ internal object StockHttpClient {
             throw normalized
         } finally {
             inFlight.remove(url, owned)
+        }
+    }
+
+    fun cancelGroup(requestGroup: String) {
+        if (requestGroup.isBlank()) return
+        dispatcher.queuedCalls().forEach { call ->
+            if (call.request().tag(String::class.java) == requestGroup) call.cancel()
+        }
+        dispatcher.runningCalls().forEach { call ->
+            if (call.request().tag(String::class.java) == requestGroup) call.cancel()
         }
     }
 
