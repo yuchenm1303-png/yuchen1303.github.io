@@ -58,6 +58,7 @@ internal fun StorageFolderIndexCompleteScreen(
     var result by remember { mutableStateOf<StorageFolderIndexState?>(null) }
     var loading by remember { mutableStateOf(true) }
     var scanning by remember { mutableStateOf(false) }
+    var filesExpanded by remember { mutableStateOf(false) }
     var generation by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -143,8 +144,8 @@ internal fun StorageFolderIndexCompleteScreen(
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("FOLDER INDEX", color = FolderAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text("大目录索引", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
-                    Text("分批执行但完整覆盖授权目录的全部层级和文件。", color = Color.White.copy(alpha = 0.58f), fontSize = 13.sp, lineHeight = 19.sp)
+                    Text("授权目录索引", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                    Text("分批执行但完整覆盖你主动授权目录中的全部层级和文件。", color = Color.White.copy(alpha = 0.58f), fontSize = 13.sp, lineHeight = 19.sp)
                 }
             }
             item {
@@ -178,11 +179,25 @@ internal fun StorageFolderIndexCompleteScreen(
                         )
                     }
                     current.progress.errorMessage?.let { item { FolderInfoPanel("部分目录已跳过", it, FolderWarning) } }
-                    item { FolderSectionHeader("已索引文件", "全部 ${current.largestFiles.size} 个") }
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            FolderSectionHeader("已索引文件", "全部 ${current.largestFiles.size} 个")
+                            StorageLongListControls(
+                                totalCount = current.largestFiles.size,
+                                expanded = filesExpanded,
+                                previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                                onToggleExpanded = { filesExpanded = !filesExpanded },
+                                tone = FolderAccent,
+                            )
+                        }
+                    }
                     if (current.largestFiles.isEmpty()) {
                         item { FolderInfoPanel("暂无结果", "继续扫描后将按文件大小展示全部索引结果。", Color.White) }
                     } else {
-                        items(current.largestFiles, key = StorageIndexedLargeFile::uri) { file ->
+                        items(
+                            storagePreviewItems(current.largestFiles, filesExpanded, STORAGE_FILE_PREVIEW_COUNT),
+                            key = StorageIndexedLargeFile::uri,
+                        ) { file ->
                             IndexedFileCard(file) {
                                 val intent = Intent(Intent.ACTION_VIEW).apply {
                                     setDataAndType(Uri.parse(file.uri), file.mimeType.ifBlank { "*/*" })
