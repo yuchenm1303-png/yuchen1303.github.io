@@ -34,7 +34,7 @@ data class OperationRecordingStartResult(
  * 薄客户端 Record 阶段。
  *
  * 本地只采集授权应用的视觉关键帧并加密封存；结束后把整段演示交给云端生成 Skill。
- * 不再开启无障碍事件录制，不再保存节点树，也不再调用本地固定路线编译器。
+ * 本地不会扫描或编译控件节点；也不再开启无障碍事件录制、保存节点树或调用固定路线编译器。
  */
 object OperationLearningRecordingCoordinator {
     private class ActiveSession(
