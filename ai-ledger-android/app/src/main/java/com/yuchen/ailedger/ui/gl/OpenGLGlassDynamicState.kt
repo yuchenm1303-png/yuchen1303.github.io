@@ -59,6 +59,9 @@ class OpenGLGlassDynamicState {
 
     private var framePosted = false
     private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val finalDispatchAction: () -> Unit = {
+        for (listener in frameListeners) listener()
+    }
 
     internal val snapshotState: State<OpenGLGlassDynamicSnapshot>
         get() = committedState
@@ -148,16 +151,16 @@ class OpenGLGlassDynamicState {
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
-    private val frameCallback = Choreographer.FrameCallback { frameTimeNanos ->
+    private val frameCallback = Choreographer.FrameCallback {
         framePosted = false
         val next = latestSnapshot()
         if (committedState.value == next) return@FrameCallback
         committedState.value = next
 
-        // 有可见 OpenGL Host 时，动态状态与最终坐标统一在本帧 PreDraw 提交；
-        // 预览、测试或无 ticker 环境仍保留原有直接监听兼容路径。
-        if (!OpenGLFrameFinalizer.requestActiveTickerFrame(frameTimeNanos)) {
-            for (listener in frameListeners) listener()
+        // 动态状态只通知自身宿主，不再借用全局背景 ticker 把整批 Shell 标记为根采样脏。
+        // 固定回调仍由根视图 PreDraw 提交，保证 OpenGL 与 Compose 使用同一帧最终状态。
+        if (frameListeners.isNotEmpty()) {
+            OpenGLFrameFinalizer.dispatch(finalDispatchAction)
         }
     }
 }
