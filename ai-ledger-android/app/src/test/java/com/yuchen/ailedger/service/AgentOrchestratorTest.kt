@@ -1,24 +1,29 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentOrchestratorTest {
     @Test
-    fun visualModesEnterTheSingleVisualLoopDirectly() {
-        assertEquals(AgentOrchestratorRoute.VisualLoop, AgentOrchestrator.routeFor(AgentExecutionMode.VisualForce))
-        assertEquals(AgentOrchestratorRoute.VisualLoop, AgentOrchestrator.routeFor(AgentExecutionMode.ExplicitAgent))
+    fun cloudVisualCallIsConsumedExactlyOnce() {
+        ClientToolCallRegistry.clearVisual()
+        val call = CloudClientToolCall(
+            schema = AI_WORKER_CLIENT_TOOL_CALL_SCHEMA,
+            id = "call_visual_test",
+            name = "computer_run_task",
+            arguments = JSONObject().put("goal", "打开示例应用"),
+        )
+
+        assertEquals(call.id, ClientToolCallRegistry.consumeVisual()?.id)
+        assertNull(ClientToolCallRegistry.consumeVisual())
     }
 
     @Test
-    fun normalChatDeviceToolKeepsTheNonVisualRuntime() {
-        assertEquals(AgentOrchestratorRoute.LegacyRunner, AgentOrchestrator.routeFor(AgentExecutionMode.NormalChatDeviceTool))
-    }
-
-    @Test
-    fun onlyVisualForceDependsOnTheHomeAgentSwitch() {
+    fun onlyManualVisualForceDependsOnTheHomeAgentSwitch() {
         assertTrue(VisualLoopRunner.requiresAgentSwitch(AgentExecutionMode.VisualForce))
         assertFalse(VisualLoopRunner.requiresAgentSwitch(AgentExecutionMode.ExplicitAgent))
         assertFalse(VisualLoopRunner.requiresAgentSwitch(AgentExecutionMode.NormalChatDeviceTool))
