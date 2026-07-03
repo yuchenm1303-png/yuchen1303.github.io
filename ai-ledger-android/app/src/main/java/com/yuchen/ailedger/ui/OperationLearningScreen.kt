@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +16,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -26,6 +30,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,16 +43,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowDraftStatus
+import com.yuchen.ailedger.service.InstalledLaunchableApp
+import com.yuchen.ailedger.service.InstalledLaunchableAppCatalog
 import com.yuchen.ailedger.service.OperationLearningRecordingCoordinator
 import com.yuchen.ailedger.service.OperationRecordingPhase
 import com.yuchen.ailedger.service.OperationRecordingState
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationStage
+import java.util.Locale
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
@@ -84,17 +97,65 @@ fun OperationLearningScreen(
 ) {
     val uiState = viewModel.uiState
     val recordingState by OperationLearningRecordingCoordinator.state.collectAsState()
+    var appPickerVisible by remember { mutableStateOf(false) }
+    var appSearchQuery by remember { mutableStateOf("") }
+    var installedApps by remember { mutableStateOf<List<InstalledLaunchableApp>>(emptyList()) }
+    var installedAppsLoading by remember { mutableStateOf(false) }
+    var installedAppsError by remember { mutableStateOf<String?>(null) }
+    val applicationContext = AiLedgerApplication.contextOrNull()
+
+    LaunchedEffect(Unit) {
+        viewModel.refresh()
+    }
 
     LaunchedEffect(recordingState.phase, recordingState.demonstrationId) {
         if (recordingState.phase == OperationRecordingPhase.Captured) viewModel.refresh()
     }
 
+    LaunchedEffect(appPickerVisible) {
+        if (!appPickerVisible || installedApps.isNotEmpty() || installedAppsLoading) return@LaunchedEffect
+        val context = applicationContext
+        if (context == null) {
+            installedAppsError = "应用列表暂时不可用，请重新进入页面。"
+            return@LaunchedEffect
+        }
+        installedAppsLoading = true
+        installedAppsError = null
+        runCatching { InstalledLaunchableAppCatalog.load(context) }
+            .onSuccess { apps ->
+                installedApps = apps
+                if (apps.isEmpty()) installedAppsError = "没有找到可从桌面启动的应用。"
+            }
+            .onFailure { error ->
+                installedAppsError = "应用列表读取失败：${error.message ?: "未知错误"}"
+            }
+        installedAppsLoading = false
+    }
+
     BackHandler {
         when {
+            appPickerVisible -> appPickerVisible = false
             uiState.editorVisible -> viewModel.closeIntentEditor()
             recordingState.active -> Unit
             else -> onBack()
         }
+    }
+
+    if (appPickerVisible) {
+        InstalledAppPickerDialog(
+            apps = installedApps,
+            loading = installedAppsLoading,
+            error = installedAppsError,
+            query = appSearchQuery,
+            onQueryChange = { appSearchQuery = it.take(60) },
+            onDismiss = { appPickerVisible = false },
+            onSelect = { app ->
+                viewModel.updateAppName(app.displayName)
+                viewModel.updatePackageName(app.packageName)
+                appSearchQuery = ""
+                appPickerVisible = false
+            },
+        )
     }
 
     LazyColumn(
@@ -156,10 +217,9 @@ fun OperationLearningScreen(
                     uiState = uiState,
                     onTitleChange = viewModel::updateTitle,
                     onGoalChange = viewModel::updateGoal,
-                    onAppNameChange = viewModel::updateAppName,
-                    onPackageNameChange = viewModel::updatePackageName,
+                    onChooseApp = { appPickerVisible = true },
                     onCancel = viewModel::closeIntentEditor,
-                    onSave = viewModel::createIntentDraft,
+                    onSave = { viewModel.createIntentDraft() },
                 )
             }
         }
@@ -214,6 +274,163 @@ fun OperationLearningScreen(
 }
 
 @Composable
+private fun InstalledAppPickerDialog(
+    apps: List<InstalledLaunchableApp>,
+    loading: Boolean,
+    error: String?,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSelect: (InstalledLaunchableApp) -> Unit,
+) {
+    val normalizedQuery = query.trim().lowercase(Locale.getDefault())
+    val filteredApps = remember(apps, normalizedQuery) {
+        if (normalizedQuery.isBlank()) {
+            apps
+        } else {
+            apps.filter { app ->
+                app.displayName.lowercase(Locale.getDefault()).contains(normalizedQuery)
+            }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 18.dp)
+                .fillMaxWidth()
+                .heightIn(max = 640.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color(0xFF111633))
+                .padding(horizontal = 16.dp, vertical = 17.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("选择应用", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        "只显示已安装且可以从桌面打开的应用。",
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 11.sp,
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.White.copy(alpha = 0.07f))
+                        .clickable(onClick = onDismiss)
+                        .padding(horizontal = 13.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("关闭", color = Color.White.copy(alpha = 0.72f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            OperationLearningTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                label = "搜索应用",
+                singleLine = true,
+            )
+
+            when {
+                loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("正在读取已安装应用…", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+                    }
+                }
+                error != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            error,
+                            color = OperationLearningDanger.copy(alpha = 0.82f),
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                filteredApps.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("没有找到匹配的应用", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp)
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 470.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        items(
+                            items = filteredApps,
+                            key = { it.packageName },
+                        ) { app ->
+                            InstalledAppRow(app = app, onClick = { onSelect(app) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InstalledAppRow(
+    app: InstalledLaunchableApp,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp))
+            .background(Color.White.copy(alpha = 0.045f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(OperationLearningViolet.copy(alpha = 0.13f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = app.displayName.firstOrNull()?.toString().orEmpty(),
+                color = OperationLearningViolet.copy(alpha = 0.88f),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
+        Text(
+            text = app.displayName,
+            modifier = Modifier.weight(1f),
+            color = Color.White.copy(alpha = 0.88f),
+            fontSize = 13.5.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text("选择", color = OperationLearningAccent.copy(alpha = 0.68f), fontSize = 10.5.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+@Composable
 private fun OperationLearningBackButton(
     state: AssistantUiState,
     enabled: Boolean,
@@ -224,9 +441,7 @@ private fun OperationLearningBackButton(
         glassIntensity = state.glassIntensity,
         motionIntensity = state.motionIntensity,
         radius = 999,
-        modifier = Modifier
-            .fillMaxWidth(0.28f)
-            .height(40.dp),
+        modifier = Modifier.fillMaxWidth(0.28f).height(40.dp),
         role = GlassRole.Chip,
         onClick = if (enabled) onBack else ({ }),
     ) {
@@ -251,13 +466,7 @@ private fun OperationLearningHeader() {
             fontWeight = FontWeight.Black,
             letterSpacing = 0.8.sp,
         )
-        Text(
-            text = "操作学习",
-            color = Color.White,
-            fontSize = 32.sp,
-            lineHeight = 36.sp,
-            fontWeight = FontWeight.Black,
-        )
+        Text("操作学习", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
         Text(
             text = "你演示一次，云端理解你的方法并生成 Skill；以后由视觉智能根据当前界面重新完成。",
             color = Color.White.copy(alpha = 0.58f),
@@ -306,10 +515,7 @@ private fun RecordingStatusCard(
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Text(
@@ -385,18 +591,15 @@ private fun OperationLearningNotice(text: String, onDismiss: () -> Unit) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(text, modifier = Modifier.weight(1f), color = Color.White.copy(alpha = 0.70f), fontSize = 11.5.sp, lineHeight = 17.sp)
-        PressableGlass(
-            quality = com.yuchen.ailedger.model.RenderQuality.Smooth,
-            glassIntensity = 0.7f,
-            motionIntensity = 0f,
-            radius = 999,
-            modifier = Modifier.height(32.dp),
-            role = GlassRole.Chip,
-            onClick = onDismiss,
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = 0.05f))
+                .clickable(onClick = onDismiss)
+                .padding(horizontal = 11.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(Modifier.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
-                Text("关闭", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            }
+            Text("关闭", color = Color.White.copy(alpha = 0.58f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -425,7 +628,7 @@ private fun CreateIntentCard(
         ) {
             Text("教助手一个新 Skill", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
             Text(
-                "先说明最终目标和允许观察的应用。演示结束后，云端会解释自己学到了什么。",
+                "先说明最终目标并选择允许观察的应用。演示结束后，云端会解释自己学到了什么。",
                 color = Color.White.copy(alpha = 0.50f),
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
@@ -456,8 +659,7 @@ private fun SkillIntentEditor(
     uiState: OperationLearningUiState,
     onTitleChange: (String) -> Unit,
     onGoalChange: (String) -> Unit,
-    onAppNameChange: (String) -> Unit,
-    onPackageNameChange: (String) -> Unit,
+    onChooseApp: () -> Unit,
     onCancel: () -> Unit,
     onSave: () -> Boolean,
 ) {
@@ -478,15 +680,17 @@ private fun SkillIntentEditor(
         ) {
             Text("教学目标", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
             Text(
-                "描述你想教会助手的任务。不要在这里编写点击步骤，云端会从视觉演示中理解方法。",
+                "描述你想教会助手的任务，再从已安装应用中选择演示对象。应用包名由系统自动处理。",
                 color = Color.White.copy(alpha = 0.50f),
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
             )
             OperationLearningTextField(uiState.titleInput, onTitleChange, "Skill 名称", true)
             OperationLearningTextField(uiState.goalInput, onGoalChange, "想完成什么，以及哪些内容可能变化", false)
-            OperationLearningTextField(uiState.appNameInput, onAppNameChange, "应用名称（可选）", true)
-            OperationLearningTextField(uiState.packageNameInput, onPackageNameChange, "允许观察的应用包名", true)
+            SelectedAppField(
+                appName = uiState.appNameInput,
+                onClick = onChooseApp,
+            )
 
             if (uiState.editorIssues.isNotEmpty()) {
                 Column(
@@ -508,6 +712,55 @@ private fun SkillIntentEditor(
                 OperationLearningActionButton(state, "保存教学草稿", Modifier.weight(0.62f), true, onClick = { onSave() })
             }
         }
+    }
+}
+
+@Composable
+private fun SelectedAppField(
+    appName: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp))
+            .background(Color.White.copy(alpha = 0.035f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(OperationLearningViolet.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = appName.firstOrNull()?.toString() ?: "应",
+                color = OperationLearningViolet.copy(alpha = 0.84f),
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("演示应用", color = Color.White.copy(alpha = 0.40f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = appName.ifBlank { "点击选择已安装应用" },
+                color = Color.White.copy(alpha = if (appName.isBlank()) 0.58f else 0.88f),
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Text(
+            text = if (appName.isBlank()) "选择" else "更换",
+            color = OperationLearningAccent.copy(alpha = 0.72f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Black,
+        )
     }
 }
 
@@ -592,9 +845,7 @@ private fun LearningTag(text: String, modifier: Modifier = Modifier) {
 @Composable
 private fun LearningSectionTitle(title: String, trailing: String) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 5.dp, start = 2.dp, end = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 5.dp, start = 2.dp, end = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
@@ -789,10 +1040,10 @@ private fun SkillDraftCard(
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OperationLearningActionButton(
-                    state,
-                    if (selected) "已展开" else "查看",
-                    Modifier.weight(0.28f),
-                    !recordingState.active && runningSkillId == null,
+                    state = state,
+                    label = if (selected) "已展开" else "查看",
+                    modifier = Modifier.weight(0.28f),
+                    enabled = !recordingState.active && runningSkillId == null,
                     onClick = onSelect,
                 )
                 OperationLearningActionButton(
@@ -808,10 +1059,10 @@ private fun SkillDraftCard(
                     },
                 )
                 OperationLearningActionButton(
-                    state,
-                    "删除",
-                    Modifier.weight(0.22f),
-                    !recordingState.active && runningSkillId == null,
+                    state = state,
+                    label = "删除",
+                    modifier = Modifier.weight(0.22f),
+                    enabled = !recordingState.active && runningSkillId == null,
                     danger = true,
                     onClick = onDelete,
                 )
@@ -932,7 +1183,7 @@ private fun SafetyBoundaryCard() {
         ) {
             Text("智能交给云端，边界留在本地", color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, fontWeight = FontWeight.Black)
             Text(
-                text = "只采集授权应用画面；视觉证据本机加密短期保存，Skill 生成成功后删除。密码、验证码、支付和不可逆操作仍受本地确认保护。",
+                text = "只采集所选应用画面；视觉证据本机加密短期保存，Skill 生成成功后删除。密码、验证码、支付和不可逆操作仍受本地确认保护。",
                 color = Color.White.copy(alpha = 0.48f),
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
