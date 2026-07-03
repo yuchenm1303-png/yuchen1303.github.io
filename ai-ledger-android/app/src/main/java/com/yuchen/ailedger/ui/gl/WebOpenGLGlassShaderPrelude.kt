@@ -26,10 +26,13 @@ internal object WebOpenGLGlassShaderPrelude {
         uniform float uIntensity;
         uniform float uTextureReady;
         uniform float uBlurAmount;
-        float glassOpticalScale(){return 1.0;}
     """
 
     const val FUNCTIONS = """
+        uniform float uOpticalScale;
+        float glassOpticalScale(){
+            return uOpticalScale>0.0?clamp(uOpticalScale,0.28,1.0):1.0;
+        }
         vec4 glassBodyLensA(){
             float scale=glassOpticalScale();
             return vec4(uBodyLensA.x*scale,uBodyLensA.y*scale,uBodyLensA.z,uBodyLensA.w);
