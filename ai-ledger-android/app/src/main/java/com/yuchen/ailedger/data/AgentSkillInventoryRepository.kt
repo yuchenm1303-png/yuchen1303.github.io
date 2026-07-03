@@ -1,49 +1,21 @@
 package com.yuchen.ailedger.data
 
 import android.content.Context
-import androidx.room.InvalidationTracker
 import com.yuchen.ailedger.model.AgentSkillInventory
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 只读聚合操作学习数据库中的长期 Skill 资产。
  *
- * 不复制工作流正文、不读取录制轨迹，也不参与工作流执行；数据库表变化时只重新执行一条聚合查询。
+ * 统计详情页切换到“能力”页签时只执行一次聚合查询；不注册常驻 Room observer，
+ * 不复制工作流正文、不读取录制轨迹，也不参与工作流编译或执行。
  */
 class AgentSkillInventoryRepository private constructor(context: Context) {
     private val database = OperationWorkflowDatabase.get(context.applicationContext)
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val mutableState = MutableStateFlow(AgentSkillInventory())
-    val state: StateFlow<AgentSkillInventory> = mutableState.asStateFlow()
 
-    private val observer = object : InvalidationTracker.Observer(
-        "operation_workflows",
-        "operation_workflow_steps",
-        "operation_workflow_app_scopes",
-        "operation_demonstrations",
-        "operation_workflow_runs",
-    ) {
-        override fun onInvalidated(tables: Set<String>) {
-            refresh()
-        }
-    }
-
-    init {
-        database.invalidationTracker.addObserver(observer)
-        refresh()
-    }
-
-    fun refresh() {
-        scope.launch {
-            runCatching { queryInventory() }
-                .onSuccess { inventory -> mutableState.value = inventory }
-        }
+    suspend fun loadSnapshot(): AgentSkillInventory = withContext(Dispatchers.IO) {
+        runCatching { queryInventory() }.getOrDefault(AgentSkillInventory())
     }
 
     private fun queryInventory(): AgentSkillInventory {
