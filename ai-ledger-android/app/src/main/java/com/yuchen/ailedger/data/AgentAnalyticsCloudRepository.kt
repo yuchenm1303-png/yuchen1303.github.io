@@ -6,6 +6,7 @@ import com.yuchen.ailedger.model.AgentDailyActivity
 import com.yuchen.ailedger.service.AgentAnalyticsCloudClient
 import com.yuchen.ailedger.service.AgentClientIdentity
 import com.yuchen.ailedger.service.AiWorkerClient
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -97,6 +98,8 @@ internal class AgentAnalyticsCloudRepository private constructor(context: Contex
                     changedDaily = changedDaily,
                     sinceDateKey = DEFAULT_SINCE_DATE,
                 )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (_: Throwable) {
                 val cached = cache[owner.storageKey]
                 return@withLock AgentAnalyticsCloudSyncResult(
