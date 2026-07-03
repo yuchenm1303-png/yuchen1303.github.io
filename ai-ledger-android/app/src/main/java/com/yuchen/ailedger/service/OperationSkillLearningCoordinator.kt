@@ -21,6 +21,7 @@ object OperationSkillLearningCoordinator {
     suspend fun learn(
         context: Context,
         workflowId: String,
+        demonstrationId: String,
         manifestPath: String,
     ): SkillLearningOutcome {
         val applicationContext = context.applicationContext
@@ -66,15 +67,11 @@ object OperationSkillLearningCoordinator {
                     executionMode = WorkflowExecutionMode.CloudVisual,
                     status = WorkflowDraftStatus.ReadyForReview,
                     updatedAtMillis = System.currentTimeMillis(),
-                    sourceDemonstrationId = skill.workflowId.takeIf { draft.sourceDemonstrationId == null }
-                        ?.let { draft.sourceDemonstrationId }
-                        ?: draft.sourceDemonstrationId,
+                    sourceDemonstrationId = demonstrationId,
                 )
                 repository.saveCompiledDraft(
-                    draft = learnedDraft.copy(sourceDemonstrationId = draft.sourceDemonstrationId),
-                    demonstrationId = requireNotNull(draft.sourceDemonstrationId) {
-                        "演示会话尚未登记"
-                    },
+                    draft = learnedDraft,
+                    demonstrationId = demonstrationId,
                 )
                 VisualDemonstrationStore(applicationContext).delete(manifestPath)
             }
