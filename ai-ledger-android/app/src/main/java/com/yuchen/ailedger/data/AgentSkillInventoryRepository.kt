@@ -23,13 +23,11 @@ class AgentSkillInventoryRepository private constructor(context: Context) {
     val state: StateFlow<AgentSkillInventory> = mutableState.asStateFlow()
 
     private val observer = object : InvalidationTracker.Observer(
-        arrayOf(
-            "operation_workflows",
-            "operation_workflow_steps",
-            "operation_workflow_app_scopes",
-            "operation_demonstrations",
-            "operation_workflow_runs",
-        ),
+        "operation_workflows",
+        "operation_workflow_steps",
+        "operation_workflow_app_scopes",
+        "operation_demonstrations",
+        "operation_workflow_runs",
     ) {
         override fun onInvalidated(tables: Set<String>) {
             refresh()
