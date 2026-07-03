@@ -35,7 +35,6 @@ internal object AssistantMemoryUsageBridge {
         ).apply { isDaemon = true }
     }
 
-    /** 每个真实网络尝试独立聚合，备用端点不能继承上一端点的半截回执。 */
     fun beginTransportAttempt() {
         responseForCurrentThread.remove()
         analyticsResponseForCurrentThread.remove()
@@ -134,12 +133,55 @@ internal object AssistantMemoryUsageBridge {
     }
 
     private fun captureAnalyticsResponse(data: JSONObject) {
-        val merged = analyticsResponseForCurrentThread.get()?.let { JSONObject(it.toString()) }
-            ?: JSONObject()
-        data.keys().forEach { key ->
-            merged.put(key, deepCopyMemoryEnvelopeValue(data.opt(key)))
-        }
+        val compact = compactAnalyticsEnvelope(data, depth = 0) ?: return
+        val merged = analyticsResponseForCurrentThread.get() ?: JSONObject()
+        mergeAnalyticsEnvelope(target = merged, source = compact)
         analyticsResponseForCurrentThread.set(merged)
+    }
+
+    /**
+     * SSE 每个 token 片段通常只包含 choices/delta。统计不再复制这些无关 JSON，
+     * 只保留模型、usage、联网、工具与最终文本等真正需要的字段。
+     */
+    private fun compactAnalyticsEnvelope(source: JSONObject, depth: Int): JSONObject? {
+        if (depth > MAX_ANALYTICS_ENVELOPE_DEPTH) return null
+        val result = JSONObject()
+
+        ANALYTICS_DIRECT_KEYS.forEach { key ->
+            if (source.has(key)) {
+                result.put(key, deepCopyMemoryEnvelopeValue(source.opt(key)))
+            }
+        }
+        if (
+            source.optJSONArray("sources")?.length()?.let { it > 0 } == true ||
+            source.optJSONArray("webSources")?.length()?.let { it > 0 } == true
+        ) {
+            result.put("searchUsed", true)
+        }
+        ANALYTICS_ENVELOPE_KEYS.forEach { key ->
+            source.optJSONObject(key)?.let { child ->
+                compactAnalyticsEnvelope(child, depth + 1)?.let { compactChild ->
+                    result.put(key, compactChild)
+                }
+            }
+        }
+        return result.takeIf { it.length() > 0 }
+    }
+
+    private fun mergeAnalyticsEnvelope(target: JSONObject, source: JSONObject) {
+        source.keys().forEach { key ->
+            val incomingObject = source.optJSONObject(key)
+            val existingObject = target.optJSONObject(key)
+            if (
+                key in ANALYTICS_ENVELOPE_KEYS &&
+                incomingObject != null &&
+                existingObject != null
+            ) {
+                mergeAnalyticsEnvelope(existingObject, incomingObject)
+            } else {
+                target.put(key, deepCopyMemoryEnvelopeValue(source.opt(key)))
+            }
+        }
     }
 
     private fun recordAnalyticsTransport(payload: JSONObject, success: Boolean) {
@@ -199,4 +241,17 @@ internal object AssistantMemoryUsageBridge {
         is String, is Number, is Boolean -> value
         else -> value.toString()
     }
+
+    private val ANALYTICS_ENVELOPE_KEYS = setOf(
+        "data", "result", "response", "final", "metadata", "meta", "output",
+    )
+    private val ANALYTICS_DIRECT_KEYS = setOf(
+        "model", "modelId", "model_id", "providerModel",
+        "modelLabel", "modelName", "model_name",
+        "usage", "tokenUsage", "token_usage", "usageMetadata", "tokenUsageMetadata",
+        "searchUsed", "webSearchUsed",
+        "agentAction", "mobileAction", "preferenceUpdate", "structuredData",
+        "reply", "answer", "text", "content", "rawModelOutput",
+    )
+    private const val MAX_ANALYTICS_ENVELOPE_DEPTH = 3
 }
