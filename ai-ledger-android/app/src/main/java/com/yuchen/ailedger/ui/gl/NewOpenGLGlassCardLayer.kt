@@ -43,9 +43,9 @@ val LocalNewOpenGlGlassStyleOverride =
 /**
  * Shell 级 OpenGL Renderer 路由。
  *
- * Assistant / Settings 继续使用经过验证的旧 Renderer；其他场景使用新版多档 Renderer。
- * 设置仪表盘的独立多卡新版路线由 OpenGLShellBatchLayer 显式承载，不再改变这里的默认路由。
- * 普通 Card、Chip、Floating、Nav 和 Flex 永远不会进入本入口。
+ * 所有 OpenGL 路线只接收一套中度模糊颜色背景。旧版 Renderer 会自动把原镜片槽别名到
+ * 同一 Bitmap，新版 Renderer 的 clear 参数也直接复用 medium Bitmap，因此不会再把一张
+ * 独立清晰背景叠入玻璃。普通 Card、Chip、Floating、Nav 和 Flex 永远不会进入本入口。
  */
 @Composable
 fun NewOpenGLGlassCardLayer(
@@ -66,12 +66,9 @@ fun NewOpenGLGlassCardLayer(
     val backdrop = if (usesLegacyShellRenderer) {
         OpenGlStartupBackdropBridge.backdrop ?: localBackdrop
     } else {
-        // 新版多档 Renderer 必须等待完整 low/medium/high 金字塔，不读取阶段性别名。
         localBackdrop
     } ?: return
 
-    // 首次布局突发期间不创建 EGL Context、不编译 Shader，也不上传占位纹理。
-    // Shell 保持原有边界，真实采样纹理准备完成后再原位挂载唯一宿主。
     if (!backdrop.isReady) {
         Box(
             modifier = modifier.startupStaticGlassLayer(
@@ -82,8 +79,10 @@ fun NewOpenGLGlassCardLayer(
         return
     }
 
-    // 设置页顶部状态卡片和首页聊天大玻璃共同复用实验室原版 OpenGL 完整宿主链：
-    // 同一参数源、单样本优化、Compose 轮廓裁剪和旧 Renderer。
+    val singleBackdrop = remember(backdrop) {
+        backdrop.copy(lensImage = backdrop.blurMediumImage)
+    }
+
     if (usesLegacyShellRenderer) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
@@ -91,7 +90,10 @@ fun NewOpenGLGlassCardLayer(
         }
 
         if (legacySpec != null) {
-            CompositionLocalProvider(LocalGlassBackdrop provides legacySpec) {
+            CompositionLocalProvider(
+                LocalGlassBackdrop provides legacySpec,
+                LocalBlurredBackdrop provides singleBackdrop,
+            ) {
                 LegacyOpenGLShellHost(
                     quality = legacySpec.quality,
                     glassIntensity = glassIntensity,
@@ -99,7 +101,6 @@ fun NewOpenGLGlassCardLayer(
                     radius = radius,
                     modifier = modifier,
                     coordinateSource = coordinateSource,
-                    // GlassPanel 已持有生产 Shell 的坐标源，本层不再重复 onPlaced。
                     manageCoordinatePlacement = false,
                     pressProgress = pressProgress,
                     pressCenter = pressCenter,
@@ -108,16 +109,18 @@ fun NewOpenGLGlassCardLayer(
                 ) {}
             }
         } else {
-            OpenGLGlassCardLayer(
-                radius = radius,
-                glassIntensity = glassIntensity,
-                coordinateSource = coordinateSource,
-                modifier = modifier,
-                pressProgress = pressProgress,
-                pressCenter = pressCenter,
-                viewportTopInsetPx = viewportTopInsetPx,
-                dynamicState = dynamicState,
-            )
+            CompositionLocalProvider(LocalBlurredBackdrop provides singleBackdrop) {
+                OpenGLGlassCardLayer(
+                    radius = radius,
+                    glassIntensity = glassIntensity,
+                    coordinateSource = coordinateSource,
+                    modifier = modifier,
+                    pressProgress = pressProgress,
+                    pressCenter = pressCenter,
+                    viewportTopInsetPx = viewportTopInsetPx,
+                    dynamicState = dynamicState,
+                )
+            }
         }
         return
     }
@@ -138,10 +141,15 @@ fun NewOpenGLGlassCardLayer(
     val foldoutClipRegistry = LocalGlassFoldoutClipRegistry.current
     foldoutClipRegistry?.version
 
-    val clearBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
-    val blurLowBitmap = remember(backdrop.blurLowImage) { backdrop.blurLowImage.asAndroidBitmap() }
-    val blurMediumBitmap = remember(backdrop.blurMediumImage) { backdrop.blurMediumImage.asAndroidBitmap() }
-    val blurHighBitmap = remember(backdrop.blurHighImage) { backdrop.blurHighImage.asAndroidBitmap() }
+    val blurLowBitmap = remember(singleBackdrop.blurLowImage) {
+        singleBackdrop.blurLowImage.asAndroidBitmap()
+    }
+    val blurMediumBitmap = remember(singleBackdrop.blurMediumImage) {
+        singleBackdrop.blurMediumImage.asAndroidBitmap()
+    }
+    val blurHighBitmap = remember(singleBackdrop.blurHighImage) {
+        singleBackdrop.blurHighImage.asAndroidBitmap()
+    }
 
     val intensity = border.newOpenGlGlassIntensity.takeIf { it > 0f }?.coerceIn(0.35f, 1.35f)
         ?: glassIntensity.coerceIn(0.35f, 1.35f)
@@ -164,10 +172,11 @@ fun NewOpenGLGlassCardLayer(
         } else {
             with(density) { radius.dp.toPx() }.coerceIn(0f, shortEdgePx * 0.5f)
         }
-        val safeViewportTopInsetPx = effectiveViewportTopInsetPx.coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
+        val safeViewportTopInsetPx = effectiveViewportTopInsetPx
+            .coerceIn(0f, (heightPx - 1f).coerceAtLeast(0f))
         val viewportHeightPx = (heightPx - safeViewportTopInsetPx).coerceAtLeast(1f)
-        val rootWidthPx = backdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
-        val rootHeightPx = backdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
+        val rootWidthPx = singleBackdrop.fullWidthPx.toFloat().coerceAtLeast(1f)
+        val rootHeightPx = singleBackdrop.fullHeightPx.toFloat().coerceAtLeast(1f)
 
         val safeSurfaceAnchor = surfaceAnchor.coerceIn(0f, 1f)
         val stableSurfaceWidthPx = max(widthPx, rootWidthPx)
@@ -204,12 +213,12 @@ fun NewOpenGLGlassCardLayer(
                     staticPressCenterY = staticPressY,
                 )
                 val textureDirty = view.setBackdropTextures(
-                    clearBitmap = clearBitmap,
+                    clearBitmap = blurMediumBitmap,
                     blurLowBitmap = blurLowBitmap,
                     blurMediumBitmap = blurMediumBitmap,
                     blurHighBitmap = blurHighBitmap
                 )
-                val blurDirty = view.setBackdropBlurAmount(backdrop.blurAmount)
+                val blurDirty = view.setBackdropBlurAmount(singleBackdrop.blurAmount)
                 val styleDirty = view.setGlassStyle(scaledRendererBorder, densityScale)
                 val surfaceDirty = view.setStableSurfaceSize(
                     stableSurfaceWidthPx.roundToInt(),
