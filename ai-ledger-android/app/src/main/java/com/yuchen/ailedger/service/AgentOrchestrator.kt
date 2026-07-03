@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import com.yuchen.ailedger.model.ChatModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -40,13 +41,35 @@ class AgentOrchestrator(
                 maxSteps = maxSteps,
                 executionMode = executionMode,
             )
-            AgentOrchestratorRoute.VisualLoop -> withContext(Dispatchers.IO) {
+            AgentOrchestratorRoute.VisualLoop -> runVisualLoop(
+                goal = goal,
+                maxSteps = maxSteps,
+                executionMode = executionMode,
+            )
+        }
+    }
+
+    private suspend fun runVisualLoop(
+        goal: String,
+        maxSteps: Int,
+        executionMode: AgentExecutionMode,
+    ): AgentTaskRunResult {
+        val invocation = VisualTaskInvocationRuntime.begin(goal)
+        return try {
+            val result = withContext(Dispatchers.IO) {
                 VisualLoopRunner(aiWorkerClient, applicationContext).run(
                     goal = goal,
                     maxSteps = maxSteps,
                     executionMode = executionMode,
                 )
             }
+            // Runner 内部大多数终态已经收口；这里作为统一兜底，补齐风险拒绝等直接返回分支。
+            AgentRuntimeController.finishTask(result.resolvedOutcome())
+            result
+        } catch (error: CancellationException) {
+            throw error
+        } finally {
+            VisualTaskInvocationRuntime.clear(invocation)
         }
     }
 
