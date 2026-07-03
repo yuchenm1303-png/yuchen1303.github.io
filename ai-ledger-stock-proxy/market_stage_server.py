@@ -7,6 +7,7 @@ from typing import Any, Callable
 from fastapi import Response
 
 import main as legacy
+import market_breadth_server as breadth_service
 import market_home_server as home
 
 
@@ -15,7 +16,7 @@ app = home.app
 INDICES_PATH = "/api/stock/a-share/market/indices"
 BREADTH_PATH = "/api/stock/a-share/market/breadth"
 DISCOVERY_PATH = "/api/stock/a-share/market/discovery"
-STAGE_VERSION = "v5-stable-coordinator"
+STAGE_VERSION = "v6-full-universe-breadth"
 INDICES_REFRESH_SECONDS = 8.0
 MARKET_REFRESH_SECONDS = 30.0
 
@@ -89,12 +90,7 @@ def _cached_stage_module(
 
 
 def _market_refresh_due() -> bool:
-    if not _cache_is_fresh(
-        "market",
-        "breadth",
-        "v1",
-        MARKET_REFRESH_SECONDS,
-    ):
+    if not breadth_service.cache_is_fresh(MARKET_REFRESH_SECONDS):
         return True
     if not _cache_is_fresh(
         "sectors",
@@ -163,13 +159,7 @@ def _cached_indices() -> dict[str, Any]:
 
 
 def _cached_breadth() -> dict[str, Any]:
-    return _cached_stage_module(
-        "market",
-        "breadth",
-        "v1",
-        "marketBreadth",
-        MARKET_REFRESH_SECONDS,
-    )
+    return breadth_service.load_market_breadth_cached()
 
 
 def _cached_discovery_modules() -> dict[str, dict[str, Any]]:
@@ -233,6 +223,7 @@ def a_share_market_breadth(response: Response) -> dict[str, Any]:
     }
     _, refresh_warning = _start_background_if_due(_market_refresh_due())
     payload = _stage_payload("breadth", modules, started_at, [refresh_warning])
+    payload["breadthDiagnostics"] = breadth_service.diagnostics()
     response.headers["X-Market-Stage"] = "breadth"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
     response.headers["Server-Timing"] = f"market-breadth;dur={payload['buildLatencyMs']}"
