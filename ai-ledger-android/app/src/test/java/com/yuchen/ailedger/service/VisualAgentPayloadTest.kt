@@ -3,6 +3,8 @@ package com.yuchen.ailedger.service
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -51,6 +53,25 @@ class VisualAgentPayloadTest {
             assertEquals(call.id, invocation.sessionId)
             assertEquals(call.id, AgentClientIdentity.newVisualSessionId())
             assertEquals(call.finalModel, invocation.clientToolCall?.finalModel)
+        } finally {
+            VisualTaskInvocationRuntime.clear(invocation)
+        }
+    }
+
+    @Test
+    fun staleVisualToolCallCannotBindToDifferentManualGoal() {
+        val staleCall = CloudClientToolCall(
+            schema = AI_WORKER_CLIENT_TOOL_CALL_SCHEMA,
+            id = "call_stale_456",
+            name = "computer_run_task",
+            arguments = JSONObject().put("goal", "旧任务"),
+        )
+
+        val invocation = VisualTaskInvocationRuntime.begin("新的手动任务")
+        try {
+            assertNotEquals(staleCall.id, invocation.sessionId)
+            assertNull(invocation.clientToolCall)
+            assertTrue(invocation.sessionId.startsWith("visual-session-"))
         } finally {
             VisualTaskInvocationRuntime.clear(invocation)
         }
