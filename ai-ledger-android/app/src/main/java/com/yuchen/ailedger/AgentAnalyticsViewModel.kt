@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.data.AgentAnalyticsCloudRepository
+import com.yuchen.ailedger.data.AgentAnalyticsDatabase
 import com.yuchen.ailedger.data.AgentAnalyticsOwner
 import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
 import com.yuchen.ailedger.data.AgentAnalyticsRepository
@@ -84,6 +85,7 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                     supervisorScope {
                         val repository = try {
                             withContext(Dispatchers.IO) {
+                                AgentAnalyticsDatabase.validate(appContext, activeOwner.databaseName)
                                 AgentAnalyticsRepository.get(appContext, activeOwner.storageKey)
                             }
                         } catch (cancelled: CancellationException) {
