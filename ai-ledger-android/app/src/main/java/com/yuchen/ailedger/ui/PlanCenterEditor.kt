@@ -8,10 +8,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,6 +33,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -58,6 +60,7 @@ internal fun PlanEditorPage(
     onSave: (PlanDraft) -> Unit,
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val formListState = rememberLazyListState()
     var title by remember(initial) { mutableStateOf(initial.title) }
     var note by remember(initial) { mutableStateOf(initial.note) }
@@ -67,6 +70,10 @@ internal fun PlanEditorPage(
     val selected = remember(scheduledAt) {
         Instant.ofEpochMilli(scheduledAt).atZone(ZoneId.systemDefault())
     }
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val imeBottom = with(density) { imeBottomPx.toDp() }
+    val footerBottomPadding = if (imeBottomPx > 0) imeBottom + 12.dp else 108.dp
+    val formBottomPadding = footerBottomPadding + 58.dp
 
     LaunchedEffect(initial) {
         if (
@@ -77,11 +84,7 @@ internal fun PlanEditorPage(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding(),
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         PlanNativeGlassFrame(
             state = state,
             radius = 30,
@@ -92,12 +95,7 @@ internal fun PlanEditorPage(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(
-                        start = 18.dp,
-                        top = 94.dp,
-                        end = 18.dp,
-                        bottom = 108.dp,
-                    ),
+                    .padding(start = 18.dp, top = 94.dp, end = 18.dp),
                 verticalArrangement = Arrangement.spacedBy(13.dp),
             ) {
                 Row(
@@ -139,7 +137,7 @@ internal fun PlanEditorPage(
                             start = 2.dp,
                             top = 2.dp,
                             end = 2.dp,
-                            bottom = 10.dp,
+                            bottom = formBottomPadding,
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
@@ -294,36 +292,6 @@ internal fun PlanEditorPage(
                         }
                     }
                 }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    PlanEditorAction(
-                        state = state,
-                        text = "取消",
-                        color = Color.White.copy(alpha = 0.62f),
-                        onClick = onBack,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    PlanEditorAction(
-                        state = state,
-                        text = if (editing) "保存" else "创建",
-                        color = Color(0xFFB7FFF4),
-                        emphasized = true,
-                        onClick = {
-                            onSave(
-                                PlanDraft(
-                                    title = title,
-                                    note = note,
-                                    type = type,
-                                    repeatMode = repeatMode,
-                                    scheduledAtMillis = scheduledAt,
-                                ),
-                            )
-                        },
-                    )
-                }
             }
         }
 
@@ -338,6 +306,40 @@ internal fun PlanEditorPage(
             modifier = Modifier.padding(start = 18.dp, top = 12.dp, end = 18.dp),
             onBack = onBack,
         )
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .padding(bottom = footerBottomPadding),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            PlanEditorAction(
+                state = state,
+                text = "取消",
+                color = Color.White.copy(alpha = 0.62f),
+                onClick = onBack,
+            )
+            Spacer(Modifier.width(8.dp))
+            PlanEditorAction(
+                state = state,
+                text = if (editing) "保存" else "创建",
+                color = Color(0xFFB7FFF4),
+                emphasized = true,
+                onClick = {
+                    onSave(
+                        PlanDraft(
+                            title = title,
+                            note = note,
+                            type = type,
+                            repeatMode = repeatMode,
+                            scheduledAtMillis = scheduledAt,
+                        ),
+                    )
+                },
+            )
+        }
     }
 }
 
