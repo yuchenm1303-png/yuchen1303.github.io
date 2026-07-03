@@ -29,9 +29,8 @@ class AiLedgerApplication : Application() {
         super.onCreate()
         appContext = applicationContext
 
-        // 启动阶段只恢复三大指数的极小本地缓存。网络报价、分时曲线与持久化刷新
-        // 严格等到功能页真正可见后再启动，避免用户停留首页时产生无意义网络与 JSON 负载。
-        ToolsMarketHeroStore.initialize(applicationContext)
+        // 功能页行情缓存严格按需恢复。Application 冷启动只建立应用级运行时，
+        // 不再解析与 AI 助手首屏无关的报价 JSON 或创建功能页数据源。
 
         applicationScope.launch {
             var authenticatedSettingsRepositoriesReady = false
