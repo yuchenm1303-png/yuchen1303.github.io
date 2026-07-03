@@ -296,19 +296,24 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
             }
         }
 
-        @Volatile
-        private var instance: AgentAnalyticsDatabase? = null
+        private val instances = mutableMapOf<String, AgentAnalyticsDatabase>()
 
         fun get(context: Context): AgentAnalyticsDatabase {
-            return instance ?: synchronized(this) {
-                instance ?: Room.databaseBuilder(
+            val owner = AgentAnalyticsOwnerRuntime.current(context.applicationContext)
+            return get(context, owner.databaseName)
+        }
+
+        fun get(context: Context, databaseName: String): AgentAnalyticsDatabase {
+            val safeName = databaseName.trim().takeIf { it.endsWith(".db") } ?: "agent_analytics.db"
+            return synchronized(instances) {
+                instances[safeName] ?: Room.databaseBuilder(
                     context.applicationContext,
                     AgentAnalyticsDatabase::class.java,
-                    "agent_analytics.db",
+                    safeName,
                 )
                     .addMigrations(MIGRATION_1_2)
                     .build()
-                    .also { instance = it }
+                    .also { instances[safeName] = it }
             }
         }
     }
