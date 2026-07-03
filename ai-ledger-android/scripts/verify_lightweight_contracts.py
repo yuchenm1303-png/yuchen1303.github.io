@@ -214,8 +214,8 @@ def main() -> int:
     errors += require_text(
         tools_page,
         required=[
-            'Text("功能正在建设"',
-            "private fun StockToolEntryContent(destination: ToolDestination)",
+            "private fun PendingToolScreen(",
+            '"功能正在建设"',
         ],
         forbidden=[
             "Text(destination.icon",
