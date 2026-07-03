@@ -28,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -125,7 +124,9 @@ internal fun AnchoredQuickPanel(
         )
         val panelWidth = with(density) { panelWidthPx.toDp() }
 
-        val anchorIsValid = anchorBounds.width > 1f && anchorBounds.height > 1f && rootBounds.width > 1f
+        val anchorIsValid = anchorBounds.width > 1f &&
+            anchorBounds.height > 1f &&
+            rootBounds.width > 1f
         val localAnchorTop = if (anchorIsValid) {
             anchorBounds.top - rootBounds.top
         } else {
@@ -142,22 +143,26 @@ internal fun AnchoredQuickPanel(
             (constraints.maxWidth * 0.78f).roundToInt()
         }
 
-        val availableAbovePx = (localAnchorTop.roundToInt() - gapPx - safePx).coerceAtLeast(1)
+        val availableAbovePx = (
+            localAnchorTop.roundToInt() - gapPx - safePx
+        ).coerceAtLeast(1)
         val availableBelowPx = (
             constraints.maxHeight - localAnchorBottom.roundToInt() - gapPx - safePx
         ).coerceAtLeast(1)
 
-        val placement = when {
-            preferredPlacement == AnchoredQuickPanelPlacement.Below && availableBelowPx >= desiredHeightPx ->
-                AnchoredQuickPanelPlacement.Below
-            preferredPlacement == AnchoredQuickPanelPlacement.Above && availableAbovePx >= desiredHeightPx ->
-                AnchoredQuickPanelPlacement.Above
-            preferredPlacement == AnchoredQuickPanelPlacement.Below && availableBelowPx >= minimumHeightPx ->
-                AnchoredQuickPanelPlacement.Below
-            preferredPlacement == AnchoredQuickPanelPlacement.Above && availableAbovePx >= minimumHeightPx ->
-                AnchoredQuickPanelPlacement.Above
-            availableBelowPx >= availableAbovePx -> AnchoredQuickPanelPlacement.Below
-            else -> AnchoredQuickPanelPlacement.Above
+        // 向上面板属于聊天标题区的固定交互语义：只允许压缩，不允许翻到聊天内容下方。
+        // 向下面板仍保留空间自适应，用于登录表单在键盘弹出时翻到锚点上方。
+        val placement = if (preferredPlacement == AnchoredQuickPanelPlacement.Above) {
+            AnchoredQuickPanelPlacement.Above
+        } else {
+            when {
+                availableBelowPx >= desiredHeightPx -> AnchoredQuickPanelPlacement.Below
+                availableBelowPx >= minimumHeightPx -> AnchoredQuickPanelPlacement.Below
+                availableAbovePx >= desiredHeightPx -> AnchoredQuickPanelPlacement.Above
+                availableAbovePx >= minimumHeightPx -> AnchoredQuickPanelPlacement.Above
+                availableBelowPx >= availableAbovePx -> AnchoredQuickPanelPlacement.Below
+                else -> AnchoredQuickPanelPlacement.Above
+            }
         }
 
         val availableHeightPx = when (placement) {
@@ -308,8 +313,10 @@ private class AnchoredQuickPanelShape(
     ): Outline {
         val radius = with(density) { cornerRadius.toPx() }
             .coerceAtMost(minOf(size.width, size.height) * 0.30f)
-        val tailH = with(density) { tailHeight.toPx() }.coerceIn(0f, size.height * 0.22f)
-        val halfTail = with(density) { tailHalfWidth.toPx() }.coerceAtMost(size.width * 0.16f)
+        val tailH = with(density) { tailHeight.toPx() }
+            .coerceIn(0f, size.height * 0.22f)
+        val halfTail = with(density) { tailHalfWidth.toPx() }
+            .coerceAtMost(size.width * 0.16f)
         val tailCenter = (size.width * tailCenterFraction.coerceIn(0.16f, 0.84f))
             .coerceIn(radius + halfTail, size.width - radius - halfTail)
 
