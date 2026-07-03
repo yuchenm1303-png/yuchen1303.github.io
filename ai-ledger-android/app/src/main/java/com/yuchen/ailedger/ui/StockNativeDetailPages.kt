@@ -145,13 +145,12 @@ private fun StockNativeDetailShell(
     content: @Composable () -> Unit
 ) {
     Box(modifier = modifier) {
-        GlassPanel(
-            quality = appState.quality,
-            glassIntensity = appState.glassIntensity,
-            motionIntensity = appState.motionIntensity,
-            radius = 30,
-            modifier = Modifier.matchParentSize(),
-            role = GlassRole.Shell
+        FrostInfoGlassPanel(
+            radius = 30f,
+            backdropAlpha = 1f,
+            frostAlpha = (0.082f * appState.glassIntensity).coerceIn(0.048f, 0.12f),
+            dimAlpha = 0f,
+            modifier = Modifier.matchParentSize()
         ) {}
         Box(Modifier.fillMaxSize()) {
             content()
