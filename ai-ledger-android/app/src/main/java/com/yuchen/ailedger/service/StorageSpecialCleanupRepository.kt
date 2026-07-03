@@ -373,14 +373,18 @@ class StorageSpecialCleanupRepository(context: Context) {
 
         while (queue.isNotEmpty()) {
             val directory = queue.removeFirst()
-            val canonicalDirectory = runCatching { directory.canonicalFile }.getOrElse { error ->
+            val canonicalDirectory = try {
+                directory.canonicalFile
+            } catch (error: Throwable) {
                 firstError = firstError ?: error.message.orEmpty().ifBlank { "部分共享目录无法解析。" }
                 continue
             }
             if (!visitedDirectories.add(canonicalDirectory.absolutePath)) continue
             if (shouldSkipSharedDirectory(canonicalDirectory)) continue
             scannedDirectories += 1
-            val children = runCatching { canonicalDirectory.listFiles() }.getOrElse { error ->
+            val children = try {
+                canonicalDirectory.listFiles()
+            } catch (error: Throwable) {
                 firstError = firstError ?: error.message.orEmpty().ifBlank { "部分共享目录无法读取。" }
                 null
             } ?: continue
@@ -433,7 +437,7 @@ class StorageSpecialCleanupRepository(context: Context) {
         }
         @Suppress("DEPRECATION")
         Environment.getExternalStorageDirectory()
-            ?.takeIf { it.exists() && it.isDirectory && it.canRead() }
+            .takeIf { it.exists() && it.isDirectory && it.canRead() }
             ?.let(roots::add)
         return roots.mapNotNull { root -> runCatching { root.canonicalFile }.getOrNull() }
             .distinctBy(File::getAbsolutePath)
