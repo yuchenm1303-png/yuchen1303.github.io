@@ -7,15 +7,15 @@ import com.yuchen.ailedger.model.LedgerRecord
 import com.yuchen.ailedger.model.LedgerRecordType
 import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONObject
 
 /**
- * 执行由云端主脑选定的结构化账本工具。
+ * Pure transaction executor for cloud-selected ledger tools.
  *
- * 这一层不读取用户原始自然语言，也不根据关键词猜测意图。主脑必须先给出明确工具和参数，
- * Android 只做类型、范围和持久化校验。
+ * It accepts only canonical JSON fields and enum values. It never reads user text, accepts aliases,
+ * translates synonyms, or guesses a missing transaction intent.
  */
 class LedgerInternalToolExecutor(context: Context) {
     private val appContext = context.applicationContext
@@ -26,48 +26,64 @@ class LedgerInternalToolExecutor(context: Context) {
 
     fun canExecute(step: CloudAgentStep): Boolean = step.type in CloudAgentStep.ledgerToolTypes
 
-    fun execute(step: CloudAgentStep): AgentExecutionResult {
-        return runCatching {
-            when (step.type) {
-                "ledger_add_record" -> addRecord(step)
-                "ledger_set_budget" -> setBudget(step)
-                "ledger_query_summary" -> querySummary(step)
-                "ledger_list_records" -> listRecords(step)
-                else -> AgentExecutionResult(false, "不支持的账本内部工具：${step.type}", false)
-            }
-        }.getOrElse { error ->
-            AgentExecutionResult(
-                ok = false,
-                message = "账本内部工具执行异常：${error.message?.takeIf { it.isNotBlank() } ?: error::class.java.simpleName}",
-                shouldContinue = false,
-            )
+    fun execute(step: CloudAgentStep): AgentExecutionResult = runCatching {
+        validateEnvelope(step)?.let { return failure(it) }
+        when (step.type) {
+            "ledger_add_record" -> addRecord(step)
+            "ledger_set_budget" -> setBudget(step)
+            "ledger_query_summary" -> querySummary(step)
+            "ledger_list_records" -> listRecords(step)
+            else -> failure("不支持的账本工具：${step.type}。")
         }
+    }.getOrElse { error ->
+        AgentExecutionResult(
+            ok = false,
+            message = "账本工具执行异常：${error.message?.takeIf { it.isNotBlank() } ?: error::class.java.simpleName}",
+            shouldContinue = false,
+            diagnostics = "ledger_execution_exception:${error::class.java.simpleName}",
+        )
+    }
+
+    private fun validateEnvelope(step: CloudAgentStep): String? {
+        val allowed = allowedArgNames(step.type) ?: return "账本工具未注册：${step.type}。"
+        val args = step.toolArgs ?: JSONObject()
+        val unknown = args.keys().asSequence().firstOrNull { it !in allowed }
+        return unknown?.let { "账本工具包含未声明参数：$it。" }
     }
 
     private fun addRecord(step: CloudAgentStep): AgentExecutionResult {
-        val amount = step.argFloat("amount", "value")
-            ?.takeIf { it.isFinite() && it > 0f }
-            ?: return failure("新增账单失败：主脑没有提供有效的正数金额 amount。")
-        val type = parseRecordType(step.argString("recordType", "transactionType", "entryType"))
-            ?: return failure("新增账单失败：主脑必须明确提供 recordType=expense 或 income。")
-        val title = step.argString("title", "name", "description")
-            ?.trim()
-            ?.take(30)
-            ?.takeIf { it.isNotBlank() }
-            ?: if (type == LedgerRecordType.Income) "未命名收入" else "未命名支出"
-        val category = normalizeCategory(step.argString("category"))
-        val date = normalizeStructuredDate(step.argString("date", "dateLabel"))
+        val amount = step.numberArg("amount")
+            ?.takeIf { it.isFinite() && it > 0.0 && it <= MAX_LEDGER_AMOUNT }
+            ?: return failure("新增账单失败：amount 必须是有效正数。")
+        val type = when (step.stringArg("recordType")) {
+            "expense" -> LedgerRecordType.Expense
+            "income" -> LedgerRecordType.Income
+            else -> return failure("新增账单失败：recordType 必须是 expense 或 income。")
+        }
+        val title = step.stringArg("title")
+            ?.take(MAX_TITLE_CHARS)
+            ?.takeIf(String::isNotBlank)
+            ?: return failure("新增账单失败：缺少非空 title。")
+        val category = step.stringArg("category")
+            ?.takeIf { it in LedgerStore.LEDGER_CATEGORIES }
+            ?: return failure("新增账单失败：category 不在账本分类枚举中。")
+        val date = canonicalDate(step.stringArg("date"))
+            ?: return failure("新增账单失败：date 必须是 today、yesterday 或 YYYY-MM-DD。")
+
         val record = LedgerRecord(
             id = nextRecordId(),
             title = title,
-            amount = amount,
+            amount = amount.toFloat(),
             type = type,
             category = category,
             dateLabel = date,
         )
         val nextRecords = (listOf(record) + store.loadRecords())
             .distinctBy { it.id }
-            .sortedWith(compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }.thenByDescending { it.id })
+            .sortedWith(
+                compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }
+                    .thenByDescending { it.id },
+            )
         store.saveRecords(nextRecords)
 
         val persisted = store.loadRecords().firstOrNull { it.id == record.id }
@@ -75,59 +91,56 @@ class LedgerInternalToolExecutor(context: Context) {
         val cloudStatus = syncRecordBestEffort(persisted)
         val sign = if (persisted.type == LedgerRecordType.Income) "收入" else "支出"
         return success(
-            "已记录：${persisted.title}，$sign ${formatMoney(persisted.amount.toDouble())}，分类 ${persisted.category}，日期 ${persisted.dateLabel}。$cloudStatus",
-            "verified=true；已重新读取本地账本并确认记录 ${persisted.id} 存在。",
+            message = "已记录：${persisted.title}，$sign ${formatMoney(persisted.amount.toDouble())}，分类 ${persisted.category}，日期 ${persisted.dateLabel}。$cloudStatus",
+            verification = "verified=true；recordId=${persisted.id}；已重新读取本地账本确认记录存在。",
         )
     }
 
     private fun setBudget(step: CloudAgentStep): AgentExecutionResult {
-        val amount = step.argFloat("amount", "budget", "value")
-            ?.takeIf { it.isFinite() && it >= 0f }
-            ?: return failure("设置预算失败：主脑没有提供有效的非负金额 amount。")
-        val text = formatPlainNumber(amount.toDouble())
-        store.saveBudget(text)
+        val amount = step.numberArg("amount")
+            ?.takeIf { it.isFinite() && it >= 0.0 && it <= MAX_LEDGER_AMOUNT }
+            ?: return failure("设置预算失败：amount 必须是有效非负数。")
+        val value = formatPlainNumber(amount)
+        store.saveBudget(value)
         val persisted = store.loadBudget()
-        if (persisted.toDoubleOrNull() != text.toDoubleOrNull()) {
+        if (persisted.toDoubleOrNull() != value.toDoubleOrNull()) {
             return failure("预算写入后复核失败。")
         }
         val cloudStatus = syncBudgetBestEffort(persisted)
         return success(
-            "本月预算已设置为 ${formatMoney(amount.toDouble())}。$cloudStatus",
-            "verified=true；已重新读取本地预算，当前值为 $persisted。",
+            message = "本月预算已设置为 ${formatMoney(amount)}。$cloudStatus",
+            verification = "verified=true；已重新读取本地预算，当前值为 $persisted。",
         )
     }
 
     private fun querySummary(step: CloudAgentStep): AgentExecutionResult {
-        val range = normalizeRange(step.argString("range", "period", "timeRange"))
-        val category = step.argString("category")?.trim()?.takeIf { it.isNotBlank() && it != "全部" }
-        val typeFilter = parseOptionalRecordType(step.argString("recordType", "transactionType", "entryType"))
-        val records = filteredRecords(store.loadRecords(), range, category, typeFilter)
+        val filters = parseFilters(step) ?: return failure("查询账单汇总失败：参数不符合规范 Schema。")
+        val records = filteredRecords(store.loadRecords(), filters)
         val income = records.filter { it.type == LedgerRecordType.Income }.sumOf { it.amount.toDouble() }
         val expense = records.filter { it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }
-        val categoryText = category?.let { "，分类 $it" }.orEmpty()
-        val typeText = typeFilter?.let { "，类型 ${if (it == LedgerRecordType.Income) "收入" else "支出"}" }.orEmpty()
-        val budgetText = if (range == LedgerRange.CurrentMonth) {
+        val categoryText = filters.category?.let { "，分类 $it" }.orEmpty()
+        val typeText = filters.type?.let { "，类型 ${if (it == LedgerRecordType.Income) "收入" else "支出"}" }.orEmpty()
+        val budgetText = if (filters.range == LedgerRange.CurrentMonth) {
             val budget = store.loadBudget().toDoubleOrNull() ?: 0.0
             "，本月预算 ${formatMoney(budget)}，剩余 ${formatSignedMoney(budget - expense)}"
         } else {
             ""
         }
         return success(
-            "${range.label}$categoryText$typeText：收入 ${formatMoney(income)}，支出 ${formatMoney(expense)}，结余 ${formatSignedMoney(income - expense)}，共 ${records.size} 笔$budgetText。",
-            "verified=true；汇总直接读取原生本地账本 ${records.size} 笔记录。",
+            message = "${filters.range.label}$categoryText$typeText：收入 ${formatMoney(income)}，支出 ${formatMoney(expense)}，结余 ${formatSignedMoney(income - expense)}，共 ${records.size} 笔$budgetText。",
+            verification = "verified=true；汇总直接读取原生本地账本 ${records.size} 笔记录。",
         )
     }
 
     private fun listRecords(step: CloudAgentStep): AgentExecutionResult {
-        val range = normalizeRange(step.argString("range", "period", "timeRange"))
-        val category = step.argString("category")?.trim()?.takeIf { it.isNotBlank() && it != "全部" }
-        val typeFilter = parseOptionalRecordType(step.argString("recordType", "transactionType", "entryType"))
-        val limit = (step.argLong("limit", "count") ?: 10L).toInt().coerceIn(1, 20)
-        val records = filteredRecords(store.loadRecords(), range, category, typeFilter).take(limit)
+        val filters = parseFilters(step) ?: return failure("查询账单明细失败：参数不符合规范 Schema。")
+        val limit = step.integerArg("limit")?.takeIf { it in 1..20 }
+            ?: return failure("查询账单明细失败：limit 必须是 1 到 20 的整数。")
+        val records = filteredRecords(store.loadRecords(), filters).take(limit)
         if (records.isEmpty()) {
             return success(
-                "${range.label}没有符合条件的账单记录。",
-                "verified=true；已读取原生本地账本，匹配记录为 0 笔。",
+                message = "${filters.range.label}没有符合条件的账单记录。",
+                verification = "verified=true；已读取原生本地账本，匹配记录为 0 笔。",
             )
         }
         val detail = records.joinToString(separator = "\n") { record ->
@@ -135,28 +148,61 @@ class LedgerInternalToolExecutor(context: Context) {
             "${record.dateLabel} · ${record.title} · ${record.category} · $sign${formatMoney(record.amount.toDouble())}"
         }
         return success(
-            "${range.label}最近 ${records.size} 笔账单：\n$detail",
-            "verified=true；已从原生本地账本读取 ${records.size} 笔明细。",
+            message = "${filters.range.label}最近 ${records.size} 笔账单：\n$detail",
+            verification = "verified=true；已从原生本地账本读取 ${records.size} 笔明细。",
         )
     }
 
-    private fun filteredRecords(
-        source: List<LedgerRecord>,
-        range: LedgerRange,
-        category: String?,
-        type: LedgerRecordType?,
-    ): List<LedgerRecord> {
-        val bounds = rangeBounds(range)
+    private fun parseFilters(step: CloudAgentStep): LedgerFilters? {
+        val range = when (step.stringArg("range")) {
+            "current_month" -> LedgerRange.CurrentMonth
+            "last_month" -> LedgerRange.LastMonth
+            "last_30_days" -> LedgerRange.Last30Days
+            "current_year" -> LedgerRange.CurrentYear
+            "all" -> LedgerRange.All
+            else -> return null
+        }
+        val type = when (val raw = step.stringArg("recordType")) {
+            null -> null
+            "expense" -> LedgerRecordType.Expense
+            "income" -> LedgerRecordType.Income
+            else -> return null
+        }
+        val category = step.stringArg("category")?.let { raw ->
+            raw.takeIf { it in LedgerStore.LEDGER_CATEGORIES } ?: return null
+        }
+        return LedgerFilters(range, category, type)
+    }
+
+    private fun filteredRecords(source: List<LedgerRecord>, filters: LedgerFilters): List<LedgerRecord> {
+        val bounds = rangeBounds(filters.range)
         return source.asSequence()
             .filter { record ->
                 val date = LedgerStore.normalizeDate(record.dateLabel)
                 val inRange = bounds == null || (date >= bounds.first && date <= bounds.second)
-                val categoryMatches = category == null || record.category == normalizeCategory(category)
-                val typeMatches = type == null || record.type == type
+                val categoryMatches = filters.category == null || record.category == filters.category
+                val typeMatches = filters.type == null || record.type == filters.type
                 inRange && categoryMatches && typeMatches
             }
-            .sortedWith(compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }.thenByDescending { it.id })
+            .sortedWith(
+                compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }
+                    .thenByDescending { it.id },
+            )
             .toList()
+    }
+
+    private fun canonicalDate(value: String?): String? = when (value) {
+        "today" -> LedgerStore.todayIso()
+        "yesterday" -> shiftedDate(-1)
+        null -> null
+        else -> value.takeIf(::isStrictIsoDate)
+    }
+
+    private fun isStrictIsoDate(value: String): Boolean {
+        if (!ISO_DATE_REGEX.matches(value)) return false
+        return runCatching {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false }.parse(value)
+        }.getOrNull() != null
     }
 
     private fun rangeBounds(range: LedgerRange): Pair<String, String>? {
@@ -190,54 +236,6 @@ class LedgerInternalToolExecutor(context: Context) {
         }
     }
 
-    private fun parseRecordType(value: String?): LedgerRecordType? {
-        return when (value?.trim()?.lowercase()?.replace('-', '_')) {
-            "expense", "outcome", "spending", "支出" -> LedgerRecordType.Expense
-            "income", "earning", "收入" -> LedgerRecordType.Income
-            else -> null
-        }
-    }
-
-    private fun parseOptionalRecordType(value: String?): LedgerRecordType? {
-        val clean = value?.trim().orEmpty()
-        return if (clean.isBlank() || clean.equals("all", ignoreCase = true) || clean == "全部") null else parseRecordType(clean)
-    }
-
-    private fun normalizeCategory(value: String?): String {
-        val clean = value?.trim().orEmpty()
-        return when (clean.lowercase()) {
-            "food", "meal", "dining", "餐饮" -> "餐饮"
-            "transport", "transportation", "交通" -> "交通"
-            "shopping", "购物" -> "购物"
-            "housing", "home", "居住" -> "居住"
-            "drink", "beverage", "饮品" -> "饮品"
-            "salary", "wage", "工资" -> "工资"
-            "gift", "礼物" -> "礼物"
-            "other", "others", "其他", "" -> "其他"
-            else -> clean.takeIf { it in LedgerStore.LEDGER_CATEGORIES } ?: "其他"
-        }
-    }
-
-    private fun normalizeStructuredDate(value: String?): String {
-        val clean = value?.trim().orEmpty()
-        return when (clean.lowercase()) {
-            "", "today", "今天" -> LedgerStore.todayIso()
-            "yesterday", "昨天" -> shiftedDate(-1)
-            "day_before_yesterday", "前天" -> shiftedDate(-2)
-            else -> LedgerStore.normalizeDate(clean)
-        }
-    }
-
-    private fun normalizeRange(value: String?): LedgerRange {
-        return when (value?.trim()?.lowercase()?.replace('-', '_')) {
-            "last_month", "previous_month", "上月" -> LedgerRange.LastMonth
-            "last_30_days", "recent_30_days", "30_days", "最近30天" -> LedgerRange.Last30Days
-            "current_year", "this_year", "year", "本年", "今年" -> LedgerRange.CurrentYear
-            "all", "all_time", "全部" -> LedgerRange.All
-            else -> LedgerRange.CurrentMonth
-        }
-    }
-
     private fun syncRecordBestEffort(record: LedgerRecord): String {
         val session = sessionStore.load()?.takeIf { it.isUsable } ?: return "当前为本地模式。"
         return runCatching {
@@ -259,31 +257,76 @@ class LedgerInternalToolExecutor(context: Context) {
         return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.time)
     }
 
-    private fun nextRecordId(): String = "record-agent-${idSeed.incrementAndGet()}"
-
-    private fun success(message: String, verification: String): AgentExecutionResult {
-        return AgentExecutionResult(true, "$message\n\n执行后验证：$verification", false)
+    private fun CloudAgentStep.stringArg(name: String): String? {
+        val args = toolArgs ?: return null
+        if (!args.has(name) || args.isNull(name)) return null
+        return (args.opt(name) as? String)?.trim()?.takeIf(String::isNotBlank)
     }
 
-    private fun failure(message: String): AgentExecutionResult = AgentExecutionResult(false, message, false)
+    private fun CloudAgentStep.numberArg(name: String): Double? {
+        val args = toolArgs ?: return null
+        if (!args.has(name) || args.isNull(name)) return null
+        return (args.opt(name) as? Number)?.toDouble()
+    }
+
+    private fun CloudAgentStep.integerArg(name: String): Int? {
+        val args = toolArgs ?: return null
+        if (!args.has(name) || args.isNull(name)) return null
+        val number = args.opt(name) as? Number ?: return null
+        val value = number.toDouble()
+        if (!value.isFinite() || value % 1.0 != 0.0) return null
+        return value.toInt()
+    }
+
+    private fun nextRecordId(): String = "record-agent-${idSeed.incrementAndGet()}"
+
+    private fun success(message: String, verification: String): AgentExecutionResult = AgentExecutionResult(
+        ok = true,
+        message = "$message\n\n执行后验证：$verification",
+        shouldContinue = false,
+        diagnostics = "ledger_verified",
+    )
+
+    private fun failure(message: String): AgentExecutionResult = AgentExecutionResult(
+        ok = false,
+        message = message,
+        shouldContinue = false,
+        diagnostics = "ledger_validation_failed",
+    )
 
     private fun formatMoney(value: Double): String = "¥${String.format(Locale.CHINA, "%.2f", value)}"
 
-    private fun formatSignedMoney(value: Double): String {
-        val prefix = if (value >= 0.0) "+" else "-"
-        return prefix + formatMoney(kotlin.math.abs(value))
-    }
+    private fun formatSignedMoney(value: Double): String =
+        (if (value >= 0.0) "+" else "-") + formatMoney(kotlin.math.abs(value))
 
-    private fun formatPlainNumber(value: Double): String {
-        val integer = value.toLong()
-        return if (value == integer.toDouble()) integer.toString() else value.toString().trimEnd('0').trimEnd('.')
-    }
+    private fun formatPlainNumber(value: Double): String =
+        if (value % 1.0 == 0.0) value.toLong().toString() else String.format(Locale.US, "%.2f", value).trimEnd('0').trimEnd('.')
 
-    private enum class LedgerRange(val label: String) {
-        CurrentMonth("本月"),
-        LastMonth("上月"),
-        Last30Days("最近30天"),
-        CurrentYear("本年"),
-        All("全部时间"),
+    companion object {
+        private const val MAX_TITLE_CHARS = 80
+        private const val MAX_LEDGER_AMOUNT = 1_000_000_000.0
+        private val ISO_DATE_REGEX = Regex("\\d{4}-\\d{2}-\\d{2}")
+
+        fun allowedArgNames(stepType: String): Set<String>? = when (stepType) {
+            "ledger_add_record" -> setOf("amount", "recordType", "title", "category", "date")
+            "ledger_set_budget" -> setOf("amount")
+            "ledger_query_summary" -> setOf("range", "recordType", "category")
+            "ledger_list_records" -> setOf("range", "recordType", "category", "limit")
+            else -> null
+        }
     }
+}
+
+private data class LedgerFilters(
+    val range: LedgerRange,
+    val category: String?,
+    val type: LedgerRecordType?,
+)
+
+private enum class LedgerRange(val label: String) {
+    CurrentMonth("本月"),
+    LastMonth("上月"),
+    Last30Days("最近 30 天"),
+    CurrentYear("今年"),
+    All("全部时间"),
 }
