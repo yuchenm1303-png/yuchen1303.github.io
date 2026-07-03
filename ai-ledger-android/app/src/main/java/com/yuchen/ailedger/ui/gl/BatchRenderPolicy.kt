@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui.gl
 
+import android.graphics.Bitmap
 import com.yuchen.ailedger.model.GlassBorderStyle
 
 internal const val BATCH_RENDER_LIMIT = 8
@@ -20,6 +21,8 @@ internal const val BATCH_REFERENCE_SHORT_EDGE_DP = 160f
 internal const val BATCH_MINIMUM_OPTICAL_SCALE = 0.28f
 internal const val BATCH_FRAME_EPSILON_PX = 0.01f
 internal const val BATCH_VALUE_EPSILON = 0.002f
+
+internal typealias BatchPlatformBitmap = Bitmap
 
 internal class UnifiedGlassBatchPacket {
     val values = FloatArray(BATCH_RENDER_LIMIT * BATCH_RENDER_FRAME_FLOATS)
