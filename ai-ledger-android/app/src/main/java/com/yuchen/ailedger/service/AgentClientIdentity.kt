@@ -67,11 +67,11 @@ internal object VisualTaskInvocationRuntime {
 
     fun begin(goal: String): VisualTaskInvocation {
         val cleanGoal = goal.trim()
-        val call = ClientToolCallRegistry.consumeVisual(cleanGoal) ?: synchronized(lock) {
+        val registryCall = ClientToolCallRegistry.consumeVisual(cleanGoal)
+            ?.takeIf { it.visualGoal() == cleanGoal }
+        val call = registryCall ?: synchronized(lock) {
             pruneLocked(System.currentTimeMillis())
-            val items = pendingVisualCalls.toList()
-            val selected = items.lastOrNull { it.call.visualGoal() == cleanGoal }
-                ?: items.lastOrNull()
+            val selected = pendingVisualCalls.lastOrNull { it.call.visualGoal() == cleanGoal }
             selected?.also { pendingVisualCalls.remove(it) }?.call
         }
         val sessionId = call?.id?.trim()?.takeIf(String::isNotBlank)
