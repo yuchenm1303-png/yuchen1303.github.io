@@ -174,6 +174,8 @@ private fun baseReceipt(
     put("goal", goal.trim().take(1_200))
     put("status", status)
     put("toolCallId", clientToolCall?.id.orEmpty())
+    put("toolName", clientToolCall?.name.orEmpty())
+    put("toolArguments", clientToolCall?.arguments?.copyJson() ?: JSONObject())
     put("finalModel", clientToolCall?.finalModel.orEmpty())
     put("allowNewAction", false)
     put("allowVisualAgent", false)
