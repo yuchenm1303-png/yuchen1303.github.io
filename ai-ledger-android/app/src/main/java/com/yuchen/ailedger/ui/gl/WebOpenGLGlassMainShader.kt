@@ -29,16 +29,20 @@ internal object WebOpenGLGlassMainShader {
             vec2 normal=perimeterNormalPrepared(p,center,sdfCore);
 
             // 这些量只依赖本次 draw 的 uniform/几何，主体与圆肩来源点共用一次结果。
+            vec4 resolvedBodyLensA=glassBodyLensA();
+            vec4 resolvedBodyLensB=glassBodyLensB();
+            vec4 resolvedShoulder=glassShoulder();
+            vec4 resolvedDispersion=glassDispersion();
             float bodyReach=bodyLensReach(minSize,r);
             float bodyConcentration=mix(
                 0.58,
                 1.82,
-                sat((uBodyLensA.z+10.0)/20.0)
+                sat((resolvedBodyLensA.z+10.0)/20.0)
             );
             float bodyRawPull=
-                abs(uBodyLensA.y)*0.052
-                +abs(uBodyLensA.x)*0.20
-                +uBodyLensB.x*0.12;
+                abs(resolvedBodyLensA.y)*0.052
+                +abs(resolvedBodyLensA.x)*0.20
+                +resolvedBodyLensB.x*0.12;
             vec3 lensParams=vec3(
                 bodyReach,
                 bodyConcentration,
@@ -159,10 +163,10 @@ internal object WebOpenGLGlassMainShader {
             }
 
             // 色散参数已在 Kotlin 侧限幅；保留原最低 1px 作用宽度。
-            float dispersionStrength=uDispersion.x;
-            float dispersionDistance=uDispersion.y;
+            float dispersionStrength=resolvedDispersion.x;
+            float dispersionDistance=resolvedDispersion.y;
             if(dispersionStrength>0.001&&dispersionDistance>0.001){
-                float dispersionWidth=max(uDispersion.z,1.0);
+                float dispersionWidth=max(resolvedDispersion.z,1.0);
                 float edgeEnvelope=1.0-smoothstep(
                     0.0,
                     dispersionWidth,
@@ -174,7 +178,7 @@ internal object WebOpenGLGlassMainShader {
                 );
                 float dispersionMask=pow(
                     edgeEnvelope,
-                    uDispersion.w
+                    resolvedDispersion.w
                 )*dispersionStrength*(1.0+cornerAmount*0.72);
                 if(dispersionMask>0.001){
                     vec2 splitPx=normal*dispersionDistance
@@ -209,21 +213,21 @@ internal object WebOpenGLGlassMainShader {
             float opticalBoost=1.0+materialWeight*0.24;
             bodyColor*=uBody.w*uMaterial.z*opticalBoost;
             bodyColor-=vec3(0.055,0.065,0.085)
-                *uBodyLensB.z*materialWeight;
+                *resolvedBodyLensB.z*materialWeight;
             bodyColor*=1.0-pressField*0.070-pressWide*0.025;
             bodyColor+=vec3(0.018,0.035,0.046)*pressField*0.38;
-            if(uBodyLensB.w>0.0){
+            if(resolvedBodyLensB.w>0.0){
                 float bodyDebug=smoothstep(-1.6,0.0,sd)*mask;
                 bodyColor=mix(
                     bodyColor,
                     vec3(1.0,0.45,0.0),
-                    bodyDebug*uBodyLensB.w
+                    bodyDebug*resolvedBodyLensB.w
                 );
             }
 
             vec3 color=bodyColor;
             if(shoulderActive){
-                float strength=uShoulder.w;
+                float strength=resolvedShoulder.w;
                 float fill=shoulderMaterialFillAtX(shoulderXValue);
                 float outerRim=pow(shoulderOptics.x,2.8);
                 vec2 lightDirection=normalize(vec2(-0.62,-0.78));
