@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.AgentAnalyticsDatabase
 import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
 import com.yuchen.ailedger.data.AgentAnalyticsRepository
 import com.yuchen.ailedger.data.AgentChatCallWrite
@@ -458,6 +459,13 @@ internal object AgentAnalyticsRuntime {
         val context = AiLedgerApplication.contextOrNull() ?: return null
         val key = ownerStorageKey?.trim().takeUnless { it.isNullOrBlank() }
             ?: AgentAnalyticsOwnerRuntime.currentStorageKey(context)
+        val databaseName = AgentAnalyticsOwnerRuntime.databaseNameForStorageKey(key)
+        if (!AgentAnalyticsDatabase.isAvailable(databaseName)) {
+            synchronized(lock) {
+                if (repositoryCache?.ownerStorageKey == key) repositoryCache = null
+            }
+            return null
+        }
         repositoryCache?.takeIf { it.ownerStorageKey == key }?.let { return it.repository }
         return runCatching { AgentAnalyticsRepository.get(context, key) }
             .getOrNull()
