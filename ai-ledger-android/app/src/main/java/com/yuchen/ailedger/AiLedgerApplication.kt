@@ -2,6 +2,7 @@ package com.yuchen.ailedger
 
 import android.app.Application
 import android.content.Context
+import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
 import com.yuchen.ailedger.data.AssistantCustomInstructionsRepository
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
@@ -28,16 +29,15 @@ class AiLedgerApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         appContext = applicationContext
-
-        // 功能页行情缓存严格按需恢复。Application 冷启动只建立应用级运行时，
-        // 不再解析与 AI 助手首屏无关的报价 JSON 或创建功能页数据源。
+        AgentAnalyticsOwnerRuntime.initialize(applicationContext)
 
         applicationScope.launch {
             var authenticatedSettingsRepositoriesReady = false
             SupabaseAuthRepository.get(applicationContext).state.collectLatest { accountState ->
-                val ticket = AssistantAccountSessionRuntime.updateSession(
-                    accountState.session?.takeIf { accountState.isLoggedIn },
-                )
+                val activeSession = accountState.session?.takeIf { accountState.isLoggedIn }
+                AgentAnalyticsOwnerRuntime.switchAccount(applicationContext, activeSession)
+
+                val ticket = AssistantAccountSessionRuntime.updateSession(activeSession)
                 AssistantMemoryMutationRuntime.switchAccount(ticket)
                 AssistantMemoryDiagnostics.switchAccount(ticket)
 
@@ -45,8 +45,6 @@ class AiLedgerApplication : Application() {
                     withTimeoutOrNull(5_000L) {
                         StartupPerformanceGate.awaitDeferredBusinessWindow()
                     }
-                    // 聊天与记忆链真正依赖的账户仓库在稳定窗口后准备；股票自选、
-                    // 账本和 HUD 调参等功能仓库保持严格按需创建。
                     UserProfileRepository.get(applicationContext)
                     AssistantMemoryRepository.get(applicationContext)
                     AssistantCustomInstructionsRepository.get(applicationContext)
@@ -59,9 +57,6 @@ class AiLedgerApplication : Application() {
             AgentRuntimeController.progress.collectLatest { progress ->
                 AgentOverlayService.syncForProgress(this@AiLedgerApplication, progress)
                 AgentAnalyticsRuntime.observeProgress(progress)
-
-                // 空闲进程不再提前创建视觉诊断仓库。真实任务开始后才初始化，
-                // 终态进度仍携带 taskId，因此不会丢失任务结束诊断。
                 if (progress.taskId > 0L || progress.running) {
                     VisualIntelligenceDiagnosticsStore.get(applicationContext)
                         .observeProgress(progress)
