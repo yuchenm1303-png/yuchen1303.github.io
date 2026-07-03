@@ -19,6 +19,7 @@ internal data class VisualLoopState(
         pendingFinishPackage = ""
         pendingFinishFingerprint = ""
         pendingFinishCount = 0
+        syncAnalyticsSnapshot()
     }
 
     fun syncAnalyticsSnapshot() {
