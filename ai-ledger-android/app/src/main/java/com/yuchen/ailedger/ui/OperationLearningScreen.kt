@@ -198,6 +198,7 @@ fun OperationLearningScreen(
                     onSelect = { viewModel.selectDraft(draft.id) },
                     onStartRecording = { viewModel.startRecording(draft.id) },
                     onFinishRecording = viewModel::finishRecording,
+                    onApproveSkill = { viewModel.approveSkill(draft.id) },
                     onDelete = { viewModel.deleteDraft(draft.id) },
                 )
             }
@@ -707,6 +708,7 @@ private fun SkillDraftCard(
     onSelect: () -> Unit,
     onStartRecording: () -> Unit,
     onFinishRecording: () -> Unit,
+    onApproveSkill: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
@@ -716,11 +718,13 @@ private fun SkillDraftCard(
     val thisRecording = recordingState.active && recordingState.workflowId == draft.id
     val anotherRecording = recordingState.active && recordingState.workflowId != draft.id
     val canStart = draft.status == WorkflowDraftStatus.Intent && report.canProceed && !recordingState.active
+    val canApprove = draft.status == WorkflowDraftStatus.ReadyForReview && skill != null && !recordingState.active
     val actionLabel = when {
         thisRecording -> "结束演示"
         anotherRecording -> "其他 Skill 演示中"
         draft.status == WorkflowDraftStatus.Compiling -> "云端理解中"
-        draft.status == WorkflowDraftStatus.ReadyForReview -> "等待审核"
+        canApprove -> "批准 Skill"
+        draft.status == WorkflowDraftStatus.ReadyForReview -> "等待完整草稿"
         draft.status == WorkflowDraftStatus.Approved -> "已批准"
         draft.status == WorkflowDraftStatus.Verified -> "已验证"
         canStart -> "开始视觉演示"
@@ -768,8 +772,12 @@ private fun SkillDraftCard(
                     state = state,
                     label = actionLabel,
                     modifier = Modifier.weight(0.50f),
-                    enabled = thisRecording || canStart,
-                    onClick = if (thisRecording) onFinishRecording else onStartRecording,
+                    enabled = thisRecording || canStart || canApprove,
+                    onClick = when {
+                        thisRecording -> onFinishRecording
+                        canApprove -> onApproveSkill
+                        else -> onStartRecording
+                    },
                 )
                 OperationLearningActionButton(state, "删除", Modifier.weight(0.22f), !recordingState.active, danger = true, onClick = onDelete)
             }
@@ -792,13 +800,24 @@ private fun SkillUnderstandingPanel(skill: LearnedVisualSkill) {
             text = skill.cloudSummary.ifBlank { skill.description },
             color = Color.White.copy(alpha = 0.66f),
             fontSize = 11.sp,
-            lineHeight = 16.dp.value.sp,
+            lineHeight = 16.sp,
         )
+        if (skill.inputs.isNotEmpty()) {
+            Text(
+                text = "运行输入：${skill.inputs.joinToString { it.label }}",
+                color = Color.White.copy(alpha = 0.54f),
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+            )
+        }
         skill.operatingPrinciples.take(3).forEach { principle ->
             Text("• $principle", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp, lineHeight = 15.sp)
         }
         if (skill.successCriteria.isNotEmpty()) {
             Text("成功：${skill.successCriteria.first()}", color = OperationLearningViolet.copy(alpha = 0.70f), fontSize = 10.5.sp, lineHeight = 15.sp)
+        }
+        if (skill.safetyRules.isNotEmpty()) {
+            Text("边界：${skill.safetyRules.first()}", color = OperationLearningDanger.copy(alpha = 0.64f), fontSize = 10.5.sp, lineHeight = 15.sp)
         }
     }
 }
