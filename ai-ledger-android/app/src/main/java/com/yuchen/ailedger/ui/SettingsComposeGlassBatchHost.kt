@@ -9,8 +9,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 
-private val ToolsUnifiedShellShortEdgeRange = 0f..10_000f
-
 /**
  * 每个 Tab 独立持有的玻璃父级宿主。
  *
@@ -62,7 +60,6 @@ internal fun NonOpenGLGlassBatchHost(
                     if (batchToolsShells) {
                         OpenGlShellBatchHost(
                             modifier = Modifier.matchParentSize(),
-                            acceptedShortEdgeDp = ToolsUnifiedShellShortEdgeRange,
                             preserveStandaloneFrame = true,
                         ) {
                             content()
