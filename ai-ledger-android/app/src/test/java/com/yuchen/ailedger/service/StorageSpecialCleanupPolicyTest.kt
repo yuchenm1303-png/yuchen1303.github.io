@@ -21,6 +21,47 @@ class StorageSpecialCleanupPolicyTest {
     }
 
     @Test
+    fun installerOutsideDownloadFolderIsStillFoundGlobally() {
+        assertEquals(
+            StorageSpecialCleanupKind.Installer,
+            StorageSpecialCleanupPolicy.classifyGlobalDownload(
+                location = "/storage/emulated/0/BrowserPackages/release.apk",
+                displayName = "release.apk",
+                sizeBytes = 20L,
+                modifiedAt = now,
+                now = now,
+            ),
+        )
+    }
+
+    @Test
+    fun regularFileInsideDownloadFolderIsIncluded() {
+        assertEquals(
+            StorageSpecialCleanupKind.OtherDownload,
+            StorageSpecialCleanupPolicy.classifyGlobalDownload(
+                location = "/storage/emulated/0/Download/manual.pdf",
+                displayName = "manual.pdf",
+                sizeBytes = 20L,
+                modifiedAt = now,
+                now = now,
+            ),
+        )
+    }
+
+    @Test
+    fun unrelatedRegularFileOutsideDownloadFolderIsIgnored() {
+        assertNull(
+            StorageSpecialCleanupPolicy.classifyGlobalDownload(
+                location = "/storage/emulated/0/Documents/manual.pdf",
+                displayName = "manual.pdf",
+                sizeBytes = 20L,
+                modifiedAt = now,
+                now = now,
+            ),
+        )
+    }
+
+    @Test
     fun stalePartialDownloadIsLowRiskJunk() {
         assertEquals(
             StorageSpecialCleanupKind.PartialDownload,
