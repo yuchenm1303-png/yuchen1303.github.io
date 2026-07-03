@@ -20,6 +20,17 @@ internal data class VisualLoopState(
         pendingFinishFingerprint = ""
         pendingFinishCount = 0
     }
+
+    fun syncAnalyticsSnapshot() {
+        AgentAnalyticsRuntime.updateVisualLoopMetrics(
+            taskId = AgentRuntimeController.currentTaskId(),
+            modelTurns = modelTurns,
+            executedActions = executedActions,
+            reobservations = reobservations,
+            rejectedPlans = rejectedPlans,
+            executionFailures = executionFailures,
+        )
+    }
 }
 
 internal enum class VisualFailureClass(val wireValue: String) {
