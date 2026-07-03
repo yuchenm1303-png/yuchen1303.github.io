@@ -1,3 +1,15 @@
 package com.yuchen.ailedger.ui.gl
 
-internal const val UNIFIED_GLASS_BATCH_ENABLED = true
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import com.yuchen.ailedger.ui.GlassCoordinateSource
+
+@Composable
+internal fun UnifiedGlassBatchLayer(
+    state: OpenGLShellBatchState,
+    parentCoordinates: GlassCoordinateSource,
+    modifier: Modifier = Modifier,
+) {
+    state.snapshot()
+    parentCoordinates.rootOffsetNow()
+}
