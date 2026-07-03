@@ -48,6 +48,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
@@ -796,50 +797,56 @@ private fun DashboardArtIcon(
                 }
 
                 DashboardArtIcon.OperationLearning -> {
-                    val start = Offset(size.width * 0.13f, size.height * 0.72f)
-                    val middle = Offset(size.width * 0.5f, size.height * 0.28f)
-                    val end = Offset(size.width * 0.87f, size.height * 0.72f)
-                    val route = Path().apply {
-                        moveTo(start.x, start.y)
-                        cubicTo(
-                            size.width * 0.31f,
-                            size.height * 0.72f,
-                            size.width * 0.29f,
-                            size.height * 0.28f,
-                            middle.x,
-                            middle.y,
-                        )
-                        cubicTo(
-                            size.width * 0.71f,
-                            size.height * 0.28f,
-                            size.width * 0.69f,
-                            size.height * 0.72f,
-                            end.x,
-                            end.y,
-                        )
+                    val cursor = Path().apply {
+                        moveTo(size.width * 0.43f, size.height * 0.28f)
+                        lineTo(size.width * 0.47f, size.height * 0.78f)
+                        lineTo(size.width * 0.58f, size.height * 0.65f)
+                        lineTo(size.width * 0.70f, size.height * 0.84f)
+                        lineTo(size.width * 0.79f, size.height * 0.78f)
+                        lineTo(size.width * 0.67f, size.height * 0.59f)
+                        lineTo(size.width * 0.84f, size.height * 0.55f)
+                        close()
                     }
                     drawPath(
-                        route,
-                        tone.copy(alpha = 0.76f),
-                        style = Stroke(stroke, cap = StrokeCap.Round),
+                        path = cursor,
+                        color = tone.copy(alpha = 0.18f),
                     )
-                    listOf(start, middle, end).forEachIndexed { index, point ->
-                        drawCircle(
-                            color = tone.copy(alpha = if (index == 1) 0.98f else 0.74f),
-                            radius = if (index == 1) 3.1.dp.toPx() else 2.5.dp.toPx(),
-                            center = point,
-                        )
-                    }
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.94f),
-                        radius = 1.25.dp.toPx(),
-                        center = middle,
+                    drawPath(
+                        path = cursor,
+                        color = Color.White.copy(alpha = 0.96f),
+                        style = Stroke(
+                            width = 1.55.dp.toPx(),
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                    val rayColor = Color.White.copy(alpha = 0.88f)
+                    drawLine(
+                        color = rayColor,
+                        start = Offset(size.width * 0.31f, size.height * 0.24f),
+                        end = Offset(size.width * 0.22f, size.height * 0.13f),
+                        strokeWidth = 1.35.dp.toPx(),
+                        cap = StrokeCap.Round,
                     )
                     drawLine(
-                        color = tone.copy(alpha = 0.82f),
-                        start = Offset(end.x - 2.9.dp.toPx(), end.y - 2.4.dp.toPx()),
-                        end = end,
-                        strokeWidth = stroke,
+                        color = rayColor,
+                        start = Offset(size.width * 0.24f, size.height * 0.39f),
+                        end = Offset(size.width * 0.09f, size.height * 0.36f),
+                        strokeWidth = 1.35.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    drawLine(
+                        color = rayColor,
+                        start = Offset(size.width * 0.45f, size.height * 0.17f),
+                        end = Offset(size.width * 0.45f, size.height * 0.04f),
+                        strokeWidth = 1.35.dp.toPx(),
+                        cap = StrokeCap.Round,
+                    )
+                    drawLine(
+                        color = rayColor,
+                        start = Offset(size.width * 0.62f, size.height * 0.22f),
+                        end = Offset(size.width * 0.70f, size.height * 0.11f),
+                        strokeWidth = 1.35.dp.toPx(),
                         cap = StrokeCap.Round,
                     )
                 }
