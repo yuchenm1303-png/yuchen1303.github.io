@@ -14,10 +14,6 @@ import com.yuchen.ailedger.ui.StartupPerformanceGate
 import kotlin.math.abs
 import kotlin.math.max
 
-private const val SMART_BATCH_EGL_SWAP_BEHAVIOR = 0x3093
-private const val SMART_BATCH_EGL_BUFFER_PRESERVED = 0x3094
-private const val SMART_BATCH_EGL_PRESERVED_BIT = 0x0400
-
 internal class SmartOpenGLGlassBatchTextureView(
     context: Context,
 ) : TextureView(context), TextureView.SurfaceTextureListener {
@@ -128,6 +124,7 @@ private class SmartOpenGLGlassBatchEglThread(
     private val onFirstFrame: () -> Unit,
 ) : Thread("SmartOpenGLGlassBatchThread") {
     private val renderer = SmartOpenGLGlassBatchRenderer()
+    private val persistentFramebuffer = SmartOpenGLGlassBatchFramebuffer()
     private val renderLock = Object()
 
     @Volatile private var running = true
@@ -178,6 +175,12 @@ private class SmartOpenGLGlassBatchEglThread(
     override fun run() {
         try {
             initEgl()
+            val persistentTargetReady = persistentFramebuffer.onSurfaceCreated(
+                viewportWidth,
+                viewportHeight,
+            )
+            renderer.setBufferPreserved(persistentTargetReady)
+            persistentFramebuffer.bindForRender()
             renderer.onSurfaceCreated()
             renderer.onSurfaceChanged(viewportWidth, viewportHeight)
             PerformanceRuntimeMetrics.recordOpenGlSurface(viewportWidth, viewportHeight)
@@ -189,11 +192,19 @@ private class SmartOpenGLGlassBatchEglThread(
                 }
                 if (!running) break
                 if (sizeDirty) {
+                    val resizedTargetReady = persistentFramebuffer.resize(
+                        viewportWidth,
+                        viewportHeight,
+                    )
+                    renderer.setBufferPreserved(resizedTargetReady)
+                    persistentFramebuffer.bindForRender()
                     renderer.onSurfaceChanged(viewportWidth, viewportHeight)
                     PerformanceRuntimeMetrics.recordOpenGlSurface(viewportWidth, viewportHeight)
                     sizeDirty = false
                 }
+                persistentFramebuffer.bindForRender()
                 renderer.onDrawFrame()
+                persistentFramebuffer.presentToWindow()
                 if (EGL14.eglSwapBuffers(display, eglSurface)) {
                     PerformanceRuntimeMetrics.recordOpenGlFrame()
                     if (!firstFramePresented) {
@@ -204,6 +215,7 @@ private class SmartOpenGLGlassBatchEglThread(
             }
         } finally {
             runCatching { renderer.onRelease() }
+            runCatching { persistentFramebuffer.onRelease() }
             releaseEgl()
             surface.release()
         }
@@ -214,8 +226,7 @@ private class SmartOpenGLGlassBatchEglThread(
         check(display != EGL14.EGL_NO_DISPLAY)
         val version = IntArray(2)
         check(EGL14.eglInitialize(display, version, 0, version, 1))
-        val preservedConfig = chooseConfig(EGL14.EGL_WINDOW_BIT or SMART_BATCH_EGL_PRESERVED_BIT)
-        val config = preservedConfig ?: chooseConfig(EGL14.EGL_WINDOW_BIT) ?: error("No EGL config")
+        val config = chooseConfig(EGL14.EGL_WINDOW_BIT) ?: error("No EGL config")
         context = EGL14.eglCreateContext(
             display,
             config,
@@ -235,14 +246,6 @@ private class SmartOpenGLGlassBatchEglThread(
         check(EGL14.eglMakeCurrent(display, eglSurface, eglSurface, context))
         metricsContextActive = true
         PerformanceRuntimeMetrics.recordOpenGlContextCreated()
-
-        val preserved = preservedConfig != null && EGL14.eglSurfaceAttrib(
-            display,
-            eglSurface,
-            SMART_BATCH_EGL_SWAP_BEHAVIOR,
-            SMART_BATCH_EGL_BUFFER_PRESERVED,
-        )
-        renderer.setBufferPreserved(preserved)
     }
 
     private fun chooseConfig(surfaceType: Int): EGLConfig? {
