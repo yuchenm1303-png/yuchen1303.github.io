@@ -23,6 +23,8 @@ internal object AssistantMemoryUsageBridge {
     private val responseForCurrentThread = ThreadLocal<CapturedResponse?>()
     private val analyticsResponseForCurrentThread = ThreadLocal<JSONObject?>()
     private val analyticsAttemptStartedAt = ThreadLocal<Long?>()
+    private val analyticsRequestBytes = ThreadLocal<Long?>()
+    private val analyticsResponseBytes = ThreadLocal<Long?>()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(
             {
@@ -37,7 +39,22 @@ internal object AssistantMemoryUsageBridge {
     fun beginTransportAttempt() {
         responseForCurrentThread.remove()
         analyticsResponseForCurrentThread.remove()
+        analyticsRequestBytes.remove()
+        analyticsResponseBytes.remove()
         analyticsAttemptStartedAt.set(SystemClock.elapsedRealtime())
+    }
+
+    fun captureRequestBytes(byteCount: Int) {
+        analyticsRequestBytes.set(byteCount.toLong().coerceAtLeast(0L))
+    }
+
+    fun addResponseBytes(byteCount: Int) {
+        if (byteCount <= 0) return
+        val current = analyticsResponseBytes.get() ?: 0L
+        val delta = byteCount.toLong()
+        analyticsResponseBytes.set(
+            if (Long.MAX_VALUE - current < delta) Long.MAX_VALUE else current + delta,
+        )
     }
 
     fun captureResponseJson(data: JSONObject) {
@@ -128,16 +145,21 @@ internal object AssistantMemoryUsageBridge {
     private fun recordAnalyticsTransport(payload: JSONObject, success: Boolean) {
         val response = analyticsResponseForCurrentThread.get()
         val startedAt = analyticsAttemptStartedAt.get()
+        val requestBytes = analyticsRequestBytes.get()
+        val responseBytes = analyticsResponseBytes.get()
         analyticsResponseForCurrentThread.remove()
         analyticsAttemptStartedAt.remove()
+        analyticsRequestBytes.remove()
+        analyticsResponseBytes.remove()
         val durationMs = startedAt?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) } ?: 0L
         runCatching {
-            // recordChatTransport 在返回前同步提取轻量指标，不持有 JSONObject；避免复制包含 Base64 图片的大请求。
             AgentAnalyticsRuntime.recordChatTransport(
                 payload = payload,
                 response = response,
                 success = success,
                 durationMs = durationMs,
+                requestBytes = requestBytes ?: -1L,
+                responseBytes = responseBytes ?: -1L,
             )
         }
     }
