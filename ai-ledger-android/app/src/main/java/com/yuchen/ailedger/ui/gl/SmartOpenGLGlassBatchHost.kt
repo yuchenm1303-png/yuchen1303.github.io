@@ -44,6 +44,14 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
     private val renderRunnable = Runnable {
         renderPosted = false
         if (!isAttachedToWindow) return@Runnable
+
+        // 兼容预览在绑定 ticker 之前已经排队的回调。生产页面一旦拥有 ticker，禁止
+        // 在 traversal 前读取坐标，转交给同一 PreDraw 最终帧提交。
+        val ticker = frameTicker
+        if (ticker != null && !OpenGLFrameFinalizer.isDispatchingFrame) {
+            ticker.requestFinalizedFrame()
+            return@Runnable
+        }
         if (syncPacket()) textureView.requestRender()
     }
 
@@ -135,6 +143,12 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
         }
     }
 
+    /**
+     * 生产页面所有刷新都只做一件事：请求 ticker 在根视图 PreDraw 提交。
+     *
+     * 只有无 ticker 的独立预览才使用 postOnAnimation 回退。这样滚动坐标、按压形变、
+     * 背景原点和 activeMask 不会出现 traversal 前后两个不同快照，也不会先画旧背景再纠正。
+     */
     fun requestRenderOnNextAnimationFrame() {
         if (OpenGLFrameFinalizer.isDispatchingFrame) {
             if (renderPosted) {
@@ -144,6 +158,17 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
             if (isAttachedToWindow && syncPacket()) textureView.requestRender()
             return
         }
+
+        val ticker = frameTicker
+        if (ticker != null) {
+            if (renderPosted) {
+                removeCallbacks(renderRunnable)
+                renderPosted = false
+            }
+            ticker.requestFinalizedFrame()
+            return
+        }
+
         if (renderPosted) return
         renderPosted = true
         postOnAnimation(renderRunnable)
