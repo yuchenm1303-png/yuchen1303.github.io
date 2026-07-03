@@ -4,6 +4,7 @@ import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.AgentAnalyticsRepository
 import com.yuchen.ailedger.data.AgentChatCallWrite
 import com.yuchen.ailedger.data.AgentModelCallWrite
+import com.yuchen.ailedger.data.AgentTaskMetricsPatch
 import com.yuchen.ailedger.data.AgentTaskWrite
 import com.yuchen.ailedger.data.AgentUsageCounter
 import com.yuchen.ailedger.model.AgentTokenAccuracy
@@ -15,6 +16,7 @@ import org.json.JSONObject
  * 智能体统计唯一运行时入口。
  *
  * 这里仅旁路收集已经发生的事实，不参与模型路由、动作选择、完成许可或无障碍模式切换。
+ * 所有公开入口都吞掉统计自身异常，任何数据库或解析故障都不能影响聊天与智能体执行。
  */
 internal object AgentAnalyticsRuntime {
     private data class MutableUsageCounter(
@@ -62,7 +64,6 @@ internal object AgentAnalyticsRuntime {
 
     private data class ProgressCursor(
         var logs: List<String> = emptyList(),
-        var running: Boolean = false,
         var takeoverPaused: Boolean = false,
         var finished: Boolean = false,
     )
@@ -71,61 +72,66 @@ internal object AgentAnalyticsRuntime {
     private val tasks = mutableMapOf<Long, RunningTask>()
     private val cursors = LinkedHashMap<Long, ProgressCursor>(32, 0.75f, true)
 
+    @Volatile
+    private var repositoryCache: AgentAnalyticsRepository? = null
+
     fun observeProgress(progress: AgentOverlayProgress) {
         if (progress.taskId <= 0L) return
-        synchronized(lock) {
-            val task = ensureTaskLocked(
-                taskId = progress.taskId,
-                goal = progress.logs.firstOrNull { it.startsWith("目标：") }
-                    ?.removePrefix("目标：")
-                    .orEmpty(),
-                startedAtMillis = progress.updatedAt,
-            )
-            val cursor = cursors.getOrPut(progress.taskId) { ProgressCursor() }
-            if (task.goal.isBlank()) {
-                task.goal = progress.logs.firstOrNull { it.startsWith("目标：") }
-                    ?.removePrefix("目标：")
-                    ?.trim()
-                    .orEmpty()
-            }
-
-            progress.pendingConfirmation?.let { pending ->
-                if (task.seenConfirmationIds.add(pending.id)) task.confirmationRequests += 1L
-            }
-            progress.pendingUserInput?.let { pending ->
-                if (task.seenInputIds.add(pending.id)) task.userInputRequests += 1L
-            }
-            if (!cursor.takeoverPaused && progress.userTakeoverPaused) task.userTakeovers += 1L
-
-            val newLogs = appendedLogs(cursor.logs, progress.logs)
-            newLogs.forEach { entry ->
-                when {
-                    entry.startsWith("结果：") -> recordActionResultLocked(
-                        task = task,
-                        actionText = progress.currentAction,
-                        success = progress.status != "重新规划",
-                    )
-                    entry.startsWith("确认：继续执行") -> task.confirmationsAccepted += 1L
-                    entry.startsWith("输入：用户已提供内容") -> task.userInputsSubmitted += 1L
-                    entry.startsWith("恢复：") -> task.takeoverResumes += 1L
-                }
-            }
-
-            cursor.logs = progress.logs
-            cursor.running = progress.running
-            cursor.takeoverPaused = progress.userTakeoverPaused
-
-            if (!progress.running && !cursor.finished && isTerminalStatus(progress.status)) {
-                cursor.finished = true
-                finishTaskLocked(
-                    task = task,
-                    status = normalizeStatus(progress.status),
-                    result = progress.lastResult,
-                    endedAtMillis = progress.updatedAt,
+        runCatching {
+            synchronized(lock) {
+                val task = ensureTaskLocked(
+                    taskId = progress.taskId,
+                    goal = progress.logs.firstOrNull { it.startsWith("目标：") }
+                        ?.removePrefix("目标：")
+                        .orEmpty(),
+                    startedAtMillis = progress.updatedAt,
                 )
-                tasks.remove(progress.taskId)
+                val cursor = cursors.getOrPut(progress.taskId) { ProgressCursor() }
+                if (task.goal.isBlank()) {
+                    task.goal = progress.logs.firstOrNull { it.startsWith("目标：") }
+                        ?.removePrefix("目标：")
+                        ?.trim()
+                        .orEmpty()
+                }
+
+                progress.pendingConfirmation?.let { pending ->
+                    if (task.seenConfirmationIds.add(pending.id)) task.confirmationRequests += 1L
+                }
+                progress.pendingUserInput?.let { pending ->
+                    if (task.seenInputIds.add(pending.id)) task.userInputRequests += 1L
+                }
+                if (!cursor.takeoverPaused && progress.userTakeoverPaused) task.userTakeovers += 1L
+
+                val newLogs = appendedLogs(cursor.logs, progress.logs)
+                newLogs.forEach { entry ->
+                    when {
+                        entry.startsWith("结果：") -> recordActionResultLocked(
+                            task = task,
+                            actionText = progress.currentAction,
+                            success = progress.status != "重新规划",
+                        )
+                        entry.startsWith("确认：继续执行") -> task.confirmationsAccepted += 1L
+                        entry.startsWith("输入：用户已提供内容") -> task.userInputsSubmitted += 1L
+                        entry.startsWith("恢复：") -> task.takeoverResumes += 1L
+                    }
+                }
+
+                cursor.logs = progress.logs
+                cursor.takeoverPaused = progress.userTakeoverPaused
+
+                if (!progress.running && !cursor.finished && isTerminalStatus(progress.status)) {
+                    cursor.finished = true
+                    task.observations = maxOf(task.observations, task.modelTurns + task.reobservations)
+                    finishTaskLocked(
+                        task = task,
+                        status = normalizeStatus(progress.status),
+                        result = progress.lastResult,
+                        endedAtMillis = progress.updatedAt,
+                    )
+                    tasks.remove(progress.taskId)
+                }
+                trimCursorsLocked()
             }
-            trimCursorsLocked()
         }
     }
 
@@ -138,14 +144,26 @@ internal object AgentAnalyticsRuntime {
         executionFailures: Int,
     ) {
         if (taskId <= 0L) return
-        synchronized(lock) {
-            val task = ensureTaskLocked(taskId, "", System.currentTimeMillis())
-            task.modelTurns = maxOf(task.modelTurns, modelTurns.toLong())
-            task.executedActions = maxOf(task.executedActions, executedActions.toLong())
-            task.reobservations = maxOf(task.reobservations, reobservations.toLong())
-            task.observations = maxOf(task.observations, task.modelTurns + task.reobservations)
-            task.rejectedPlans = maxOf(task.rejectedPlans, rejectedPlans.toLong())
-            task.executionFailures = maxOf(task.executionFailures, executionFailures.toLong())
+        runCatching {
+            val patch = AgentTaskMetricsPatch(
+                modelTurns = modelTurns.toLong().coerceAtLeast(0L),
+                executedActions = executedActions.toLong().coerceAtLeast(0L),
+                observations = (modelTurns.toLong() + reobservations.toLong()).coerceAtLeast(0L),
+                reobservations = reobservations.toLong().coerceAtLeast(0L),
+                rejectedPlans = rejectedPlans.toLong().coerceAtLeast(0L),
+                executionFailures = executionFailures.toLong().coerceAtLeast(0L),
+            )
+            // 即使终态已经移出内存，也能补写数据库中的最终循环指标。
+            repository()?.patchTaskMetrics(taskId, patch)
+            synchronized(lock) {
+                val task = tasks[taskId] ?: return@synchronized
+                task.modelTurns = maxOf(task.modelTurns, patch.modelTurns)
+                task.executedActions = maxOf(task.executedActions, patch.executedActions)
+                task.reobservations = maxOf(task.reobservations, patch.reobservations)
+                task.observations = maxOf(task.observations, patch.observations)
+                task.rejectedPlans = maxOf(task.rejectedPlans, patch.rejectedPlans)
+                task.executionFailures = maxOf(task.executionFailures, patch.executionFailures)
+            }
         }
     }
 
@@ -155,30 +173,32 @@ internal object AgentAnalyticsRuntime {
         success: Boolean,
         durationMs: Long,
     ) {
-        val usage = if (success) {
-            AgentAnalyticsTokenParser.resolveUsage(payload, response)
-        } else {
-            AgentAnalyticsTokenParser.parseProviderUsage(response) ?: AgentTokenUsage(
-                accuracy = AgentTokenAccuracy.Estimated,
+        runCatching {
+            val usage = if (success) {
+                AgentAnalyticsTokenParser.resolveUsage(payload, response)
+            } else {
+                AgentAnalyticsTokenParser.parseProviderUsage(response) ?: AgentTokenUsage(
+                    accuracy = AgentTokenAccuracy.Estimated,
+                )
+            }
+            repository()?.recordChatCall(
+                AgentChatCallWrite(
+                    modelCall = AgentModelCallWrite(
+                        source = "chat",
+                        modelId = AgentAnalyticsTokenParser.modelId(payload, response),
+                        modelLabel = AgentAnalyticsTokenParser.modelLabel(payload, response),
+                        success = success,
+                        usage = usage,
+                        latencyMs = durationMs.coerceAtLeast(0L),
+                        requestBytes = AgentAnalyticsTokenParser.requestBytes(payload),
+                        responseBytes = AgentAnalyticsTokenParser.responseBytes(response),
+                    ),
+                    webSearchUsed = AgentAnalyticsTokenParser.webSearchUsed(response),
+                    imageRequest = AgentAnalyticsTokenParser.imageRequest(payload),
+                    toolKeys = AgentAnalyticsTokenParser.toolKeys(response),
+                ),
             )
         }
-        repository()?.recordChatCall(
-            AgentChatCallWrite(
-                modelCall = AgentModelCallWrite(
-                    source = "chat",
-                    modelId = AgentAnalyticsTokenParser.modelId(payload, response),
-                    modelLabel = AgentAnalyticsTokenParser.modelLabel(payload, response),
-                    success = success,
-                    usage = usage,
-                    latencyMs = durationMs.coerceAtLeast(0L),
-                    requestBytes = AgentAnalyticsTokenParser.requestBytes(payload),
-                    responseBytes = AgentAnalyticsTokenParser.responseBytes(response),
-                ),
-                webSearchUsed = AgentAnalyticsTokenParser.webSearchUsed(response),
-                imageRequest = AgentAnalyticsTokenParser.imageRequest(payload),
-                toolKeys = AgentAnalyticsTokenParser.toolKeys(response),
-            ),
-        )
     }
 
     fun recordVisualModelTransport(
@@ -190,49 +210,55 @@ internal object AgentAnalyticsRuntime {
         requestBytes: Long,
         responseBytes: Long,
     ) {
-        val usage = if (success) {
-            AgentAnalyticsTokenParser.resolveUsage(payload, response)
-        } else {
-            AgentAnalyticsTokenParser.parseProviderUsage(response) ?: AgentTokenUsage(
-                accuracy = AgentTokenAccuracy.Estimated,
-            )
-        }
-        val modelId = AgentAnalyticsTokenParser.modelId(payload, response)
-            .takeUnless { it == "unknown" }
-            ?: "gui_plus"
-        val modelLabel = AgentAnalyticsTokenParser.modelLabel(payload, response)
-            .takeUnless { it == "unknown" || it == "gui_plus" }
-            ?: "GUI Plus"
-        val call = AgentModelCallWrite(
-            taskId = taskId.takeIf { it > 0L },
-            source = "visual_agent",
-            modelId = modelId,
-            modelLabel = modelLabel,
-            success = success,
-            usage = usage,
-            latencyMs = durationMs.coerceAtLeast(0L),
-            requestBytes = requestBytes.coerceAtLeast(0L),
-            responseBytes = responseBytes.coerceAtLeast(0L),
-        )
-        repository()?.recordModelCall(call)
-        if (taskId <= 0L) return
-        synchronized(lock) {
-            val task = ensureTaskLocked(taskId, payload.optString("goal"), System.currentTimeMillis())
-            task.modelCalls += 1L
-            if (!success) task.modelFailures += 1L
-            task.inputTokens += usage.inputTokens.coerceAtLeast(0L)
-            task.outputTokens += usage.outputTokens.coerceAtLeast(0L)
-            task.reasoningTokens += usage.reasoningTokens.coerceAtLeast(0L)
-            task.cachedInputTokens += usage.cachedInputTokens.coerceAtLeast(0L)
-            task.totalTokens += usage.normalizedTotal.coerceAtLeast(0L)
-            if (usage.accuracy == AgentTokenAccuracy.Provider) {
-                task.providerTokens += usage.normalizedTotal.coerceAtLeast(0L)
+        runCatching {
+            val usage = if (success) {
+                AgentAnalyticsTokenParser.resolveUsage(payload, response)
             } else {
-                task.estimatedTokens += usage.normalizedTotal.coerceAtLeast(0L)
+                AgentAnalyticsTokenParser.parseProviderUsage(response) ?: AgentTokenUsage(
+                    accuracy = AgentTokenAccuracy.Estimated,
+                )
             }
-            task.requestBytes += requestBytes.coerceAtLeast(0L)
-            task.responseBytes += responseBytes.coerceAtLeast(0L)
-            task.modelLatencyMs += durationMs.coerceAtLeast(0L)
+            val modelId = AgentAnalyticsTokenParser.modelId(payload, response)
+                .takeUnless { it == "unknown" }
+                ?: "gui_plus"
+            val modelLabel = AgentAnalyticsTokenParser.modelLabel(payload, response)
+                .takeUnless { it == "unknown" || it == "gui_plus" }
+                ?: "GUI Plus"
+            val call = AgentModelCallWrite(
+                taskId = taskId.takeIf { it > 0L },
+                source = "visual_agent",
+                modelId = modelId,
+                modelLabel = modelLabel,
+                success = success,
+                usage = usage,
+                latencyMs = durationMs.coerceAtLeast(0L),
+                requestBytes = requestBytes.coerceAtLeast(0L),
+                responseBytes = responseBytes.coerceAtLeast(0L),
+            )
+            repository()?.recordModelCall(call)
+            if (taskId <= 0L) return@runCatching
+            synchronized(lock) {
+                val task = tasks[taskId] ?: ensureTaskLocked(
+                    taskId = taskId,
+                    goal = payload.optString("goal"),
+                    startedAtMillis = System.currentTimeMillis(),
+                )
+                task.modelCalls += 1L
+                if (!success) task.modelFailures += 1L
+                task.inputTokens += usage.inputTokens.coerceAtLeast(0L)
+                task.outputTokens += usage.outputTokens.coerceAtLeast(0L)
+                task.reasoningTokens += usage.reasoningTokens.coerceAtLeast(0L)
+                task.cachedInputTokens += usage.cachedInputTokens.coerceAtLeast(0L)
+                task.totalTokens += usage.normalizedTotal.coerceAtLeast(0L)
+                if (usage.accuracy == AgentTokenAccuracy.Provider) {
+                    task.providerTokens += usage.normalizedTotal.coerceAtLeast(0L)
+                } else {
+                    task.estimatedTokens += usage.normalizedTotal.coerceAtLeast(0L)
+                }
+                task.requestBytes += requestBytes.coerceAtLeast(0L)
+                task.responseBytes += responseBytes.coerceAtLeast(0L)
+                task.modelLatencyMs += durationMs.coerceAtLeast(0L)
+            }
         }
     }
 
@@ -363,7 +389,11 @@ internal object AgentAnalyticsRuntime {
     }
 
     private fun repository(): AgentAnalyticsRepository? {
-        return AiLedgerApplication.contextOrNull()?.let(AgentAnalyticsRepository::get)
+        repositoryCache?.let { return it }
+        val context = AiLedgerApplication.contextOrNull() ?: return null
+        return runCatching { AgentAnalyticsRepository.get(context) }
+            .getOrNull()
+            ?.also { repositoryCache = it }
     }
 
     private const val MAX_CURSOR_COUNT = 64
