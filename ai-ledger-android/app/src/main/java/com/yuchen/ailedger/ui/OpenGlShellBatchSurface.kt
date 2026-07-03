@@ -80,8 +80,9 @@ internal fun OpenGlShellBatchItemSurfaceImpl(
 
     BoxWithConstraints(modifier = modifier) {
         val shortEdgeDp = min(maxWidth.value, maxHeight.value)
+        val radiusAccepted = policy.acceptedRadiusDp?.contains(radius) != false
         val backdropReady = LocalBlurredBackdrop.current?.isReady == true
-        if (backdropReady && shortEdgeDp in acceptedShortEdgeDp) {
+        if (backdropReady && radiusAccepted && shortEdgeDp in acceptedShortEdgeDp) {
             OpenGlShellBatchRegisteredSurfaceImpl(
                 batchState = batchState,
                 quality = quality,
