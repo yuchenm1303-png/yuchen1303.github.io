@@ -1,9 +1,31 @@
 package com.yuchen.ailedger.service
 
+import com.yuchen.ailedger.AiLedgerApplication
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.Executors
 import org.json.JSONObject
+
+internal object VisualSessionCleanupDispatcher {
+    private val executor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "visual-session-cleanup").apply { isDaemon = true }
+    }
+
+    fun enqueue(invocation: VisualTaskInvocation, terminalReason: String = "visual_task_terminal") {
+        val appContext = AiLedgerApplication.contextOrNull() ?: return
+        executor.execute {
+            runCatching {
+                val deviceId = AgentClientIdentity.getOrCreateDeviceId(appContext)
+                AiWorkerClient().forgetVisualSessionBestEffort(
+                    deviceId = deviceId,
+                    invocation = invocation,
+                    terminalReason = terminalReason,
+                )
+            }
+        }
+    }
+}
 
 /** Idempotent best-effort cleanup for every terminal visual-task path. */
 internal fun AiWorkerClient.forgetVisualSessionBestEffort(
