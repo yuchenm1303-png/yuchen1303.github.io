@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.service
 
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -31,5 +33,26 @@ class VisualAgentPayloadTest {
         assertFalse(payload.has("lastToolResponse"))
         assertFalse(payload.has("routeRefreshRequested"))
         assertFalse(payload.getJSONObject("taskMemory").has("reasoningContext"))
+    }
+
+    @Test
+    fun visualTaskUsesOriginalClientToolCallIdAsSessionBoundary() {
+        val call = CloudClientToolCall(
+            schema = AI_WORKER_CLIENT_TOOL_CALL_SCHEMA,
+            id = "call_visual_123",
+            name = "computer_run_task",
+            arguments = JSONObject().put("goal", "打开示例应用"),
+            finalModel = "deepseek-v4",
+        )
+
+        val invocation = VisualTaskInvocationRuntime.begin("打开示例应用")
+        try {
+            assertEquals(call.id, invocation.taskInvocationId)
+            assertEquals(call.id, invocation.sessionId)
+            assertEquals(call.id, AgentClientIdentity.newVisualSessionId())
+            assertEquals(call.finalModel, invocation.clientToolCall?.finalModel)
+        } finally {
+            VisualTaskInvocationRuntime.clear(invocation)
+        }
     }
 }
