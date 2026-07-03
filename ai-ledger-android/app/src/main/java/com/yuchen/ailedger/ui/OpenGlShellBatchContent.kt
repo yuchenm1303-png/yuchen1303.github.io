@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -18,7 +19,9 @@ import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
 internal fun resolvedFilteredBatchRendererIntensity(fallback: Float): Float {
     val baseBorder = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val styleOverride = LocalNewOpenGlGlassStyleOverride.current
-    val border = styleOverride?.invoke(baseBorder) ?: baseBorder
+    val border = remember(baseBorder, styleOverride) {
+        styleOverride?.invoke(baseBorder) ?: baseBorder
+    }
     return border.newOpenGlGlassIntensity
         .takeIf { it > 0f }
         ?.coerceIn(0.35f, 1.35f)
@@ -71,7 +74,7 @@ internal fun OpenGlBatchFramedContent(
                     )
             )
         }
-        content()
+        OpenGlBatchStaticContent(content)
         if (shellPressEnabled) {
             Box(
                 Modifier
@@ -84,4 +87,9 @@ internal fun OpenGlBatchFramedContent(
             )
         }
     }
+}
+
+@Composable
+private fun OpenGlBatchStaticContent(content: @Composable () -> Unit) {
+    content()
 }
