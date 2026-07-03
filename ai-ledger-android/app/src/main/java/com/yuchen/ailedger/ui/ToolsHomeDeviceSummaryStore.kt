@@ -57,9 +57,9 @@ internal object ToolsHomeDeviceSummaryStore {
         scope.launch {
             val packageManager = appContext.packageManager
             val applications = installedApplications(packageManager)
+            // 与原首页口径保持一致：只排除 FLAG_SYSTEM，更新后的系统应用仍沿用原计数语义。
             val userAppCount = applications.count { info ->
-                info.flags and ApplicationInfo.FLAG_SYSTEM == 0 &&
-                    info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP == 0
+                info.flags and ApplicationInfo.FLAG_SYSTEM == 0
             }
             val statFs = runCatching {
                 StatFs(Environment.getDataDirectory().absolutePath)
@@ -76,7 +76,7 @@ internal object ToolsHomeDeviceSummaryStore {
                 totalBytes = totalBytes,
             )
 
-            val launchablePackages = launcherPackages(packageManager)
+            val launchablePackages = launcherUserPackages(packageManager)
             val selectedPackages = selectPreviewPackages(launchablePackages)
             val iconRepository = AppManagementRepository(appContext)
             val icons = selectedPackages.mapNotNull { packageName ->
@@ -99,7 +99,7 @@ internal object ToolsHomeDeviceSummaryStore {
         }.getOrDefault(emptyList())
     }
 
-    private fun launcherPackages(packageManager: PackageManager): List<String> {
+    private fun launcherUserPackages(packageManager: PackageManager): List<String> {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val rows = runCatching {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
@@ -113,6 +113,8 @@ internal object ToolsHomeDeviceSummaryStore {
             }
         }.getOrDefault(emptyList())
         return rows.mapNotNull { row ->
+            val appInfo = row.activityInfo?.applicationInfo ?: return@mapNotNull null
+            if (appInfo.flags and ApplicationInfo.FLAG_SYSTEM != 0) return@mapNotNull null
             row.activityInfo?.packageName?.trim()?.takeIf(String::isNotBlank)
         }.distinct()
     }
