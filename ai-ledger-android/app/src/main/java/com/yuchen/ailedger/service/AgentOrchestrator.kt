@@ -6,6 +6,7 @@ import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
