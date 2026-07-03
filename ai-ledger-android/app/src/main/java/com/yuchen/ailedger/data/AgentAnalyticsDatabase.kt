@@ -121,6 +121,21 @@ data class AgentTokenEventEntity(
     val responseBytes: Long,
 )
 
+data class AgentTaskTokenAggregate(
+    val modelCalls: Long,
+    val modelFailures: Long,
+    val inputTokens: Long,
+    val outputTokens: Long,
+    val reasoningTokens: Long,
+    val cachedInputTokens: Long,
+    val totalTokens: Long,
+    val providerTokens: Long,
+    val estimatedTokens: Long,
+    val requestBytes: Long,
+    val responseBytes: Long,
+    val modelLatencyMs: Long,
+)
+
 @Entity(tableName = "agent_model_usage")
 data class AgentModelUsageEntity(
     @PrimaryKey val modelId: String,
@@ -176,6 +191,30 @@ interface AgentAnalyticsDao {
 
     @Query("SELECT * FROM agent_task_analytics WHERE taskId = :taskId LIMIT 1")
     suspend fun getTask(taskId: Long): AgentTaskAnalyticsEntity?
+
+    @Query("SELECT * FROM agent_task_analytics WHERE endedAtMillis IS NULL OR status = 'running'")
+    suspend fun getOpenTasks(): List<AgentTaskAnalyticsEntity>
+
+    @Query(
+        """
+        SELECT
+            COUNT(*) AS modelCalls,
+            COALESCE(SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END), 0) AS modelFailures,
+            COALESCE(SUM(inputTokens), 0) AS inputTokens,
+            COALESCE(SUM(outputTokens), 0) AS outputTokens,
+            COALESCE(SUM(reasoningTokens), 0) AS reasoningTokens,
+            COALESCE(SUM(cachedInputTokens), 0) AS cachedInputTokens,
+            COALESCE(SUM(totalTokens), 0) AS totalTokens,
+            COALESCE(SUM(CASE WHEN accuracy = 'Provider' THEN totalTokens ELSE 0 END), 0) AS providerTokens,
+            COALESCE(SUM(CASE WHEN accuracy = 'Estimated' THEN totalTokens ELSE 0 END), 0) AS estimatedTokens,
+            COALESCE(SUM(requestBytes), 0) AS requestBytes,
+            COALESCE(SUM(responseBytes), 0) AS responseBytes,
+            COALESCE(SUM(latencyMs), 0) AS modelLatencyMs
+        FROM agent_token_events
+        WHERE taskId = :taskId
+        """,
+    )
+    suspend fun getTaskTokenAggregate(taskId: Long): AgentTaskTokenAggregate
 
     @Query("SELECT * FROM agent_model_usage WHERE modelId = :modelId LIMIT 1")
     suspend fun getModelUsage(modelId: String): AgentModelUsageEntity?
