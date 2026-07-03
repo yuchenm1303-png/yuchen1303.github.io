@@ -48,6 +48,7 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -785,8 +786,20 @@ private fun MessageBubbleV2(
     LaunchedEffect(message.id, shouldReveal, baseRevealFinished) {
         if (shouldReveal && baseRevealFinished) onRevealCompleted(message.id)
     }
-    LaunchedEffect(message.id, hasLiveStreamingText, streamRevealShouldAnimate, smoothStreamingState.finished) {
-        if (hasLiveStreamingText && streamRevealShouldAnimate && smoothStreamingState.finished) {
+    LaunchedEffect(
+        message.id,
+        wasStreamed,
+        sending,
+        hasLiveStreamingText,
+        smoothStreamingState.finished,
+        streamRevealAlreadyCompleted
+    ) {
+        if (
+            wasStreamed &&
+            !streamRevealAlreadyCompleted &&
+            !sending &&
+            (!hasLiveStreamingText || smoothStreamingState.finished)
+        ) {
             onStreamRevealCompleted(message.id)
         }
     }
@@ -816,6 +829,9 @@ private fun MessageBubbleV2(
         ),
         label = "message-thinking-sweep-strength"
     )
+    val latestWasStreamed = rememberUpdatedState(wasStreamed)
+    val latestStreamRevealCompleted = rememberUpdatedState(streamRevealAlreadyCompleted)
+    val latestOnStreamRevealCompleted = rememberUpdatedState(onStreamRevealCompleted)
 
     SideEffect {
         PerformanceRuntimeMetrics.recordMessageBubbleComposition()
@@ -831,7 +847,12 @@ private fun MessageBubbleV2(
         )
     }
     DisposableEffect(message.id) {
-        onDispose { bubbleLayerState.removeBubble(message.id) }
+        onDispose {
+            bubbleLayerState.removeBubble(message.id)
+            if (latestWasStreamed.value && !latestStreamRevealCompleted.value) {
+                latestOnStreamRevealCompleted.value(message.id)
+            }
+        }
     }
 
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (fromUser) Arrangement.End else Arrangement.Start) {
@@ -1916,4 +1937,3 @@ private fun modelSignalV2(message: ChatMessage): String {
         .lowercase()
 }
 // AI_LEDGER_SOURCE_SEGMENT_4_END
-
