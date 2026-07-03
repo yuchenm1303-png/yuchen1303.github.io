@@ -15,6 +15,7 @@ import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.model.WorkflowExecutionMode
 import com.yuchen.ailedger.service.OperationLearningRecordingCoordinator
 import com.yuchen.ailedger.service.OperationRecordingStopReason
+import com.yuchen.ailedger.service.OperationSkillLearningCoordinator
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationIssue
 import com.yuchen.ailedger.service.WorkflowValidationStage
@@ -41,6 +42,7 @@ class OperationLearningViewModel : ViewModel() {
     private val context = AiLedgerApplication.contextOrNull()
     private val repository = context?.let(OperationWorkflowRepository::get)
     private val skillStore = context?.let(::OperationSkillArtifactStore)
+    private val retryingWorkflowIds = mutableSetOf<String>()
 
     var uiState by mutableStateOf(OperationLearningUiState())
         private set
@@ -70,12 +72,45 @@ class OperationLearningViewModel : ViewModel() {
                         drafts.any { it.id == selected }
                     },
                 )
+                drafts.firstOrNull { draft ->
+                    draft.status == WorkflowDraftStatus.Compiling &&
+                        draft.id !in skills &&
+                        !draft.sourceDemonstrationId.isNullOrBlank() &&
+                        retryingWorkflowIds.add(draft.id)
+                }?.let(::retryCloudLearning)
             }.onFailure {
                 uiState = uiState.copy(
                     loading = false,
                     notice = "Skill 草稿加载失败，请稍后重试。",
                 )
             }
+        }
+    }
+
+    private fun retryCloudLearning(draft: LearnedWorkflowDraft) {
+        val activeContext = context ?: return
+        val activeRepository = repository ?: return
+        val demonstrationId = draft.sourceDemonstrationId ?: return
+        viewModelScope.launch {
+            val outcome = runCatching {
+                val demonstration = activeRepository.loadDemonstration(demonstrationId)
+                    ?: error("找不到原始视觉演示")
+                OperationSkillLearningCoordinator.learn(
+                    context = activeContext,
+                    workflowId = draft.id,
+                    demonstrationId = demonstrationId,
+                    manifestPath = demonstration.encryptedTracePath,
+                )
+            }.getOrElse { error ->
+                retryingWorkflowIds.remove(draft.id)
+                uiState = uiState.copy(
+                    notice = "视觉演示仍在本机加密保存，云端重试失败：${error.message ?: "未知错误"}",
+                )
+                return@launch
+            }
+            retryingWorkflowIds.remove(draft.id)
+            uiState = uiState.copy(notice = outcome.message)
+            if (outcome.completed) refresh()
         }
     }
 
