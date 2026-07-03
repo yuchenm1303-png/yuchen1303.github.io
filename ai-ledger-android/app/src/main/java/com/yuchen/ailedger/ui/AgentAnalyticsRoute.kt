@@ -8,7 +8,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 
 @Composable
 internal fun AgentAnalyticsRoute(
-    appState: AssistantUiState,
+    @Suppress("UNUSED_PARAMETER") appState: AssistantUiState,
     onBack: () -> Unit,
 ) {
     val analyticsViewModel: AgentAnalyticsViewModel = viewModel()
@@ -16,7 +16,7 @@ internal fun AgentAnalyticsRoute(
         analyticsViewModel.onScreenVisible()
         onDispose { analyticsViewModel.onScreenHidden() }
     }
-    AgentAnalyticsSafeScreen(
+    AgentAnalyticsProfileScreen(
         viewModel = analyticsViewModel,
         onBack = onBack,
     )
