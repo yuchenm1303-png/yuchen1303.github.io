@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import com.yuchen.ailedger.model.AgentTokenAccuracy
 import com.yuchen.ailedger.model.AgentTokenUsage
+import java.util.ArrayDeque
 import kotlin.math.ceil
 import org.json.JSONArray
 import org.json.JSONObject
@@ -42,8 +43,9 @@ internal object AgentAnalyticsTokenParser {
         val explicitTotal = usage.firstLong(
             "total_tokens", "totalTokens", "totalTokenCount", "tokens",
         )
-        val components = input + output + reasoning
-        val total = maxOf(explicitTotal, components)
+        // reasoningTokens 通常已包含在 outputTokens 中，不能重复累计。
+        val componentTotal = safeAdd(input, maxOf(output, reasoning))
+        val total = maxOf(explicitTotal, componentTotal)
         if (total <= 0L && cached <= 0L) return null
         return AgentTokenUsage(
             inputTokens = input,
@@ -64,7 +66,7 @@ internal object AgentAnalyticsTokenParser {
         return AgentTokenUsage(
             inputTokens = input,
             outputTokens = output,
-            totalTokens = input + output,
+            totalTokens = safeAdd(input, output),
             accuracy = AgentTokenAccuracy.Estimated,
         )
     }
@@ -139,16 +141,14 @@ internal object AgentAnalyticsTokenParser {
         val candidates = mutableListOf<JSONObject>()
         envelopeObjects(root).forEach { envelope ->
             candidates += envelope
-            listOf("usage", "tokenUsage", "token_usage", "usageMetadata", "tokenUsageMetadata")
-                .mapNotNull(envelope::optJSONObject)
-                .forEach(candidates::add)
+            USAGE_KEYS.mapNotNull(envelope::optJSONObject).forEach(candidates::add)
         }
         return candidates.distinctBy { it.toString() }
     }
 
     private fun usageScore(candidate: JSONObject): Int {
         val keys = TOKEN_KEYS.count(candidate::has)
-        val nestedUsage = listOf("usage", "tokenUsage", "usageMetadata").count(candidate::has)
+        val nestedUsage = USAGE_KEYS.count(candidate::has)
         return keys * 4 + nestedUsage
     }
 
@@ -191,11 +191,7 @@ internal object AgentAnalyticsTokenParser {
         return envelopeObjects(response).asSequence()
             .flatMap { envelope ->
                 RESPONSE_TEXT_KEYS.asSequence().mapNotNull { key ->
-                    val raw = envelope.opt(key)
-                    when (raw) {
-                        is String -> raw.takeIf(String::isNotBlank)
-                        else -> null
-                    }
+                    (envelope.opt(key) as? String)?.takeIf(String::isNotBlank)
                 }
             }
             .firstOrNull()
@@ -255,12 +251,12 @@ internal object AgentAnalyticsTokenParser {
     }
 
     private fun Char.isCjkCharacter(): Boolean {
-        val code = code
-        return code in 0x3400..0x4DBF ||
-            code in 0x4E00..0x9FFF ||
-            code in 0xF900..0xFAFF ||
-            code in 0x3040..0x30FF ||
-            code in 0xAC00..0xD7AF
+        val value = this.code
+        return value in 0x3400..0x4DBF ||
+            value in 0x4E00..0x9FFF ||
+            value in 0xF900..0xFAFF ||
+            value in 0x3040..0x30FF ||
+            value in 0xAC00..0xD7AF
     }
 
     private fun containsImagePayload(value: Any?, depth: Int): Boolean {
@@ -296,6 +292,7 @@ internal object AgentAnalyticsTokenParser {
     }
 
     private val ENVELOPE_KEYS = listOf("data", "result", "response", "final", "metadata", "meta", "output")
+    private val USAGE_KEYS = listOf("usage", "tokenUsage", "token_usage", "usageMetadata", "tokenUsageMetadata")
     private val RESPONSE_TEXT_KEYS = listOf("reply", "answer", "text", "content", "rawModelOutput")
     private val TOKEN_KEYS = listOf(
         "prompt_tokens", "input_tokens", "promptTokens", "inputTokens", "promptTokenCount",
