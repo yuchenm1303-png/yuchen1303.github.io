@@ -13,26 +13,29 @@ import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
 import com.yuchen.ailedger.model.AgentDailyActivity
 import com.yuchen.ailedger.model.AgentSkillInventory
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 /**
  * 智能体统计页面数据入口。
  *
  * Room 观察与云同步都只在页面可见期间运行。账号变化会立即取消旧账号收集，先清空页面快照，
  * 再连接新账号数据库，避免短暂显示上一个账号的数据。
+ *
+ * 统计属于旁路能力：数据库校验、历史文件、账号同步或 Skill 聚合出现异常时只降级为空快照，
+ * 绝不能把异常抛到主线程导致整个应用退出。
  */
 class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
-    private val cloudRepository = AgentAnalyticsCloudRepository.get(appContext)
 
     val owner: StateFlow<AgentAnalyticsOwner> = AgentAnalyticsOwnerRuntime.owner.also {
         AgentAnalyticsOwnerRuntime.initialize(appContext)
@@ -45,11 +48,13 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         otherDevicesDaily,
     ) { local, remoteDaily ->
         mergeAgentAnalyticsDaily(local, remoteDaily)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000L),
-        initialValue = AgentAnalyticsSnapshot(),
-    )
+    }
+        .catch { emit(EMPTY_LOADED_SNAPSHOT) }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000L),
+            initialValue = AgentAnalyticsSnapshot(),
+        )
 
     private val mutableSkillInventory = MutableStateFlow(AgentSkillInventory())
     val skillInventory: StateFlow<AgentSkillInventory> = mutableSkillInventory.asStateFlow()
@@ -63,34 +68,61 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         if (pageVisible) return
         pageVisible = true
         ownerCollectionJob = viewModelScope.launch {
-            owner.collectLatest { activeOwner ->
-                localSnapshot.value = AgentAnalyticsSnapshot()
-                otherDevicesDaily.value = emptyList()
-                mutableSkillInventory.value = AgentSkillInventory()
-                skillLoadedOwnerKey = null
+            try {
+                owner.collectLatest { activeOwner ->
+                    localSnapshot.value = AgentAnalyticsSnapshot()
+                    otherDevicesDaily.value = emptyList()
+                    mutableSkillInventory.value = AgentSkillInventory()
+                    skillLoadedOwnerKey = null
 
-                coroutineScope {
-                    val repository = AgentAnalyticsRepository.get(appContext, activeOwner.storageKey)
-                    launch {
-                        repository.state.collectLatest { snapshot ->
-                            localSnapshot.value = snapshot
+                    supervisorScope {
+                        val repository = try {
+                            AgentAnalyticsRepository.get(appContext, activeOwner.storageKey)
+                        } catch (_: Throwable) {
+                            localSnapshot.value = EMPTY_LOADED_SNAPSHOT
+                            return@supervisorScope
                         }
-                    }
-                    if (!activeOwner.isGuest) {
+
                         launch {
-                            val local = repository.state.first { it.loaded }
-                            val remote = cloudRepository.sync(activeOwner, local)
-                            if (
-                                pageVisible &&
-                                owner.value.storageKey == activeOwner.storageKey
-                            ) {
-                                otherDevicesDaily.value = remote
-                            }
+                            repository.state
+                                .catch { emit(EMPTY_LOADED_SNAPSHOT) }
+                                .collectLatest { snapshot ->
+                                    if (
+                                        pageVisible &&
+                                        owner.value.storageKey == activeOwner.storageKey
+                                    ) {
+                                        localSnapshot.value = snapshot
+                                    }
+                                }
                         }
-                    } else if (skillInventoryRequested) {
-                        loadGuestSkillInventory(activeOwner.storageKey)
+
+                        if (!activeOwner.isGuest) {
+                            launch {
+                                try {
+                                    val local = repository.state
+                                        .catch { emit(EMPTY_LOADED_SNAPSHOT) }
+                                        .first { it.loaded }
+                                    val remote = AgentAnalyticsCloudRepository
+                                        .get(appContext)
+                                        .sync(activeOwner, local)
+                                    if (
+                                        pageVisible &&
+                                        owner.value.storageKey == activeOwner.storageKey
+                                    ) {
+                                        otherDevicesDaily.value = remote
+                                    }
+                                } catch (_: Throwable) {
+                                    // 云端统计是可选增强，失败时继续展示本机账号数据。
+                                }
+                            }
+                        } else if (skillInventoryRequested) {
+                            loadGuestSkillInventory(activeOwner.storageKey)
+                        }
                     }
                 }
+            } catch (_: Throwable) {
+                localSnapshot.value = EMPTY_LOADED_SNAPSHOT
+                otherDevicesDaily.value = emptyList()
             }
         }
     }
@@ -111,7 +143,11 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     private fun loadGuestSkillInventory(ownerKey: String) {
         skillLoadedOwnerKey = ownerKey
         viewModelScope.launch {
-            val inventory = AgentSkillInventoryRepository.get(appContext).loadSnapshot()
+            val inventory = try {
+                AgentSkillInventoryRepository.get(appContext).loadSnapshot()
+            } catch (_: Throwable) {
+                AgentSkillInventory()
+            }
             if (
                 pageVisible &&
                 owner.value.storageKey == ownerKey &&
@@ -125,5 +161,9 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     override fun onCleared() {
         onScreenHidden()
         super.onCleared()
+    }
+
+    private companion object {
+        val EMPTY_LOADED_SNAPSHOT = AgentAnalyticsSnapshot(loaded = true)
     }
 }
