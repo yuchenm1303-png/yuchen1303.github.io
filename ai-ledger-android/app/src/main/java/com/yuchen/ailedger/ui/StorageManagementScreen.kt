@@ -435,7 +435,7 @@ fun StorageManagementScreen(
             if (snapshot?.usageAccessGranted == true && appCaches.isEmpty() && !scanning) {
                 item { StorageEmptyPanel("没有读取到可展示的应用缓存。") }
             } else {
-                items(appCaches.take(20), key = { it.packageName }) { app ->
+                items(appCaches, key = { it.packageName }) { app ->
                     AppCacheCard(app = app, onOpen = { openAppStorage(app.packageName) })
                 }
             }
