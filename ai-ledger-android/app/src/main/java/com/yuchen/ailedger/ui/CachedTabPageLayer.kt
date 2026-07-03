@@ -23,11 +23,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
+import com.yuchen.ailedger.ui.gl.NewOpenGLGlassBatchLayer
+import com.yuchen.ailedger.ui.gl.rememberOpenGLShellBatchState
 
 private const val PAGE_ENTER_FADE_MS = 210
 private const val PAGE_EXIT_FADE_MS = 150
@@ -138,15 +141,68 @@ internal fun CachedTabPageLayer(
             ) {
                 key(tab) {
                     BottomDockBoundedPageViewport(tab = tab) {
-                        NonOpenGLGlassBatchHost(
-                            modifier = Modifier.fillMaxSize(),
-                            includeAdaptiveSettingsFrost = tab == AppTab.Settings,
-                        ) {
-                            content(tab)
+                        if (tab == AppTab.Settings) {
+                            SettingsFixedOpenGLBatchPage {
+                                CachedTabPageContent(tab = tab, content = content)
+                            }
+                        } else {
+                            CachedTabPageContent(tab = tab, content = content)
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CachedTabPageContent(
+    tab: AppTab,
+    content: @Composable (AppTab) -> Unit,
+) {
+    NonOpenGLGlassBatchHost(
+        modifier = Modifier.fillMaxSize(),
+        includeAdaptiveSettingsFrost = tab == AppTab.Settings,
+    ) {
+        content(tab)
+    }
+}
+
+/**
+ * 设置页 OpenGL 批宿主固定在页面视口，不再随 LazyColumn 条目移动。
+ *
+ * 八张卡只登记最终页面内矩形；滚动、按压和页面动画都在同一 PreDraw 快照中更新。
+ * 这样 TextureView 的物理位置保持稳定，背景采样不会在首次按压时从旧滚动位置跳到新位置。
+ */
+@Composable
+private fun SettingsFixedOpenGLBatchPage(
+    content: @Composable () -> Unit,
+) {
+    val batchState = rememberOpenGLShellBatchState()
+    val pageCoordinates = remember { GlassCoordinateSource() }
+
+    DisposableEffect(batchState, pageCoordinates) {
+        batchState.bindParent(pageCoordinates)
+        onDispose {
+            pageCoordinates.coordinates = null
+            batchState.clear()
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onPlaced { pageCoordinates.coordinates = it },
+    ) {
+        NewOpenGLGlassBatchLayer(
+            state = batchState,
+            parentCoordinates = pageCoordinates,
+            modifier = Modifier.matchParentSize(),
+        )
+        CompositionLocalProvider(
+            LocalPageOpenGLShellBatchState provides batchState,
+        ) {
+            content()
         }
     }
 }
