@@ -132,9 +132,10 @@ internal object AssistantMemoryUsageBridge {
         analyticsAttemptStartedAt.remove()
         val durationMs = startedAt?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) } ?: 0L
         runCatching {
+            // recordChatTransport 在返回前同步提取轻量指标，不持有 JSONObject；避免复制包含 Base64 图片的大请求。
             AgentAnalyticsRuntime.recordChatTransport(
-                payload = JSONObject(payload.toString()),
-                response = response?.let { JSONObject(it.toString()) },
+                payload = payload,
+                response = response,
                 success = success,
                 durationMs = durationMs,
             )
