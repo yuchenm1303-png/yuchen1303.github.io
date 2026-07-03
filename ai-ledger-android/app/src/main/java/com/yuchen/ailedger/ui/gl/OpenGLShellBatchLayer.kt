@@ -24,12 +24,6 @@ import kotlin.math.abs
 
 private const val BATCH_ITEM_INTENSITY_EPSILON = 0.004f
 
-/**
- * 单张 Shell 在共享 OpenGL 宿主中的稳定描述。
- *
- * 坐标保存为宿主局部坐标。设置页宿主会与卡片一起滚动；功能页宿主固定在页面坐标系，
- * LazyColumn 内的卡片独立移动。两种结构都由同一套最终帧快照处理。
- */
 @Stable
 internal class OpenGLShellBatchItem(
     val id: Any,
@@ -178,8 +172,8 @@ internal fun rememberOpenGLShellBatchState(): OpenGLShellBatchState =
 /**
  * 页面级唯一 TextureView / EGL / Shader / 纹理宿主。
  *
- * 多卡滚动会在同一 PreDraw 快照中读取全部最终矩形，清理旧、新矩形的联合损伤区后重绘；
- * 单卡按压只更新该卡。每张卡仍按自己的短边计算光学尺度，混合尺寸不会改变视觉。
+ * 批绘制只提交 low/medium/high 模糊金字塔。clear 参数暂时复用 medium Bitmap，确保
+ * Shader 不再获得独立清晰背景；后续 Renderer 可安全把重复槽物理合并，不影响视觉验证。
  */
 @Composable
 internal fun NewOpenGLGlassBatchLayer(
@@ -200,7 +194,6 @@ internal fun NewOpenGLGlassBatchLayer(
     val frameTicker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     val densityScale = density.density.coerceAtLeast(0.001f)
-    val clearBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
     val blurLowBitmap = remember(backdrop.blurLowImage) { backdrop.blurLowImage.asAndroidBitmap() }
     val blurMediumBitmap = remember(backdrop.blurMediumImage) { backdrop.blurMediumImage.asAndroidBitmap() }
     val blurHighBitmap = remember(backdrop.blurHighImage) { backdrop.blurHighImage.asAndroidBitmap() }
@@ -222,7 +215,7 @@ internal fun NewOpenGLGlassBatchLayer(
                     borderStyle = border,
                 )
                 view.setBackdropTextures(
-                    clearBitmap,
+                    blurMediumBitmap,
                     blurLowBitmap,
                     blurMediumBitmap,
                     blurHighBitmap,
