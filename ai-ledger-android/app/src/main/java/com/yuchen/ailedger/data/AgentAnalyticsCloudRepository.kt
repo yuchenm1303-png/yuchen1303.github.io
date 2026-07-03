@@ -5,7 +5,6 @@ import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
 import com.yuchen.ailedger.model.AgentDailyActivity
 import com.yuchen.ailedger.service.AgentAnalyticsCloudClient
 import com.yuchen.ailedger.service.AgentClientIdentity
-import com.yuchen.ailedger.service.AiWorkerClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -37,9 +36,7 @@ internal class AgentAnalyticsCloudRepository private constructor(context: Contex
 
     private val appContext = context.applicationContext
     private val authRepository = SupabaseAuthRepository.get(appContext)
-    private val client = AgentAnalyticsCloudClient(
-        endpoints = listOf(AiWorkerClient.DEFAULT_ENDPOINT),
-    )
+    private val client = AgentAnalyticsCloudClient()
     private val preferences = appContext.getSharedPreferences(
         "agent_analytics_cloud_sync",
         Context.MODE_PRIVATE,
@@ -100,13 +97,17 @@ internal class AgentAnalyticsCloudRepository private constructor(context: Contex
                 )
             } catch (cancelled: CancellationException) {
                 throw cancelled
-            } catch (_: Throwable) {
+            } catch (error: Throwable) {
                 val cached = cache[owner.storageKey]
                 return@withLock AgentAnalyticsCloudSyncResult(
                     otherDevicesDaily = cached?.otherDevicesDaily.orEmpty(),
                     source = AgentAnalyticsCloudSyncSource.Failed,
                     syncedAtMillis = cached?.fetchedAtMillis ?: lastSuccessAt(owner),
-                    errorMessage = "云端同步暂时不可用，当前继续显示本机统计。",
+                    errorMessage = error.message
+                        ?.trim()
+                        ?.take(180)
+                        ?.takeIf(String::isNotBlank)
+                        ?: "云端同步暂时不可用，当前继续显示本机统计。",
                 )
             }
 
