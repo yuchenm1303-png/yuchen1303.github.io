@@ -2,8 +2,6 @@ package com.yuchen.ailedger.service
 
 import java.time.LocalDate
 
-internal const val STORAGE_APP_UNUSED_DAYS = 90
-
 data class StorageDeviceGuardData(
     val batteryPercent: Int?,
     val charging: Boolean,
