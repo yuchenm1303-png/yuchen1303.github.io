@@ -68,7 +68,7 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
         ) return
 
         uninstallSubscriptions()
-        this.items = items.take(BATCH_RENDER_LIMIT)
+        this.items = if (items.size <= BATCH_RENDER_LIMIT) items else items.subList(0, BATCH_RENDER_LIMIT)
         this.parentCoordinates = parentCoordinates
         this.backdropOrigin = backdropOrigin
         this.frameTicker = frameTicker
@@ -219,8 +219,7 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
         var originMask = 0
         var propertyMask = 0
 
-        for (index in 0 until BATCH_RENDER_LIMIT) {
-            if (index >= items.size) continue
+        for (index in items.indices) {
             val item = items[index]
             item.refreshPlacementNow(notify = false)
             if (!item.attached || item.width <= 1f || item.height <= 1f) continue
@@ -238,8 +237,14 @@ internal class SmartOpenGLGlassBatchHostView(context: Context) : FrameLayout(con
             val transformedTop = item.localTop + (1f - scaleY) * centerY * item.height + translationY
             val globalLeft = parentRoot.x + transformedLeft
             val globalTop = parentRoot.y + transformedTop
+            val locallyVisible =
+                transformedLeft + transformedWidth > 0f &&
+                    transformedLeft < parentWidth &&
+                    transformedTop + transformedHeight > 0f &&
+                    transformedTop < parentHeight
             val globallyVisible =
-                globalLeft + transformedWidth > 0f &&
+                locallyVisible &&
+                    globalLeft + transformedWidth > 0f &&
                     globalLeft < rootWidth &&
                     globalTop + transformedHeight > 0f &&
                     globalTop < rootHeight
