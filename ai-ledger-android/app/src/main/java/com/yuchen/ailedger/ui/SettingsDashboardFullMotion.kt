@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -36,12 +37,21 @@ private val SettingsDashboardTileHeight = 116.dp
 private val SettingsDashboardGap = 10.dp
 private const val SettingsDashboardTileRadius = 30
 
+@Immutable
+private data class SettingsDashboardGlassSpec(
+    val quality: RenderQuality,
+    val glassIntensity: Float,
+    val motionIntensity: Float,
+)
+
 /**
  * 设置页八张入口卡片。
  *
  * 八张卡都直接调用功能页股票顶部正在使用的 [OpenGlShellGlass]。外层批宿主只共享
  * TextureView、EGL、纹理和 shader program；每张卡仍拥有自己的矩形、圆角、背景采样原点、
  * 折射场、按压中心和动态状态，不再对一块大玻璃做裁剪。
+ *
+ * 账号状态只在依赖它的两行内部订阅，避免登录恢复或云端同步带着整组八张 OpenGL 卡重组。
  */
 @Composable
 internal fun SettingsDashboardGridFullMotion(
@@ -52,8 +62,84 @@ internal fun SettingsDashboardGridFullMotion(
 ) {
     val context = LocalContext.current
     val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
-    val accountRepository = remember(context.applicationContext) {
-        SupabaseAuthRepository.get(context.applicationContext)
+    val glassSpec = remember(
+        state.quality,
+        state.glassIntensity,
+        state.motionIntensity,
+    ) {
+        SettingsDashboardGlassSpec(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity,
+            motionIntensity = state.motionIntensity,
+        )
+    }
+    val themeValue = remember(state.backgroundTheme) {
+        settingsDashboardThemeLabel(state.backgroundTheme)
+    }
+    val glassValue = remember(state.quality, state.glassPreset) {
+        "${settingsDashboardQualityLabel(state.quality)} · ${settingsDashboardGlassLabel(state.glassPreset)}"
+    }
+    val recordValue = "${state.ledgerRecords.size} 笔"
+    val stickerValue = "${stickerSizeDp.roundToInt()} dp"
+
+    OpenGlShellBatchHost(
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(SettingsDashboardGap)) {
+            SettingsDashboardRow {
+                SettingsOpenGlTile(
+                    glassSpec = glassSpec,
+                    title = "主题",
+                    subtitle = "背景与主题",
+                    value = themeValue,
+                    selected = selectedPanel == SettingsDetailSection.Appearance,
+                ) { onSelected(SettingsDetailSection.Appearance) }
+                SettingsOpenGlTile(
+                    glassSpec = glassSpec,
+                    title = "玻璃",
+                    subtitle = "质感与流畅度",
+                    value = glassValue,
+                    selected = selectedPanel == SettingsDetailSection.Glass,
+                ) { onSelected(SettingsDetailSection.Glass) }
+            }
+            SettingsDashboardRow {
+                SettingsOpenGlTile(
+                    glassSpec = glassSpec,
+                    title = "视觉智能",
+                    subtitle = "边缘光与光标",
+                    value = "运行 HUD",
+                    selected = selectedPanel == SettingsDetailSection.Assistant,
+                ) { onSelected(SettingsDetailSection.Assistant) }
+                SettingsOpenGlTile(
+                    glassSpec = glassSpec,
+                    title = "数据偏好",
+                    subtitle = "预算与账单",
+                    value = recordValue,
+                    selected = selectedPanel == SettingsDetailSection.Data,
+                ) { onSelected(SettingsDetailSection.Data) }
+            }
+            SettingsAccountDependentRows(
+                glassSpec = glassSpec,
+                aiEndpoint = aiEndpoint,
+                stickerValue = stickerValue,
+                selectedPanel = selectedPanel,
+                onSelected = onSelected,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsAccountDependentRows(
+    glassSpec: SettingsDashboardGlassSpec,
+    aiEndpoint: String,
+    stickerValue: String,
+    selectedPanel: SettingsDetailSection,
+    onSelected: (SettingsDetailSection) -> Unit,
+) {
+    val context = LocalContext.current.applicationContext
+    val accountRepository = remember(context) {
+        SupabaseAuthRepository.get(context)
     }
     val accountState by accountRepository.state.collectAsState()
     val serviceValue = when {
@@ -68,81 +154,45 @@ internal fun SettingsDashboardGridFullMotion(
         else -> "登录后使用"
     }
 
-    OpenGlShellBatchHost(
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(SettingsDashboardGap)) {
-            SettingsDashboardRow {
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "主题",
-                    subtitle = "背景与主题",
-                    value = settingsDashboardThemeLabel(state.backgroundTheme),
-                    selected = selectedPanel == SettingsDetailSection.Appearance,
-                ) { onSelected(SettingsDetailSection.Appearance) }
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "玻璃",
-                    subtitle = "质感与流畅度",
-                    value = "${settingsDashboardQualityLabel(state.quality)} · ${settingsDashboardGlassLabel(state.glassPreset)}",
-                    selected = selectedPanel == SettingsDetailSection.Glass,
-                ) { onSelected(SettingsDetailSection.Glass) }
-            }
-            SettingsDashboardRow {
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "视觉智能",
-                    subtitle = "边缘光与光标",
-                    value = "运行 HUD",
-                    selected = selectedPanel == SettingsDetailSection.Assistant,
-                ) { onSelected(SettingsDetailSection.Assistant) }
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "数据偏好",
-                    subtitle = "预算与账单",
-                    value = "${state.ledgerRecords.size} 笔",
-                    selected = selectedPanel == SettingsDetailSection.Data,
-                ) { onSelected(SettingsDetailSection.Data) }
-            }
-            SettingsDashboardRow {
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "账号设置",
-                    subtitle = "账号 / Worker",
-                    value = serviceValue,
-                    selected = selectedPanel == SettingsDetailSection.Service,
-                ) { onSelected(SettingsDetailSection.Service) }
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "系统信息",
-                    subtitle = "渲染边界",
-                    value = "OpenGL 隔离",
-                    selected = selectedPanel == SettingsDetailSection.Advanced,
-                ) { onSelected(SettingsDetailSection.Advanced) }
-            }
-            SettingsDashboardRow {
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "聊天设置",
-                    subtitle = "消息与表情",
-                    value = "${stickerSizeDp.roundToInt()} dp",
-                    selected = selectedPanel == SettingsDetailSection.Chat,
-                ) { onSelected(SettingsDetailSection.Chat) }
-                SettingsOpenGlTile(
-                    state = state,
-                    title = "记忆",
-                    subtitle = "长期上下文",
-                    value = memoryValue,
-                    selected = selectedPanel == SettingsDetailSection.Memory,
-                ) { onSelected(SettingsDetailSection.Memory) }
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(SettingsDashboardGap)) {
+        SettingsDashboardRow {
+            SettingsOpenGlTile(
+                glassSpec = glassSpec,
+                title = "账号设置",
+                subtitle = "账号 / Worker",
+                value = serviceValue,
+                selected = selectedPanel == SettingsDetailSection.Service,
+            ) { onSelected(SettingsDetailSection.Service) }
+            SettingsOpenGlTile(
+                glassSpec = glassSpec,
+                title = "系统信息",
+                subtitle = "渲染边界",
+                value = "OpenGL 隔离",
+                selected = selectedPanel == SettingsDetailSection.Advanced,
+            ) { onSelected(SettingsDetailSection.Advanced) }
+        }
+        SettingsDashboardRow {
+            SettingsOpenGlTile(
+                glassSpec = glassSpec,
+                title = "聊天设置",
+                subtitle = "消息与表情",
+                value = stickerValue,
+                selected = selectedPanel == SettingsDetailSection.Chat,
+            ) { onSelected(SettingsDetailSection.Chat) }
+            SettingsOpenGlTile(
+                glassSpec = glassSpec,
+                title = "记忆",
+                subtitle = "长期上下文",
+                value = memoryValue,
+                selected = selectedPanel == SettingsDetailSection.Memory,
+            ) { onSelected(SettingsDetailSection.Memory) }
         }
     }
 }
 
 @Composable
 private fun RowScope.SettingsOpenGlTile(
-    state: AssistantUiState,
+    glassSpec: SettingsDashboardGlassSpec,
     title: String,
     subtitle: String,
     value: String,
@@ -154,12 +204,12 @@ private fun RowScope.SettingsOpenGlTile(
         ?.newOpenGlGlassIntensity
         ?.takeIf { it > 0f }
         ?.coerceIn(0.35f, 1.35f)
-        ?: (state.glassIntensity * 1.03f)
+        ?: (glassSpec.glassIntensity * 1.03f)
 
     OpenGlShellGlass(
-        quality = state.quality,
+        quality = glassSpec.quality,
         glassIntensity = stockGlassIntensity,
-        motionIntensity = state.motionIntensity,
+        motionIntensity = glassSpec.motionIntensity,
         radius = SettingsDashboardTileRadius,
         modifier = Modifier
             .weight(1f)
