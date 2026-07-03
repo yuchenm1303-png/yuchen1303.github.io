@@ -6,6 +6,7 @@ import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,14 +66,15 @@ object OperationSkillReplayCoordinator {
                 validation.blockingIssues.firstOrNull()?.message ?: "Skill 未通过执行前安全校验"
             }
             if (!AiAgentAccessibilityService.isConnected()) {
-                return SkillReplayOutcome(false, "请先启用 AI 智能体无障碍服务。")
+                return failBeforeStart(draft, skill, "请先启用 AI 智能体无障碍服务。")
             }
             val missing = skill.inputs.filter { input ->
                 input.required && !input.sensitive && inputValues[input.key].orEmpty().trim().isBlank()
             }
             if (missing.isNotEmpty()) {
-                return SkillReplayOutcome(
-                    false,
+                return failBeforeStart(
+                    draft,
+                    skill,
                     "请先填写：${missing.joinToString { it.label }}。",
                 )
             }
@@ -110,6 +112,14 @@ object OperationSkillReplayCoordinator {
                 message = outcome.message,
             )
             outcome
+        } catch (cancelled: CancellationException) {
+            mutableState.value = SkillReplayState(
+                phase = SkillReplayPhase.Failed,
+                workflowId = draft.id,
+                title = skill.name,
+                message = "Skill Replay 已取消。",
+            )
+            throw cancelled
         } catch (error: Throwable) {
             val message = error.message?.takeIf(String::isNotBlank) ?: "Skill Replay 失败。"
             mutableState.value = SkillReplayState(
@@ -126,6 +136,20 @@ object OperationSkillReplayCoordinator {
 
     fun resetTerminalState() {
         if (!mutableState.value.active) mutableState.value = SkillReplayState()
+    }
+
+    private fun failBeforeStart(
+        draft: LearnedWorkflowDraft,
+        skill: LearnedVisualSkill,
+        message: String,
+    ): SkillReplayOutcome {
+        mutableState.value = SkillReplayState(
+            phase = SkillReplayPhase.Failed,
+            workflowId = draft.id,
+            title = skill.name,
+            message = message,
+        )
+        return SkillReplayOutcome(false, message)
     }
 
     private fun buildVisualGoal(
