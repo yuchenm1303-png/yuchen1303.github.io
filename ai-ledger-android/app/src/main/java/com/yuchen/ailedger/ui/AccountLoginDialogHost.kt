@@ -1,18 +1,13 @@
 package com.yuchen.ailedger.ui
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,8 +31,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -48,95 +46,61 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.data.SupabaseAccountMessageTone
 import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.model.AssistantUiState
 
-private enum class CleanLoginMode { Login, Register }
+private enum class AnchoredLoginMode { Login, Register }
 
-private val CleanLoginPanelHeight = 336.dp
-private val CleanLoginPanelShape = RoundedCornerShape(30.dp)
+private val LoginQuickPanelWidth = 326.dp
+private val LoginQuickPanelHeight = 328.dp
+private val LoginQuickPanelMinHeight = 286.dp
 
 @Composable
 internal fun AccountLoginDialogHost(
     visible: Boolean,
+    anchorBounds: Rect,
     state: AssistantUiState,
     onDismiss: () -> Unit,
 ) {
-    BackHandler(enabled = visible, onBack = onDismiss)
-
-    val outsideInteraction = remember { MutableInteractionSource() }
-    val panelInteraction = remember { MutableInteractionSource() }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .zIndex(5000f),
-    ) {
-        if (visible) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = outsideInteraction,
-                        indication = null,
-                        onClick = onDismiss,
-                    ),
-            )
-        }
-
-        AnimatedVisibility(
-            visible = visible,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(start = 2.dp, end = 2.dp, bottom = 76.dp)
-                .zIndex(1f),
-            enter = fadeIn(tween(145)) +
-                slideInVertically(
-                    animationSpec = spring(
-                        dampingRatio = 0.90f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                    initialOffsetY = { fullHeight -> fullHeight },
-                ),
-            exit = fadeOut(tween(100)) +
-                slideOutVertically(
-                    animationSpec = tween(145),
-                    targetOffsetY = { fullHeight -> fullHeight },
-                ),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(CleanLoginPanelHeight)
-                    .clickable(
-                        interactionSource = panelInteraction,
-                        indication = null,
-                        onClick = {},
-                    ),
-                propagateMinConstraints = true,
-            ) {
-                CleanAccountLoginPanel(
-                    state = state,
-                    onDismiss = onDismiss,
-                )
-            }
-        }
+    AnchoredQuickPanel(
+        visible = visible,
+        anchorBounds = anchorBounds,
+        desiredWidth = LoginQuickPanelWidth,
+        desiredHeight = LoginQuickPanelHeight,
+        minHeight = LoginQuickPanelMinHeight,
+        preferredPlacement = AnchoredQuickPanelPlacement.Below,
+        horizontalBias = 0.82f,
+        quality = state.quality,
+        glassIntensity = (state.glassIntensity * 1.04f).coerceIn(0.86f, 1.22f),
+        motionIntensity = state.motionIntensity,
+        onDismiss = onDismiss,
+        cornerRadius = 25.dp,
+        tailHeight = 12.dp,
+        tailHalfWidth = 15.dp,
+        surfaceColor = Color(0xFF06122E).copy(alpha = 0.82f),
+    ) { layout ->
+        AnchoredLoginContent(
+            compact = layout.compact,
+            placement = layout.placement,
+            tailHeight = layout.tailHeight,
+            onDismiss = onDismiss,
+        )
     }
 }
 
 @Composable
-private fun CleanAccountLoginPanel(
-    state: AssistantUiState,
+private fun AnchoredLoginContent(
+    compact: Boolean,
+    placement: AnchoredQuickPanelPlacement,
+    tailHeight: androidx.compose.ui.unit.Dp,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current.applicationContext
     val authRepository = remember(context) { SupabaseAuthRepository.get(context) }
     val accountState by authRepository.state.collectAsState()
 
-    var mode by rememberSaveable { mutableStateOf(CleanLoginMode.Login) }
+    var mode by rememberSaveable { mutableStateOf(AnchoredLoginMode.Login) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf(false) }
@@ -152,184 +116,233 @@ private fun CleanAccountLoginPanel(
         else -> ""
     }
     val canSubmit = !accountState.loading && email.isNotBlank() && password.length >= 6
+    val topTailInset = if (placement == AnchoredQuickPanelPlacement.Below) tailHeight else 0.dp
+    val bottomTailInset = if (placement == AnchoredQuickPanelPlacement.Above) tailHeight else 0.dp
+    val spacing = if (compact) 7.dp else 9.dp
 
-    GlassPanel(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 30,
+    Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .height(CleanLoginPanelHeight),
-        role = GlassRole.Card,
-        intensity = (state.glassIntensity * 1.08f).coerceIn(0.88f, 1.24f),
+            .fillMaxSize()
+            .padding(
+                start = if (compact) 13.dp else 15.dp,
+                top = topTailInset + if (compact) 10.dp else 12.dp,
+                end = if (compact) 13.dp else 15.dp,
+                bottom = bottomTailInset + if (compact) 9.dp else 11.dp,
+            ),
+        verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CleanLoginPanelShape)
-                .background(Color(0xFF06122E).copy(alpha = 0.90f))
-                .border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.10f),
-                    shape = CleanLoginPanelShape,
-                )
-                .padding(horizontal = 16.dp, vertical = 15.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        Text(
+            text = if (mode == AnchoredLoginMode.Login) {
+                "登录 AI Ledger"
+            } else {
+                "创建 AI Ledger 账号"
+            },
+            color = Color.White.copy(alpha = 0.97f),
+            fontSize = if (compact) 16.sp else 18.sp,
+            lineHeight = if (compact) 19.sp else 22.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        LoginPanelHairline()
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            Text(
-                text = if (mode == CleanLoginMode.Login) {
-                    "登录 AI Ledger"
-                } else {
-                    "创建 AI Ledger 账号"
-                },
-                color = Color.White.copy(alpha = 0.97f),
-                fontSize = 18.sp,
-                lineHeight = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CleanModeButton(
-                    text = "登录",
-                    selected = mode == CleanLoginMode.Login,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        mode = CleanLoginMode.Login
-                        submitted = false
-                    },
-                )
-                CleanModeButton(
-                    text = "注册",
-                    selected = mode == CleanLoginMode.Register,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        mode = CleanLoginMode.Register
-                        submitted = false
-                    },
-                )
-            }
-
-            CleanLoginTextField(
-                value = email,
-                onValueChange = { email = it.take(80) },
-                placeholder = "邮箱 name@example.com",
-                keyboardType = KeyboardType.Email,
-                enabled = !accountState.loading,
-            )
-
-            CleanLoginTextField(
-                value = password,
-                onValueChange = { password = it.take(72) },
-                placeholder = "密码至少 6 位",
-                keyboardType = KeyboardType.Password,
-                visualTransformation = PasswordVisualTransformation(),
-                enabled = !accountState.loading,
-            )
-
-            CleanPrimaryButton(
-                state = state,
-                title = when {
-                    accountState.loading -> "处理中…"
-                    mode == CleanLoginMode.Register -> "创建账号"
-                    else -> "登录"
-                },
-                enabled = canSubmit,
+            LoginModeButton(
+                text = "登录",
+                selected = mode == AnchoredLoginMode.Login,
+                compact = compact,
+                modifier = Modifier.weight(1f),
                 onClick = {
-                    submitted = true
-                    if (mode == CleanLoginMode.Register) {
-                        authRepository.signUp(email, password)
-                    } else {
-                        authRepository.signIn(email, password)
-                    }
+                    mode = AnchoredLoginMode.Login
+                    submitted = false
                 },
             )
+            LoginModeButton(
+                text = "注册",
+                selected = mode == AnchoredLoginMode.Register,
+                compact = compact,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                    mode = AnchoredLoginMode.Register
+                    submitted = false
+                },
+            )
+        }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(22.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (statusMessage.isNotBlank()) {
-                    Text(
-                        text = statusMessage,
-                        color = cleanAccountMessageColor(accountState.tone),
-                        fontSize = 10.5.sp,
-                        lineHeight = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+        LoginQuickTextField(
+            value = email,
+            onValueChange = { email = it.take(80) },
+            placeholder = "邮箱 name@example.com",
+            keyboardType = KeyboardType.Email,
+            enabled = !accountState.loading,
+            compact = compact,
+        )
+
+        LoginQuickTextField(
+            value = password,
+            onValueChange = { password = it.take(72) },
+            placeholder = "密码至少 6 位",
+            keyboardType = KeyboardType.Password,
+            visualTransformation = PasswordVisualTransformation(),
+            enabled = !accountState.loading,
+            compact = compact,
+        )
+
+        LoginPrimaryAction(
+            title = when {
+                accountState.loading -> "处理中…"
+                mode == AnchoredLoginMode.Register -> "创建账号"
+                else -> "登录"
+            },
+            enabled = canSubmit,
+            compact = compact,
+            onClick = {
+                submitted = true
+                if (mode == AnchoredLoginMode.Register) {
+                    authRepository.signUp(email, password)
+                } else {
+                    authRepository.signIn(email, password)
                 }
+            },
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (compact) 16.dp else 18.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            if (statusMessage.isNotBlank()) {
+                Text(
+                    text = statusMessage,
+                    color = loginMessageColor(accountState.tone),
+                    fontSize = if (compact) 9.5.sp else 10.5.sp,
+                    lineHeight = if (compact) 12.sp else 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun CleanModeButton(
+private fun LoginPanelHairline() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        Color.Transparent,
+                        Color.White.copy(alpha = 0.11f),
+                        Color(0xFF8DFFF4).copy(alpha = 0.07f),
+                        Color.Transparent,
+                    )
+                )
+            )
+    )
+}
+
+@Composable
+private fun LoginModeButton(
     text: String,
     selected: Boolean,
+    compact: Boolean,
     modifier: Modifier,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(15.dp)
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.95f else 1f,
+        animationSpec = spring(0.64f, Spring.StiffnessMedium),
+        label = "login-mode-scale",
+    )
+    val shape = RoundedCornerShape(if (compact) 13.dp else 15.dp)
+
     Box(
         modifier = modifier
-            .height(36.dp)
-            .composeGlassMotionClickable(shape = shape, onClick = onClick)
+            .height(if (compact) 34.dp else 36.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = 1f + (1f - scale) * 0.42f
+            }
             .clip(shape)
             .background(
-                if (selected) {
-                    Color.White.copy(alpha = 0.11f)
-                } else {
-                    Color.Transparent
-                }
+                Brush.horizontalGradient(
+                    if (selected) {
+                        listOf(
+                            Color.White.copy(alpha = 0.11f),
+                            Color(0xFF8DFFF4).copy(alpha = 0.055f),
+                            Color(0xFF9B73FF).copy(alpha = 0.050f),
+                        )
+                    } else {
+                        listOf(
+                            Color.White.copy(alpha = 0.040f),
+                            Color.Transparent,
+                        )
+                    }
+                )
             )
             .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = if (selected) 0.13f else 0.06f),
-                shape = shape,
+                0.7.dp,
+                Color.White.copy(alpha = if (selected) 0.14f else 0.065f),
+                shape,
+            )
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
             ),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text = text,
-            color = Color.White.copy(alpha = if (selected) 0.95f else 0.52f),
-            fontSize = 12.5.sp,
+            color = Color.White.copy(alpha = if (selected) 0.95f else 0.54f),
+            fontSize = if (compact) 11.5.sp else 12.5.sp,
             fontWeight = FontWeight.ExtraBold,
         )
     }
 }
 
 @Composable
-private fun CleanLoginTextField(
+private fun LoginQuickTextField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
     keyboardType: KeyboardType,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     enabled: Boolean,
+    compact: Boolean,
 ) {
-    val shape = RoundedCornerShape(17.dp)
+    val shape = RoundedCornerShape(if (compact) 15.dp else 17.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(if (compact) 42.dp else 46.dp)
             .clip(shape)
-            .background(Color.White.copy(alpha = if (enabled) 0.075f else 0.045f))
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = if (enabled) 0.09f else 0.05f),
-                shape = shape,
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (enabled) 0.072f else 0.042f),
+                        Color(0xFF8DFFF4).copy(alpha = if (enabled) 0.026f else 0.012f),
+                        Color(0xFF9B73FF).copy(alpha = if (enabled) 0.026f else 0.012f),
+                    )
+                )
             )
-            .padding(horizontal = 13.dp),
+            .border(
+                0.7.dp,
+                Color.White.copy(alpha = if (enabled) 0.095f else 0.052f),
+                shape,
+            )
+            .padding(horizontal = 12.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
         BasicTextField(
@@ -339,10 +352,10 @@ private fun CleanLoginTextField(
             singleLine = true,
             textStyle = TextStyle(
                 color = Color.White.copy(alpha = if (enabled) 0.94f else 0.55f),
-                fontSize = 14.sp,
+                fontSize = if (compact) 13.sp else 14.sp,
                 fontWeight = FontWeight.Bold,
             ),
-            cursorBrush = SolidColor(Color(0xFF8DF9EA).copy(alpha = 0.90f)),
+            cursorBrush = SolidColor(Color(0xFF8DFFF4).copy(alpha = 0.90f)),
             visualTransformation = visualTransformation,
             keyboardOptions = KeyboardOptions(
                 keyboardType = keyboardType,
@@ -354,7 +367,7 @@ private fun CleanLoginTextField(
             Text(
                 text = placeholder,
                 color = Color.White.copy(alpha = if (enabled) 0.43f else 0.28f),
-                fontSize = 13.sp,
+                fontSize = if (compact) 12.sp else 13.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -364,59 +377,70 @@ private fun CleanLoginTextField(
 }
 
 @Composable
-private fun CleanPrimaryButton(
-    state: AssistantUiState,
+private fun LoginPrimaryAction(
     title: String,
     enabled: Boolean,
+    compact: Boolean,
     onClick: () -> Unit,
 ) {
-    val shape = RoundedCornerShape(19.dp)
-    PressableGlass(
-        quality = state.quality,
-        glassIntensity = state.glassIntensity,
-        motionIntensity = state.motionIntensity,
-        radius = 19,
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed && enabled) 0.965f else 1f,
+        animationSpec = spring(0.60f, Spring.StiffnessMedium),
+        label = "login-primary-scale",
+    )
+    val shape = RoundedCornerShape(if (compact) 17.dp else 19.dp)
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(50.dp),
-        role = GlassRole.Floating,
-        intensity = (state.glassIntensity * if (enabled) 1.10f else 0.92f)
-            .coerceIn(0.80f, 1.24f),
-        onClick = { if (enabled) onClick() },
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(shape)
-                .background(
+            .height(if (compact) 46.dp else 48.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = 1f + (1f - scale) * 0.48f
+            }
+            .clip(shape)
+            .background(
+                Brush.horizontalGradient(
                     if (enabled) {
-                        Color(0xFF8DF9EA).copy(alpha = 0.10f)
+                        listOf(
+                            Color.White.copy(alpha = 0.095f),
+                            Color(0xFF8DFFF4).copy(alpha = 0.085f),
+                            Color(0xFF9B73FF).copy(alpha = 0.065f),
+                        )
                     } else {
-                        Color.White.copy(alpha = 0.055f)
+                        listOf(
+                            Color.White.copy(alpha = 0.045f),
+                            Color.White.copy(alpha = 0.025f),
+                        )
                     }
                 )
-                .border(
-                    width = 1.dp,
-                    color = if (enabled) {
-                        Color(0xFFB9FFF6).copy(alpha = 0.17f)
-                    } else {
-                        Color.White.copy(alpha = 0.075f)
-                    },
-                    shape = shape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = title,
-                color = Color.White.copy(alpha = if (enabled) 0.97f else 0.62f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold,
             )
-        }
+            .border(
+                0.8.dp,
+                if (enabled) Color(0xFFB9FFF6).copy(alpha = 0.17f)
+                else Color.White.copy(alpha = 0.07f),
+                shape,
+            )
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = title,
+            color = Color.White.copy(alpha = if (enabled) 0.96f else 0.60f),
+            fontSize = if (compact) 13.sp else 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+        )
     }
 }
 
-private fun cleanAccountMessageColor(tone: SupabaseAccountMessageTone): Color {
+private fun loginMessageColor(tone: SupabaseAccountMessageTone): Color {
     return when (tone) {
         SupabaseAccountMessageTone.Success -> Color(0xFF8DF9EA).copy(alpha = 0.88f)
         SupabaseAccountMessageTone.Error -> Color(0xFFFFB4B4).copy(alpha = 0.92f)
