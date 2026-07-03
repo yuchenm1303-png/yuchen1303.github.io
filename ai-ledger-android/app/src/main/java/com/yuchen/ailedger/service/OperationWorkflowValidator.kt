@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
+import com.yuchen.ailedger.model.WorkflowConfirmationPolicy
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.model.WorkflowExecutionMode
 import com.yuchen.ailedger.model.WorkflowRecoveryMode
@@ -56,6 +57,9 @@ object OperationWorkflowValidator {
             validateScope(draft)
             validateVariables(draft)
             validateSafetyPolicy(draft)
+            if (stage != WorkflowValidationStage.RecordingIntent && draft.steps.isNotEmpty()) {
+                validateStepSafety(draft)
+            }
 
             if (draft.executionMode != WorkflowExecutionMode.CloudVisual &&
                 stage != WorkflowValidationStage.RecordingIntent
@@ -138,6 +142,50 @@ object OperationWorkflowValidator {
             !draft.riskPolicy.blockPaymentConfirmation
         ) {
             blocking("workflow_sensitive_guard_disabled", "密码、验证码和支付确认保护不能关闭。")
+        }
+    }
+
+    /**
+     * 云端视觉负责理解页面与规划动作，但只要草稿携带了结构化步骤，本地仍必须
+     * 校验不可绕过的执行安全边界。这里不参与目标选择，只拒绝坐标唯一定位和
+     * 未设置逐次确认的高风险动作。
+     */
+    private fun MutableList<WorkflowValidationIssue>.validateStepSafety(draft: LearnedWorkflowDraft) {
+        val maximumAllowedRisk = draft.riskPolicy.maximumAllowedRisk
+        draft.steps.forEach { step ->
+            val target = step.target
+            if (target != null && target.candidates.isNotEmpty() && !target.hasStableCandidate) {
+                blocking(
+                    code = "workflow_selector_coordinate_only",
+                    message = "步骤“${step.title}”只能依赖录制坐标定位，审核和执行前必须提供稳定目标特征。",
+                    stepId = step.id,
+                )
+            }
+
+            if (step.riskLevel == WorkflowRiskLevel.Prohibited) {
+                blocking(
+                    code = "workflow_prohibited_step",
+                    message = "步骤“${step.title}”被标记为禁止执行。",
+                    stepId = step.id,
+                )
+            } else if (step.riskLevel.ordinal > maximumAllowedRisk.ordinal) {
+                blocking(
+                    code = "workflow_step_risk_exceeds_policy",
+                    message = "步骤“${step.title}”的风险级别超过当前 Skill 允许范围。",
+                    stepId = step.id,
+                )
+            }
+
+            if (step.riskLevel == WorkflowRiskLevel.High &&
+                draft.riskPolicy.requireConfirmationForHighRisk &&
+                step.confirmationPolicy != WorkflowConfirmationPolicy.Always
+            ) {
+                blocking(
+                    code = "workflow_high_risk_without_confirmation",
+                    message = "高风险步骤“${step.title}”必须设置为每次运行都由用户确认。",
+                    stepId = step.id,
+                )
+            }
         }
     }
 
