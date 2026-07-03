@@ -76,33 +76,27 @@ internal fun PlanEditorPage(
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(top = 12.dp, bottom = 110.dp)
             .imePadding(),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        PlanEditorPageHeader(
-            state = state,
-            title = if (editing) "编辑计划" else "创建计划",
-            subtitle = if (editing) {
-                "修改时间、重复方式与提醒内容"
-            } else {
-                "设置时间、重复方式与提醒内容"
-            },
-            onBack = onBack,
-        )
-
         PlanNativeGlassFrame(
             state = state,
             radius = 30,
             role = GlassRole.Card,
             intensityScale = 1.08f,
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            modifier = Modifier.fillMaxSize(),
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 17.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = 18.dp,
+                        top = 94.dp,
+                        end = 18.dp,
+                        bottom = 108.dp,
+                    ),
                 verticalArrangement = Arrangement.spacedBy(13.dp),
             ) {
                 Row(
@@ -331,6 +325,18 @@ internal fun PlanEditorPage(
                 }
             }
         }
+
+        PlanEditorPageHeader(
+            state = state,
+            title = if (editing) "编辑计划" else "创建计划",
+            subtitle = if (editing) {
+                "修改时间、重复方式与提醒内容"
+            } else {
+                "设置时间、重复方式与提醒内容"
+            },
+            modifier = Modifier.padding(top = 12.dp),
+            onBack = onBack,
+        )
     }
 }
 
@@ -409,10 +415,11 @@ private fun PlanEditorPageHeader(
     state: AssistantUiState,
     title: String,
     subtitle: String,
+    modifier: Modifier = Modifier,
     onBack: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         PressableGlass(
