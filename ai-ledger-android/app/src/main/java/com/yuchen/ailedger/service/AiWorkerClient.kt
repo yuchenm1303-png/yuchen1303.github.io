@@ -3,8 +3,6 @@ package com.yuchen.ailedger.service
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
-import com.yuchen.ailedger.model.MessageRole
-import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.WebSource
 import java.io.IOException
@@ -40,6 +38,32 @@ data class CloudPreferenceUpdate(
     val value: String,
 )
 
+data class CloudClientToolCall(
+    val schema: String,
+    val id: String,
+    val name: String,
+    val arguments: JSONObject,
+    val resultProtocol: String = AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL,
+    val riskLevel: String = "low",
+    val requiresConfirmation: Boolean = false,
+    val reason: String? = null,
+    val originalUserGoal: String? = null,
+    val finalModel: String? = null,
+) {
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("schema", schema)
+        put("id", id)
+        put("name", name)
+        put("arguments", JSONObject(arguments.toString()))
+        put("resultProtocol", resultProtocol)
+        put("riskLevel", riskLevel)
+        put("requiresConfirmation", requiresConfirmation)
+        reason?.let { put("reason", it) }
+        originalUserGoal?.let { put("originalUserGoal", it) }
+        finalModel?.let { put("finalModel", it) }
+    }
+}
+
 data class CloudAgentAction(
     val capability: String,
     val title: String? = null,
@@ -47,6 +71,7 @@ data class CloudAgentAction(
     val requiresConfirmation: Boolean = false,
     val reason: String? = null,
     val deviceControlStep: CloudAgentStep? = null,
+    val clientToolCall: CloudClientToolCall? = null,
 )
 
 data class AiChatResponse(
@@ -60,14 +85,9 @@ data class AiChatResponse(
     val mobileAction: CloudMobileAction? = null,
     val preferenceUpdate: CloudPreferenceUpdate? = null,
     val agentAction: CloudAgentAction? = null,
+    val clientToolCall: CloudClientToolCall? = null,
     val searchUsed: Boolean = false,
     val searchProvider: String? = null,
-)
-
-private data class AiWorkerRouteScore(
-    val model: ChatModel,
-    val score: Int,
-    val reason: String,
 )
 
 class AiWorkerClient(
@@ -79,19 +99,16 @@ class AiWorkerClient(
         config.clientId
             ?.trim()
             ?.take(120)
-            ?.takeIf { it.isNotBlank() }
+            ?.takeIf(String::isNotBlank)
             ?: AiLedgerApplication.contextOrNull()
                 ?.let { context -> AgentClientIdentity.getOrCreateDeviceId(context) }
                 ?.take(120)
-                ?.takeIf { it.isNotBlank() }
+                ?.takeIf(String::isNotBlank)
             ?: AI_WORKER_CHAT_CLIENT_NAME
     }
 
     private val transport: AiWorkerHttpTransport by lazy {
-        AiWorkerHttpTransport(
-            config = config,
-            resolvedClientId = resolvedClientId,
-        )
+        AiWorkerHttpTransport(config = config, resolvedClientId = resolvedClientId)
     }
 
     @Throws(IOException::class)
@@ -113,17 +130,13 @@ class AiWorkerClient(
                     return response
                 } catch (error: IOException) {
                     lastError = error
-                    if (
-                        error is SocketTimeoutException ||
-                        error.cause is SocketTimeoutException
-                    ) {
+                    if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
                         continue@endpointLoop
                     }
                 }
             }
         }
-        val failure = lastError
-            ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
+        val failure = lastError ?: IOException("云端 AI 请求失败，请检查 Worker 配置。")
         AssistantMemoryUsageBridge.recordFailedPayload(payload, failure)
         throw failure
     }
@@ -158,17 +171,13 @@ class AiWorkerClient(
                     return response
                 } catch (error: IOException) {
                     lastError = error
-                    if (
-                        error is SocketTimeoutException ||
-                        error.cause is SocketTimeoutException
-                    ) {
+                    if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
                         continue@endpointLoop
                     }
                 }
             }
         }
-        val failure = lastError
-            ?: IOException("云端 AI 流式请求失败，请检查 Worker 配置。")
+        val failure = lastError ?: IOException("云端 AI 流式请求失败，请检查 Worker 配置。")
         AssistantMemoryUsageBridge.recordFailedPayload(payload, failure)
         throw failure
     }
@@ -182,11 +191,8 @@ class AiWorkerClient(
         return buildPayload(messages, route, onlineEnabled)
     }
 
-    internal fun buildRequestHeadersForTest(
-        stream: Boolean = false,
-    ): Map<String, String> {
-        return transport.requestHeaders(stream)
-    }
+    internal fun buildRequestHeadersForTest(stream: Boolean = false): Map<String, String> =
+        transport.requestHeaders(stream)
 
     internal fun applyRequestIdentityHeaders(
         connection: HttpURLConnection,
@@ -199,55 +205,42 @@ class AiWorkerClient(
         messages: List<ChatMessage>,
         route: AiWorkerModelRoute,
         onlineEnabled: Boolean,
-    ): JSONObject {
-        return AiWorkerPayloadBuilder.build(
-            messages = messages,
-            route = route,
-            onlineEnabled = onlineEnabled,
-            resolvedClientId = resolvedClientId,
-        )
-    }
+    ): JSONObject = AiWorkerPayloadBuilder.build(
+        messages = messages,
+        route = route,
+        onlineEnabled = onlineEnabled,
+        resolvedClientId = resolvedClientId,
+    )
 
-    private fun endpointPool(
-        primary: String,
-        fallbacks: List<String>,
-    ): List<String> {
-        return (listOf(primary) + fallbacks)
+    private fun endpointPool(primary: String, fallbacks: List<String>): List<String> =
+        (listOf(primary) + fallbacks)
             .map { endpoint -> endpoint.trim().trimEnd('/') }
-            .filter { endpoint -> endpoint.isNotBlank() }
+            .filter(String::isNotBlank)
             .distinct()
-    }
 
     private fun endpointPlan(route: AiWorkerModelRoute): List<String> {
         val cn = config.endpoint.trim().trimEnd('/')
-        val cf = (
-            config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT
-            ).trim().trimEnd('/')
-        val resolvedIsCnModel =
+        val cf = (config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT)
+            .trim()
+            .trimEnd('/')
+        val resolvedIsCnModel = route.isAuto ||
             route.resolved == ChatModel.Kimi ||
-                route.resolved == ChatModel.DeepSeekV4
-        return if (resolvedIsCnModel) {
-            endpointPool(cn, emptyList())
-        } else {
-            endpointPool(cn, listOf(cf))
-        }
+            route.resolved == ChatModel.DeepSeekV4
+        return if (resolvedIsCnModel) endpointPool(cn, emptyList()) else endpointPool(cn, listOf(cf))
     }
 
     private fun endpointCandidates(cleanEndpoint: String): List<String> {
-        return if (
-            cleanEndpoint.endsWith("/chat") ||
-            cleanEndpoint.endsWith("/api/chat")
-        ) {
+        return if (cleanEndpoint.endsWith("/chat") || cleanEndpoint.endsWith("/api/chat")) {
             listOf(cleanEndpoint)
         } else {
-            listOf(
-                cleanEndpoint,
-                "$cleanEndpoint/chat",
-                "$cleanEndpoint/api/chat",
-            ).distinct()
+            listOf(cleanEndpoint, "$cleanEndpoint/chat", "$cleanEndpoint/api/chat").distinct()
         }
     }
 
+    /**
+     * Local routing is modality/transport only. Natural-language model selection belongs to the
+     * cloud Final Chat Model. Auto therefore always reaches the CN gateway as `auto`.
+     */
     private fun resolveModelRoute(
         messages: List<ChatMessage>,
         modelPreference: ChatModel,
@@ -256,170 +249,28 @@ class AiWorkerClient(
             return AiWorkerModelRoute(
                 requested = modelPreference,
                 resolved = ChatModel.Kimi,
-                reason = "qwen_vision_image_attachment",
+                reason = "qwen_vision_image_transport",
             )
         }
-        if (modelPreference != ChatModel.Auto) {
+        if (modelPreference == ChatModel.Auto) {
             return AiWorkerModelRoute(
-                requested = modelPreference,
-                resolved = modelPreference,
-                reason = "manual_selection",
+                requested = ChatModel.Auto,
+                resolved = ChatModel.Kimi,
+                reason = "cloud_final_model_auto",
             )
         }
-        val latest = latestUserText(messages)
-        val text = latest.lowercase()
-        val route = scoreAutoV2(latest, text)
-            .maxWithOrNull(
-                compareBy<AiWorkerRouteScore> { score -> score.score }
-                    .thenBy { score -> autoTieBreakPriority(score.model) },
-            )
-            ?: AiWorkerRouteScore(ChatModel.Kimi, 1, "qwen_default")
         return AiWorkerModelRoute(
-            requested = ChatModel.Auto,
-            resolved = route.model,
-            reason = "auto_v2:${route.reason}",
+            requested = modelPreference,
+            resolved = modelPreference,
+            reason = "manual_selection",
         )
     }
 
-    private fun scoreAutoV2(
-        latest: String,
-        text: String,
-    ): List<AiWorkerRouteScore> {
-        val codeScore =
-            10 * countMatches(text, codeKeywords) +
-                7 * countMatches(text, appDevKeywords) +
-                if (looksLikeCodeOrError(latest, text)) 18 else 0
-        val reasoningScore =
-            9 * countMatches(text, reasoningKeywords) +
-                11 * countMatches(text, stemKeywords) +
-                6 * countMatches(text, designKeywords) +
-                if (hasFormulaSignal(latest)) 14 else 0
-        val translateScore = 10 * countMatches(text, translationKeywords)
-        val longWritingScore =
-            8 * countMatches(text, writingKeywords) + when {
-                latest.length >= 1600 -> 18
-                latest.length >= 900 -> 12
-                latest.length >= 420 && hasAny(text, writingKeywords) -> 8
-                else -> 0
-            }
-        val qwenGeneralScore =
-            12 +
-                (if (containsChinese(latest)) 6 else 0) +
-                (if (latest.length < 420) 4 else 0)
-        return listOf(
-            AiWorkerRouteScore(ChatModel.GptOss, codeScore, "code_android_api"),
-            AiWorkerRouteScore(
-                ChatModel.DeepSeekV4,
-                reasoningScore,
-                "reasoning_stem_design",
-            ),
-            AiWorkerRouteScore(
-                ChatModel.Kimi,
-                qwenGeneralScore + translateScore + longWritingScore / 2,
-                "qwen_general_cn_translation_writing",
-            ),
-            AiWorkerRouteScore(
-                ChatModel.Gemini,
-                if (text.contains("gemini")) 16 else translateScore / 2,
-                "translation_or_explicit_gemini",
-            ),
-            AiWorkerRouteScore(
-                ChatModel.Mistral,
-                longWritingScore,
-                "long_summary_polish",
-            ),
-        )
-    }
-
-    private fun autoTieBreakPriority(model: ChatModel): Int = when (model) {
-        ChatModel.Kimi -> 5
-        ChatModel.DeepSeekV4 -> 4
-        ChatModel.GptOss -> 3
-        ChatModel.Mistral -> 2
-        ChatModel.Gemini -> 1
-        ChatModel.Workers -> 0
-        ChatModel.Auto -> -1
-    }
-
-    private fun looksLikeCodeOrError(
-        latest: String,
-        text: String,
-    ): Boolean {
-        return latest.contains("```") ||
-            latest.contains("Exception") ||
-            latest.contains("Traceback") ||
-            latest.contains("NullPointer") ||
-            latest.contains("Unresolved reference") ||
-            latest.contains("Cannot resolve") ||
-            text.contains("build failed") ||
-            text.contains("stacktrace") ||
-            Regex("\\b(error|failed|exception|fatal):").containsMatchIn(text)
-    }
-
-    private fun hasFormulaSignal(text: String): Boolean {
-        return text.any { char -> char in listOf('∂', '∫', '∑', '√', 'θ', 'π', '∞') } ||
-            Regex("[a-zA-Z][0-9]?\\s*=\\s*[-+]?\\d").containsMatchIn(text) ||
-            Regex("\\d+\\s*/\\s*\\d+").containsMatchIn(text)
-    }
-
-    private fun latestUserText(messages: List<ChatMessage>): String {
-        return messages.lastOrNull {
-            message -> message.role == MessageRole.User && message.text.isNotBlank()
-        }?.text.orEmpty()
-    }
-
-    private fun List<ChatMessage>.hasLatestUserImageAttachments(): Boolean {
-        return lastOrNull {
-            message ->
-                message.role == MessageRole.User &&
-                    message.status != MessageStatus.Sending
+    private fun List<ChatMessage>.hasLatestUserImageAttachments(): Boolean =
+        lastOrNull { message ->
+            message.role == com.yuchen.ailedger.model.MessageRole.User &&
+                message.status != com.yuchen.ailedger.model.MessageStatus.Sending
         }?.hasImageAttachments == true
-    }
-
-    private fun containsChinese(text: String): Boolean {
-        return text.any { char -> char in '\u4e00'..'\u9fff' }
-    }
-
-    private fun countMatches(
-        text: String,
-        keywords: List<String>,
-    ): Int = keywords.count(text::contains)
-
-    private fun hasAny(
-        text: String,
-        keywords: List<String>,
-    ): Boolean = keywords.any(text::contains)
-
-    private val codeKeywords = listOf(
-        "代码", "报错", "bug", "修复", "编译", "构建", "函数", "类", "脚本", "依赖",
-        "库", "接口", "api", "kotlin", "compose", "android", "github", "gradle",
-        "cloudflare", "worker", "python", "java", "javascript", "typescript", "html",
-        "css", "json", "http", "request", "response",
-    )
-    private val appDevKeywords = listOf(
-        "app", "apk", "workflow", "actions", "commit", "分支", "仓库", "源码",
-        "viewmodel", "client", "repository", "compose 原生",
-    )
-    private val reasoningKeywords = listOf(
-        "推理", "证明", "分析", "为什么", "原理", "思路", "计算", "求解", "推导",
-        "判别", "极限", "偏导", "积分", "二重积分", "链式法则", "全微分",
-    )
-    private val stemKeywords = listOf(
-        "数学", "电路", "模电", "数电", "单片机", "stm32", "传感器", "建模", "模型",
-        "仿真", "控制", "信号", "滤波", "放大器", "电磁", "物理",
-    )
-    private val designKeywords = listOf(
-        "方案", "设计", "架构", "策略", "优化", "规划", "迁移", "实现思路", "怎么做",
-        "怎么设计", "技术路线", "系统设计",
-    )
-    private val translationKeywords = listOf(
-        "什么意思", "翻译", "英文", "英语", "日语", "德语", "怎么读", "读音", "单词",
-        "词语", "translate", "meaning", "pronunciation",
-    )
-    private val writingKeywords = listOf(
-        "总结", "概括", "归纳", "提纲", "大纲", "报告", "整理", "润色", "改写", "论文",
-        "summary", "summarize", "outline", "polish", "rewrite",
-    )
 
     companion object {
         const val ALIYUN_CN_ENDPOINT =
