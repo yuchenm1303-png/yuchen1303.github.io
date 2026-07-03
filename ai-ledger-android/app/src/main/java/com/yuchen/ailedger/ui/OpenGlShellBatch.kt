@@ -13,6 +13,7 @@ import androidx.compose.ui.layout.onPlaced
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.LocalOpenGLShellBatchState
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassBatchLayer
+import com.yuchen.ailedger.ui.gl.OpenGLShellBatchState
 import com.yuchen.ailedger.ui.gl.rememberOpenGLShellBatchState
 
 @Immutable
@@ -27,10 +28,20 @@ internal val LocalOpenGlShellBatchPolicy = staticCompositionLocalOf {
 }
 
 /**
- * 页面级 OpenGL Shell 批宿主。
+ * 页面固定批宿主的状态通道。
  *
- * 每张玻璃仍保留自己的矩形、圆角、背景采样原点、折射场和按压动态；宿主只共享
- * TextureView、EGL、纹理、shader program 与 VSync 提交，不改变任何卡片的视觉参数。
+ * 它只由页面视口提供，普通 [OpenGlShellGlass] 不会直接读取；只有显式的
+ * [OpenGlShellBatchHost] 才会把组内 Shell 登记到页面 Host，避免把独立 Hero Shell
+ * 误并入同一批次。
+ */
+internal val LocalPageOpenGLShellBatchState =
+    staticCompositionLocalOf<OpenGLShellBatchState?> { null }
+
+/**
+ * OpenGL Shell 批分组入口。
+ *
+ * 页面提供固定批宿主时，本层只负责限定登记范围，不再创建跟随滚动内容移动的
+ * TextureView；没有页面宿主的预览或独立场景仍保留原来的局部 Host 作为兼容回退。
  */
 @Composable
 internal fun OpenGlShellBatchHost(
@@ -40,8 +51,11 @@ internal fun OpenGlShellBatchHost(
     preserveStandaloneFrame: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val state = rememberOpenGLShellBatchState()
-    val parentCoordinates = remember { GlassCoordinateSource() }
+    val pageState = LocalPageOpenGLShellBatchState.current
+    val localState = rememberOpenGLShellBatchState()
+    val state = pageState ?: localState
+    val ownsLocalHost = pageState == null
+    val localParentCoordinates = remember { GlassCoordinateSource() }
     val policy = remember(acceptedShortEdgeDp, acceptedRadiusDp, preserveStandaloneFrame) {
         OpenGlShellBatchPolicy(
             acceptedShortEdgeDp = acceptedShortEdgeDp,
@@ -50,19 +64,30 @@ internal fun OpenGlShellBatchHost(
         )
     }
 
-    DisposableEffect(state, parentCoordinates) {
-        state.bindParent(parentCoordinates)
-        onDispose { state.clear() }
+    DisposableEffect(state, localParentCoordinates, ownsLocalHost) {
+        if (ownsLocalHost) state.bindParent(localParentCoordinates)
+        onDispose {
+            if (ownsLocalHost) {
+                localParentCoordinates.coordinates = null
+                state.clear()
+            }
+        }
     }
 
-    Box(
-        modifier = modifier.onPlaced { parentCoordinates.coordinates = it },
-    ) {
-        NewOpenGLGlassBatchLayer(
-            state = state,
-            parentCoordinates = parentCoordinates,
-            modifier = Modifier.matchParentSize(),
-        )
+    val hostModifier = if (ownsLocalHost) {
+        modifier.onPlaced { localParentCoordinates.coordinates = it }
+    } else {
+        modifier
+    }
+
+    Box(modifier = hostModifier) {
+        if (ownsLocalHost) {
+            NewOpenGLGlassBatchLayer(
+                state = state,
+                parentCoordinates = localParentCoordinates,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
         CompositionLocalProvider(
             LocalOpenGLShellBatchState provides state,
             LocalOpenGlShellBatchPolicy provides policy,
