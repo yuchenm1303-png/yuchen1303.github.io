@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import javax.net.ssl.SSLException
+import okhttp3.Call
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
@@ -20,9 +21,8 @@ import okhttp3.Request
 /**
  * 股票模块共享网络传输层。
  *
- * 所有股票接口复用连接池、singleflight 和极短响应微缓存。旧版兼容接口在传输层失败后会
- * 短暂冷却，避免主路由失败后立即用 `/crawl/` 别名重复请求同一个 Render 实例；市场首页、
- * 功能页三大指数和统一实时接口由各自上层缓存与恢复调度负责，不进入通用失败冷却。
+ * 所有股票接口复用连接池、singleflight 和极短响应微缓存。个股实时/详情属于用户主动请求，
+ * 发起时会取消仍在传输中的功能页指数后台请求，避免四条指数链占用连接和 Render 处理窗口。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -66,6 +66,9 @@ internal object StockHttpClient {
         allowColdStartWait: Boolean = false,
         requestGroup: String? = null
     ): String {
+        if (isInteractiveStockRoute(url)) {
+            cancelToolsIndexRequests()
+        }
         val effectiveTimeoutMs = effectiveTimeoutMs(url, timeoutMs, allowColdStartWait)
         recent(url, microCacheMs)?.let { return it }
         recentTransportFailure(url)?.let { throw it }
@@ -143,6 +146,27 @@ internal object StockHttpClient {
         }
     }
 
+    private fun cancelToolsIndexRequests() {
+        dispatcher.queuedCalls().forEach(::cancelIfToolsIndexRequest)
+        dispatcher.runningCalls().forEach(::cancelIfToolsIndexRequest)
+    }
+
+    private fun cancelIfToolsIndexRequest(call: Call) {
+        if (TOOLS_INDEX_ROUTE_TOKEN in call.request().url.encodedPath) {
+            call.cancel()
+        }
+    }
+
+    private fun isInteractiveStockRoute(url: String): Boolean {
+        return "/api/stock/a-share/realtime" in url ||
+            "/api/stock/a-share/stock/full" in url ||
+            "/api/stock/a-share/detail" in url ||
+            "/api/stock/a-share/minute" in url ||
+            "/api/stock/a-share/quotes" in url ||
+            "/api/stock/crawl/a-share/minute" in url ||
+            "/api/stock/crawl/a-share/quotes" in url
+    }
+
     private fun effectiveTimeoutMs(
         url: String,
         requestedTimeoutMs: Int,
@@ -186,7 +210,7 @@ internal object StockHttpClient {
     }
 
     private fun isToolsIndexHeroRoute(url: String): Boolean {
-        return "/api/stock/a-share/index/compact" in url
+        return TOOLS_INDEX_ROUTE_TOKEN in url
     }
 
     private fun normalizeTransportError(
@@ -287,6 +311,7 @@ internal object StockHttpClient {
         return ((System.nanoTime() - startedAtNs) / 1_000_000L).coerceAtLeast(0L)
     }
 
+    private const val TOOLS_INDEX_ROUTE_TOKEN = "/api/stock/a-share/index/compact"
     private const val DEFAULT_MICRO_CACHE_MS = 220L
     private const val MIN_REQUEST_TIMEOUT_MS = 700
     private const val MARKET_HOME_TIMEOUT_MS = 70_000
