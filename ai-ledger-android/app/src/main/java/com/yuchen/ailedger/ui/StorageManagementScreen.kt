@@ -97,6 +97,8 @@ fun StorageManagementScreen(
     var mediaAccess by remember { mutableStateOf(currentMediaAccess(context)) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var filter by remember { mutableStateOf(StorageCandidateFilter.All) }
+    var candidatesExpanded by remember { mutableStateOf(false) }
+    var appCachesExpanded by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PendingStorageDelete?>(null) }
     var followUpFolderUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var operationMessage by remember { mutableStateOf<String?>(null) }
@@ -166,6 +168,10 @@ fun StorageManagementScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    LaunchedEffect(filter) {
+        candidatesExpanded = false
+    }
+
     LaunchedEffect(refreshGeneration) {
         scanning = true
         scanError = null
@@ -219,8 +225,28 @@ fun StorageManagementScreen(
             }
         }
     }
+    val displayedCandidates by remember(visibleCandidates, candidatesExpanded) {
+        derivedStateOf {
+            storagePreviewItems(visibleCandidates, candidatesExpanded, STORAGE_FILE_PREVIEW_COUNT)
+        }
+    }
+    val visibleSelectableIds by remember(visibleCandidates) {
+        derivedStateOf {
+            visibleCandidates.asSequence().filter(StorageFileCandidate::canDelete)
+                .mapTo(linkedSetOf(), StorageFileCandidate::stableId)
+        }
+    }
+    val selectedVisibleCount by remember(visibleSelectableIds, selectedIds) {
+        derivedStateOf { selectedIds.count { it in visibleSelectableIds } }
+    }
     val selectedCandidates by remember(allCandidates, selectedIds) {
         derivedStateOf { allCandidates.filter { it.stableId in selectedIds && it.canDelete } }
+    }
+    val appCaches = snapshot?.appCaches.orEmpty()
+    val displayedAppCaches by remember(appCaches, appCachesExpanded) {
+        derivedStateOf {
+            storagePreviewItems(appCaches, appCachesExpanded, STORAGE_FILE_PREVIEW_COUNT)
+        }
     }
 
     fun openSystemStorage() {
@@ -381,6 +407,20 @@ fun StorageManagementScreen(
                             StorageFilterChip(item.label, selected = filter == item) { filter = item }
                         }
                     }
+                    StorageLongListControls(
+                        totalCount = visibleCandidates.size,
+                        expanded = candidatesExpanded,
+                        previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                        selectedCount = selectedVisibleCount,
+                        onToggleExpanded = { candidatesExpanded = !candidatesExpanded },
+                        onSelectAll = if (visibleSelectableIds.isEmpty()) null else ({
+                            selectedIds = selectedIds + visibleSelectableIds
+                        }),
+                        onClearSelection = if (selectedVisibleCount == 0) null else ({
+                            selectedIds = selectedIds - visibleSelectableIds
+                        }),
+                        tone = StorageAccent,
+                    )
                     if (selectedCandidates.isNotEmpty()) {
                         StoragePrimaryAction(
                             text = if (operationRunning) "正在处理…" else "清理已选 ${selectedCandidates.size} 项",
@@ -402,7 +442,7 @@ fun StorageManagementScreen(
                         },
                     )
                 }
-                else -> items(visibleCandidates, key = { it.stableId }) { candidate ->
+                else -> items(displayedCandidates, key = { it.stableId }) { candidate ->
                     StorageCandidateCard(
                         candidate = candidate,
                         selected = candidate.stableId in selectedIds,
@@ -420,7 +460,6 @@ fun StorageManagementScreen(
             }
             item {
                 StorageSection("应用缓存排行") {
-                    val appCaches = snapshot?.appCaches.orEmpty()
                     StorageMetricRow("已统计应用", appCaches.size.toString())
                     StorageMetricRow("缓存合计", formatStorageBytes(appCaches.sumOf { it.cacheBytes }))
                     Text(
@@ -429,13 +468,19 @@ fun StorageManagementScreen(
                         fontSize = 10.5.sp,
                         lineHeight = 15.sp,
                     )
+                    StorageLongListControls(
+                        totalCount = appCaches.size,
+                        expanded = appCachesExpanded,
+                        previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                        onToggleExpanded = { appCachesExpanded = !appCachesExpanded },
+                        tone = StorageWarning,
+                    )
                 }
             }
-            val appCaches = snapshot?.appCaches.orEmpty()
             if (snapshot?.usageAccessGranted == true && appCaches.isEmpty() && !scanning) {
                 item { StorageEmptyPanel("没有读取到可展示的应用缓存。") }
             } else {
-                items(appCaches, key = { it.packageName }) { app ->
+                items(displayedAppCaches, key = { it.packageName }) { app ->
                     AppCacheCard(app = app, onOpen = { openAppStorage(app.packageName) })
                 }
             }
