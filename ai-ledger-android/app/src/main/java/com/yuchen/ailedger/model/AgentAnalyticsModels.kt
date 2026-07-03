@@ -17,12 +17,16 @@ data class AgentTokenUsage(
     val totalTokens: Long = 0L,
     val accuracy: AgentTokenAccuracy = AgentTokenAccuracy.Estimated,
 ) {
+    /**
+     * reasoningTokens 在多数供应商协议中已包含于 outputTokens，因此不能再次相加。
+     * 仅当供应商没有返回 outputTokens 时，才用 reasoningTokens 补足输出侧数量。
+     */
     val normalizedTotal: Long
-        get() = totalTokens.coerceAtLeast(
-            inputTokens.coerceAtLeast(0L) +
-                outputTokens.coerceAtLeast(0L) +
-                reasoningTokens.coerceAtLeast(0L),
-        )
+        get() {
+            val input = inputTokens.coerceAtLeast(0L)
+            val output = maxOf(outputTokens.coerceAtLeast(0L), reasoningTokens.coerceAtLeast(0L))
+            return totalTokens.coerceAtLeast(input + output)
+        }
 
     val hasUsage: Boolean get() = normalizedTotal > 0L
 }
