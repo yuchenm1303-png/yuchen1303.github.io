@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.yuchen.ailedger.AgentAccessibilityGuideActivity
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.OperationSkillApprovalRepository
 import com.yuchen.ailedger.data.OperationSkillArtifactStore
@@ -15,6 +16,7 @@ import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowAppScope
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.model.WorkflowExecutionMode
+import com.yuchen.ailedger.service.AiAgentAccessibilityService
 import com.yuchen.ailedger.service.OperationLearningRecordingCoordinator
 import com.yuchen.ailedger.service.OperationRecordingStopReason
 import com.yuchen.ailedger.service.OperationSkillLearningCoordinator
@@ -317,6 +319,14 @@ class OperationLearningViewModel : ViewModel() {
         val optimisticDraft = uiState.drafts.firstOrNull { it.id == draftId }
         if (activeContext == null || activeRepository == null || optimisticDraft == null) {
             uiState = uiState.copy(notice = "Skill 草稿尚未准备完成，请重新进入页面。")
+            return
+        }
+        if (!AiAgentAccessibilityService.isConnected()) {
+            uiState = uiState.copy(
+                selectedDraftId = draftId,
+                notice = "需要先开启手机智能体无障碍服务，才能安全采集视觉演示。",
+            )
+            AgentAccessibilityGuideActivity.open(activeContext)
             return
         }
 
