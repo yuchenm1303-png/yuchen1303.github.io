@@ -6,14 +6,15 @@ import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.MessageRole
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val FINAL_TOOL_RESULT_SOURCE = "final_chat_model_client_tool_result"
+
 /**
- * Selects only the runtime family. All agent semantics stay in the cloud models:
- * DeepSeek routes and GUI Plus operates a verified visual work surface.
+ * Android never chooses an agent tool. It either executes an explicit local VisualForce request or
+ * mechanically consumes the exact structured tool call selected by the cloud Final Chat Model.
  */
 class AgentOrchestrator(
     private val aiWorkerClient: AiWorkerClient,
@@ -27,32 +28,37 @@ class AgentOrchestrator(
         maxSteps: Int = Int.MAX_VALUE,
         executionMode: AgentExecutionMode,
     ): AgentTaskRunResult {
-        // 普通聊天的设备工具判断已合并到同一个 /chat 请求中，由后端与正文生成并行完成。
-        // 这里仅终止旧的串行 LegacyRunner 网络探测；动作执行、风险确认与结果验证仍由 Android 负责。
         if (executionMode == AgentExecutionMode.NormalChatDeviceTool) {
             return AgentTaskRunResult(
                 completed = false,
                 stoppedForConfirmation = false,
-                message = "普通聊天内部工具由单请求并行探测处理。",
+                message = "普通聊天只由云端 Final Chat Model 决策工具。",
                 logs = emptyList(),
                 handled = false,
             )
         }
 
-        return when (routeFor(executionMode)) {
-            AgentOrchestratorRoute.LegacyRunner -> AgentTaskRunner(aiWorkerClient, applicationContext).run(
-                goal = goal,
-                modelPreference = modelPreference,
-                maxSteps = maxSteps,
-                executionMode = executionMode,
-            )
-            AgentOrchestratorRoute.VisualLoop -> runVisualLoop(
-                goal = goal,
-                modelPreference = modelPreference,
-                maxSteps = maxSteps,
-                executionMode = executionMode,
+        val cloudCall = if (executionMode == AgentExecutionMode.ExplicitAgent) {
+            ClientToolCallRegistry.consumeVisual()
+        } else {
+            null
+        }
+        if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall == null) {
+            return AgentTaskRunResult(
+                completed = false,
+                stoppedForConfirmation = false,
+                message = "未收到有效的云端视觉工具调用，本地没有启动视觉执行。",
+                logs = emptyList(),
+                handled = false,
             )
         }
+        return runVisualLoop(
+            goal = goal,
+            modelPreference = modelPreference,
+            maxSteps = maxSteps,
+            executionMode = executionMode,
+            cloudCall = cloudCall,
+        )
     }
 
     private suspend fun runVisualLoop(
@@ -60,8 +66,10 @@ class AgentOrchestrator(
         modelPreference: ChatModel,
         maxSteps: Int,
         executionMode: AgentExecutionMode,
+        cloudCall: CloudClientToolCall?,
     ): AgentTaskRunResult {
-        val invocation = VisualTaskInvocationRuntime.begin(goal)
+        val invocation = VisualTaskInvocationRuntime.begin(goal, cloudCall)
+        var terminalReason = "visual_task_terminal"
         return try {
             val result = withContext(Dispatchers.IO) {
                 VisualLoopRunner(aiWorkerClient, applicationContext).run(
@@ -70,17 +78,25 @@ class AgentOrchestrator(
                     executionMode = executionMode,
                 )
             }
-            // Runner 内部大多数终态已经收口；这里作为统一兜底，补齐风险拒绝等直接返回分支。
+            terminalReason = "visual_task_${result.visualReceiptStatus()}"
             AgentRuntimeController.finishTask(result.resolvedOutcome())
-            if (executionMode == AgentExecutionMode.ExplicitAgent && !result.isAccessibilityUnavailable()) {
+            if (
+                executionMode == AgentExecutionMode.ExplicitAgent &&
+                cloudCall != null &&
+                !result.isAccessibilityUnavailable()
+            ) {
                 reportVisualResult(invocation, goal, modelPreference, result)
             } else {
                 result
             }
         } catch (error: CancellationException) {
+            terminalReason = "visual_task_cancelled"
             throw error
         } finally {
             VisualTaskInvocationRuntime.clear(invocation)
+            if (executionMode == AgentExecutionMode.ExplicitAgent) {
+                VisualSessionCleanupDispatcher.enqueue(invocation, terminalReason)
+            }
         }
     }
 
@@ -90,16 +106,13 @@ class AgentOrchestrator(
         modelPreference: ChatModel,
         result: AgentTaskRunResult,
     ): AgentTaskRunResult {
-        val call = invocation.clientToolCall
-        val callId = call?.id ?: invocation.taskInvocationId
-        val toolArguments = call?.arguments?.let { JSONObject(it.toString()) }
-            ?: JSONObject().put("goal", goal.trim().take(1_200))
+        val call = invocation.clientToolCall ?: return result
         val receipt = JSONObject().apply {
-            put("protocol", call?.resultProtocol ?: AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL)
-            put("toolCallId", callId)
-            put("toolName", call?.name ?: "computer_run_task")
-            put("toolArguments", toolArguments)
-            put("finalModel", call?.finalModel ?: modelPreference.id)
+            put("protocol", call.resultProtocol)
+            put("toolCallId", call.id)
+            put("toolName", call.name)
+            put("toolArguments", JSONObject(call.arguments.toString()))
+            put("finalModel", call.finalModel ?: modelPreference.id)
             put("goal", goal.trim().take(300))
             put("status", result.visualReceiptStatus())
             put("completed", result.completed)
@@ -113,11 +126,16 @@ class AgentOrchestrator(
                         put("tool", log.step.type)
                         put("toolLabel", log.step.typeLabel)
                         put("requestedArgs", log.step.toolArgs?.let { JSONObject(it.toString()) } ?: JSONObject())
-                        put("riskLevel", call?.riskLevel ?: "low")
+                        put("riskLevel", call.riskLevel)
                         put("requiresConfirmation", AgentSafetyPolicy.requiresConfirmation(goal, log.step))
                         put("appName", log.step.appName.orEmpty())
                         put("packageName", log.step.packageName.orEmpty())
-                        put("status", if (execution?.ok == true) "verified" else if (execution == null) "state_mismatch" else "failed")
+                        put(
+                            "status",
+                            if (execution?.ok == true) "verified"
+                            else if (execution == null) "state_mismatch"
+                            else "failed",
+                        )
                         put("ok", execution?.ok == true)
                         put("verified", execution?.ok == true)
                         put("shouldContinue", execution?.shouldContinue == true)
@@ -127,17 +145,17 @@ class AgentOrchestrator(
                 }
             })
         }
-        val marker = "[[AI_LEDGER_CLIENT_TOOL_RESULT_V1]]${receipt}"
-        val resolvedModel = call?.finalModel
+        val resolvedModel = call.finalModel
             ?.takeIf(String::isNotBlank)
             ?.let(ChatModel::fromId)
             ?: modelPreference
+        val marker = "[[AI_LEDGER_CLIENT_TOOL_RESULT_V1]]${receipt}"
         return runCatching {
             withContext(Dispatchers.IO) {
                 aiWorkerClient.sendChat(
                     messages = listOf(
                         ChatMessage(
-                            id = "client-tool-result-$callId",
+                            id = "client-tool-result-${call.id}",
                             text = marker,
                             role = MessageRole.User,
                         ),
@@ -148,23 +166,19 @@ class AgentOrchestrator(
             }
         }.fold(
             onSuccess = { response ->
-                response.reply.trim().takeIf(String::isNotBlank)?.let { result.copy(message = it) } ?: result
+                val reply = response.reply.trim()
+                if (response.source == FINAL_TOOL_RESULT_SOURCE && reply.isNotBlank()) {
+                    result.copy(message = reply)
+                } else {
+                    AgentRuntimeController.noteDiagnostic("云端没有确认客户端工具结果续写来源。")
+                    result
+                }
             },
             onFailure = { error ->
                 AgentRuntimeController.noteDiagnostic("客户端工具结果回传失败：${error.message.orEmpty().take(80)}")
                 result
             },
         )
-    }
-
-    companion object {
-        fun routeFor(executionMode: AgentExecutionMode): AgentOrchestratorRoute {
-            return when (executionMode) {
-                AgentExecutionMode.NormalChatDeviceTool -> AgentOrchestratorRoute.LegacyRunner
-                AgentExecutionMode.VisualForce,
-                AgentExecutionMode.ExplicitAgent -> AgentOrchestratorRoute.VisualLoop
-            }
-        }
     }
 }
 
@@ -185,9 +199,4 @@ private fun AgentTaskRunResult.isAccessibilityUnavailable(): Boolean {
         text.contains("无障碍服务未连接") ||
         text.contains("需要视觉/无障碍") ||
         text.contains("无障碍执行")
-}
-
-enum class AgentOrchestratorRoute {
-    LegacyRunner,
-    VisualLoop,
 }

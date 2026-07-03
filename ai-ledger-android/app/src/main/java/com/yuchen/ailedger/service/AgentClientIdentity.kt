@@ -18,16 +18,13 @@ internal object AgentClientIdentity {
             ?.trim()
             ?.takeIf { it.startsWith(DEVICE_ID_PREFIX) && it.length <= 120 }
         if (existing != null) return existing
-
         val created = DEVICE_ID_PREFIX + UUID.randomUUID().toString()
         preferences.edit().putString(DEVICE_ID_KEY, created).apply()
         return created
     }
 
-    fun newVisualSessionId(): String {
-        return VisualTaskInvocationRuntime.currentSessionIdOrNull()
-            ?: SESSION_ID_PREFIX + UUID.randomUUID().toString()
-    }
+    fun newVisualSessionId(): String = VisualTaskInvocationRuntime.currentSessionIdOrNull()
+        ?: SESSION_ID_PREFIX + UUID.randomUUID().toString()
 }
 
 internal data class VisualTaskInvocation(
@@ -40,46 +37,20 @@ internal data class VisualTaskInvocation(
 }
 
 internal object VisualTaskInvocationRuntime {
-    private const val MAX_PENDING_CALLS = 12
-    private const val PENDING_CALL_TTL_MS = 300_000L
     private const val SESSION_ID_PREFIX = "visual-session-"
-
-    private data class PendingCall(
-        val call: CloudClientToolCall,
-        val registeredAt: Long,
-    )
-
     private val lock = Any()
-    private val pendingVisualCalls = ArrayDeque<PendingCall>()
 
     @Volatile
     private var activeInvocation: VisualTaskInvocation? = null
 
-    fun register(call: CloudClientToolCall) {
-        if (call.name != "computer_run_task" || call.id.isBlank()) return
-        synchronized(lock) {
-            pruneLocked(System.currentTimeMillis())
-            pendingVisualCalls.removeAll { it.call.id == call.id }
-            pendingVisualCalls.addLast(PendingCall(call, System.currentTimeMillis()))
-            while (pendingVisualCalls.size > MAX_PENDING_CALLS) pendingVisualCalls.removeFirst()
-        }
-    }
-
-    fun begin(goal: String): VisualTaskInvocation {
+    fun begin(goal: String, clientToolCall: CloudClientToolCall?): VisualTaskInvocation {
         val cleanGoal = goal.trim()
-        val registryCall = ClientToolCallRegistry.consumeVisual(cleanGoal)
-            ?.takeIf { it.visualGoal() == cleanGoal }
-        val call = registryCall ?: synchronized(lock) {
-            pruneLocked(System.currentTimeMillis())
-            val selected = pendingVisualCalls.lastOrNull { it.call.visualGoal() == cleanGoal }
-            selected?.also { pendingVisualCalls.remove(it) }?.call
-        }
-        val sessionId = call?.id?.trim()?.takeIf(String::isNotBlank)
+        val sessionId = clientToolCall?.id?.trim()?.takeIf(String::isNotBlank)
             ?: SESSION_ID_PREFIX + UUID.randomUUID().toString()
         return VisualTaskInvocation(
             sessionId = sessionId.take(120),
             goal = cleanGoal,
-            clientToolCall = call,
+            clientToolCall = clientToolCall,
         ).also { activeInvocation = it }
     }
 
@@ -89,17 +60,5 @@ internal object VisualTaskInvocationRuntime {
         synchronized(lock) {
             if (activeInvocation?.sessionId == invocation.sessionId) activeInvocation = null
         }
-    }
-
-    private fun pruneLocked(now: Long) {
-        while (pendingVisualCalls.isNotEmpty()) {
-            if (now - pendingVisualCalls.first().registeredAt <= PENDING_CALL_TTL_MS) break
-            pendingVisualCalls.removeFirst()
-        }
-    }
-
-    private fun CloudClientToolCall.visualGoal(): String {
-        return originalUserGoal?.trim()?.takeIf(String::isNotBlank)
-            ?: arguments.optString("goal").trim()
     }
 }
