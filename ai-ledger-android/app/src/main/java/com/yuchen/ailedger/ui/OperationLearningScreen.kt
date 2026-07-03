@@ -139,7 +139,7 @@ fun OperationLearningScreen(
             CreateIntentCard(
                 state = state,
                 editorVisible = uiState.editorVisible,
-                enabled = !recordingState.active,
+                enabled = !recordingState.active && uiState.runningSkillId == null,
                 onClick = {
                     if (uiState.editorVisible) viewModel.closeIntentEditor() else viewModel.openIntentEditor()
                 },
@@ -148,7 +148,7 @@ fun OperationLearningScreen(
 
         item {
             AnimatedVisibility(
-                visible = uiState.editorVisible && !recordingState.active,
+                visible = uiState.editorVisible && !recordingState.active && uiState.runningSkillId == null,
                 enter = fadeIn() + slideInVertically { -it / 10 },
                 exit = fadeOut() + slideOutVertically { -it / 10 },
             ) {
@@ -180,7 +180,7 @@ fun OperationLearningScreen(
             item {
                 LearnedOperationsEmptyCard(
                     state = state,
-                    enabled = !recordingState.active,
+                    enabled = !recordingState.active && uiState.runningSkillId == null,
                     onCreate = viewModel::openIntentEditor,
                 )
             }
@@ -195,10 +195,16 @@ fun OperationLearningScreen(
                     skill = uiState.skillArtifacts[draft.id],
                     selected = draft.id == uiState.selectedDraftId,
                     recordingState = recordingState,
+                    runningSkillId = uiState.runningSkillId,
+                    replayInputValues = uiState.replayInputValues[draft.id].orEmpty(),
                     onSelect = { viewModel.selectDraft(draft.id) },
                     onStartRecording = { viewModel.startRecording(draft.id) },
                     onFinishRecording = viewModel::finishRecording,
                     onApproveSkill = { viewModel.approveSkill(draft.id) },
+                    onRunSkill = { viewModel.runSkill(draft.id) },
+                    onReplayInputChange = { key, value ->
+                        viewModel.updateReplayInput(draft.id, key, value)
+                    },
                     onDelete = { viewModel.deleteDraft(draft.id) },
                 )
             }
@@ -433,7 +439,7 @@ private fun CreateIntentCard(
             OperationLearningActionButton(
                 state = state,
                 label = when {
-                    !enabled -> "请先结束当前演示"
+                    !enabled -> "请先结束当前任务"
                     editorVisible -> "收起教学设置"
                     else -> "创建 Skill 教学"
                 },
@@ -705,10 +711,14 @@ private fun SkillDraftCard(
     skill: LearnedVisualSkill?,
     selected: Boolean,
     recordingState: OperationRecordingState,
+    runningSkillId: String?,
+    replayInputValues: Map<String, String>,
     onSelect: () -> Unit,
     onStartRecording: () -> Unit,
     onFinishRecording: () -> Unit,
     onApproveSkill: () -> Unit,
+    onRunSkill: () -> Unit,
+    onReplayInputChange: (String, String) -> Unit,
     onDelete: () -> Unit,
 ) {
     val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
@@ -717,14 +727,21 @@ private fun SkillDraftCard(
         ?: "未指定应用"
     val thisRecording = recordingState.active && recordingState.workflowId == draft.id
     val anotherRecording = recordingState.active && recordingState.workflowId != draft.id
-    val canStart = draft.status == WorkflowDraftStatus.Intent && report.canProceed && !recordingState.active
-    val canApprove = draft.status == WorkflowDraftStatus.ReadyForReview && skill != null && !recordingState.active
+    val thisRunning = runningSkillId == draft.id
+    val anotherRunning = runningSkillId != null && !thisRunning
+    val canStart = draft.status == WorkflowDraftStatus.Intent && report.canProceed && !recordingState.active && runningSkillId == null
+    val canApprove = draft.status == WorkflowDraftStatus.ReadyForReview && skill != null && !recordingState.active && runningSkillId == null
+    val canRun = draft.status in setOf(WorkflowDraftStatus.Approved, WorkflowDraftStatus.Verified) &&
+        skill != null && !recordingState.active && runningSkillId == null
     val actionLabel = when {
         thisRecording -> "结束演示"
         anotherRecording -> "其他 Skill 演示中"
+        thisRunning -> "运行中"
+        anotherRunning -> "其他 Skill 运行中"
         draft.status == WorkflowDraftStatus.Compiling -> "云端理解中"
         canApprove -> "批准 Skill"
         draft.status == WorkflowDraftStatus.ReadyForReview -> "等待完整草稿"
+        canRun -> "运行 Skill"
         draft.status == WorkflowDraftStatus.Approved -> "已批准"
         draft.status == WorkflowDraftStatus.Verified -> "已验证"
         canStart -> "开始视觉演示"
@@ -734,7 +751,7 @@ private fun SkillDraftCard(
     FrostInfoGlassPanel(
         radius = 18f,
         backdropAlpha = 1f,
-        frostAlpha = if (selected || thisRecording) 0.088f else 0.072f,
+        frostAlpha = if (selected || thisRecording || thisRunning) 0.088f else 0.072f,
         dimAlpha = 0f,
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -743,7 +760,7 @@ private fun SkillDraftCard(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
                 .background(
-                    if (selected || thisRecording) OperationLearningViolet.copy(alpha = 0.075f)
+                    if (selected || thisRecording || thisRunning) OperationLearningViolet.copy(alpha = 0.075f)
                     else Color(0xFF11163D).copy(alpha = 0.20f),
                 )
                 .padding(horizontal = 16.dp, vertical = 16.dp),
@@ -763,30 +780,54 @@ private fun SkillDraftCard(
             }
 
             if (selected && skill != null) {
-                SkillUnderstandingPanel(skill)
+                SkillUnderstandingPanel(
+                    skill = skill,
+                    inputValues = replayInputValues,
+                    editableInputs = draft.status in setOf(WorkflowDraftStatus.Approved, WorkflowDraftStatus.Verified) && !thisRunning,
+                    onInputChange = onReplayInputChange,
+                )
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OperationLearningActionButton(state, if (selected) "已展开" else "查看", Modifier.weight(0.28f), !recordingState.active, onClick = onSelect)
+                OperationLearningActionButton(
+                    state,
+                    if (selected) "已展开" else "查看",
+                    Modifier.weight(0.28f),
+                    !recordingState.active && runningSkillId == null,
+                    onClick = onSelect,
+                )
                 OperationLearningActionButton(
                     state = state,
                     label = actionLabel,
                     modifier = Modifier.weight(0.50f),
-                    enabled = thisRecording || canStart || canApprove,
+                    enabled = thisRecording || canStart || canApprove || canRun,
                     onClick = when {
                         thisRecording -> onFinishRecording
                         canApprove -> onApproveSkill
+                        canRun -> onRunSkill
                         else -> onStartRecording
                     },
                 )
-                OperationLearningActionButton(state, "删除", Modifier.weight(0.22f), !recordingState.active, danger = true, onClick = onDelete)
+                OperationLearningActionButton(
+                    state,
+                    "删除",
+                    Modifier.weight(0.22f),
+                    !recordingState.active && runningSkillId == null,
+                    danger = true,
+                    onClick = onDelete,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun SkillUnderstandingPanel(skill: LearnedVisualSkill) {
+private fun SkillUnderstandingPanel(
+    skill: LearnedVisualSkill,
+    inputValues: Map<String, String>,
+    editableInputs: Boolean,
+    onInputChange: (String, String) -> Unit,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -802,14 +843,6 @@ private fun SkillUnderstandingPanel(skill: LearnedVisualSkill) {
             fontSize = 11.sp,
             lineHeight = 16.sp,
         )
-        if (skill.inputs.isNotEmpty()) {
-            Text(
-                text = "运行输入：${skill.inputs.joinToString { it.label }}",
-                color = Color.White.copy(alpha = 0.54f),
-                fontSize = 10.5.sp,
-                lineHeight = 15.sp,
-            )
-        }
         skill.operatingPrinciples.take(3).forEach { principle ->
             Text("• $principle", color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp, lineHeight = 15.sp)
         }
@@ -818,6 +851,38 @@ private fun SkillUnderstandingPanel(skill: LearnedVisualSkill) {
         }
         if (skill.safetyRules.isNotEmpty()) {
             Text("边界：${skill.safetyRules.first()}", color = OperationLearningDanger.copy(alpha = 0.64f), fontSize = 10.5.sp, lineHeight = 15.sp)
+        }
+        if (skill.inputs.isNotEmpty()) {
+            Text(
+                text = if (editableInputs) "本次运行输入" else "云端识别的输入",
+                color = Color.White.copy(alpha = 0.74f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Black,
+            )
+            skill.inputs.forEach { input ->
+                if (input.sensitive) {
+                    Text(
+                        text = "${input.label}：运行时由你亲自完成，不保存也不发送给云端。",
+                        color = OperationLearningDanger.copy(alpha = 0.62f),
+                        fontSize = 10.5.sp,
+                        lineHeight = 15.sp,
+                    )
+                } else if (editableInputs) {
+                    OperationLearningTextField(
+                        value = inputValues[input.key].orEmpty(),
+                        onValueChange = { value -> onInputChange(input.key, value) },
+                        label = if (input.required) "${input.label}（必填）" else input.label,
+                        singleLine = true,
+                    )
+                } else {
+                    Text(
+                        text = "• ${input.label}${input.description.takeIf(String::isNotBlank)?.let { "：$it" }.orEmpty()}",
+                        color = Color.White.copy(alpha = 0.48f),
+                        fontSize = 10.5.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
         }
     }
 }
