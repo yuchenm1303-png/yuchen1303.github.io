@@ -12,7 +12,7 @@ import org.junit.Test
 
 class AiWorkerClientTest {
     @Test
-    fun chatPayloadIncludesStickerExpressionPreferenceContract() {
+    fun chatPayloadIncludesUnifiedClientToolContract() {
         val payload = AiWorkerClient().buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -26,6 +26,7 @@ class AiWorkerClientTest {
         )
 
         val preferences = payload.getJSONObject("chatExpressionPreferences")
+        val protocol = payload.getJSONObject("commandProtocol")
         assertEquals(
             "ai_ledger_chat_expression_preferences_v1",
             preferences.getString("schema"),
@@ -35,46 +36,64 @@ class AiWorkerClientTest {
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-command-chat-v9-intent-gated",
+            "compose-native-unified-client-tools-v1",
             payload.getString("clientVersion"),
         )
+        assertEquals("cloud_final_model_v1", payload.getString("autoRouteAuthority"))
+        assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
+        assertEquals("android_local_transaction_executor", protocol.getString("executionOwner"))
+        assertEquals(AI_WORKER_CLIENT_TOOL_CALL_SCHEMA, protocol.getString("clientToolCallSchema"))
+        assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
+        assertTrue(protocol.getJSONArray("supportedAgentActions").length() > 0)
+        assertTrue(protocol.getJSONArray("supportedDeviceToolSteps").length() > 0)
+        assertTrue(protocol.getJSONArray("supportedDeviceToolSteps").toString().contains("ledger_add_record"))
         assertTrue(payload.getString("requestId").isNotBlank())
         assertTrue(payload.has("memoryMode"))
     }
 
     @Test
-    fun ordinaryQuestionDoesNotAttachDevicePlannerContext() {
+    fun ordinaryQuestionDeclaresCapabilitiesWithoutLocalIntentRouting() {
         val payload = payloadFor("解释一下三相异步电动机的工作原理")
         val probe = payload.getJSONObject("normalChatDeviceToolProbe")
         val protocol = payload.getJSONObject("commandProtocol")
 
         assertFalse(probe.getBoolean("enabled"))
-        assertFalse(probe.getBoolean("installedAppsIncluded"))
-        assertEquals(0, probe.getJSONArray("supportedDeviceToolSteps").length())
-        assertEquals(0, probe.getJSONArray("installedApps").length())
-        assertEquals(0, protocol.getJSONArray("supportedAgentActions").length())
-        assertFalse(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
-    }
-
-    @Test
-    fun explicitAppLaunchEnablesPlannerAndAppInventoryContract() {
-        val payload = payloadFor("请帮我打开微信")
-        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
-
-        assertTrue(probe.getBoolean("enabled"))
-        assertTrue(probe.getBoolean("installedAppsIncluded"))
+        assertEquals("cloud_final_chat_model", probe.getString("decisionOwner"))
         assertTrue(probe.getJSONArray("supportedDeviceToolSteps").length() > 0)
+        assertTrue(protocol.getJSONArray("supportedAgentActions").length() > 0)
         assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
+        assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeClientToolCall"))
     }
 
     @Test
-    fun systemActionDoesNotAttachInstalledAppInventory() {
-        val payload = payloadFor("请帮我打开蓝牙")
-        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
+    fun appLaunchAndOrdinaryQuestionUseTheSameCapabilityDeclaration() {
+        val ordinary = payloadFor("解释一下电动机")
+        val appLaunch = payloadFor("请帮我打开微信")
 
-        assertTrue(probe.getBoolean("enabled"))
-        assertFalse(probe.getBoolean("installedAppsIncluded"))
-        assertEquals(0, probe.getJSONArray("installedApps").length())
+        assertFalse(appLaunch.getJSONObject("normalChatDeviceToolProbe").getBoolean("enabled"))
+        assertEquals(
+            ordinary.getJSONObject("commandProtocol").getJSONArray("supportedAgentActions").toString(),
+            appLaunch.getJSONObject("commandProtocol").getJSONArray("supportedAgentActions").toString(),
+        )
+        assertEquals(
+            ordinary.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
+            appLaunch.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
+        )
+    }
+
+    @Test
+    fun autoModelDoesNotUseLocalNaturalLanguageRouting() {
+        val explanation = payloadFor("请解释这个概念", ChatModel.Auto)
+        val coding = payloadFor("请分析这段复杂代码", ChatModel.Auto)
+
+        assertEquals("auto", explanation.getString("modelPreference"))
+        assertEquals("auto", coding.getString("modelPreference"))
+        assertEquals("cloud_final_model_auto", explanation.getString("autoRouteReason"))
+        assertEquals("cloud_final_model_auto", coding.getString("autoRouteReason"))
+        assertEquals(
+            explanation.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
+            coding.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
+        )
     }
 
     @Test
@@ -163,7 +182,7 @@ class AiWorkerClientTest {
         assertNull(headers["Authorization"])
     }
 
-    private fun payloadFor(text: String) = AiWorkerClient(
+    private fun payloadFor(text: String, model: ChatModel = ChatModel.Kimi) = AiWorkerClient(
         AiWorkerConfig(
             clientId = "test-device",
             clientAuthToken = "app-token",
@@ -177,7 +196,7 @@ class AiWorkerClientTest {
                 role = MessageRole.User,
             ),
         ),
-        modelPreference = ChatModel.Kimi,
+        modelPreference = model,
         onlineEnabled = false,
     )
 }
