@@ -23,6 +23,7 @@ REALTIME_PATH = "/api/stock/a-share/realtime"
 DETAIL_PATH = "/api/stock/a-share/detail"
 CRAWL_DETAIL_PATH = "/api/stock/crawl/a-share/detail"
 REALTIME_AUCTION_GRACE_SECONDS = 0.045
+REALTIME_TICK_WINDOW = 40
 DEFAULT_PREWARM_CODE = "600396"
 
 if not any(getattr(item, "cls", None) is GZipMiddleware for item in app.user_middleware):
@@ -107,9 +108,9 @@ def _delta_from_cursor(
         return points
     for index in range(len(points) - 1, -1, -1):
         if key_fn(points[index]) == cursor:
-            return points[index:]
+            return points[index + 1 :]
     cursor_time = _cursor_time(cursor)
-    return [point for point in points if _cursor_time(key_fn(point)) >= cursor_time]
+    return [point for point in points if _cursor_time(key_fn(point)) > cursor_time]
 
 
 def _point_phase(point: dict[str, Any]) -> str:
@@ -195,16 +196,20 @@ def _apply_incremental_payload(
 ) -> dict[str, Any]:
     _normalize_minute_contract(payload)
     minute_points = list(payload.get("minutePoints") or [])
-    trade_ticks = list(payload.get("tradeTicks") or [])
+    trade_ticks = list(payload.get("tradeTicks") or [])[-REALTIME_TICK_WINDOW:]
     minute_cursor = _latest_cursor(minute_points, _minute_key)
     trade_cursor = _latest_cursor(trade_ticks, _trade_key)
+    payload["tradeTicks"] = trade_ticks
+    payload.pop("newTradeTicks", None)
     payload["minuteCursor"] = minute_cursor
     payload["tradeCursor"] = trade_cursor
+    payload["ticksAreSnapshot"] = True
+    payload["tradeTickWindowSize"] = len(trade_ticks)
+    payload["tradeTickWindowLimit"] = REALTIME_TICK_WINDOW
 
     if not compact or (not since_minute_key and not since_trade_key):
         payload["isDelta"] = False
         payload["minuteIsSnapshot"] = True
-        payload["ticksAreSnapshot"] = True
         payload["payloadBytes"] = len(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         )
@@ -237,17 +242,6 @@ def _apply_incremental_payload(
             payload["auctionPointsIncluded"] = True
     else:
         payload["minuteIsSnapshot"] = True
-
-    if since_trade_key:
-        payload.pop("tradeTicks", None)
-        payload["newTradeTicks"] = _delta_from_cursor(
-            trade_ticks,
-            since_trade_key,
-            _trade_key,
-        )
-        payload["ticksAreSnapshot"] = False
-    else:
-        payload["ticksAreSnapshot"] = True
 
     if minute_reset:
         payload["minuteReset"] = True
@@ -298,7 +292,7 @@ def _cached_ticks(security: dict[str, str]) -> tuple[list[dict[str, Any]], detai
     if age > max_age:
         return [], None
     result = _cache_result_from_entry(entry, age_seconds=age, stale=market_open and age > 1.0)
-    return list(entry.value or [])[-20:], result
+    return list(entry.value or [])[-REALTIME_TICK_WINDOW:], result
 
 
 def _ensure_ticks_refresh(security: dict[str, str], cached: detail.CacheResult | None) -> None:
