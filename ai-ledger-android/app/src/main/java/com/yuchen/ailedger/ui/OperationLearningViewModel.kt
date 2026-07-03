@@ -17,6 +17,7 @@ import com.yuchen.ailedger.model.WorkflowExecutionMode
 import com.yuchen.ailedger.service.OperationLearningRecordingCoordinator
 import com.yuchen.ailedger.service.OperationRecordingStopReason
 import com.yuchen.ailedger.service.OperationSkillLearningCoordinator
+import com.yuchen.ailedger.service.OperationSkillReplayCoordinator
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationIssue
 import com.yuchen.ailedger.service.WorkflowValidationStage
@@ -28,6 +29,8 @@ import kotlinx.coroutines.withContext
 data class OperationLearningUiState(
     val drafts: List<LearnedWorkflowDraft> = emptyList(),
     val skillArtifacts: Map<String, LearnedVisualSkill> = emptyMap(),
+    val replayInputValues: Map<String, Map<String, String>> = emptyMap(),
+    val runningSkillId: String? = null,
     val loading: Boolean = false,
     val editorVisible: Boolean = false,
     val titleInput: String = "",
@@ -72,6 +75,9 @@ class OperationLearningViewModel : ViewModel() {
                     loading = false,
                     selectedDraftId = uiState.selectedDraftId?.takeIf { selected ->
                         drafts.any { it.id == selected }
+                    },
+                    replayInputValues = uiState.replayInputValues.filterKeys { id ->
+                        drafts.any { it.id == id }
                     },
                 )
                 drafts.firstOrNull { draft ->
@@ -149,6 +155,20 @@ class OperationLearningViewModel : ViewModel() {
         uiState = uiState.copy(
             packageNameInput = value.trim().take(160),
             editorIssues = emptyList(),
+        )
+    }
+
+    fun updateReplayInput(
+        draftId: String,
+        key: String,
+        value: String,
+    ) {
+        val current = uiState.replayInputValues[draftId].orEmpty()
+        uiState = uiState.copy(
+            replayInputValues = uiState.replayInputValues + (
+                draftId to (current + (key to value.take(500)))
+            ),
+            notice = null,
         )
     }
 
@@ -283,19 +303,55 @@ class OperationLearningViewModel : ViewModel() {
         }
     }
 
+    fun runSkill(draftId: String) {
+        val activeContext = context
+        val draft = uiState.drafts.firstOrNull { it.id == draftId }
+        val skill = uiState.skillArtifacts[draftId]
+        if (activeContext == null || draft == null || skill == null) {
+            uiState = uiState.copy(notice = "完整 Skill 尚未加载，暂时不能运行。")
+            return
+        }
+        if (uiState.runningSkillId != null || OperationLearningRecordingCoordinator.state.value.active) {
+            uiState = uiState.copy(notice = "请先结束当前演示或正在运行的 Skill。")
+            return
+        }
+        uiState = uiState.copy(
+            runningSkillId = draftId,
+            notice = "正在启动视觉 Skill…",
+        )
+        viewModelScope.launch {
+            val outcome = OperationSkillReplayCoordinator.run(
+                context = activeContext,
+                draft = draft,
+                skill = skill,
+                inputValues = uiState.replayInputValues[draftId].orEmpty(),
+            )
+            uiState = uiState.copy(
+                runningSkillId = null,
+                notice = outcome.message,
+            )
+        }
+    }
+
     fun deleteDraft(draftId: String) {
         val recordingWorkflowId = OperationLearningRecordingCoordinator.state.value.workflowId
         if (OperationLearningRecordingCoordinator.state.value.active && recordingWorkflowId == draftId) {
             uiState = uiState.copy(notice = "请先结束或取消当前视觉演示，再删除 Skill。")
             return
         }
+        if (uiState.runningSkillId == draftId) {
+            uiState = uiState.copy(notice = "当前 Skill 正在运行，请先停止任务。")
+            return
+        }
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
         val previousDrafts = uiState.drafts
         val previousSkills = uiState.skillArtifacts
+        val previousInputs = uiState.replayInputValues
         val previousSelection = uiState.selectedDraftId
         uiState = uiState.copy(
             drafts = previousDrafts.filterNot { it.id == draftId },
             skillArtifacts = previousSkills - draftId,
+            replayInputValues = previousInputs - draftId,
             selectedDraftId = previousSelection.takeUnless { it == draftId },
             notice = "已删除 Skill“${draft.title}”。",
         )
@@ -309,6 +365,7 @@ class OperationLearningViewModel : ViewModel() {
                     uiState = uiState.copy(
                         drafts = previousDrafts,
                         skillArtifacts = previousSkills,
+                        replayInputValues = previousInputs,
                         selectedDraftId = previousSelection,
                         notice = "删除失败，Skill 已恢复。",
                     )
