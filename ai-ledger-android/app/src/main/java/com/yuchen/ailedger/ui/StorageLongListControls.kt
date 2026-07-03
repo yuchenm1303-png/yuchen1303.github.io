@@ -53,13 +53,15 @@ internal fun StorageLongListControls(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        if (canFold) {
-            StorageLongListAction(
-                text = if (expanded) "收起列表" else "展开全部 $totalCount 项",
-                tone = tone,
-                emphasized = expanded,
-                onClick = onToggleExpanded,
-            )
+        onToggleExpanded?.let { action ->
+            if (totalCount > previewCount) {
+                StorageLongListAction(
+                    text = if (expanded) "收起列表" else "展开全部 $totalCount 项",
+                    tone = tone,
+                    emphasized = expanded,
+                    onClick = action,
+                )
+            }
         }
         onSelectAll?.let { action ->
             StorageLongListAction(
@@ -69,13 +71,15 @@ internal fun StorageLongListControls(
                 onClick = action,
             )
         }
-        if (selectedCount > 0 && onClearSelection != null) {
-            StorageLongListAction(
-                text = "清除当前选择 $selectedCount",
-                tone = Color.White,
-                emphasized = false,
-                onClick = onClearSelection,
-            )
+        onClearSelection?.let { action ->
+            if (selectedCount > 0) {
+                StorageLongListAction(
+                    text = "清除当前选择 $selectedCount",
+                    tone = Color.White,
+                    emphasized = false,
+                    onClick = action,
+                )
+            }
         }
     }
 }
