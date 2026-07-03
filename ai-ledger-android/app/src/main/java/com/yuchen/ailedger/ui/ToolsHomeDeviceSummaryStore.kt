@@ -15,6 +15,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +56,8 @@ internal object ToolsHomeDeviceSummaryStore {
         if (!started.compareAndSet(false, true)) return
         val appContext = context.applicationContext
         scope.launch {
+            // 先让功能页玻璃、入场动画和轻量本地摘要稳定，再访问 PackageManager。
+            delay(DEVICE_SUMMARY_SETTLE_MS)
             val packageManager = appContext.packageManager
             val applications = installedApplications(packageManager)
             // 与原首页口径保持一致：只排除 FLAG_SYSTEM，更新后的系统应用仍沿用原计数语义。
@@ -127,6 +130,7 @@ internal object ToolsHomeDeviceSummaryStore {
             .take(PREVIEW_ICON_COUNT)
     }
 
+    private const val DEVICE_SUMMARY_SETTLE_MS = 480L
     private const val PREVIEW_ICON_COUNT = 4
     private const val PREVIEW_ICON_SIZE_PX = 128
     private val PREVIEW_PRIORITY_PACKAGES = listOf(
