@@ -28,12 +28,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -135,8 +137,6 @@ internal fun MemoryQuickPanelButtonHost(modifier: Modifier = Modifier) {
 
 @Composable
 internal fun MemoryQuickPanelSameWindowOverlayHost() {
-    if (!MemoryQuickOverlayState.expanded) return
-
     val context = LocalContext.current.applicationContext
     val assistantViewModel: AssistantViewModel = viewModel()
     val authRepository = remember(context) { SupabaseAuthRepository.get(context) }
@@ -148,9 +148,16 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
     val previewItems = remember(memoryState.memories, memoryState.memoryEnabled, customState) {
         buildPreviewItems(memoryState, customState)
     }
+    var panelPrecomposed by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        withFrameNanos { }
+        panelPrecomposed = true
+    }
 
     AnchoredQuickPanel(
-        visible = true,
+        visible = MemoryQuickOverlayState.expanded,
         anchorBounds = MemoryQuickOverlayState.anchorBounds,
         desiredWidth = MemoryPanelWidth,
         desiredHeight = MemoryPanelHeight,
@@ -164,6 +171,7 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
         cornerRadius = 25.dp,
         tailHeight = MemoryTailHeight,
         tailHalfWidth = MemoryTailHalfWidth,
+        precomposeWhenHidden = panelPrecomposed,
     ) { layout ->
         MemoryPanelContent(
             accountState = accountState,
