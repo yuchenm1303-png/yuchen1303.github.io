@@ -240,29 +240,48 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             )
             try {
                 val result = withContext(Dispatchers.IO) {
-                    persistenceMutex.withLock {
-                        val localRecords = ledgerStore.loadRecords()
-                        val deletedIds = ledgerStore.loadDeletedIds()
-                        if (deletedIds.isNotEmpty()) ledgerClient.deleteRecords(session, deletedIds)
-                        val remoteRecords = ledgerClient.fetchRecords(session).filterNot { it.id in deletedIds }
+                    val deletedIds = persistenceMutex.withLock {
+                        ledgerStore.loadDeletedIds()
+                    }
+                    if (deletedIds.isNotEmpty()) {
+                        ledgerClient.deleteRecords(session, deletedIds)
+                    }
+                    val remoteRecords = ledgerClient.fetchRecords(session)
+
+                    val merged = persistenceMutex.withLock {
+                        val latestLocalRecords = ledgerStore.loadRecords()
+                        val latestDeletedIds = ledgerStore.loadDeletedIds()
                         val mergedMap = LinkedHashMap<String, LedgerRecord>()
-                        remoteRecords.forEach { mergedMap[it.id] = it }
-                        localRecords.forEach { mergedMap[it.id] = it }
-                        val merged = mergedMap.values.sortedWith(
+                        remoteRecords
+                            .filterNot { it.id in latestDeletedIds }
+                            .forEach { mergedMap[it.id] = it }
+                        latestLocalRecords.forEach { mergedMap[it.id] = it }
+                        val next = mergedMap.values.sortedWith(
                             compareByDescending<LedgerRecord> { LedgerStore.normalizeDate(it.dateLabel) }
                                 .thenByDescending { it.id }
                         )
-                        ledgerStore.saveRecords(merged)
-                        if (merged.isNotEmpty()) ledgerClient.upsertRecords(session, merged)
-
-                        val localBudget = ledgerStore.loadBudget()
-                        val remoteBudget = ledgerClient.fetchBudget(session)
-                        val finalBudget = if (!ledgerStore.hasSavedBudget() && remoteBudget != null) remoteBudget else localBudget
-                        ledgerStore.saveBudget(finalBudget)
-                        if (remoteBudget == null || ledgerStore.hasSavedBudget()) ledgerClient.upsertBudget(session, finalBudget)
-                        if (deletedIds.isNotEmpty()) ledgerStore.clearDeletedIds(deletedIds)
-                        merged to finalBudget
+                        ledgerStore.saveRecords(next)
+                        if (deletedIds.isNotEmpty()) {
+                            ledgerStore.clearDeletedIds(deletedIds)
+                        }
+                        next
                     }
+                    if (merged.isNotEmpty()) {
+                        ledgerClient.upsertRecords(session, merged)
+                    }
+
+                    val remoteBudget = ledgerClient.fetchBudget(session)
+                    val budgetState = persistenceMutex.withLock {
+                        val localBudget = ledgerStore.loadBudget()
+                        val hadSavedBudget = ledgerStore.hasSavedBudget()
+                        val finalBudget = if (!hadSavedBudget && remoteBudget != null) remoteBudget else localBudget
+                        ledgerStore.saveBudget(finalBudget)
+                        finalBudget to hadSavedBudget
+                    }
+                    if (remoteBudget == null || budgetState.second) {
+                        ledgerClient.upsertBudget(session, budgetState.first)
+                    }
+                    merged to budgetState.first
                 }
                 state = state.copy(
                     records = result.first,
