@@ -2,7 +2,6 @@ package com.yuchen.ailedger.model
 
 import androidx.compose.runtime.Immutable
 
-/** Token 数量的来源。Provider 表示云端返回的真实 usage，Estimated 表示本地保守估算。 */
 enum class AgentTokenAccuracy {
     Provider,
     Estimated,
@@ -17,15 +16,12 @@ data class AgentTokenUsage(
     val totalTokens: Long = 0L,
     val accuracy: AgentTokenAccuracy = AgentTokenAccuracy.Estimated,
 ) {
-    /**
-     * reasoningTokens 在多数供应商协议中已包含于 outputTokens，因此不能再次相加。
-     * 仅当供应商没有返回 outputTokens 时，才用 reasoningTokens 补足输出侧数量。
-     */
     val normalizedTotal: Long
         get() {
             val input = inputTokens.coerceAtLeast(0L)
             val output = maxOf(outputTokens.coerceAtLeast(0L), reasoningTokens.coerceAtLeast(0L))
-            return totalTokens.coerceAtLeast(input + output)
+            val componentTotal = if (Long.MAX_VALUE - input < output) Long.MAX_VALUE else input + output
+            return componentTotal.coerceAtLeast(totalTokens.coerceAtLeast(0L))
         }
 
     val hasUsage: Boolean get() = normalizedTotal > 0L
@@ -40,12 +36,15 @@ data class AgentDailyActivity(
     val chatFailures: Long,
     val agentTasks: Long,
     val completedTasks: Long,
+    val autonomousCompletedTasks: Long,
+    val assistedCompletedTasks: Long,
     val failedTasks: Long,
     val pausedTasks: Long,
     val cancelledTasks: Long,
     val budgetExceededTasks: Long,
     val modelCalls: Long,
     val modelFailures: Long,
+    val agentModelTurns: Long,
     val inputTokens: Long,
     val outputTokens: Long,
     val reasoningTokens: Long,
@@ -111,7 +110,13 @@ data class AgentTaskAnalytics(
     val takeoverResumes: Long,
     val appUsage: Map<String, Long>,
     val actionUsage: Map<String, Long>,
-)
+) {
+    val interventionCount: Long
+        get() = confirmationRequests + userInputRequests + userTakeovers
+
+    val completedAutonomously: Boolean
+        get() = status == "completed" && interventionCount == 0L
+}
 
 @Immutable
 data class AgentModelAnalytics(
@@ -145,7 +150,6 @@ data class AgentCapabilityAnalytics(
     val lastUsedAtMillis: Long,
 )
 
-/** 操作学习形成的长期 Skill 资产，不与一次性工具调用混为一类。 */
 @Immutable
 data class AgentSkillInventory(
     val totalSkills: Long = 0L,
@@ -173,8 +177,12 @@ data class AgentAnalyticsTotals(
     val chatCalls: Long = 0L,
     val agentTasks: Long = 0L,
     val completedTasks: Long = 0L,
+    val autonomousCompletedTasks: Long = 0L,
+    val assistedCompletedTasks: Long = 0L,
     val taskSuccessRate: Float = 0f,
+    val autonomousCompletionRate: Float = 0f,
     val executedActions: Long = 0L,
+    val agentModelTurns: Long = 0L,
     val modelCalls: Long = 0L,
     val totalTaskDurationMs: Long = 0L,
     val longestTaskDurationMs: Long = 0L,
