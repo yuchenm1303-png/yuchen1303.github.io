@@ -2,7 +2,6 @@ package com.yuchen.ailedger.service
 
 import android.os.PowerManager
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,7 +12,6 @@ class StorageProductizationPolicyTest {
     @Test
     fun unusedDaysPrefersLastUsedTime() {
         val now = 200L * dayMs
-
         assertEquals(
             120,
             StorageProductizationPolicy.unusedDays(
@@ -27,7 +25,6 @@ class StorageProductizationPolicyTest {
     @Test
     fun unusedDaysFallsBackToInstallTimeWhenSystemHasNoUsageEvent() {
         val now = 200L * dayMs
-
         assertEquals(
             100,
             StorageProductizationPolicy.unusedDays(
@@ -40,8 +37,8 @@ class StorageProductizationPolicyTest {
     }
 
     @Test
-    fun lowBatteryBlocksHeavyAnalysisUnlessCharging() {
-        val blocked = StorageProductizationPolicy.heavyWorkAllowed(
+    fun lowBatteryRemainsInformational() {
+        val lowBattery = StorageProductizationPolicy.heavyWorkAllowed(
             batteryPercent = 19,
             charging = false,
             thermalStatus = PowerManager.THERMAL_STATUS_NONE,
@@ -51,21 +48,21 @@ class StorageProductizationPolicyTest {
             charging = true,
             thermalStatus = PowerManager.THERMAL_STATUS_NONE,
         )
-
-        assertFalse(blocked.first)
+        assertTrue(lowBattery.first)
+        assertTrue(lowBattery.second.contains("完整分析"))
         assertTrue(charging.first)
     }
 
     @Test
-    fun severeThermalStatusAlwaysBlocksAnalysis() {
+    fun severeThermalStatusRemainsInformational() {
         val result = StorageProductizationPolicy.heavyWorkAllowed(
             batteryPercent = 90,
             charging = true,
             thermalStatus = PowerManager.THERMAL_STATUS_SEVERE,
         )
-
-        assertFalse(result.first)
+        assertTrue(result.first)
         assertTrue(result.second.contains("温度"))
+        assertTrue(result.second.contains("继续执行"))
     }
 
     @Test
