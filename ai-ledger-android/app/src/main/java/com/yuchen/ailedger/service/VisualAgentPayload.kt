@@ -39,6 +39,7 @@ internal fun buildLeanVisualAgentPayload(
     val inventoryHash = apps.inventoryHash()
     val workSurface = runtime.guiPlusEligible && runtime.verifiedTargetPackage.isNotBlank()
     val visual = snapshot.visual?.takeIf { it.hasImage }
+    val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
 
     return JSONObject().apply {
         put("action", "visual_agent_step")
