@@ -73,17 +73,14 @@ internal class OpenGLShellBatchItem(
             }
             return
         }
-
         val local = parent!!.localPositionOf(item!!, Offset.Zero)
         val nextWidth = item.size.width.toFloat()
         val nextHeight = item.size.height.toFloat()
-        val changed =
-            !attached ||
-                abs(localLeft - local.x) > BATCH_FRAME_EPSILON_PX ||
-                abs(localTop - local.y) > BATCH_FRAME_EPSILON_PX ||
-                abs(width - nextWidth) > BATCH_FRAME_EPSILON_PX ||
-                abs(height - nextHeight) > BATCH_FRAME_EPSILON_PX
-
+        val changed = !attached ||
+            abs(localLeft - local.x) > BATCH_FRAME_EPSILON_PX ||
+            abs(localTop - local.y) > BATCH_FRAME_EPSILON_PX ||
+            abs(width - nextWidth) > BATCH_FRAME_EPSILON_PX ||
+            abs(height - nextHeight) > BATCH_FRAME_EPSILON_PX
         attached = true
         localLeft = local.x
         localTop = local.y
@@ -157,24 +154,15 @@ internal class OpenGLShellBatchState {
     }
 
     private fun bumpVersion() {
-        versionState.longValue =
-            if (versionState.longValue == Long.MAX_VALUE) 1L else versionState.longValue + 1L
+        versionState.longValue = if (versionState.longValue == Long.MAX_VALUE) 1L else versionState.longValue + 1L
     }
 }
 
-internal val LocalOpenGLShellBatchState =
-    staticCompositionLocalOf<OpenGLShellBatchState?> { null }
+internal val LocalOpenGLShellBatchState = staticCompositionLocalOf<OpenGLShellBatchState?> { null }
 
 @Composable
-internal fun rememberOpenGLShellBatchState(): OpenGLShellBatchState =
-    remember { OpenGLShellBatchState() }
+internal fun rememberOpenGLShellBatchState(): OpenGLShellBatchState = remember { OpenGLShellBatchState() }
 
-/**
- * 页面级唯一 TextureView / EGL / Shader / 纹理宿主。
- *
- * 批绘制只提交 low/medium/high 模糊金字塔。clear 参数暂时复用 medium Bitmap，确保
- * Shader 不再获得独立清晰背景；后续 Renderer 可安全把重复槽物理合并，不影响视觉验证。
- */
 @Composable
 internal fun NewOpenGLGlassBatchLayer(
     state: OpenGLShellBatchState,
@@ -184,16 +172,14 @@ internal fun NewOpenGLGlassBatchLayer(
     val items = state.snapshot()
     val backdrop = LocalBlurredBackdrop.current ?: return
     if (!backdrop.isReady || items.isEmpty()) return
-
     val baseBorder = LocalGlassBackdrop.current?.borderStyle ?: GlassBorderStyle()
     val styleOverride = LocalNewOpenGlGlassStyleOverride.current
-    val border = remember(baseBorder, styleOverride) {
-        styleOverride?.invoke(baseBorder) ?: baseBorder
-    }
+    val border = remember(baseBorder, styleOverride) { styleOverride?.invoke(baseBorder) ?: baseBorder }
     val backdropOrigin = LocalBackdropOrigin.current
     val frameTicker = LocalBackdropFrameTicker.current
     val density = LocalDensity.current
     val densityScale = density.density.coerceAtLeast(0.001f)
+    val clearBitmap = remember(backdrop.lensImage) { backdrop.lensImage.asAndroidBitmap() }
     val blurLowBitmap = remember(backdrop.blurLowImage) { backdrop.blurLowImage.asAndroidBitmap() }
     val blurMediumBitmap = remember(backdrop.blurMediumImage) { backdrop.blurMediumImage.asAndroidBitmap() }
     val blurHighBitmap = remember(backdrop.blurHighImage) { backdrop.blurHighImage.asAndroidBitmap() }
@@ -214,12 +200,7 @@ internal fun NewOpenGLGlassBatchLayer(
                     densityScale = densityScale,
                     borderStyle = border,
                 )
-                view.setBackdropTextures(
-                    blurMediumBitmap,
-                    blurLowBitmap,
-                    blurMediumBitmap,
-                    blurHighBitmap,
-                )
+                view.setBackdropTextures(clearBitmap, blurLowBitmap, blurMediumBitmap, blurHighBitmap)
                 view.setBackdropBlurAmount(backdrop.blurAmount)
             },
         )
