@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import android.os.Process
+import android.os.SystemClock
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
@@ -20,6 +21,8 @@ internal object AssistantMemoryUsageBridge {
     )
 
     private val responseForCurrentThread = ThreadLocal<CapturedResponse?>()
+    private val analyticsResponseForCurrentThread = ThreadLocal<JSONObject?>()
+    private val analyticsAttemptStartedAt = ThreadLocal<Long?>()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(
             {
@@ -33,9 +36,13 @@ internal object AssistantMemoryUsageBridge {
     /** 每个真实网络尝试独立聚合，备用端点不能继承上一端点的半截回执。 */
     fun beginTransportAttempt() {
         responseForCurrentThread.remove()
+        analyticsResponseForCurrentThread.remove()
+        analyticsAttemptStartedAt.set(SystemClock.elapsedRealtime())
     }
 
     fun captureResponseJson(data: JSONObject) {
+        captureAnalyticsResponse(data)
+
         val requestContext = AssistantMemoryRequestContextRuntime.peekCurrentThread() ?: return
         val candidate = bestMemoryEnvelope(data) ?: return
         val current = responseForCurrentThread.get()
@@ -51,6 +58,8 @@ internal object AssistantMemoryUsageBridge {
     }
 
     fun recordSuccessfulPayload(payload: JSONObject): AssistantMemoryMutationReceipt? {
+        recordAnalyticsTransport(payload = payload, success = true)
+
         val requestContext = AssistantMemoryRequestContextRuntime.consumeCurrentThread()
         val captured = responseForCurrentThread.get()
         responseForCurrentThread.remove()
@@ -87,6 +96,8 @@ internal object AssistantMemoryUsageBridge {
     }
 
     fun recordFailedPayload(payload: JSONObject, error: Throwable) {
+        recordAnalyticsTransport(payload = payload, success = false)
+
         val requestContext = AssistantMemoryRequestContextRuntime.consumeCurrentThread()
         responseForCurrentThread.remove()
         val ticket = requestContext?.ticket ?: return
@@ -102,6 +113,31 @@ internal object AssistantMemoryUsageBridge {
                     failure = error,
                 )
             }
+        }
+    }
+
+    private fun captureAnalyticsResponse(data: JSONObject) {
+        val merged = analyticsResponseForCurrentThread.get()?.let { JSONObject(it.toString()) }
+            ?: JSONObject()
+        data.keys().forEach { key ->
+            merged.put(key, deepCopyMemoryEnvelopeValue(data.opt(key)))
+        }
+        analyticsResponseForCurrentThread.set(merged)
+    }
+
+    private fun recordAnalyticsTransport(payload: JSONObject, success: Boolean) {
+        val response = analyticsResponseForCurrentThread.get()
+        val startedAt = analyticsAttemptStartedAt.get()
+        analyticsResponseForCurrentThread.remove()
+        analyticsAttemptStartedAt.remove()
+        val durationMs = startedAt?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) } ?: 0L
+        runCatching {
+            AgentAnalyticsRuntime.recordChatTransport(
+                payload = JSONObject(payload.toString()),
+                response = response?.let { JSONObject(it.toString()) },
+                success = success,
+                durationMs = durationMs,
+            )
         }
     }
 
