@@ -1,9 +1,6 @@
 package com.yuchen.ailedger.ui
 
-import android.content.pm.ApplicationInfo
 import android.graphics.Bitmap
-import android.os.Environment
-import android.os.StatFs
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -70,14 +67,11 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.StockMinutePoint
 import com.yuchen.ailedger.model.ToolDestination
-import com.yuchen.ailedger.service.AppManagementRepository
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 
 const val STOCK_MARKET_TOOL_TITLE = "股票行情"
@@ -92,15 +86,6 @@ private enum class DashboardArtIcon {
     AppControl,
     OperationLearning,
 }
-
-private data class DeviceToolsSummary(
-    val loaded: Boolean = false,
-    val installedApps: Int = 0,
-    val userApps: Int = 0,
-    val appIcons: List<Bitmap> = emptyList(),
-    val usedBytes: Long = 0L,
-    val totalBytes: Long = 0L,
-)
 
 @Composable
 fun StockFirstToolsHomeScreen(
@@ -297,60 +282,12 @@ fun StockFirstToolsHomeScreen(
 }
 
 @Composable
-private fun rememberDeviceToolsSummary(active: Boolean): DeviceToolsSummary {
+private fun rememberDeviceToolsSummary(active: Boolean): ToolsHomeDeviceSummary {
     val context = LocalContext.current.applicationContext
-    val appRepository = remember(context) { AppManagementRepository(context) }
-    var summary by remember(context) { mutableStateOf(DeviceToolsSummary()) }
+    val summary by ToolsHomeDeviceSummaryStore.state.collectAsState()
 
-    LaunchedEffect(context, active, appRepository) {
-        if (!active || summary.loaded) return@LaunchedEffect
-        summary = withContext(Dispatchers.Default) {
-            val packageManager = context.packageManager
-            val applications = runCatching {
-                @Suppress("DEPRECATION")
-                packageManager.getInstalledApplications(0)
-            }.getOrDefault(emptyList())
-            val userApplications = applications.filter {
-                it.flags and ApplicationInfo.FLAG_SYSTEM == 0
-            }
-            val launchableUserApplications = userApplications
-                .filter { packageManager.getLaunchIntentForPackage(it.packageName) != null }
-                .sortedBy {
-                    runCatching {
-                        packageManager.getApplicationLabel(it).toString().lowercase(Locale.CHINA)
-                    }.getOrDefault(it.packageName.lowercase(Locale.CHINA))
-                }
-            val priorityPackages = listOf(
-                "com.tencent.mm",
-                "com.tencent.mobileqq",
-                "com.eg.android.AlipayGphone",
-                "com.ss.android.ugc.aweme",
-                "com.microsoft.emmx",
-                "com.android.chrome",
-            )
-            val priorityApplications = priorityPackages.mapNotNull { packageName ->
-                launchableUserApplications.firstOrNull { it.packageName == packageName }
-            }
-            val selectedApplications = (priorityApplications + launchableUserApplications)
-                .distinctBy { it.packageName }
-                .take(4)
-            val icons = selectedApplications.mapNotNull {
-                appRepository.loadIcon(it.packageName, 128)
-            }
-            val statFs = runCatching {
-                StatFs(Environment.getDataDirectory().absolutePath)
-            }.getOrNull()
-            val totalBytes = statFs?.totalBytes ?: 0L
-            val freeBytes = statFs?.availableBytes ?: 0L
-            DeviceToolsSummary(
-                loaded = true,
-                installedApps = applications.size,
-                userApps = userApplications.size,
-                appIcons = icons,
-                usedBytes = (totalBytes - freeBytes).coerceAtLeast(0L),
-                totalBytes = totalBytes,
-            )
-        }
+    LaunchedEffect(context, active) {
+        if (active) ToolsHomeDeviceSummaryStore.request(context)
     }
     return summary
 }
