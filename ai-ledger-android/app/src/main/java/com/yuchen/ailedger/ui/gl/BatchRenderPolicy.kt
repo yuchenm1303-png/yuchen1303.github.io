@@ -3,7 +3,7 @@ package com.yuchen.ailedger.ui.gl
 import android.graphics.Bitmap
 import com.yuchen.ailedger.model.GlassBorderStyle
 
-internal const val BATCH_RENDER_LIMIT = 8
+internal const val BATCH_RENDER_LIMIT = 24
 internal const val BATCH_RENDER_FRAME_FLOATS = 12
 internal const val BATCH_FRAME_LEFT = 0
 internal const val BATCH_FRAME_TOP = 1
