@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import android.content.pm.ApplicationInfo
+import android.graphics.Bitmap
 import android.os.Environment
 import android.os.StatFs
 import androidx.compose.animation.AnimatedVisibility
@@ -14,6 +15,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -48,7 +51,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,6 +70,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.LedgerRecordType
 import com.yuchen.ailedger.model.StockMinutePoint
 import com.yuchen.ailedger.model.ToolDestination
+import com.yuchen.ailedger.service.AppManagementRepository
 import java.text.DecimalFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -85,6 +91,7 @@ private data class DeviceToolsSummary(
     val loaded: Boolean = false,
     val installedApps: Int = 0,
     val userApps: Int = 0,
+    val appIcons: List<Bitmap> = emptyList(),
     val usedBytes: Long = 0L,
     val totalBytes: Long = 0L,
 )
@@ -262,6 +269,7 @@ fun StockFirstToolsHomeScreen(
                             state = pageState,
                             installedApps = deviceSummary.installedApps,
                             userApps = deviceSummary.userApps,
+                            appIcons = deviceSummary.appIcons,
                             loaded = deviceSummary.loaded,
                             modifier = Modifier.weight(1f).height(148.dp),
                             onClick = { onOpenTool(ToolDestination.AppControl) },
@@ -295,15 +303,44 @@ fun StockFirstToolsHomeScreen(
 @Composable
 private fun rememberDeviceToolsSummary(active: Boolean): DeviceToolsSummary {
     val context = LocalContext.current.applicationContext
+    val appRepository = remember(context) { AppManagementRepository(context) }
     var summary by remember(context) { mutableStateOf(DeviceToolsSummary()) }
 
-    LaunchedEffect(context, active) {
+    LaunchedEffect(context, active, appRepository) {
         if (!active || summary.loaded) return@LaunchedEffect
         summary = withContext(Dispatchers.Default) {
+            val packageManager = context.packageManager
             val applications = runCatching {
                 @Suppress("DEPRECATION")
-                context.packageManager.getInstalledApplications(0)
+                packageManager.getInstalledApplications(0)
             }.getOrDefault(emptyList())
+            val userApplications = applications.filter {
+                it.flags and ApplicationInfo.FLAG_SYSTEM == 0
+            }
+            val launchableUserApplications = userApplications
+                .filter { packageManager.getLaunchIntentForPackage(it.packageName) != null }
+                .sortedBy {
+                    runCatching {
+                        packageManager.getApplicationLabel(it).toString().lowercase(Locale.CHINA)
+                    }.getOrDefault(it.packageName.lowercase(Locale.CHINA))
+                }
+            val priorityPackages = listOf(
+                "com.tencent.mm",
+                "com.tencent.mobileqq",
+                "com.eg.android.AlipayGphone",
+                "com.ss.android.ugc.aweme",
+                "com.microsoft.emmx",
+                "com.android.chrome",
+            )
+            val priorityApplications = priorityPackages.mapNotNull { packageName ->
+                launchableUserApplications.firstOrNull { it.packageName == packageName }
+            }
+            val selectedApplications = (priorityApplications + launchableUserApplications)
+                .distinctBy { it.packageName }
+                .take(4)
+            val icons = selectedApplications.mapNotNull { application ->
+                appRepository.loadIcon(application.packageName, sizePx = 128)
+            }
             val statFs = runCatching {
                 StatFs(Environment.getDataDirectory().absolutePath)
             }.getOrNull()
@@ -312,9 +349,8 @@ private fun rememberDeviceToolsSummary(active: Boolean): DeviceToolsSummary {
             DeviceToolsSummary(
                 loaded = true,
                 installedApps = applications.size,
-                userApps = applications.count {
-                    it.flags and ApplicationInfo.FLAG_SYSTEM == 0
-                },
+                userApps = userApplications.size,
+                appIcons = icons,
                 usedBytes = (totalBytes - freeBytes).coerceAtLeast(0L),
                 totalBytes = totalBytes,
             )
@@ -952,6 +988,7 @@ private fun AppControlSummaryCard(
     state: AssistantUiState,
     installedApps: Int,
     userApps: Int,
+    appIcons: List<Bitmap>,
     loaded: Boolean,
     modifier: Modifier,
     onClick: () -> Unit,
@@ -962,7 +999,7 @@ private fun AppControlSummaryCard(
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             DashboardCardHeader(symbol = "▦", title = "应用控制", tone = DashboardMint)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text(
                     if (loaded) "$installedApps 个应用" else "正在读取应用",
                     color = Color.White.copy(alpha = 0.94f),
@@ -981,32 +1018,48 @@ private fun AppControlSummaryCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    GenericAppDot("讯", Color(0xFF5AE58A))
-                    GenericAppDot("工", DashboardBlue)
-                    GenericAppDot("付", Color(0xFF62C6FF))
-                    GenericAppDot("••", Color.White.copy(alpha = 0.54f))
-                }
+                RealAppIconPreview(
+                    appIcons = appIcons,
+                    loading = !loaded,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun GenericAppDot(label: String, tone: Color) {
+private fun RealAppIconPreview(
+    appIcons: List<Bitmap>,
+    loading: Boolean,
+) {
+    val visibleCount = if (loading) 4 else appIcons.size.coerceAtMost(4)
     Box(
         modifier = Modifier
-            .size(27.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(tone.copy(alpha = 0.16f)),
-        contentAlignment = Alignment.Center,
+            .fillMaxWidth()
+            .height(40.dp),
+        contentAlignment = Alignment.CenterStart,
     ) {
-        Text(
-            label,
-            color = tone.copy(alpha = 0.94f),
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Black,
-        )
+        repeat(visibleCount) { index ->
+            val icon = appIcons.getOrNull(index)
+            val iconModifier = Modifier
+                .offset(x = (index * 29).dp)
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+            if (icon != null) {
+                Image(
+                    bitmap = icon.asImageBitmap(),
+                    contentDescription = null,
+                    modifier = iconModifier,
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(
+                    modifier = iconModifier.background(
+                        Color.White.copy(alpha = if (loading) 0.09f else 0.05f),
+                    ),
+                )
+            }
+        }
     }
 }
 
