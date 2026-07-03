@@ -55,6 +55,7 @@ class OperationLearningViewModel : ViewModel() {
         context?.let(::OperationSkillApprovalRepository)
     }
     private val retryingWorkflowIds = mutableSetOf<String>()
+    private val draftSaveJobs = mutableMapOf<String, Job>()
     private var draftsLoadJob: Job? = null
     private var fullDraftsLoaded = false
 
@@ -265,21 +266,34 @@ class OperationLearningViewModel : ViewModel() {
             packageNameInput = "",
             editorIssues = emptyList(),
             selectedDraftId = draft.id,
-            notice = "已创建 Skill 教学草稿，可以开始视觉演示。",
+            notice = "正在保存 Skill 教学草稿…",
         )
 
-        repository?.let { activeRepository ->
-            viewModelScope.launch {
-                runCatching { activeRepository.saveIntent(draft) }
-                    .onFailure {
-                        uiState = uiState.copy(
-                            drafts = uiState.drafts.filterNot { it.id == draft.id },
-                            selectedDraftId = uiState.selectedDraftId.takeUnless { it == draft.id },
-                            notice = "Skill 草稿未能保存到本机，请重新创建。",
-                        )
-                    }
-            }
+        val activeRepository = repository
+        if (activeRepository == null) {
+            uiState = uiState.copy(
+                drafts = uiState.drafts.filterNot { it.id == draft.id },
+                selectedDraftId = uiState.selectedDraftId.takeUnless { it == draft.id },
+                notice = "Skill 草稿未能保存到本机，请重新创建。",
+            )
+            return false
         }
+
+        val saveJob = viewModelScope.launch {
+            runCatching { activeRepository.saveIntent(draft) }
+                .onSuccess {
+                    uiState = uiState.copy(notice = "已创建 Skill 教学草稿，可以开始视觉演示。")
+                }
+                .onFailure {
+                    uiState = uiState.copy(
+                        drafts = uiState.drafts.filterNot { it.id == draft.id },
+                        selectedDraftId = uiState.selectedDraftId.takeUnless { it == draft.id },
+                        notice = "Skill 草稿未能保存到本机，请重新创建。",
+                    )
+                }
+            draftSaveJobs.remove(draft.id)
+        }
+        draftSaveJobs[draft.id] = saveJob
         return true
     }
 
@@ -298,28 +312,40 @@ class OperationLearningViewModel : ViewModel() {
     }
 
     fun startRecording(draftId: String) {
-        if (!ensureFullDraftsReady()) return
-        val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
         val activeContext = context
-        if (activeContext == null) {
-            uiState = uiState.copy(notice = "应用上下文尚未准备完成，请重新进入页面。")
-            return
-        }
-        if (draft.status != WorkflowDraftStatus.Intent) {
-            uiState = uiState.copy(notice = "当前 Skill 已进入后续阶段，不能覆盖原始演示。")
-            return
-        }
-        val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
-        if (!report.canProceed) {
-            uiState = uiState.copy(
-                selectedDraftId = draft.id,
-                notice = report.blockingIssues.firstOrNull()?.message ?: "Skill 尚未满足演示条件。",
-            )
+        val activeRepository = repository
+        val optimisticDraft = uiState.drafts.firstOrNull { it.id == draftId }
+        if (activeContext == null || activeRepository == null || optimisticDraft == null) {
+            uiState = uiState.copy(notice = "Skill 草稿尚未准备完成，请重新进入页面。")
             return
         }
 
-        uiState = uiState.copy(selectedDraftId = draft.id, notice = "正在启动视觉演示…")
+        uiState = uiState.copy(
+            selectedDraftId = draftId,
+            notice = "正在启动视觉演示…",
+        )
         viewModelScope.launch {
+            draftSaveJobs[draftId]?.join()
+            if (uiState.drafts.none { it.id == draftId }) return@launch
+
+            val draft = runCatching { activeRepository.loadDraft(draftId) }.getOrNull()
+            if (draft == null) {
+                uiState = uiState.copy(notice = "Skill 草稿仍未保存完成，请稍后再试。")
+                return@launch
+            }
+            if (draft.status != WorkflowDraftStatus.Intent) {
+                uiState = uiState.copy(notice = "当前 Skill 已进入后续阶段，不能覆盖原始演示。")
+                return@launch
+            }
+            val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
+            if (!report.canProceed) {
+                uiState = uiState.copy(
+                    selectedDraftId = draft.id,
+                    notice = report.blockingIssues.firstOrNull()?.message ?: "Skill 尚未满足演示条件。",
+                )
+                return@launch
+            }
+
             val result = OperationLearningRecordingCoordinator.start(activeContext, draft)
             uiState = uiState.copy(notice = result.message)
         }
