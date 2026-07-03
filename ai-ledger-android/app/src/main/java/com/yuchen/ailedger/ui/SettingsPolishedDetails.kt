@@ -293,9 +293,9 @@ private fun GlassContent(
     ) {
         SettingsParameterSlider(
             title = "缓存分辨率",
-            description = "调节背景模糊缓存的有效分辨率；运行时上限受安全边界保护。",
-            value = backdrop.scale.coerceIn(0.18f, 0.72f),
-            valueRange = 0.18f..0.72f,
+            description = "调节背景模糊缓存的有效分辨率；范围与运行时安全边界完全一致。",
+            value = backdrop.scale.coerceIn(0.28f, 0.72f),
+            valueRange = 0.28f..0.72f,
             valueText = { "${it.settingsRoundedValue()}×" },
         ) { onBackdropChange(backdrop.copy(scale = it)) }
         SettingsParameterSlider(
@@ -332,9 +332,9 @@ private fun GlassContent(
         ) { onBackdropChange(backdrop.copy(contrast = it)) }
         SettingsParameterSlider(
             title = "背景饱和度",
-            description = "调节玻璃采样背景的综合色彩浓度。",
-            value = backdrop.saturation,
-            valueRange = 0f..2.2f,
+            description = "调节玻璃采样背景的综合色彩浓度；范围与纹理生成器一致。",
+            value = backdrop.saturation.coerceIn(0.3f, 1.8f),
+            valueRange = 0.3f..1.8f,
         ) { onBackdropChange(backdrop.copy(saturation = it)) }
     }
 
