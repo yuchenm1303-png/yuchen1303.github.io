@@ -15,6 +15,13 @@ internal data class VisualLoopState(
     var paused: Boolean = false,
     var completed: Boolean = false,
 ) {
+    private var lastAnalyticsTaskId: Long = 0L
+    private var lastAnalyticsModelTurns: Int = -1
+    private var lastAnalyticsExecutedActions: Int = -1
+    private var lastAnalyticsReobservations: Int = -1
+    private var lastAnalyticsRejectedPlans: Int = -1
+    private var lastAnalyticsExecutionFailures: Int = -1
+
     fun clearFinishCandidate() {
         pendingFinishPackage = ""
         pendingFinishFingerprint = ""
@@ -23,8 +30,28 @@ internal data class VisualLoopState(
     }
 
     fun syncAnalyticsSnapshot() {
+        val taskId = AgentRuntimeController.currentTaskId()
+        if (taskId <= 0L) return
+        if (
+            taskId == lastAnalyticsTaskId &&
+            modelTurns == lastAnalyticsModelTurns &&
+            executedActions == lastAnalyticsExecutedActions &&
+            reobservations == lastAnalyticsReobservations &&
+            rejectedPlans == lastAnalyticsRejectedPlans &&
+            executionFailures == lastAnalyticsExecutionFailures
+        ) {
+            return
+        }
+
+        lastAnalyticsTaskId = taskId
+        lastAnalyticsModelTurns = modelTurns
+        lastAnalyticsExecutedActions = executedActions
+        lastAnalyticsReobservations = reobservations
+        lastAnalyticsRejectedPlans = rejectedPlans
+        lastAnalyticsExecutionFailures = executionFailures
+
         AgentAnalyticsRuntime.updateVisualLoopMetrics(
-            taskId = AgentRuntimeController.currentTaskId(),
+            taskId = taskId,
             modelTurns = modelTurns,
             executedActions = executedActions,
             reobservations = reobservations,
