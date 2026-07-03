@@ -1,17 +1,21 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
-import com.yuchen.ailedger.data.OperationTraceStore
-import com.yuchen.ailedger.data.OperationTraceWriter
 import com.yuchen.ailedger.data.OperationWorkflowRepository
+import com.yuchen.ailedger.data.VisualDemonstrationSession
+import com.yuchen.ailedger.data.VisualDemonstrationStore
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowDraftStatus
+import com.yuchen.ailedger.model.WorkflowExecutionMode
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,13 +29,23 @@ data class OperationRecordingStartResult(
     val message: String,
 )
 
+/**
+ * 薄客户端 Record 阶段。
+ *
+ * 本地只采集授权应用的视觉关键帧并加密封存；结束后把整段演示交给云端生成 Skill。
+ * 不再开启无障碍事件录制，不再保存节点树，也不再调用本地固定路线编译器。
+ */
 object OperationLearningRecordingCoordinator {
-    private data class ActiveSession(
+    private class ActiveSession(
         val config: OperationRecordingConfig,
-        val writer: OperationTraceWriter,
-        val eventCount: AtomicInteger = AtomicInteger(0),
+        val visualSession: VisualDemonstrationSession,
+        val recorder: VisualDemonstrationRecorder,
+        val frameCount: AtomicInteger = AtomicInteger(0),
         val stopRequested: AtomicBoolean = AtomicBoolean(false),
-    )
+    ) {
+        var captureJob: Job? = null
+        var timeoutJob: Job? = null
+    }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mutex = Mutex()
@@ -47,22 +61,22 @@ object OperationLearningRecordingCoordinator {
         draft: LearnedWorkflowDraft,
     ): OperationRecordingStartResult = mutex.withLock {
         if (activeSession != null || mutableState.value.active) {
-            return OperationRecordingStartResult(false, "已有操作正在录制，请先结束当前录制。")
+            return OperationRecordingStartResult(false, "已有视觉演示正在录制，请先结束当前录制。")
         }
         val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
         if (!report.canProceed) {
             return OperationRecordingStartResult(
                 started = false,
-                message = report.blockingIssues.firstOrNull()?.message ?: "操作草稿未通过录制前校验。",
+                message = report.blockingIssues.firstOrNull()?.message ?: "Skill 草稿未通过录制前校验。",
             )
         }
         if (!AiAgentAccessibilityService.isConnected()) {
-            return OperationRecordingStartResult(false, "请先启用 AI 智能体无障碍服务。")
+            return OperationRecordingStartResult(false, "请先启用 AI 智能体无障碍服务，以便安全截图和执行手势。")
         }
 
         val applicationContext = context.applicationContext
         val repository = OperationWorkflowRepository.get(applicationContext)
-        val traceStore = OperationTraceStore(applicationContext)
+        val visualStore = VisualDemonstrationStore(applicationContext)
         val demonstrationId = UUID.randomUUID().toString()
         val startedAt = System.currentTimeMillis()
         val config = OperationRecordingConfig(
@@ -81,14 +95,17 @@ object OperationLearningRecordingCoordinator {
             workflowTitle = draft.title,
             allowedPackages = config.allowedPackages,
             startedAtMillis = startedAt,
-            message = "正在准备加密轨迹存储…",
+            message = "正在准备加密视觉演示空间…",
         )
 
-        val writer = runCatching {
+        val visualSession = runCatching {
             withContext(Dispatchers.IO) {
-                traceStore.openSession(
+                visualStore.createSession(
                     demonstrationId = demonstrationId,
                     workflowId = draft.id,
+                    workflowTitle = draft.title,
+                    goal = draft.goal,
+                    allowedPackages = config.allowedPackages,
                     startedAtMillis = startedAt,
                 )
             }
@@ -97,7 +114,7 @@ object OperationLearningRecordingCoordinator {
                 phase = OperationRecordingPhase.Failed,
                 workflowId = draft.id,
                 workflowTitle = draft.title,
-                message = "无法创建加密轨迹：${error.message ?: "未知错误"}",
+                message = "无法创建视觉演示空间：${error.message ?: "未知错误"}",
             )
             return OperationRecordingStartResult(false, mutableState.value.message.orEmpty())
         }
@@ -107,60 +124,47 @@ object OperationLearningRecordingCoordinator {
             repository.beginDemonstration(
                 demonstrationId = demonstrationId,
                 workflowId = draft.id,
-                encryptedTracePath = writer.path,
+                encryptedTracePath = visualSession.manifestPath,
                 createdAtMillis = startedAt,
             )
         }.isSuccess
         if (!prepared) {
-            withContext(Dispatchers.IO) {
-                writer.close(
-                    OperationRecordingMarkerRecord(
-                        capturedAtMillis = System.currentTimeMillis(),
-                        marker = "session_prepare_failed",
-                    ),
-                )
-                traceStore.deleteTrace(writer.path)
-            }
+            visualStore.delete(visualSession.manifestPath)
             mutableState.value = OperationRecordingState(
                 phase = OperationRecordingPhase.Failed,
                 workflowId = draft.id,
                 workflowTitle = draft.title,
-                message = "无法登记演示会话，请稍后重试。",
+                message = "无法登记视觉演示会话，请稍后重试。",
             )
             return OperationRecordingStartResult(false, mutableState.value.message.orEmpty())
         }
 
-        val session = ActiveSession(config = config, writer = writer)
+        lateinit var session: ActiveSession
+        val recorder = VisualDemonstrationRecorder(
+            session = visualSession,
+            allowedPackages = config.allowedPackages,
+            onFrameCountChanged = { count ->
+                session.frameCount.set(count)
+                val current = mutableState.value
+                if (current.phase == OperationRecordingPhase.Recording) {
+                    mutableState.value = current.copy(capturedEventCount = count)
+                }
+            },
+        )
+        session = ActiveSession(
+            config = config,
+            visualSession = visualSession,
+            recorder = recorder,
+        )
         activeSession = session
-        val serviceStarted = withContext(Dispatchers.Main.immediate) {
-            AiAgentAccessibilityService.beginOperationRecording(config)
+        session.captureJob = scope.launch(Dispatchers.Default) {
+            recorder.runCaptureLoop()
         }
-        if (!serviceStarted) {
-            activeSession = null
-            withContext(Dispatchers.IO) {
-                writer.close(
-                    OperationRecordingMarkerRecord(
-                        capturedAtMillis = System.currentTimeMillis(),
-                        marker = "service_start_rejected",
-                    ),
-                )
-                traceStore.deleteTrace(writer.path)
-                repository.finishDemonstration(
-                    demonstrationId = demonstrationId,
-                    workflowId = draft.id,
-                    status = "failed",
-                    redactionStatus = "trace_deleted",
-                    workflowStatus = WorkflowDraftStatus.Intent,
-                    completedAtMillis = System.currentTimeMillis(),
-                )
+        session.timeoutJob = scope.launch {
+            delay(MAX_RECORDING_DURATION_MS)
+            if (session.stopRequested.compareAndSet(false, true)) {
+                requestStop(applicationContext, OperationRecordingStopReason.DurationLimit)
             }
-            mutableState.value = OperationRecordingState(
-                phase = OperationRecordingPhase.Failed,
-                workflowId = draft.id,
-                workflowTitle = draft.title,
-                message = "无障碍服务当前正执行其他任务，无法开始录制。",
-            )
-            return OperationRecordingStartResult(false, mutableState.value.message.orEmpty())
         }
 
         mutableState.value = OperationRecordingState(
@@ -171,38 +175,13 @@ object OperationLearningRecordingCoordinator {
             allowedPackages = config.allowedPackages,
             startedAtMillis = startedAt,
             capturedEventCount = 0,
-            message = "录制已开始。只会采集允许应用内的脱敏动作证据。",
+            message = "视觉演示已开始。你正常完成一次任务即可，本地不会扫描或编译控件节点。",
         )
-        OperationRecordingStartResult(true, "录制已开始。")
+        OperationRecordingStartResult(true, "视觉演示已开始。")
     }
 
-    fun append(record: OperationTraceRecord): Boolean {
-        val session = activeSession ?: return false
-        if (mutableState.value.phase != OperationRecordingPhase.Recording) return false
-        val appended = session.writer.append(record)
-        if (!appended) {
-            if (session.stopRequested.compareAndSet(false, true)) {
-                requestStop(null, OperationRecordingStopReason.InternalError)
-            }
-            return false
-        }
-
-        val nextCount = session.eventCount.incrementAndGet()
-        if (nextCount == 1 || nextCount % STATE_EVENT_COUNT_STEP == 0) {
-            mutableState.value = mutableState.value.copy(capturedEventCount = nextCount)
-        }
-        if (nextCount >= MAX_TRACE_RECORDS && session.stopRequested.compareAndSet(false, true)) {
-            session.writer.append(
-                OperationRecordingMarkerRecord(
-                    capturedAtMillis = System.currentTimeMillis(),
-                    marker = "event_limit_reached",
-                    detail = "count=$nextCount",
-                ),
-            )
-            requestStop(null, OperationRecordingStopReason.EventLimit)
-        }
-        return true
-    }
+    /** 旧无障碍录制入口仅为二进制兼容保留，新主链永远不接收节点或事件记录。 */
+    fun append(@Suppress("UNUSED_PARAMETER") record: OperationTraceRecord): Boolean = false
 
     suspend fun stop(
         context: Context?,
@@ -210,16 +189,18 @@ object OperationLearningRecordingCoordinator {
     ): Boolean = mutex.withLock {
         val session = activeSession ?: return false
         activeSession = null
-        val recordCount = session.eventCount.get()
+        session.timeoutJob?.cancel()
         mutableState.value = mutableState.value.copy(
             phase = OperationRecordingPhase.Stopping,
-            capturedEventCount = recordCount,
-            message = "正在封存加密轨迹…",
+            capturedEventCount = session.visualSession.frameCount,
+            message = "正在封存视觉演示并交给云端理解…",
         )
 
-        withContext(Dispatchers.Main.immediate) {
-            AiAgentAccessibilityService.endOperationRecording(session.config.demonstrationId)
-        }
+        session.captureJob?.cancelAndJoin()
+        runCatching { session.recorder.captureFinalFrame() }
+        session.recorder.stop()
+        val frameCount = session.visualSession.frameCount
+        session.frameCount.set(frameCount)
 
         val applicationContext = context?.applicationContext
             ?: AiAgentAccessibilityService.applicationContextOrNull()
@@ -229,43 +210,33 @@ object OperationLearningRecordingCoordinator {
             OperationRecordingStopReason.DurationLimit,
             OperationRecordingStopReason.EventLimit,
         )
-        val captured = userAcceptedCapture && recordCount > 0
-        val finalMarker = OperationRecordingMarkerRecord(
-            capturedAtMillis = System.currentTimeMillis(),
-            marker = if (captured) "session_captured" else "session_aborted",
-            detail = "reason=${reason.storageValue};records=$recordCount",
-        )
-
+        val captured = userAcceptedCapture && frameCount >= MINIMUM_VISUAL_FRAMES
+        val completedAt = System.currentTimeMillis()
         val finalized = runCatching {
             val resolvedContext = requireNotNull(applicationContext) { "application context unavailable" }
             withContext(Dispatchers.IO) {
-                session.writer.close(finalMarker)
+                session.visualSession.seal(completedAt)
                 val repository = OperationWorkflowRepository.get(resolvedContext)
-                val traceStore = OperationTraceStore(resolvedContext)
-                if (!captured) traceStore.deleteTrace(session.writer.path)
+                val visualStore = VisualDemonstrationStore(resolvedContext)
+                if (!captured) visualStore.delete(session.visualSession.manifestPath)
                 repository.finishDemonstration(
                     demonstrationId = session.config.demonstrationId,
                     workflowId = session.config.workflowId,
                     status = if (captured) "captured" else "aborted",
-                    redactionStatus = if (captured) "sealed" else "trace_deleted",
+                    redactionStatus = if (captured) "visual_encrypted" else "visual_deleted",
                     workflowStatus = if (captured) WorkflowDraftStatus.Compiling else WorkflowDraftStatus.Intent,
-                    completedAtMillis = System.currentTimeMillis(),
+                    completedAtMillis = completedAt,
                 )
             }
         }.isSuccess
 
-        val compilationOutcome = if (captured && finalized && applicationContext != null) {
-            runCatching {
-                OperationWorkflowCompilationCoordinator.compile(
-                    context = applicationContext,
-                    workflowId = session.config.workflowId,
-                )
-            }.getOrElse { error ->
-                WorkflowCompilationOutcome(
-                    completed = false,
-                    message = "自动整理失败：${error.message ?: "未知错误"}",
-                )
-            }
+        val learningOutcome = if (captured && finalized && applicationContext != null) {
+            OperationSkillLearningCoordinator.learn(
+                context = applicationContext,
+                workflowId = session.config.workflowId,
+                demonstrationId = session.config.demonstrationId,
+                manifestPath = session.visualSession.manifestPath,
+            )
         } else {
             null
         }
@@ -278,27 +249,27 @@ object OperationLearningRecordingCoordinator {
                 workflowTitle = session.config.workflowTitle,
                 allowedPackages = session.config.allowedPackages,
                 startedAtMillis = session.config.startedAtMillis,
-                capturedEventCount = recordCount,
+                capturedEventCount = frameCount,
                 message = when {
-                    compilationOutcome?.completed == true -> compilationOutcome.message
-                    compilationOutcome != null -> "演示已加密封存，但${compilationOutcome.message}。原始轨迹仍保留，可稍后重试整理。"
-                    else -> "演示已加密封存，等待整理为可审核流程。"
+                    learningOutcome?.completed == true -> learningOutcome.message
+                    learningOutcome != null -> "视觉演示已加密保存，但${learningOutcome.message}。演示证据仍保留，可重新提交云端理解。"
+                    else -> "视觉演示已加密保存，等待云端生成 Skill。"
                 },
             )
             !captured && finalized -> OperationRecordingState(
                 phase = OperationRecordingPhase.Idle,
                 message = when {
-                    userAcceptedCapture && recordCount == 0 -> "没有采集到有效操作，录制已结束且未保留空轨迹。"
-                    reason == OperationRecordingStopReason.ScopeViolation -> "检测到未授权应用，录制已停止且轨迹已删除。"
-                    reason == OperationRecordingStopReason.TaskStarted -> "智能体任务已启动，操作录制已安全结束。"
-                    else -> "录制已取消，未保留轨迹。"
+                    userAcceptedCapture && frameCount < MINIMUM_VISUAL_FRAMES -> "有效视觉关键帧不足，未保留这次演示。请进入目标应用后再完整演示一次。"
+                    reason == OperationRecordingStopReason.ScopeViolation -> "未采集授权范围外的画面，本次演示已取消。"
+                    reason == OperationRecordingStopReason.TaskStarted -> "智能体任务已启动，视觉演示已安全结束。"
+                    else -> "视觉演示已取消，未保留画面。"
                 },
             )
             else -> OperationRecordingState(
                 phase = OperationRecordingPhase.Failed,
                 workflowId = session.config.workflowId,
                 workflowTitle = session.config.workflowTitle,
-                message = "轨迹封存失败，未进入后续编译阶段。",
+                message = "视觉演示封存失败，未提交云端理解。",
             )
         }
         finalized
@@ -317,6 +288,6 @@ object OperationLearningRecordingCoordinator {
 
     fun activeConfig(): OperationRecordingConfig? = activeSession?.config
 
-    private const val MAX_TRACE_RECORDS = 600
-    private const val STATE_EVENT_COUNT_STEP = 4
+    private const val MINIMUM_VISUAL_FRAMES = 2
+    private const val MAX_RECORDING_DURATION_MS = 3L * 60L * 1_000L
 }
