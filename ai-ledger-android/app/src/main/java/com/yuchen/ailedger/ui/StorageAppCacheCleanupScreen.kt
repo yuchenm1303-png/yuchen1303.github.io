@@ -1,10 +1,13 @@
 package com.yuchen.ailedger.ui
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.storage.StorageManager
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,6 +44,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private enum class AppCacheCleanupMethod {
+    System,
+    Enhanced,
+}
+
 @Composable
 internal fun StorageAppCacheCleanupScreen(
     state: AssistantUiState,
@@ -51,20 +59,28 @@ internal fun StorageAppCacheCleanupScreen(
     val repository = remember(context) { StorageAppCacheCleanupRepository(context.applicationContext) }
     var ranking by remember { mutableStateOf<List<AppCacheUsage>>(emptyList()) }
     var shellStatus by remember { mutableStateOf<DeviceShellStatus?>(null) }
+    var usageGranted by remember { mutableStateOf(repository.hasUsageAccess()) }
+    var allFilesGranted by remember { mutableStateOf(repository.hasAllFilesAccess()) }
     var loading by remember { mutableStateOf(true) }
     var operationRunning by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
-    var showConfirmation by remember { mutableStateOf(false) }
+    var confirmationMethod by remember { mutableStateOf<AppCacheCleanupMethod?>(null) }
+    var systemCleanupBeforeBytes by remember { mutableStateOf<Long?>(null) }
 
     BackHandler(onBack = onBack)
 
     fun refresh(showLoading: Boolean = false) {
         if (showLoading) loading = true
         scope.launch {
+            val currentUsageGranted = repository.hasUsageAccess()
+            val currentAllFilesGranted = repository.hasAllFilesAccess()
             val loaded = withContext(Dispatchers.IO) {
-                repository.loadRanking(forceRefresh = true) to repository.shellStatus(forceRefresh = true)
+                val apps = if (currentUsageGranted) repository.loadRanking(forceRefresh = true) else emptyList()
+                apps to repository.shellStatus(forceRefresh = true)
             }
+            usageGranted = currentUsageGranted
+            allFilesGranted = currentAllFilesGranted
             ranking = loaded.first
             shellStatus = loaded.second
             loading = false
@@ -88,6 +104,51 @@ internal fun StorageAppCacheCleanupScreen(
         }
     }
 
+    val usageAccessLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        refresh(showLoading = true)
+    }
+    val allFilesAccessLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        allFilesGranted = repository.hasAllFilesAccess()
+        message = if (allFilesGranted) {
+            "所有文件访问已开启，系统一键缓存清理现在可用。"
+        } else {
+            "未开启所有文件访问，系统一键缓存清理仍不可用。"
+        }
+        refresh()
+    }
+    val systemCacheCleanupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        scope.launch {
+            val currentUsageGranted = repository.hasUsageAccess()
+            val updatedRanking = withContext(Dispatchers.IO) {
+                if (currentUsageGranted) repository.loadRanking(forceRefresh = true) else emptyList()
+            }
+            val afterBytes = if (currentUsageGranted) updatedRanking.sumOf(AppCacheUsage::cacheBytes) else null
+            val releasedBytes = if (systemCleanupBeforeBytes != null && afterBytes != null) {
+                (systemCleanupBeforeBytes!! - afterBytes).coerceAtLeast(0L)
+            } else {
+                null
+            }
+            usageGranted = currentUsageGranted
+            ranking = updatedRanking
+            operationRunning = false
+            message = when (result.resultCode) {
+                Activity.RESULT_OK -> when {
+                    releasedBytes == null -> "Android 系统已完成全应用缓存清理；未获得统计权限，无法显示实际释放量。"
+                    releasedBytes > 0L -> "Android 系统已完成全应用缓存清理，统计到缓存减少 ${formatStorageBytes(releasedBytes)}。"
+                    else -> "Android 系统返回缓存清理完成，但当前统计没有发现可释放空间；部分缓存可能已被系统保留或统计尚未更新。"
+                }
+                Activity.RESULT_CANCELED -> "已取消系统缓存清理，没有继续删除应用缓存。"
+                else -> "系统缓存清理返回错误代码 ${result.resultCode}，请稍后重试或使用 Shizuku 增强回收。"
+            }
+            systemCleanupBeforeBytes = null
+        }
+    }
+
+    fun requestAllFilesAccess() {
+        runCatching { allFilesAccessLauncher.launch(repository.allFilesAccessIntent()) }
+            .onFailure { message = it.message?.takeIf(String::isNotBlank) ?: "无法打开所有文件访问设置。" }
+    }
+
     fun requestShizuku() {
         scope.launch {
             val result = withContext(Dispatchers.IO) { repository.requestShizukuPermission() }
@@ -97,14 +158,35 @@ internal fun StorageAppCacheCleanupScreen(
         }
     }
 
-    fun clearAllCaches() {
+    fun startSystemCacheCleanup() {
+        if (operationRunning) return
+        if (!repository.canUseSystemCacheCleanup()) {
+            requestAllFilesAccess()
+            return
+        }
+        systemCleanupBeforeBytes = if (usageGranted) ranking.sumOf(AppCacheUsage::cacheBytes) else null
+        operationRunning = true
+        message = "正在打开 Android 全应用缓存清理确认…"
+        runCatching { systemCacheCleanupLauncher.launch(repository.systemCacheCleanupIntent()) }
+            .onFailure { error ->
+                operationRunning = false
+                systemCleanupBeforeBytes = null
+                message = error.message?.takeIf(String::isNotBlank) ?: "当前系统没有提供全应用缓存清理界面。"
+            }
+    }
+
+    fun clearAllCachesEnhanced() {
         if (operationRunning) return
         operationRunning = true
         message = null
         scope.launch {
-            val result = withContext(Dispatchers.IO) { repository.clearAllAppCaches() }
+            val result = withContext(Dispatchers.IO) { repository.clearAllAppCachesEnhanced() }
             message = result.message
-            ranking = withContext(Dispatchers.IO) { repository.loadRanking(forceRefresh = true) }
+            val currentUsageGranted = repository.hasUsageAccess()
+            ranking = withContext(Dispatchers.IO) {
+                if (currentUsageGranted) repository.loadRanking(forceRefresh = true) else emptyList()
+            }
+            usageGranted = currentUsageGranted
             shellStatus = withContext(Dispatchers.IO) { repository.shellStatus(forceRefresh = true) }
             operationRunning = false
         }
@@ -117,7 +199,7 @@ internal fun StorageAppCacheCleanupScreen(
     }
     val totalCache by remember(ranking) { derivedStateOf { ranking.sumOf(AppCacheUsage::cacheBytes) } }
     val enhancedAvailable = shellStatus?.isAdbShellLike == true
-    val usageGranted = repository.hasUsageAccess()
+    val systemCleanupAvailable = repository.canUseSystemCacheCleanup()
 
     GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
         LazyColumn(
@@ -142,10 +224,10 @@ internal fun StorageAppCacheCleanupScreen(
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("APP CACHE", color = StorageWarning.copy(alpha = 0.80f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("APP CACHE CLEANUP", color = StorageWarning.copy(alpha = 0.80f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                     Text("全机应用缓存", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                     Text(
-                        "统计各应用缓存，并在 Shizuku/ADB Shell 授权后请求 Android 回收全机可清理缓存。",
+                        "一键调用 Android 的全应用缓存清理，并提供 Shizuku/ADB Shell 增强回收和清理前后核验。",
                         color = Color.White.copy(alpha = 0.58f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -154,8 +236,8 @@ internal fun StorageAppCacheCleanupScreen(
             }
             item {
                 StorageNoticePanel(
-                    title = "不会清除应用数据",
-                    text = "增强清理固定使用 Android 的 pm trim-caches，只回收缓存，不执行 pm clear，不删除登录状态、数据库或用户文件。清理后部分应用可能需要重新下载图片和离线资源。",
+                    title = "这次不只是跳转单个应用",
+                    text = "主按钮会调用 Android 官方的全应用缓存清理流程；系统确认成功后会重新统计缓存。Shizuku 可用时还可以直接执行增强缓存回收。两种方式都不会执行 pm clear，也不会删除登录状态、数据库和用户文件。",
                     tone = StorageWarning,
                 )
             }
@@ -163,19 +245,34 @@ internal fun StorageAppCacheCleanupScreen(
             item {
                 StorageSection("权限与执行方式") {
                     StorageAccessRow(
+                        title = "全应用缓存清理权限",
+                        detail = if (allFilesGranted) {
+                            "已开启所有文件访问，可以调用 Android 官方的一键清理全部应用缓存。"
+                        } else {
+                            "Android 要求所有文件访问权限，才能启动官方的全应用缓存清理流程。"
+                        },
+                        granted = allFilesGranted,
+                        actionText = if (allFilesGranted) "管理权限" else "开启权限",
+                        onAction = ::requestAllFilesAccess,
+                    )
+                    StorageAccessRow(
                         title = "缓存统计权限",
-                        detail = if (usageGranted) "已获得使用情况访问权，可以统计并核验各应用缓存。" else "未授权时仍可请求系统回收缓存，但无法准确显示清理前后体积。",
+                        detail = if (usageGranted) {
+                            "已获得使用情况访问权，可以显示应用缓存排行并核验实际释放量。"
+                        } else {
+                            "清理仍可执行，但无法准确显示清理前后缓存总量。"
+                        },
                         granted = usageGranted,
                         actionText = if (usageGranted) "已授权" else "去授权",
                         onAction = {
-                            runCatching { context.startActivity(repository.usageAccessIntent()) }
+                            runCatching { usageAccessLauncher.launch(repository.usageAccessIntent()) }
                                 .recoverCatching {
-                                    context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                    usageAccessLauncher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
                                 }
                         },
                     )
                     StorageAccessRow(
-                        title = "Shizuku / ADB Shell",
+                        title = "Shizuku / ADB Shell 增强回收",
                         detail = shellStatus?.message ?: "正在检测增强权限…",
                         granted = enhancedAvailable,
                         actionText = when {
@@ -191,17 +288,26 @@ internal fun StorageAppCacheCleanupScreen(
                 }
             }
             item {
-                StorageSection("缓存概览") {
-                    StorageMetricRow("已统计应用", ranking.size.toString())
-                    StorageMetricRow("当前缓存合计", if (usageGranted) formatStorageBytes(totalCache) else "需要统计权限")
+                StorageSection("一键清理") {
+                    StorageMetricRow("已统计应用", if (usageGranted) ranking.size.toString() else "需要统计权限")
+                    StorageMetricRow("当前缓存合计", if (usageGranted) formatStorageBytes(totalCache) else "清理后无法核验")
                     StoragePrimaryAction(
                         text = when {
-                            operationRunning -> "正在请求系统回收缓存…"
-                            enhancedAvailable -> "清理全机可回收缓存"
-                            else -> "需要 Shizuku / ADB Shell"
+                            operationRunning -> "正在清理全机应用缓存…"
+                            systemCleanupAvailable -> "一键清理所有应用缓存"
+                            else -> "开启权限并启用一键清理"
                         },
-                        enabled = enhancedAvailable && !operationRunning,
-                    ) { showConfirmation = true }
+                        enabled = !operationRunning,
+                    ) {
+                        if (systemCleanupAvailable) confirmationMethod = AppCacheCleanupMethod.System else requestAllFilesAccess()
+                    }
+                    if (enhancedAvailable) {
+                        StorageSmallAction(
+                            "Shizuku 增强直接回收",
+                            Modifier,
+                        ) { confirmationMethod = AppCacheCleanupMethod.Enhanced }
+                    }
+                    StorageSmallAction("重新统计应用缓存", Modifier) { refresh(showLoading = true) }
                     StorageLongListControls(
                         totalCount = ranking.size,
                         expanded = expanded,
@@ -212,43 +318,65 @@ internal fun StorageAppCacheCleanupScreen(
                 }
             }
             when {
-                loading -> item { StorageLoadingPanel("正在读取应用缓存统计和增强权限状态…") }
-                !usageGranted -> item { StorageEmptyPanel("授权使用情况访问后，可查看各应用缓存排行并核验实际释放空间。") }
+                loading -> item { StorageLoadingPanel("正在读取应用缓存统计和清理权限状态…") }
+                !usageGranted -> item { StorageEmptyPanel("授权使用情况访问后，可查看每个应用的缓存明细；上方系统一键清理不依赖这项统计权限。") }
                 ranking.isEmpty() -> item { StorageEmptyPanel("当前没有读取到可展示的应用缓存。") }
-                else -> items(displayedRanking, key = AppCacheUsage::packageName) { app ->
-                    AppCacheCard(app = app, onOpen = { openAppStorage(app.packageName) })
+                else -> {
+                    item { OptimizeSectionHeader("应用缓存明细", "点击单个应用可进入系统详情进行精细管理") }
+                    items(displayedRanking, key = AppCacheUsage::packageName) { app ->
+                        AppCacheCard(app = app, onOpen = { openAppStorage(app.packageName) })
+                    }
                 }
             }
         }
     }
 
-    if (showConfirmation) {
+    confirmationMethod?.let { method ->
         AlertDialog(
-            onDismissRequest = { showConfirmation = false },
+            onDismissRequest = { confirmationMethod = null },
             containerColor = Color(0xFF10163A).copy(alpha = 0.99f),
             tonalElevation = 0.dp,
-            title = { Text("确认清理全机应用缓存", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black) },
+            title = {
+                Text(
+                    if (method == AppCacheCleanupMethod.System) "确认一键清理所有应用缓存" else "确认 Shizuku 增强缓存回收",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        if (usageGranted) "当前统计到约 ${formatStorageBytes(totalCache)} 应用缓存。" else "当前未获得缓存统计权限，无法预估释放空间。",
+                        if (usageGranted) "当前统计到约 ${formatStorageBytes(totalCache)} 应用缓存。" else "当前未获得缓存统计权限，无法预估实际释放空间。",
                         color = Color.White.copy(alpha = 0.90f),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
                     )
-                    Text("操作只请求 Android 回收可删除缓存，不会清除登录状态、数据库和用户文件。部分应用下次打开时会重新生成或下载缓存。", color = Color.White.copy(alpha = 0.60f), fontSize = 11.5.sp, lineHeight = 17.sp)
+                    Text(
+                        if (method == AppCacheCleanupMethod.System) {
+                            "接下来会进入 Android 官方确认界面，并请求清理设备上所有应用的可清缓存。"
+                        } else {
+                            "接下来会通过已授权的 Shizuku/ADB Shell 执行固定的 pm trim-caches 命令。"
+                        },
+                        color = Color.White.copy(alpha = 0.66f),
+                        fontSize = 11.5.sp,
+                        lineHeight = 17.sp,
+                    )
+                    Text("不会清除应用数据、账号、数据库或用户文件；部分应用下次打开时会重新生成或下载缓存。", color = StorageWarning, fontSize = 11.sp, lineHeight = 16.sp)
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showConfirmation = false
-                        clearAllCaches()
+                        confirmationMethod = null
+                        if (method == AppCacheCleanupMethod.System) startSystemCacheCleanup() else clearAllCachesEnhanced()
                     },
                 ) { Text("确认清理缓存", color = StorageCritical, fontWeight = FontWeight.Black) }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirmation = false }) { Text("取消", color = Color.White.copy(alpha = 0.64f), fontWeight = FontWeight.Bold) }
+                TextButton(onClick = { confirmationMethod = null }) {
+                    Text("取消", color = Color.White.copy(alpha = 0.64f), fontWeight = FontWeight.Bold)
+                }
             },
         )
     }
