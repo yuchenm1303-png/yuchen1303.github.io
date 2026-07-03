@@ -109,16 +109,25 @@ fun StockFirstToolsHomeScreen(
     }
 
     when (selectedTool) {
-        ToolDestination.LedgerCenter,
-        ToolDestination.Statistics -> {
+        ToolDestination.LedgerCenter -> {
             val ledgerViewModel: LedgerViewModel = viewModel()
             GlassSceneScope(GlassSceneGroup.LedgerCenterPage) {
                 NativeLedgerCenterScreen(
                     appState = pageState,
                     ledgerViewModel = ledgerViewModel,
-                    statisticsOnly = selectedTool == ToolDestination.Statistics,
+                    statisticsOnly = false,
                     onBack = onCloseTool,
                     onOpenAssistant = onOpenAssistant,
+                )
+            }
+            return
+        }
+
+        ToolDestination.Statistics -> {
+            GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
+                AgentAnalyticsRoute(
+                    appState = pageState,
+                    onBack = onCloseTool,
                 )
             }
             return
@@ -174,9 +183,6 @@ fun StockFirstToolsHomeScreen(
     val monthExpense = remember(monthRecords) {
         monthRecords.filter { it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }
     }
-    val monthIncome = remember(monthRecords) {
-        monthRecords.filter { it.type == LedgerRecordType.Income }.sumOf { it.amount.toDouble() }
-    }
     val budget = ledgerState.budgetText.toDoubleOrNull() ?: 0.0
     val budgetRemaining = (budget - monthExpense).coerceAtLeast(0.0)
     val nextPlan = remember(planState.tasks) {
@@ -220,9 +226,6 @@ fun StockFirstToolsHomeScreen(
                         )
                         StatisticsSummaryCard(
                             state = pageState,
-                            recordCount = monthRecords.size,
-                            monthIncome = monthIncome,
-                            monthExpense = monthExpense,
                             modifier = Modifier.weight(1f).height(148.dp),
                             onClick = { onOpenTool(ToolDestination.Statistics) },
                         )
@@ -916,9 +919,6 @@ private fun LedgerSummaryCard(
 @Composable
 private fun StatisticsSummaryCard(
     state: AssistantUiState,
-    recordCount: Int,
-    monthIncome: Double,
-    monthExpense: Double,
     modifier: Modifier,
     onClick: () -> Unit,
 ) {
@@ -929,7 +929,7 @@ private fun StatisticsSummaryCard(
         ) {
             DashboardCardHeader(
                 symbol = "",
-                title = "数据统计",
+                title = "智能体统计",
                 tone = DashboardViolet,
                 art = DashboardArtIcon.Statistics,
             )
@@ -937,30 +937,32 @@ private fun StatisticsSummaryCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Column(Modifier.weight(0.72f)) {
+                Column(Modifier.weight(0.78f)) {
                     Text(
-                        recordCount.toString(),
+                        "活动档案",
                         color = Color.White.copy(alpha = 0.96f),
-                        fontSize = 30.sp,
-                        lineHeight = 32.sp,
+                        fontSize = 20.sp,
+                        lineHeight = 24.sp,
                         fontWeight = FontWeight.Black,
+                        maxLines = 1,
                     )
                     Text(
-                        "本月记录",
+                        "Token · 任务 · 能力",
                         color = Color.White.copy(alpha = 0.48f),
-                        fontSize = 10.5.sp,
+                        fontSize = 9.5.sp,
+                        maxLines = 1,
                     )
                     Text(
-                        "结余 ${signedMoney(monthIncome - monthExpense)}",
-                        color = if (monthIncome - monthExpense >= 0.0) DashboardMint else DashboardWarm,
-                        fontSize = 9.5.sp,
+                        "按需读取，不增加首页负载",
+                        color = DashboardMint.copy(alpha = 0.74f),
+                        fontSize = 8.5.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 MiniBarChart(
-                    values = listOf(0.38f, 0.62f, 0.44f, 0.78f, 0.56f, 0.9f, 0.68f),
+                    values = listOf(0.18f, 0.42f, 0.28f, 0.64f, 0.48f, 0.82f, 0.58f),
                     tone = DashboardViolet,
                     modifier = Modifier.weight(1f).height(49.dp),
                 )
@@ -1302,11 +1304,6 @@ private fun StorageRing(
 }
 
 private fun formatMoney(value: Double): String = DecimalFormat("#,##0.##").format(value)
-
-private fun signedMoney(value: Double): String {
-    val sign = if (value >= 0.0) "+" else "-"
-    return "$sign¥${formatMoney(kotlin.math.abs(value))}"
-}
 
 private fun formatStorage(bytes: Long): String {
     val gib = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
