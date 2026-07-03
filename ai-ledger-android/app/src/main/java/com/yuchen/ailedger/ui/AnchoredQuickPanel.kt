@@ -82,23 +82,38 @@ internal fun AnchoredQuickPanel(
     safeMargin: Dp = 10.dp,
     anchorGap: Dp = 7.dp,
     surfaceColor: Color = Color.Transparent,
+    precomposeWhenHidden: Boolean = false,
     content: @Composable (AnchoredQuickPanelLayout) -> Unit,
 ) {
-    if (!visible) return
+    if (!visible && !precomposeWhenHidden) return
 
-    BackHandler(onBack = onDismiss)
+    BackHandler(enabled = visible, onBack = onDismiss)
 
     val density = LocalDensity.current
-    val revealX = remember { Animatable(0.42f) }
-    val revealY = remember { Animatable(0.12f) }
+    val revealX = remember { Animatable(1f) }
+    val revealY = remember { Animatable(1f) }
     val revealAlpha = remember { Animatable(0f) }
-    val revealLift = remember { Animatable(18f) }
+    val revealLift = remember { Animatable(0f) }
     val panelPress = remember { Animatable(0f) }
     val pressScope = rememberCoroutineScope()
     val outsideInteraction = remember { MutableInteractionSource() }
     var rootBounds by remember { mutableStateOf(Rect.Zero) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(visible) {
+        if (!visible) {
+            revealX.snapTo(1f)
+            revealY.snapTo(1f)
+            revealAlpha.snapTo(0f)
+            revealLift.snapTo(0f)
+            panelPress.snapTo(0f)
+            return@LaunchedEffect
+        }
+
+        revealX.snapTo(0.42f)
+        revealY.snapTo(0.12f)
+        revealAlpha.snapTo(0f)
+        revealLift.snapTo(18f)
+        panelPress.snapTo(0f)
         coroutineScope {
             launch { revealX.animateTo(1f, spring(0.50f, Spring.StiffnessMediumLow)) }
             launch { revealY.animateTo(1f, spring(0.56f, Spring.StiffnessMediumLow)) }
@@ -209,32 +224,41 @@ internal fun AnchoredQuickPanel(
             )
         }
 
-        Box(
-            Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = outsideInteraction,
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        )
+        if (visible) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = outsideInteraction,
+                        indication = null,
+                        onClick = onDismiss,
+                    ),
+            )
+        }
+
+        val renderedX = if (visible) panelX else -panelWidthPx - safePx
+        val renderedY = if (visible) panelY else -panelHeightPx - safePx
 
         Box(
             modifier = Modifier
-                .offset { IntOffset(panelX, panelY) }
+                .offset { IntOffset(renderedX, renderedY) }
                 .width(panelWidth)
                 .height(panelHeight)
                 .graphicsLayer {
                     val press = panelPress.value
                     val compression = press.coerceAtLeast(0f)
                     val rebound = (-press).coerceAtLeast(0f)
-                    alpha = revealAlpha.value
+                    alpha = if (visible) revealAlpha.value else 0f
                     scaleX = revealX.value * (1f + compression * 0.020f - rebound * 0.010f)
                     scaleY = revealY.value * (1f - compression * 0.034f + rebound * 0.020f)
                     val direction = if (placement == AnchoredQuickPanelPlacement.Above) 1f else -1f
-                    translationY = revealLift.value.dp.toPx() * direction +
-                        compression * 3.2.dp.toPx() * direction -
-                        rebound * 1.4.dp.toPx() * direction
+                    translationY = if (visible) {
+                        revealLift.value.dp.toPx() * direction +
+                            compression * 3.2.dp.toPx() * direction -
+                            rebound * 1.4.dp.toPx() * direction
+                    } else {
+                        0f
+                    }
                     transformOrigin = TransformOrigin(
                         pivotFractionX = tailFraction,
                         pivotFractionY = if (placement == AnchoredQuickPanelPlacement.Above) 1f else 0f,
@@ -248,7 +272,8 @@ internal fun AnchoredQuickPanel(
                     spotColor = Color(0xFF8DFFF4).copy(alpha = 0.08f),
                 )
                 .clip(panelShape)
-                .pointerInput(panelShape) {
+                .pointerInput(visible, panelShape) {
+                    if (!visible) return@pointerInput
                     awaitEachGesture {
                         awaitFirstDown(requireUnconsumed = false)
                         pressScope.launch {
@@ -274,7 +299,7 @@ internal fun AnchoredQuickPanel(
                 PressableGlass(
                     quality = quality,
                     glassIntensity = glassIntensity,
-                    motionIntensity = motionIntensity,
+                    motionIntensity = if (visible) motionIntensity else 0f,
                     radius = cornerRadius.value.roundToInt(),
                     modifier = Modifier.fillMaxSize(),
                     role = GlassRole.Floating,
