@@ -3,18 +3,19 @@ package com.yuchen.ailedger.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -96,6 +97,15 @@ internal fun SettingsPolishedScreenOptimized(
     onUploadBackgroundClick: () -> Unit,
     onClearCustomBackgroundClick: () -> Unit,
 ) {
+    var showAgentAnalytics by rememberSaveable { mutableStateOf(false) }
+    if (showAgentAnalytics) {
+        AgentAnalyticsRoute(
+            appState = state,
+            onBack = { showAgentAnalytics = false },
+        )
+        return
+    }
+
     val context = LocalContext.current.applicationContext
     val profileRepository = remember(context) { UserProfileRepository.get(context) }
     val listState = rememberLazyListState()
@@ -129,6 +139,7 @@ internal fun SettingsPolishedScreenOptimized(
                 SettingsOptimizedEntrance("settings-overview", entranceSessions, 90, 18, 0.965f) {
                     SettingsPersonalSpaceCard(
                         state = state,
+                        onOpenAnalytics = { showAgentAnalytics = true },
                         onLoginClick = { showLoginDialog = true },
                         onLoginAnchorBoundsChange = { loginAnchorBounds = it },
                         onAvatarEditClick = { avatarPicker.launch("image/*") },
@@ -290,6 +301,7 @@ private fun SettingsOptimizedHeader() {
 @Composable
 private fun SettingsPersonalSpaceCard(
     state: AssistantUiState,
+    onOpenAnalytics: () -> Unit,
     onLoginClick: () -> Unit,
     onLoginAnchorBoundsChange: (Rect) -> Unit,
     onAvatarEditClick: () -> Unit,
@@ -364,7 +376,8 @@ private fun SettingsPersonalSpaceCard(
         radius = 30,
         modifier = Modifier
             .fillMaxWidth()
-            .height(228.dp),
+            .height(228.dp)
+            .clickable(onClick = onOpenAnalytics),
         role = GlassRole.Shell,
         intensity = (state.glassIntensity * 1.08f).coerceIn(0.78f, 1.30f),
     ) {
@@ -374,14 +387,28 @@ private fun SettingsPersonalSpaceCard(
                 .padding(horizontal = 16.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            Text(
-                text = "个人空间",
-                color = Color.White.copy(alpha = 0.94f),
-                fontSize = 19.sp,
-                lineHeight = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-            )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "个人空间",
+                    color = Color.White.copy(alpha = 0.94f),
+                    fontSize = 19.sp,
+                    lineHeight = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                )
+                Text(
+                    text = "查看统计  ›",
+                    color = Color(0xFF9CCBFF).copy(alpha = 0.68f),
+                    fontSize = 10.sp,
+                    lineHeight = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                )
+            }
 
             Row(
                 Modifier.fillMaxWidth(),
