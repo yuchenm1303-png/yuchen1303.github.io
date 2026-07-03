@@ -46,7 +46,6 @@ class AiWorkerClientProtocolTest {
         assertTrue(payload.getBoolean("hasImage"))
         assertTrue(payload.has("images"))
         assertFalse(payload.has("attachments"))
-        assertEquals("top_level_images_v2", payload.getString("imageTransport"))
 
         val image = payload.getJSONArray("images").getJSONObject(0)
         assertTrue(image.has("base64Data"))
@@ -64,7 +63,7 @@ class AiWorkerClientProtocolTest {
     }
 
     @Test
-    fun ordinaryChatDeclaresUnifiedToolsWithoutEmbeddedModelCommands() {
+    fun ordinaryChatDeclaresCloudOwnedToolsWithoutLocalSemanticRouting() {
         val payload = client.buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -76,39 +75,30 @@ class AiWorkerClientProtocolTest {
         )
 
         assertEquals("chat", payload.getString("intent"))
-        assertFalse(payload.getBoolean("allowModelCommands"))
+        assertFalse(payload.has("allowModelCommands"))
+        assertFalse(payload.has("systemPrompt"))
+        assertFalse(payload.has("normalChatDeviceToolProbe"))
+        assertFalse(payload.has("agentModeEnabled"))
 
         val protocol = payload.getJSONObject("commandProtocol")
-        assertFalse(protocol.getBoolean("allowModelCommands"))
-        assertTrue(protocol.getBoolean("structuredCommandsOnly"))
         assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
-        assertEquals("android_local_transaction_executor", protocol.getString("executionOwner"))
-        assertEquals("structured_response_only", protocol.getString("fallbackTransport"))
+        assertEquals("android_structured_tool_executor", protocol.getString("executionOwner"))
         assertEquals(AI_WORKER_CLIENT_TOOL_CALL_SCHEMA, protocol.getString("clientToolCallSchema"))
         assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
 
-        val supportedAgentActions = protocol.getJSONArray("supportedAgentActions").toString()
+        val capabilities = payload.getJSONObject("clientCapabilities")
+        val supportedAgentActions = capabilities.getJSONArray("agentActions").toString()
         assertTrue(supportedAgentActions.contains("run_device_control"))
         assertTrue(supportedAgentActions.contains("run_agent_task"))
         assertTrue(supportedAgentActions.contains("observe_screen"))
 
         val responseFormat = payload.getJSONObject("responseFormat")
-        assertTrue(responseFormat.getBoolean("includeAgentAction"))
         assertTrue(responseFormat.getBoolean("includeClientToolCall"))
-        assertFalse(responseFormat.getBoolean("includeEmbeddedCommandMarker"))
+        assertFalse(responseFormat.optBoolean("includeEmbeddedCommandMarker", false))
 
-        val legacyCapabilities = protocol.getJSONArray("supportedDeviceControlActions")
-        assertEquals(0, legacyCapabilities.length())
-
-        val supportedSteps = protocol.getJSONArray("supportedDeviceToolSteps")
+        val supportedSteps = capabilities.getJSONArray("deviceTools")
         assertTrue(supportedSteps.length() > 0)
         assertTrue(supportedSteps.toString().contains("ledger_add_record"))
-
-        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
-        assertFalse(probe.getBoolean("enabled"))
-        assertEquals("cloud_final_chat_model", probe.getString("decisionOwner"))
-        assertEquals("android_local_transaction_executor", probe.getString("executionOwner"))
-        assertEquals(supportedSteps.length(), probe.getJSONArray("supportedDeviceToolSteps").length())
     }
 
     @Test
@@ -124,13 +114,13 @@ class AiWorkerClientProtocolTest {
         )
 
         assertEquals("chat", payload.getString("intent"))
-        assertFalse(payload.getBoolean("agentStartRequested"))
-        val actions = payload.getJSONObject("commandProtocol")
-            .getJSONArray("supportedAgentActions")
+        assertFalse(payload.has("agentStartRequested"))
+        val actions = payload.getJSONObject("clientCapabilities")
+            .getJSONArray("agentActions")
             .toString()
         assertTrue(actions.contains("run_agent_task"))
         assertTrue(actions.contains("run_device_control"))
-        assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
+        assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeClientToolCall"))
     }
 
     @Test
@@ -145,8 +135,8 @@ class AiWorkerClientProtocolTest {
             ),
         )
 
-        val steps = payload.getJSONObject("commandProtocol")
-            .getJSONArray("supportedDeviceToolSteps")
+        val steps = payload.getJSONObject("clientCapabilities")
+            .getJSONArray("deviceTools")
             .toString()
         assertFalse(steps.contains("uninstall_app"))
         assertFalse(steps.contains("clear_app_data"))
