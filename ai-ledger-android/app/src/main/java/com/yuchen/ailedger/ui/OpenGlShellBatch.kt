@@ -18,6 +18,7 @@ import com.yuchen.ailedger.ui.gl.rememberOpenGLShellBatchState
 @Immutable
 internal data class OpenGlShellBatchPolicy(
     val acceptedShortEdgeDp: ClosedFloatingPointRange<Float>? = null,
+    val acceptedRadiusDp: IntRange? = null,
     val preserveStandaloneFrame: Boolean = false,
 )
 
@@ -35,14 +36,16 @@ internal val LocalOpenGlShellBatchPolicy = staticCompositionLocalOf {
 internal fun OpenGlShellBatchHost(
     modifier: Modifier = Modifier,
     acceptedShortEdgeDp: ClosedFloatingPointRange<Float>? = null,
+    acceptedRadiusDp: IntRange? = null,
     preserveStandaloneFrame: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val state = rememberOpenGLShellBatchState()
     val parentCoordinates = remember { GlassCoordinateSource() }
-    val policy = remember(acceptedShortEdgeDp, preserveStandaloneFrame) {
+    val policy = remember(acceptedShortEdgeDp, acceptedRadiusDp, preserveStandaloneFrame) {
         OpenGlShellBatchPolicy(
             acceptedShortEdgeDp = acceptedShortEdgeDp,
+            acceptedRadiusDp = acceptedRadiusDp,
             preserveStandaloneFrame = preserveStandaloneFrame,
         )
     }
