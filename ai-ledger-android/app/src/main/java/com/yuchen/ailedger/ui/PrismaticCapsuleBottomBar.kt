@@ -9,6 +9,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -44,6 +46,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -395,12 +401,10 @@ private fun androidx.compose.foundation.layout.RowScope.BottomBarTabItem(
                 alpha = 0.54f + 0.46f * selectedPop.value
             }
         ) {
-            Text(
-                text = tab.icon,
-                color = Color.White.copy(alpha = 0.72f + 0.26f * selectedPopValue),
-                fontSize = if (tab == AppTab.Assistant) 11.sp else 15.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1
+            BottomBarVectorIcon(
+                tab = tab,
+                selectedFraction = selectedPopValue,
+                modifier = Modifier.size(18.dp)
             )
             Text(
                 text = tab.title,
@@ -411,6 +415,207 @@ private fun androidx.compose.foundation.layout.RowScope.BottomBarTabItem(
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+private fun BottomBarVectorIcon(
+    tab: AppTab,
+    selectedFraction: Float,
+    modifier: Modifier = Modifier
+) {
+    val selected = selectedFraction.coerceIn(0f, 1f)
+    Canvas(modifier = modifier) {
+        val unit = minOf(size.width, size.height) / 24f
+        val origin = Offset(
+            x = (size.width - 24f * unit) / 2f,
+            y = (size.height - 24f * unit) / 2f
+        )
+        val primary = Color.White.copy(alpha = 0.72f + 0.27f * selected)
+        val accent = Color(0xFFBFFFF5).copy(alpha = 0.34f + 0.58f * selected)
+        val strokeWidth = unit * (1.48f + 0.18f * selected)
+
+        if (selected > 0.01f) {
+            drawCircle(
+                color = Color(0xFF75FFF0).copy(alpha = 0.055f * selected),
+                radius = unit * (9.0f + 1.2f * selected),
+                center = Offset(origin.x + 12f * unit, origin.y + 11f * unit),
+                blendMode = BlendMode.Screen
+            )
+        }
+
+        when (tab) {
+            AppTab.Assistant -> drawAssistantNavIcon(
+                unit = unit,
+                origin = origin,
+                primary = primary,
+                accent = accent,
+                selected = selected,
+                strokeWidth = strokeWidth
+            )
+            AppTab.Tools -> drawToolsNavIcon(
+                unit = unit,
+                origin = origin,
+                primary = primary,
+                accent = accent,
+                selected = selected,
+                strokeWidth = strokeWidth
+            )
+            AppTab.Settings -> drawSettingsNavIcon(
+                unit = unit,
+                origin = origin,
+                primary = primary,
+                accent = accent,
+                selected = selected,
+                strokeWidth = strokeWidth
+            )
+        }
+    }
+}
+
+private fun DrawScope.drawAssistantNavIcon(
+    unit: Float,
+    origin: Offset,
+    primary: Color,
+    accent: Color,
+    selected: Float,
+    strokeWidth: Float
+) {
+    fun point(x: Float, y: Float) = Offset(origin.x + x * unit, origin.y + y * unit)
+
+    val spark = Path().apply {
+        moveTo(point(12f, 2.2f).x, point(12f, 2.2f).y)
+        lineTo(point(13.8f, 8.2f).x, point(13.8f, 8.2f).y)
+        lineTo(point(20f, 10f).x, point(20f, 10f).y)
+        lineTo(point(13.8f, 11.8f).x, point(13.8f, 11.8f).y)
+        lineTo(point(12f, 18f).x, point(12f, 18f).y)
+        lineTo(point(10.2f, 11.8f).x, point(10.2f, 11.8f).y)
+        lineTo(point(4f, 10f).x, point(4f, 10f).y)
+        lineTo(point(10.2f, 8.2f).x, point(10.2f, 8.2f).y)
+        close()
+    }
+    drawPath(
+        path = spark,
+        color = accent.copy(alpha = 0.08f + 0.19f * selected)
+    )
+    drawPath(
+        path = spark,
+        color = primary,
+        style = Stroke(
+            width = strokeWidth,
+            cap = StrokeCap.Round,
+            join = StrokeJoin.Round
+        )
+    )
+
+    val satelliteCenter = point(18.3f, 4.8f)
+    val satelliteRadius = unit * (1.45f + 0.20f * selected)
+    drawLine(
+        color = accent,
+        start = satelliteCenter.copy(x = satelliteCenter.x - satelliteRadius),
+        end = satelliteCenter.copy(x = satelliteCenter.x + satelliteRadius),
+        strokeWidth = strokeWidth * 0.76f,
+        cap = StrokeCap.Round
+    )
+    drawLine(
+        color = accent,
+        start = satelliteCenter.copy(y = satelliteCenter.y - satelliteRadius),
+        end = satelliteCenter.copy(y = satelliteCenter.y + satelliteRadius),
+        strokeWidth = strokeWidth * 0.76f,
+        cap = StrokeCap.Round
+    )
+    drawCircle(
+        color = accent.copy(alpha = 0.58f + 0.30f * selected),
+        radius = unit * 0.92f,
+        center = point(6.0f, 17.8f)
+    )
+}
+
+private fun DrawScope.drawToolsNavIcon(
+    unit: Float,
+    origin: Offset,
+    primary: Color,
+    accent: Color,
+    selected: Float,
+    strokeWidth: Float
+) {
+    val cells = listOf(
+        Triple(Offset(4.0f, 4.0f), Size(7.0f, 7.0f), true),
+        Triple(Offset(13.5f, 4.0f), Size(6.5f, 5.5f), false),
+        Triple(Offset(4.0f, 13.5f), Size(6.5f, 6.5f), false),
+        Triple(Offset(13.0f, 12.0f), Size(7.0f, 8.0f), true)
+    )
+    cells.forEach { (topLeft, cellSize, highlighted) ->
+        val pxTopLeft = Offset(
+            origin.x + topLeft.x * unit,
+            origin.y + topLeft.y * unit
+        )
+        val pxSize = Size(cellSize.width * unit, cellSize.height * unit)
+        val corner = CornerRadius(1.7f * unit, 1.7f * unit)
+        if (highlighted) {
+            drawRoundRect(
+                color = accent.copy(alpha = 0.045f + 0.16f * selected),
+                topLeft = pxTopLeft,
+                size = pxSize,
+                cornerRadius = corner
+            )
+        }
+        drawRoundRect(
+            color = if (highlighted) accent.copy(alpha = 0.62f + 0.34f * selected) else primary,
+            topLeft = pxTopLeft,
+            size = pxSize,
+            cornerRadius = corner,
+            style = Stroke(
+                width = strokeWidth,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+    }
+}
+
+private fun DrawScope.drawSettingsNavIcon(
+    unit: Float,
+    origin: Offset,
+    primary: Color,
+    accent: Color,
+    selected: Float,
+    strokeWidth: Float
+) {
+    val rows = listOf(
+        6.0f to 8.1f,
+        12.0f to 15.8f,
+        18.0f to 10.8f
+    )
+    rows.forEachIndexed { index, (y, knobX) ->
+        val lineStart = Offset(origin.x + 4f * unit, origin.y + y * unit)
+        val lineEnd = Offset(origin.x + 20f * unit, origin.y + y * unit)
+        val knobCenter = Offset(origin.x + knobX * unit, origin.y + y * unit)
+        drawLine(
+            color = primary.copy(alpha = 0.72f + 0.20f * selected),
+            start = lineStart,
+            end = lineEnd,
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        if (selected > 0.01f) {
+            drawCircle(
+                color = accent.copy(alpha = 0.07f + 0.12f * selected),
+                radius = unit * (2.65f + 0.25f * selected),
+                center = knobCenter,
+                blendMode = BlendMode.Screen
+            )
+        }
+        drawCircle(
+            color = if (index == 1) accent else primary,
+            radius = unit * (1.65f + 0.16f * selected),
+            center = knobCenter
+        )
+        drawCircle(
+            color = Color(0xFF17344B).copy(alpha = 0.50f - 0.16f * selected),
+            radius = unit * 0.62f,
+            center = knobCenter
+        )
     }
 }
 
