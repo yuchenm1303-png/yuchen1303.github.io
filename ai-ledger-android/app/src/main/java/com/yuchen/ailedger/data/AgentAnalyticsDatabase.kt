@@ -29,6 +29,21 @@ interface AgentAnalyticsDao {
     @Query("SELECT * FROM agent_capability_usage ORDER BY uses DESC, lastUsedAtMillis DESC")
     fun observeCapabilityUsage(): Flow<List<AgentCapabilityUsageEntity>>
 
+    @Query("SELECT * FROM agent_daily_activity ORDER BY dateKey ASC")
+    suspend fun getAllDailyActivity(): List<AgentDailyActivityEntity>
+
+    @Query("SELECT * FROM agent_task_analytics ORDER BY startedAtMillis DESC LIMIT :limit")
+    suspend fun getRecentTasks(limit: Int): List<AgentTaskAnalyticsEntity>
+
+    @Query("SELECT COALESCE(MAX(durationMs), 0) FROM agent_task_analytics")
+    suspend fun getLongestTaskDurationMs(): Long
+
+    @Query("SELECT * FROM agent_model_usage ORDER BY totalTokens DESC, calls DESC")
+    suspend fun getAllModelUsage(): List<AgentModelUsageEntity>
+
+    @Query("SELECT * FROM agent_capability_usage ORDER BY uses DESC, lastUsedAtMillis DESC")
+    suspend fun getAllCapabilityUsage(): List<AgentCapabilityUsageEntity>
+
     @Query("SELECT * FROM agent_daily_activity WHERE dateKey = :dateKey LIMIT 1")
     suspend fun getDailyActivity(dateKey: String): AgentDailyActivityEntity?
 
