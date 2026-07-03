@@ -12,6 +12,11 @@ import org.json.JSONObject
  * 真实 usage 缺失时仅生成明确标记为 Estimated 的活动估算，绝不伪装成计费数据。
  */
 internal object AgentAnalyticsTokenParser {
+    private class EstimateState {
+        /** Android 请求为了兼容多条后端路径会带有 prompt/message/text/content 等同义副本。 */
+        val seenTextValues = HashSet<String>()
+    }
+
     fun resolveUsage(payload: JSONObject?, response: JSONObject?): AgentTokenUsage {
         return parseProviderUsage(response) ?: estimateUsage(payload, response)
     }
@@ -33,12 +38,28 @@ internal object AgentAnalyticsTokenParser {
             "completion_tokens", "output_tokens", "completionTokens", "outputTokens",
             "candidatesTokenCount", "outputTokenCount",
         )
-        val reasoning = usage.firstLong(
-            "reasoning_tokens", "reasoningTokens", "thoughtsTokenCount", "thinking_tokens",
+        val promptDetails = usage.firstObject(
+            "prompt_tokens_details", "input_tokens_details", "promptTokensDetails", "inputTokensDetails",
         )
-        val cached = usage.firstLong(
-            "cached_tokens", "cachedInputTokens", "cache_read_input_tokens",
-            "cacheReadInputTokens", "prompt_cache_hit_tokens",
+        val completionDetails = usage.firstObject(
+            "completion_tokens_details", "output_tokens_details", "completionTokensDetails", "outputTokensDetails",
+        )
+        val reasoning = maxOf(
+            usage.firstLong(
+                "reasoning_tokens", "reasoningTokens", "thoughtsTokenCount", "thinking_tokens",
+            ),
+            completionDetails?.firstLong(
+                "reasoning_tokens", "reasoningTokens", "thoughts_tokens", "thinking_tokens",
+            ) ?: 0L,
+        )
+        val cached = maxOf(
+            usage.firstLong(
+                "cached_tokens", "cachedInputTokens", "cache_read_input_tokens",
+                "cacheReadInputTokens", "prompt_cache_hit_tokens",
+            ),
+            promptDetails?.firstLong(
+                "cached_tokens", "cachedTokens", "cache_read_tokens", "cacheReadTokens",
+            ) ?: 0L,
         )
         val explicitTotal = usage.firstLong(
             "total_tokens", "totalTokens", "totalTokenCount", "tokens",
@@ -58,7 +79,11 @@ internal object AgentAnalyticsTokenParser {
     }
 
     fun estimateUsage(payload: JSONObject?, response: JSONObject?): AgentTokenUsage {
-        val input = estimateJsonTokens(payload, keyHint = "request").coerceAtLeast(1L)
+        val input = estimateJsonTokens(
+            value = payload,
+            keyHint = "request",
+            state = EstimateState(),
+        ).coerceAtLeast(1L)
         val responseText = extractResponseText(response)
         val output = estimateTextTokens(responseText).coerceAtLeast(
             if (response == null || response.length() == 0) 0L else 1L,
@@ -149,7 +174,8 @@ internal object AgentAnalyticsTokenParser {
     private fun usageScore(candidate: JSONObject): Int {
         val keys = TOKEN_KEYS.count(candidate::has)
         val nestedUsage = USAGE_KEYS.count(candidate::has)
-        return keys * 4 + nestedUsage
+        val detailObjects = TOKEN_DETAIL_KEYS.count(candidate::has)
+        return keys * 4 + nestedUsage + detailObjects * 2
     }
 
     private fun envelopeObjects(root: JSONObject?): List<JSONObject> {
@@ -187,6 +213,13 @@ internal object AgentAnalyticsTokenParser {
         return 0L
     }
 
+    private fun JSONObject.firstObject(vararg keys: String): JSONObject? {
+        for (key in keys) {
+            optJSONObject(key)?.let { return it }
+        }
+        return null
+    }
+
     private fun extractResponseText(response: JSONObject?): String {
         return envelopeObjects(response).asSequence()
             .flatMap { envelope ->
@@ -198,7 +231,12 @@ internal object AgentAnalyticsTokenParser {
             .orEmpty()
     }
 
-    private fun estimateJsonTokens(value: Any?, keyHint: String, depth: Int = 0): Long {
+    private fun estimateJsonTokens(
+        value: Any?,
+        keyHint: String,
+        state: EstimateState,
+        depth: Int = 0,
+    ): Long {
         if (value == null || value == JSONObject.NULL || depth > 10) return 0L
         val normalizedKey = keyHint.lowercase()
         if (SENSITIVE_OR_NOISE_KEYS.any(normalizedKey::contains)) return 0L
@@ -215,20 +253,32 @@ internal object AgentAnalyticsTokenParser {
                 val keys = value.keys()
                 while (keys.hasNext()) {
                     val key = keys.next()
-                    total = safeAdd(total, estimateJsonTokens(value.opt(key), key, depth + 1))
+                    total = safeAdd(
+                        total,
+                        estimateJsonTokens(value.opt(key), key, state, depth + 1),
+                    )
                 }
                 total
             }
             is JSONArray -> {
                 var total = 0L
                 for (index in 0 until value.length()) {
-                    total = safeAdd(total, estimateJsonTokens(value.opt(index), keyHint, depth + 1))
+                    total = safeAdd(
+                        total,
+                        estimateJsonTokens(value.opt(index), keyHint, state, depth + 1),
+                    )
                 }
                 total
             }
-            is String -> estimateTextTokens(value)
+            is String -> {
+                val clean = value.trim()
+                if (clean.isBlank() || !state.seenTextValues.add(clean)) 0L else estimateTextTokens(clean)
+            }
             is Number, is Boolean -> 1L
-            else -> estimateTextTokens(value.toString())
+            else -> {
+                val clean = value.toString().trim()
+                if (clean.isBlank() || !state.seenTextValues.add(clean)) 0L else estimateTextTokens(clean)
+            }
         }
     }
 
@@ -293,6 +343,10 @@ internal object AgentAnalyticsTokenParser {
 
     private val ENVELOPE_KEYS = listOf("data", "result", "response", "final", "metadata", "meta", "output")
     private val USAGE_KEYS = listOf("usage", "tokenUsage", "token_usage", "usageMetadata", "tokenUsageMetadata")
+    private val TOKEN_DETAIL_KEYS = listOf(
+        "prompt_tokens_details", "input_tokens_details", "promptTokensDetails", "inputTokensDetails",
+        "completion_tokens_details", "output_tokens_details", "completionTokensDetails", "outputTokensDetails",
+    )
     private val RESPONSE_TEXT_KEYS = listOf("reply", "answer", "text", "content", "rawModelOutput")
     private val TOKEN_KEYS = listOf(
         "prompt_tokens", "input_tokens", "promptTokens", "inputTokens", "promptTokenCount",
