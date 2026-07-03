@@ -13,11 +13,13 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -132,7 +134,8 @@ class AgentAnalyticsRepository private constructor(context: Context) {
 
     internal fun beginTask(taskId: Long, goal: String, startedAtMillis: Long) {
         if (taskId <= 0L) return
-        scope.launch {
+        // 先在调用线程立即取得写锁，再转入 IO 挂起；终态写入不能越过任务开始写入。
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
             writeMutex.withLock {
                 if (dao.getTask(taskId) != null) return@withLock
                 dao.upsertTask(
@@ -157,7 +160,8 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 val at = write.modelCall.occurredAtMillis
                 updateDayLocked(at) { day ->
                     day.copy(
-                        chatCalls = day.chatCalls + 1L,
+                        // 成功请求代表一轮实际对话；失败的备用端点尝试只进入失败与模型调用统计。
+                        chatCalls = day.chatCalls + if (write.modelCall.success) 1L else 0L,
                         chatFailures = day.chatFailures + if (write.modelCall.success) 0L else 1L,
                         webSearches = day.webSearches + if (write.webSearchUsed) 1L else 0L,
                         imageRequests = day.imageRequests + if (write.imageRequest) 1L else 0L,
@@ -410,10 +414,10 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         modelEntities: List<AgentModelUsageEntity>,
         capabilityEntities: List<AgentCapabilityUsageEntity>,
     ): AgentAnalyticsSnapshot {
-        val daily = dailyEntities.map(AgentDailyActivityEntity::toModel)
-        val tasks = taskEntities.map(AgentTaskAnalyticsEntity::toModel)
-        val models = modelEntities.map(AgentModelUsageEntity::toModel)
-        val capabilities = capabilityEntities.map(AgentCapabilityUsageEntity::toModel)
+        val daily = dailyEntities.map { it.toModel() }
+        val tasks = taskEntities.map { it.toModel() }
+        val models = modelEntities.map { it.toModel() }
+        val capabilities = capabilityEntities.map { it.toModel() }
         val terminalTasks = daily.sumOf {
             it.completedTasks + it.failedTasks + it.pausedTasks + it.cancelledTasks + it.budgetExceededTasks
         }
@@ -460,7 +464,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
             longest = maxOf(longest, running)
         }
 
-        val today = LocalDate.now()
+        val today = LocalDate.now(ZoneId.systemDefault())
         val latest = activeDates.last()
         if (latest != today && latest != today.minusDays(1L)) return 0 to longest
         var current = 1
@@ -478,7 +482,9 @@ class AgentAnalyticsRepository private constructor(context: Context) {
             status = write.status,
             startedAtMillis = startedAtMillis.takeIf { it > 0L } ?: write.startedAtMillis,
             endedAtMillis = end,
-            durationMs = end?.let { (it - (startedAtMillis.takeIf { value -> value > 0L } ?: write.startedAtMillis)).coerceAtLeast(0L) } ?: durationMs,
+            durationMs = end?.let {
+                (it - (startedAtMillis.takeIf { value -> value > 0L } ?: write.startedAtMillis)).coerceAtLeast(0L)
+            } ?: durationMs,
             latestResult = write.latestResult.take(MAX_RESULT_CHARS),
             modelCalls = maxOf(modelCalls, write.modelCalls),
             modelFailures = maxOf(modelFailures, write.modelFailures),
@@ -528,7 +534,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
     }
 
     private fun Map<String, AgentUsageCounter>.toJson(): String = JSONObject().apply {
-        forEach { (key, counter) ->
+        this@toJson.forEach { (key, counter) ->
             put(key, JSONObject().apply {
                 put("label", counter.displayName)
                 put("uses", counter.uses)
