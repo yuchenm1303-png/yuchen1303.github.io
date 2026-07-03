@@ -70,64 +70,91 @@ internal fun StockNativeDetailScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+    StockNativeDetailShell(
+        appState = appState,
+        modifier = Modifier.fillMaxSize()
     ) {
-        NativeDetailQuoteCard(
-            marketUi = marketUi,
-            isWatched = isWatched,
-            onBack = onBack,
-            onToggleWatch = onToggleWatch,
-            modifier = Modifier.fillMaxWidth().height(194.dp)
-        )
-
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(40.dp)
-                .background(Color.White.copy(alpha = 0.035f), RoundedCornerShape(17.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.075f), RoundedCornerShape(17.dp))
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .fillMaxSize()
+                .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            StockNativePill("行情", mode == "market", Modifier.weight(1f).fillMaxHeight(), fontSize = 10) {
-                mode = "market"
-            }
-            StockNativePill("社区", mode == "community", Modifier.weight(1f).fillMaxHeight(), fontSize = 10) {
-                mode = "community"
-            }
-        }
+            NativeDetailQuoteCard(
+                marketUi = marketUi,
+                isWatched = isWatched,
+                onBack = onBack,
+                onToggleWatch = onToggleWatch,
+                modifier = Modifier.fillMaxWidth().height(194.dp)
+            )
 
-        if (mode == "market") {
-            StockNativeGlassPanel(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                radius = 30.dp,
-                contentPadding = 13.dp
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .background(Color.White.copy(alpha = 0.035f), RoundedCornerShape(17.dp))
+                    .border(1.dp, Color.White.copy(alpha = 0.075f), RoundedCornerShape(17.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                StockWebMirrorTerminal(
-                    appState = appState,
-                    ui = marketUi,
-                    onSelectTab = onSelectTab
+                StockNativePill("行情", mode == "market", Modifier.weight(1f).fillMaxHeight(), fontSize = 10) {
+                    mode = "market"
+                }
+                StockNativePill("社区", mode == "community", Modifier.weight(1f).fillMaxHeight(), fontSize = 10) {
+                    mode = "community"
+                }
+            }
+
+            if (mode == "market") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(top = 4.dp)
+                ) {
+                    StockWebMirrorTerminal(
+                        appState = appState,
+                        ui = marketUi,
+                        onSelectTab = onSelectTab
+                    )
+                }
+            } else {
+                StockNativeCommunityPanel(
+                    ui = nativeUi,
+                    code = code,
+                    name = marketUi.stock.quote.name,
+                    sort = sort,
+                    onSortChange = { sort = it },
+                    onRefresh = { onLoadCommunity(true) },
+                    onLoadMore = onLoadMoreCommunity,
+                    onOpenPost = onOpenPost,
+                    onCompose = { readOnlyMessage = true },
+                    readOnlyMessage = readOnlyMessage,
+                    onDismissMessage = { readOnlyMessage = false },
+                    modifier = Modifier.fillMaxWidth().weight(1f)
                 )
             }
-        } else {
-            StockNativeCommunityPanel(
-                ui = nativeUi,
-                code = code,
-                name = marketUi.stock.quote.name,
-                sort = sort,
-                onSortChange = { sort = it },
-                onRefresh = { onLoadCommunity(true) },
-                onLoadMore = onLoadMoreCommunity,
-                onOpenPost = onOpenPost,
-                onCompose = { readOnlyMessage = true },
-                readOnlyMessage = readOnlyMessage,
-                onDismissMessage = { readOnlyMessage = false },
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
+        }
+    }
+}
+
+@Composable
+private fun StockNativeDetailShell(
+    appState: AssistantUiState,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Box(modifier = modifier) {
+        GlassPanel(
+            quality = appState.quality,
+            glassIntensity = appState.glassIntensity,
+            motionIntensity = appState.motionIntensity,
+            radius = 30,
+            modifier = Modifier.matchParentSize(),
+            role = GlassRole.Shell
+        ) {}
+        Box(Modifier.fillMaxSize()) {
+            content()
         }
     }
 }
@@ -142,148 +169,145 @@ private fun NativeDetailQuoteCard(
 ) {
     val quote = marketUi.stock.quote
     val tone = if (quote.isRising) StockRise else StockFall
-    StockNativeGlassPanel(
-        modifier = modifier,
-        radius = 28.dp,
-        contentPadding = 14.dp
+    Column(
+        modifier = modifier.padding(horizontal = 2.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth().height(44.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(Color.White.copy(alpha = 0.075f), CircleShape)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(Color.White.copy(alpha = 0.075f), CircleShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.08f), CircleShape)
-                        .clickable(onClick = onBack),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("‹", color = Color.White.copy(alpha = 0.96f), fontSize = 29.sp, lineHeight = 29.sp, fontWeight = FontWeight.Black)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        quote.name.ifBlank { "--" },
-                        color = Color.White,
-                        fontSize = 27.sp,
-                        lineHeight = 29.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        "${quote.code.ifBlank { "------" }} · ${quote.market.ifBlank { "--" }}",
-                        color = Color.White.copy(alpha = 0.45f),
-                        fontSize = 10.sp,
-                        lineHeight = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1
-                    )
-                }
-                Column(
-                    modifier = Modifier.width(112.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(28.dp)
-                            .background(
-                                if (isWatched) StockYellow.copy(alpha = 0.12f) else StockAqua.copy(alpha = 0.085f),
-                                StockPillShape
-                            )
-                            .border(
-                                1.dp,
-                                if (isWatched) StockYellow.copy(alpha = 0.25f) else StockAqua.copy(alpha = 0.18f),
-                                StockPillShape
-                            )
-                            .clickable(onClick = onToggleWatch),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(if (isWatched) "★" else "☆", color = if (isWatched) StockYellow else StockAqua, fontSize = 13.sp)
-                        Spacer(Modifier.width(5.dp))
-                        Text(if (isWatched) "已自选" else "加自选", color = if (isWatched) StockYellow else StockAqua, fontSize = 8.sp, fontWeight = FontWeight.Black)
-                    }
-                    Text(
-                        marketUi.stock.dataSourceLabel.ifBlank { "等待真实后端行情" },
-                        color = StockAqua.copy(alpha = 0.55f),
-                        fontSize = 7.sp,
-                        lineHeight = 10.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text("‹", color = Color.White.copy(alpha = 0.96f), fontSize = 29.sp, lineHeight = 29.sp, fontWeight = FontWeight.Black)
             }
-
-            StockDivider()
-
-            Row(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    quote.name.ifBlank { "--" },
+                    color = Color.White,
+                    fontSize = 27.sp,
+                    lineHeight = 29.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "${quote.code.ifBlank { "------" }} · ${quote.market.ifBlank { "--" }}",
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+            }
+            Column(
+                modifier = Modifier.width(112.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                Column(
-                    modifier = Modifier.width(136.dp).fillMaxHeight().padding(start = 2.dp, end = 12.dp),
-                    verticalArrangement = Arrangement.Center
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(28.dp)
+                        .background(
+                            if (isWatched) StockYellow.copy(alpha = 0.12f) else StockAqua.copy(alpha = 0.085f),
+                            StockPillShape
+                        )
+                        .border(
+                            1.dp,
+                            if (isWatched) StockYellow.copy(alpha = 0.25f) else StockAqua.copy(alpha = 0.18f),
+                            StockPillShape
+                        )
+                        .clickable(onClick = onToggleWatch),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
-                    Text(
-                        quote.price.ifBlank { "--" },
-                        color = tone,
-                        fontSize = 42.sp,
-                        lineHeight = 43.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1
-                    )
-                    Text(
-                        "${quote.changeAmount.ifBlank { "--" }}  ${quote.changePercent.ifBlank { "--" }}",
-                        color = tone,
-                        fontSize = 13.sp,
-                        lineHeight = 16.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1
-                    )
-                    Text(
-                        "昨收 ${if (quote.previousClose > 0f) String.format(Locale.US, "%.2f", quote.previousClose) else "--"}",
-                        color = Color.White.copy(alpha = 0.36f),
-                        fontSize = 8.sp,
-                        lineHeight = 11.sp,
-                        maxLines = 1
-                    )
+                    Text(if (isWatched) "★" else "☆", color = if (isWatched) StockYellow else StockAqua, fontSize = 13.sp)
+                    Spacer(Modifier.width(5.dp))
+                    Text(if (isWatched) "已自选" else "加自选", color = if (isWatched) StockYellow else StockAqua, fontSize = 8.sp, fontWeight = FontWeight.Black)
                 }
-                Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.085f)))
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    NativeDetailMetricRow(
-                        listOf(
-                            Triple("高", quote.high, priceTone(quote.high, quote.previousClose)),
-                            Triple("市值", quote.totalMarketValue, Color.White.copy(alpha = 0.92f)),
-                            Triple("量比", quote.volumeRatio, if ((quote.volumeRatio.toFloatOrNull() ?: 0f) >= 1f) StockRise else StockFall)
-                        ),
-                        Modifier.weight(1f)
-                    )
-                    NativeDetailMetricRow(
-                        listOf(
-                            Triple("低", quote.low, priceTone(quote.low, quote.previousClose)),
-                            Triple("流通", quote.floatMarketValue, Color.White.copy(alpha = 0.92f)),
-                            Triple("换手", quote.turnoverRate, Color.White.copy(alpha = 0.92f))
-                        ),
-                        Modifier.weight(1f)
-                    )
-                    NativeDetailMetricRow(
-                        listOf(
-                            Triple("开", quote.open, priceTone(quote.open, quote.previousClose)),
-                            Triple("市盈TTM", quote.peTtm, Color.White.copy(alpha = 0.92f)),
-                            Triple("成交额", quote.amount, Color.White.copy(alpha = 0.92f))
-                        ),
-                        Modifier.weight(1f)
-                    )
-                }
+                Text(
+                    marketUi.stock.dataSourceLabel.ifBlank { "等待真实后端行情" },
+                    color = StockAqua.copy(alpha = 0.55f),
+                    fontSize = 7.sp,
+                    lineHeight = 10.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        StockDivider()
+
+        Row(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(
+                modifier = Modifier.width(136.dp).fillMaxHeight().padding(start = 2.dp, end = 12.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    quote.price.ifBlank { "--" },
+                    color = tone,
+                    fontSize = 42.sp,
+                    lineHeight = 43.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+                Text(
+                    "${quote.changeAmount.ifBlank { "--" }}  ${quote.changePercent.ifBlank { "--" }}",
+                    color = tone,
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1
+                )
+                Text(
+                    "昨收 ${if (quote.previousClose > 0f) String.format(Locale.US, "%.2f", quote.previousClose) else "--"}",
+                    color = Color.White.copy(alpha = 0.36f),
+                    fontSize = 8.sp,
+                    lineHeight = 11.sp,
+                    maxLines = 1
+                )
+            }
+            Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.085f)))
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(5.dp)
+            ) {
+                NativeDetailMetricRow(
+                    listOf(
+                        Triple("高", quote.high, priceTone(quote.high, quote.previousClose)),
+                        Triple("市值", quote.totalMarketValue, Color.White.copy(alpha = 0.92f)),
+                        Triple("量比", quote.volumeRatio, if ((quote.volumeRatio.toFloatOrNull() ?: 0f) >= 1f) StockRise else StockFall)
+                    ),
+                    Modifier.weight(1f)
+                )
+                NativeDetailMetricRow(
+                    listOf(
+                        Triple("低", quote.low, priceTone(quote.low, quote.previousClose)),
+                        Triple("流通", quote.floatMarketValue, Color.White.copy(alpha = 0.92f)),
+                        Triple("换手", quote.turnoverRate, Color.White.copy(alpha = 0.92f))
+                    ),
+                    Modifier.weight(1f)
+                )
+                NativeDetailMetricRow(
+                    listOf(
+                        Triple("开", quote.open, priceTone(quote.open, quote.previousClose)),
+                        Triple("市盈TTM", quote.peTtm, Color.White.copy(alpha = 0.92f)),
+                        Triple("成交额", quote.amount, Color.White.copy(alpha = 0.92f))
+                    ),
+                    Modifier.weight(1f)
+                )
             }
         }
     }
@@ -335,71 +359,69 @@ private fun StockNativeCommunityPanel(
         }
     }
     Box(modifier) {
-        StockNativeGlassPanel(Modifier.fillMaxSize(), radius = 30.dp, contentPadding = 0.dp) {
-            Column(Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("社区", color = Color.White.copy(alpha = 0.96f), fontSize = 19.sp, fontWeight = FontWeight.Black)
-                        Text("$name（$code）· 东方财富股吧只读社区", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    StockNativePill("刷新", false, Modifier.width(62.dp).height(31.dp), fontSize = 10, onClick = onRefresh)
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("社区", color = Color.White.copy(alpha = 0.96f), fontSize = 19.sp, fontWeight = FontWeight.Black)
+                    Text("$name（$code）· 东方财富股吧只读社区", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                StockDivider()
-                Row(
-                    Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 14.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
-                    NativeCommunitySortButton("最新发布", sort == "latest") { onSortChange("latest") }
-                    NativeCommunitySortButton("热门", sort == "hot") { onSortChange("hot") }
-                    Spacer(Modifier.weight(1f))
-                    Text("${ui.discussions.size.takeIf { it > 0 } ?: "等待数据"}", color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, modifier = Modifier.padding(bottom = 13.dp))
-                }
-                StockDivider()
-                if (posts.isEmpty()) {
-                    StockLoadingOrError(ui.discussionLoading, ui.discussionError, "当前股票暂未返回可展示的社区帖子", Modifier.weight(1f))
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 72.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(posts, key = { it.postId }) { post ->
-                            NativeCommunityPostCard(post, name, code, onOpenPost)
-                        }
-                        item {
-                            StockNativePill(
-                                text = when {
-                                    ui.discussionLoading -> "加载中…"
-                                    ui.discussionHasMore -> "加载更多社区帖子"
-                                    else -> "已加载当前社区内容"
-                                },
-                                active = ui.discussionHasMore,
-                                modifier = Modifier.fillMaxWidth().height(38.dp),
-                                fontSize = 10,
-                                onClick = { if (ui.discussionHasMore && !ui.discussionLoading) onLoadMore() }
-                            )
-                        }
-                    }
-                }
-                Text(
-                    when {
-                        ui.discussionLoading -> "正在连接东方财富股吧，只读抓取不会参与行情刷新。"
-                        !ui.discussionError.isNullOrBlank() -> ui.discussionError
-                        ui.discussions.isNotEmpty() -> "讨论 ${ui.discussions.size} 条 · 社区列表按需加载"
-                        else -> "社区首次打开时才加载，不增加个股行情首屏开销。"
-                    },
-                    color = Color.White.copy(alpha = 0.36f),
-                    fontSize = 9.sp,
-                    lineHeight = 13.sp,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                StockNativePill("刷新", false, Modifier.width(62.dp).height(31.dp), fontSize = 10, onClick = onRefresh)
             }
+            StockDivider()
+            Row(
+                Modifier.fillMaxWidth().height(46.dp).padding(horizontal = 2.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                NativeCommunitySortButton("最新发布", sort == "latest") { onSortChange("latest") }
+                NativeCommunitySortButton("热门", sort == "hot") { onSortChange("hot") }
+                Spacer(Modifier.weight(1f))
+                Text("${ui.discussions.size.takeIf { it > 0 } ?: "等待数据"}", color = Color.White.copy(alpha = 0.38f), fontSize = 9.sp, modifier = Modifier.padding(bottom = 13.dp))
+            }
+            StockDivider()
+            if (posts.isEmpty()) {
+                StockLoadingOrError(ui.discussionLoading, ui.discussionError, "当前股票暂未返回可展示的社区帖子", Modifier.weight(1f))
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(start = 0.dp, end = 0.dp, top = 8.dp, bottom = 72.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(posts, key = { it.postId }) { post ->
+                        NativeCommunityPostCard(post, name, code, onOpenPost)
+                    }
+                    item {
+                        StockNativePill(
+                            text = when {
+                                ui.discussionLoading -> "加载中…"
+                                ui.discussionHasMore -> "加载更多社区帖子"
+                                else -> "已加载当前社区内容"
+                            },
+                            active = ui.discussionHasMore,
+                            modifier = Modifier.fillMaxWidth().height(38.dp),
+                            fontSize = 10,
+                            onClick = { if (ui.discussionHasMore && !ui.discussionLoading) onLoadMore() }
+                        )
+                    }
+                }
+            }
+            Text(
+                when {
+                    ui.discussionLoading -> "正在连接东方财富股吧，只读抓取不会参与行情刷新。"
+                    !ui.discussionError.isNullOrBlank() -> ui.discussionError
+                    ui.discussions.isNotEmpty() -> "讨论 ${ui.discussions.size} 条 · 社区列表按需加载"
+                    else -> "社区首次打开时才加载，不增加个股行情首屏开销。"
+                },
+                color = Color.White.copy(alpha = 0.36f),
+                fontSize = 9.sp,
+                lineHeight = 13.sp,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 8.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
         Box(
