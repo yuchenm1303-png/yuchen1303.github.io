@@ -38,7 +38,9 @@ internal class AgentAnalyticsCloudClient(
             .map { activity -> activity.toSupabaseJson(session.userId, cleanDeviceId) }
             .toList()
         if (rows.isNotEmpty()) {
-            val body = JSONArray().apply { rows.forEach(::put) }.toString()
+            val body = JSONArray().apply {
+                rows.forEach { row -> put(row) }
+            }.toString()
             requestText(
                 session = session,
                 path = "/rest/v1/$ANALYTICS_DAILY_TABLE?on_conflict=user_id,device_id,date_key",
