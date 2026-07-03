@@ -5,6 +5,7 @@ import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
 import com.yuchen.ailedger.model.AgentDailyActivity
 import com.yuchen.ailedger.service.AgentAnalyticsCloudClient
 import com.yuchen.ailedger.service.AgentClientIdentity
+import com.yuchen.ailedger.service.AiWorkerClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,7 +26,9 @@ internal class AgentAnalyticsCloudRepository private constructor(context: Contex
 
     private val appContext = context.applicationContext
     private val authRepository = SupabaseAuthRepository.get(appContext)
-    private val client = AgentAnalyticsCloudClient()
+    private val client = AgentAnalyticsCloudClient(
+        endpoints = listOf(AiWorkerClient.DEFAULT_ENDPOINT),
+    )
     private val preferences = appContext.getSharedPreferences(
         "agent_analytics_cloud_sync",
         Context.MODE_PRIVATE,
