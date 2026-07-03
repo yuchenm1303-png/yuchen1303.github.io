@@ -21,15 +21,14 @@ import kotlin.math.roundToInt
 private const val DEFAULT_BLUR_SOURCE_SCALE = 0.36f
 private const val MIN_BLUR_SOURCE_SCALE = 0.28f
 private const val MAX_BLUR_SOURCE_SCALE = 0.72f
+private const val MAX_BLUR_ITERATIONS = 12
 
 /**
- * 构建清晰镜片纹理和完整的低 / 中 / 高三档模糊金字塔。
+ * 构建同一背景源的 level-0 清晰纹理和低 / 中 / 高三档模糊金字塔。
  *
- * medium 是首页旧版 OpenGL Shell 唯一需要的模糊采样器，因此优先精确生成并通过
- * onCriticalReady 发布；普通 Compose 玻璃仍等待 low / medium / high 全部完成后才启用。
- * medium 发布后暂停剩余 CPU pass，直到 OpenGL 首帧完成或安全超时，避免首次 EGL、
- * Shader 编译和纹理上传与低/高档模糊及亮度积分表计算争抢资源。最终三档像素算法、
- * 色调参数和亮度表内容保持不变。
+ * iterations=0 是真正的零模糊快速路径：直接让四个层级别名到同一张全分辨率 level-0
+ * 纹理，不创建缩小缓存、像素 scratch 或任何 box-blur pass。iterations>0 时维持原有
+ * medium 优先发布和首帧后补齐 low/high 的构建顺序。
  */
 @Suppress("UNUSED_PARAMETER")
 internal fun buildBackdropTextureSet(
@@ -56,6 +55,30 @@ internal fun buildBackdropTextureSet(
         }
     }
 
+    val iterations = params.iterations.roundToInt().coerceIn(0, MAX_BLUR_ITERATIONS)
+    val clearImage = clearSource.asImageBitmap()
+    if (iterations == 0) {
+        val critical = BackdropTextureSet(
+            clearImage = clearImage,
+            blurLowImage = clearImage,
+            blurMediumImage = clearImage,
+            blurHighImage = clearImage,
+            luminanceMap = BackdropLuminanceMap.Neutral,
+            fullWidthPx = fullWidth,
+            fullHeightPx = fullHeight,
+            blurScale = 1f,
+        )
+        onCriticalReady?.invoke(critical)
+        StartupPerformanceGate.awaitOpenGlFirstFrameBeforePyramidCompletion()
+        return critical.copy(
+            luminanceMap = BackdropLuminanceMap.build(
+                source = clearSource,
+                fullWidthPx = fullWidth,
+                fullHeightPx = fullHeight,
+            )
+        )
+    }
+
     val blurScale = if (useDefaultWallpaper) {
         DEFAULT_BLUR_SOURCE_SCALE
     } else {
@@ -65,11 +88,8 @@ internal fun buildBackdropTextureSet(
     val blurHeight = (fullHeight * blurScale).roundToInt().coerceAtLeast(320)
     val effectiveScale = blurWidth.toFloat() / fullWidth.toFloat()
     val blurSource = createPrefilteredBlurSource(clearSource, blurWidth, blurHeight)
-
-    val iterations = params.iterations.roundToInt().coerceIn(1, 12)
     val scratch = BackdropPixelScratch(blurWidth * blurHeight)
 
-    // OpenGL 关键路径：先生成与旧流程完全相同的 medium 纹理。
     val medium = buildTunedBlurLevel(
         source = blurSource,
         radius = 2,
@@ -77,7 +97,6 @@ internal fun buildBackdropTextureSet(
         params = params,
         scratch = scratch
     )
-    val clearImage = clearSource.asImageBitmap()
     val mediumImage = medium.asImageBitmap()
     onCriticalReady?.invoke(
         BackdropTextureSet(
@@ -85,7 +104,6 @@ internal fun buildBackdropTextureSet(
             blurLowImage = mediumImage,
             blurMediumImage = mediumImage,
             blurHighImage = mediumImage,
-            // 旧版 Shell 不读取亮度积分表；完整表在首帧后按原算法生成。
             luminanceMap = BackdropLuminanceMap.Neutral,
             fullWidthPx = fullWidth,
             fullHeightPx = fullHeight,
@@ -95,7 +113,6 @@ internal fun buildBackdropTextureSet(
 
     StartupPerformanceGate.awaitOpenGlFirstFrameBeforePyramidCompletion()
 
-    // 完整金字塔：每一级都从同一个不可变 blurSource 独立计算，输出与原流程一致。
     val luminanceMap = BackdropLuminanceMap.build(
         source = medium,
         fullWidthPx = fullWidth,
