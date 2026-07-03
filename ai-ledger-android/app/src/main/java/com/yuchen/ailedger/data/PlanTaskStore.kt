@@ -47,7 +47,9 @@ class PlanTaskStore(context: Context) {
     private fun saveTasksLocked(tasks: List<PlanTask>) {
         val array = JSONArray()
         tasks.forEach { task -> array.put(task.toJson()) }
-        preferences.edit().putString(KEY_TASKS, array.toString()).commit()
+        // SharedPreferences.apply() 先同步更新进程内快照，再异步刷盘。
+        // 计划调度和 UI 都使用当前进程内状态，不再让 JSON 序列化后的磁盘 fsync 卡住主线程。
+        preferences.edit().putString(KEY_TASKS, array.toString()).apply()
     }
 
     private fun PlanTask.toJson(): JSONObject = JSONObject().apply {
