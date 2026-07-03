@@ -34,6 +34,7 @@ internal class LegacyOpenGLGlassCacheFrame {
     var opticsDarkScale: Float = 0f
     var texturesReady: Boolean = false
     var blurTextureId: Int = 0
+    // 兼容现有 Renderer 帧结构；单背景 Composite 不再读取该纹理。
     var lensTextureId: Int = 0
     var scissorLeft: Int = 0
     var scissorTop: Int = 0
@@ -42,11 +43,10 @@ internal class LegacyOpenGLGlassCacheFrame {
 }
 
 /**
- * 旧版玻璃的无损几何缓存。
+ * 旧版玻璃的 half-float 几何缓存。
  *
- * 只在支持可渲染 RGBA half-float 的 GLES2 设备上启用。缓存内容为 mask、厚度梯度
- * 和内部距离，保持原 Shader 的几何公式；背景采样、按压和材质合成仍使用原精度逐帧
- * 执行。任何扩展、FBO 或 Shader 初始化失败都会永久回退到原直绘路径。
+ * FBO 只保存 mask、厚度梯度和内部距离。最终 Composite 只绑定一张模糊背景纹理，
+ * 不再创建清晰镜片混合、边缘拖拽或第二背景采样；缓存与直绘路径保持同一单背景公式。
  */
 internal class LegacyOpenGLGlassGeometryCache {
     private var supported = false
@@ -73,7 +73,6 @@ internal class LegacyOpenGLGlassGeometryCache {
     private var compositePressHandle = -1
     private var compositeTextureReadyHandle = -1
     private var compositeBlurTextureHandle = -1
-    private var compositeLensTextureHandle = -1
     private var compositeGeometryTextureHandle = -1
     private var compositeMaterialHandle = -1
     private var compositeRefractionHandle = -1
@@ -146,7 +145,6 @@ internal class LegacyOpenGLGlassGeometryCache {
             compositePressHandle = GLES20.glGetUniformLocation(compositeProgram, "uPress")
             compositeTextureReadyHandle = GLES20.glGetUniformLocation(compositeProgram, "uTextureReady")
             compositeBlurTextureHandle = GLES20.glGetUniformLocation(compositeProgram, "uBlurTexture")
-            compositeLensTextureHandle = GLES20.glGetUniformLocation(compositeProgram, "uLensTexture")
             compositeGeometryTextureHandle = GLES20.glGetUniformLocation(compositeProgram, "uGeometryTexture")
             compositeMaterialHandle = GLES20.glGetUniformLocation(compositeProgram, "uMaterial")
             compositeRefractionHandle = GLES20.glGetUniformLocation(compositeProgram, "uRefraction")
@@ -154,7 +152,6 @@ internal class LegacyOpenGLGlassGeometryCache {
 
             GLES20.glUseProgram(compositeProgram)
             GLES20.glUniform1i(compositeBlurTextureHandle, 0)
-            GLES20.glUniform1i(compositeLensTextureHandle, 1)
             GLES20.glUniform1i(compositeGeometryTextureHandle, 2)
             supported = true
         } catch (_: Throwable) {
@@ -167,9 +164,7 @@ internal class LegacyOpenGLGlassGeometryCache {
     fun onSurfaceChanged(width: Int, height: Int) {
         cacheValid = false
         if (!supported || permanentlyDisabled) return
-        if (width != textureWidth || height != textureHeight) {
-            releaseFramebuffer()
-        }
+        if (width != textureWidth || height != textureHeight) releaseFramebuffer()
     }
 
     fun invalidate() {
@@ -187,7 +182,6 @@ internal class LegacyOpenGLGlassGeometryCache {
             return false
         }
         if (!ensureFramebuffer(frame.viewportWidth, frame.viewportHeight)) return false
-
         if (!cacheValid && !renderGeometry(frame, quadBufferId)) {
             disablePermanently()
             return false
@@ -213,10 +207,8 @@ internal class LegacyOpenGLGlassGeometryCache {
         val safeWidth = width.coerceAtLeast(1)
         val safeHeight = height.coerceAtLeast(1)
         if (
-            framebufferId != 0 &&
-            geometryTextureId != 0 &&
-            textureWidth == safeWidth &&
-            textureHeight == safeHeight
+            framebufferId != 0 && geometryTextureId != 0 &&
+            textureWidth == safeWidth && textureHeight == safeHeight
         ) return true
 
         releaseFramebuffer()
@@ -320,7 +312,6 @@ internal class LegacyOpenGLGlassGeometryCache {
         bindQuad(quadBufferId, compositePositionHandle)
         uploadCompositeUniforms(frame)
         bindTexture(GLES20.GL_TEXTURE0, frame.blurTextureId)
-        bindTexture(GLES20.GL_TEXTURE1, frame.lensTextureId)
         bindTexture(GEOMETRY_TEXTURE_UNIT, geometryTextureId)
         applyScissor(frame)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -332,11 +323,7 @@ internal class LegacyOpenGLGlassGeometryCache {
 
     private fun uploadCompositeUniforms(frame: LegacyOpenGLGlassCacheFrame) {
         val force = !compositeUniformsInitialized
-        if (
-            force ||
-            lastCompositeViewportWidth != frame.viewportWidth ||
-            lastCompositeViewportHeight != frame.viewportHeight
-        ) {
+        if (force || lastCompositeViewportWidth != frame.viewportWidth || lastCompositeViewportHeight != frame.viewportHeight) {
             GLES20.glUniform2f(
                 compositeResolutionHandle,
                 frame.viewportWidth.toFloat(),
@@ -356,8 +343,7 @@ internal class LegacyOpenGLGlassGeometryCache {
             lastCompositeRootHeight = frame.rootHeight
         }
         if (
-            force ||
-            lastCompositeRectWidth != frame.rectWidth ||
+            force || lastCompositeRectWidth != frame.rectWidth ||
             lastCompositeRectHeight != frame.rectHeight ||
             lastCompositeRectOffsetY != frame.rectOffsetY
         ) {
@@ -377,8 +363,7 @@ internal class LegacyOpenGLGlassGeometryCache {
             lastCompositeRadius = frame.radius
         }
         if (
-            force ||
-            lastCompositePressProgress != frame.pressProgress ||
+            force || lastCompositePressProgress != frame.pressProgress ||
             lastCompositePressCenterX != frame.pressCenterX ||
             lastCompositePressCenterY != frame.pressCenterY
         ) {
@@ -398,8 +383,7 @@ internal class LegacyOpenGLGlassGeometryCache {
             lastCompositeTexturesReady = frame.texturesReady
         }
         if (
-            force ||
-            lastCompositeMaterialVisibility != frame.materialVisibility ||
+            force || lastCompositeMaterialVisibility != frame.materialVisibility ||
             lastCompositeMaterialMaxAlpha != frame.materialMaxAlpha ||
             lastCompositeMaterialEdgeBrightness != frame.materialEdgeBrightness
         ) {
@@ -415,8 +399,7 @@ internal class LegacyOpenGLGlassGeometryCache {
             lastCompositeMaterialEdgeBrightness = frame.materialEdgeBrightness
         }
         if (
-            force ||
-            lastCompositeRefractionPullScale != frame.refractionPullScale ||
+            force || lastCompositeRefractionPullScale != frame.refractionPullScale ||
             lastCompositeRefractionEdgePullDp != frame.refractionEdgePullDp ||
             lastCompositeRefractionCompressionScale != frame.refractionCompressionScale ||
             lastCompositeRefractionCornerScale != frame.refractionCornerScale
@@ -434,8 +417,7 @@ internal class LegacyOpenGLGlassGeometryCache {
             lastCompositeRefractionCornerScale = frame.refractionCornerScale
         }
         if (
-            force ||
-            lastCompositeOpticsSampleRadius != frame.opticsSampleRadius ||
+            force || lastCompositeOpticsSampleRadius != frame.opticsSampleRadius ||
             lastCompositeOpticsRingWidth != frame.opticsRingWidth ||
             lastCompositeOpticsDebugAlpha != frame.opticsDebugAlpha ||
             lastCompositeOpticsDarkScale != frame.opticsDarkScale
@@ -521,7 +503,6 @@ private fun buildCacheProgram(vertex: String, fragment: String): Int {
         check(status[0] != 0) { GLES20.glGetShaderInfoLog(shader) }
         return shader
     }
-
     val vertexShader = compile(GLES20.GL_VERTEX_SHADER, vertex)
     val fragmentShader = compile(GLES20.GL_FRAGMENT_SHADER, fragment)
     val program = GLES20.glCreateProgram()
@@ -547,7 +528,6 @@ private const val GEOMETRY_FRAGMENT_SHADER = """
     uniform vec4 uRect;
     uniform float uRadius;
     uniform vec4 uOptics;
-
     float sat(float x){return clamp(x,0.0,1.0);}
     float roundedBoxSdfPrepared(vec2 coord,vec2 halfSize,vec2 core,float radius){
         vec2 q=abs(coord-halfSize)-core;
@@ -559,8 +539,7 @@ private const val GEOMETRY_FRAGMENT_SHADER = """
         vec2 local=clamp(coord*rectInv,0.0,1.0);
         vec2 p=local*2.0-1.0;
         p.x*=domeAspect;
-        float d=length(p);
-        return pow(sat(1.0-d*0.74),1.65);
+        return pow(sat(1.0-length(p)*0.74),1.65);
     }
     float thicknessAt(vec2 coord,vec2 halfSize,vec2 core,vec2 rectInv,float radius,float edgeWidth,float coreWidth,float domeAspect){
         float sd=roundedBoxSdfPrepared(coord,halfSize,core,radius);
@@ -586,8 +565,7 @@ private const val GEOMETRY_FRAGMENT_SHADER = """
         float inside=max(-sd,0.0);
         float edgeWidth=clamp(uOptics.y,6.0,minSize*0.34);
         float coreWidth=max(edgeWidth*0.28,3.0);
-        float rectAspect=rectSize.x/rectSize.y;
-        float domeAspect=min(rectAspect,2.4)*0.38;
+        float domeAspect=min(rectSize.x/rectSize.y,2.4)*0.38;
         float stepPx=2.0;
         float tL=thicknessAt(visualCoord-vec2(stepPx,0.0),halfSize,coreGeometry,rectInv,radius,edgeWidth,coreWidth,domeAspect);
         float tR=thicknessAt(visualCoord+vec2(stepPx,0.0),halfSize,coreGeometry,rectInv,radius,edgeWidth,coreWidth,domeAspect);
@@ -610,25 +588,16 @@ private const val COMPOSITE_FRAGMENT_SHADER = """
     uniform vec4 uRefraction;
     uniform vec4 uOptics;
     uniform sampler2D uBlurTexture;
-    uniform sampler2D uLensTexture;
     uniform sampler2D uGeometryTexture;
 
     float sat(float x){return clamp(x,0.0,1.0);}
-    vec2 perimeterNormalPrepared(vec2 coord,vec2 halfSize,vec2 core){
-        vec2 local=coord-halfSize;
-        vec2 nearest=clamp(local,-core,core);
-        vec2 radial=local-nearest;
-        float radialLength=length(radial);
-        if(radialLength>0.0001)return radial/radialLength;
-        vec2 safeCore=max(core,vec2(1.0));
-        vec2 sideRatio=abs(local)/safeCore;
-        if(sideRatio.x>sideRatio.y)return vec2(local.x<0.0?-1.0:1.0,0.0);
-        return vec2(0.0,local.y<0.0?-1.0:1.0);
-    }
     vec2 globalUvAt(vec2 visualCoord,vec2 rootInv){return clamp((uCardOrigin+visualCoord)*rootInv,0.0,1.0);}
     vec3 fallbackBackdrop(vec2 uv){float h=smoothstep(0.0,1.0,uv.y);return mix(vec3(0.12,0.22,0.38),vec3(0.36,0.50,0.72),h);}
-    vec3 sourceBlurBackdrop(vec2 uv){vec2 safeUv=clamp(uv,0.0,1.0);if(uTextureReady<0.5)return fallbackBackdrop(safeUv);return texture2D(uBlurTexture,safeUv).rgb;}
-    vec3 sourceLensBackdrop(vec2 uv){vec2 safeUv=clamp(uv,0.0,1.0);if(uTextureReady<0.5)return fallbackBackdrop(safeUv);return texture2D(uLensTexture,safeUv).rgb;}
+    vec3 sourceBlurBackdrop(vec2 uv){
+        vec2 safeUv=clamp(uv,0.0,1.0);
+        if(uTextureReady<0.5)return fallbackBackdrop(safeUv);
+        return texture2D(uBlurTexture,safeUv).rgb;
+    }
     vec3 blurBackdrop(vec2 uv,float edgeWeight,vec2 rootInv){
         float sampleRadius=uOptics.x;
         if(sampleRadius<=0.50)return sourceBlurBackdrop(uv);
@@ -647,36 +616,15 @@ private const val COMPOSITE_FRAGMENT_SHADER = """
     }
     float rimWideFromInside(float inside,float edgeWidth){return 1.0-smoothstep(0.0,edgeWidth,inside);}
     float rimCoreFromInside(float inside,float coreWidth){return 1.0-smoothstep(0.0,coreWidth,inside);}
-    float dragBandFromInside(float inside,float dragWidth){return pow(1.0-smoothstep(0.0,dragWidth,inside),1.35);}
     float pressFieldAt(vec2 coord,vec2 rectInv,vec2 center,float aspect,float press){
         vec2 delta=clamp(coord*rectInv,0.0,1.0)-center;
         delta.x*=aspect;
-        float d=length(delta);
-        return pow(sat(1.0-d*0.92),1.45)*press;
+        return pow(sat(1.0-length(delta)*0.92),1.45)*press;
     }
-    vec2 softLimitPx(vec2 v,float limitPx){float len=length(v);float softLen=len/(1.0+len/max(limitPx,1.0));return v*(softLen/max(len,0.0001));}
-    float colorSignal(vec3 c){float luma=dot(c,vec3(0.299,0.587,0.114));float chroma=length(c-vec3(luma));return sat((luma-0.20)*1.25+chroma*1.55);}
-    vec3 edgeColorDrag(vec2 coord,vec2 halfSize,vec2 coreGeometry,float band,float core,float edgeWidth,vec2 rootInv){
-        vec2 n=perimeterNormalPrepared(coord,halfSize,coreGeometry);
-        vec2 t=vec2(-n.y,n.x);
-        float pull=clamp(8.0+abs(uRefraction.y)*0.030,8.0,42.0);
-        float smear=clamp(4.0+edgeWidth*0.55,4.0,22.0);
-        vec2 baseIn=coord-n*pull;
-        vec2 baseFar=coord-n*(pull*1.85);
-        vec2 baseOut=coord+n*(pull*0.45);
-        vec2 smearNear=t*smear;
-        vec2 smearFar=smearNear*1.85;
-        vec3 c=sourceLensBackdrop(globalUvAt(baseIn,rootInv))*0.28;
-        c+=sourceLensBackdrop(globalUvAt(baseFar,rootInv))*0.18;
-        c+=sourceLensBackdrop(globalUvAt(baseOut,rootInv))*0.12;
-        c+=sourceLensBackdrop(globalUvAt(baseIn+smearNear,rootInv))*0.14;
-        c+=sourceLensBackdrop(globalUvAt(baseIn-smearNear,rootInv))*0.14;
-        c+=sourceLensBackdrop(globalUvAt(baseIn+smearFar,rootInv))*0.07;
-        c+=sourceLensBackdrop(globalUvAt(baseIn-smearFar,rootInv))*0.07;
-        vec3 soft=blurBackdrop(globalUvAt(baseIn,rootInv),band,rootInv)*0.45+c*0.55;
-        float signal=colorSignal(c);
-        float dragAlpha=band*(0.035+sat(max(uRefraction.z,0.0))*0.105+core*0.030)*signal;
-        return mix(vec3(0.0),soft,sat(dragAlpha));
+    vec2 softLimitPx(vec2 v,float limitPx){
+        float len=length(v);
+        float softLen=len/(1.0+len/max(limitPx,1.0));
+        return v*(softLen/max(len,0.0001));
     }
     void main(){
         vec4 geometry=texture2D(uGeometryTexture,gl_FragCoord.xy/max(uResolution,vec2(1.0)));
@@ -687,17 +635,12 @@ private const val COMPOSITE_FRAGMENT_SHADER = """
         vec2 coord=vec2(gl_FragCoord.x,uResolution.y-gl_FragCoord.y);
         vec2 rectSize=max(uRect.zw,vec2(1.0));
         vec2 rectInv=1.0/rectSize;
-        vec2 halfSize=rectSize*0.5;
         vec2 visualCoord=coord-uRect.xy;
         float minSize=min(rectSize.x,rectSize.y);
-        float radius=min(uRadius,minSize*0.5);
-        vec2 coreGeometry=max(halfSize-vec2(radius),vec2(0.0));
-        vec2 rootInv=1.0/max(uRootResolution,vec2(1.0));
         float edgeWidth=clamp(uOptics.y,6.0,minSize*0.34);
         float coreWidth=max(edgeWidth*0.28,3.0);
-        float dragWidth=max(edgeWidth*1.45,8.0);
-        float rectAspect=rectSize.x/rectSize.y;
-        float aspect=min(rectAspect,2.2);
+        float aspect=min(rectSize.x/rectSize.y,2.2);
+        vec2 rootInv=1.0/max(uRootResolution,vec2(1.0));
         float press=uPress.x;
         vec2 pressCenter=uPress.yz;
         vec2 pressCenterPx=pressCenter*rectSize;
@@ -713,11 +656,9 @@ private const val COMPOSITE_FRAGMENT_SHADER = """
             vec2 pressDir=pressDelta/max(length(pressDelta),0.001);
             pressDimplePx=-pressDir*pressField*(8.0+press*10.0);
         }
-        vec2 pressedCoord=visualCoord+inwardPx;
-        vec2 bgUv=globalUvAt(pressedCoord,rootInv);
+        vec2 bgUv=globalUvAt(visualCoord+inwardPx,rootInv);
         float rimWide=rimWideFromInside(inside,edgeWidth);
         float rimCore=rimCoreFromInside(inside,coreWidth);
-        float dragBand=dragBandFromInside(inside,dragWidth);
         float gLen=length(grad);
         float gradGate=smoothstep(0.0004,0.012,gLen);
         float gradScale=gradGate*min(1.0,0.22/max(gLen,0.0001));
@@ -727,18 +668,8 @@ private const val COMPOSITE_FRAGMENT_SHADER = """
         rawRefractPx+=pressDimplePx;
         rawRefractPx+=inwardPx*(0.76+0.46*rimWide);
         float limitPx=mix(18.0,62.0,rimWide)+sat(abs(uRefraction.y)/600.0)*16.0+press*20.0;
-        vec2 refractPx=softLimitPx(rawRefractPx,limitPx);
-        vec2 refractedUv=bgUv+refractPx*rootInv;
+        vec2 refractedUv=bgUv+softLimitPx(rawRefractPx,limitPx)*rootInv;
         vec3 color=blurBackdrop(refractedUv,rimWide+pressField*0.85+pressWide*0.22,rootInv);
-        vec3 lensColor=sourceLensBackdrop(refractedUv);
-        float lensMix=sat(rimCore*max(uRefraction.z,0.0)*0.42+pressField*0.220+pressWide*0.075);
-        color=mix(color,lensColor,lensMix);
-        float dragAmount=dragBand+press*rimWide*0.32+pressField*0.18;
-        if(dragAmount>0.002){
-            vec3 dragColor=edgeColorDrag(visualCoord+inwardPx*0.72,halfSize,coreGeometry,dragAmount,rimCore,edgeWidth,rootInv);
-            float dragMix=sat(max(max(dragColor.r,dragColor.g),dragColor.b));
-            color=mix(color,dragColor,dragMix);
-        }
         float rimOpticalBoost=rimCore*0.16+gradEnergy*0.045+press*rimCore*0.080+pressField*0.040;
         color*=uMaterial.z*(1.0+rimOpticalBoost);
         color*=1.0-pressField*0.070-pressWide*0.025;
