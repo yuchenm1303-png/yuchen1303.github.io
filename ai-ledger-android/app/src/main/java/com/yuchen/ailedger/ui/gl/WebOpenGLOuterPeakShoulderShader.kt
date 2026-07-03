@@ -14,17 +14,17 @@ internal object WebOpenGLOuterPeakShoulderShader {
 
     const val SOURCE = """
         float shoulderWidth(float minSize){
-            return min(max(uShoulder.x,1.0),minSize*0.46);
+            return min(max(glassShoulder().x,1.0),minSize*0.46);
         }
         float shoulderCaptureWidth(float visibleWidth,float minSize){
-            return min(max(uShoulderFlow.x,visibleWidth),minSize*0.46);
+            return min(max(glassShoulderFlow().x,visibleWidth),minSize*0.46);
         }
         float shoulderOuterEnvelopeAtX(float x){
-            float exponent=mix(2.0,4.8,uShoulder.z);
+            float exponent=mix(2.0,4.8,glassShoulder().z);
             return pow(max(1.0-x,0.0),exponent);
         }
         float shoulderMaterialFillAtX(float x){
-            float exponent=mix(1.20,1.85,uShoulder.z);
+            float exponent=mix(1.20,1.85,glassShoulder().z);
             return pow(max(1.0-x,0.0),exponent);
         }
         vec2 unifiedInnerContourPoint(
@@ -65,7 +65,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
             float envelope,
             float bodyCurve
         ){
-            float flowStrength=uShoulderFlow.y;
+            float flowStrength=glassShoulderFlow().y;
             if(flowStrength<=0.0001){
                 return 0.0;
             }
@@ -91,7 +91,7 @@ internal object WebOpenGLOuterPeakShoulderShader {
             out vec2 sourceNormal
         ){
             float envelope=shoulderOuterEnvelopeAtX(shoulderGeometry.x);
-            float theta=uShoulder.y*0.01745329252*envelope;
+            float theta=glassShoulder().y*0.01745329252*envelope;
             float captureWidth=shoulderCaptureWidth(
                 shoulderGeometry.y,
                 shoulderGeometry.z
