@@ -5,20 +5,21 @@ import android.graphics.Bitmap
 import android.os.Environment
 import android.os.StatFs
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -27,7 +28,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -118,9 +118,7 @@ fun StockFirstToolsHomeScreen(
     val heroUi by heroViewModel.uiState.collectAsState()
     val heroVisible = pageVisible && selectedTool == null
 
-    LaunchedEffect(heroVisible) {
-        heroViewModel.setVisible(heroVisible)
-    }
+    LaunchedEffect(heroVisible) { heroViewModel.setVisible(heroVisible) }
     DisposableEffect(heroViewModel) {
         onDispose { heroViewModel.setVisible(false) }
     }
@@ -169,11 +167,7 @@ fun StockFirstToolsHomeScreen(
         ToolDestination.StockMarket -> Unit
 
         else -> {
-            PendingToolScreen(
-                destination = selectedTool,
-                state = pageState,
-                onBack = onCloseTool,
-            )
+            PendingToolScreen(selectedTool, pageState, onCloseTool)
             return
         }
     }
@@ -184,7 +178,7 @@ fun StockFirstToolsHomeScreen(
     val ledgerState = ledgerViewModel.state
     val planState = planViewModel.uiState
     val operationState = operationViewModel.uiState
-    val deviceSummary = rememberDeviceToolsSummary(active = pageVisible)
+    val deviceSummary = rememberDeviceToolsSummary(pageVisible)
 
     val monthKey = remember(ledgerState.records) { LedgerStore.todayIso().take(7) }
     val monthRecords = remember(ledgerState.records, monthKey) {
@@ -193,14 +187,10 @@ fun StockFirstToolsHomeScreen(
         }
     }
     val monthExpense = remember(monthRecords) {
-        monthRecords
-            .filter { it.type == LedgerRecordType.Expense }
-            .sumOf { it.amount.toDouble() }
+        monthRecords.filter { it.type == LedgerRecordType.Expense }.sumOf { it.amount.toDouble() }
     }
     val monthIncome = remember(monthRecords) {
-        monthRecords
-            .filter { it.type == LedgerRecordType.Income }
-            .sumOf { it.amount.toDouble() }
+        monthRecords.filter { it.type == LedgerRecordType.Income }.sumOf { it.amount.toDouble() }
     }
     val budget = ledgerState.budgetText.toDoubleOrNull() ?: 0.0
     val budgetRemaining = (budget - monthExpense).coerceAtLeast(0.0)
@@ -221,17 +211,17 @@ fun StockFirstToolsHomeScreen(
             verticalArrangement = Arrangement.spacedBy(13.dp),
         ) {
             item {
-                ToolsEntrance(delayMs = 0, initialOffsetY = -5, initialScale = 0.99f) {
+                ToolsEntrance(0, initialOffsetY = -5, initialScale = 0.99f) {
                     StockToolsHeader()
                 }
             }
             item {
-                ToolsEntrance(delayMs = 70, initialOffsetY = 12, initialScale = 0.982f) {
+                ToolsEntrance(70, initialOffsetY = 12, initialScale = 0.982f) {
                     StockMarketHeroEntry(pageState, heroUi, onOpenTool)
                 }
             }
             item {
-                ToolsEntrance(delayMs = 130, initialOffsetY = 13, initialScale = 0.985f) {
+                ToolsEntrance(130, initialOffsetY = 13, initialScale = 0.985f) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -255,7 +245,7 @@ fun StockFirstToolsHomeScreen(
                 }
             }
             item {
-                ToolsEntrance(delayMs = 185, initialOffsetY = 13, initialScale = 0.987f) {
+                ToolsEntrance(185, initialOffsetY = 13, initialScale = 0.987f) {
                     PlanSummaryCard(
                         state = pageState,
                         title = nextPlan?.title,
@@ -266,7 +256,7 @@ fun StockFirstToolsHomeScreen(
                 }
             }
             item {
-                ToolsEntrance(delayMs = 240, initialOffsetY = 13, initialScale = 0.985f) {
+                ToolsEntrance(240, initialOffsetY = 13, initialScale = 0.985f) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -277,7 +267,7 @@ fun StockFirstToolsHomeScreen(
                             userApps = deviceSummary.userApps,
                             appIcons = deviceSummary.appIcons,
                             loaded = deviceSummary.loaded,
-                            modifier = Modifier.weight(1f).height(148.dp),
+                            modifier = Modifier.weight(1f).height(160.dp),
                             onClick = { onOpenTool(ToolDestination.AppControl) },
                         )
                         StorageSummaryCard(
@@ -285,14 +275,14 @@ fun StockFirstToolsHomeScreen(
                             usedBytes = deviceSummary.usedBytes,
                             totalBytes = deviceSummary.totalBytes,
                             loaded = deviceSummary.loaded,
-                            modifier = Modifier.weight(1f).height(148.dp),
+                            modifier = Modifier.weight(1f).height(160.dp),
                             onClick = { onOpenTool(ToolDestination.StorageManagement) },
                         )
                     }
                 }
             }
             item {
-                ToolsEntrance(delayMs = 295, initialOffsetY = 13, initialScale = 0.987f) {
+                ToolsEntrance(295, initialOffsetY = 13, initialScale = 0.987f) {
                     OperationLearningSummaryCard(
                         state = pageState,
                         title = latestWorkflow?.title,
@@ -344,8 +334,8 @@ private fun rememberDeviceToolsSummary(active: Boolean): DeviceToolsSummary {
             val selectedApplications = (priorityApplications + launchableUserApplications)
                 .distinctBy { it.packageName }
                 .take(4)
-            val icons = selectedApplications.mapNotNull { application ->
-                appRepository.loadIcon(application.packageName, sizePx = 128)
+            val icons = selectedApplications.mapNotNull {
+                appRepository.loadIcon(it.packageName, 128)
             }
             val statFs = runCatching {
                 StatFs(Environment.getDataDirectory().absolutePath)
@@ -424,7 +414,7 @@ private fun PendingToolScreen(
                 FrostInfoGlassPanel(
                     radius = 17.44f,
                     backdropAlpha = 1f,
-                    frostAlpha = 0.090f,
+                    frostAlpha = 0.09f,
                     dimAlpha = 0f,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -489,10 +479,7 @@ private fun ToolsEntrance(
         modifier = modifier,
         enter = fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
             slideInVertically(
-                spring(
-                    dampingRatio = 0.82f,
-                    stiffness = Spring.StiffnessMediumLow,
-                ),
+                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
             ) { initialOffsetY } +
             scaleIn(
                 initialScale = initialScale,
@@ -504,8 +491,7 @@ private fun ToolsEntrance(
         exit = fadeOut(tween(96)) +
             slideOutVertically(tween(108)) {
                 (-initialOffsetY / 4).coerceIn(-8, 8)
-            } +
-            scaleOut(targetScale = 0.992f, animationSpec = tween(112)),
+            } + scaleOut(targetScale = 0.992f, animationSpec = tween(112)),
     ) {
         content()
     }
@@ -523,7 +509,7 @@ private fun StockToolsHeader() {
         )
         Text(
             "重要信息与常用能力，一眼就能找到。",
-            color = Color.White.copy(alpha = 0.50f),
+            color = Color.White.copy(alpha = 0.5f),
             fontSize = 13.sp,
             lineHeight = 18.sp,
             fontWeight = FontWeight.Medium,
@@ -647,9 +633,7 @@ private fun StockHeroIndexMetric(
         )
         Text(
             item.price.ifBlank { "--" },
-            color = Color.White.copy(
-                alpha = if (item.hasRealQuote) 0.96f else 0.54f,
-            ),
+            color = Color.White.copy(alpha = if (item.hasRealQuote) 0.96f else 0.54f),
             fontSize = 16.sp,
             lineHeight = 19.sp,
             fontWeight = FontWeight.Black,
@@ -658,9 +642,7 @@ private fun StockHeroIndexMetric(
         )
         Text(
             heroIndexChangeText(item),
-            color = tone.copy(
-                alpha = if (item.hasRealQuote) 0.92f else 0.60f,
-            ),
+            color = tone.copy(alpha = if (item.hasRealQuote) 0.92f else 0.6f),
             fontSize = 9.sp,
             lineHeight = 11.sp,
             fontWeight = FontWeight.Bold,
@@ -692,7 +674,7 @@ private fun StockHeroSparkline(
     val rows = remember(points) {
         points.filter { it.price.isFinite() && it.price > 0f }
     }
-    Canvas(modifier = modifier) {
+    Canvas(modifier) {
         val inset = 1.dp.toPx()
         val left = inset
         val right = (size.width - inset).coerceAtLeast(left + 1f)
@@ -719,15 +701,12 @@ private fun StockHeroSparkline(
             high = maxOf(high, previousClose)
         }
         val span = high - low
-        val xFor = { index: Int ->
+        fun xFor(index: Int): Float =
             left + (right - left) * index / rows.lastIndex.coerceAtLeast(1).toFloat()
-        }
-        val yFor = { value: Float ->
-            if (span <= 0.0001f) {
-                (top + bottom) / 2f
-            } else {
-                bottom - (value - low) / span * (bottom - top)
-            }
+        fun yFor(value: Float): Float = if (span <= 0.0001f) {
+            (top + bottom) / 2f
+        } else {
+            bottom - (value - low) / span * (bottom - top)
         }
 
         if (previousClose.isFinite() && previousClose > 0f) {
@@ -867,7 +846,7 @@ private fun DashboardArtIcon(
                         color = tone.copy(alpha = 0.95f),
                         radius = cell * 0.48f,
                         center = controlCenter,
-                        style = Stroke(width = stroke),
+                        style = Stroke(stroke),
                     )
                     drawCircle(
                         color = Color.White.copy(alpha = 0.92f),
@@ -878,7 +857,7 @@ private fun DashboardArtIcon(
 
                 DashboardArtIcon.OperationLearning -> {
                     val start = Offset(size.width * 0.13f, size.height * 0.72f)
-                    val middle = Offset(size.width * 0.50f, size.height * 0.28f)
+                    val middle = Offset(size.width * 0.5f, size.height * 0.28f)
                     val end = Offset(size.width * 0.87f, size.height * 0.72f)
                     val route = Path().apply {
                         moveTo(start.x, start.y)
@@ -900,9 +879,9 @@ private fun DashboardArtIcon(
                         )
                     }
                     drawPath(
-                        path = route,
-                        color = tone.copy(alpha = 0.76f),
-                        style = Stroke(width = stroke, cap = StrokeCap.Round),
+                        route,
+                        tone.copy(alpha = 0.76f),
+                        style = Stroke(stroke, cap = StrokeCap.Round),
                     )
                     listOf(start, middle, end).forEachIndexed { index, point ->
                         drawCircle(
@@ -940,11 +919,7 @@ private fun DashboardCardHeader(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (art == null) {
-            DashboardIcon(symbol = symbol, tone = tone)
-        } else {
-            DashboardArtIcon(art = art, tone = tone)
-        }
+        if (art == null) DashboardIcon(symbol, tone) else DashboardArtIcon(art, tone)
         Spacer(Modifier.width(10.dp))
         Text(
             title,
@@ -977,34 +952,24 @@ private fun LedgerSummaryCard(
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            DashboardCardHeader(symbol = "¥", title = "账单中心", tone = DashboardBlue)
+            DashboardCardHeader("¥", "账单中心", DashboardBlue)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
             ) {
                 SummaryValue(
-                    label = "本月支出",
-                    value = if (monthExpense > 0.0) {
-                        "¥${formatMoney(monthExpense)}"
-                    } else {
-                        "暂无支出"
-                    },
-                    modifier = Modifier.weight(1f),
+                    "本月支出",
+                    if (monthExpense > 0.0) "¥${formatMoney(monthExpense)}" else "暂无支出",
+                    Modifier.weight(1f),
                 )
                 Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(35.dp)
+                    Modifier.width(1.dp).height(35.dp)
                         .background(Color.White.copy(alpha = 0.08f)),
                 )
                 SummaryValue(
-                    label = "预算剩余",
-                    value = if (budgetRemaining > 0.0) {
-                        "¥${formatMoney(budgetRemaining)}"
-                    } else {
-                        "未设置"
-                    },
-                    modifier = Modifier.weight(1f).padding(start = 10.dp),
+                    "预算剩余",
+                    if (budgetRemaining > 0.0) "¥${formatMoney(budgetRemaining)}" else "未设置",
+                    Modifier.weight(1f).padding(start = 10.dp),
                 )
             }
         }
@@ -1035,7 +1000,7 @@ private fun StatisticsSummaryCard(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                Column(modifier = Modifier.weight(0.72f)) {
+                Column(Modifier.weight(0.72f)) {
                     Text(
                         recordCount.toString(),
                         color = Color.White.copy(alpha = 0.96f),
@@ -1050,11 +1015,7 @@ private fun StatisticsSummaryCard(
                     )
                     Text(
                         "结余 ${signedMoney(monthIncome - monthExpense)}",
-                        color = if (monthIncome - monthExpense >= 0.0) {
-                            DashboardMint
-                        } else {
-                            DashboardWarm
-                        },
+                        color = if (monthIncome - monthExpense >= 0.0) DashboardMint else DashboardWarm,
                         fontSize = 9.5.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -1062,7 +1023,7 @@ private fun StatisticsSummaryCard(
                     )
                 }
                 MiniBarChart(
-                    values = listOf(0.38f, 0.62f, 0.44f, 0.78f, 0.56f, 0.90f, 0.68f),
+                    values = listOf(0.38f, 0.62f, 0.44f, 0.78f, 0.56f, 0.9f, 0.68f),
                     tone = DashboardViolet,
                     modifier = Modifier.weight(1f).height(49.dp),
                 )
@@ -1080,15 +1041,15 @@ private fun PlanSummaryCard(
     onClick: () -> Unit,
 ) {
     DashboardShellCard(
-        state = state,
-        modifier = Modifier.fillMaxWidth().height(102.dp),
-        onClick = onClick,
+        state,
+        Modifier.fillMaxWidth().height(102.dp),
+        onClick,
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DashboardIcon(symbol = "✓", tone = DashboardViolet)
+            DashboardIcon("✓", DashboardViolet)
             Spacer(Modifier.width(12.dp))
             Column(
                 modifier = Modifier.weight(1f),
@@ -1101,11 +1062,7 @@ private fun PlanSummaryCard(
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    if (title.isNullOrBlank()) {
-                        "还没有创建计划"
-                    } else {
-                        "下一项：$title"
-                    },
+                    if (title.isNullOrBlank()) "还没有创建计划" else "下一项：$title",
                     color = Color.White.copy(alpha = 0.54f),
                     fontSize = 12.5.sp,
                     maxLines = 1,
@@ -1113,7 +1070,7 @@ private fun PlanSummaryCard(
                 )
                 Text(
                     "$activeCount 项进行中",
-                    color = DashboardViolet.copy(alpha = 0.80f),
+                    color = DashboardViolet.copy(alpha = 0.8f),
                     fontSize = 9.5.sp,
                     fontWeight = FontWeight.Bold,
                 )
@@ -1151,7 +1108,7 @@ private fun AppControlSummaryCard(
                 tone = DashboardMint,
                 art = DashboardArtIcon.AppControl,
             )
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(
                     if (loaded) "$installedApps 个应用" else "正在读取应用",
                     color = Color.White.copy(alpha = 0.94f),
@@ -1160,20 +1117,13 @@ private fun AppControlSummaryCard(
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    if (loaded) {
-                        "其中 $userApps 个用户应用"
-                    } else {
-                        "仅在进入功能页时读取一次"
-                    },
+                    if (loaded) "其中 $userApps 个用户应用" else "仅在进入功能页时读取一次",
                     color = Color.White.copy(alpha = 0.46f),
                     fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                RealAppIconPreview(
-                    appIcons = appIcons,
-                    loading = !loaded,
-                )
+                RealAppIconPreview(appIcons, loading = !loaded)
             }
         }
     }
@@ -1184,32 +1134,39 @@ private fun RealAppIconPreview(
     appIcons: List<Bitmap>,
     loading: Boolean,
 ) {
-    val visibleCount = if (loading) 4 else appIcons.size.coerceAtMost(4)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(40.dp),
+    val visibleCount = if (loading || appIcons.isEmpty()) 4 else appIcons.size.coerceAtMost(4)
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth().height(38.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
-        repeat(visibleCount) { index ->
-            val icon = appIcons.getOrNull(index)
-            val iconModifier = Modifier
-                .offset(x = (index * 29).dp)
-                .size(38.dp)
-                .clip(RoundedCornerShape(11.dp))
-            if (icon != null) {
-                Image(
-                    bitmap = icon.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = iconModifier,
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                Box(
-                    modifier = iconModifier.background(
-                        Color.White.copy(alpha = if (loading) 0.09f else 0.05f),
-                    ),
-                )
+        val gap = 5.dp
+        val availableIconWidth = if (visibleCount > 0) {
+            (maxWidth - gap * (visibleCount - 1).toFloat()) / visibleCount.toFloat()
+        } else {
+            0.dp
+        }
+        val iconSize = availableIconWidth.coerceAtMost(36.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(gap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            repeat(visibleCount) { index ->
+                val icon = appIcons.getOrNull(index)
+                val iconModifier = Modifier
+                    .size(iconSize)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.White.copy(alpha = if (icon == null) 0.07f else 0.035f))
+                if (icon == null) {
+                    Box(iconModifier)
+                } else {
+                    Image(
+                        bitmap = icon.asImageBitmap(),
+                        contentDescription = null,
+                        modifier = iconModifier,
+                        contentScale = ContentScale.Fit,
+                    )
+                }
             }
         }
     }
@@ -1234,7 +1191,7 @@ private fun StorageSummaryCard(
             modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 13.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            DashboardCardHeader(symbol = "◉", title = "存储管理", tone = DashboardBlue)
+            DashboardCardHeader("◉", "存储管理", DashboardBlue)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1249,27 +1206,19 @@ private fun StorageSummaryCard(
                         fontSize = 10.5.sp,
                     )
                     Text(
-                        if (loaded && totalBytes > 0L) {
-                            formatStorage(usedBytes)
-                        } else {
-                            "正在读取"
-                        },
+                        if (loaded && totalBytes > 0L) formatStorage(usedBytes) else "正在读取",
                         color = Color.White.copy(alpha = 0.95f),
                         fontSize = 20.sp,
                         lineHeight = 23.sp,
                         fontWeight = FontWeight.Black,
                     )
                     Text(
-                        if (loaded && totalBytes > 0L) {
-                            "共 ${formatStorage(totalBytes)}"
-                        } else {
-                            "设备容量"
-                        },
+                        if (loaded && totalBytes > 0L) "共 ${formatStorage(totalBytes)}" else "设备容量",
                         color = Color.White.copy(alpha = 0.43f),
                         fontSize = 9.5.sp,
                     )
                 }
-                StorageRing(ratio = ratio, modifier = Modifier.size(58.dp))
+                StorageRing(ratio, Modifier.size(58.dp))
             }
         }
     }
@@ -1284,18 +1233,15 @@ private fun OperationLearningSummaryCard(
     onClick: () -> Unit,
 ) {
     DashboardShellCard(
-        state = state,
-        modifier = Modifier.fillMaxWidth().height(108.dp),
-        onClick = onClick,
+        state,
+        Modifier.fillMaxWidth().height(108.dp),
+        onClick,
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DashboardArtIcon(
-                art = DashboardArtIcon.OperationLearning,
-                tone = DashboardViolet,
-            )
+            DashboardArtIcon(DashboardArtIcon.OperationLearning, DashboardViolet)
             Spacer(Modifier.width(12.dp))
             Column(
                 modifier = Modifier.weight(1f),
@@ -1348,10 +1294,7 @@ private fun SummaryValue(
     value: String,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(label, color = Color.White.copy(alpha = 0.45f), fontSize = 9.5.sp)
         Text(
             value,
@@ -1371,21 +1314,17 @@ private fun MiniBarChart(
     tone: Color,
     modifier: Modifier = Modifier,
 ) {
-    Canvas(modifier = modifier) {
+    Canvas(modifier) {
         if (values.isEmpty()) return@Canvas
         val gap = 4.dp.toPx()
-        val barWidth = (
-            (size.width - gap * (values.size - 1)) / values.size
-        ).coerceAtLeast(2.dp.toPx())
+        val barWidth = ((size.width - gap * (values.size - 1)) / values.size)
+            .coerceAtLeast(2.dp.toPx())
         values.forEachIndexed { index, value ->
             val normalized = value.coerceIn(0.08f, 1f)
             val barHeight = size.height * normalized
             drawRoundRect(
-                color = tone.copy(alpha = 0.30f + normalized * 0.45f),
-                topLeft = Offset(
-                    index * (barWidth + gap),
-                    size.height - barHeight,
-                ),
+                color = tone.copy(alpha = 0.3f + normalized * 0.45f),
+                topLeft = Offset(index * (barWidth + gap), size.height - barHeight),
                 size = Size(barWidth, barHeight),
                 cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
             )
@@ -1398,22 +1337,22 @@ private fun StorageRing(
     ratio: Float,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+    Box(modifier, contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
             val stroke = 6.dp.toPx()
             drawArc(
-                color = Color.White.copy(alpha = 0.10f),
+                color = Color.White.copy(alpha = 0.1f),
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
-                style = Stroke(width = stroke, cap = StrokeCap.Round),
+                style = Stroke(stroke, cap = StrokeCap.Round),
             )
             drawArc(
                 color = DashboardBlue.copy(alpha = 0.94f),
                 startAngle = -90f,
                 sweepAngle = 360f * ratio,
                 useCenter = false,
-                style = Stroke(width = stroke, cap = StrokeCap.Round),
+                style = Stroke(stroke, cap = StrokeCap.Round),
             )
         }
         Text(
@@ -1425,8 +1364,7 @@ private fun StorageRing(
     }
 }
 
-private fun formatMoney(value: Double): String =
-    DecimalFormat("#,##0.##").format(value)
+private fun formatMoney(value: Double): String = DecimalFormat("#,##0.##").format(value)
 
 private fun signedMoney(value: Double): String {
     val sign = if (value >= 0.0) "+" else "-"
