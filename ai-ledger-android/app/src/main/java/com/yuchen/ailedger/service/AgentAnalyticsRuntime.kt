@@ -172,6 +172,8 @@ internal object AgentAnalyticsRuntime {
         response: JSONObject?,
         success: Boolean,
         durationMs: Long,
+        requestBytes: Long = -1L,
+        responseBytes: Long = -1L,
     ) {
         runCatching {
             val usage = if (success) {
@@ -190,8 +192,10 @@ internal object AgentAnalyticsRuntime {
                         success = success,
                         usage = usage,
                         latencyMs = durationMs.coerceAtLeast(0L),
-                        requestBytes = AgentAnalyticsTokenParser.requestBytes(payload),
-                        responseBytes = AgentAnalyticsTokenParser.responseBytes(response),
+                        requestBytes = requestBytes.takeIf { it >= 0L }
+                            ?: AgentAnalyticsTokenParser.requestBytes(payload),
+                        responseBytes = responseBytes.takeIf { it >= 0L }
+                            ?: AgentAnalyticsTokenParser.responseBytes(response),
                     ),
                     webSearchUsed = AgentAnalyticsTokenParser.webSearchUsed(response),
                     imageRequest = AgentAnalyticsTokenParser.imageRequest(payload),
@@ -370,7 +374,7 @@ internal object AgentAnalyticsRuntime {
     }
 
     private fun isTerminalStatus(status: String): Boolean = status.trim() in setOf(
-        "已完成", "执行失败", "失败", "已暂停", "已手动停止", "已达上限",
+        "已完成", "执行失败", "失败", "已暂停", "等待确认", "已手动停止", "已达上限",
     )
 
     private fun normalizeKey(value: String): String = value
