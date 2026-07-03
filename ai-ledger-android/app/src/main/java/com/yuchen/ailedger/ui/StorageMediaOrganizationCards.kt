@@ -115,15 +115,15 @@ internal fun OrganizationAnalysisPanel(
             }
             OrganizationPrimaryAction(
                 text = when {
-                    analyzing -> "正在分析缩略图与目录…"
-                    snapshot == null -> "开始精细整理分析"
-                    else -> "重新分析"
+                    analyzing -> "正在分析照片与授权目录…"
+                    snapshot == null -> "开始照片与目录分析"
+                    else -> "重新分析照片与目录"
                 },
                 enabled = !analyzing && (includeMedia || hasFolder),
                 onClick = onAnalyze,
             )
             if (ignoredCount > 0) OrganizationTextAction("清空忽略规则 · $ignoredCount 条", onClearIgnoreRules)
-            if (!includeMedia && !hasFolder) Text("请先在基础存储管理中授权共享媒体或选择目录。", color = OrganizationWarning, fontSize = 10.5.sp)
+            if (!includeMedia && !hasFolder) Text("请先在基础存储管理中授权共享图片或选择目录。", color = OrganizationWarning, fontSize = 10.5.sp)
         }
     }
 }
@@ -143,7 +143,7 @@ internal fun SimilarPhotoGroupCard(
     ) {
         Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("视觉相似 · ${group.files.size} 张", color = Color.White.copy(alpha = 0.92f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-            Text("最大感知距离 ${group.maxHashDistance} · 请预览后手动选择，不提供一键选副本。", color = Color.White.copy(alpha = 0.45f), fontSize = 9.8.sp)
+            Text("最大感知距离 ${group.maxHashDistance} · 批量选择只会加入待清理列表，删除前仍需预览确认。", color = Color.White.copy(alpha = 0.45f), fontSize = 9.8.sp)
             group.files.forEach { file ->
                 OrganizationFileCard(file, file.stableId in selectedIds, { onToggle(file) }, { onPreview(file) })
             }
