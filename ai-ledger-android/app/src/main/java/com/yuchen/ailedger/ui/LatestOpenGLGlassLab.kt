@@ -33,8 +33,8 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
+import kotlin.math.roundToInt
 
-/** 只同步当前 fc725b/V29.5 映射和色散参数，不保留失效实验字段。 */
 @Composable
 internal fun LatestOpenGLGlassLab(
     state: AssistantUiState,
@@ -96,7 +96,7 @@ internal fun LatestOpenGLGlassLab(
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    "整圈统一映射保持不变；色散仅作用于最终采样",
+                    "单一背景源：0 为清晰，1/2/4 为低、中、高模糊锚点",
                     color = Color.White.copy(alpha = 0.52f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -112,9 +112,13 @@ internal fun LatestOpenGLGlassLab(
         }
     }
 
-    LatestGroup("背景模糊层 BackdropDebugParams", "网页背景模糊与色彩参数") {
-        LatestSlider("背景模糊半径", "radius", params.radius, 0f..4f) { onBackdropChange(params.copy(radius = it)) }
-        LatestSlider("模糊迭代次数", "iterations", params.iterations, 1f..12f) { onBackdropChange(params.copy(iterations = it)) }
+    LatestGroup("背景模糊金字塔", "0 清晰；数值增大时单调增强模糊") {
+        LatestSlider("背景模糊层级", "0=清晰，1=低，2=中，4=高", params.radius, 0f..4f) {
+            onBackdropChange(params.copy(radius = it))
+        }
+        LatestSlider("模糊迭代次数", "0=跳过全部模糊 pass", params.iterations, 0f..12f) {
+            onBackdropChange(params.copy(iterations = it.roundToInt().toFloat()))
+        }
         LatestSlider("背景层亮度", "brightness", params.brightness, 0.4f..2.2f) { onBackdropChange(params.copy(brightness = it)) }
         LatestSlider("背景层对比", "contrast", params.contrast, 0.5f..1.8f) { onBackdropChange(params.copy(contrast = it)) }
         LatestSlider("背景层饱和", "saturation", params.saturation, 0.3f..1.8f) { onBackdropChange(params.copy(saturation = it)) }
@@ -150,7 +154,7 @@ internal fun LatestOpenGLGlassLab(
         LatestSlider("固定取样切向揉开", "shoulderTangentialFlowStrength", style.newOpenGlShoulderTangentialFlowStrength, 0f..2.4f) { onBorderChange(style.copy(newOpenGlShoulderTangentialFlowStrength = it)) }
     }
 
-    LatestGroup("色散 Chromatic Dispersion", "RGB 通道沿玻璃边缘法线轻量分离") {
+    LatestGroup("色散 Chromatic Dispersion", "RGB 通道沿同一背景层级轻量分离") {
         LatestSlider("色散强度", "dispersionStrength", style.newOpenGlDispersionStrength, 0f..1.5f) { onBorderChange(style.copy(newOpenGlDispersionStrength = it)) }
         LatestSlider("RGB 分离距离", "dispersionDistanceDp", style.newOpenGlDispersionDistanceDp, 0f..8f) { onBorderChange(style.copy(newOpenGlDispersionDistanceDp = it)) }
         LatestSlider("色散作用宽度", "dispersionEdgeWidthDp", style.newOpenGlDispersionEdgeWidthDp, 2f..64f) { onBorderChange(style.copy(newOpenGlDispersionEdgeWidthDp = it)) }
@@ -245,10 +249,7 @@ private fun LatestGroup(
             }
             Text(if (expanded) "收起 ︿" else "展开 ﹀", color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
         }
-        GlassFoldoutAnimatedContent(
-            expanded = expanded,
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        GlassFoldoutAnimatedContent(expanded = expanded, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 content()
             }
