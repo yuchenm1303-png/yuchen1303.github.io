@@ -1,14 +1,22 @@
 package com.yuchen.ailedger.service
 
+import android.Manifest
 import android.app.PendingIntent
 import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
+import android.os.storage.StorageManager
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import android.provider.Settings
+import androidx.core.content.ContextCompat
+import java.io.File
+import java.net.URLConnection
 import java.util.ArrayDeque
 import java.util.Locale
 
@@ -48,6 +56,7 @@ enum class StorageSpecialCleanupKind(
 
 enum class StorageSpecialCleanupSource {
     MediaStoreDownloads,
+    SharedStorageFile,
     AuthorizedFolder,
 }
 
@@ -75,6 +84,9 @@ data class StorageSpecialCleanupScan(
     val treeUri: String?,
     val treeName: String?,
     val mediaStoreCount: Int,
+    val globalAccessGranted: Boolean = false,
+    val globalRootCount: Int = 0,
+    val restrictedFallback: Boolean = false,
     val errorMessage: String? = null,
 )
 
@@ -111,6 +123,23 @@ internal object StorageSpecialCleanupPolicy {
         }
     }
 
+    fun classifyGlobalDownload(
+        location: String,
+        displayName: String,
+        sizeBytes: Long,
+        modifiedAt: Long,
+        now: Long = System.currentTimeMillis(),
+    ): StorageSpecialCleanupKind? {
+        val extension = extension(displayName)
+        return when {
+            extension in installerExtensions -> StorageSpecialCleanupKind.Installer
+            extension in partialExtensions || looksLikePartialDownload(displayName) -> StorageSpecialCleanupKind.PartialDownload
+            extension in archiveExtensions -> StorageSpecialCleanupKind.Archive
+            isDownloadLocation(location) -> classifyDownload(displayName, sizeBytes, modifiedAt, now)
+            else -> null
+        }
+    }
+
     fun classifyJunk(
         displayName: String,
         sizeBytes: Long,
@@ -131,6 +160,12 @@ internal object StorageSpecialCleanupPolicy {
 
     fun lowRiskKinds(): Set<StorageSpecialCleanupKind> = StorageSpecialCleanupKind.entries
         .filterTo(linkedSetOf()) { it.risk == StorageSpecialCleanupRisk.Low }
+
+    private fun isDownloadLocation(location: String): Boolean {
+        return location.replace('\\', '/')
+            .split('/')
+            .any { segment -> segment.equals("download", ignoreCase = true) || segment.equals("downloads", ignoreCase = true) }
+    }
 
     private fun extension(displayName: String): String = displayName.trim().lowercase(Locale.ROOT)
         .substringAfterLast('.', missingDelimiterValue = "")
@@ -156,6 +191,28 @@ class StorageSpecialCleanupRepository(context: Context) {
     private val appContext = context.applicationContext
     private val resolver = appContext.contentResolver
     private val prefs = appContext.getSharedPreferences(SPECIAL_CLEANUP_PREFS, Context.MODE_PRIVATE)
+
+    fun hasGlobalSharedStorageAccess(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Environment.isExternalStorageManager()
+        } else {
+            ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun globalSharedStorageAccessIntent(): Intent {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:${appContext.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } else {
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${appContext.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
 
     fun savedTreeUri(mode: StorageSpecialCleanupMode): Uri? = prefs.getString(mode.prefKey(), null)
         ?.takeIf(String::isNotBlank)
@@ -185,23 +242,10 @@ class StorageSpecialCleanupRepository(context: Context) {
     }
 
     fun scan(mode: StorageSpecialCleanupMode): StorageSpecialCleanupScan {
-        val mediaItems = if (mode == StorageSpecialCleanupMode.Downloads) queryAccessibleDownloads() else emptyList()
-        val treeUri = savedTreeUri(mode)
-        val treeResult = treeUri?.let { scanTree(mode, it) }
-        val combined = (mediaItems + treeResult?.items.orEmpty())
-            .distinctBy(StorageSpecialCleanupItem::stableId)
-            .sortedWith(compareBy<StorageSpecialCleanupItem> { it.kind.ordinal }.thenByDescending { it.sizeBytes })
-        return StorageSpecialCleanupScan(
-            mode = mode,
-            items = combined,
-            scannedFileCount = treeResult?.scannedFileCount ?: 0,
-            scannedDirectoryCount = treeResult?.scannedDirectoryCount ?: 0,
-            scannedBytes = treeResult?.scannedBytes ?: 0L,
-            treeUri = treeUri?.toString(),
-            treeName = treeResult?.treeName,
-            mediaStoreCount = mediaItems.size,
-            errorMessage = treeResult?.errorMessage,
-        )
+        return when (mode) {
+            StorageSpecialCleanupMode.Downloads -> scanDownloads()
+            StorageSpecialCleanupMode.Junk -> scanAuthorizedJunk()
+        }
     }
 
     fun createMediaDeleteRequest(items: List<StorageSpecialCleanupItem>): PendingIntent? {
@@ -226,10 +270,30 @@ class StorageSpecialCleanupRepository(context: Context) {
         return StorageSpecialCleanupDeleteResult(targets.size, deleted, targets.size - deleted, errors)
     }
 
+    fun deleteSharedStorage(items: List<StorageSpecialCleanupItem>): StorageSpecialCleanupDeleteResult {
+        val targets = items.filter { it.source == StorageSpecialCleanupSource.SharedStorageFile }
+            .distinctBy(StorageSpecialCleanupItem::stableId)
+        val errors = mutableListOf<String>()
+        var deleted = 0
+        targets.forEach { item ->
+            val file = Uri.parse(item.uri).path?.let(::File)
+            val ok = if (file == null) {
+                errors += "无法解析共享存储路径：${item.displayName}"
+                false
+            } else {
+                runCatching { file.exists() && file.delete() }
+                    .onFailure { errors += it.message.orEmpty().ifBlank { "无法删除共享存储文件：${item.displayName}" } }
+                    .getOrDefault(false)
+            }
+            if (ok) deleted += 1
+        }
+        return StorageSpecialCleanupDeleteResult(targets.size, deleted, targets.size - deleted, errors)
+    }
+
     fun deleteAuthorized(items: List<StorageSpecialCleanupItem>): StorageSpecialCleanupDeleteResult {
         val targets = items.filter { it.source == StorageSpecialCleanupSource.AuthorizedFolder }
             .distinctBy(StorageSpecialCleanupItem::stableId)
-            .sortedWith(compareBy<StorageSpecialCleanupItem> { !it.isDirectory }.thenByDescending { it.location.count { ch -> ch == '/' } })
+            .sortedWith(compareBy<StorageSpecialCleanupItem> { it.isDirectory }.thenByDescending { it.location.count { ch -> ch == '/' } })
         val errors = mutableListOf<String>()
         var deleted = 0
         targets.forEach { item ->
@@ -239,6 +303,146 @@ class StorageSpecialCleanupRepository(context: Context) {
             if (ok) deleted += 1
         }
         return StorageSpecialCleanupDeleteResult(targets.size, deleted, targets.size - deleted, errors)
+    }
+
+    private fun scanDownloads(): StorageSpecialCleanupScan {
+        if (hasGlobalSharedStorageAccess()) {
+            val global = scanSharedStorageDownloads()
+            return StorageSpecialCleanupScan(
+                mode = StorageSpecialCleanupMode.Downloads,
+                items = global.items,
+                scannedFileCount = global.scannedFileCount,
+                scannedDirectoryCount = global.scannedDirectoryCount,
+                scannedBytes = global.scannedBytes,
+                treeUri = null,
+                treeName = null,
+                mediaStoreCount = 0,
+                globalAccessGranted = true,
+                globalRootCount = global.rootCount,
+                restrictedFallback = false,
+                errorMessage = global.errorMessage,
+            )
+        }
+        val mediaItems = queryAccessibleDownloads()
+        return StorageSpecialCleanupScan(
+            mode = StorageSpecialCleanupMode.Downloads,
+            items = mediaItems.sortedWith(compareBy<StorageSpecialCleanupItem> { it.kind.ordinal }.thenByDescending { it.sizeBytes }),
+            scannedFileCount = mediaItems.size,
+            scannedDirectoryCount = 0,
+            scannedBytes = mediaItems.sumOf(StorageSpecialCleanupItem::sizeBytes),
+            treeUri = null,
+            treeName = null,
+            mediaStoreCount = mediaItems.size,
+            globalAccessGranted = false,
+            globalRootCount = 0,
+            restrictedFallback = true,
+        )
+    }
+
+    private fun scanAuthorizedJunk(): StorageSpecialCleanupScan {
+        val treeUri = savedTreeUri(StorageSpecialCleanupMode.Junk)
+        val treeResult = treeUri?.let { scanTree(StorageSpecialCleanupMode.Junk, it) }
+        return StorageSpecialCleanupScan(
+            mode = StorageSpecialCleanupMode.Junk,
+            items = treeResult?.items.orEmpty().sortedWith(
+                compareBy<StorageSpecialCleanupItem> { it.kind.ordinal }.thenByDescending { it.sizeBytes },
+            ),
+            scannedFileCount = treeResult?.scannedFileCount ?: 0,
+            scannedDirectoryCount = treeResult?.scannedDirectoryCount ?: 0,
+            scannedBytes = treeResult?.scannedBytes ?: 0L,
+            treeUri = treeUri?.toString(),
+            treeName = treeResult?.treeName,
+            mediaStoreCount = 0,
+            errorMessage = treeResult?.errorMessage,
+        )
+    }
+
+    private fun scanSharedStorageDownloads(): SharedStorageScanResult {
+        val roots = sharedStorageRoots()
+        if (roots.isEmpty()) {
+            return SharedStorageScanResult(errorMessage = "没有发现可读取的共享存储卷。")
+        }
+        val queue = ArrayDeque<File>()
+        roots.forEach(queue::add)
+        val visitedDirectories = hashSetOf<String>()
+        val items = mutableListOf<StorageSpecialCleanupItem>()
+        var scannedFiles = 0
+        var scannedDirectories = 0
+        var scannedBytes = 0L
+        var firstError: String? = null
+
+        while (queue.isNotEmpty()) {
+            val directory = queue.removeFirst()
+            val canonicalDirectory = runCatching { directory.canonicalFile }.getOrElse { error ->
+                firstError = firstError ?: error.message.orEmpty().ifBlank { "部分共享目录无法解析。" }
+                continue
+            }
+            if (!visitedDirectories.add(canonicalDirectory.absolutePath)) continue
+            if (shouldSkipSharedDirectory(canonicalDirectory)) continue
+            scannedDirectories += 1
+            val children = runCatching { canonicalDirectory.listFiles() }.getOrElse { error ->
+                firstError = firstError ?: error.message.orEmpty().ifBlank { "部分共享目录无法读取。" }
+                null
+            } ?: continue
+            children.forEach { child ->
+                if (child.isDirectory) {
+                    queue.add(child)
+                    return@forEach
+                }
+                if (!child.isFile) return@forEach
+                scannedFiles += 1
+                val size = child.length().coerceAtLeast(0L)
+                scannedBytes += size
+                val location = child.absolutePath
+                val kind = StorageSpecialCleanupPolicy.classifyGlobalDownload(
+                    location = location,
+                    displayName = child.name,
+                    sizeBytes = size,
+                    modifiedAt = child.lastModified(),
+                ) ?: return@forEach
+                items += StorageSpecialCleanupItem(
+                    uri = Uri.fromFile(child).toString(),
+                    displayName = child.name.ifBlank { "未命名文件" },
+                    sizeBytes = size,
+                    mimeType = URLConnection.guessContentTypeFromName(child.name).orEmpty(),
+                    modifiedAt = child.lastModified(),
+                    location = location,
+                    source = StorageSpecialCleanupSource.SharedStorageFile,
+                    kind = kind,
+                    canDelete = child.canWrite() || child.parentFile?.canWrite() == true,
+                )
+            }
+        }
+        return SharedStorageScanResult(
+            items = items.sortedWith(compareBy<StorageSpecialCleanupItem> { it.kind.ordinal }.thenByDescending { it.sizeBytes }),
+            scannedFileCount = scannedFiles,
+            scannedDirectoryCount = scannedDirectories,
+            scannedBytes = scannedBytes,
+            rootCount = roots.size,
+            errorMessage = firstError,
+        )
+    }
+
+    private fun sharedStorageRoots(): List<File> {
+        val roots = mutableListOf<File>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val manager = appContext.getSystemService(StorageManager::class.java)
+            manager?.storageVolumes.orEmpty().mapNotNullTo(roots) { volume ->
+                volume.directory?.takeIf { it.exists() && it.isDirectory && it.canRead() }
+            }
+        }
+        @Suppress("DEPRECATION")
+        Environment.getExternalStorageDirectory()
+            ?.takeIf { it.exists() && it.isDirectory && it.canRead() }
+            ?.let(roots::add)
+        return roots.mapNotNull { root -> runCatching { root.canonicalFile }.getOrNull() }
+            .distinctBy(File::getAbsolutePath)
+    }
+
+    private fun shouldSkipSharedDirectory(directory: File): Boolean {
+        val normalized = directory.absolutePath.replace('\\', '/').lowercase(Locale.ROOT)
+        if (normalized.contains("/android/data") || normalized.contains("/android/obb")) return true
+        return directory.name.lowercase(Locale.ROOT) in setOf(".trash", ".trashed", "lost.dir", "\$recycle.bin")
     }
 
     private fun queryAccessibleDownloads(): List<StorageSpecialCleanupItem> {
@@ -294,7 +498,7 @@ class StorageSpecialCleanupRepository(context: Context) {
         val rootId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
             ?: return TreeScanResult(errorMessage = "目录授权已失效，请重新选择目录。")
         val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId)
-        val rootName = queryName(rootUri).ifBlank { if (mode == StorageSpecialCleanupMode.Downloads) "下载目录" else "待检查目录" }
+        val rootName = queryName(rootUri).ifBlank { "待检查目录" }
         val queue = ArrayDeque<TreeNode>()
         queue.add(TreeNode(rootUri, rootName, canDelete = false, root = true))
         val items = mutableListOf<StorageSpecialCleanupItem>()
@@ -429,6 +633,15 @@ class StorageSpecialCleanupRepository(context: Context) {
         val scannedFileCount: Int = 0,
         val scannedDirectoryCount: Int = 0,
         val scannedBytes: Long = 0L,
+        val errorMessage: String? = null,
+    )
+
+    private data class SharedStorageScanResult(
+        val items: List<StorageSpecialCleanupItem> = emptyList(),
+        val scannedFileCount: Int = 0,
+        val scannedDirectoryCount: Int = 0,
+        val scannedBytes: Long = 0L,
+        val rootCount: Int = 0,
         val errorMessage: String? = null,
     )
 }
