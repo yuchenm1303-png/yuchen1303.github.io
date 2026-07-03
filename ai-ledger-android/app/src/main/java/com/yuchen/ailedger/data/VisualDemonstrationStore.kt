@@ -74,10 +74,10 @@ class VisualDemonstrationStore(context: Context) {
         DataInputStream(FileInputStream(frameFile)).use { input ->
             val ivSize = input.readUnsignedByte()
             require(ivSize in 12..16) { "visual frame IV invalid" }
-            val iv = ByteArray(ivSize).also(input::readFully)
+            val iv = ByteArray(ivSize).also { input.readFully(it) }
             val encryptedSize = input.readInt()
             require(encryptedSize in 16..MAX_ENCRYPTED_FRAME_BYTES.toInt()) { "visual frame payload invalid" }
-            val encrypted = ByteArray(encryptedSize).also(input::readFully)
+            val encrypted = ByteArray(encryptedSize).also { input.readFully(it) }
             val cipher = Cipher.getInstance(CIPHER)
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
             cipher.updateAAD(frame.id.toByteArray(Charsets.UTF_8))
@@ -89,7 +89,9 @@ class VisualDemonstrationStore(context: Context) {
         val file = manifestPath?.takeIf(String::isNotBlank)?.let(::File) ?: return
         runCatching {
             val checked = checkedManifestFile(file.absolutePath)
-            checked.parentFile?.takeIf(File::isInsideRoot)?.deleteRecursively()
+            checked.parentFile?.let { sessionDirectory ->
+                if (sessionDirectory.isInsideRoot()) sessionDirectory.deleteRecursively()
+            }
         }
     }
 
