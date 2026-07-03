@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.OperationSkillApprovalRepository
 import com.yuchen.ailedger.data.OperationSkillArtifactStore
 import com.yuchen.ailedger.data.OperationWorkflowRepository
 import com.yuchen.ailedger.model.LearnedVisualSkill
@@ -42,6 +43,7 @@ class OperationLearningViewModel : ViewModel() {
     private val context = AiLedgerApplication.contextOrNull()
     private val repository = context?.let(OperationWorkflowRepository::get)
     private val skillStore = context?.let(::OperationSkillArtifactStore)
+    private val approvalRepository = context?.let(::OperationSkillApprovalRepository)
     private val retryingWorkflowIds = mutableSetOf<String>()
 
     var uiState by mutableStateOf(OperationLearningUiState())
@@ -74,7 +76,6 @@ class OperationLearningViewModel : ViewModel() {
                 )
                 drafts.firstOrNull { draft ->
                     draft.status == WorkflowDraftStatus.Compiling &&
-                        draft.id !in skills &&
                         !draft.sourceDemonstrationId.isNullOrBlank() &&
                         retryingWorkflowIds.add(draft.id)
                 }?.let(::retryCloudLearning)
@@ -95,11 +96,13 @@ class OperationLearningViewModel : ViewModel() {
             val outcome = runCatching {
                 val demonstration = activeRepository.loadDemonstration(demonstrationId)
                     ?: error("找不到原始视觉演示")
+                val path = demonstration.encryptedTracePath
+                    ?: error("原始视觉演示已清理，无法重新提交")
                 OperationSkillLearningCoordinator.learn(
                     context = activeContext,
                     workflowId = draft.id,
                     demonstrationId = demonstrationId,
-                    manifestPath = demonstration.encryptedTracePath,
+                    manifestPath = path,
                 )
             }.getOrElse { error ->
                 retryingWorkflowIds.remove(draft.id)
@@ -248,6 +251,35 @@ class OperationLearningViewModel : ViewModel() {
                 reason = OperationRecordingStopReason.UserCancelled,
             )
             refresh()
+        }
+    }
+
+    fun approveSkill(draftId: String) {
+        val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
+        val skill = uiState.skillArtifacts[draftId]
+        val activeApprovalRepository = approvalRepository
+        if (skill == null || activeApprovalRepository == null) {
+            uiState = uiState.copy(notice = "完整 Skill 草稿尚未加载，暂时不能批准。")
+            return
+        }
+        val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.Review)
+        if (!report.canProceed) {
+            uiState = uiState.copy(
+                notice = report.blockingIssues.firstOrNull()?.message ?: "Skill 尚未满足审核条件。",
+            )
+            return
+        }
+        viewModelScope.launch {
+            runCatching { activeApprovalRepository.approve(draft, skill) }
+                .onSuccess { version ->
+                    uiState = uiState.copy(notice = "已批准视觉 Skill，并冻结为版本 $version。")
+                    refresh()
+                }
+                .onFailure { error ->
+                    uiState = uiState.copy(
+                        notice = "Skill 批准失败：${error.message ?: "未知错误"}",
+                    )
+                }
         }
     }
 
