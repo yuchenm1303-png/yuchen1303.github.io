@@ -35,7 +35,7 @@ class VisualDemonstrationRecorder(
         stopped = true
     }
 
-    private fun captureFrame(): Boolean {
+    private suspend fun captureFrame(): Boolean {
         val observation = runCatching {
             AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = true)
         }.getOrNull() ?: return false
@@ -45,18 +45,20 @@ class VisualDemonstrationRecorder(
         if (packageName.isBlank() || packageName !in allowedPackages) return false
         val bytes = runCatching { Base64.decode(visual.base64Jpeg, Base64.DEFAULT) }.getOrNull()
             ?: return false
-        val appended = runCatching {
-            session.appendFrame(
-                capturedAtMillis = System.currentTimeMillis(),
-                packageName = packageName,
-                mimeType = visual.mimeType.ifBlank { "image/jpeg" },
-                width = visual.width,
-                height = visual.height,
-                displayWidth = visual.displayWidth,
-                displayHeight = visual.displayHeight,
-                bytes = bytes,
-            )
-        }.getOrDefault(false)
+        val appended = withContext(Dispatchers.IO) {
+            runCatching {
+                session.appendFrame(
+                    capturedAtMillis = System.currentTimeMillis(),
+                    packageName = packageName,
+                    mimeType = visual.mimeType.ifBlank { "image/jpeg" },
+                    width = visual.width,
+                    height = visual.height,
+                    displayWidth = visual.displayWidth,
+                    displayHeight = visual.displayHeight,
+                    bytes = bytes,
+                )
+            }.getOrDefault(false)
+        }
         if (appended) onFrameCountChanged(session.frameCount)
         return appended
     }
