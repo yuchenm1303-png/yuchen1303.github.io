@@ -116,7 +116,12 @@ private fun OpenGlShellStandaloneSurfaceImpl(
 ) {
     val currentOnClick by rememberUpdatedState(onClick)
     val interaction = remember { MutableInteractionSource() }
-    val stableClick = remember { { currentOnClick?.invoke() } }
+    val stableClick: () -> Unit = remember {
+        {
+            currentOnClick?.invoke()
+            Unit
+        }
+    }
     val clickableModifier = if (onClick != null) {
         Modifier.clickable(
             interactionSource = interaction,
@@ -169,7 +174,12 @@ private fun OpenGlShellBatchRegisteredSurfaceImpl(
     val pressScope = rememberCoroutineScope()
     val interaction = remember { MutableInteractionSource() }
     val currentOnClick by rememberUpdatedState(onClick)
-    val stableClick = remember { { currentOnClick?.invoke() } }
+    val stableClick: () -> Unit = remember {
+        {
+            currentOnClick?.invoke()
+            Unit
+        }
+    }
     val prismEdgeHighlight = LocalRainbowPrismStyle.current.edgeHighlight.coerceIn(0f, 2f)
     val pressSize = remember { FloatArray(2) { 1f } }
 
