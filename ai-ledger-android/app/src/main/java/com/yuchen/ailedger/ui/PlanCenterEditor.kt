@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -334,7 +335,7 @@ internal fun PlanEditorPage(
             } else {
                 "设置时间、重复方式与提醒内容"
             },
-            modifier = Modifier.padding(top = 12.dp),
+            modifier = Modifier.padding(start = 18.dp, top = 12.dp, end = 18.dp),
             onBack = onBack,
         )
     }
@@ -418,26 +419,38 @@ private fun PlanEditorPageHeader(
     modifier: Modifier = Modifier,
     onBack: () -> Unit,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(72.dp),
     ) {
         PressableGlass(
             quality = state.quality,
             glassIntensity = state.glassIntensity,
             motionIntensity = state.motionIntensity,
             radius = 999,
-            modifier = Modifier.size(44.dp),
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .size(42.dp),
             role = GlassRole.Chip,
             onClick = onBack,
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("‹", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Light)
+                Text(
+                    "‹",
+                    color = Color.White,
+                    fontSize = 26.sp,
+                    lineHeight = 26.sp,
+                    fontWeight = FontWeight.Light,
+                )
             }
         }
-        Spacer(Modifier.width(12.dp))
+
         Column(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 66.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
@@ -446,12 +459,16 @@ private fun PlanEditorPageHeader(
                 fontSize = 28.sp,
                 lineHeight = 31.sp,
                 fontWeight = FontWeight.Black,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
             )
             Text(
                 subtitle,
                 color = Color.White.copy(alpha = 0.50f),
                 fontSize = 11.5.sp,
                 fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                textAlign = TextAlign.Center,
             )
         }
     }
