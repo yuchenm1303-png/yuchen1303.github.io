@@ -40,6 +40,7 @@ internal fun buildLeanVisualAgentPayload(
     val workSurface = runtime.guiPlusEligible && runtime.verifiedTargetPackage.isNotBlank()
     val visual = snapshot.visual?.takeIf { it.hasImage }
     val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
+    val screenPayload = snapshot.toJson(includeImage = false)
 
     return JSONObject().apply {
         put("action", "visual_agent_step")
@@ -84,7 +85,7 @@ internal fun buildLeanVisualAgentPayload(
         )
         put("observationId", runtime.observationId)
         put("expectedActionObservationId", runtime.observationId)
-        put("screenSnapshot", snapshot.toJson(includeImage = false))
+        put("screenSnapshot", screenPayload)
         put("recentAgentActions", JSONArray(actions))
         put("interactionHistory", actions.toInteractionHistory())
         put("executionFeedback", taskMemory.toExecutionFeedback(runtime, actions))
