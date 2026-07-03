@@ -266,7 +266,7 @@ internal object AiWorkerResponseParser {
             ?: data?.optJSONObject("data")?.optJSONObject("structuredData")
             ?: return null
         val type = item.optString("type").notBlankOrNull()
-            ?: data.optString("type").notBlankOrNull()
+            ?: data?.optString("type").notBlankOrNull()
             ?: "realtime"
         val title = item.optString("title").notBlankOrNull()
             ?: item.optString("name").notBlankOrNull()
