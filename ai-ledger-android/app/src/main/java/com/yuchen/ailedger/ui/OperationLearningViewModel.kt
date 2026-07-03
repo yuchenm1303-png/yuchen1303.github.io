@@ -6,7 +6,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.OperationSkillArtifactStore
 import com.yuchen.ailedger.data.OperationWorkflowRepository
+import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowAppScope
 import com.yuchen.ailedger.model.WorkflowDraftStatus
@@ -17,10 +19,13 @@ import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationIssue
 import com.yuchen.ailedger.service.WorkflowValidationStage
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class OperationLearningUiState(
     val drafts: List<LearnedWorkflowDraft> = emptyList(),
+    val skillArtifacts: Map<String, LearnedVisualSkill> = emptyMap(),
     val loading: Boolean = false,
     val editorVisible: Boolean = false,
     val titleInput: String = "",
@@ -33,7 +38,9 @@ data class OperationLearningUiState(
 )
 
 class OperationLearningViewModel : ViewModel() {
-    private val repository = AiLedgerApplication.contextOrNull()?.let(OperationWorkflowRepository::get)
+    private val context = AiLedgerApplication.contextOrNull()
+    private val repository = context?.let(OperationWorkflowRepository::get)
+    private val skillStore = context?.let(::OperationSkillArtifactStore)
 
     var uiState by mutableStateOf(OperationLearningUiState())
         private set
@@ -46,22 +53,29 @@ class OperationLearningViewModel : ViewModel() {
         val activeRepository = repository ?: return
         uiState = uiState.copy(loading = true)
         viewModelScope.launch {
-            runCatching { activeRepository.loadDrafts() }
-                .onSuccess { drafts ->
-                    uiState = uiState.copy(
-                        drafts = drafts,
-                        loading = false,
-                        selectedDraftId = uiState.selectedDraftId?.takeIf { selected ->
-                            drafts.any { it.id == selected }
-                        },
-                    )
+            runCatching {
+                val drafts = activeRepository.loadDrafts()
+                val skills = withContext(Dispatchers.IO) {
+                    drafts.mapNotNull { draft ->
+                        skillStore?.load(draft.id)?.let { draft.id to it }
+                    }.toMap()
                 }
-                .onFailure {
-                    uiState = uiState.copy(
-                        loading = false,
-                        notice = "操作草稿加载失败，请稍后重试。",
-                    )
-                }
+                drafts to skills
+            }.onSuccess { (drafts, skills) ->
+                uiState = uiState.copy(
+                    drafts = drafts,
+                    skillArtifacts = skills,
+                    loading = false,
+                    selectedDraftId = uiState.selectedDraftId?.takeIf { selected ->
+                        drafts.any { it.id == selected }
+                    },
+                )
+            }.onFailure {
+                uiState = uiState.copy(
+                    loading = false,
+                    notice = "Skill 草稿加载失败，请稍后重试。",
+                )
+            }
         }
     }
 
@@ -109,7 +123,7 @@ class OperationLearningViewModel : ViewModel() {
                 packageNames = listOf(uiState.packageNameInput.trim()),
                 displayNames = listOf(uiState.appNameInput.trim()).filter(String::isNotBlank),
             ),
-            executionMode = WorkflowExecutionMode.Deterministic,
+            executionMode = WorkflowExecutionMode.CloudVisual,
             status = WorkflowDraftStatus.Intent,
             createdAtMillis = nowMillis,
             updatedAtMillis = nowMillis,
@@ -132,7 +146,7 @@ class OperationLearningViewModel : ViewModel() {
             packageNameInput = "",
             editorIssues = emptyList(),
             selectedDraftId = draft.id,
-            notice = "已创建操作草稿，可以开始演示。",
+            notice = "已创建 Skill 教学草稿，可以开始视觉演示。",
         )
 
         repository?.let { activeRepository ->
@@ -142,7 +156,7 @@ class OperationLearningViewModel : ViewModel() {
                         uiState = uiState.copy(
                             drafts = uiState.drafts.filterNot { it.id == draft.id },
                             selectedDraftId = uiState.selectedDraftId.takeUnless { it == draft.id },
-                            notice = "草稿未能保存到本机，请重新创建。",
+                            notice = "Skill 草稿未能保存到本机，请重新创建。",
                         )
                     }
             }
@@ -157,33 +171,32 @@ class OperationLearningViewModel : ViewModel() {
 
     fun startRecording(draftId: String) {
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
-        val context = AiLedgerApplication.contextOrNull()
-        if (context == null) {
+        val activeContext = context
+        if (activeContext == null) {
             uiState = uiState.copy(notice = "应用上下文尚未准备完成，请重新进入页面。")
             return
         }
         if (draft.status != WorkflowDraftStatus.Intent) {
-            uiState = uiState.copy(notice = "当前草稿已进入后续阶段，不能重复覆盖原始演示。")
+            uiState = uiState.copy(notice = "当前 Skill 已进入后续阶段，不能覆盖原始演示。")
             return
         }
         val report = OperationWorkflowValidator.validate(draft, WorkflowValidationStage.RecordingIntent)
         if (!report.canProceed) {
             uiState = uiState.copy(
                 selectedDraftId = draft.id,
-                notice = report.blockingIssues.firstOrNull()?.message ?: "草稿尚未满足录制条件。",
+                notice = report.blockingIssues.firstOrNull()?.message ?: "Skill 尚未满足演示条件。",
             )
             return
         }
 
-        uiState = uiState.copy(selectedDraftId = draft.id, notice = "正在启动录制…")
+        uiState = uiState.copy(selectedDraftId = draft.id, notice = "正在启动视觉演示…")
         viewModelScope.launch {
-            val result = OperationLearningRecordingCoordinator.start(context, draft)
+            val result = OperationLearningRecordingCoordinator.start(activeContext, draft)
             uiState = uiState.copy(notice = result.message)
         }
     }
 
     fun finishRecording() {
-        val context = AiLedgerApplication.contextOrNull()
         viewModelScope.launch {
             OperationLearningRecordingCoordinator.stop(
                 context = context,
@@ -194,7 +207,6 @@ class OperationLearningViewModel : ViewModel() {
     }
 
     fun cancelRecording() {
-        val context = AiLedgerApplication.contextOrNull()
         viewModelScope.launch {
             OperationLearningRecordingCoordinator.stop(
                 context = context,
@@ -207,28 +219,33 @@ class OperationLearningViewModel : ViewModel() {
     fun deleteDraft(draftId: String) {
         val recordingWorkflowId = OperationLearningRecordingCoordinator.state.value.workflowId
         if (OperationLearningRecordingCoordinator.state.value.active && recordingWorkflowId == draftId) {
-            uiState = uiState.copy(notice = "请先结束或取消当前录制，再删除草稿。")
+            uiState = uiState.copy(notice = "请先结束或取消当前视觉演示，再删除 Skill。")
             return
         }
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
         val previousDrafts = uiState.drafts
+        val previousSkills = uiState.skillArtifacts
         val previousSelection = uiState.selectedDraftId
         uiState = uiState.copy(
             drafts = previousDrafts.filterNot { it.id == draftId },
+            skillArtifacts = previousSkills - draftId,
             selectedDraftId = previousSelection.takeUnless { it == draftId },
-            notice = "已删除草稿“${draft.title}”。",
+            notice = "已删除 Skill“${draft.title}”。",
         )
 
         repository?.let { activeRepository ->
             viewModelScope.launch {
-                runCatching { activeRepository.deleteDraft(draftId) }
-                    .onFailure {
-                        uiState = uiState.copy(
-                            drafts = previousDrafts,
-                            selectedDraftId = previousSelection,
-                            notice = "删除失败，草稿已恢复。",
-                        )
-                    }
+                runCatching {
+                    activeRepository.deleteDraft(draftId)
+                    withContext(Dispatchers.IO) { skillStore?.delete(draftId) }
+                }.onFailure {
+                    uiState = uiState.copy(
+                        drafts = previousDrafts,
+                        skillArtifacts = previousSkills,
+                        selectedDraftId = previousSelection,
+                        notice = "删除失败，Skill 已恢复。",
+                    )
+                }
             }
         }
     }
