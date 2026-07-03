@@ -140,6 +140,11 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
             }
         }
 
+        fun isAvailable(databaseName: String): Boolean {
+            val safeName = safeDatabaseName(databaseName)
+            return synchronized(instances) { safeName !in unavailableDatabaseNames }
+        }
+
         private fun safeDatabaseName(databaseName: String): String =
             databaseName.trim().takeIf { it.endsWith(".db") } ?: "agent_analytics.db"
     }
