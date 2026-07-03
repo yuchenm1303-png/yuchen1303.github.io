@@ -77,7 +77,7 @@ internal fun StockNativeDetailScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 96.dp),
+                .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
             NativeDetailQuoteCard(
