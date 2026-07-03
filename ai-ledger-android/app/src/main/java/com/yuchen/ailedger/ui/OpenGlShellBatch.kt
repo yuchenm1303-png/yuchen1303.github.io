@@ -40,8 +40,8 @@ internal val LocalPageOpenGLShellBatchState =
 /**
  * OpenGL Shell 批分组入口。
  *
- * 页面提供固定批宿主时，本层只负责限定登记范围，不再创建跟随滚动内容移动的
- * TextureView；没有页面宿主的预览或独立场景仍保留原来的局部 Host 作为兼容回退。
+ * 页面模式只读取页面唯一状态并登记卡片，不创建本地状态、坐标源或 TextureView。
+ * 没有页面宿主的预览场景才创建局部 Host，两个所有权分支完全分离。
  */
 @Composable
 internal fun OpenGlShellBatchHost(
@@ -51,11 +51,6 @@ internal fun OpenGlShellBatchHost(
     preserveStandaloneFrame: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val pageState = LocalPageOpenGLShellBatchState.current
-    val localState = rememberOpenGLShellBatchState()
-    val state = pageState ?: localState
-    val ownsLocalHost = pageState == null
-    val localParentCoordinates = remember { GlassCoordinateSource() }
     val policy = remember(acceptedShortEdgeDp, acceptedRadiusDp, preserveStandaloneFrame) {
         OpenGlShellBatchPolicy(
             acceptedShortEdgeDp = acceptedShortEdgeDp,
@@ -63,31 +58,53 @@ internal fun OpenGlShellBatchHost(
             preserveStandaloneFrame = preserveStandaloneFrame,
         )
     }
+    val pageState = LocalPageOpenGLShellBatchState.current
 
-    DisposableEffect(state, localParentCoordinates, ownsLocalHost) {
-        if (ownsLocalHost) state.bindParent(localParentCoordinates)
-        onDispose {
-            if (ownsLocalHost) {
-                localParentCoordinates.coordinates = null
-                state.clear()
+    if (pageState != null) {
+        Box(modifier = modifier) {
+            CompositionLocalProvider(
+                LocalOpenGLShellBatchState provides pageState,
+                LocalOpenGlShellBatchPolicy provides policy,
+            ) {
+                content()
             }
         }
+        return
     }
 
-    val hostModifier = if (ownsLocalHost) {
-        modifier.onPlaced { localParentCoordinates.coordinates = it }
-    } else {
-        modifier
-    }
+    LocalOpenGlShellBatchFallbackHost(
+        modifier = modifier,
+        policy = policy,
+        content = content,
+    )
+}
 
-    Box(modifier = hostModifier) {
-        if (ownsLocalHost) {
-            NewOpenGLGlassBatchLayer(
-                state = state,
-                parentCoordinates = localParentCoordinates,
-                modifier = Modifier.matchParentSize(),
-            )
+/** 独立预览和未提供页面 Host 的兼容回退，生产设置页不会进入这里。 */
+@Composable
+private fun LocalOpenGlShellBatchFallbackHost(
+    modifier: Modifier,
+    policy: OpenGlShellBatchPolicy,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val state = rememberOpenGLShellBatchState()
+    val parentCoordinates = remember { GlassCoordinateSource() }
+
+    DisposableEffect(state, parentCoordinates) {
+        state.bindParent(parentCoordinates)
+        onDispose {
+            parentCoordinates.coordinates = null
+            state.clear()
         }
+    }
+
+    Box(
+        modifier = modifier.onPlaced { parentCoordinates.coordinates = it },
+    ) {
+        NewOpenGLGlassBatchLayer(
+            state = state,
+            parentCoordinates = parentCoordinates,
+            modifier = Modifier.matchParentSize(),
+        )
         CompositionLocalProvider(
             LocalOpenGLShellBatchState provides state,
             LocalOpenGlShellBatchPolicy provides policy,
