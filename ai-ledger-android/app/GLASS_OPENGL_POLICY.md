@@ -68,37 +68,24 @@ changes visibility only and cannot create independent optical fields.
 Only these reviewed settings dashboard Shells register with `OpenGLShellBatchState`. Ordinary settings controls,
 `GlassRole.Card`, `GlassRole.Chip`, sliders, inset slots and frosted panels remain outside every OpenGL registry.
 
-### Tools home lossless batch route
+### Tools home scrolling rule
 
-The Tools home keeps every existing OpenGL Shell and its original visual behavior. Performance work must optimize
-resource ownership rather than demote cards to ordinary Compose glass.
+The Tools home keeps every existing OpenGL Shell and its original visual behavior. Its stock Hero, ledger,
+statistics, plan, app-control, storage and operation-learning cards currently remain on their standalone OpenGL
+routes.
 
-Only the four two-column summary cards with the reviewed specification may join the shared batch:
+Do not install a page-sized `OpenGlShellBatchHost` outside the Tools `LazyColumn`. A stationary page TextureView
+must not batch cards that independently move inside a scrolling layout. With preserved EGL buffers, drawing the
+new card rectangles into that stationary surface can leave old rectangles behind and create repeated glass
+trails.
 
-- measured short edge: `147..149 dp` around the fixed `148 dp` height;
-- call-site radius: exactly `25 dp`;
-- complete low / medium / high backdrop pyramid ready;
-- the normal Tools-page new OpenGL renderer route.
+A future Tools batch is allowed only when all batched cards and the TextureView host share the same local
+coordinate space and move as one layout unit. The preferred architecture is a local content-group host whose
+bounds travel with the grouped cards. Do not solve this by disabling preserved buffers globally, clearing the
+full screen on every scroll frame, weakening the shader, or demoting the cards to ordinary glass.
 
-The stock-market Hero (`236 dp`), Plan card (`102 dp`) and Operation Learning card (`108 dp`) remain on their
-standalone OpenGL routes. They must not be mixed into the summary batch because the new renderer scales shoulder,
-refraction and dispersion distances from the surface short edge. Mixing these sizes into one global batch optical
-scale would alter the visual result.
-
-A card that misses any reviewed dimension automatically falls back to the original standalone `GlassPanel`
-Shell. This includes narrow screens where the two-column card width becomes smaller than `148 dp`, and startup
-frames before the complete backdrop pyramid is ready.
-
-The lossless batch keeps the renderer and Compose frame parameter paths separate:
-
-- the GPU renderer resolves `LocalNewOpenGlGlassStyleOverride` and `newOpenGlGlassIntensity` exactly like the
-  standalone new OpenGL host;
-- the Compose outer frame keeps the original call-site intensity and press-driven intensity scale;
-- all press timings, transforms, rim-flow values and overlay formulas remain unchanged;
-- no shader constant, texture level, radius, layout height, text layout or entrance animation may be changed as
-  part of this batching optimization.
-
-The batch implementation is split into stable layers:
+The batch implementation remains split into stable layers for the reviewed Settings route and any future local
+same-coordinate-space route:
 
 - `OpenGlShellBatch.kt`: shared host and eligibility policy only;
 - `OpenGlShellBatchSurface.kt`: registration, geometry, click and gesture state;
