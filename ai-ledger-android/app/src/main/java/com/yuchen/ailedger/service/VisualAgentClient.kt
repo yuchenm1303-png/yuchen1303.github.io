@@ -155,9 +155,31 @@ private fun AiWorkerClient.postVisualAgentStep(
     agentSessionId: String,
 ): CloudAgentPlan {
     val requestStart = SystemClock.elapsedRealtime()
+    val analyticsTaskId = AgentRuntimeController.currentTaskId()
     var requestByteCount = 0
     var terminalDiagnosticRecorded = false
+    var terminalAnalyticsRecorded = false
     val diagnostics = VisualIntelligenceDiagnosticsStore.currentOrNull()
+
+    fun recordAnalytics(
+        success: Boolean,
+        response: JSONObject?,
+        responseByteCount: Int,
+        durationMs: Long,
+    ) {
+        if (terminalAnalyticsRecorded) return
+        terminalAnalyticsRecorded = true
+        AgentAnalyticsRuntime.recordVisualModelTransport(
+            taskId = analyticsTaskId,
+            payload = payload,
+            response = response,
+            success = success,
+            durationMs = durationMs,
+            requestBytes = requestByteCount.toLong(),
+            responseBytes = responseByteCount.toLong(),
+        )
+    }
+
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"
         connectTimeout = VISUAL_AGENT_CONNECT_TIMEOUT_MS
@@ -209,6 +231,7 @@ private fun AiWorkerClient.postVisualAgentStep(
                 observationIdValid = false,
             )
             terminalDiagnosticRecorded = true
+            recordAnalytics(false, data, responseByteCount, durationMs)
             throw parseVisualAgentHttpFailure(status, body)
         }
 
@@ -229,6 +252,7 @@ private fun AiWorkerClient.postVisualAgentStep(
                 observationIdValid = false,
             )
             terminalDiagnosticRecorded = true
+            recordAnalytics(false, data, responseByteCount, durationMs)
             throw (observationValidation.exceptionOrNull() as? IOException
                 ?: IOException("visual_agent_step observation validation failed", observationValidation.exceptionOrNull()))
         }
@@ -249,6 +273,7 @@ private fun AiWorkerClient.postVisualAgentStep(
                 observationIdValid = true,
             )
             terminalDiagnosticRecorded = true
+            recordAnalytics(false, data, responseByteCount, durationMs)
             throw IOException("visual_agent_step did not return one agentStep")
         }
 
@@ -265,16 +290,19 @@ private fun AiWorkerClient.postVisualAgentStep(
             observationIdValid = true,
         )
         terminalDiagnosticRecorded = true
+        recordAnalytics(true, data, responseByteCount, durationMs)
         plan
     } catch (error: SocketTimeoutException) {
+        val durationMs = SystemClock.elapsedRealtime() - requestStart
         if (!terminalDiagnosticRecorded) {
             diagnostics?.recordModelTransportFailure(
                 code = "network_timeout",
                 message = error.message.orEmpty(),
-                durationMs = SystemClock.elapsedRealtime() - requestStart,
+                durationMs = durationMs,
                 requestBytes = requestByteCount,
             )
         }
+        recordAnalytics(false, null, 0, durationMs)
         throw VisualAgentRequestException(
             httpStatus = null,
             code = "network_timeout",
@@ -283,14 +311,16 @@ private fun AiWorkerClient.postVisualAgentStep(
             cause = error,
         )
     } catch (error: IOException) {
+        val durationMs = SystemClock.elapsedRealtime() - requestStart
         if (!terminalDiagnosticRecorded) {
             diagnostics?.recordModelTransportFailure(
                 code = (error as? VisualAgentRequestException)?.code ?: "io_error",
                 message = error.message.orEmpty(),
-                durationMs = SystemClock.elapsedRealtime() - requestStart,
+                durationMs = durationMs,
                 requestBytes = requestByteCount,
             )
         }
+        recordAnalytics(false, null, 0, durationMs)
         throw error
     } finally {
         connection.disconnect()
