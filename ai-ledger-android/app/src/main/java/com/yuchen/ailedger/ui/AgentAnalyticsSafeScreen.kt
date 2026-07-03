@@ -42,13 +42,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.AgentAnalyticsSyncPhase
+import com.yuchen.ailedger.AgentAnalyticsSyncUiState
 import com.yuchen.ailedger.AgentAnalyticsViewModel
+import com.yuchen.ailedger.data.AgentAnalyticsOwner
+import com.yuchen.ailedger.data.SupabaseAccountState
 import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
 import com.yuchen.ailedger.model.AgentCapabilityAnalytics
 import com.yuchen.ailedger.model.AgentDailyActivity
 import com.yuchen.ailedger.model.AgentModelAnalytics
 import com.yuchen.ailedger.model.AgentSkillInventory
 import com.yuchen.ailedger.model.AgentTaskAnalytics
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
@@ -80,6 +85,9 @@ internal fun AgentAnalyticsSafeScreen(
 ) {
     val snapshot by viewModel.state.collectAsState()
     val skills by viewModel.skillInventory.collectAsState()
+    val owner by viewModel.owner.collectAsState()
+    val accountState by viewModel.accountState.collectAsState()
+    val syncState by viewModel.syncState.collectAsState()
     var tabName by rememberSaveable { mutableStateOf(SafeTab.Overview.name) }
     val tab = remember(tabName) { SafeTab.entries.firstOrNull { it.name == tabName } ?: SafeTab.Overview }
 
@@ -93,6 +101,14 @@ internal fun AgentAnalyticsSafeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item(key = "safe_header") { Header(onBack) }
+        item(key = "safe_account") {
+            AccountStatusCard(
+                accountState = accountState,
+                owner = owner,
+                syncState = syncState,
+                onSync = viewModel::retryCloudSync,
+            )
+        }
         item(key = "safe_tabs") { Tabs(tab) { tabName = it.name } }
 
         if (!snapshot.loaded) {
@@ -220,6 +236,129 @@ private fun Header(onBack: () -> Unit) {
             fontSize = 13.sp,
             lineHeight = 18.sp,
         )
+    }
+}
+
+@Composable
+private fun AccountStatusCard(
+    accountState: SupabaseAccountState,
+    owner: AgentAnalyticsOwner,
+    syncState: AgentAnalyticsSyncUiState,
+    onSync: () -> Unit,
+) {
+    val checking = accountState.loading
+    val loggedIn = !checking && accountState.isLoggedIn && !owner.isGuest
+    val visiblePhase = if (checking) AgentAnalyticsSyncPhase.Checking else syncState.phase
+    val tone = syncTone(visiblePhase)
+    val label = syncLabel(visiblePhase)
+
+    Card(
+        brush = Brush.linearGradient(
+            listOf(
+                SafeBlue.copy(alpha = 0.15f),
+                SafeViolet.copy(alpha = 0.10f),
+                SafeCardColor,
+            ),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    when {
+                        checking -> "正在确认账号"
+                        loggedIn -> owner.email ?: accountState.email ?: "已登录账号"
+                        else -> "本机访客统计"
+                    },
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    when {
+                        checking -> "正在读取本机登录状态，不会阻塞统计页面。"
+                        loggedIn -> syncState.message
+                        else -> "数据只保存在当前设备。登录后会建立独立账号空间并启用跨设备聚合，访客历史不会自动并入账号。"
+                    },
+                    color = Color.White.copy(alpha = 0.53f),
+                    fontSize = 10.5.sp,
+                    lineHeight = 16.sp,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(tone.copy(alpha = 0.14f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(label, color = tone, fontSize = 9.5.sp, fontWeight = FontWeight.Black)
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        if (loggedIn) {
+            MetricLine(Metric("数据空间", "账号独立", SafeMint))
+            MetricLine(Metric("云端范围", "仅每日数值聚合", SafeBlue))
+            MetricLine(Metric("隐私保护", "任务文本与应用名称仅本机", SafeViolet))
+            MetricLine(
+                Metric(
+                    "上次同步",
+                    formatSyncTime(syncState.lastSyncedAtMillis),
+                    if (syncState.lastSyncedAtMillis > 0L) SafeMint else Color.White.copy(alpha = 0.54f),
+                ),
+            )
+            if (syncState.remoteDayCount > 0) {
+                MetricLine(Metric("其他设备日期", "${syncState.remoteDayCount} 天", SafeWarm))
+            }
+            Spacer(Modifier.height(8.dp))
+            val syncing = visiblePhase == AgentAnalyticsSyncPhase.Syncing
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(
+                        if (syncing) Color.White.copy(alpha = 0.055f)
+                        else SafeBlue.copy(alpha = 0.15f),
+                    )
+                    .border(
+                        1.dp,
+                        if (syncing) Color.White.copy(alpha = 0.07f)
+                        else SafeBlue.copy(alpha = 0.22f),
+                        RoundedCornerShape(15.dp),
+                    )
+                    .clickable(enabled = !syncing, onClick = onSync),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (syncing) "正在同步…" else "立即同步",
+                    color = if (syncing) Color.White.copy(alpha = 0.42f) else SafeBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+        } else if (!checking) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color.White.copy(alpha = 0.045f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                Text(
+                    "登录入口：聊天页 → 设置 → 账号。未登录仍可使用本机统计。",
+                    color = Color.White.copy(alpha = 0.48f),
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp,
+                )
+            }
+        }
     }
 }
 
@@ -439,7 +578,14 @@ private fun MetricLine(metric: Metric) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(metric.label, color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp)
-        Text(metric.value, color = metric.tone, fontSize = 11.5.sp, fontWeight = FontWeight.Black)
+        Text(
+            metric.value,
+            color = metric.tone,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -476,6 +622,37 @@ private fun buildHeatmap(daily: List<AgentDailyActivity>, requestedWeeks: Int): 
         cells += HeatCell(index / 7, index % 7, value, future)
     }
     return HeatData(weeks, cells, maxTokens, activeDays)
+}
+
+private fun syncLabel(phase: AgentAnalyticsSyncPhase): String = when (phase) {
+    AgentAnalyticsSyncPhase.Checking -> "检查中"
+    AgentAnalyticsSyncPhase.Guest -> "仅本机"
+    AgentAnalyticsSyncPhase.Syncing -> "同步中"
+    AgentAnalyticsSyncPhase.Synced -> "已同步"
+    AgentAnalyticsSyncPhase.Cached -> "已缓存"
+    AgentAnalyticsSyncPhase.LocalOnly -> "仅本机"
+    AgentAnalyticsSyncPhase.Failed -> "同步失败"
+}
+
+private fun syncTone(phase: AgentAnalyticsSyncPhase): Color = when (phase) {
+    AgentAnalyticsSyncPhase.Synced -> SafeMint
+    AgentAnalyticsSyncPhase.Cached -> SafeBlue
+    AgentAnalyticsSyncPhase.Syncing,
+    AgentAnalyticsSyncPhase.Checking -> SafeViolet
+    AgentAnalyticsSyncPhase.Guest,
+    AgentAnalyticsSyncPhase.LocalOnly -> SafeWarm
+    AgentAnalyticsSyncPhase.Failed -> SafeDanger
+}
+
+private fun formatSyncTime(timestampMillis: Long): String {
+    if (timestampMillis <= 0L) return "尚未成功同步"
+    val dateTime = Instant.ofEpochMilli(timestampMillis).atZone(ZoneId.systemDefault())
+    return "%d月%d日 %02d:%02d".format(
+        dateTime.monthValue,
+        dateTime.dayOfMonth,
+        dateTime.hour,
+        dateTime.minute,
+    )
 }
 
 private fun number(value: Long): String {
