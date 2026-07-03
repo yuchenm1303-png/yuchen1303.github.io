@@ -50,6 +50,10 @@ data class CloudClientToolCall(
     val originalUserGoal: String? = null,
     val finalModel: String? = null,
 ) {
+    init {
+        // Reserved for mechanical client-tool correlation.
+    }
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("schema", schema)
         put("id", id)
