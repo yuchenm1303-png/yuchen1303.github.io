@@ -16,11 +16,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -103,31 +102,41 @@ class AgentAnalyticsRepository private constructor(context: Context) {
     private val dao = AgentAnalyticsDatabase.get(context).analyticsDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeMutex = Mutex()
-    private val mutableState = MutableStateFlow(AgentAnalyticsSnapshot())
-    val state: StateFlow<AgentAnalyticsSnapshot> = mutableState.asStateFlow()
+
+    /**
+     * 统计页关闭时不持续读取和映射历史数据。运行时写入仍直接进入 Room；只有页面订阅后
+     * 才加载热力图、最近任务、模型与能力聚合，避免把统计基础变成常驻启动负担。
+     */
+    val state: StateFlow<AgentAnalyticsSnapshot> = combine(
+        dao.observeDailyActivity(),
+        dao.observeRecentTasks(RECENT_TASK_STATE_LIMIT),
+        dao.observeModelUsage(),
+        dao.observeCapabilityUsage(),
+        dao.observeLongestTaskDurationMs(),
+    ) { daily, tasks, models, capabilities, longestTaskDurationMs ->
+        buildSnapshot(
+            dailyEntities = daily,
+            taskEntities = tasks,
+            modelEntities = models,
+            capabilityEntities = capabilities,
+            longestTaskDurationMs = longestTaskDurationMs,
+        )
+    }.stateIn(
+        scope = scope,
+        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000L),
+        initialValue = AgentAnalyticsSnapshot(),
+    )
 
     init {
         scope.launch {
             runCatching {
                 writeMutex.withLock {
                     val now = System.currentTimeMillis()
-                    dao.markInterruptedTasks(now)
+                    recoverInterruptedTasksLocked(now)
                     dao.deleteOldTokenEvents(now - TOKEN_EVENT_RETENTION_MS)
                     dao.pruneTasks(MAX_TASK_HISTORY)
                     dao.pruneDailyActivity(dateKey(now - DAILY_RETENTION_MS))
                 }
-            }
-        }
-        scope.launch {
-            combine(
-                dao.observeDailyActivity(),
-                dao.observeRecentTasks(RECENT_TASK_STATE_LIMIT),
-                dao.observeModelUsage(),
-                dao.observeCapabilityUsage(),
-            ) { daily, tasks, models, capabilities ->
-                buildSnapshot(daily, tasks, models, capabilities)
-            }.collect { snapshot ->
-                mutableState.value = snapshot
             }
         }
     }
@@ -138,16 +147,17 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             writeMutex.withLock {
                 if (dao.getTask(taskId) != null) return@withLock
+                val start = startedAtMillis.coerceAtLeast(1L)
                 dao.upsertTask(
                     AgentTaskAnalyticsEntity(
                         taskId = taskId,
-                        goal = goal.trim().take(MAX_GOAL_CHARS),
-                        status = "running",
-                        startedAtMillis = startedAtMillis,
+                        goal = sanitizeStoredText(goal, MAX_GOAL_CHARS),
+                        status = STATUS_RUNNING,
+                        startedAtMillis = start,
                     ),
                 )
-                updateDayLocked(startedAtMillis) { day ->
-                    day.copy(agentTasks = day.agentTasks + 1L)
+                updateDayLocked(start) { day ->
+                    day.copy(agentTasks = safeAdd(day.agentTasks, 1L))
                 }
             }
         }
@@ -157,14 +167,14 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         scope.launch {
             writeMutex.withLock {
                 recordModelCallLocked(write.modelCall)
-                val at = write.modelCall.occurredAtMillis
+                val at = write.modelCall.occurredAtMillis.coerceAtLeast(1L)
                 updateDayLocked(at) { day ->
                     day.copy(
-                        // 成功请求代表一轮实际对话；失败的备用端点尝试只进入失败与模型调用统计。
-                        chatCalls = day.chatCalls + if (write.modelCall.success) 1L else 0L,
-                        chatFailures = day.chatFailures + if (write.modelCall.success) 0L else 1L,
-                        webSearches = day.webSearches + if (write.webSearchUsed) 1L else 0L,
-                        imageRequests = day.imageRequests + if (write.imageRequest) 1L else 0L,
+                        // 成功请求代表一轮实际对话；最终失败只进入失败与模型调用统计。
+                        chatCalls = safeAdd(day.chatCalls, if (write.modelCall.success) 1L else 0L),
+                        chatFailures = safeAdd(day.chatFailures, if (write.modelCall.success) 0L else 1L),
+                        webSearches = safeAdd(day.webSearches, if (write.webSearchUsed) 1L else 0L),
+                        imageRequests = safeAdd(day.imageRequests, if (write.imageRequest) 1L else 0L),
                     )
                 }
                 if (write.webSearchUsed) {
@@ -173,7 +183,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 if (write.imageRequest) {
                     updateCapabilityLocked("feature", "image_understanding", "视觉理解", write.modelCall.success, at)
                 }
-                write.toolKeys.distinct().forEach { (key, label) ->
+                write.toolKeys.distinctBy { it.first }.forEach { (key, label) ->
                     updateCapabilityLocked("tool", key, label, write.modelCall.success, at)
                 }
             }
@@ -193,35 +203,35 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 val existing = dao.getTask(write.taskId)
                     ?: AgentTaskAnalyticsEntity(
                         taskId = write.taskId,
-                        goal = write.goal.take(MAX_GOAL_CHARS),
-                        status = "running",
-                        startedAtMillis = write.startedAtMillis,
+                        goal = sanitizeStoredText(write.goal, MAX_GOAL_CHARS),
+                        status = STATUS_RUNNING,
+                        startedAtMillis = write.startedAtMillis.coerceAtLeast(1L),
                     )
                 val merged = existing.merge(write)
                 val firstTerminalWrite = existing.endedAtMillis == null
                 dao.upsertTask(merged)
-                updateDayLocked(write.endedAtMillis) { day ->
+                updateDayLocked(write.endedAtMillis.coerceAtLeast(merged.startedAtMillis)) { day ->
                     val outcome = if (firstTerminalWrite) outcomeDelta(write.status) else OutcomeDelta()
                     day.copy(
-                        completedTasks = day.completedTasks + outcome.completed,
-                        failedTasks = day.failedTasks + outcome.failed,
-                        pausedTasks = day.pausedTasks + outcome.paused,
-                        cancelledTasks = day.cancelledTasks + outcome.cancelled,
-                        budgetExceededTasks = day.budgetExceededTasks + outcome.budgetExceeded,
-                        taskDurationMs = day.taskDurationMs + positiveDelta(merged.durationMs, existing.durationMs),
-                        executedActions = day.executedActions + positiveDelta(merged.executedActions, existing.executedActions),
-                        successfulActions = day.successfulActions + positiveDelta(merged.successfulActions, existing.successfulActions),
-                        failedActions = day.failedActions + positiveDelta(merged.failedActions, existing.failedActions),
-                        observations = day.observations + positiveDelta(merged.observations, existing.observations),
-                        reobservations = day.reobservations + positiveDelta(merged.reobservations, existing.reobservations),
-                        rejectedPlans = day.rejectedPlans + positiveDelta(merged.rejectedPlans, existing.rejectedPlans),
-                        executionFailures = day.executionFailures + positiveDelta(merged.executionFailures, existing.executionFailures),
-                        confirmationRequests = day.confirmationRequests + positiveDelta(merged.confirmationRequests, existing.confirmationRequests),
-                        confirmationsAccepted = day.confirmationsAccepted + positiveDelta(merged.confirmationsAccepted, existing.confirmationsAccepted),
-                        userInputRequests = day.userInputRequests + positiveDelta(merged.userInputRequests, existing.userInputRequests),
-                        userInputsSubmitted = day.userInputsSubmitted + positiveDelta(merged.userInputsSubmitted, existing.userInputsSubmitted),
-                        userTakeovers = day.userTakeovers + positiveDelta(merged.userTakeovers, existing.userTakeovers),
-                        takeoverResumes = day.takeoverResumes + positiveDelta(merged.takeoverResumes, existing.takeoverResumes),
+                        completedTasks = safeAdd(day.completedTasks, outcome.completed),
+                        failedTasks = safeAdd(day.failedTasks, outcome.failed),
+                        pausedTasks = safeAdd(day.pausedTasks, outcome.paused),
+                        cancelledTasks = safeAdd(day.cancelledTasks, outcome.cancelled),
+                        budgetExceededTasks = safeAdd(day.budgetExceededTasks, outcome.budgetExceeded),
+                        taskDurationMs = safeAdd(day.taskDurationMs, positiveDelta(merged.durationMs, existing.durationMs)),
+                        executedActions = safeAdd(day.executedActions, positiveDelta(merged.executedActions, existing.executedActions)),
+                        successfulActions = safeAdd(day.successfulActions, positiveDelta(merged.successfulActions, existing.successfulActions)),
+                        failedActions = safeAdd(day.failedActions, positiveDelta(merged.failedActions, existing.failedActions)),
+                        observations = safeAdd(day.observations, positiveDelta(merged.observations, existing.observations)),
+                        reobservations = safeAdd(day.reobservations, positiveDelta(merged.reobservations, existing.reobservations)),
+                        rejectedPlans = safeAdd(day.rejectedPlans, positiveDelta(merged.rejectedPlans, existing.rejectedPlans)),
+                        executionFailures = safeAdd(day.executionFailures, positiveDelta(merged.executionFailures, existing.executionFailures)),
+                        confirmationRequests = safeAdd(day.confirmationRequests, positiveDelta(merged.confirmationRequests, existing.confirmationRequests)),
+                        confirmationsAccepted = safeAdd(day.confirmationsAccepted, positiveDelta(merged.confirmationsAccepted, existing.confirmationsAccepted)),
+                        userInputRequests = safeAdd(day.userInputRequests, positiveDelta(merged.userInputRequests, existing.userInputRequests)),
+                        userInputsSubmitted = safeAdd(day.userInputsSubmitted, positiveDelta(merged.userInputsSubmitted, existing.userInputsSubmitted)),
+                        userTakeovers = safeAdd(day.userTakeovers, positiveDelta(merged.userTakeovers, existing.userTakeovers)),
+                        takeoverResumes = safeAdd(day.takeoverResumes, positiveDelta(merged.takeoverResumes, existing.takeoverResumes)),
                     )
                 }
                 if (firstTerminalWrite) {
@@ -233,7 +243,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                             uses = counter.uses,
                             successes = counter.successes,
                             failures = counter.failures,
-                            atMillis = write.endedAtMillis,
+                            atMillis = merged.endedAtMillis ?: write.endedAtMillis,
                         )
                     }
                     write.appUsage.forEach { (key, counter) ->
@@ -244,7 +254,7 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                             uses = counter.uses,
                             successes = counter.successes,
                             failures = counter.failures,
-                            atMillis = write.endedAtMillis,
+                            atMillis = merged.endedAtMillis ?: write.endedAtMillis,
                         )
                     }
                 }
@@ -271,13 +281,48 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 val at = updated.endedAtMillis ?: System.currentTimeMillis()
                 updateDayLocked(at) { day ->
                     day.copy(
-                        executedActions = day.executedActions + positiveDelta(updated.executedActions, existing.executedActions),
-                        observations = day.observations + positiveDelta(updated.observations, existing.observations),
-                        reobservations = day.reobservations + positiveDelta(updated.reobservations, existing.reobservations),
-                        rejectedPlans = day.rejectedPlans + positiveDelta(updated.rejectedPlans, existing.rejectedPlans),
-                        executionFailures = day.executionFailures + positiveDelta(updated.executionFailures, existing.executionFailures),
+                        executedActions = safeAdd(day.executedActions, positiveDelta(updated.executedActions, existing.executedActions)),
+                        observations = safeAdd(day.observations, positiveDelta(updated.observations, existing.observations)),
+                        reobservations = safeAdd(day.reobservations, positiveDelta(updated.reobservations, existing.reobservations)),
+                        rejectedPlans = safeAdd(day.rejectedPlans, positiveDelta(updated.rejectedPlans, existing.rejectedPlans)),
+                        executionFailures = safeAdd(day.executionFailures, positiveDelta(updated.executionFailures, existing.executionFailures)),
                     )
                 }
+            }
+        }
+    }
+
+    private suspend fun recoverInterruptedTasksLocked(nowMillis: Long) {
+        dao.getOpenTasks().forEach { task ->
+            val aggregate = dao.getTaskTokenAggregate(task.taskId)
+            val duration = maxOf(
+                task.durationMs,
+                (nowMillis - task.startedAtMillis).coerceAtLeast(0L),
+            )
+            val recovered = task.copy(
+                status = STATUS_INTERRUPTED,
+                endedAtMillis = nowMillis,
+                durationMs = duration,
+                latestResult = "应用进程结束前任务没有写入终态",
+                modelCalls = maxOf(task.modelCalls, aggregate.modelCalls),
+                modelFailures = maxOf(task.modelFailures, aggregate.modelFailures),
+                inputTokens = maxOf(task.inputTokens, aggregate.inputTokens),
+                outputTokens = maxOf(task.outputTokens, aggregate.outputTokens),
+                reasoningTokens = maxOf(task.reasoningTokens, aggregate.reasoningTokens),
+                cachedInputTokens = maxOf(task.cachedInputTokens, aggregate.cachedInputTokens),
+                totalTokens = maxOf(task.totalTokens, aggregate.totalTokens),
+                providerTokens = maxOf(task.providerTokens, aggregate.providerTokens),
+                estimatedTokens = maxOf(task.estimatedTokens, aggregate.estimatedTokens),
+                requestBytes = maxOf(task.requestBytes, aggregate.requestBytes),
+                responseBytes = maxOf(task.responseBytes, aggregate.responseBytes),
+                modelLatencyMs = maxOf(task.modelLatencyMs, aggregate.modelLatencyMs),
+            )
+            dao.upsertTask(recovered)
+            updateDayLocked(nowMillis) { day ->
+                day.copy(
+                    pausedTasks = safeAdd(day.pausedTasks, 1L),
+                    taskDurationMs = safeAdd(day.taskDurationMs, positiveDelta(duration, task.durationMs)),
+                )
             }
         }
     }
@@ -289,11 +334,12 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         val total = usage.normalizedTotal.coerceAtLeast(0L)
         val provider = if (usage.accuracy == AgentTokenAccuracy.Provider) total else 0L
         val estimated = if (usage.accuracy == AgentTokenAccuracy.Estimated) total else 0L
+        val at = write.occurredAtMillis.coerceAtLeast(1L)
         dao.insertTokenEvent(
             AgentTokenEventEntity(
                 taskId = write.taskId?.takeIf { it > 0L },
-                source = write.source.take(MAX_KEY_CHARS),
-                occurredAtMillis = write.occurredAtMillis,
+                source = write.source.trim().ifBlank { "unknown" }.take(MAX_KEY_CHARS),
+                occurredAtMillis = at,
                 modelId = normalizedModelId,
                 modelLabel = normalizedLabel,
                 success = write.success,
@@ -308,41 +354,41 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 responseBytes = write.responseBytes.coerceAtLeast(0L),
             ),
         )
-        updateDayLocked(write.occurredAtMillis) { day ->
+        updateDayLocked(at) { day ->
             day.copy(
-                modelCalls = day.modelCalls + 1L,
-                modelFailures = day.modelFailures + if (write.success) 0L else 1L,
-                inputTokens = day.inputTokens + usage.inputTokens.coerceAtLeast(0L),
-                outputTokens = day.outputTokens + usage.outputTokens.coerceAtLeast(0L),
-                reasoningTokens = day.reasoningTokens + usage.reasoningTokens.coerceAtLeast(0L),
-                cachedInputTokens = day.cachedInputTokens + usage.cachedInputTokens.coerceAtLeast(0L),
-                totalTokens = day.totalTokens + total,
-                providerTokens = day.providerTokens + provider,
-                estimatedTokens = day.estimatedTokens + estimated,
-                modelLatencyMs = day.modelLatencyMs + write.latencyMs.coerceAtLeast(0L),
-                requestBytes = day.requestBytes + write.requestBytes.coerceAtLeast(0L),
-                responseBytes = day.responseBytes + write.responseBytes.coerceAtLeast(0L),
+                modelCalls = safeAdd(day.modelCalls, 1L),
+                modelFailures = safeAdd(day.modelFailures, if (write.success) 0L else 1L),
+                inputTokens = safeAdd(day.inputTokens, usage.inputTokens.coerceAtLeast(0L)),
+                outputTokens = safeAdd(day.outputTokens, usage.outputTokens.coerceAtLeast(0L)),
+                reasoningTokens = safeAdd(day.reasoningTokens, usage.reasoningTokens.coerceAtLeast(0L)),
+                cachedInputTokens = safeAdd(day.cachedInputTokens, usage.cachedInputTokens.coerceAtLeast(0L)),
+                totalTokens = safeAdd(day.totalTokens, total),
+                providerTokens = safeAdd(day.providerTokens, provider),
+                estimatedTokens = safeAdd(day.estimatedTokens, estimated),
+                modelLatencyMs = safeAdd(day.modelLatencyMs, write.latencyMs.coerceAtLeast(0L)),
+                requestBytes = safeAdd(day.requestBytes, write.requestBytes.coerceAtLeast(0L)),
+                responseBytes = safeAdd(day.responseBytes, write.responseBytes.coerceAtLeast(0L)),
             )
         }
         val oldModel = dao.getModelUsage(normalizedModelId)
-        val firstUsed = oldModel?.firstUsedAtMillis?.takeIf { it > 0L } ?: write.occurredAtMillis
+        val firstUsed = oldModel?.firstUsedAtMillis?.takeIf { it > 0L } ?: at
         dao.upsertModelUsage(
             (oldModel ?: AgentModelUsageEntity(normalizedModelId, normalizedLabel)).copy(
                 displayName = normalizedLabel,
-                calls = (oldModel?.calls ?: 0L) + 1L,
-                failures = (oldModel?.failures ?: 0L) + if (write.success) 0L else 1L,
-                inputTokens = (oldModel?.inputTokens ?: 0L) + usage.inputTokens.coerceAtLeast(0L),
-                outputTokens = (oldModel?.outputTokens ?: 0L) + usage.outputTokens.coerceAtLeast(0L),
-                reasoningTokens = (oldModel?.reasoningTokens ?: 0L) + usage.reasoningTokens.coerceAtLeast(0L),
-                cachedInputTokens = (oldModel?.cachedInputTokens ?: 0L) + usage.cachedInputTokens.coerceAtLeast(0L),
-                totalTokens = (oldModel?.totalTokens ?: 0L) + total,
-                providerTokens = (oldModel?.providerTokens ?: 0L) + provider,
-                estimatedTokens = (oldModel?.estimatedTokens ?: 0L) + estimated,
-                latencyMs = (oldModel?.latencyMs ?: 0L) + write.latencyMs.coerceAtLeast(0L),
-                requestBytes = (oldModel?.requestBytes ?: 0L) + write.requestBytes.coerceAtLeast(0L),
-                responseBytes = (oldModel?.responseBytes ?: 0L) + write.responseBytes.coerceAtLeast(0L),
+                calls = safeAdd(oldModel?.calls ?: 0L, 1L),
+                failures = safeAdd(oldModel?.failures ?: 0L, if (write.success) 0L else 1L),
+                inputTokens = safeAdd(oldModel?.inputTokens ?: 0L, usage.inputTokens.coerceAtLeast(0L)),
+                outputTokens = safeAdd(oldModel?.outputTokens ?: 0L, usage.outputTokens.coerceAtLeast(0L)),
+                reasoningTokens = safeAdd(oldModel?.reasoningTokens ?: 0L, usage.reasoningTokens.coerceAtLeast(0L)),
+                cachedInputTokens = safeAdd(oldModel?.cachedInputTokens ?: 0L, usage.cachedInputTokens.coerceAtLeast(0L)),
+                totalTokens = safeAdd(oldModel?.totalTokens ?: 0L, total),
+                providerTokens = safeAdd(oldModel?.providerTokens ?: 0L, provider),
+                estimatedTokens = safeAdd(oldModel?.estimatedTokens ?: 0L, estimated),
+                latencyMs = safeAdd(oldModel?.latencyMs ?: 0L, write.latencyMs.coerceAtLeast(0L)),
+                requestBytes = safeAdd(oldModel?.requestBytes ?: 0L, write.requestBytes.coerceAtLeast(0L)),
+                responseBytes = safeAdd(oldModel?.responseBytes ?: 0L, write.responseBytes.coerceAtLeast(0L)),
                 firstUsedAtMillis = firstUsed,
-                lastUsedAtMillis = maxOf(oldModel?.lastUsedAtMillis ?: 0L, write.occurredAtMillis),
+                lastUsedAtMillis = maxOf(oldModel?.lastUsedAtMillis ?: 0L, at),
             ),
         )
     }
@@ -351,15 +397,16 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         atMillis: Long,
         transform: (AgentDailyActivityEntity) -> AgentDailyActivityEntity,
     ) {
-        val key = dateKey(atMillis)
+        val safeAt = atMillis.coerceAtLeast(1L)
+        val key = dateKey(safeAt)
         val old = dao.getDailyActivity(key) ?: AgentDailyActivityEntity(dateKey = key)
         val transformed = transform(old)
         dao.upsertDailyActivity(
             transformed.copy(
                 firstActivityAtMillis = old.firstActivityAtMillis.takeIf { it > 0L }
-                    ?.let { minOf(it, atMillis) }
-                    ?: atMillis,
-                lastActivityAtMillis = maxOf(old.lastActivityAtMillis, atMillis),
+                    ?.let { minOf(it, safeAt) }
+                    ?: safeAt,
+                lastActivityAtMillis = maxOf(old.lastActivityAtMillis, safeAt),
             ),
         )
     }
@@ -394,14 +441,15 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         if (uses <= 0L) return
         val normalizedKind = kind.trim().ifBlank { "feature" }.take(MAX_KEY_CHARS)
         val normalizedKey = key.trim().ifBlank { "unknown" }.take(MAX_KEY_CHARS)
-        val normalizedLabel = displayName.trim().ifBlank { normalizedKey }.take(MAX_LABEL_CHARS)
+        val normalizedLabel = sanitizeStoredText(displayName, MAX_LABEL_CHARS)
+            .ifBlank { normalizedKey }
         val old = dao.getCapabilityUsage(normalizedKind, normalizedKey)
         dao.upsertCapabilityUsage(
             (old ?: AgentCapabilityUsageEntity(normalizedKind, normalizedKey, normalizedLabel)).copy(
                 displayName = normalizedLabel,
-                uses = (old?.uses ?: 0L) + uses.coerceAtLeast(0L),
-                successes = (old?.successes ?: 0L) + successes.coerceAtLeast(0L),
-                failures = (old?.failures ?: 0L) + failures.coerceAtLeast(0L),
+                uses = safeAdd(old?.uses ?: 0L, uses.coerceAtLeast(0L)),
+                successes = safeAdd(old?.successes ?: 0L, successes.coerceAtLeast(0L)),
+                failures = safeAdd(old?.failures ?: 0L, failures.coerceAtLeast(0L)),
                 firstUsedAtMillis = old?.firstUsedAtMillis?.takeIf { it > 0L } ?: atMillis,
                 lastUsedAtMillis = maxOf(old?.lastUsedAtMillis ?: 0L, atMillis),
             ),
@@ -413,13 +461,17 @@ class AgentAnalyticsRepository private constructor(context: Context) {
         taskEntities: List<AgentTaskAnalyticsEntity>,
         modelEntities: List<AgentModelUsageEntity>,
         capabilityEntities: List<AgentCapabilityUsageEntity>,
+        longestTaskDurationMs: Long,
     ): AgentAnalyticsSnapshot {
         val daily = dailyEntities.map { it.toModel() }
         val tasks = taskEntities.map { it.toModel() }
         val models = modelEntities.map { it.toModel() }
         val capabilities = capabilityEntities.map { it.toModel() }
         val terminalTasks = daily.sumOf {
-            it.completedTasks + it.failedTasks + it.pausedTasks + it.cancelledTasks + it.budgetExceededTasks
+            safeAdd(
+                safeAdd(it.completedTasks, it.failedTasks),
+                safeAdd(safeAdd(it.pausedTasks, it.cancelledTasks), it.budgetExceededTasks),
+            )
         }
         val completed = daily.sumOf(AgentDailyActivity::completedTasks)
         val streaks = calculateStreaks(daily)
@@ -436,11 +488,15 @@ class AgentAnalyticsRepository private constructor(context: Context) {
                 chatCalls = daily.sumOf(AgentDailyActivity::chatCalls),
                 agentTasks = daily.sumOf(AgentDailyActivity::agentTasks),
                 completedTasks = completed,
-                taskSuccessRate = if (terminalTasks > 0L) completed.toFloat() / terminalTasks.toFloat() else 0f,
+                taskSuccessRate = if (terminalTasks > 0L) {
+                    completed.toFloat() / terminalTasks.toFloat()
+                } else {
+                    0f
+                },
                 executedActions = daily.sumOf(AgentDailyActivity::executedActions),
                 modelCalls = daily.sumOf(AgentDailyActivity::modelCalls),
                 totalTaskDurationMs = daily.sumOf(AgentDailyActivity::taskDurationMs),
-                longestTaskDurationMs = tasks.maxOfOrNull(AgentTaskAnalytics::durationMs) ?: 0L,
+                longestTaskDurationMs = longestTaskDurationMs.coerceAtLeast(0L),
                 currentActiveStreakDays = streaks.first,
                 longestActiveStreakDays = streaks.second,
             ),
@@ -476,16 +532,15 @@ class AgentAnalyticsRepository private constructor(context: Context) {
     }
 
     private fun AgentTaskAnalyticsEntity.merge(write: AgentTaskWrite): AgentTaskAnalyticsEntity {
+        val start = startedAtMillis.takeIf { it > 0L } ?: write.startedAtMillis.coerceAtLeast(1L)
         val end = maxOf(endedAtMillis ?: 0L, write.endedAtMillis).takeIf { it > 0L }
         return copy(
-            goal = goal.ifBlank { write.goal.take(MAX_GOAL_CHARS) },
-            status = write.status,
-            startedAtMillis = startedAtMillis.takeIf { it > 0L } ?: write.startedAtMillis,
+            goal = goal.ifBlank { sanitizeStoredText(write.goal, MAX_GOAL_CHARS) },
+            status = write.status.trim().lowercase().ifBlank { "failed" },
+            startedAtMillis = start,
             endedAtMillis = end,
-            durationMs = end?.let {
-                (it - (startedAtMillis.takeIf { value -> value > 0L } ?: write.startedAtMillis)).coerceAtLeast(0L)
-            } ?: durationMs,
-            latestResult = write.latestResult.take(MAX_RESULT_CHARS),
+            durationMs = end?.let { (it - start).coerceAtLeast(0L) } ?: durationMs,
+            latestResult = sanitizeStoredText(write.latestResult, MAX_RESULT_CHARS),
             modelCalls = maxOf(modelCalls, write.modelCalls),
             modelFailures = maxOf(modelFailures, write.modelFailures),
             modelTurns = maxOf(modelTurns, write.modelTurns),
@@ -512,8 +567,8 @@ class AgentAnalyticsRepository private constructor(context: Context) {
             userInputsSubmitted = maxOf(userInputsSubmitted, write.userInputsSubmitted),
             userTakeovers = maxOf(userTakeovers, write.userTakeovers),
             takeoverResumes = maxOf(takeoverResumes, write.takeoverResumes),
-            appUsageJson = write.appUsage.toJson(),
-            actionUsageJson = write.actionUsage.toJson(),
+            appUsageJson = write.appUsage.takeIf { it.isNotEmpty() }?.toJson() ?: appUsageJson,
+            actionUsageJson = write.actionUsage.takeIf { it.isNotEmpty() }?.toJson() ?: actionUsageJson,
         )
     }
 
@@ -536,10 +591,10 @@ class AgentAnalyticsRepository private constructor(context: Context) {
     private fun Map<String, AgentUsageCounter>.toJson(): String = JSONObject().apply {
         this@toJson.forEach { (key, counter) ->
             put(key, JSONObject().apply {
-                put("label", counter.displayName)
-                put("uses", counter.uses)
-                put("successes", counter.successes)
-                put("failures", counter.failures)
+                put("label", sanitizeStoredText(counter.displayName, MAX_LABEL_CHARS))
+                put("uses", counter.uses.coerceAtLeast(0L))
+                put("successes", counter.successes.coerceAtLeast(0L))
+                put("failures", counter.failures.coerceAtLeast(0L))
             })
         }
     }.toString()
@@ -550,50 +605,137 @@ class AgentAnalyticsRepository private constructor(context: Context) {
             val keys = json.keys()
             while (keys.hasNext()) {
                 val key = keys.next()
-                put(key, json.optJSONObject(key)?.optLong("uses") ?: 0L)
+                put(key, json.optJSONObject(key)?.optLong("uses")?.coerceAtLeast(0L) ?: 0L)
             }
         }
     }
 
     private fun AgentDailyActivityEntity.toModel() = AgentDailyActivity(
-        dateKey, firstActivityAtMillis, lastActivityAtMillis, chatCalls, chatFailures, agentTasks,
-        completedTasks, failedTasks, pausedTasks, cancelledTasks, budgetExceededTasks, modelCalls,
-        modelFailures, inputTokens, outputTokens, reasoningTokens, cachedInputTokens, totalTokens,
-        providerTokens, estimatedTokens, modelLatencyMs, requestBytes, responseBytes, taskDurationMs,
-        executedActions, successfulActions, failedActions, observations, reobservations, rejectedPlans,
-        executionFailures, confirmationRequests, confirmationsAccepted, userInputRequests,
-        userInputsSubmitted, userTakeovers, takeoverResumes, webSearches, imageRequests,
+        dateKey = dateKey,
+        firstActivityAtMillis = firstActivityAtMillis,
+        lastActivityAtMillis = lastActivityAtMillis,
+        chatCalls = chatCalls,
+        chatFailures = chatFailures,
+        agentTasks = agentTasks,
+        completedTasks = completedTasks,
+        failedTasks = failedTasks,
+        pausedTasks = pausedTasks,
+        cancelledTasks = cancelledTasks,
+        budgetExceededTasks = budgetExceededTasks,
+        modelCalls = modelCalls,
+        modelFailures = modelFailures,
+        inputTokens = inputTokens,
+        outputTokens = outputTokens,
+        reasoningTokens = reasoningTokens,
+        cachedInputTokens = cachedInputTokens,
+        totalTokens = totalTokens,
+        providerTokens = providerTokens,
+        estimatedTokens = estimatedTokens,
+        modelLatencyMs = modelLatencyMs,
+        requestBytes = requestBytes,
+        responseBytes = responseBytes,
+        taskDurationMs = taskDurationMs,
+        executedActions = executedActions,
+        successfulActions = successfulActions,
+        failedActions = failedActions,
+        observations = observations,
+        reobservations = reobservations,
+        rejectedPlans = rejectedPlans,
+        executionFailures = executionFailures,
+        confirmationRequests = confirmationRequests,
+        confirmationsAccepted = confirmationsAccepted,
+        userInputRequests = userInputRequests,
+        userInputsSubmitted = userInputsSubmitted,
+        userTakeovers = userTakeovers,
+        takeoverResumes = takeoverResumes,
+        webSearches = webSearches,
+        imageRequests = imageRequests,
     )
 
     private fun AgentTaskAnalyticsEntity.toModel() = AgentTaskAnalytics(
-        taskId, goal, status, startedAtMillis, endedAtMillis, durationMs, latestResult, modelCalls,
-        modelFailures, modelTurns, inputTokens, outputTokens, reasoningTokens, cachedInputTokens,
-        totalTokens, providerTokens, estimatedTokens, requestBytes, responseBytes, modelLatencyMs,
-        executedActions, successfulActions, failedActions, observations, reobservations, rejectedPlans,
-        executionFailures, confirmationRequests, confirmationsAccepted, userInputRequests,
-        userInputsSubmitted, userTakeovers, takeoverResumes, appUsageJson.toUsageMap(),
-        actionUsageJson.toUsageMap(),
+        taskId = taskId,
+        goal = goal,
+        status = status,
+        startedAtMillis = startedAtMillis,
+        endedAtMillis = endedAtMillis,
+        durationMs = durationMs,
+        latestResult = latestResult,
+        modelCalls = modelCalls,
+        modelFailures = modelFailures,
+        modelTurns = modelTurns,
+        inputTokens = inputTokens,
+        outputTokens = outputTokens,
+        reasoningTokens = reasoningTokens,
+        cachedInputTokens = cachedInputTokens,
+        totalTokens = totalTokens,
+        providerTokens = providerTokens,
+        estimatedTokens = estimatedTokens,
+        requestBytes = requestBytes,
+        responseBytes = responseBytes,
+        modelLatencyMs = modelLatencyMs,
+        executedActions = executedActions,
+        successfulActions = successfulActions,
+        failedActions = failedActions,
+        observations = observations,
+        reobservations = reobservations,
+        rejectedPlans = rejectedPlans,
+        executionFailures = executionFailures,
+        confirmationRequests = confirmationRequests,
+        confirmationsAccepted = confirmationsAccepted,
+        userInputRequests = userInputRequests,
+        userInputsSubmitted = userInputsSubmitted,
+        userTakeovers = userTakeovers,
+        takeoverResumes = takeoverResumes,
+        appUsage = appUsageJson.toUsageMap(),
+        actionUsage = actionUsageJson.toUsageMap(),
     )
 
     private fun AgentModelUsageEntity.toModel() = AgentModelAnalytics(
-        modelId, displayName, calls, failures, inputTokens, outputTokens, reasoningTokens,
-        cachedInputTokens, totalTokens, providerTokens, estimatedTokens, latencyMs, requestBytes,
-        responseBytes, firstUsedAtMillis, lastUsedAtMillis,
+        modelId = modelId,
+        displayName = displayName,
+        calls = calls,
+        failures = failures,
+        inputTokens = inputTokens,
+        outputTokens = outputTokens,
+        reasoningTokens = reasoningTokens,
+        cachedInputTokens = cachedInputTokens,
+        totalTokens = totalTokens,
+        providerTokens = providerTokens,
+        estimatedTokens = estimatedTokens,
+        latencyMs = latencyMs,
+        requestBytes = requestBytes,
+        responseBytes = responseBytes,
+        firstUsedAtMillis = firstUsedAtMillis,
+        lastUsedAtMillis = lastUsedAtMillis,
     )
 
     private fun AgentCapabilityUsageEntity.toModel() = AgentCapabilityAnalytics(
-        kind, capabilityKey, displayName, uses, successes, failures, firstUsedAtMillis, lastUsedAtMillis,
+        kind = kind,
+        key = capabilityKey,
+        displayName = displayName,
+        uses = uses,
+        successes = successes,
+        failures = failures,
+        firstUsedAtMillis = firstUsedAtMillis,
+        lastUsedAtMillis = lastUsedAtMillis,
     )
 
     companion object {
+        private const val STATUS_RUNNING = "running"
+        private const val STATUS_INTERRUPTED = "interrupted"
         private const val MAX_GOAL_CHARS = 240
         private const val MAX_RESULT_CHARS = 320
         private const val MAX_KEY_CHARS = 120
         private const val MAX_LABEL_CHARS = 80
         private const val MAX_TASK_HISTORY = 1_000
-        private const val RECENT_TASK_STATE_LIMIT = 500
+        private const val RECENT_TASK_STATE_LIMIT = 100
         private const val TOKEN_EVENT_RETENTION_MS = 730L * 24L * 60L * 60L * 1_000L
         private const val DAILY_RETENTION_MS = 1_825L * 24L * 60L * 60L * 1_000L
+
+        private val SENSITIVE_PATTERNS = listOf(
+            Regex("(?i)(password|passcode|verification\\s*code|otp|pin)\\s*[:=：]?\\s*[^\\s|,，;；]{2,}"),
+            Regex("(密码|验证码|支付密码|口令)\\s*[:=：]?\\s*[^\\s|,，;；]{2,}"),
+        )
 
         @Volatile
         private var instance: AgentAnalyticsRepository? = null
@@ -610,5 +752,21 @@ class AgentAnalyticsRepository private constructor(context: Context) {
             .toString()
 
         private fun positiveDelta(next: Long, previous: Long): Long = (next - previous).coerceAtLeast(0L)
+
+        private fun safeAdd(left: Long, right: Long): Long {
+            val safeLeft = left.coerceAtLeast(0L)
+            val safeRight = right.coerceAtLeast(0L)
+            return if (Long.MAX_VALUE - safeLeft < safeRight) Long.MAX_VALUE else safeLeft + safeRight
+        }
+
+        private fun sanitizeStoredText(input: String, maxChars: Int): String {
+            var output = input.trim()
+            SENSITIVE_PATTERNS.forEach { pattern ->
+                output = output.replace(pattern) { match ->
+                    "${match.groupValues[1]}：[敏感内容已隐藏]"
+                }
+            }
+            return output.take(maxChars)
+        }
     }
 }
