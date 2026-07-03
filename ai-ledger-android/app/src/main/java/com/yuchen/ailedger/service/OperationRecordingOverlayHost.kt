@@ -77,6 +77,12 @@ internal class OperationRecordingOverlayHost(
 
     fun destroy() {
         if (!started && rootView == null) return
+        if (latestState.active) {
+            OperationLearningRecordingCoordinator.requestStop(
+                context = service.applicationContext,
+                reason = OperationRecordingStopReason.ServiceInterrupted,
+            )
+        }
         started = false
         tickerJob?.cancel()
         tickerJob = null
