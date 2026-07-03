@@ -93,10 +93,7 @@ private fun StorageSpecialCleanupScreen(
     var pendingDelete by remember(mode) { mutableStateOf<List<StorageSpecialCleanupItem>?>(null) }
     var pendingMedia by remember(mode) { mutableStateOf<List<StorageSpecialCleanupItem>>(emptyList()) }
     var pendingShared by remember(mode) { mutableStateOf<List<StorageSpecialCleanupItem>>(emptyList()) }
-    var pendingFolder by remember(mode) { mutableStateOf<List<StorageSpecialCleanupItem>>(emptyList()) }
-    var globalAccessGranted by remember(mode) {
-        mutableStateOf(mode == StorageSpecialCleanupMode.Downloads && repository.hasGlobalSharedStorageAccess())
-    }
+    var globalAccessGranted by remember(mode) { mutableStateOf(repository.hasGlobalSharedStorageAccess()) }
 
     BackHandler(onBack = onBack)
 
@@ -104,9 +101,7 @@ private fun StorageSpecialCleanupScreen(
         if (scanning || operationRunning) return
         scanning = true
         message = null
-        if (mode == StorageSpecialCleanupMode.Downloads) {
-            globalAccessGranted = repository.hasGlobalSharedStorageAccess()
-        }
+        globalAccessGranted = repository.hasGlobalSharedStorageAccess()
         scope.launch {
             val loaded = withContext(Dispatchers.IO) { runCatching { repository.scan(mode) } }
             loaded.onSuccess { result ->
@@ -123,25 +118,22 @@ private fun StorageSpecialCleanupScreen(
         }
     }
 
-    val folderLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            val persisted = repository.persistTreeUri(StorageSpecialCleanupMode.Junk, uri)
-            message = if (persisted) "目录授权已保存，正在重新扫描。" else "目录授权未能持久保存，请重新选择。"
-            if (persisted) scan()
-        }
-    }
     val allFilesAccessLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         globalAccessGranted = repository.hasGlobalSharedStorageAccess()
         message = if (globalAccessGranted) {
-            "已开启全机共享存储扫描，正在重新建立下载与安装包索引。"
+            "已开启全机共享存储扫描，正在重新建立文件索引。"
         } else {
-            "未开启所有文件访问，继续使用受限的系统下载集合。"
+            if (mode == StorageSpecialCleanupMode.Downloads) {
+                "未开启所有文件访问，继续使用受限的系统下载集合。"
+            } else {
+                "未开启所有文件访问，基础垃圾文件无法进行全机扫描。"
+            }
         }
         scan()
     }
     val legacyReadPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         globalAccessGranted = granted && repository.hasGlobalSharedStorageAccess()
-        message = if (globalAccessGranted) "共享存储读取已授权。" else "共享存储读取未授权，将使用受限扫描。"
+        message = if (globalAccessGranted) "共享存储读取已授权。" else "共享存储读取未授权。"
         scan()
     }
 
@@ -157,14 +149,11 @@ private fun StorageSpecialCleanupScreen(
         if (result.resultCode == Activity.RESULT_OK) {
             scope.launch {
                 operationRunning = true
-                val directResults = withContext(Dispatchers.IO) {
-                    repository.deleteSharedStorage(pendingShared) to repository.deleteAuthorized(pendingFolder)
-                }
-                val requested = pendingMedia.size + directResults.first.requestedCount + directResults.second.requestedCount
-                val deleted = pendingMedia.size + directResults.first.deletedCount + directResults.second.deletedCount
+                val sharedResult = withContext(Dispatchers.IO) { repository.deleteSharedStorage(pendingShared) }
+                val requested = pendingMedia.size + sharedResult.requestedCount
+                val deleted = pendingMedia.size + sharedResult.deletedCount
                 pendingMedia = emptyList()
                 pendingShared = emptyList()
-                pendingFolder = emptyList()
                 selectedIds = emptySet()
                 operationRunning = false
                 message = "清理完成：成功 $deleted 个，失败 ${requested - deleted} 个。"
@@ -173,7 +162,6 @@ private fun StorageSpecialCleanupScreen(
         } else {
             pendingMedia = emptyList()
             pendingShared = emptyList()
-            pendingFolder = emptyList()
             operationRunning = false
             message = "已取消系统删除确认，其他待处理项目未继续删除。"
         }
@@ -187,27 +175,21 @@ private fun StorageSpecialCleanupScreen(
         scope.launch {
             val media = unique.filter { it.source == StorageSpecialCleanupSource.MediaStoreDownloads }
             val shared = unique.filter { it.source == StorageSpecialCleanupSource.SharedStorageFile }
-            val folder = unique.filter { it.source == StorageSpecialCleanupSource.AuthorizedFolder }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && media.isNotEmpty()) {
                 val request = withContext(Dispatchers.IO) { repository.createMediaDeleteRequest(media) }
                 if (request != null) {
                     pendingMedia = media
                     pendingShared = shared
-                    pendingFolder = folder
                     operationRunning = false
                     deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                     return@launch
                 }
             }
             val results = withContext(Dispatchers.IO) {
-                Triple(
-                    repository.deleteMediaDirect(media),
-                    repository.deleteSharedStorage(shared),
-                    repository.deleteAuthorized(folder),
-                )
+                repository.deleteMediaDirect(media) to repository.deleteSharedStorage(shared)
             }
-            val deleted = results.first.deletedCount + results.second.deletedCount + results.third.deletedCount
-            val requested = results.first.requestedCount + results.second.requestedCount + results.third.requestedCount
+            val deleted = results.first.deletedCount + results.second.deletedCount
+            val requested = results.first.requestedCount + results.second.requestedCount
             selectedIds = emptySet()
             operationRunning = false
             message = "清理完成：成功 $deleted 个，失败 ${requested - deleted} 个。"
@@ -251,14 +233,13 @@ private fun StorageSpecialCleanupScreen(
     }
 
     val title = if (mode == StorageSpecialCleanupMode.Downloads) "下载与安装包" else "基础垃圾文件"
-    val eyebrow = if (mode == StorageSpecialCleanupMode.Downloads) "GLOBAL DOWNLOAD SCAN" else "BASIC JUNK"
+    val eyebrow = if (mode == StorageSpecialCleanupMode.Downloads) "GLOBAL DOWNLOAD SCAN" else "GLOBAL JUNK SCAN"
     val subtitle = if (mode == StorageSpecialCleanupMode.Downloads) {
         "自动扫描全机共享存储中的安装包、压缩包、下载残留和下载目录文件。"
     } else {
-        "检查零字节文件、空文件夹、下载残留、旧临时文件、日志和备份。"
+        "自动扫描全机共享存储中的零字节文件、空文件夹、旧临时文件、日志和备份。"
     }
     val accent = if (mode == StorageSpecialCleanupMode.Downloads) Color(0xFF9CD8FF) else Color(0xFFFFCA72)
-    val treeUri = if (mode == StorageSpecialCleanupMode.Junk) repository.savedTreeUri(mode) else null
 
     GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
         LazyColumn(
@@ -292,45 +273,34 @@ private fun StorageSpecialCleanupScreen(
                 StorageNoticePanel(
                     title = "扫描边界",
                     text = if (mode == StorageSpecialCleanupMode.Downloads) {
-                        "开启所有文件访问后，会自动遍历内部共享存储、SD 卡和 OTG 中系统允许读取的目录，不再要求你手动选择下载目录。Android/data、Android/obb 和应用私有数据仍受系统保护。"
+                        "开启所有文件访问后，会自动遍历内部共享存储、SD 卡和 OTG 中系统允许读取的目录，不再要求你手动选择下载目录。"
                     } else {
-                        "只检查你主动授权的目录。低风险仅表示规则较明确，删除前仍会展示项目并再次确认。"
+                        "开启所有文件访问后，会自动检查全部可访问共享目录。Android/data、Android/obb、应用私有数据和系统核心目录仍受 Android 保护，不会伪装成已扫描。"
                     },
                     tone = accent,
                 )
             }
             item {
                 StorageSection("扫描范围") {
-                    if (mode == StorageSpecialCleanupMode.Downloads) {
-                        StorageAccessRow(
-                            title = "全机共享存储扫描",
-                            detail = if (globalAccessGranted) {
-                                "已开启。App 会自动查找各存储卷中的安装包、压缩包、下载残留及 Download/Downloads 目录。"
+                    StorageAccessRow(
+                        title = "全机共享存储扫描",
+                        detail = if (globalAccessGranted) {
+                            if (mode == StorageSpecialCleanupMode.Downloads) {
+                                "已开启。自动查找各存储卷中的安装包、压缩包、下载残留及 Download/Downloads 目录。"
                             } else {
-                                "当前为受限模式，只能读取 Android 暴露的系统下载集合，可能漏掉其他目录和外部存储中的文件。"
-                            },
-                            granted = globalAccessGranted,
-                            actionText = if (globalAccessGranted) "管理权限" else "开启扫描",
-                            onAction = ::requestGlobalAccess,
-                        )
-                    } else {
-                        StorageAccessRow(
-                            title = "垃圾文件检查目录",
-                            detail = if (treeUri == null) "请选择一个需要检查的目录。" else "已授权：${snapshot?.treeName ?: "目录"}",
-                            granted = treeUri != null,
-                            actionText = if (treeUri == null) "选择目录" else "更换目录",
-                            onAction = { folderLauncher.launch(treeUri) },
-                        )
-                        if (treeUri != null) {
-                            StorageInlineAction("撤销此专项的目录授权") {
-                                repository.clearTreeUri(mode)
-                                selectedIds = emptySet()
-                                snapshot = null
-                                message = "专项目录授权已撤销。"
-                                scan()
+                                "已开启。自动检查各存储卷中的低风险临时残留、零字节文件、空目录、旧日志和旧备份。"
                             }
-                        }
-                    }
+                        } else {
+                            if (mode == StorageSpecialCleanupMode.Downloads) {
+                                "当前为受限模式，只能读取 Android 暴露的系统下载集合。"
+                            } else {
+                                "需要开启所有文件访问，才能自动扫描全机共享存储中的基础垃圾文件。"
+                            }
+                        },
+                        granted = globalAccessGranted,
+                        actionText = if (globalAccessGranted) "管理权限" else "开启扫描",
+                        onAction = ::requestGlobalAccess,
+                    )
                     StoragePrimaryAction(
                         text = if (scanning) "正在扫描…" else "重新扫描",
                         enabled = !scanning && !operationRunning,
@@ -344,16 +314,20 @@ private fun StorageSpecialCleanupScreen(
                     StorageSection("扫描结果") {
                         StorageMetricRow("发现项目", "${current.items.size} 个")
                         StorageMetricRow("候选体积", formatStorageBytes(current.items.sumOf { it.sizeBytes }))
-                        if (mode == StorageSpecialCleanupMode.Downloads) {
-                            StorageMetricRow("扫描模式", if (current.globalAccessGranted) "全机共享存储" else "系统下载集合（受限）")
-                            if (current.globalAccessGranted) {
-                                StorageMetricRow("存储卷", "${current.globalRootCount} 个")
-                                StorageMetricRow("已遍历", "${current.scannedFileCount} 文件 · ${current.scannedDirectoryCount} 目录")
-                            } else {
-                                StorageMetricRow("系统下载集合", "${current.mediaStoreCount} 个")
-                            }
-                        } else {
-                            StorageMetricRow("授权目录扫描", "${current.scannedFileCount} 文件 · ${current.scannedDirectoryCount} 目录")
+                        StorageMetricRow(
+                            "扫描模式",
+                            when {
+                                current.globalAccessGranted && mode == StorageSpecialCleanupMode.Downloads -> "全机下载与安装包"
+                                current.globalAccessGranted -> "全机基础垃圾"
+                                mode == StorageSpecialCleanupMode.Downloads -> "系统下载集合（受限）"
+                                else -> "等待全机访问权限"
+                            },
+                        )
+                        if (current.globalAccessGranted) {
+                            StorageMetricRow("存储卷", "${current.globalRootCount} 个")
+                            StorageMetricRow("已遍历", "${current.scannedFileCount} 文件 · ${current.scannedDirectoryCount} 目录")
+                        } else if (mode == StorageSpecialCleanupMode.Downloads) {
+                            StorageMetricRow("系统下载集合", "${current.mediaStoreCount} 个")
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -397,14 +371,14 @@ private fun StorageSpecialCleanupScreen(
                 }
             }
             when {
-                scanning && snapshot == null -> item { StorageLoadingPanel("正在建立专项文件索引…") }
+                scanning && snapshot == null -> item { StorageLoadingPanel("正在建立全机共享存储索引…") }
                 snapshot == null -> item { StorageEmptyPanel("开始扫描后显示结果。") }
                 visibleItems.isEmpty() -> item {
                     StorageEmptyPanel(
                         when {
-                            mode == StorageSpecialCleanupMode.Junk && treeUri == null -> "选择需要检查的目录后才能识别基础垃圾文件。"
-                            mode == StorageSpecialCleanupMode.Downloads && !globalAccessGranted -> "受限下载集合中没有符合规则的项目；开启全机共享存储扫描可以检查更多位置。"
-                            else -> "当前范围内没有符合规则的项目。"
+                            !globalAccessGranted && mode == StorageSpecialCleanupMode.Junk -> "开启全机共享存储扫描后，才能自动识别基础垃圾文件。"
+                            !globalAccessGranted -> "受限下载集合中没有符合规则的项目；开启全机扫描可以检查更多位置。"
+                            else -> "当前可访问范围内没有符合规则的项目。"
                         },
                     )
                 }
@@ -523,10 +497,10 @@ private fun StorageSpecialCleanupDeleteDialog(
                     Text("其中 $reviewCount 个项目需要人工检查，不会因为全选而跳过本次确认。", color = StorageWarning, fontSize = 11.sp, lineHeight = 16.sp)
                 }
                 val deleteText = when {
-                    hasRestrictedMedia && hasSharedFiles -> "受限下载集合会交给 Android 再次确认；全机共享存储文件按当前选择直接删除。"
+                    hasRestrictedMedia && hasSharedFiles -> "受限下载集合会交给 Android 再次确认；全机共享存储项目按当前选择直接删除。"
                     hasRestrictedMedia -> "受限下载集合会交给 Android 再次确认。"
-                    hasSharedFiles -> "全机共享存储文件会按当前选择直接删除。"
-                    else -> "授权目录项目会按当前选择删除。"
+                    hasSharedFiles -> "全机共享存储项目会按当前选择直接删除。"
+                    else -> "当前选择中没有可删除项目。"
                 }
                 Text("$deleteText 删除后不保证能够恢复。", color = Color.White.copy(alpha = 0.58f), fontSize = 11.5.sp, lineHeight = 17.sp)
             }
