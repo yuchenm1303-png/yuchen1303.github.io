@@ -6,7 +6,6 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -14,7 +13,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -25,15 +23,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.LocalOpenGLShellBatchState
 import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
@@ -86,7 +81,7 @@ internal fun OpenGlShellBatchItemSurfaceImpl(
             OpenGlShellBatchRegisteredSurfaceImpl(
                 batchState = batchState,
                 quality = quality,
-                rendererGlassIntensity = resolvedBatchRendererIntensity(glassIntensity),
+                rendererGlassIntensity = resolvedFilteredBatchRendererIntensity(glassIntensity),
                 frameGlassIntensity = glassIntensity,
                 motionIntensity = motionIntensity,
                 radius = radius,
@@ -108,15 +103,6 @@ internal fun OpenGlShellBatchItemSurfaceImpl(
         }
     }
 }
-
-@Composable
-private fun resolvedBatchRendererIntensity(fallback: Float): Float =
-    LocalGlassBackdrop.current
-        ?.borderStyle
-        ?.newOpenGlGlassIntensity
-        ?.takeIf { it > 0f }
-        ?.coerceIn(0.35f, 1.35f)
-        ?: fallback.coerceIn(0.35f, 1.35f)
 
 @Composable
 private fun OpenGlShellStandaloneSurfaceImpl(
@@ -364,21 +350,7 @@ private fun OpenGlShellBatchRegisteredSurfaceImpl(
     } else {
         Modifier
     }
-    val shape = remember(effectiveRadius) { RoundedCornerShape(effectiveRadius.dp) }
     val backdropReady = LocalBlurredBackdrop.current?.isReady == true
-    val framedIntensity = if (preserveStandaloneFrame) {
-        frameGlassIntensity * dynamicState.snapshotState.value.glassIntensityScale
-    } else {
-        frameGlassIntensity
-    }
-    val contentFrameModifier = if (preserveStandaloneFrame) {
-        Modifier.openGlBatchStandaloneShellFrame(
-            radius = effectiveRadius,
-            glassIntensity = framedIntensity,
-        )
-    } else {
-        Modifier.clip(shape)
-    }
 
     Box(
         modifier = modifier
@@ -387,36 +359,16 @@ private fun OpenGlShellBatchRegisteredSurfaceImpl(
             .onPlaced(item::updatePlacement)
             .then(transformModifier),
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(contentFrameModifier),
-        ) {
-            if (!backdropReady) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            Color(0xFF17345B).copy(
-                                alpha = (0.34f * frameGlassIntensity)
-                                    .coerceIn(0.18f, 0.48f),
-                            )
-                        )
-                )
-            }
-            content()
-            if (shellPressEnabled) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .openGlBatchShellPressSurfaceOptics(
-                            dynamicState = dynamicState,
-                            radius = effectiveRadius,
-                            prismEdgeHighlight = prismEdgeHighlight,
-                        )
-                )
-            }
-        }
+        OpenGlBatchFramedContent(
+            preserveStandaloneFrame = preserveStandaloneFrame,
+            effectiveRadius = effectiveRadius,
+            frameGlassIntensity = frameGlassIntensity,
+            backdropReady = backdropReady,
+            dynamicState = dynamicState,
+            shellPressEnabled = shellPressEnabled,
+            prismEdgeHighlight = prismEdgeHighlight,
+            content = content,
+        )
     }
 }
 
