@@ -9,6 +9,7 @@ import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.data.OperationSkillApprovalRepository
 import com.yuchen.ailedger.data.OperationSkillArtifactStore
 import com.yuchen.ailedger.data.OperationWorkflowRepository
+import com.yuchen.ailedger.data.OperationWorkflowSummaryRepository
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowAppScope
@@ -23,6 +24,7 @@ import com.yuchen.ailedger.service.WorkflowValidationIssue
 import com.yuchen.ailedger.service.WorkflowValidationStage
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -45,6 +47,7 @@ data class OperationLearningUiState(
 class OperationLearningViewModel : ViewModel() {
     private val context = AiLedgerApplication.contextOrNull()
     private val repository = context?.let(OperationWorkflowRepository::get)
+    private val summaryRepository = context?.let(::OperationWorkflowSummaryRepository)
     private val skillStore: OperationSkillArtifactStore? by lazy(LazyThreadSafetyMode.NONE) {
         context?.let(::OperationSkillArtifactStore)
     }
@@ -52,39 +55,54 @@ class OperationLearningViewModel : ViewModel() {
         context?.let(::OperationSkillApprovalRepository)
     }
     private val retryingWorkflowIds = mutableSetOf<String>()
+    private var draftsLoadJob: Job? = null
+    private var fullDraftsLoaded = false
 
     var uiState by mutableStateOf(OperationLearningUiState())
         private set
 
     init {
-        refresh()
+        loadSummaries()
     }
 
     /**
-     * 工具首页只需要草稿摘要，因此刷新时不再扫描全部 Skill 文件，更不会自动上传视觉演示。
-     * 完整 Skill 仅在用户主动展开对应卡片时按需加载。
+     * 功能首页只读取主表摘要，不展开变量、里程碑、步骤、选择器和状态检查图谱。
+     * 这条路径固定为一次 Room 事务查询，避免 Skill 数量增加后形成 N+1 查询风暴。
+     */
+    private fun loadSummaries() {
+        val activeRepository = summaryRepository ?: return
+        draftsLoadJob?.cancel()
+        draftsLoadJob = viewModelScope.launch {
+            uiState = uiState.copy(loading = true)
+            runCatching { activeRepository.loadSummaries() }
+                .onSuccess { drafts ->
+                    publishDrafts(drafts, detailsLoaded = false)
+                }
+                .onFailure {
+                    uiState = uiState.copy(
+                        loading = false,
+                        notice = "Skill 摘要加载失败，请稍后重试。",
+                    )
+                }
+            draftsLoadJob = null
+        }
+    }
+
+    /**
+     * 仅在用户真正进入操作学习页面后加载完整工作流图谱。
+     * 录制、审核、批准和运行始终建立在完整模型上，不会使用首页的精简摘要执行功能。
      */
     fun refresh() {
         val activeRepository = repository ?: return
-        uiState = uiState.copy(loading = true)
-        viewModelScope.launch {
+        draftsLoadJob?.cancel()
+        draftsLoadJob = viewModelScope.launch {
+            uiState = uiState.copy(loading = true)
             runCatching { activeRepository.loadDrafts() }
                 .onSuccess { drafts ->
-                    val selectedId = uiState.selectedDraftId?.takeIf { selected ->
-                        drafts.any { it.id == selected }
+                    publishDrafts(drafts, detailsLoaded = true)
+                    uiState.selectedDraftId?.let { selectedId ->
+                        loadSkillArtifact(selectedId, retryIfCompiling = false)
                     }
-                    uiState = uiState.copy(
-                        drafts = drafts,
-                        loading = false,
-                        selectedDraftId = selectedId,
-                        replayInputValues = uiState.replayInputValues.filterKeys { id ->
-                            drafts.any { it.id == id }
-                        },
-                        skillArtifacts = uiState.skillArtifacts.filterKeys { id ->
-                            drafts.any { it.id == id }
-                        },
-                    )
-                    selectedId?.let { loadSkillArtifact(it, retryIfCompiling = false) }
                 }
                 .onFailure {
                     uiState = uiState.copy(
@@ -92,7 +110,29 @@ class OperationLearningViewModel : ViewModel() {
                         notice = "Skill 草稿加载失败，请稍后重试。",
                     )
                 }
+            draftsLoadJob = null
         }
+    }
+
+    private fun publishDrafts(
+        drafts: List<LearnedWorkflowDraft>,
+        detailsLoaded: Boolean,
+    ) {
+        val selectedId = uiState.selectedDraftId?.takeIf { selected ->
+            drafts.any { it.id == selected }
+        }
+        fullDraftsLoaded = detailsLoaded
+        uiState = uiState.copy(
+            drafts = drafts,
+            loading = false,
+            selectedDraftId = selectedId,
+            replayInputValues = uiState.replayInputValues.filterKeys { id ->
+                drafts.any { it.id == id }
+            },
+            skillArtifacts = uiState.skillArtifacts.filterKeys { id ->
+                drafts.any { it.id == id }
+            },
+        )
     }
 
     private fun loadSkillArtifact(
@@ -246,6 +286,11 @@ class OperationLearningViewModel : ViewModel() {
     fun selectDraft(draftId: String) {
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
         uiState = uiState.copy(selectedDraftId = draftId, notice = null)
+        if (!fullDraftsLoaded) {
+            uiState = uiState.copy(notice = "正在加载完整 Skill 数据…")
+            refresh()
+            return
+        }
         loadSkillArtifact(
             draftId = draftId,
             retryIfCompiling = draft.status == WorkflowDraftStatus.Compiling,
@@ -253,6 +298,7 @@ class OperationLearningViewModel : ViewModel() {
     }
 
     fun startRecording(draftId: String) {
+        if (!ensureFullDraftsReady()) return
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
         val activeContext = context
         if (activeContext == null) {
@@ -300,6 +346,7 @@ class OperationLearningViewModel : ViewModel() {
     }
 
     fun approveSkill(draftId: String) {
+        if (!ensureFullDraftsReady()) return
         val draft = uiState.drafts.firstOrNull { it.id == draftId } ?: return
         val skill = uiState.skillArtifacts[draftId]
         val activeApprovalRepository = approvalRepository
@@ -330,6 +377,7 @@ class OperationLearningViewModel : ViewModel() {
     }
 
     fun runSkill(draftId: String) {
+        if (!ensureFullDraftsReady()) return
         val activeContext = context
         val draft = uiState.drafts.firstOrNull { it.id == draftId }
         val skill = uiState.skillArtifacts[draftId]
@@ -361,6 +409,7 @@ class OperationLearningViewModel : ViewModel() {
     }
 
     fun deleteDraft(draftId: String) {
+        if (!ensureFullDraftsReady()) return
         val recordingWorkflowId = OperationLearningRecordingCoordinator.state.value.workflowId
         if (OperationLearningRecordingCoordinator.state.value.active && recordingWorkflowId == draftId) {
             uiState = uiState.copy(notice = "请先结束或取消当前视觉演示，再删除 Skill。")
@@ -399,6 +448,13 @@ class OperationLearningViewModel : ViewModel() {
                 }
             }
         }
+    }
+
+    private fun ensureFullDraftsReady(): Boolean {
+        if (fullDraftsLoaded) return true
+        uiState = uiState.copy(notice = "完整 Skill 数据正在加载，请稍后再试。")
+        refresh()
+        return false
     }
 
     fun clearNotice() {
