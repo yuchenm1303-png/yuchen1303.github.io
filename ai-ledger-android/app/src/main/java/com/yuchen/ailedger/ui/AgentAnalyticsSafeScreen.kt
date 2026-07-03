@@ -8,6 +8,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -53,38 +53,26 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.math.roundToInt
 
-private val SafeAnalyticsBlue = Color(0xFF8FB2FF)
-private val SafeAnalyticsViolet = Color(0xFFB49BFF)
-private val SafeAnalyticsMint = Color(0xFF7BE8D2)
-private val SafeAnalyticsWarm = Color(0xFFFFC58A)
-private val SafeAnalyticsDanger = Color(0xFFFF9EAF)
-private val SafeAnalyticsCard = Color(0xFF11163A).copy(alpha = 0.74f)
+private val SafeBlue = Color(0xFF8FB2FF)
+private val SafeViolet = Color(0xFFB49BFF)
+private val SafeMint = Color(0xFF7BE8D2)
+private val SafeWarm = Color(0xFFFFC58A)
+private val SafeDanger = Color(0xFFFF9EAF)
+private val SafeCardColor = Color(0xFF11163A).copy(alpha = 0.74f)
 
-private enum class SafeAnalyticsTab(val label: String) {
-    Overview("总览"),
-    Tokens("Token"),
-    Tasks("任务"),
-    Capabilities("能力"),
+private enum class SafeTab(val label: String) {
+    Overview("总览"), Tokens("Token"), Tasks("任务"), Capabilities("能力")
 }
 
-private data class SafeHeatmapCell(
-    val column: Int,
-    val row: Int,
-    val tokens: Long,
-    val future: Boolean,
-)
-
-private data class SafeHeatmapData(
+private data class HeatCell(val column: Int, val row: Int, val tokens: Long, val future: Boolean)
+private data class HeatData(
     val weeks: Int,
-    val cells: List<SafeHeatmapCell>,
+    val cells: List<HeatCell>,
     val maxTokens: Long,
     val activeDays: Int,
 )
 
-/**
- * 完全绕开 OpenGL、普通玻璃 registry 和 Frost 批处理的统计页。
- * 页面只绘制标准 Compose 背景、文字与 Canvas，作为稳定且极轻量的正式入口。
- */
+/** 标准 Compose 实现，不调用或注册任何玻璃/OpenGL 绘制链。 */
 @Composable
 internal fun AgentAnalyticsSafeScreen(
     viewModel: AgentAnalyticsViewModel,
@@ -92,13 +80,11 @@ internal fun AgentAnalyticsSafeScreen(
 ) {
     val snapshot by viewModel.state.collectAsState()
     val skills by viewModel.skillInventory.collectAsState()
-    var tabName by rememberSaveable { mutableStateOf(SafeAnalyticsTab.Overview.name) }
-    val tab = remember(tabName) {
-        SafeAnalyticsTab.entries.firstOrNull { it.name == tabName } ?: SafeAnalyticsTab.Overview
-    }
+    var tabName by rememberSaveable { mutableStateOf(SafeTab.Overview.name) }
+    val tab = remember(tabName) { SafeTab.entries.firstOrNull { it.name == tabName } ?: SafeTab.Overview }
 
     LaunchedEffect(tab) {
-        if (tab == SafeAnalyticsTab.Capabilities) viewModel.ensureSkillInventoryLoaded()
+        if (tab == SafeTab.Capabilities) viewModel.ensureSkillInventoryLoaded()
     }
 
     LazyColumn(
@@ -106,25 +92,13 @@ internal fun AgentAnalyticsSafeScreen(
         contentPadding = PaddingValues(top = 14.dp, bottom = 116.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "safe_header") {
-            SafeAnalyticsHeader(onBack)
-        }
-        item(key = "safe_tabs") {
-            SafeAnalyticsTabs(
-                selected = tab,
-                onSelected = { tabName = it.name },
-            )
-        }
+        item(key = "safe_header") { Header(onBack) }
+        item(key = "safe_tabs") { Tabs(tab) { tabName = it.name } }
 
         if (!snapshot.loaded) {
             item(key = "safe_loading") {
-                SafeAnalyticsCard {
-                    Text(
-                        "正在读取统计",
-                        color = Color.White,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Black,
-                    )
+                Card {
+                    Text("正在读取统计", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.height(5.dp))
                     Text(
                         "仅执行一次本地聚合查询，不持续观察数据库。",
@@ -135,57 +109,85 @@ internal fun AgentAnalyticsSafeScreen(
             }
         } else {
             when (tab) {
-                SafeAnalyticsTab.Overview -> {
-                    item(key = "safe_summary") { SafeSummaryCard(snapshot) }
-                    item(key = "safe_heatmap") { SafeTokenHeatmap(snapshot.dailyActivity) }
-                    item(key = "safe_runtime") { SafeRuntimeCard(snapshot) }
-                    item(key = "safe_recent_title") { SafeSectionTitle("最近任务", "本机最近执行摘要") }
+                SafeTab.Overview -> {
+                    item(key = "safe_summary") { Summary(snapshot) }
+                    item(key = "safe_heat") { Heatmap(snapshot.dailyActivity) }
+                    item(key = "safe_runtime") {
+                        MetricsCard(
+                            "运行概览",
+                            "本地与账号每日聚合",
+                            listOf(
+                                Metric("对话请求", number(snapshot.totals.chatCalls), SafeBlue),
+                                Metric("模型调用", number(snapshot.totals.modelCalls), SafeViolet),
+                                Metric("规划轮次", number(snapshot.totals.agentModelTurns), SafeMint),
+                                Metric("任务总数", number(snapshot.totals.agentTasks), SafeWarm),
+                                Metric("累计任务时长", duration(snapshot.totals.totalTaskDurationMs), SafeBlue),
+                                Metric("最长任务", duration(snapshot.totals.longestTaskDurationMs), SafeViolet),
+                            ),
+                        )
+                    }
+                    item(key = "safe_recent_title") { SectionTitle("最近任务", "本机最近执行摘要") }
                     if (snapshot.recentTasks.isEmpty()) {
-                        item(key = "safe_recent_empty") { SafeEmptyCard("还没有智能体任务记录") }
+                        item(key = "safe_recent_empty") { EmptyCard("还没有智能体任务记录") }
                     } else {
-                        items(snapshot.recentTasks.take(5), key = { "safe_overview_${it.taskId}" }) {
-                            SafeTaskRow(it)
-                        }
+                        items(snapshot.recentTasks.take(5), key = { "safe_overview_${it.taskId}" }) { TaskRow(it) }
                     }
                 }
 
-                SafeAnalyticsTab.Tokens -> {
-                    item(key = "safe_token_summary") { SafeTokenSummaryCard(snapshot) }
-                    item(key = "safe_token_heatmap") { SafeTokenHeatmap(snapshot.dailyActivity) }
-                    item(key = "safe_models_title") { SafeSectionTitle("模型使用", "按累计 Token 排序") }
+                SafeTab.Tokens -> {
+                    item(key = "safe_token_summary") {
+                        MetricsCard(
+                            "Token 构成",
+                            "真实 usage 与本地估算分开显示",
+                            listOf(
+                                Metric("Provider 真实", number(snapshot.totals.providerTokens), SafeMint),
+                                Metric("Estimated 估算", number(snapshot.totals.estimatedTokens), SafeViolet),
+                                Metric("峰值日", number(snapshot.totals.peakDailyTokens), SafeWarm),
+                                Metric("累计总量", number(snapshot.totals.totalTokens), SafeBlue),
+                            ),
+                        )
+                    }
+                    item(key = "safe_token_heat") { Heatmap(snapshot.dailyActivity) }
+                    item(key = "safe_models_title") { SectionTitle("模型使用", "按累计 Token 排序") }
                     if (snapshot.modelUsage.isEmpty()) {
-                        item(key = "safe_models_empty") { SafeEmptyCard("暂无模型使用数据") }
+                        item(key = "safe_models_empty") { EmptyCard("暂无模型使用数据") }
                     } else {
-                        items(snapshot.modelUsage.take(12), key = { "safe_model_${it.modelId}" }) {
-                            SafeModelRow(it)
-                        }
+                        items(snapshot.modelUsage.take(12), key = { "safe_model_${it.modelId}" }) { ModelRow(it) }
                     }
                 }
 
-                SafeAnalyticsTab.Tasks -> {
-                    item(key = "safe_task_summary") { SafeTaskSummaryCard(snapshot) }
-                    item(key = "safe_tasks_title") { SafeSectionTitle("任务记录", "最多显示最近 100 条") }
+                SafeTab.Tasks -> {
+                    item(key = "safe_task_summary") {
+                        MetricsCard(
+                            "任务效率",
+                            "成功率、自主性与耗时",
+                            listOf(
+                                Metric("任务成功率", percent(snapshot.totals.taskSuccessRate), SafeMint),
+                                Metric("自主完成率", percent(snapshot.totals.autonomousCompletionRate), SafeBlue),
+                                Metric("完成任务", snapshot.totals.completedTasks.toString(), SafeViolet),
+                                Metric("介入后完成", snapshot.totals.assistedCompletedTasks.toString(), SafeWarm),
+                                Metric("累计耗时", duration(snapshot.totals.totalTaskDurationMs), SafeBlue),
+                            ),
+                        )
+                    }
+                    item(key = "safe_tasks_title") { SectionTitle("任务记录", "最多显示最近 100 条") }
                     if (snapshot.recentTasks.isEmpty()) {
-                        item(key = "safe_tasks_empty") { SafeEmptyCard("暂无任务记录") }
+                        item(key = "safe_tasks_empty") { EmptyCard("暂无任务记录") }
                     } else {
-                        items(snapshot.recentTasks, key = { "safe_task_${it.taskId}" }) {
-                            SafeTaskRow(it)
-                        }
+                        items(snapshot.recentTasks, key = { "safe_task_${it.taskId}" }) { TaskRow(it) }
                     }
                 }
 
-                SafeAnalyticsTab.Capabilities -> {
-                    item(key = "safe_skill") { SafeSkillCard(skills) }
-                    item(key = "safe_capability_title") { SafeSectionTitle("能力使用", "工具、功能、动作与应用") }
+                SafeTab.Capabilities -> {
+                    item(key = "safe_skills") { SkillCard(skills) }
+                    item(key = "safe_cap_title") { SectionTitle("能力使用", "工具、功能、动作与应用") }
                     if (snapshot.capabilityUsage.isEmpty()) {
-                        item(key = "safe_capability_empty") { SafeEmptyCard("暂无能力使用数据") }
+                        item(key = "safe_cap_empty") { EmptyCard("暂无能力使用数据") }
                     } else {
                         items(
                             snapshot.capabilityUsage.take(40),
-                            key = { "safe_capability_${it.kind}_${it.key}" },
-                        ) {
-                            SafeCapabilityRow(it)
-                        }
+                            key = { "safe_cap_${it.kind}_${it.key}" },
+                        ) { CapabilityRow(it) }
                     }
                 }
             }
@@ -193,8 +195,10 @@ internal fun AgentAnalyticsSafeScreen(
     }
 }
 
+private data class Metric(val label: String, val value: String, val tone: Color)
+
 @Composable
-private fun SafeAnalyticsHeader(onBack: () -> Unit) {
+private fun Header(onBack: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(
             modifier = Modifier
@@ -206,63 +210,36 @@ private fun SafeAnalyticsHeader(onBack: () -> Unit) {
                 .clickable(onClick = onBack),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "‹ 返回",
-                color = Color.White.copy(alpha = 0.88f),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.ExtraBold,
-            )
+            Text("‹ 返回", color = Color.White.copy(alpha = 0.88f), fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
         }
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                "AGENT INSIGHTS",
-                color = SafeAnalyticsMint.copy(alpha = 0.78f),
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                "智能体统计",
-                color = Color.White,
-                fontSize = 32.sp,
-                lineHeight = 36.sp,
-                fontWeight = FontWeight.Black,
-            )
-            Text(
-                "Token 活动、任务效率、自主性与能力成长",
-                color = Color.White.copy(alpha = 0.56f),
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-            )
-        }
+        Text("AGENT INSIGHTS", color = SafeMint.copy(alpha = 0.78f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+        Text("智能体统计", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+        Text(
+            "Token 活动、任务效率、自主性与能力成长",
+            color = Color.White.copy(alpha = 0.56f),
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+        )
     }
 }
 
 @Composable
-private fun SafeAnalyticsTabs(
-    selected: SafeAnalyticsTab,
-    onSelected: (SafeAnalyticsTab) -> Unit,
-) {
+private fun Tabs(selected: SafeTab, onSelected: (SafeTab) -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        SafeAnalyticsTab.entries.forEach { tab ->
+        SafeTab.entries.forEach { tab ->
             val active = tab == selected
             Box(
                 modifier = Modifier
                     .width(78.dp)
                     .height(38.dp)
                     .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        if (active) SafeAnalyticsViolet.copy(alpha = 0.22f)
-                        else Color.White.copy(alpha = 0.055f),
-                    )
+                    .background(if (active) SafeViolet.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.055f))
                     .border(
                         1.dp,
-                        if (active) SafeAnalyticsViolet.copy(alpha = 0.30f)
-                        else Color.White.copy(alpha = 0.07f),
+                        if (active) SafeViolet.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.07f),
                         RoundedCornerShape(16.dp),
                     )
                     .clickable(enabled = !active) { onSelected(tab) },
@@ -280,8 +257,8 @@ private fun SafeAnalyticsTabs(
 }
 
 @Composable
-private fun SafeSummaryCard(snapshot: AgentAnalyticsSnapshot) {
-    SafeAnalyticsCard(
+private fun Summary(snapshot: AgentAnalyticsSnapshot) {
+    Card(
         brush = Brush.linearGradient(
             listOf(
                 Color(0xFF202D70).copy(alpha = 0.72f),
@@ -290,115 +267,70 @@ private fun SafeSummaryCard(snapshot: AgentAnalyticsSnapshot) {
             ),
         ),
     ) {
-        Text(
-            compactSafeNumber(snapshot.totals.totalTokens),
-            color = Color.White,
-            fontSize = 40.sp,
-            lineHeight = 44.sp,
-            fontWeight = FontWeight.Black,
-        )
-        Text(
-            "累计 Token",
-            color = Color.White.copy(alpha = 0.50f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        Text(number(snapshot.totals.totalTokens), color = Color.White, fontSize = 40.sp, lineHeight = 44.sp, fontWeight = FontWeight.Black)
+        Text("累计 Token", color = Color.White.copy(alpha = 0.50f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(14.dp))
-        SafeMetricLine("活跃连续", "${snapshot.totals.currentActiveStreakDays} 天", SafeAnalyticsMint)
-        SafeMetricLine("完成任务", snapshot.totals.completedTasks.toString(), SafeAnalyticsBlue)
-        SafeMetricLine("自主完成率", safePercent(snapshot.totals.autonomousCompletionRate), SafeAnalyticsViolet)
-        SafeMetricLine("执行动作", compactSafeNumber(snapshot.totals.executedActions), SafeAnalyticsWarm)
+        MetricLine(Metric("活跃连续", "${snapshot.totals.currentActiveStreakDays} 天", SafeMint))
+        MetricLine(Metric("完成任务", snapshot.totals.completedTasks.toString(), SafeBlue))
+        MetricLine(Metric("自主完成率", percent(snapshot.totals.autonomousCompletionRate), SafeViolet))
+        MetricLine(Metric("执行动作", number(snapshot.totals.executedActions), SafeWarm))
     }
 }
 
 @Composable
-private fun SafeRuntimeCard(snapshot: AgentAnalyticsSnapshot) {
-    SafeAnalyticsCard {
-        SafeCardTitle("运行概览", "本地与账号每日聚合")
+private fun MetricsCard(title: String, subtitle: String, metrics: List<Metric>) {
+    Card {
+        CardTitle(title, subtitle)
         Spacer(Modifier.height(10.dp))
-        SafeMetricLine("对话请求", compactSafeNumber(snapshot.totals.chatCalls), SafeAnalyticsBlue)
-        SafeMetricLine("模型调用", compactSafeNumber(snapshot.totals.modelCalls), SafeAnalyticsViolet)
-        SafeMetricLine("规划轮次", compactSafeNumber(snapshot.totals.agentModelTurns), SafeAnalyticsMint)
-        SafeMetricLine("任务总数", compactSafeNumber(snapshot.totals.agentTasks), SafeAnalyticsWarm)
-        SafeMetricLine("累计任务时长", safeDuration(snapshot.totals.totalTaskDurationMs), SafeAnalyticsBlue)
-        SafeMetricLine("最长任务", safeDuration(snapshot.totals.longestTaskDurationMs), SafeAnalyticsViolet)
+        metrics.forEach { MetricLine(it) }
     }
 }
 
 @Composable
-private fun SafeTokenSummaryCard(snapshot: AgentAnalyticsSnapshot) {
-    SafeAnalyticsCard {
-        SafeCardTitle("Token 构成", "真实 usage 与本地估算分开显示")
-        Spacer(Modifier.height(10.dp))
-        SafeMetricLine("Provider 真实", compactSafeNumber(snapshot.totals.providerTokens), SafeAnalyticsMint)
-        SafeMetricLine("Estimated 估算", compactSafeNumber(snapshot.totals.estimatedTokens), SafeAnalyticsViolet)
-        SafeMetricLine("峰值日", compactSafeNumber(snapshot.totals.peakDailyTokens), SafeAnalyticsWarm)
-        SafeMetricLine("累计总量", compactSafeNumber(snapshot.totals.totalTokens), SafeAnalyticsBlue)
-    }
+private fun SkillCard(skills: AgentSkillInventory) {
+    MetricsCard(
+        "Skill 资产",
+        "操作学习形成的本机可复用能力",
+        listOf(
+            Metric("全部 Skill", skills.totalSkills.toString(), SafeBlue),
+            Metric("可用", skills.usableSkills.toString(), SafeMint),
+            Metric("待审核", skills.reviewSkills.toString(), SafeWarm),
+            Metric("覆盖应用", skills.scopedApps.toString(), SafeViolet),
+            Metric("运行次数", skills.totalRuns.toString(), SafeBlue),
+            Metric("成功运行", skills.successfulRuns.toString(), SafeMint),
+        ),
+    )
 }
 
 @Composable
-private fun SafeTaskSummaryCard(snapshot: AgentAnalyticsSnapshot) {
-    SafeAnalyticsCard {
-        SafeCardTitle("任务效率", "成功率、自主性与耗时")
-        Spacer(Modifier.height(10.dp))
-        SafeMetricLine("任务成功率", safePercent(snapshot.totals.taskSuccessRate), SafeAnalyticsMint)
-        SafeMetricLine("自主完成率", safePercent(snapshot.totals.autonomousCompletionRate), SafeAnalyticsBlue)
-        SafeMetricLine("完成任务", snapshot.totals.completedTasks.toString(), SafeAnalyticsViolet)
-        SafeMetricLine("介入后完成", snapshot.totals.assistedCompletedTasks.toString(), SafeAnalyticsWarm)
-        SafeMetricLine("累计耗时", safeDuration(snapshot.totals.totalTaskDurationMs), SafeAnalyticsBlue)
-    }
-}
-
-@Composable
-private fun SafeSkillCard(skills: AgentSkillInventory) {
-    SafeAnalyticsCard {
-        SafeCardTitle("Skill 资产", "操作学习形成的本机可复用能力")
-        Spacer(Modifier.height(10.dp))
-        SafeMetricLine("全部 Skill", skills.totalSkills.toString(), SafeAnalyticsBlue)
-        SafeMetricLine("可用", skills.usableSkills.toString(), SafeAnalyticsMint)
-        SafeMetricLine("待审核", skills.reviewSkills.toString(), SafeAnalyticsWarm)
-        SafeMetricLine("覆盖应用", skills.scopedApps.toString(), SafeAnalyticsViolet)
-        SafeMetricLine("运行次数", skills.totalRuns.toString(), SafeAnalyticsBlue)
-        SafeMetricLine("成功运行", skills.successfulRuns.toString(), SafeAnalyticsMint)
-    }
-}
-
-@Composable
-private fun SafeTokenHeatmap(daily: List<AgentDailyActivity>) {
-    val heatmap = remember(daily) { buildSafeHeatmap(daily, 12) }
-    val cellSize = 11.dp
+private fun Heatmap(daily: List<AgentDailyActivity>) {
+    val heat = remember(daily) { buildHeatmap(daily, 12) }
+    val cell = 11.dp
     val gap = 3.dp
-    val chartWidth = (cellSize + gap) * heatmap.weeks - gap
-    val chartHeight = (cellSize + gap) * 7 - gap
+    val width = (cell + gap) * heat.weeks - gap
+    val height = (cell + gap) * 7 - gap
 
-    SafeAnalyticsCard {
-        SafeCardTitle(
-            "Token 活动热力图",
-            "${heatmap.weeks} 周 · ${heatmap.activeDays} 个活跃日 · 每格一天",
-        )
+    Card {
+        CardTitle("Token 活动热力图", "${heat.weeks} 周 · ${heat.activeDays} 个活跃日 · 每格一天")
         Spacer(Modifier.height(14.dp))
         Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-            Canvas(Modifier.width(chartWidth).height(chartHeight)) {
-                val cellPx = cellSize.toPx()
+            Canvas(Modifier.width(width).height(height)) {
+                val cellPx = cell.toPx()
                 val gapPx = gap.toPx()
-                val maxValue = heatmap.maxTokens.coerceAtLeast(1L).toFloat()
-                heatmap.cells.forEach { cell ->
-                    val ratio = (cell.tokens.toFloat() / maxValue).coerceIn(0f, 1f)
+                val max = heat.maxTokens.coerceAtLeast(1L).toFloat()
+                heat.cells.forEach { entry ->
+                    val ratio = (entry.tokens.toFloat() / max).coerceIn(0f, 1f)
                     val color = when {
-                        cell.future -> Color.White.copy(alpha = 0.025f)
-                        cell.tokens <= 0L -> Color.White.copy(alpha = 0.065f)
-                        ratio < 0.2f -> SafeAnalyticsBlue.copy(alpha = 0.30f)
-                        ratio < 0.45f -> SafeAnalyticsBlue.copy(alpha = 0.54f)
-                        ratio < 0.72f -> SafeAnalyticsViolet.copy(alpha = 0.74f)
-                        else -> SafeAnalyticsMint.copy(alpha = 0.94f)
+                        entry.future -> Color.White.copy(alpha = 0.025f)
+                        entry.tokens <= 0L -> Color.White.copy(alpha = 0.065f)
+                        ratio < 0.2f -> SafeBlue.copy(alpha = 0.30f)
+                        ratio < 0.45f -> SafeBlue.copy(alpha = 0.54f)
+                        ratio < 0.72f -> SafeViolet.copy(alpha = 0.74f)
+                        else -> SafeMint.copy(alpha = 0.94f)
                     }
                     drawRoundRect(
                         color = color,
-                        topLeft = Offset(
-                            cell.column * (cellPx + gapPx),
-                            cell.row * (cellPx + gapPx),
-                        ),
+                        topLeft = Offset(entry.column * (cellPx + gapPx), entry.row * (cellPx + gapPx)),
                         size = Size(cellPx, cellPx),
                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
                     )
@@ -409,8 +341,8 @@ private fun SafeTokenHeatmap(daily: List<AgentDailyActivity>) {
 }
 
 @Composable
-private fun SafeTaskRow(task: AgentTaskAnalytics) {
-    SafeAnalyticsCard {
+private fun TaskRow(task: AgentTaskAnalytics) {
+    Card {
         Text(
             task.goal.ifBlank { "未命名智能体任务" },
             color = Color.White.copy(alpha = 0.92f),
@@ -421,23 +353,23 @@ private fun SafeTaskRow(task: AgentTaskAnalytics) {
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(6.dp))
-        Text(
-            safeStatusLabel(task.status),
-            color = safeStatusTone(task.status),
-            fontSize = 10.sp,
-            fontWeight = FontWeight.ExtraBold,
-        )
+        Text(statusLabel(task.status), color = statusTone(task.status), fontSize = 10.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(8.dp))
-        SafeMetricLine("耗时", safeDuration(task.durationMs), SafeAnalyticsBlue)
-        SafeMetricLine("动作", task.executedActions.toString(), SafeAnalyticsMint)
-        SafeMetricLine("Token", compactSafeNumber(task.totalTokens), SafeAnalyticsViolet)
-        SafeMetricLine("用户介入", task.interventionCount.toString(), SafeAnalyticsWarm)
+        MetricLine(Metric("耗时", duration(task.durationMs), SafeBlue))
+        MetricLine(Metric("动作", task.executedActions.toString(), SafeMint))
+        MetricLine(Metric("Token", number(task.totalTokens), SafeViolet))
+        MetricLine(Metric("用户介入", task.interventionCount.toString(), SafeWarm))
     }
 }
 
 @Composable
-private fun SafeModelRow(model: AgentModelAnalytics) {
-    SafeAnalyticsCard {
+private fun ModelRow(model: AgentModelAnalytics) {
+    val successRate = if (model.calls > 0L) {
+        (model.calls - model.failures).coerceAtLeast(0L).toFloat() / model.calls.toFloat()
+    } else {
+        0f
+    }
+    Card {
         Text(
             model.displayName,
             color = Color.White.copy(alpha = 0.94f),
@@ -447,20 +379,17 @@ private fun SafeModelRow(model: AgentModelAnalytics) {
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(7.dp))
-        SafeMetricLine("调用次数", model.calls.toString(), SafeAnalyticsBlue)
-        SafeMetricLine("累计 Token", compactSafeNumber(model.totalTokens), SafeAnalyticsViolet)
-        val successRate = if (model.calls > 0L) {
-            (model.calls - model.failures).coerceAtLeast(0L).toFloat() / model.calls.toFloat()
-        } else {
-            0f
-        }
-        SafeMetricLine("调用成功率", safePercent(successRate), SafeAnalyticsMint)
+        MetricLine(Metric("调用次数", model.calls.toString(), SafeBlue))
+        MetricLine(Metric("累计 Token", number(model.totalTokens), SafeViolet))
+        MetricLine(Metric("调用成功率", percent(successRate), SafeMint))
     }
 }
 
 @Composable
-private fun SafeCapabilityRow(capability: AgentCapabilityAnalytics) {
-    SafeAnalyticsCard {
+private fun CapabilityRow(capability: AgentCapabilityAnalytics) {
+    val total = safeAdd(capability.successes, capability.failures)
+    val rate = if (total > 0L) capability.successes.toFloat() / total.toFloat() else 0f
+    Card {
         Text(
             capability.displayName,
             color = Color.White.copy(alpha = 0.94f),
@@ -470,29 +399,24 @@ private fun SafeCapabilityRow(capability: AgentCapabilityAnalytics) {
             overflow = TextOverflow.Ellipsis,
         )
         Spacer(Modifier.height(7.dp))
-        SafeMetricLine("类型", safeCapabilityKind(capability.kind), safeCapabilityTone(capability.kind))
-        SafeMetricLine("使用次数", capability.uses.toString(), SafeAnalyticsBlue)
-        val resultTotal = capability.successes + capability.failures
-        val rate = if (resultTotal > 0L) capability.successes.toFloat() / resultTotal.toFloat() else 0f
-        SafeMetricLine("成功率", if (resultTotal > 0L) safePercent(rate) else "累计", SafeAnalyticsMint)
+        MetricLine(Metric("类型", capabilityKind(capability.kind), capabilityTone(capability.kind)))
+        MetricLine(Metric("使用次数", capability.uses.toString(), SafeBlue))
+        MetricLine(Metric("成功率", if (total > 0L) percent(rate) else "累计", SafeMint))
     }
 }
 
 @Composable
-private fun SafeAnalyticsCard(
+private fun Card(
     modifier: Modifier = Modifier,
     brush: Brush? = null,
-    content: @Composable Column.() -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val shape = RoundedCornerShape(24.dp)
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .then(
-                if (brush != null) Modifier.background(brush)
-                else Modifier.background(SafeAnalyticsCard),
-            )
+            .then(if (brush != null) Modifier.background(brush) else Modifier.background(SafeCardColor))
             .border(1.dp, Color.White.copy(alpha = 0.075f), shape)
             .padding(horizontal = 17.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp),
@@ -501,31 +425,26 @@ private fun SafeAnalyticsCard(
 }
 
 @Composable
-private fun SafeCardTitle(title: String, subtitle: String) {
+private fun CardTitle(title: String, subtitle: String) {
     Text(title, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
     Spacer(Modifier.height(2.dp))
-    Text(
-        subtitle,
-        color = Color.White.copy(alpha = 0.45f),
-        fontSize = 10.5.sp,
-        lineHeight = 15.sp,
-    )
+    Text(subtitle, color = Color.White.copy(alpha = 0.45f), fontSize = 10.5.sp, lineHeight = 15.sp)
 }
 
 @Composable
-private fun SafeMetricLine(label: String, value: String, tone: Color) {
+private fun MetricLine(metric: Metric) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp)
-        Text(value, color = tone, fontSize = 11.5.sp, fontWeight = FontWeight.Black)
+        Text(metric.label, color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp)
+        Text(metric.value, color = metric.tone, fontSize = 11.5.sp, fontWeight = FontWeight.Black)
     }
 }
 
 @Composable
-private fun SafeSectionTitle(title: String, subtitle: String) {
+private fun SectionTitle(title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
         Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp)
@@ -533,22 +452,19 @@ private fun SafeSectionTitle(title: String, subtitle: String) {
 }
 
 @Composable
-private fun SafeEmptyCard(message: String) {
-    SafeAnalyticsCard {
-        Text(message, color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp)
-    }
+private fun EmptyCard(message: String) {
+    Card { Text(message, color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp) }
 }
 
-private fun buildSafeHeatmap(daily: List<AgentDailyActivity>, requestedWeeks: Int): SafeHeatmapData {
+private fun buildHeatmap(daily: List<AgentDailyActivity>, requestedWeeks: Int): HeatData {
     val weeks = requestedWeeks.coerceIn(1, 52)
     val today = LocalDate.now(ZoneId.systemDefault())
     val endSunday = today.plusDays((7 - today.dayOfWeek.value).toLong())
     val startMonday = endSunday.minusDays(weeks * 7L - 1L)
     val values = daily.associate { it.dateKey to it.totalTokens.coerceAtLeast(0L) }
-    val cells = ArrayList<SafeHeatmapCell>(weeks * 7)
+    val cells = ArrayList<HeatCell>(weeks * 7)
     var maxTokens = 0L
     var activeDays = 0
-
     repeat(weeks * 7) { index ->
         val date = startMonday.plusDays(index.toLong())
         val value = values[date.toString()] ?: 0L
@@ -557,29 +473,31 @@ private fun buildSafeHeatmap(daily: List<AgentDailyActivity>, requestedWeeks: In
             maxTokens = maxOf(maxTokens, value)
             if (value > 0L) activeDays += 1
         }
-        cells += SafeHeatmapCell(index / 7, index % 7, value, future)
+        cells += HeatCell(index / 7, index % 7, value, future)
     }
-    return SafeHeatmapData(weeks, cells, maxTokens, activeDays)
+    return HeatData(weeks, cells, maxTokens, activeDays)
 }
 
-private fun compactSafeNumber(value: Long): String {
+private fun number(value: Long): String {
     val safe = value.coerceAtLeast(0L)
     return when {
-        safe >= 100_000_000L -> safeOneDecimal(safe / 100_000_000.0) + " 亿"
-        safe >= 10_000L -> safeOneDecimal(safe / 10_000.0) + " 万"
+        safe >= 100_000_000L -> decimal(safe / 100_000_000.0) + " 亿"
+        safe >= 10_000L -> decimal(safe / 10_000.0) + " 万"
         else -> safe.toString()
     }
 }
 
-private fun safeOneDecimal(value: Double): String {
+private fun decimal(value: Double): String {
     val rounded = (value * 10.0).roundToInt() / 10.0
     return if (rounded % 1.0 == 0.0) rounded.toInt().toString() else rounded.toString()
 }
 
-private fun safePercent(value: Float): String =
-    "${(value.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f).times(100f).roundToInt()}%"
+private fun percent(value: Float): String {
+    val safe = value.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f
+    return "${(safe * 100f).roundToInt()}%"
+}
 
-private fun safeDuration(durationMs: Long): String {
+private fun duration(durationMs: Long): String {
     val seconds = durationMs.coerceAtLeast(0L) / 1_000L
     return when {
         seconds >= 3_600L -> "${seconds / 3_600L}h ${(seconds % 3_600L) / 60L}m"
@@ -588,7 +506,7 @@ private fun safeDuration(durationMs: Long): String {
     }
 }
 
-private fun safeStatusLabel(status: String): String = when (status.lowercase()) {
+private fun statusLabel(status: String): String = when (status.lowercase()) {
     "completed" -> "已完成"
     "failed" -> "失败"
     "paused" -> "已暂停"
@@ -599,14 +517,14 @@ private fun safeStatusLabel(status: String): String = when (status.lowercase()) 
     else -> status.ifBlank { "未知" }
 }
 
-private fun safeStatusTone(status: String): Color = when (status.lowercase()) {
-    "completed" -> SafeAnalyticsMint
-    "running" -> SafeAnalyticsBlue
-    "paused", "interrupted" -> SafeAnalyticsWarm
-    else -> SafeAnalyticsDanger
+private fun statusTone(status: String): Color = when (status.lowercase()) {
+    "completed" -> SafeMint
+    "running" -> SafeBlue
+    "paused", "interrupted" -> SafeWarm
+    else -> SafeDanger
 }
 
-private fun safeCapabilityKind(kind: String): String = when (kind.lowercase()) {
+private fun capabilityKind(kind: String): String = when (kind.lowercase()) {
     "feature" -> "功能"
     "tool" -> "工具"
     "action" -> "动作"
@@ -614,10 +532,16 @@ private fun safeCapabilityKind(kind: String): String = when (kind.lowercase()) {
     else -> "能力"
 }
 
-private fun safeCapabilityTone(kind: String): Color = when (kind.lowercase()) {
-    "feature" -> SafeAnalyticsMint
-    "tool" -> SafeAnalyticsBlue
-    "action" -> SafeAnalyticsViolet
-    "app" -> SafeAnalyticsWarm
+private fun capabilityTone(kind: String): Color = when (kind.lowercase()) {
+    "feature" -> SafeMint
+    "tool" -> SafeBlue
+    "action" -> SafeViolet
+    "app" -> SafeWarm
     else -> Color.White
+}
+
+private fun safeAdd(left: Long, right: Long): Long {
+    val safeLeft = left.coerceAtLeast(0L)
+    val safeRight = right.coerceAtLeast(0L)
+    return if (Long.MAX_VALUE - safeLeft < safeRight) Long.MAX_VALUE else safeLeft + safeRight
 }
