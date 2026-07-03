@@ -15,6 +15,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,6 +38,7 @@ internal fun DuplicateGroupCard(
     onToggle: (StorageIntelligenceFile) -> Unit,
     onSelectSuggested: () -> Unit,
 ) {
+    var expanded by remember(group.id) { mutableStateOf(false) }
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(23.dp),
@@ -59,7 +64,14 @@ internal fun DuplicateGroupCard(
                     onClick = onSelectSuggested,
                 )
             }
-            group.files.forEach { file ->
+            StorageLongListControls(
+                totalCount = group.files.size,
+                expanded = expanded,
+                previewCount = STORAGE_HISTORY_PREVIEW_COUNT,
+                onToggleExpanded = { expanded = !expanded },
+                tone = IntelligenceAccent,
+            )
+            storagePreviewItems(group.files, expanded, STORAGE_HISTORY_PREVIEW_COUNT).forEach { file ->
                 val keeper = file.stableId == group.keepFileId
                 IntelligenceFileCard(
                     file = file,
