@@ -60,7 +60,7 @@ internal enum class StorageOrganizationTab(val label: String) {
     Screenshots("截图"),
     Bursts("连拍"),
     Quality("画质候选"),
-    Downloads("下载分类"),
+    Downloads("授权目录"),
 }
 
 @Composable
@@ -82,6 +82,8 @@ fun StorageMediaOrganizationScreen(
     var operationRunning by remember { mutableStateOf(false) }
     var operationMessage by remember { mutableStateOf<String?>(null) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var expandedTabs by remember { mutableStateOf<Set<StorageOrganizationTab>>(emptySet()) }
+    var expandedDownloadKinds by remember { mutableStateOf<Set<StorageOrganizationKind>>(emptySet()) }
     var previewFile by remember { mutableStateOf<StorageOrganizationFile?>(null) }
     var pendingDelete by remember { mutableStateOf<List<StorageOrganizationFile>?>(null) }
     var pendingMediaFiles by remember { mutableStateOf<List<StorageOrganizationFile>>(emptyList()) }
@@ -114,7 +116,7 @@ fun StorageMediaOrganizationScreen(
                     selectedDownloadKind = null
                 }
             }.onFailure { error ->
-                analysisError = error.message?.takeIf(String::isNotBlank) ?: "精细整理分析失败"
+                analysisError = error.message?.takeIf(String::isNotBlank) ?: "照片与目录整理分析失败"
             }
             analyzing = false
         }
@@ -134,7 +136,7 @@ fun StorageMediaOrganizationScreen(
                     deletedCount = deleted.size,
                     failedCount = (files.size - deleted.size).coerceAtLeast(0),
                     releasedBytes = deleted.sumOf { it.sizeBytes },
-                    label = "精细媒体整理",
+                    label = "照片与授权目录整理",
                 ),
             )
         }
@@ -202,6 +204,18 @@ fun StorageMediaOrganizationScreen(
         startAnalysis()
     }
 
+    fun toggleTabExpansion(tab: StorageOrganizationTab) {
+        expandedTabs = if (tab in expandedTabs) expandedTabs - tab else expandedTabs + tab
+    }
+
+    fun toggleDownloadExpansion(kind: StorageOrganizationKind) {
+        expandedDownloadKinds = if (kind in expandedDownloadKinds) {
+            expandedDownloadKinds - kind
+        } else {
+            expandedDownloadKinds + kind
+        }
+    }
+
     val allFiles by remember(snapshot) {
         derivedStateOf { snapshot?.allOrganizationFiles().orEmpty() }
     }
@@ -238,10 +252,10 @@ fun StorageMediaOrganizationScreen(
             }
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("ORGANIZE", color = OrganizationAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
-                    Text("精细整理", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
+                    Text("PHOTO & FILES", color = OrganizationAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text("照片与授权目录", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                     Text(
-                        "整理相似照片、截图、连拍、画质候选和授权目录文件；所有结果都需要人工检查。",
+                        "整理共享图片中的相似照片、截图、连拍和画质候选，并分类检查你主动授权目录中的文件。",
                         color = Color.White.copy(alpha = 0.58f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -250,8 +264,8 @@ fun StorageMediaOrganizationScreen(
             }
             item {
                 OrganizationInfoPanel(
-                    title = "第三阶段安全边界",
-                    text = "相似照片使用缩略图感知哈希，只表示视觉接近；画质候选使用缩略图锐度与分辨率启发式，只能作为检查线索。截图和连拍依据目录、名称与时间整理，页面不会自动勾选照片、文档或媒体文件。",
+                    title = "照片与目录整理边界",
+                    text = "相似照片使用缩略图感知哈希，只表示视觉接近；画质候选使用缩略图锐度与分辨率启发式，只能作为检查线索。截图和连拍依据目录、名称与时间整理，页面默认不会自动勾选任何照片、文档或媒体文件。",
                     tone = OrganizationAccent,
                 )
             }
@@ -302,8 +316,8 @@ fun StorageMediaOrganizationScreen(
                 }
             }
             when {
-                analyzing && snapshot == null -> item { OrganizationLoadingPanel("正在生成缩略图感知签名并整理目录…") }
-                snapshot == null -> item { OrganizationEmptyPanel("点击“开始精细整理分析”后显示分类结果。") }
+                analyzing && snapshot == null -> item { OrganizationLoadingPanel("正在分析照片缩略图并整理授权目录…") }
+                snapshot == null -> item { OrganizationEmptyPanel("点击“开始照片与目录分析”后显示分类结果。") }
                 selectedTab == StorageOrganizationTab.Overview -> {
                     item {
                         OrganizationOverview(
@@ -314,11 +328,33 @@ fun StorageMediaOrganizationScreen(
                 }
                 selectedTab == StorageOrganizationTab.Similar -> {
                     val groups = snapshot?.similarGroups.orEmpty()
-                    item { OrganizationSectionHeader("相似照片", "${groups.size} 组 · 不自动选择") }
+                    val files = groups.flatMap { it.files }.distinctBy(StorageOrganizationFile::stableId)
+                    val selectableIds = files.asSequence().filter(StorageOrganizationFile::canDelete)
+                        .mapTo(linkedSetOf(), StorageOrganizationFile::stableId)
+                    val expanded = StorageOrganizationTab.Similar in expandedTabs
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            OrganizationSectionHeader("相似照片", "${groups.size} 组 · 不代表完全重复")
+                            StorageLongListControls(
+                                totalCount = groups.size,
+                                expanded = expanded,
+                                previewCount = STORAGE_GROUP_PREVIEW_COUNT,
+                                selectedCount = selectedIds.count { it in selectableIds },
+                                selectAllLabel = "全选当前照片",
+                                onToggleExpanded = { toggleTabExpansion(StorageOrganizationTab.Similar) },
+                                onSelectAll = if (selectableIds.isEmpty()) null else ({ selectedIds = selectedIds + selectableIds }),
+                                onClearSelection = ({ selectedIds = selectedIds - selectableIds }),
+                                tone = OrganizationCaution,
+                            )
+                        }
+                    }
                     if (groups.isEmpty()) {
                         item { OrganizationEmptyPanel("当前分析范围内没有达到相似阈值的照片组。") }
                     } else {
-                        items(groups, key = SimilarPhotoGroup::id) { group ->
+                        items(
+                            storagePreviewItems(groups, expanded, STORAGE_GROUP_PREVIEW_COUNT),
+                            key = SimilarPhotoGroup::id,
+                        ) { group ->
                             SimilarPhotoGroupCard(
                                 group = group,
                                 selectedIds = selectedIds,
@@ -330,11 +366,31 @@ fun StorageMediaOrganizationScreen(
                 }
                 selectedTab == StorageOrganizationTab.Screenshots -> {
                     val files = snapshot?.screenshots.orEmpty()
-                    item { OrganizationSectionHeader("截图", "${files.size} 个 · 建议逐项检查") }
+                    val selectableIds = files.asSequence().filter(StorageOrganizationFile::canDelete)
+                        .mapTo(linkedSetOf(), StorageOrganizationFile::stableId)
+                    val expanded = StorageOrganizationTab.Screenshots in expandedTabs
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            OrganizationSectionHeader("截图", "${files.size} 个 · 建议逐项检查")
+                            StorageLongListControls(
+                                totalCount = files.size,
+                                expanded = expanded,
+                                previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                                selectedCount = selectedIds.count { it in selectableIds },
+                                onToggleExpanded = { toggleTabExpansion(StorageOrganizationTab.Screenshots) },
+                                onSelectAll = if (selectableIds.isEmpty()) null else ({ selectedIds = selectedIds + selectableIds }),
+                                onClearSelection = ({ selectedIds = selectedIds - selectableIds }),
+                                tone = OrganizationAccent,
+                            )
+                        }
+                    }
                     if (files.isEmpty()) {
                         item { OrganizationEmptyPanel("没有在已授权图片范围内识别到截图。") }
                     } else {
-                        items(files, key = StorageOrganizationFile::stableId) { file ->
+                        items(
+                            storagePreviewItems(files, expanded, STORAGE_FILE_PREVIEW_COUNT),
+                            key = StorageOrganizationFile::stableId,
+                        ) { file ->
                             OrganizationFileCard(
                                 file = file,
                                 selected = file.stableId in selectedIds,
@@ -346,11 +402,33 @@ fun StorageMediaOrganizationScreen(
                 }
                 selectedTab == StorageOrganizationTab.Bursts -> {
                     val groups = snapshot?.burstGroups.orEmpty()
-                    item { OrganizationSectionHeader("连拍候选", "${groups.size} 组 · 时间相邻不等于重复") }
+                    val files = groups.flatMap { it.files }.distinctBy(StorageOrganizationFile::stableId)
+                    val selectableIds = files.asSequence().filter(StorageOrganizationFile::canDelete)
+                        .mapTo(linkedSetOf(), StorageOrganizationFile::stableId)
+                    val expanded = StorageOrganizationTab.Bursts in expandedTabs
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            OrganizationSectionHeader("连拍候选", "${groups.size} 组 · 时间相邻不等于重复")
+                            StorageLongListControls(
+                                totalCount = groups.size,
+                                expanded = expanded,
+                                previewCount = STORAGE_GROUP_PREVIEW_COUNT,
+                                selectedCount = selectedIds.count { it in selectableIds },
+                                selectAllLabel = "全选当前照片",
+                                onToggleExpanded = { toggleTabExpansion(StorageOrganizationTab.Bursts) },
+                                onSelectAll = if (selectableIds.isEmpty()) null else ({ selectedIds = selectedIds + selectableIds }),
+                                onClearSelection = ({ selectedIds = selectedIds - selectableIds }),
+                                tone = OrganizationCaution,
+                            )
+                        }
+                    }
                     if (groups.isEmpty()) {
                         item { OrganizationEmptyPanel("没有识别到明确的 BURST 文件或同目录短时间连续照片组。") }
                     } else {
-                        items(groups, key = BurstPhotoGroup::id) { group ->
+                        items(
+                            storagePreviewItems(groups, expanded, STORAGE_GROUP_PREVIEW_COUNT),
+                            key = BurstPhotoGroup::id,
+                        ) { group ->
                             BurstPhotoGroupCard(
                                 group = group,
                                 selectedIds = selectedIds,
@@ -362,11 +440,31 @@ fun StorageMediaOrganizationScreen(
                 }
                 selectedTab == StorageOrganizationTab.Quality -> {
                     val files = snapshot?.qualityCandidates.orEmpty()
-                    item { OrganizationSectionHeader("画质候选", "${files.size} 个 · 仅供预览判断") }
+                    val selectableIds = files.asSequence().filter(StorageOrganizationFile::canDelete)
+                        .mapTo(linkedSetOf(), StorageOrganizationFile::stableId)
+                    val expanded = StorageOrganizationTab.Quality in expandedTabs
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            OrganizationSectionHeader("画质候选", "${files.size} 个 · 仅供预览判断")
+                            StorageLongListControls(
+                                totalCount = files.size,
+                                expanded = expanded,
+                                previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                                selectedCount = selectedIds.count { it in selectableIds },
+                                onToggleExpanded = { toggleTabExpansion(StorageOrganizationTab.Quality) },
+                                onSelectAll = if (selectableIds.isEmpty()) null else ({ selectedIds = selectedIds + selectableIds }),
+                                onClearSelection = ({ selectedIds = selectedIds - selectableIds }),
+                                tone = OrganizationWarning,
+                            )
+                        }
+                    }
                     if (files.isEmpty()) {
                         item { OrganizationEmptyPanel("没有识别到达到当前阈值的模糊或低分辨率候选。") }
                     } else {
-                        items(files, key = StorageOrganizationFile::stableId) { file ->
+                        items(
+                            storagePreviewItems(files, expanded, STORAGE_FILE_PREVIEW_COUNT),
+                            key = StorageOrganizationFile::stableId,
+                        ) { file ->
                             OrganizationFileCard(
                                 file = file,
                                 selected = file.stableId in selectedIds,
@@ -378,6 +476,10 @@ fun StorageMediaOrganizationScreen(
                 }
                 selectedTab == StorageOrganizationTab.Downloads -> {
                     val categories = snapshot?.downloadCategories.orEmpty()
+                    val activeFiles = activeDownloadCategories.flatMap { it.files }
+                        .distinctBy(StorageOrganizationFile::stableId)
+                    val activeIds = activeFiles.asSequence().filter(StorageOrganizationFile::canDelete)
+                        .mapTo(linkedSetOf(), StorageOrganizationFile::stableId)
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             OrganizationSectionHeader("授权目录分类", "${snapshot?.downloadFileCount ?: 0} 个")
@@ -393,10 +495,18 @@ fun StorageMediaOrganizationScreen(
                                     ) { selectedDownloadKind = category.kind }
                                 }
                             }
-                            val lowRiskFiles = activeDownloadCategories.flatMap { it.files }
-                                .filter { it.risk == StorageReviewRisk.Low && it.canDelete }
+                            StorageLongListControls(
+                                totalCount = activeFiles.size,
+                                expanded = true,
+                                previewCount = Int.MAX_VALUE,
+                                selectedCount = selectedIds.count { it in activeIds },
+                                onSelectAll = if (activeIds.isEmpty()) null else ({ selectedIds = selectedIds + activeIds }),
+                                onClearSelection = ({ selectedIds = selectedIds - activeIds }),
+                                tone = OrganizationSuccess,
+                            )
+                            val lowRiskFiles = activeFiles.filter { it.risk == StorageReviewRisk.Low && it.canDelete }
                             if (lowRiskFiles.isNotEmpty()) {
-                                OrganizationTextAction("选择当前分类中的低风险建议 · ${lowRiskFiles.size} 个") {
+                                OrganizationTextAction("只选择当前分类中的低风险建议 · ${lowRiskFiles.size} 个") {
                                     selectedIds = selectedIds + lowRiskFiles.map { it.stableId }
                                 }
                             }
@@ -406,13 +516,29 @@ fun StorageMediaOrganizationScreen(
                         item { OrganizationEmptyPanel("授权目录中没有达到分类规则的文件。") }
                     } else {
                         activeDownloadCategories.forEach { category ->
+                            val expanded = category.kind in expandedDownloadKinds
+                            val categoryIds = category.files.asSequence().filter(StorageOrganizationFile::canDelete)
+                                .mapTo(linkedSetOf(), StorageOrganizationFile::stableId)
                             item(key = "header-${category.kind.name}") {
-                                OrganizationSectionHeader(
-                                    category.kind.label,
-                                    "${category.files.size} 个 · ${formatOrganizationBytes(category.totalBytes)}",
-                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                    OrganizationSectionHeader(
+                                        category.kind.label,
+                                        "${category.files.size} 个 · ${formatOrganizationBytes(category.totalBytes)}",
+                                    )
+                                    StorageLongListControls(
+                                        totalCount = category.files.size,
+                                        expanded = expanded,
+                                        previewCount = STORAGE_FILE_PREVIEW_COUNT,
+                                        selectedCount = selectedIds.count { it in categoryIds },
+                                        onToggleExpanded = { toggleDownloadExpansion(category.kind) },
+                                        tone = riskTone(category.files.firstOrNull()?.risk ?: StorageReviewRisk.Review),
+                                    )
+                                }
                             }
-                            items(category.files, key = StorageOrganizationFile::stableId) { file ->
+                            items(
+                                storagePreviewItems(category.files, expanded, STORAGE_FILE_PREVIEW_COUNT),
+                                key = StorageOrganizationFile::stableId,
+                            ) { file ->
                                 OrganizationFileCard(
                                     file = file,
                                     selected = file.stableId in selectedIds,
