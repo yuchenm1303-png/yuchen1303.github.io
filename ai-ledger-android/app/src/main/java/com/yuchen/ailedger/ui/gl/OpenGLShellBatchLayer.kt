@@ -35,6 +35,11 @@ internal class OpenGLShellBatchItem(
     private var parentCoordinates: GlassCoordinateSource? = null
     private val geometryListeners = CopyOnWriteArraySet<() -> Unit>()
     private val propertyListeners = CopyOnWriteArraySet<() -> Unit>()
+    private var geometryDispatchQueued = false
+    private val finalGeometryDispatchAction: () -> Unit = {
+        geometryDispatchQueued = false
+        for (listener in geometryListeners) listener()
+    }
 
     internal var localLeft = 0f
         private set
@@ -107,8 +112,9 @@ internal class OpenGLShellBatchItem(
     }
 
     private fun notifyGeometryChanged() {
-        if (OpenGLFrameFinalizer.requestActiveTickerFrame()) return
-        geometryListeners.forEach { it() }
+        if (geometryListeners.isEmpty() || geometryDispatchQueued) return
+        geometryDispatchQueued = true
+        OpenGLFrameFinalizer.dispatch(finalGeometryDispatchAction)
     }
 }
 
