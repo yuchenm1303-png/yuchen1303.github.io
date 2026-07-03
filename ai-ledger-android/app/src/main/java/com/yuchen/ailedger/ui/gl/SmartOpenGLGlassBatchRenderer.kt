@@ -80,6 +80,7 @@ internal class SmartOpenGLGlassBatchRenderer {
     private var uploadedStyle: GlassBorderStyle? = null
     private var uploadedDensity = -1f
 
+    private val damageBounds = FloatArray(4)
     private val fullVertexBuffer: FloatBuffer = ByteBuffer
         .allocateDirect(SMART_FULL_VERTEX_FLOATS * 4)
         .order(ByteOrder.nativeOrder())
@@ -298,16 +299,16 @@ internal class SmartOpenGLGlassBatchRenderer {
     }
 
     private fun clearDamageUnion(mask: Int) {
-        val bounds = resolveDamageBounds(mask) ?: return
-        clearScissor(bounds[0], bounds[1], bounds[2], bounds[3])
+        if (!resolveDamageBounds(mask)) return
+        clearScissor(damageBounds[0], damageBounds[1], damageBounds[2], damageBounds[3])
     }
 
     private fun clearItemUnion(index: Int) {
-        val bounds = resolveDamageBounds(1 shl index) ?: return
-        clearScissor(bounds[0], bounds[1], bounds[2], bounds[3])
+        if (!resolveDamageBounds(1 shl index)) return
+        clearScissor(damageBounds[0], damageBounds[1], damageBounds[2], damageBounds[3])
     }
 
-    private fun resolveDamageBounds(mask: Int): FloatArray? {
+    private fun resolveDamageBounds(mask: Int): Boolean {
         var left = Float.POSITIVE_INFINITY
         var top = Float.POSITIVE_INFINITY
         var right = Float.NEGATIVE_INFINITY
@@ -348,9 +349,13 @@ internal class SmartOpenGLGlassBatchRenderer {
             }
         }
         if (!left.isFinite() || !top.isFinite() || !right.isFinite() || !bottom.isFinite()) {
-            return null
+            return false
         }
-        return floatArrayOf(left, top, right, bottom)
+        damageBounds[0] = left
+        damageBounds[1] = top
+        damageBounds[2] = right
+        damageBounds[3] = bottom
+        return true
     }
 
     private fun clearScissor(left: Float, top: Float, right: Float, bottom: Float) {
