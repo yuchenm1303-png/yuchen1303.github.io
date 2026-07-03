@@ -1,7 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -10,13 +8,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -24,7 +19,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,44 +28,33 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -88,9 +71,6 @@ import com.yuchen.ailedger.data.memoryPriorityLabel
 import com.yuchen.ailedger.model.AppTab
 import com.yuchen.ailedger.model.RenderQuality
 import kotlin.math.abs
-import kotlin.math.roundToInt
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 
 private val MemoryNoFontPadding = PlatformTextStyle(includeFontPadding = false)
 private val MemoryPanelWidth = 286.dp
@@ -169,152 +149,43 @@ internal fun MemoryQuickPanelSameWindowOverlayHost() {
         buildPreviewItems(memoryState, customState)
     }
 
-    val density = LocalDensity.current
-    val revealX = remember { Animatable(0.42f) }
-    val revealY = remember { Animatable(0.12f) }
-    val revealAlpha = remember { Animatable(0f) }
-    val revealLift = remember { Animatable(18f) }
-    val panelPress = remember { Animatable(0f) }
-    val pressScope = rememberCoroutineScope()
-    var rootBounds by remember { mutableStateOf(Rect.Zero) }
-
-    LaunchedEffect(Unit) {
-        coroutineScope {
-            launch { revealX.animateTo(1f, spring(0.50f, Spring.StiffnessMediumLow)) }
-            launch { revealY.animateTo(1f, spring(0.56f, Spring.StiffnessMediumLow)) }
-            launch { revealAlpha.animateTo(1f, tween(92, easing = FastOutSlowInEasing)) }
-            launch { revealLift.animateTo(0f, spring(0.52f, Spring.StiffnessMediumLow)) }
-        }
-    }
-
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .onGloballyPositioned { rootBounds = it.boundsInWindow() },
-    ) {
-        val safePx = with(density) { 10.dp.roundToPx() }
-        val gapPx = with(density) { 7.dp.roundToPx() }
-        val desiredWidthPx = with(density) { MemoryPanelWidth.roundToPx() }
-        val panelWidthPx = desiredWidthPx.coerceAtMost((constraints.maxWidth - safePx * 2).coerceAtLeast(1))
-        val panelWidth = with(density) { panelWidthPx.toDp() }
-
-        val anchor = MemoryQuickOverlayState.anchorBounds
-        val localAnchorTop = anchor.top - rootBounds.top
-        val localAnchorCenterX = ((anchor.left + anchor.right) * 0.5f - rootBounds.left).roundToInt()
-        val desiredHeightPx = with(density) { MemoryPanelHeight.roundToPx() }
-        val minHeightPx = with(density) { MemoryPanelMinHeight.roundToPx() }
-        val availableAbovePx = (localAnchorTop.roundToInt() - gapPx - safePx).coerceAtLeast(1)
-        val panelHeightPx = desiredHeightPx
-            .coerceAtMost(availableAbovePx)
-            .coerceAtLeast(minOf(minHeightPx, availableAbovePx))
-        val panelHeight = with(density) { panelHeightPx.toDp() }
-        val compact = panelHeightPx < desiredHeightPx - with(density) { 20.dp.roundToPx() }
-
-        val desiredX = localAnchorCenterX - (panelWidthPx * 0.72f).roundToInt()
-        val panelX = desiredX.coerceIn(
-            safePx,
-            (constraints.maxWidth - panelWidthPx - safePx).coerceAtLeast(safePx),
+    AnchoredQuickPanel(
+        visible = true,
+        anchorBounds = MemoryQuickOverlayState.anchorBounds,
+        desiredWidth = MemoryPanelWidth,
+        desiredHeight = MemoryPanelHeight,
+        minHeight = MemoryPanelMinHeight,
+        preferredPlacement = AnchoredQuickPanelPlacement.Above,
+        horizontalBias = 0.72f,
+        quality = RenderQuality.Balanced,
+        glassIntensity = 1.04f,
+        motionIntensity = 0.72f,
+        onDismiss = MemoryQuickOverlayState::dismiss,
+        cornerRadius = 25.dp,
+        tailHeight = MemoryTailHeight,
+        tailHalfWidth = MemoryTailHalfWidth,
+    ) { layout ->
+        MemoryPanelContent(
+            accountState = accountState,
+            memoryState = memoryState,
+            customState = customState,
+            previewItems = previewItems,
+            compact = layout.compact,
+            placement = layout.placement,
+            tailHeight = layout.tailHeight,
+            onLogin = {
+                MemoryQuickOverlayState.dismiss()
+                assistantViewModel.selectTab(AppTab.Settings)
+            },
+            onOpenManager = {
+                MemoryQuickOverlayState.dismiss()
+                assistantViewModel.selectTab(AppTab.Settings)
+            },
+            onRefresh = {
+                memoryRepository.refresh()
+                customRepository.refresh()
+            },
         )
-        val panelY = (localAnchorTop.roundToInt() - gapPx - panelHeightPx).coerceAtLeast(safePx)
-        val tailFraction = ((localAnchorCenterX - panelX).toFloat() / panelWidthPx.coerceAtLeast(1))
-            .coerceIn(0.16f, 0.84f)
-        val panelShape = remember(panelWidthPx, panelHeightPx, tailFraction) {
-            UnifiedMemoryShape(
-                cornerRadius = 25.dp,
-                tailHeight = MemoryTailHeight,
-                tailHalfWidth = MemoryTailHalfWidth,
-                tailCenterFraction = tailFraction,
-            )
-        }
-
-        Box(
-            Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = MemoryQuickOverlayState::dismiss,
-                ),
-        )
-
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(panelX, panelY) }
-                .width(panelWidth)
-                .height(panelHeight)
-                .graphicsLayer {
-                    val press = panelPress.value
-                    val compression = press.coerceAtLeast(0f)
-                    val rebound = (-press).coerceAtLeast(0f)
-                    alpha = revealAlpha.value
-                    scaleX = revealX.value * (1f + compression * 0.020f - rebound * 0.010f)
-                    scaleY = revealY.value * (1f - compression * 0.034f + rebound * 0.020f)
-                    translationY = revealLift.value.dp.toPx() +
-                        compression * 3.2.dp.toPx() - rebound * 1.4.dp.toPx()
-                    transformOrigin = TransformOrigin(tailFraction, 1f)
-                }
-                .shadow(
-                    elevation = 10.dp,
-                    shape = panelShape,
-                    clip = false,
-                    ambientColor = Color.Black.copy(alpha = 0.30f),
-                    spotColor = Color(0xFF8DFFF4).copy(alpha = 0.08f),
-                )
-                .clip(panelShape)
-                .pointerInput(panelShape) {
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        pressScope.launch {
-                            panelPress.stop()
-                            if (panelPress.value < 0.18f) panelPress.snapTo(0.18f)
-                            panelPress.animateTo(1f, tween(145, easing = FastOutSlowInEasing))
-                            panelPress.animateTo(0.82f, spring(0.64f, Spring.StiffnessMediumLow))
-                        }
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            if (event.changes.none { it.pressed }) break
-                        }
-                        pressScope.launch {
-                            panelPress.stop()
-                            panelPress.animateTo(-0.18f, tween(120, easing = FastOutSlowInEasing))
-                            panelPress.animateTo(0.055f, spring(0.44f, Spring.StiffnessMediumLow))
-                            panelPress.animateTo(0f, spring(0.72f, Spring.StiffnessLow))
-                        }
-                    }
-                },
-        ) {
-            GlassSceneScope(group = GlassSceneGroup.Unassigned) {
-                PressableGlass(
-                    quality = RenderQuality.Balanced,
-                    glassIntensity = 1.04f,
-                    motionIntensity = 0.72f,
-                    radius = 25,
-                    modifier = Modifier.fillMaxSize(),
-                    role = GlassRole.Floating,
-                    onClick = {},
-                ) {
-                    MemoryPanelContent(
-                        accountState = accountState,
-                        memoryState = memoryState,
-                        customState = customState,
-                        previewItems = previewItems,
-                        compact = compact,
-                        onLogin = {
-                            MemoryQuickOverlayState.dismiss()
-                            assistantViewModel.selectTab(AppTab.Settings)
-                        },
-                        onOpenManager = {
-                            MemoryQuickOverlayState.dismiss()
-                            assistantViewModel.selectTab(AppTab.Settings)
-                        },
-                        onRefresh = {
-                            memoryRepository.refresh()
-                            customRepository.refresh()
-                        },
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -390,6 +261,8 @@ private fun MemoryPanelContent(
     customState: AssistantCustomInstructionsState,
     previewItems: List<MemoryPreviewUiItem>,
     compact: Boolean,
+    placement: AnchoredQuickPanelPlacement,
+    tailHeight: Dp,
     onLogin: () -> Unit,
     onOpenManager: () -> Unit,
     onRefresh: () -> Unit,
@@ -402,15 +275,17 @@ private fun MemoryPanelContent(
             (!memoryState.loading && !memoryState.cloudReady) ||
             (!customState.loading && !customState.cloudReady)
         )
+    val topTailInset = if (placement == AnchoredQuickPanelPlacement.Below) tailHeight else 0.dp
+    val bottomTailInset = if (placement == AnchoredQuickPanelPlacement.Above) tailHeight else 0.dp
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(
                 start = if (compact) 11.dp else 13.dp,
-                top = if (compact) 9.dp else 11.dp,
+                top = topTailInset + if (compact) 9.dp else 11.dp,
                 end = if (compact) 11.dp else 13.dp,
-                bottom = MemoryTailHeight + if (compact) 8.dp else 10.dp,
+                bottom = bottomTailInset + if (compact) 8.dp else 10.dp,
             ),
         verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp),
     ) {
@@ -953,56 +828,4 @@ private fun AssistantMemoryItem.toPreviewItem(memoryEnabled: Boolean): MemoryPre
         accent = accent,
         active = enabled && memoryEnabled,
     )
-}
-
-private class UnifiedMemoryShape(
-    private val cornerRadius: Dp,
-    private val tailHeight: Dp,
-    private val tailHalfWidth: Dp,
-    private val tailCenterFraction: Float,
-) : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density,
-    ): Outline {
-        val radius = with(density) { cornerRadius.toPx() }
-            .coerceAtMost(minOf(size.width, size.height) * 0.30f)
-        val tailH = with(density) { tailHeight.toPx() }.coerceIn(0f, size.height * 0.22f)
-        val halfTail = with(density) { tailHalfWidth.toPx() }.coerceAtMost(size.width * 0.16f)
-        val bodyBottom = (size.height - tailH).coerceAtLeast(radius * 2f)
-        val tailCenter = (size.width * tailCenterFraction.coerceIn(0.16f, 0.84f))
-            .coerceIn(radius + halfTail, size.width - radius - halfTail)
-
-        val path = Path().apply {
-            moveTo(radius, 0f)
-            lineTo(size.width - radius, 0f)
-            quadraticBezierTo(size.width, 0f, size.width, radius)
-            lineTo(size.width, bodyBottom - radius)
-            quadraticBezierTo(size.width, bodyBottom, size.width - radius, bodyBottom)
-            lineTo(tailCenter + halfTail, bodyBottom)
-            cubicTo(
-                tailCenter + halfTail * 0.56f,
-                bodyBottom + tailH * 0.08f,
-                tailCenter + halfTail * 0.28f,
-                bodyBottom + tailH * 0.72f,
-                tailCenter,
-                size.height,
-            )
-            cubicTo(
-                tailCenter - halfTail * 0.28f,
-                bodyBottom + tailH * 0.72f,
-                tailCenter - halfTail * 0.56f,
-                bodyBottom + tailH * 0.08f,
-                tailCenter - halfTail,
-                bodyBottom,
-            )
-            lineTo(radius, bodyBottom)
-            quadraticBezierTo(0f, bodyBottom, 0f, bodyBottom - radius)
-            lineTo(0f, radius)
-            quadraticBezierTo(0f, 0f, radius, 0f)
-            close()
-        }
-        return Outline.Generic(path)
-    }
 }
