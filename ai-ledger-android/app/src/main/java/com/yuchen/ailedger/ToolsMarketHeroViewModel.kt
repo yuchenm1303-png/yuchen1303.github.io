@@ -68,10 +68,10 @@ private fun defaultToolsMarketIndices(): List<ToolsMarketIndexItem> =
     }
 
 /**
- * 功能页顶部三大指数的应用级最高优先级数据源。
+ * 功能页顶部三大指数的应用级数据源。
  *
- * 进程启动时恢复本地真实缓存并预热。网络刷新由一个专用报价请求和三条独立分时请求
- * 四路并发完成；任意一路先返回就立即更新卡片，不再等待最慢请求或详情页数据链。
+ * 初始化只建立极轻量状态；本地缓存恢复固定在 IO 线程，网络刷新等功能页入场动画稳定后再开始。
+ * 四路结果仍可独立上屏，但磁盘缓存统一防抖合并写入，不再为每一路结果重复构造完整 JSON。
  */
 internal object ToolsMarketHeroStore {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -80,8 +80,11 @@ internal object ToolsMarketHeroStore {
 
     private val lifecycleLock = Any()
     private var appContext: Context? = null
+    private var restoreJob: Job? = null
+    private var visibilityRefreshJob: Job? = null
     private var refreshJob: Job? = null
     private var retryJob: Job? = null
+    private var persistJob: Job? = null
     private var initialized = false
     private var screenVisible = false
     private var visibleRetryCount = 0
@@ -89,19 +92,28 @@ internal object ToolsMarketHeroStore {
 
     fun initialize(context: Context) {
         if (initialized) return
+        val applicationContext = context.applicationContext
         synchronized(lifecycleLock) {
             if (initialized) return
-            val applicationContext = context.applicationContext
             appContext = applicationContext
-            val restored = restorePersistedItems(applicationContext)
-            val restoredAt = preferences(applicationContext).getLong(PREFS_KEY_UPDATED_AT, 0L)
-            state.value = ToolsMarketHeroUiState(
-                indices = mergeWithDefaults(restored),
-                loading = false,
-                errorMessage = null,
-                lastSuccessfulRefreshMs = restoredAt
-            )
             initialized = true
+            restoreJob = scope.launch {
+                val restored = restorePersistedItems(applicationContext)
+                val restoredAt = preferences(applicationContext).getLong(PREFS_KEY_UPDATED_AT, 0L)
+                state.update { current ->
+                    current.copy(
+                        indices = mergeKeepingExisting(
+                            current = mergeWithDefaults(restored),
+                            incoming = current.indices,
+                        ),
+                        lastSuccessfulRefreshMs = maxOf(
+                            current.lastSuccessfulRefreshMs,
+                            restoredAt,
+                        ),
+                    )
+                }
+                synchronized(lifecycleLock) { restoreJob = null }
+            }
         }
     }
 
@@ -114,14 +126,20 @@ internal object ToolsMarketHeroStore {
         initialize(context)
         synchronized(lifecycleLock) {
             screenVisible = value
+            visibilityRefreshJob?.cancel()
+            visibilityRefreshJob = null
             if (value) {
                 visibleRetryCount = 0
+                visibilityRefreshJob = scope.launch {
+                    delay(VISIBLE_REFRESH_SETTLE_MS)
+                    val stillVisible = synchronized(lifecycleLock) { screenVisible }
+                    if (stillVisible) requestRefresh(force = false)
+                }
             } else {
                 retryJob?.cancel()
                 retryJob = null
             }
         }
-        if (value) requestRefresh(force = false)
     }
 
     fun refresh(context: Context, force: Boolean = true) {
@@ -183,7 +201,7 @@ internal object ToolsMarketHeroStore {
                                     errorMessage = null
                                 )
                             }
-                            persistCurrent(context)
+                            schedulePersist(context)
                         }
                     }
                     .onFailure { networkErrors["quotes"] = it }
@@ -201,7 +219,7 @@ internal object ToolsMarketHeroStore {
                                         errorMessage = null
                                     )
                                 }
-                                persistCurrent(context)
+                                schedulePersist(context)
                             }
                         }
                         .onFailure { error ->
@@ -225,7 +243,7 @@ internal object ToolsMarketHeroStore {
                                 errorMessage = null
                             )
                         }
-                        persistCurrent(context)
+                        schedulePersist(context)
                     }
                 }
                 .onFailure { networkErrors["batchFallback"] = it }
@@ -250,6 +268,7 @@ internal object ToolsMarketHeroStore {
             preferences(context).edit()
                 .putLong(PREFS_KEY_UPDATED_AT, finishedAt)
                 .apply()
+            schedulePersist(context, immediate = true)
         }
     }
 
@@ -468,6 +487,17 @@ internal object ToolsMarketHeroStore {
         return runCatching { parseBatch(JSONObject(stored)) }.getOrDefault(emptyList())
     }
 
+    private fun schedulePersist(context: Context, immediate: Boolean = false) {
+        synchronized(lifecycleLock) {
+            persistJob?.cancel()
+            persistJob = scope.launch {
+                if (!immediate) delay(PERSIST_DEBOUNCE_MS)
+                persistCurrent(context)
+                synchronized(lifecycleLock) { persistJob = null }
+            }
+        }
+    }
+
     private fun persistCurrent(context: Context) {
         val items = state.value.indices
         if (items.none { it.hasRealQuote || it.hasRealTrend }) return
@@ -550,7 +580,9 @@ internal object ToolsMarketHeroStore {
     private const val TREND_MICRO_CACHE_MS = 10_000L
     private const val REFRESH_TTL_MS = 30_000L
     private const val FAILURE_RETRY_COOLDOWN_MS = 3_000L
+    private const val VISIBLE_REFRESH_SETTLE_MS = 360L
     private const val VISIBLE_RETRY_BASE_MS = 1_500L
+    private const val PERSIST_DEBOUNCE_MS = 220L
     private const val MAX_VISIBLE_RETRIES = 3
     private const val MAX_SPARKLINE_POINTS = 72
 }
