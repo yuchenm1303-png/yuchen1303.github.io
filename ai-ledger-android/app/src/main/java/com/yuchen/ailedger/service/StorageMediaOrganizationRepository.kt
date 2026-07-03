@@ -259,7 +259,7 @@ class StorageOrganizationIgnoreStore(context: Context) {
 
     private fun writeSet(key: String, values: Set<String>) {
         val array = JSONArray()
-        values.sorted().forEach(array::put)
+        values.sorted().forEach { value -> array.put(value) }
         prefs.edit().putString(key, array.toString()).apply()
     }
 }
