@@ -58,6 +58,7 @@ data class AgentScreenSnapshot(
     val inputNodes: List<AgentScreenNode>,
     val scrollableNodes: List<AgentScreenNode>,
     val visual: AgentScreenVisual? = null,
+    val reportedForegroundPackage: String = packageName,
 ) {
     val hasVisualImage: Boolean
         get() = visual?.hasImage == true
