@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
 import com.yuchen.ailedger.data.AgentAnalyticsRepository
 import com.yuchen.ailedger.data.AgentChatCallWrite
 import com.yuchen.ailedger.data.AgentModelCallWrite
@@ -14,8 +15,8 @@ import org.json.JSONObject
 /**
  * 智能体统计唯一运行时入口。
  *
- * 这里仅旁路收集已经发生的事实，不参与模型路由、动作选择、完成许可或无障碍模式切换。
- * 所有公开入口都吞掉统计自身异常，任何数据库或解析故障都不能影响聊天与智能体执行。
+ * 这里只旁路收集已经发生的事实。任务在创建时固定 ownerStorageKey，账号切换不会把
+ * 正在执行的任务、模型调用或终态写进另一个账号。
  */
 internal object AgentAnalyticsRuntime {
     private data class MutableUsageCounter(
@@ -27,6 +28,7 @@ internal object AgentAnalyticsRuntime {
 
     private data class RunningTask(
         val taskId: Long,
+        val ownerStorageKey: String,
         var goal: String,
         var startedAtMillis: Long,
         var modelCalls: Long = 0L,
@@ -69,12 +71,17 @@ internal object AgentAnalyticsRuntime {
         var finished: Boolean = false,
     )
 
+    private data class RepositoryCache(
+        val ownerStorageKey: String,
+        val repository: AgentAnalyticsRepository,
+    )
+
     private val lock = Any()
     private val tasks = mutableMapOf<Long, RunningTask>()
     private val cursors = LinkedHashMap<Long, ProgressCursor>(32, 0.75f, true)
 
     @Volatile
-    private var repositoryCache: AgentAnalyticsRepository? = null
+    private var repositoryCache: RepositoryCache? = null
 
     fun observeProgress(progress: AgentOverlayProgress) {
         if (progress.taskId <= 0L) return
@@ -103,8 +110,7 @@ internal object AgentAnalyticsRuntime {
                 }
                 if (!cursor.takeoverPaused && progress.userTakeoverPaused) task.userTakeovers += 1L
 
-                val newLogs = appendedLogs(cursor.logs, progress.logs)
-                newLogs.forEach { entry ->
+                appendedLogs(cursor.logs, progress.logs).forEach { entry ->
                     when {
                         entry.startsWith("结果：") -> recordActionResultLocked(
                             task = task,
@@ -148,8 +154,7 @@ internal object AgentAnalyticsRuntime {
         if (taskId <= 0L) return
         runCatching {
             synchronized(lock) {
-                val currentProgress = AgentRuntimeController.progress.value
-                    .takeIf { it.taskId == taskId }
+                val currentProgress = AgentRuntimeController.progress.value.takeIf { it.taskId == taskId }
                 val fallbackGoal = currentProgress
                     ?.logs
                     ?.firstOrNull { it.startsWith("目标：") }
@@ -162,26 +167,11 @@ internal object AgentAnalyticsRuntime {
                 )
 
                 val nextModelTurns = maxOf(task.modelTurns, modelTurns.toLong().coerceAtLeast(0L))
-                val nextExecutedActions = maxOf(
-                    task.executedActions,
-                    executedActions.toLong().coerceAtLeast(0L),
-                )
-                val nextReobservations = maxOf(
-                    task.reobservations,
-                    reobservations.toLong().coerceAtLeast(0L),
-                )
-                val nextObservations = maxOf(
-                    task.observations,
-                    nextModelTurns + nextReobservations,
-                )
-                val nextRejectedPlans = maxOf(
-                    task.rejectedPlans,
-                    rejectedPlans.toLong().coerceAtLeast(0L),
-                )
-                val nextExecutionFailures = maxOf(
-                    task.executionFailures,
-                    executionFailures.toLong().coerceAtLeast(0L),
-                )
+                val nextExecutedActions = maxOf(task.executedActions, executedActions.toLong().coerceAtLeast(0L))
+                val nextReobservations = maxOf(task.reobservations, reobservations.toLong().coerceAtLeast(0L))
+                val nextObservations = maxOf(task.observations, nextModelTurns + nextReobservations)
+                val nextRejectedPlans = maxOf(task.rejectedPlans, rejectedPlans.toLong().coerceAtLeast(0L))
+                val nextExecutionFailures = maxOf(task.executionFailures, executionFailures.toLong().coerceAtLeast(0L))
 
                 if (
                     nextModelTurns == task.modelTurns &&
@@ -190,12 +180,8 @@ internal object AgentAnalyticsRuntime {
                     nextObservations == task.observations &&
                     nextRejectedPlans == task.rejectedPlans &&
                     nextExecutionFailures == task.executionFailures
-                ) {
-                    return@synchronized
-                }
+                ) return@synchronized
 
-                // 高频循环指标只更新任务内存快照，任务终态由 finishTask 一次性落库。
-                // 这样不会在每次观察、候选清理或重规划时向 Room 排队读写。
                 task.modelTurns = nextModelTurns
                 task.executedActions = nextExecutedActions
                 task.reobservations = nextReobservations
@@ -213,6 +199,7 @@ internal object AgentAnalyticsRuntime {
         durationMs: Long,
         requestBytes: Long = -1L,
         responseBytes: Long = -1L,
+        ownerStorageKey: String? = null,
     ) {
         runCatching {
             val usage = if (success) {
@@ -222,7 +209,7 @@ internal object AgentAnalyticsRuntime {
                     accuracy = AgentTokenAccuracy.Estimated,
                 )
             }
-            repository()?.recordChatCall(
+            repository(ownerStorageKey)?.recordChatCall(
                 AgentChatCallWrite(
                     modelCall = AgentModelCallWrite(
                         source = "chat",
@@ -267,58 +254,73 @@ internal object AgentAnalyticsRuntime {
             val modelLabel = AgentAnalyticsTokenParser.modelLabel(payload, response)
                 .takeUnless { it == "unknown" || it == "gui_plus" }
                 ?: "GUI Plus"
-            val call = AgentModelCallWrite(
-                taskId = taskId.takeIf { it > 0L },
-                source = "visual_agent",
-                modelId = modelId,
-                modelLabel = modelLabel,
-                success = success,
-                usage = usage,
-                latencyMs = durationMs.coerceAtLeast(0L),
-                requestBytes = requestBytes.coerceAtLeast(0L),
-                responseBytes = responseBytes.coerceAtLeast(0L),
+
+            val task = if (taskId > 0L) {
+                synchronized(lock) {
+                    tasks[taskId] ?: run {
+                        val currentProgress = AgentRuntimeController.progress.value.takeIf { it.taskId == taskId }
+                        val fallbackGoal = currentProgress
+                            ?.logs
+                            ?.firstOrNull { it.startsWith("目标：") }
+                            ?.removePrefix("目标：")
+                            .orEmpty()
+                        ensureTaskLocked(
+                            taskId = taskId,
+                            goal = payload.optString("goal").ifBlank { fallbackGoal },
+                            startedAtMillis = currentProgress?.updatedAt ?: System.currentTimeMillis(),
+                        )
+                    }
+                }
+            } else {
+                null
+            }
+            val ownerKey = task?.ownerStorageKey ?: currentOwnerStorageKey()
+            repository(ownerKey)?.recordModelCall(
+                AgentModelCallWrite(
+                    taskId = taskId.takeIf { it > 0L },
+                    source = "visual_agent",
+                    modelId = modelId,
+                    modelLabel = modelLabel,
+                    success = success,
+                    usage = usage,
+                    latencyMs = durationMs.coerceAtLeast(0L),
+                    requestBytes = requestBytes.coerceAtLeast(0L),
+                    responseBytes = responseBytes.coerceAtLeast(0L),
+                ),
             )
-            repository()?.recordModelCall(call)
-            if (taskId <= 0L) return@runCatching
+            if (task == null) return@runCatching
+
             synchronized(lock) {
-                val currentProgress = AgentRuntimeController.progress.value
-                    .takeIf { it.taskId == taskId }
-                val fallbackGoal = currentProgress
-                    ?.logs
-                    ?.firstOrNull { it.startsWith("目标：") }
-                    ?.removePrefix("目标：")
-                    .orEmpty()
-                val task = tasks[taskId] ?: ensureTaskLocked(
-                    taskId = taskId,
-                    goal = payload.optString("goal").ifBlank { fallbackGoal },
-                    startedAtMillis = currentProgress?.updatedAt ?: System.currentTimeMillis(),
-                )
                 task.modelCalls += 1L
                 if (!success) task.modelFailures += 1L
-                task.inputTokens += usage.inputTokens.coerceAtLeast(0L)
-                task.outputTokens += usage.outputTokens.coerceAtLeast(0L)
-                task.reasoningTokens += usage.reasoningTokens.coerceAtLeast(0L)
-                task.cachedInputTokens += usage.cachedInputTokens.coerceAtLeast(0L)
-                task.totalTokens += usage.normalizedTotal.coerceAtLeast(0L)
+                task.inputTokens = safeAdd(task.inputTokens, usage.inputTokens)
+                task.outputTokens = safeAdd(task.outputTokens, usage.outputTokens)
+                task.reasoningTokens = safeAdd(task.reasoningTokens, usage.reasoningTokens)
+                task.cachedInputTokens = safeAdd(task.cachedInputTokens, usage.cachedInputTokens)
+                task.totalTokens = safeAdd(task.totalTokens, usage.normalizedTotal)
                 if (usage.accuracy == AgentTokenAccuracy.Provider) {
-                    task.providerTokens += usage.normalizedTotal.coerceAtLeast(0L)
+                    task.providerTokens = safeAdd(task.providerTokens, usage.normalizedTotal)
                 } else {
-                    task.estimatedTokens += usage.normalizedTotal.coerceAtLeast(0L)
+                    task.estimatedTokens = safeAdd(task.estimatedTokens, usage.normalizedTotal)
                 }
-                task.requestBytes += requestBytes.coerceAtLeast(0L)
-                task.responseBytes += responseBytes.coerceAtLeast(0L)
-                task.modelLatencyMs += durationMs.coerceAtLeast(0L)
+                task.requestBytes = safeAdd(task.requestBytes, requestBytes.toLong())
+                task.responseBytes = safeAdd(task.responseBytes, responseBytes.toLong())
+                task.modelLatencyMs = safeAdd(task.modelLatencyMs, durationMs)
             }
         }
     }
 
     private fun ensureTaskLocked(taskId: Long, goal: String, startedAtMillis: Long): RunningTask {
         return tasks.getOrPut(taskId) {
+            val ownerKey = currentOwnerStorageKey()
             RunningTask(
                 taskId = taskId,
+                ownerStorageKey = ownerKey,
                 goal = goal.trim().take(MAX_GOAL_CHARS),
                 startedAtMillis = startedAtMillis.coerceAtLeast(1L),
-            ).also { task -> repository()?.beginTask(taskId, task.goal, task.startedAtMillis) }
+            ).also { task ->
+                repository(ownerKey)?.beginTask(taskId, task.goal, task.startedAtMillis)
+            }
         }.also { task ->
             if (task.goal.isBlank() && goal.isNotBlank()) task.goal = goal.trim().take(MAX_GOAL_CHARS)
             task.startedAtMillis = minOf(task.startedAtMillis, startedAtMillis.coerceAtLeast(1L))
@@ -357,7 +359,7 @@ internal object AgentAnalyticsRuntime {
         result: String,
         endedAtMillis: Long,
     ) {
-        repository()?.finishTask(
+        repository(task.ownerStorageKey)?.finishTask(
             AgentTaskWrite(
                 taskId = task.taskId,
                 goal = task.goal,
@@ -416,7 +418,7 @@ internal object AgentAnalyticsRuntime {
     private fun isActionLogEntry(entry: String): Boolean {
         val clean = entry.trim()
         if (clean.isBlank()) return false
-        return LOG_PREFIXES.none(clean::startsWith)
+        return LOG_PREFIXES.none { prefix -> clean.startsWith(prefix) }
     }
 
     private fun normalizeStatus(status: String): String = when (status.trim()) {
@@ -447,12 +449,25 @@ internal object AgentAnalyticsRuntime {
         }
     }
 
-    private fun repository(): AgentAnalyticsRepository? {
-        repositoryCache?.let { return it }
+    private fun currentOwnerStorageKey(): String {
+        val context = AiLedgerApplication.contextOrNull() ?: return "guest:pending"
+        return AgentAnalyticsOwnerRuntime.currentStorageKey(context)
+    }
+
+    private fun repository(ownerStorageKey: String? = null): AgentAnalyticsRepository? {
         val context = AiLedgerApplication.contextOrNull() ?: return null
-        return runCatching { AgentAnalyticsRepository.get(context) }
+        val key = ownerStorageKey?.trim().takeUnless { it.isNullOrBlank() }
+            ?: AgentAnalyticsOwnerRuntime.currentStorageKey(context)
+        repositoryCache?.takeIf { it.ownerStorageKey == key }?.let { return it.repository }
+        return runCatching { AgentAnalyticsRepository.get(context, key) }
             .getOrNull()
-            ?.also { repositoryCache = it }
+            ?.also { repository -> repositoryCache = RepositoryCache(key, repository) }
+    }
+
+    private fun safeAdd(left: Long, right: Long): Long {
+        val safeLeft = left.coerceAtLeast(0L)
+        val safeRight = right.coerceAtLeast(0L)
+        return if (Long.MAX_VALUE - safeLeft < safeRight) Long.MAX_VALUE else safeLeft + safeRight
     }
 
     private val LOG_PREFIXES = listOf(
