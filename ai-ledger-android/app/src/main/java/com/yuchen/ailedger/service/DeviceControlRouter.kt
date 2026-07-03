@@ -25,7 +25,7 @@ object DeviceControlRouter {
         if (toolCall.canonicalString("schema") != AI_WORKER_CLIENT_TOOL_CALL_SCHEMA) return null
         val name = toolCall.canonicalString("name")
         val arguments = toolCall.optJSONObject("arguments") ?: JSONObject()
-        return when {
+        val step = when {
             name in CloudAgentStep.ledgerToolTypes -> fromCanonicalTool(
                 tool = name,
                 arguments = arguments,
@@ -45,7 +45,27 @@ object DeviceControlRouter {
                 )
             }
             else -> null
+        } ?: return null
+        val callId = toolCall.canonicalString("id")
+        if (callId.isNotBlank()) {
+            ClientToolCallRegistry.attach(
+                step,
+                CloudClientToolCall(
+                    schema = AI_WORKER_CLIENT_TOOL_CALL_SCHEMA,
+                    id = callId,
+                    name = name,
+                    arguments = JSONObject(arguments.toString()),
+                    resultProtocol = toolCall.canonicalString("resultProtocol")
+                        .ifBlank { AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL },
+                    riskLevel = toolCall.canonicalString("riskLevel").ifBlank { "low" },
+                    requiresConfirmation = toolCall.canonicalBoolean("requiresConfirmation") ?: false,
+                    reason = toolCall.canonicalString("reason").ifBlank { null },
+                    originalUserGoal = toolCall.canonicalString("originalUserGoal").ifBlank { null },
+                    finalModel = toolCall.canonicalString("finalModel").ifBlank { null },
+                ),
+            )
         }
+        return step
     }
 
     fun fromDeviceControlJson(raw: JSONObject?, fallbackReason: String? = null): CloudAgentStep? {
