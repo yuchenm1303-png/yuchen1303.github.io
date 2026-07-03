@@ -105,28 +105,23 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
         fun get(context: Context, databaseName: String): AgentAnalyticsDatabase {
             val safeName = databaseName.trim().takeIf { it.endsWith(".db") } ?: "agent_analytics.db"
             return synchronized(instances) {
-                instances[safeName] ?: createValidatedDatabase(context.applicationContext, safeName)
+                instances[safeName] ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    AgentAnalyticsDatabase::class.java,
+                    safeName,
+                )
+                    .addMigrations(MIGRATION_1_2)
+                    .build()
                     .also { instances[safeName] = it }
             }
         }
 
-        private fun createValidatedDatabase(context: Context, databaseName: String): AgentAnalyticsDatabase {
-            val database = Room.databaseBuilder(
-                context,
-                AgentAnalyticsDatabase::class.java,
-                databaseName,
-            )
-                .addMigrations(MIGRATION_1_2)
-                .build()
-            return try {
-                // Room 默认延迟打开数据库。这里在返回 Repository 前完成迁移与 schema 校验，
-                // 让页面层能够捕获统计数据库异常，而不是由 stateIn 后台协程把进程带崩。
-                database.openHelper.writableDatabase
-                database
-            } catch (error: Throwable) {
-                runCatching { database.close() }
-                throw error
-            }
+        /**
+         * 仅由统计详情页在 IO 线程调用，提前完成 Room 迁移与 schema 校验。
+         * 运行时旁路写入仍保持延迟打开，避免应用启动或智能体进度回调发生同步磁盘访问。
+         */
+        fun validate(context: Context, databaseName: String) {
+            get(context.applicationContext, databaseName).openHelper.writableDatabase
         }
     }
 }
