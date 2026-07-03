@@ -23,14 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.yuchen.ailedger.model.AppTab
-import com.yuchen.ailedger.ui.gl.NewOpenGLGlassBatchLayer
-import com.yuchen.ailedger.ui.gl.rememberOpenGLShellBatchState
 
 private const val PAGE_ENTER_FADE_MS = 210
 private const val PAGE_EXIT_FADE_MS = 150
@@ -68,8 +65,6 @@ internal fun CachedTabPageLayer(
     val initialAlpha = if (tab == initialTab && activationKey == 1) 1f else 0f
     val alphaState = remember(tab) { Animatable(initialAlpha) }
 
-    // 所有缓存页面共用 Activity 根视图的 PreDraw。引用计数只负责确保最终帧提交器
-    // 在页面切换期间始终绑定到真实 Android traversal，不介入任何 Compose 布局尺寸。
     DisposableEffect(hostView) {
         val release = OpenGLFrameFinalizer.bindHostView(hostView)
         onDispose(release)
@@ -103,8 +98,6 @@ internal fun CachedTabPageLayer(
     val pageOffsetDp = if (active) PAGE_ENTER_OFFSET_DP else PAGE_EXIT_OFFSET_DP
     val pageScale = PAGE_MIN_SCALE + (1f - PAGE_MIN_SCALE) * alpha
 
-    // graphicsLayer 动画不会保证触发 onPlaced。每次 alpha/translation/scale 推进时直接标记
-    // 当前 traversal，在同帧 PreDraw 读取最终 localToRoot，避免 OpenGL 本体追后一帧。
     LaunchedEffect(visibleDuringTransition, parentBackdropTicker, alphaState) {
         if (!visibleDuringTransition || parentBackdropTicker == null) return@LaunchedEffect
         snapshotFlow { alphaState.value }.collect {
@@ -135,18 +128,15 @@ internal fun CachedTabPageLayer(
                 LocalOpenGLGlassViewportActive provides false,
                 LocalGlassBackdrop provides if (visibleDuringTransition) parentGlassBackdrop else null,
                 LocalBlurredBackdrop provides if (visibleDuringTransition) parentBlurredBackdrop else null,
-                // 离场页面仍在 graphicsLayer 中移动，必须保留 ticker 直到 alpha 真正归零。
-                // heavyEffectsReady 只控制动态视觉，不再切断坐标同步链。
                 LocalBackdropFrameTicker provides if (openGlFrameSyncEnabled) parentBackdropTicker else null,
             ) {
                 key(tab) {
                     BottomDockBoundedPageViewport(tab = tab) {
-                        if (tab == AppTab.Settings) {
-                            SettingsFixedOpenGLBatchPage {
-                                CachedTabPageContent(tab = tab, content = content)
-                            }
-                        } else {
-                            CachedTabPageContent(tab = tab, content = content)
+                        NonOpenGLGlassBatchHost(
+                            modifier = Modifier.fillMaxSize(),
+                            includeAdaptiveSettingsFrost = tab == AppTab.Settings,
+                        ) {
+                            content(tab)
                         }
                     }
                 }
@@ -155,62 +145,6 @@ internal fun CachedTabPageLayer(
     }
 }
 
-@Composable
-private fun CachedTabPageContent(
-    tab: AppTab,
-    content: @Composable (AppTab) -> Unit,
-) {
-    NonOpenGLGlassBatchHost(
-        modifier = Modifier.fillMaxSize(),
-        includeAdaptiveSettingsFrost = tab == AppTab.Settings,
-    ) {
-        content(tab)
-    }
-}
-
-/**
- * 设置页 OpenGL 批宿主固定在页面视口，不再随 LazyColumn 条目移动。
- *
- * 八张卡只登记最终页面内矩形；滚动、按压和页面动画都在同一 PreDraw 快照中更新。
- * 这样 TextureView 的物理位置保持稳定，背景采样不会在首次按压时从旧滚动位置跳到新位置。
- */
-@Composable
-private fun SettingsFixedOpenGLBatchPage(
-    content: @Composable () -> Unit,
-) {
-    val batchState = rememberOpenGLShellBatchState()
-    val pageCoordinates = remember { GlassCoordinateSource() }
-
-    DisposableEffect(batchState, pageCoordinates) {
-        batchState.bindParent(pageCoordinates)
-        onDispose {
-            pageCoordinates.coordinates = null
-            batchState.clear()
-        }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onPlaced { pageCoordinates.coordinates = it },
-    ) {
-        NewOpenGLGlassBatchLayer(
-            state = batchState,
-            parentCoordinates = pageCoordinates,
-            modifier = Modifier.matchParentSize(),
-        )
-        CompositionLocalProvider(
-            LocalPageOpenGLShellBatchState provides batchState,
-        ) {
-            content()
-        }
-    }
-}
-
-/**
- * 只约束功能页和设置页。聊天页保持原始满高尺寸，避免介入
- * FixedHeightOverflowSlot / OpenGL anchor / viewportTopInset 稳定链。
- */
 @Composable
 private fun BottomDockBoundedPageViewport(
     tab: AppTab,
@@ -239,11 +173,6 @@ private fun BottomDockBoundedPageViewport(
     }
 }
 
-/**
- * 页面层只保留顶部和底部的真实可见区域限制。
- * 左右使用远大于任何设备宽度的有限裁剪范围，允许玻璃边缘光、阴影和折射越过内容边距，
- * 最终仍由 Activity 根视图和物理屏幕边界负责裁剪。
- */
 private fun Modifier.clipPageGlassVertically(): Modifier = drawWithContent {
     clipRect(
         left = -PAGE_HORIZONTAL_UNBOUNDED_CLIP_PX,
@@ -255,10 +184,6 @@ private fun Modifier.clipPageGlassVertically(): Modifier = drawWithContent {
     }
 }
 
-/**
- * 与 App.kt 的导航栏收起逻辑保持一致：键盘展开时撤销边界，
- * 键盘开始回落时立即恢复边界，避免导航栏先出现而内容仍穿到其下方。
- */
 @Composable
 private fun rememberBottomDockBoundaryVisible(): Boolean {
     val density = LocalDensity.current
