@@ -9,11 +9,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
 
+private val ToolsUnifiedShellShortEdgeRange = 0f..10_000f
+
 /**
- * 每个 Tab 独立持有的非 OpenGL 玻璃父级宿主。
+ * 每个 Tab 独立持有的玻璃父级宿主。
  *
- * 普通雾面卡、设置页自适应雾面卡、凹槽 Slider 与动态进度轨都在各自页面父层绘制。
- * 本宿主不调用 OpenGL，不注册到 OpenGL registry，也不触发 geometry sync。
+ * 普通雾面卡、设置页自适应雾面卡、凹槽 Slider 与动态进度轨仍在 Compose 父层绘制。
+ * 功能 Tab 的 Shell 玻璃在同一页面级 OpenGL 宿主中合批，卡片本身仍保持独立光学参数。
  */
 @Composable
 internal fun NonOpenGLGlassBatchHost(
@@ -26,6 +28,8 @@ internal fun NonOpenGLGlassBatchHost(
     val settingsFrostLayerState = rememberedSettingsFrostLayerState
         .takeIf { includeAdaptiveSettingsFrost }
     val foldoutClipRegistry = remember { GlassFoldoutClipRegistry() }
+    val batchToolsShells =
+        !includeAdaptiveSettingsFrost && LocalGlassSceneGroup == GlassSceneGroup.ToolsHomePage
 
     DisposableEffect(pageFrostLayerState, foldoutClipRegistry) {
         onDispose {
@@ -55,7 +59,17 @@ internal fun NonOpenGLGlassBatchHost(
             }
             InsetGlassSliderBatchGroup(Modifier.matchParentSize()) {
                 InsetGlassSliderProgressBatchGroup(Modifier.matchParentSize()) {
-                    content()
+                    if (batchToolsShells) {
+                        OpenGlShellBatchHost(
+                            modifier = Modifier.matchParentSize(),
+                            acceptedShortEdgeDp = ToolsUnifiedShellShortEdgeRange,
+                            preserveStandaloneFrame = true,
+                        ) {
+                            content()
+                        }
+                    } else {
+                        content()
+                    }
                 }
             }
         }
