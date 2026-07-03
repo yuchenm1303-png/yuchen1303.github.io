@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.data.PlanTaskStore
 import com.yuchen.ailedger.model.PlanCenterUiState
 import com.yuchen.ailedger.model.PlanDraft
@@ -15,6 +16,10 @@ import com.yuchen.ailedger.model.PlanTaskType
 import com.yuchen.ailedger.service.PlanScheduleCalculator
 import com.yuchen.ailedger.service.PlanScheduler
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class PlanMutationResult(
     val ok: Boolean,
@@ -24,20 +29,51 @@ data class PlanMutationResult(
 class PlanCenterViewModel(application: Application) : AndroidViewModel(application) {
     private val store = PlanTaskStore(application)
     private val scheduler = PlanScheduler(application)
+    private var loadJob: Job? = null
 
     var uiState by mutableStateOf(PlanCenterUiState())
         private set
 
     init {
-        refresh()
+        loadLightweightSnapshot()
     }
 
+    /**
+     * 功能首页只需要计划标题、数量和下次时间。
+     * 这里仅在 IO 线程解析本地快照，不重新注册 AlarmManager，也不做任何磁盘写回。
+     */
+    private fun loadLightweightSnapshot() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            val snapshot = withContext(Dispatchers.IO) {
+                store.loadTasks().sortedForDisplay() to scheduler.exactAlarmReady()
+            }
+            uiState = uiState.copy(
+                tasks = snapshot.first,
+                exactAlarmReady = snapshot.second,
+                lastError = null,
+            )
+            loadJob = null
+        }
+    }
+
+    /**
+     * 只有计划详情页真正打开时才执行完整恢复：校正过期计划并重新注册系统闹钟。
+     * 整条恢复链固定在 IO 调度器，避免首次进入功能首页时阻塞 Compose 入场帧。
+     */
     fun refresh() {
-        uiState = uiState.copy(
-            tasks = scheduler.restoreEnabledTasks().sortedForDisplay(),
-            exactAlarmReady = scheduler.exactAlarmReady(),
-            lastError = null,
-        )
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            val snapshot = withContext(Dispatchers.IO) {
+                scheduler.restoreEnabledTasks().sortedForDisplay() to scheduler.exactAlarmReady()
+            }
+            uiState = uiState.copy(
+                tasks = snapshot.first,
+                exactAlarmReady = snapshot.second,
+                lastError = null,
+            )
+            loadJob = null
+        }
     }
 
     fun setFilter(filter: PlanTaskFilter) {
@@ -45,6 +81,7 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun saveTask(existingId: String?, draft: PlanDraft): PlanMutationResult {
+        cancelPendingLoad()
         val title = draft.title.trim().take(80)
         val note = draft.note.trim().take(240)
         if (title.isBlank()) return failure("请输入计划名称。")
@@ -90,6 +127,7 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun toggleTask(taskId: String, enabled: Boolean): PlanMutationResult {
+        cancelPendingLoad()
         val task = uiState.tasks.firstOrNull { it.id == taskId }
             ?: return failure("没有找到这个计划。")
 
@@ -115,6 +153,7 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun deleteTask(taskId: String): PlanMutationResult {
+        cancelPendingLoad()
         val task = uiState.tasks.firstOrNull { it.id == taskId }
             ?: return failure("没有找到这个计划。")
         scheduler.cancel(taskId)
@@ -130,6 +169,11 @@ class PlanCenterViewModel(application: Application) : AndroidViewModel(applicati
         val updated = uiState.tasks.map { if (it.id == task.id) task else it }.sortedForDisplay()
         store.saveTasks(updated)
         uiState = uiState.copy(tasks = updated, lastError = null)
+    }
+
+    private fun cancelPendingLoad() {
+        loadJob?.cancel()
+        loadJob = null
     }
 
     private fun failure(message: String): PlanMutationResult {
