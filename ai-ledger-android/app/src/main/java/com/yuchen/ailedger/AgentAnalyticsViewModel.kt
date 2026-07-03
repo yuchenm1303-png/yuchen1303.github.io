@@ -6,26 +6,37 @@ import androidx.lifecycle.viewModelScope
 import com.yuchen.ailedger.data.AgentAnalyticsRepository
 import com.yuchen.ailedger.data.AgentSkillInventoryRepository
 import com.yuchen.ailedger.model.AgentAnalyticsSnapshot
-import kotlinx.coroutines.flow.SharingStarted
+import com.yuchen.ailedger.model.AgentSkillInventory
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
-/** 第二阶段统计界面的唯一数据入口，界面不直接读取 Room、诊断目录或操作学习数据库。 */
+/**
+ * 智能体统计页面数据入口。
+ *
+ * 主活动数据只在页面订阅时读取；操作学习数据库仅在用户切换到“能力”页签后按需打开，
+ * 避免默认总览页面同时初始化两套 Room 数据库。
+ */
 class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(application) {
     private val analyticsRepository = AgentAnalyticsRepository.get(application)
-    private val skillInventoryRepository = AgentSkillInventoryRepository.get(application)
 
-    val state: StateFlow<AgentAnalyticsSnapshot> = combine(
-        analyticsRepository.state,
-        skillInventoryRepository.state,
-    ) { analytics, skills ->
-        analytics.copy(skillInventory = skills)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000L),
-        initialValue = analyticsRepository.state.value.copy(
-            skillInventory = skillInventoryRepository.state.value,
-        ),
-    )
+    val state: StateFlow<AgentAnalyticsSnapshot> = analyticsRepository.state
+
+    private val mutableSkillInventory = MutableStateFlow(AgentSkillInventory())
+    val skillInventory: StateFlow<AgentSkillInventory> = mutableSkillInventory.asStateFlow()
+
+    private var skillCollectionStarted = false
+
+    fun ensureSkillInventoryLoaded() {
+        if (skillCollectionStarted) return
+        skillCollectionStarted = true
+        val repository = AgentSkillInventoryRepository.get(getApplication())
+        viewModelScope.launch {
+            repository.state.collectLatest { inventory ->
+                mutableSkillInventory.value = inventory
+            }
+        }
+    }
 }
