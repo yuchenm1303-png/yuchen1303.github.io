@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.data
 
 import android.content.Context
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -11,6 +12,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "agent_daily_activity")
@@ -22,12 +25,15 @@ data class AgentDailyActivityEntity(
     val chatFailures: Long = 0L,
     val agentTasks: Long = 0L,
     val completedTasks: Long = 0L,
+    @ColumnInfo(defaultValue = "0") val autonomousCompletedTasks: Long = 0L,
+    @ColumnInfo(defaultValue = "0") val assistedCompletedTasks: Long = 0L,
     val failedTasks: Long = 0L,
     val pausedTasks: Long = 0L,
     val cancelledTasks: Long = 0L,
     val budgetExceededTasks: Long = 0L,
     val modelCalls: Long = 0L,
     val modelFailures: Long = 0L,
+    @ColumnInfo(defaultValue = "0") val agentModelTurns: Long = 0L,
     val inputTokens: Long = 0L,
     val outputTokens: Long = 0L,
     val reasoningTokens: Long = 0L,
@@ -242,21 +248,6 @@ interface AgentAnalyticsDao {
     @Insert
     suspend fun insertTokenEvent(entity: AgentTokenEventEntity): Long
 
-    @Query(
-        """
-        UPDATE agent_task_analytics
-        SET status = 'interrupted',
-            endedAtMillis = :endedAtMillis,
-            durationMs = CASE
-                WHEN startedAtMillis > 0 THEN MAX(0, :endedAtMillis - startedAtMillis)
-                ELSE durationMs
-            END,
-            latestResult = '应用进程结束前任务没有写入终态'
-        WHERE endedAtMillis IS NULL OR status = 'running'
-        """,
-    )
-    suspend fun markInterruptedTasks(endedAtMillis: Long)
-
     @Query("DELETE FROM agent_token_events WHERE occurredAtMillis < :cutoffMillis")
     suspend fun deleteOldTokenEvents(cutoffMillis: Long)
 
@@ -284,13 +275,27 @@ interface AgentAnalyticsDao {
         AgentModelUsageEntity::class,
         AgentCapabilityUsageEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AgentAnalyticsDatabase : RoomDatabase() {
     abstract fun analyticsDao(): AgentAnalyticsDao
 
     companion object {
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE agent_daily_activity ADD COLUMN autonomousCompletedTasks INTEGER NOT NULL DEFAULT 0",
+                )
+                database.execSQL(
+                    "ALTER TABLE agent_daily_activity ADD COLUMN assistedCompletedTasks INTEGER NOT NULL DEFAULT 0",
+                )
+                database.execSQL(
+                    "ALTER TABLE agent_daily_activity ADD COLUMN agentModelTurns INTEGER NOT NULL DEFAULT 0",
+                )
+            }
+        }
+
         @Volatile
         private var instance: AgentAnalyticsDatabase? = null
 
@@ -301,6 +306,7 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
                     AgentAnalyticsDatabase::class.java,
                     "agent_analytics.db",
                 )
+                    .addMigrations(MIGRATION_1_2)
                     .build()
                     .also { instance = it }
             }
