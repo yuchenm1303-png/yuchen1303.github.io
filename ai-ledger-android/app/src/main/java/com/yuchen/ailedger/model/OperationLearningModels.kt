@@ -3,12 +3,13 @@ package com.yuchen.ailedger.model
 /**
  * 操作学习领域协议。
  *
- * 原始演示轨迹不能直接执行，必须先编译为 [LearnedWorkflowDraft]，
- * 经用户审核后再固化为 [LearnedWorkflowVersion]。
+ * 原始演示只作为云端理解 Skill 的短期证据，不能直接执行。用户批准 Skill 后，
+ * 运行时由视觉智能根据当前屏幕重新完成目标，本地只负责动作桥接与安全边界。
+ * 旧的结构化步骤类型暂时保留用于历史数据兼容，不再作为新录制的主执行协议。
  */
 enum class WorkflowDraftStatus(val label: String) {
     Intent("待演示"),
-    Compiling("整理中"),
+    Compiling("云端理解中"),
     ReadyForReview("待审核"),
     Approved("已批准"),
     Verified("已验证"),
@@ -17,8 +18,9 @@ enum class WorkflowDraftStatus(val label: String) {
 }
 
 enum class WorkflowExecutionMode(val label: String) {
-    Deterministic("确定性执行"),
-    AssistedRepair("受控辅助修复"),
+    CloudVisual("云端视觉 Skill"),
+    Deterministic("历史确定性流程"),
+    AssistedRepair("历史受控修复"),
 }
 
 enum class WorkflowRiskLevel(val label: String) {
@@ -190,7 +192,7 @@ data class LearnedWorkflowDraft(
     val completionChecks: List<WorkflowStateCheck> = emptyList(),
     val riskPolicy: WorkflowRiskPolicy = WorkflowRiskPolicy(),
     val recoveryPolicy: WorkflowRecoveryPolicy = WorkflowRecoveryPolicy(),
-    val executionMode: WorkflowExecutionMode = WorkflowExecutionMode.Deterministic,
+    val executionMode: WorkflowExecutionMode = WorkflowExecutionMode.CloudVisual,
     val status: WorkflowDraftStatus = WorkflowDraftStatus.Intent,
     val createdAtMillis: Long,
     val updatedAtMillis: Long,
