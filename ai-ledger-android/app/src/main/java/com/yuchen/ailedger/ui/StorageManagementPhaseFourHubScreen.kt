@@ -38,7 +38,7 @@ fun StorageManagementPhaseFourHubScreen(
             return
         }
         StoragePhaseFourPage.FolderIndex -> {
-            StorageFolderIndexScreen(
+            StorageFolderIndexCompleteScreen(
                 state = state,
                 onBack = { page = StoragePhaseFourPage.Main },
             )
@@ -75,7 +75,7 @@ fun StorageManagementPhaseFourHubScreen(
                     ),
                     StorageInlineFeatureEntry(
                         title = "目录索引",
-                        subtitle = "对授权大目录分批扫描并保存恢复断点",
+                        subtitle = "完整扫描授权目录并保存恢复断点",
                         tone = Color(0xFF9CD8FF),
                         onClick = { page = StoragePhaseFourPage.FolderIndex },
                     ),
