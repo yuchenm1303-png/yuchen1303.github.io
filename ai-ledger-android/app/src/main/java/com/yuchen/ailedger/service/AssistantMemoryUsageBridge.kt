@@ -3,6 +3,7 @@ package com.yuchen.ailedger.service
 import android.os.Process
 import android.os.SystemClock
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
 import com.yuchen.ailedger.data.AssistantMemoryMutationReceipt
@@ -25,6 +26,7 @@ internal object AssistantMemoryUsageBridge {
     private val analyticsAttemptStartedAt = ThreadLocal<Long?>()
     private val analyticsRequestBytes = ThreadLocal<Long?>()
     private val analyticsResponseBytes = ThreadLocal<Long?>()
+    private val analyticsOwnerForCurrentThread = ThreadLocal<String?>()
     private val diagnosticsExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(
             {
@@ -40,6 +42,12 @@ internal object AssistantMemoryUsageBridge {
         analyticsResponseForCurrentThread.remove()
         analyticsRequestBytes.remove()
         analyticsResponseBytes.remove()
+        analyticsOwnerForCurrentThread.remove()
+        AiLedgerApplication.contextOrNull()?.let { context ->
+            analyticsOwnerForCurrentThread.set(
+                AgentAnalyticsOwnerRuntime.currentStorageKey(context),
+            )
+        }
         analyticsAttemptStartedAt.set(SystemClock.elapsedRealtime())
     }
 
@@ -139,10 +147,6 @@ internal object AssistantMemoryUsageBridge {
         analyticsResponseForCurrentThread.set(merged)
     }
 
-    /**
-     * SSE 每个 token 片段通常只包含 choices/delta。统计不再复制这些无关 JSON，
-     * 只保留模型、usage、联网、工具与最终文本等真正需要的字段。
-     */
     private fun compactAnalyticsEnvelope(source: JSONObject, depth: Int): JSONObject? {
         if (depth > MAX_ANALYTICS_ENVELOPE_DEPTH) return null
         val result = JSONObject()
@@ -189,10 +193,12 @@ internal object AssistantMemoryUsageBridge {
         val startedAt = analyticsAttemptStartedAt.get()
         val requestBytes = analyticsRequestBytes.get()
         val responseBytes = analyticsResponseBytes.get()
+        val ownerStorageKey = analyticsOwnerForCurrentThread.get()
         analyticsResponseForCurrentThread.remove()
         analyticsAttemptStartedAt.remove()
         analyticsRequestBytes.remove()
         analyticsResponseBytes.remove()
+        analyticsOwnerForCurrentThread.remove()
         val durationMs = startedAt?.let { (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L) } ?: 0L
         runCatching {
             AgentAnalyticsRuntime.recordChatTransport(
@@ -202,6 +208,7 @@ internal object AssistantMemoryUsageBridge {
                 durationMs = durationMs,
                 requestBytes = requestBytes ?: -1L,
                 responseBytes = responseBytes ?: -1L,
+                ownerStorageKey = ownerStorageKey,
             )
         }
     }
