@@ -10,14 +10,13 @@ import com.yuchen.ailedger.model.AgentSkillInventory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
  * 智能体统计页面数据入口。
  *
- * 主活动数据只在页面订阅时读取；操作学习数据库仅在用户切换到“能力”页签后按需打开，
- * 避免默认总览页面同时初始化两套 Room 数据库。
+ * 主活动数据只在页面订阅时读取；操作学习数据库仅在用户首次切换到“能力”页签后
+ * 执行一次 IO 聚合查询，不注册常驻数据库观察器。
  */
 class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(application) {
     private val analyticsRepository = AgentAnalyticsRepository.get(application)
@@ -27,16 +26,15 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     private val mutableSkillInventory = MutableStateFlow(AgentSkillInventory())
     val skillInventory: StateFlow<AgentSkillInventory> = mutableSkillInventory.asStateFlow()
 
-    private var skillCollectionStarted = false
+    private var skillLoadStarted = false
 
     fun ensureSkillInventoryLoaded() {
-        if (skillCollectionStarted) return
-        skillCollectionStarted = true
-        val repository = AgentSkillInventoryRepository.get(getApplication())
+        if (skillLoadStarted) return
+        skillLoadStarted = true
         viewModelScope.launch {
-            repository.state.collectLatest { inventory ->
-                mutableSkillInventory.value = inventory
-            }
+            mutableSkillInventory.value = AgentSkillInventoryRepository
+                .get(getApplication())
+                .loadSnapshot()
         }
     }
 }
