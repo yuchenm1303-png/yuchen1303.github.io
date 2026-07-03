@@ -64,7 +64,7 @@ class AiWorkerClientProtocolTest {
     }
 
     @Test
-    fun ordinaryChatUsesStructuredParallelProbeWithoutEmbeddedModelCommands() {
+    fun ordinaryChatDeclaresUnifiedToolsWithoutEmbeddedModelCommands() {
         val payload = client.buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -81,15 +81,20 @@ class AiWorkerClientProtocolTest {
         val protocol = payload.getJSONObject("commandProtocol")
         assertFalse(protocol.getBoolean("allowModelCommands"))
         assertTrue(protocol.getBoolean("structuredCommandsOnly"))
-        assertEquals("structured_low_risk_only", protocol.getString("deviceControlMode"))
+        assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
+        assertEquals("android_local_transaction_executor", protocol.getString("executionOwner"))
         assertEquals("structured_response_only", protocol.getString("fallbackTransport"))
+        assertEquals(AI_WORKER_CLIENT_TOOL_CALL_SCHEMA, protocol.getString("clientToolCallSchema"))
+        assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
 
-        val supportedAgentActions = protocol.getJSONArray("supportedAgentActions")
-        assertEquals(1, supportedAgentActions.length())
-        assertEquals("run_device_control", supportedAgentActions.getString(0))
+        val supportedAgentActions = protocol.getJSONArray("supportedAgentActions").toString()
+        assertTrue(supportedAgentActions.contains("run_device_control"))
+        assertTrue(supportedAgentActions.contains("run_agent_task"))
+        assertTrue(supportedAgentActions.contains("observe_screen"))
 
         val responseFormat = payload.getJSONObject("responseFormat")
         assertTrue(responseFormat.getBoolean("includeAgentAction"))
+        assertTrue(responseFormat.getBoolean("includeClientToolCall"))
         assertFalse(responseFormat.getBoolean("includeEmbeddedCommandMarker"))
 
         val legacyCapabilities = protocol.getJSONArray("supportedDeviceControlActions")
@@ -97,17 +102,17 @@ class AiWorkerClientProtocolTest {
 
         val supportedSteps = protocol.getJSONArray("supportedDeviceToolSteps")
         assertTrue(supportedSteps.length() > 0)
+        assertTrue(supportedSteps.toString().contains("ledger_add_record"))
 
         val probe = payload.getJSONObject("normalChatDeviceToolProbe")
-        assertTrue(probe.getBoolean("enabled"))
-        assertTrue(probe.getBoolean("singleRequestParallel"))
-        assertEquals("deepseek_primary_qwen_failure_fallback", probe.getString("decisionOwner"))
-        assertEquals("android_local_verified", probe.getString("executionOwner"))
+        assertFalse(probe.getBoolean("enabled"))
+        assertEquals("cloud_final_chat_model", probe.getString("decisionOwner"))
+        assertEquals("android_local_transaction_executor", probe.getString("executionOwner"))
         assertEquals(supportedSteps.length(), probe.getJSONArray("supportedDeviceToolSteps").length())
     }
 
     @Test
-    fun agentStartStillAllowsOnlyRunAgentTaskStructuredAction() {
+    fun explicitAgentPrefixIsNotClassifiedLocally() {
         val payload = client.buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -118,16 +123,18 @@ class AiWorkerClientProtocolTest {
             ),
         )
 
-        assertEquals("agent_start", payload.getString("intent"))
-        val protocol = payload.getJSONObject("commandProtocol")
-        val actions = protocol.getJSONArray("supportedAgentActions").toString()
+        assertEquals("chat", payload.getString("intent"))
+        assertFalse(payload.getBoolean("agentStartRequested"))
+        val actions = payload.getJSONObject("commandProtocol")
+            .getJSONArray("supportedAgentActions")
+            .toString()
         assertTrue(actions.contains("run_agent_task"))
-        assertFalse(actions.contains("run_device_control"))
+        assertTrue(actions.contains("run_device_control"))
         assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
     }
 
     @Test
-    fun normalChatDoesNotAdvertiseDestructiveDeviceControls() {
+    fun normalChatDoesNotAdvertiseDestructiveDeviceTools() {
         val payload = client.buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -138,15 +145,14 @@ class AiWorkerClientProtocolTest {
             ),
         )
 
-        val capabilities = payload.getJSONObject("commandProtocol")
-            .getJSONArray("supportedDeviceControlActions")
+        val steps = payload.getJSONObject("commandProtocol")
+            .getJSONArray("supportedDeviceToolSteps")
             .toString()
-        assertFalse(capabilities.contains("app.uninstall"))
-        assertFalse(capabilities.contains("app.clear_data"))
-        assertFalse(capabilities.contains("app.force_stop"))
-        assertFalse(capabilities.contains("system.animation_scale.set"))
-        assertFalse(capabilities.contains("shizuku.permission.request"))
-        assertFalse(capabilities.contains("shell.shizuku_permission"))
+        assertFalse(steps.contains("uninstall_app"))
+        assertFalse(steps.contains("clear_app_data"))
+        assertFalse(steps.contains("force_stop_app"))
+        assertFalse(steps.contains("set_animation_scale"))
+        assertFalse(steps.contains("request_shizuku_permission"))
     }
 
     @Test
