@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import android.content.Intent
 import com.yuchen.ailedger.data.OperationWorkflowRepository
 import com.yuchen.ailedger.data.VisualDemonstrationSession
 import com.yuchen.ailedger.data.VisualDemonstrationStore
@@ -157,14 +158,15 @@ object OperationLearningRecordingCoordinator {
             recorder = recorder,
         )
         activeSession = session
-        session.captureJob = scope.launch(Dispatchers.Default) {
-            recorder.runCaptureLoop()
-        }
-        session.timeoutJob = scope.launch {
-            delay(MAX_RECORDING_DURATION_MS)
-            if (session.stopRequested.compareAndSet(false, true)) {
-                requestStop(applicationContext, OperationRecordingStopReason.DurationLimit)
-            }
+
+        val targetPackage = config.allowedPackages.firstOrNull()
+        val targetOpened = targetPackage?.let { packageName ->
+            launchTargetApplication(applicationContext, packageName)
+        } == true
+        val startedMessage = if (targetOpened) {
+            "视觉演示已开始，已打开所选应用。请正常完成一次任务。"
+        } else {
+            "视觉演示已开始。请手动打开所选应用并正常完成一次任务。"
         }
 
         mutableState.value = OperationRecordingState(
@@ -175,9 +177,20 @@ object OperationLearningRecordingCoordinator {
             allowedPackages = config.allowedPackages,
             startedAtMillis = startedAt,
             capturedEventCount = 0,
-            message = "视觉演示已开始。你正常完成一次任务即可，本地不会扫描或编译控件节点。",
+            message = startedMessage,
         )
-        OperationRecordingStartResult(true, "视觉演示已开始。")
+        session.captureJob = scope.launch(Dispatchers.Default) {
+            if (targetOpened) delay(TARGET_APP_SETTLE_DELAY_MS)
+            recorder.runCaptureLoop()
+        }
+        session.timeoutJob = scope.launch {
+            delay(MAX_RECORDING_DURATION_MS)
+            if (session.stopRequested.compareAndSet(false, true)) {
+                requestStop(applicationContext, OperationRecordingStopReason.DurationLimit)
+            }
+        }
+
+        OperationRecordingStartResult(true, startedMessage)
     }
 
     /** 旧无障碍录制入口仅为二进制兼容保留，新主链永远不接收节点或事件记录。 */
@@ -288,6 +301,18 @@ object OperationLearningRecordingCoordinator {
 
     fun activeConfig(): OperationRecordingConfig? = activeSession?.config
 
+    private fun launchTargetApplication(
+        context: Context,
+        packageName: String,
+    ): Boolean = runCatching {
+        val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+            ?: return@runCatching false
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(launchIntent)
+        true
+    }.getOrDefault(false)
+
+    private const val TARGET_APP_SETTLE_DELAY_MS = 650L
     private const val MINIMUM_VISUAL_FRAMES = 2
     private const val MAX_RECORDING_DURATION_MS = 3L * 60L * 1_000L
 }
