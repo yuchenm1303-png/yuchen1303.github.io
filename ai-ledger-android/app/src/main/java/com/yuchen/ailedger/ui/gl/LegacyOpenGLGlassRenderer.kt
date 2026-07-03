@@ -13,7 +13,6 @@ import kotlin.math.max
 import kotlin.math.min
 
 private const val LEGACY_GLASS_SCISSOR_PADDING_PX = 2
-
 private const val DIRTY_SURFACE = 1
 private const val DIRTY_GEOMETRY = 1 shl 1
 private const val DIRTY_SAMPLING = 1 shl 2
@@ -31,18 +30,15 @@ private const val GEOMETRY_HEIGHT = 1
 private const val GEOMETRY_OFFSET_Y = 2
 private const val GEOMETRY_RADIUS = 3
 private const val GEOMETRY_SIZE = 4
-
 private const val SAMPLING_ORIGIN_X = 0
 private const val SAMPLING_ORIGIN_Y = 1
 private const val SAMPLING_ROOT_WIDTH = 2
 private const val SAMPLING_ROOT_HEIGHT = 3
 private const val SAMPLING_SIZE = 4
-
 private const val PRESS_PROGRESS = 0
 private const val PRESS_CENTER_X = 1
 private const val PRESS_CENTER_Y = 2
 private const val PRESS_SIZE = 3
-
 private const val STYLE_VISIBILITY = 0
 private const val STYLE_MAX_ALPHA = 1
 private const val STYLE_EDGE_BRIGHTNESS = 2
@@ -57,11 +53,10 @@ private const val STYLE_DARK_SCALE = 10
 private const val STYLE_SIZE = 11
 
 private class MutableLegacyGlassScissorRect {
-    var left: Int = 0
-    var top: Int = 0
-    var right: Int = 0
-    var bottom: Int = 0
-
+    var left = 0
+    var top = 0
+    var right = 0
+    var bottom = 0
     val width: Int get() = (right - left).coerceAtLeast(0)
     val height: Int get() = (bottom - top).coerceAtLeast(0)
 
@@ -78,20 +73,19 @@ private class MutableLegacyGlassScissorRect {
 
     fun unionFrom(first: MutableLegacyGlassScissorRect, second: MutableLegacyGlassScissorRect) {
         set(
-            left = min(first.left, second.left),
-            top = min(first.top, second.top),
-            right = max(first.right, second.right),
-            bottom = max(first.bottom, second.bottom),
+            min(first.left, second.left),
+            min(first.top, second.top),
+            max(first.right, second.right),
+            max(first.bottom, second.bottom),
         )
     }
 }
 
 /**
- * 旧版 OpenGL 玻璃 Renderer。
+ * 旧版单卡 Shell Renderer。
  *
- * Host 的完整帧状态在一次锁内写入；圆角 SDF/厚度梯度缓存只受尺寸、圆角和环宽
- * 影响，材质亮度、折射、按压与采样原点不会误触发几何重建。原始 Shader 始终保留
- * 为精确回退路径。
+ * 只维护一张颜色纹理。第二镜片纹理、纹理单元、上传、别名判断和绑定已全部删除；几何
+ * 缓存和直绘路径都消费同一个 blurTextureId，避免清晰层删除后仍残留显存和上传成本。
  */
 internal class LegacyOpenGLGlassRenderer {
     private val textureLock = Any()
@@ -100,18 +94,12 @@ internal class LegacyOpenGLGlassRenderer {
     private val cacheFrame = LegacyOpenGLGlassCacheFrame()
 
     private var pendingBlurBitmap: Bitmap? = null
-    private var pendingLensBitmap: Bitmap? = null
     private var textureSetPending = false
-
     private var activeBlurBitmap: Bitmap? = null
-    private var activeLensBitmap: Bitmap? = null
-    private var lensTextureAliasesBlur = false
-
     private var blurTextureId = 0
-    private var lensTextureId = 0
-    private val textureWidths = IntArray(2)
-    private val textureHeights = IntArray(2)
-    private var texturesReady = false
+    private var textureWidth = 0
+    private var textureHeight = 0
+    private var textureReady = false
 
     private val geometryState = FloatArray(GEOMETRY_SIZE).apply {
         this[GEOMETRY_WIDTH] = 1f
@@ -127,7 +115,6 @@ internal class LegacyOpenGLGlassRenderer {
         this[PRESS_CENTER_Y] = 0.5f
     }
     private val styleState = FloatArray(STYLE_SIZE)
-
     private val geometrySnapshot = FloatArray(GEOMETRY_SIZE)
     private val samplingSnapshot = FloatArray(SAMPLING_SIZE)
     private val pressSnapshot = FloatArray(PRESS_SIZE)
@@ -139,7 +126,6 @@ internal class LegacyOpenGLGlassRenderer {
     private var drawRectOffsetY = 0f
     private var partialClearSupported = false
     private var forceFullClear = true
-
     private val currentGlassScissor = MutableLegacyGlassScissorRect()
     private val previousGlassScissor = MutableLegacyGlassScissorRect()
     private val dirtyGlassScissor = MutableLegacyGlassScissorRect()
@@ -147,19 +133,18 @@ internal class LegacyOpenGLGlassRenderer {
 
     private var program = 0
     private var quadBufferId = 0
-    private var positionHandle = 0
-    private var resolutionHandle = 0
-    private var cardOriginHandle = 0
-    private var rootResolutionHandle = 0
-    private var rectHandle = 0
-    private var radiusHandle = 0
-    private var pressHandle = 0
-    private var textureReadyHandle = 0
-    private var blurTextureHandle = 0
-    private var lensTextureHandle = 0
-    private var materialHandle = 0
-    private var refractionHandle = 0
-    private var opticsHandle = 0
+    private var positionHandle = -1
+    private var resolutionHandle = -1
+    private var cardOriginHandle = -1
+    private var rootResolutionHandle = -1
+    private var rectHandle = -1
+    private var radiusHandle = -1
+    private var pressHandle = -1
+    private var textureReadyHandle = -1
+    private var blurTextureHandle = -1
+    private var materialHandle = -1
+    private var refractionHandle = -1
+    private var opticsHandle = -1
     private var viewportWidth = 1
     private var viewportHeight = 1
 
@@ -216,17 +201,8 @@ internal class LegacyOpenGLGlassRenderer {
 
     fun setGlassSpec(width: Float, height: Float, rectOffsetY: Float, radius: Float) {
         setFrameState(
-            width = width,
-            height = height,
-            rectOffsetY = rectOffsetY,
-            radius = radius,
-            originX = 0f,
-            originY = 0f,
-            rootWidth = 1f,
-            rootHeight = 1f,
-            pressProgress = 0f,
-            pressCenterX = 0.5f,
-            pressCenterY = 0.5f,
+            width, height, rectOffsetY, radius,
+            0f, 0f, 1f, 1f, 0f, 0.5f, 0.5f,
             geometryDirty = true,
             samplingDirty = false,
             pressDirty = false,
@@ -235,17 +211,8 @@ internal class LegacyOpenGLGlassRenderer {
 
     fun setSamplingSpec(originX: Float, originY: Float, rootWidth: Float, rootHeight: Float) {
         setFrameState(
-            width = 1f,
-            height = 1f,
-            rectOffsetY = 0f,
-            radius = 0f,
-            originX = originX,
-            originY = originY,
-            rootWidth = rootWidth,
-            rootHeight = rootHeight,
-            pressProgress = 0f,
-            pressCenterX = 0.5f,
-            pressCenterY = 0.5f,
+            1f, 1f, 0f, 0f,
+            originX, originY, rootWidth, rootHeight, 0f, 0.5f, 0.5f,
             geometryDirty = false,
             samplingDirty = true,
             pressDirty = false,
@@ -254,27 +221,17 @@ internal class LegacyOpenGLGlassRenderer {
 
     fun setPressSpec(progress: Float, centerX: Float, centerY: Float) {
         setFrameState(
-            width = 1f,
-            height = 1f,
-            rectOffsetY = 0f,
-            radius = 0f,
-            originX = 0f,
-            originY = 0f,
-            rootWidth = 1f,
-            rootHeight = 1f,
-            pressProgress = progress,
-            pressCenterX = centerX,
-            pressCenterY = centerY,
+            1f, 1f, 0f, 0f,
+            0f, 0f, 1f, 1f, progress, centerX, centerY,
             geometryDirty = false,
             samplingDirty = false,
             pressDirty = true,
         )
     }
 
-    fun setBackdropTextures(blurBitmap: Bitmap, lensBitmap: Bitmap) {
+    fun setBackdropTextures(blurBitmap: Bitmap, @Suppress("UNUSED_PARAMETER") lensBitmap: Bitmap) {
         synchronized(textureLock) {
             pendingBlurBitmap = blurBitmap
-            pendingLensBitmap = lensBitmap
             textureSetPending = true
         }
     }
@@ -292,10 +249,7 @@ internal class LegacyOpenGLGlassRenderer {
     }
 
     fun onSurfaceCreated() {
-        program = buildLegacyGlassProgram(
-            LEGACY_GLASS_VERTEX_SHADER,
-            LegacyOpenGLGlassShader.FRAGMENT_SHADER,
-        )
+        program = buildLegacyGlassProgram(LEGACY_GLASS_VERTEX_SHADER, LegacyOpenGLGlassShader.FRAGMENT_SHADER)
         positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
         resolutionHandle = GLES20.glGetUniformLocation(program, "uResolution")
         cardOriginHandle = GLES20.glGetUniformLocation(program, "uCardOrigin")
@@ -305,18 +259,14 @@ internal class LegacyOpenGLGlassRenderer {
         pressHandle = GLES20.glGetUniformLocation(program, "uPress")
         textureReadyHandle = GLES20.glGetUniformLocation(program, "uTextureReady")
         blurTextureHandle = GLES20.glGetUniformLocation(program, "uBlurTexture")
-        lensTextureHandle = GLES20.glGetUniformLocation(program, "uLensTexture")
         materialHandle = GLES20.glGetUniformLocation(program, "uMaterial")
         refractionHandle = GLES20.glGetUniformLocation(program, "uRefraction")
         opticsHandle = GLES20.glGetUniformLocation(program, "uOptics")
 
         GLES20.glUseProgram(program)
         GLES20.glUniform1i(blurTextureHandle, 0)
-        GLES20.glUniform1i(lensTextureHandle, 1)
         GLES20.glUniform1f(textureReadyHandle, 0f)
-
-        blurTextureId = createConfiguredTexture(0, GLES20.GL_TEXTURE0)
-        lensTextureId = 0
+        blurTextureId = createConfiguredTexture(GLES20.GL_TEXTURE0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
 
         val buffers = IntArray(1)
@@ -338,16 +288,13 @@ internal class LegacyOpenGLGlassRenderer {
             GLES20.GL_STATIC_DRAW,
         )
         bindDirectQuad()
-
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glClearColor(0f, 0f, 0f, 0f)
         geometryCache.onSurfaceCreated()
         forceFullClear = true
         hasPreviousGlassScissor = false
-        synchronized(specLock) {
-            pendingDirtyMask = pendingDirtyMask or DIRTY_ALL
-        }
+        synchronized(specLock) { pendingDirtyMask = pendingDirtyMask or DIRTY_ALL }
     }
 
     fun onSurfaceChanged(width: Int, height: Int) {
@@ -357,16 +304,14 @@ internal class LegacyOpenGLGlassRenderer {
         geometryCache.onSurfaceChanged(viewportWidth, viewportHeight)
         forceFullClear = true
         hasPreviousGlassScissor = false
-        synchronized(specLock) {
-            pendingDirtyMask = pendingDirtyMask or DIRTY_SURFACE
-        }
+        synchronized(specLock) { pendingDirtyMask = pendingDirtyMask or DIRTY_SURFACE }
     }
 
     fun onDrawFrame() {
         if (program == 0) return
         GLES20.glUseProgram(program)
         bindDirectQuad()
-        uploadPendingTexturesIfNeeded()
+        uploadPendingTextureIfNeeded()
 
         val dirtyMask: Int
         synchronized(specLock) {
@@ -433,7 +378,6 @@ internal class LegacyOpenGLGlassRenderer {
             GLES20.glUseProgram(program)
             bindDirectQuad()
             bindTexture(GLES20.GL_TEXTURE0, blurTextureId)
-            bindTexture(GLES20.GL_TEXTURE1, effectiveLensTextureId())
             applyScissor(currentGlassScissor)
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -445,20 +389,17 @@ internal class LegacyOpenGLGlassRenderer {
     fun onRelease() {
         geometryCache.onRelease()
         deleteTexture(blurTextureId)
-        deleteTexture(lensTextureId)
         if (quadBufferId != 0) GLES20.glDeleteBuffers(1, intArrayOf(quadBufferId), 0)
         if (program != 0) GLES20.glDeleteProgram(program)
         blurTextureId = 0
-        lensTextureId = 0
         quadBufferId = 0
         program = 0
-        texturesReady = false
-        lensTextureAliasesBlur = false
+        textureReady = false
         activeBlurBitmap = null
-        activeLensBitmap = null
+        textureWidth = 0
+        textureHeight = 0
         synchronized(textureLock) {
             pendingBlurBitmap = null
-            pendingLensBitmap = null
             textureSetPending = false
         }
         hasPreviousGlassScissor = false
@@ -489,9 +430,9 @@ internal class LegacyOpenGLGlassRenderer {
         cacheFrame.opticsRingWidth = styleSnapshot[STYLE_RING_WIDTH]
         cacheFrame.opticsDebugAlpha = styleSnapshot[STYLE_DEBUG_ALPHA]
         cacheFrame.opticsDarkScale = styleSnapshot[STYLE_DARK_SCALE]
-        cacheFrame.texturesReady = texturesReady
+        cacheFrame.texturesReady = textureReady
         cacheFrame.blurTextureId = blurTextureId
-        cacheFrame.lensTextureId = effectiveLensTextureId()
+        cacheFrame.lensTextureId = blurTextureId
         cacheFrame.scissorLeft = scissor.left
         cacheFrame.scissorTop = scissor.top
         cacheFrame.scissorRight = scissor.right
@@ -541,15 +482,14 @@ internal class LegacyOpenGLGlassRenderer {
 
     private fun calculateGlassScissor(): Boolean {
         val left = 0
-        val top = (
-            floor(drawRectOffsetY.toDouble()).toInt() - LEGACY_GLASS_SCISSOR_PADDING_PX
-            ).coerceIn(0, viewportHeight)
-        val right = ceil(
-            (drawCardWidth + LEGACY_GLASS_SCISSOR_PADDING_PX).toDouble(),
-        ).toInt().coerceIn(0, viewportWidth)
-        val bottom = ceil(
-            (drawRectOffsetY + drawCardHeight + LEGACY_GLASS_SCISSOR_PADDING_PX).toDouble(),
-        ).toInt().coerceIn(0, viewportHeight)
+        val top = (floor(drawRectOffsetY.toDouble()).toInt() - LEGACY_GLASS_SCISSOR_PADDING_PX)
+            .coerceIn(0, viewportHeight)
+        val right = ceil((drawCardWidth + LEGACY_GLASS_SCISSOR_PADDING_PX).toDouble())
+            .toInt()
+            .coerceIn(0, viewportWidth)
+        val bottom = ceil((drawRectOffsetY + drawCardHeight + LEGACY_GLASS_SCISSOR_PADDING_PX).toDouble())
+            .toInt()
+            .coerceIn(0, viewportHeight)
         if (right <= left || bottom <= top) return false
         currentGlassScissor.set(left, top, right, bottom)
         return true
@@ -576,78 +516,37 @@ internal class LegacyOpenGLGlassRenderer {
 
     private fun applyScissor(rect: MutableLegacyGlassScissorRect) {
         GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
-        GLES20.glScissor(
-            rect.left,
-            viewportHeight - rect.bottom,
-            rect.width,
-            rect.height,
-        )
+        GLES20.glScissor(rect.left, viewportHeight - rect.bottom, rect.width, rect.height)
     }
 
-    private fun uploadPendingTexturesIfNeeded() {
-        val blurBitmap: Bitmap
-        val lensBitmap: Bitmap
+    private fun uploadPendingTextureIfNeeded() {
+        val bitmap: Bitmap
         synchronized(textureLock) {
             if (!textureSetPending) return
-            blurBitmap = pendingBlurBitmap ?: return
-            lensBitmap = pendingLensBitmap ?: return
+            bitmap = pendingBlurBitmap ?: return
             pendingBlurBitmap = null
-            pendingLensBitmap = null
             textureSetPending = false
         }
-
-        if (blurBitmap !== activeBlurBitmap) {
-            uploadTexture(0, GLES20.GL_TEXTURE0, blurTextureId, blurBitmap)
-            activeBlurBitmap = blurBitmap
+        if (bitmap !== activeBlurBitmap) {
+            bindTexture(GLES20.GL_TEXTURE0, blurTextureId)
+            GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+            if (textureWidth == bitmap.width && textureHeight == bitmap.height) {
+                GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
+            } else {
+                GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+                textureWidth = bitmap.width
+                textureHeight = bitmap.height
+            }
+            activeBlurBitmap = bitmap
         }
-
-        val aliasLensToBlur = lensBitmap === blurBitmap
-        if (aliasLensToBlur) {
-            if (!lensTextureAliasesBlur || lensTextureId != 0) {
-                deleteTexture(lensTextureId)
-                lensTextureId = 0
-                textureWidths[1] = 0
-                textureHeights[1] = 0
-                bindTexture(GLES20.GL_TEXTURE1, blurTextureId)
-                lensTextureAliasesBlur = true
-            }
-            activeLensBitmap = lensBitmap
-        } else {
-            if (lensTextureId == 0) {
-                lensTextureId = createConfiguredTexture(1, GLES20.GL_TEXTURE1)
-            } else if (lensTextureAliasesBlur) {
-                bindTexture(GLES20.GL_TEXTURE1, lensTextureId)
-            }
-            lensTextureAliasesBlur = false
-            if (lensBitmap !== activeLensBitmap) {
-                uploadTexture(1, GLES20.GL_TEXTURE1, lensTextureId, lensBitmap)
-                activeLensBitmap = lensBitmap
-            }
-        }
-
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        if (!texturesReady) {
-            texturesReady = true
+        if (!textureReady) {
+            textureReady = true
             GLES20.glUniform1f(textureReadyHandle, 1f)
         }
     }
 
-    private fun effectiveLensTextureId(): Int =
-        if (lensTextureAliasesBlur || lensTextureId == 0) blurTextureId else lensTextureId
-
-    private fun uploadTexture(index: Int, textureUnit: Int, textureId: Int, bitmap: Bitmap) {
-        bindTexture(textureUnit, textureId)
-        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
-        if (textureWidths[index] == bitmap.width && textureHeights[index] == bitmap.height) {
-            GLUtils.texSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, bitmap)
-        } else {
-            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-            textureWidths[index] = bitmap.width
-            textureHeights[index] = bitmap.height
-        }
-    }
-
-    private fun createConfiguredTexture(index: Int, textureUnit: Int): Int {
+    private fun createConfiguredTexture(textureUnit: Int): Int {
         val textures = IntArray(1)
         GLES20.glGenTextures(1, textures, 0)
         val textureId = textures[0]
@@ -656,8 +555,6 @@ internal class LegacyOpenGLGlassRenderer {
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-        textureWidths[index] = 0
-        textureHeights[index] = 0
         return textureId
     }
 
@@ -687,7 +584,6 @@ private fun buildLegacyGlassProgram(vertex: String, fragment: String): Int {
         check(status[0] != 0) { GLES20.glGetShaderInfoLog(shaderId) }
         return shaderId
     }
-
     val vertexShader = compileShader(GLES20.GL_VERTEX_SHADER, vertex)
     val fragmentShader = compileShader(GLES20.GL_FRAGMENT_SHADER, fragment)
     val program = GLES20.glCreateProgram()
