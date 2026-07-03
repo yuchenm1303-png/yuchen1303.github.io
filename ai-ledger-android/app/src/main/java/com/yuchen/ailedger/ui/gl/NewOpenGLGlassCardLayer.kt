@@ -66,6 +66,12 @@ fun NewOpenGLGlassCardLayer(
         return
     }
 
+    // 旧版 Renderer 已彻底改为单纹理。这里同步把兼容 lens 槽别名到 medium，避免宿主
+    // 在进入 Renderer 之前仍转换、持有或统计一张无效清晰 Bitmap。
+    val legacyBackdrop = remember(backdrop, usesLegacyShellRenderer) {
+        if (usesLegacyShellRenderer) backdrop.copy(lensImage = backdrop.blurMediumImage) else backdrop
+    }
+
     if (usesLegacyShellRenderer) {
         val currentSpec = LocalGlassBackdrop.current
         val legacySpec = remember(currentSpec) {
@@ -74,7 +80,7 @@ fun NewOpenGLGlassCardLayer(
         if (legacySpec != null) {
             CompositionLocalProvider(
                 LocalGlassBackdrop provides legacySpec,
-                LocalBlurredBackdrop provides backdrop,
+                LocalBlurredBackdrop provides legacyBackdrop,
             ) {
                 LegacyOpenGLShellHost(
                     quality = legacySpec.quality,
@@ -91,7 +97,7 @@ fun NewOpenGLGlassCardLayer(
                 ) {}
             }
         } else {
-            CompositionLocalProvider(LocalBlurredBackdrop provides backdrop) {
+            CompositionLocalProvider(LocalBlurredBackdrop provides legacyBackdrop) {
                 OpenGLGlassCardLayer(
                     radius = radius,
                     glassIntensity = glassIntensity,
