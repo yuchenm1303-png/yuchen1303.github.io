@@ -48,10 +48,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -100,6 +103,7 @@ internal fun SettingsPolishedScreenOptimized(
     val entranceSessions = remember { mutableStateMapOf<String, Int>() }
     var selectedPanel by rememberSaveable { mutableStateOf(SettingsDetailSection.Service) }
     var showLoginDialog by remember { mutableStateOf(false) }
+    var loginAnchorBounds by remember { mutableStateOf(Rect.Zero) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
@@ -126,6 +130,7 @@ internal fun SettingsPolishedScreenOptimized(
                     SettingsPersonalSpaceCard(
                         state = state,
                         onLoginClick = { showLoginDialog = true },
+                        onLoginAnchorBoundsChange = { loginAnchorBounds = it },
                         onAvatarEditClick = { avatarPicker.launch("image/*") },
                         onNicknameEditClick = {
                             selectedPanel = SettingsDetailSection.Service
@@ -186,6 +191,7 @@ internal fun SettingsPolishedScreenOptimized(
 
         AccountLoginDialogHost(
             visible = showLoginDialog,
+            anchorBounds = loginAnchorBounds,
             state = state,
             onDismiss = { showLoginDialog = false },
         )
@@ -285,6 +291,7 @@ private fun SettingsOptimizedHeader() {
 private fun SettingsPersonalSpaceCard(
     state: AssistantUiState,
     onLoginClick: () -> Unit,
+    onLoginAnchorBoundsChange: (Rect) -> Unit,
     onAvatarEditClick: () -> Unit,
     onNicknameEditClick: () -> Unit,
 ) {
@@ -462,6 +469,7 @@ private fun SettingsPersonalSpaceCard(
                 } else {
                     SettingsPersonalLoginButton(
                         state = state,
+                        onAnchorBoundsChange = onLoginAnchorBoundsChange,
                         onClick = onLoginClick,
                     )
                 }
@@ -511,6 +519,7 @@ private fun SettingsPersonalSpaceCard(
 @Composable
 private fun SettingsPersonalLoginButton(
     state: AssistantUiState,
+    onAnchorBoundsChange: (Rect) -> Unit,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(999.dp)
@@ -521,7 +530,10 @@ private fun SettingsPersonalLoginButton(
         radius = 999,
         modifier = Modifier
             .width(82.dp)
-            .height(42.dp),
+            .height(42.dp)
+            .onGloballyPositioned { coordinates ->
+                onAnchorBoundsChange(coordinates.boundsInWindow())
+            },
         role = GlassRole.Chip,
         intensity = (state.glassIntensity * 1.16f).coerceIn(0.90f, 1.30f),
         onClick = onClick,
