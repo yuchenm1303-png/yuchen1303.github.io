@@ -23,12 +23,8 @@ import java.util.Locale
 
 private const val STORAGE_PREFS = "storage_management"
 private const val PREF_TREE_URI = "tree_uri"
-private const val MAX_FOLDER_FILES = 5_000
-private const val MAX_FOLDER_CANDIDATES = 500
-private const val MAX_MEDIA_CANDIDATES_PER_KIND = 220
 private const val APP_CACHE_TTL_MS = 10L * 60L * 1000L
 private const val FOLDER_SCAN_TTL_MS = 5L * 60L * 1000L
-
 private const val MB = 1024L * 1024L
 
 data class DeviceStorageOverview(
@@ -189,13 +185,13 @@ class StorageManagementRepository(context: Context) {
     }
 
     fun loadAppCacheRanking(
-        limit: Int = 40,
+        limit: Int = Int.MAX_VALUE,
         forceRefresh: Boolean = false,
     ): List<AppCacheUsage> {
         if (!hasUsageAccess()) return emptyList()
         val now = System.currentTimeMillis()
         if (!forceRefresh && cachedAppCachesAtMs > 0L && now - cachedAppCachesAtMs < APP_CACHE_TTL_MS) {
-            return cachedAppCaches.take(limit.coerceIn(1, 100))
+            return cachedAppCaches.limitIfRequested(limit)
         }
         val manager = appContext.getSystemService(StorageStatsManager::class.java) ?: return emptyList()
         val loaded = appRepository.loadApps().mapNotNull { app ->
@@ -230,7 +226,7 @@ class StorageManagementRepository(context: Context) {
             .sortedByDescending { it.cacheBytes }
         cachedAppCaches = loaded
         cachedAppCachesAtMs = now
-        return loaded.take(limit.coerceIn(1, 100))
+        return loaded.limitIfRequested(limit)
     }
 
     fun scanAccessibleMedia(): List<StorageFileCandidate> {
@@ -303,14 +299,13 @@ class StorageManagementRepository(context: Context) {
         val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocumentId)
         val rootName = queryDocumentName(rootUri).ifBlank { "授权目录" }
         val queue = ArrayDeque<TreeNode>()
-        queue.add(TreeNode(rootUri, rootName, 0))
+        queue.add(TreeNode(rootUri, rootName))
         val candidates = mutableListOf<StorageFileCandidate>()
         var scannedFiles = 0
         var scannedBytes = 0L
-        var truncated = false
         var firstError: String? = null
 
-        while (queue.isNotEmpty() && scannedFiles < MAX_FOLDER_FILES && candidates.size < MAX_FOLDER_CANDIDATES) {
+        while (queue.isNotEmpty()) {
             val node = queue.removeFirst()
             val parentId = runCatching { DocumentsContract.getDocumentId(node.uri) }.getOrNull() ?: continue
             val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
@@ -342,17 +337,13 @@ class StorageManagementRepository(context: Context) {
                 val modifiedIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                 val flagsIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS)
                 while (it.moveToNext()) {
-                    if (scannedFiles >= MAX_FOLDER_FILES || candidates.size >= MAX_FOLDER_CANDIDATES) {
-                        truncated = true
-                        break
-                    }
                     val documentId = it.safeString(idIndex) ?: continue
                     val displayName = it.safeString(nameIndex).orEmpty().ifBlank { "未命名文件" }
                     val mimeType = it.safeString(mimeIndex).orEmpty()
                     val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
                     val childPath = "${node.path.trimEnd('/')}/$displayName"
                     if (mimeType == DocumentsContract.Document.MIME_TYPE_DIR) {
-                        if (node.depth < 12) queue.add(TreeNode(documentUri, childPath, node.depth + 1))
+                        queue.add(TreeNode(documentUri, childPath))
                         continue
                     }
                     scannedFiles += 1
@@ -379,14 +370,13 @@ class StorageManagementRepository(context: Context) {
                 }
             }
         }
-        if (queue.isNotEmpty()) truncated = true
         return AuthorizedFolderScan(
             treeUri = treeUri.toString(),
             displayName = rootName,
             scannedFileCount = scannedFiles,
             scannedBytes = scannedBytes,
             candidates = candidates.sortedByDescending { it.sizeBytes },
-            truncated = truncated,
+            truncated = false,
             errorMessage = firstError,
         )
     }
@@ -476,7 +466,7 @@ class StorageManagementRepository(context: Context) {
             } else {
                 -1
             }
-            while (it.moveToNext() && result.size < MAX_MEDIA_CANDIDATES_PER_KIND) {
+            while (it.moveToNext()) {
                 val id = it.safeLong(idIndex)
                 if (id <= 0L) continue
                 val displayName = it.safeString(nameIndex).orEmpty().ifBlank { "未命名媒体" }
@@ -535,6 +525,10 @@ class StorageManagementRepository(context: Context) {
         return runCatching { getLong(index) }.getOrDefault(0L)
     }
 
+    private fun <T> List<T>.limitIfRequested(limit: Int): List<T> {
+        return if (limit <= 0 || limit == Int.MAX_VALUE || size <= limit) this else take(limit)
+    }
+
     private enum class MediaKind(
         val label: String,
         val defaultMimePrefix: String,
@@ -563,6 +557,5 @@ class StorageManagementRepository(context: Context) {
     private data class TreeNode(
         val uri: Uri,
         val path: String,
-        val depth: Int,
     )
 }
