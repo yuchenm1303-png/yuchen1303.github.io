@@ -12,7 +12,7 @@ import org.junit.Test
 
 class AiWorkerClientTest {
     @Test
-    fun chatPayloadIncludesUnifiedClientToolContract() {
+    fun chatPayloadIncludesCloudFirstClientToolContract() {
         val payload = AiWorkerClient().buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -27,6 +27,7 @@ class AiWorkerClientTest {
 
         val preferences = payload.getJSONObject("chatExpressionPreferences")
         val protocol = payload.getJSONObject("commandProtocol")
+        val capabilities = payload.getJSONObject("clientCapabilities")
         assertEquals(
             "ai_ledger_chat_expression_preferences_v1",
             preferences.getString("schema"),
@@ -36,32 +37,33 @@ class AiWorkerClientTest {
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-unified-client-tools-v1",
+            "compose-native-cloud-first-v2",
             payload.getString("clientVersion"),
         )
         assertEquals("cloud_final_model_v1", payload.getString("autoRouteAuthority"))
         assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
-        assertEquals("android_local_transaction_executor", protocol.getString("executionOwner"))
+        assertEquals("android_structured_tool_executor", protocol.getString("executionOwner"))
         assertEquals(AI_WORKER_CLIENT_TOOL_CALL_SCHEMA, protocol.getString("clientToolCallSchema"))
         assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
-        assertTrue(protocol.getJSONArray("supportedAgentActions").length() > 0)
-        assertTrue(protocol.getJSONArray("supportedDeviceToolSteps").length() > 0)
-        assertTrue(protocol.getJSONArray("supportedDeviceToolSteps").toString().contains("ledger_add_record"))
+        assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
+        assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
+        assertTrue(capabilities.getJSONArray("deviceTools").toString().contains("ledger_add_record"))
         assertTrue(payload.getString("requestId").isNotBlank())
-        assertTrue(payload.has("memoryMode"))
+        assertFalse(payload.has("memoryMode"))
+        assertFalse(payload.has("systemPrompt"))
     }
 
     @Test
     fun ordinaryQuestionDeclaresCapabilitiesWithoutLocalIntentRouting() {
         val payload = payloadFor("解释一下三相异步电动机的工作原理")
-        val probe = payload.getJSONObject("normalChatDeviceToolProbe")
         val protocol = payload.getJSONObject("commandProtocol")
+        val capabilities = payload.getJSONObject("clientCapabilities")
 
-        assertFalse(probe.getBoolean("enabled"))
-        assertEquals("cloud_final_chat_model", probe.getString("decisionOwner"))
-        assertTrue(probe.getJSONArray("supportedDeviceToolSteps").length() > 0)
-        assertTrue(protocol.getJSONArray("supportedAgentActions").length() > 0)
-        assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeAgentAction"))
+        assertFalse(payload.has("normalChatDeviceToolProbe"))
+        assertFalse(payload.has("agentModeEnabled"))
+        assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
+        assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
+        assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
         assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeClientToolCall"))
     }
 
@@ -70,14 +72,14 @@ class AiWorkerClientTest {
         val ordinary = payloadFor("解释一下电动机")
         val appLaunch = payloadFor("请帮我打开微信")
 
-        assertFalse(appLaunch.getJSONObject("normalChatDeviceToolProbe").getBoolean("enabled"))
+        assertFalse(appLaunch.has("normalChatDeviceToolProbe"))
         assertEquals(
-            ordinary.getJSONObject("commandProtocol").getJSONArray("supportedAgentActions").toString(),
-            appLaunch.getJSONObject("commandProtocol").getJSONArray("supportedAgentActions").toString(),
+            ordinary.getJSONObject("clientCapabilities").getJSONArray("agentActions").toString(),
+            appLaunch.getJSONObject("clientCapabilities").getJSONArray("agentActions").toString(),
         )
         assertEquals(
-            ordinary.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
-            appLaunch.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
+            ordinary.getJSONObject("clientCapabilities").getJSONArray("deviceTools").toString(),
+            appLaunch.getJSONObject("clientCapabilities").getJSONArray("deviceTools").toString(),
         )
     }
 
@@ -88,11 +90,9 @@ class AiWorkerClientTest {
 
         assertEquals("auto", explanation.getString("modelPreference"))
         assertEquals("auto", coding.getString("modelPreference"))
-        assertEquals("cloud_final_model_auto", explanation.getString("autoRouteReason"))
-        assertEquals("cloud_final_model_auto", coding.getString("autoRouteReason"))
         assertEquals(
-            explanation.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
-            coding.getJSONObject("commandProtocol").getJSONArray("supportedDeviceToolSteps").toString(),
+            explanation.getJSONObject("clientCapabilities").getJSONArray("deviceTools").toString(),
+            coding.getJSONObject("clientCapabilities").getJSONArray("deviceTools").toString(),
         )
     }
 
