@@ -240,7 +240,7 @@ def main() -> int:
             'Text("＋"',
             'text = if (thisRecording) "录" else "草"',
             'Text("盾"',
-            "Resource ID 和固定选择器",
+            "默认按已批准路线确定性执行",
         ],
     )
 
@@ -332,6 +332,16 @@ def main() -> int:
             "AndroidKeyStore",
             "cleanupExpired",
             "MAX_FRAMES = 24",
+        ],
+    )
+
+    workflow_validator = ROOT / "app/src/main/java/com/yuchen/ailedger/service/OperationWorkflowValidator.kt"
+    errors += require_text(
+        workflow_validator,
+        required=[
+            "draft.executionMode != WorkflowExecutionMode.CloudVisual",
+            "密码、验证码和支付确认保护不能关闭",
+            "不再在 Android 端复制一套选择器和流程决策树",
         ],
     )
 
