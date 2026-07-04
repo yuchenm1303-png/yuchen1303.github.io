@@ -38,11 +38,14 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.AgentAnalyticsDiagnosticsUiState
 import com.yuchen.ailedger.AgentAnalyticsSyncPhase
 import com.yuchen.ailedger.AgentAnalyticsSyncUiState
 import com.yuchen.ailedger.AgentAnalyticsViewModel
@@ -96,7 +99,9 @@ internal fun AgentAnalyticsProfileScreen(
     val accountState by viewModel.accountState.collectAsState()
     val profileState by viewModel.profileState.collectAsState()
     val syncState by viewModel.syncState.collectAsState()
+    val diagnostics by viewModel.diagnostics.collectAsState()
     var tabName by rememberSaveable { mutableStateOf(ProfileStatsTab.Overview.name) }
+    var diagnosticsOpen by rememberSaveable { mutableStateOf(false) }
     val selectedTab = remember(tabName) {
         ProfileStatsTab.entries.firstOrNull { it.name == tabName } ?: ProfileStatsTab.Overview
     }
@@ -110,7 +115,26 @@ internal fun AgentAnalyticsProfileScreen(
         contentPadding = PaddingValues(top = 12.dp, bottom = 116.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item(key = "profile-stats-back") { ProfileStatsBack(onBack) }
+        item(key = "profile-stats-back") {
+            ProfileStatsBack(
+                onBack = onBack,
+                onDiagnostics = { diagnosticsOpen = !diagnosticsOpen },
+                diagnosticsHasWarning = diagnostics.hasLocalLoadFailure,
+            )
+        }
+        if (diagnosticsOpen) {
+            item(key = "profile-stats-diagnostics") {
+                ProfileStatsDiagnosticsCard(
+                    snapshot = snapshot,
+                    skills = skills,
+                    owner = owner,
+                    accountState = accountState,
+                    syncState = syncState,
+                    diagnostics = diagnostics,
+                    selectedTab = selectedTab,
+                )
+            }
+        }
         item(key = "profile-stats-identity") {
             ProfileStatsIdentity(
                 snapshot = snapshot,
@@ -135,13 +159,34 @@ internal fun AgentAnalyticsProfileScreen(
         if (!snapshot.loaded) {
             item(key = "profile-stats-loading") {
                 ProfileStatsCard {
-                    Text("正在读取统计", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        if (diagnostics.hasLocalLoadFailure) "统计读取失败" else "正在读取统计",
+                        color = if (diagnostics.hasLocalLoadFailure) ProfileStatsDanger else Color.White,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Black,
+                    )
                     Spacer(Modifier.height(5.dp))
                     Text(
-                        "本页只读取一次本地快照，不持续观察数据库。",
+                        if (diagnostics.hasLocalLoadFailure) {
+                            "已停止把读取失败误显示成 0。请点右上角“诊断”复制详情，我会继续判断根因。"
+                        } else {
+                            "本页低频读取本地快照，不持续观察数据库。"
+                        },
                         color = Color.White.copy(alpha = 0.50f),
                         fontSize = 11.sp,
+                        lineHeight = 16.sp,
                     )
+                    if (diagnostics.hasLocalLoadFailure) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            diagnostics.lastLocalLoadMessage,
+                            color = Color.White.copy(alpha = 0.36f),
+                            fontSize = 9.5.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         } else {
@@ -229,7 +274,11 @@ internal fun AgentAnalyticsProfileScreen(
 }
 
 @Composable
-private fun ProfileStatsBack(onBack: () -> Unit) {
+private fun ProfileStatsBack(
+    onBack: () -> Unit,
+    onDiagnostics: () -> Unit,
+    diagnosticsHasWarning: Boolean,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -247,11 +296,98 @@ private fun ProfileStatsBack(onBack: () -> Unit) {
         ) {
             Text("‹ 返回", color = Color.White.copy(alpha = 0.86f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
         }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "智能体统计",
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            Box(
+                modifier = Modifier
+                    .width(58.dp)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(
+                        if (diagnosticsHasWarning) ProfileStatsDanger.copy(alpha = 0.16f)
+                        else Color.White.copy(alpha = 0.07f)
+                    )
+                    .border(
+                        1.dp,
+                        if (diagnosticsHasWarning) ProfileStatsDanger.copy(alpha = 0.28f)
+                        else Color.White.copy(alpha = 0.09f),
+                        RoundedCornerShape(15.dp),
+                    )
+                    .clickable(onClick = onDiagnostics),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "诊断",
+                    color = if (diagnosticsHasWarning) ProfileStatsDanger else Color.White.copy(alpha = 0.78f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileStatsDiagnosticsCard(
+    snapshot: AgentAnalyticsSnapshot,
+    skills: AgentSkillInventory,
+    owner: AgentAnalyticsOwner,
+    accountState: SupabaseAccountState,
+    syncState: AgentAnalyticsSyncUiState,
+    diagnostics: AgentAnalyticsDiagnosticsUiState,
+    selectedTab: ProfileStatsTab,
+) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    val report = remember(snapshot, skills, owner, accountState, syncState, diagnostics, selectedTab) {
+        profileBuildDiagnosticsReport(
+            snapshot = snapshot,
+            skills = skills,
+            owner = owner,
+            accountState = accountState,
+            syncState = syncState,
+            diagnostics = diagnostics,
+            selectedTab = selectedTab,
+        )
+    }
+    ProfileStatsCard {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("统计诊断", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                Text(
+                    "复制后发给我，用来继续定位为什么统计始终为 0。",
+                    color = Color.White.copy(alpha = 0.46f),
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp,
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .width(82.dp)
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(ProfileStatsBlue.copy(alpha = 0.13f))
+                    .border(1.dp, ProfileStatsBlue.copy(alpha = 0.20f), RoundedCornerShape(14.dp))
+                    .clickable {
+                        clipboard.setText(AnnotatedString(report))
+                        copied = true
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (copied) "已复制" else "复制导出", color = ProfileStatsBlue, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
         Text(
-            "智能体统计",
-            color = Color.White.copy(alpha = 0.45f),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
+            report,
+            color = Color.White.copy(alpha = 0.58f),
+            fontSize = 9.sp,
+            lineHeight = 13.sp,
         )
     }
 }
@@ -734,6 +870,51 @@ private fun profileBuildHeatmap(
     return ProfileHeatmap(weeks, cells, maxTokens, activeDays)
 }
 
+private fun profileBuildDiagnosticsReport(
+    snapshot: AgentAnalyticsSnapshot,
+    skills: AgentSkillInventory,
+    owner: AgentAnalyticsOwner,
+    accountState: SupabaseAccountState,
+    syncState: AgentAnalyticsSyncUiState,
+    diagnostics: AgentAnalyticsDiagnosticsUiState,
+    selectedTab: ProfileStatsTab,
+): String {
+    return buildString {
+        appendLine("AI Ledger 智能体统计诊断")
+        appendLine("导出时间: ${profileDebugTime(System.currentTimeMillis())}")
+        appendLine("选中页签: ${selectedTab.name}/${selectedTab.label}")
+        appendLine()
+        appendLine("[账号与 owner]")
+        appendLine("loggedIn=${accountState.isLoggedIn}, loading=${accountState.loading}, ownerGuest=${owner.isGuest}")
+        appendLine("emailMask=${profileMaskEmail(accountState.email.orEmpty())}")
+        appendLine("storageKey=${profileMaskStorageKey(owner.storageKey)}")
+        appendLine("databaseName=${owner.databaseName}")
+        appendLine()
+        appendLine("[本机读取]")
+        appendLine("success=${diagnostics.lastLocalLoadSuccess}, at=${profileDebugTime(diagnostics.lastLocalLoadAtMillis)}, durationMs=${diagnostics.lastLocalLoadDurationMs}")
+        appendLine("errorType=${diagnostics.lastLocalLoadErrorType.ifBlank { "none" }}")
+        appendLine("message=${diagnostics.lastLocalLoadMessage}")
+        appendLine("localDaily=${diagnostics.localDailyCount}, localTasks=${diagnostics.localTaskCount}, localModels=${diagnostics.localModelCount}, localCapabilities=${diagnostics.localCapabilityCount}")
+        appendLine("localTokens=${diagnostics.localTotalTokens}, localModelCalls=${diagnostics.localModelCalls}, localCompletedTasks=${diagnostics.localCompletedTasks}")
+        appendLine()
+        appendLine("[页面合并快照]")
+        appendLine("loaded=${snapshot.loaded}, daily=${snapshot.dailyActivity.size}, tasks=${snapshot.recentTasks.size}, models=${snapshot.modelUsage.size}, capabilities=${snapshot.capabilityUsage.size}")
+        appendLine("mergedDailyDiag=${diagnostics.mergedDailyCount}, mergedTokensDiag=${diagnostics.mergedTotalTokens}")
+        appendLine("totalTokens=${snapshot.totals.totalTokens}, provider=${snapshot.totals.providerTokens}, estimated=${snapshot.totals.estimatedTokens}, peak=${snapshot.totals.peakDailyTokens}")
+        appendLine("chatCalls=${snapshot.totals.chatCalls}, modelCalls=${snapshot.totals.modelCalls}, agentTasks=${snapshot.totals.agentTasks}, completed=${snapshot.totals.completedTasks}")
+        appendLine("currentStreak=${snapshot.totals.currentActiveStreakDays}, longestStreak=${snapshot.totals.longestActiveStreakDays}, longestTaskMs=${snapshot.totals.longestTaskDurationMs}")
+        appendLine("dailyKeys=${snapshot.dailyActivity.takeLast(8).joinToString { it.dateKey + ":" + it.totalTokens }}")
+        appendLine("modelKeys=${snapshot.modelUsage.take(6).joinToString { it.modelId + ":" + it.totalTokens }}")
+        appendLine()
+        appendLine("[云同步]")
+        appendLine("phase=${syncState.phase}, lastSynced=${profileDebugTime(syncState.lastSyncedAtMillis)}, uploadedDays=${syncState.uploadedDayCount}, remoteDays=${syncState.remoteDayCount}")
+        appendLine("message=${syncState.message}")
+        appendLine()
+        appendLine("[Skill]")
+        appendLine("total=${skills.totalSkills}, usable=${skills.usableSkills}, runs=${skills.totalRuns}, successRuns=${skills.successfulRuns}, apps=${skills.scopedApps}")
+    }
+}
+
 private fun profileSyncLabel(phase: AgentAnalyticsSyncPhase): String = when (phase) {
     AgentAnalyticsSyncPhase.Checking -> "正在检查账号"
     AgentAnalyticsSyncPhase.Guest -> "本机访客统计"
@@ -762,6 +943,19 @@ private fun profileSyncTime(timestampMillis: Long): String {
         time.dayOfMonth,
         time.hour,
         time.minute,
+    )
+}
+
+private fun profileDebugTime(timestampMillis: Long): String {
+    if (timestampMillis <= 0L) return "0"
+    val time = Instant.ofEpochMilli(timestampMillis).atZone(ZoneId.systemDefault())
+    return "%04d-%02d-%02d %02d:%02d:%02d".format(
+        time.year,
+        time.monthValue,
+        time.dayOfMonth,
+        time.hour,
+        time.minute,
+        time.second,
     )
 }
 
@@ -823,4 +1017,18 @@ private fun profileSafeAdd(left: Long, right: Long): Long {
     val safeLeft = left.coerceAtLeast(0L)
     val safeRight = right.coerceAtLeast(0L)
     return if (Long.MAX_VALUE - safeLeft < safeRight) Long.MAX_VALUE else safeLeft + safeRight
+}
+
+private fun profileMaskEmail(email: String): String {
+    val clean = email.trim()
+    if ('@' !in clean) return clean.take(2) + "***"
+    val name = clean.substringBefore('@')
+    val domain = clean.substringAfter('@')
+    return name.take(2).ifBlank { "**" } + "***@" + domain
+}
+
+private fun profileMaskStorageKey(key: String): String {
+    val clean = key.trim()
+    if (clean.length <= 18) return clean
+    return clean.take(10) + "…" + clean.takeLast(8)
 }
