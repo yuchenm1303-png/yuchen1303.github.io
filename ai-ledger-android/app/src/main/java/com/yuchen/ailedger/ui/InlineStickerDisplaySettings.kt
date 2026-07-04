@@ -24,6 +24,13 @@ internal data class InlineStickerExpressionPreferences(
     val repeatCount: Int,
 )
 
+internal data class InlineStickerLayoutPreferences(
+    val sizeDp: Float,
+    val verticalOffsetDp: Float,
+    val horizontalGapDp: Float,
+    val lineExtraDp: Float,
+)
+
 /**
  * Lightweight display and model-expression preferences for inline chat stickers.
  *
@@ -32,9 +39,24 @@ internal data class InlineStickerExpressionPreferences(
  */
 internal object InlineStickerDisplaySettings {
     const val DefaultSizeDp = 42f
-    const val MinSizeDp = 40f
+    const val MinSizeDp = 24f
     const val MaxSizeDp = 88f
     val SizeRange: ClosedFloatingPointRange<Float> = MinSizeDp..MaxSizeDp
+
+    const val DefaultVerticalOffsetDp = 0f
+    const val MinVerticalOffsetDp = -18f
+    const val MaxVerticalOffsetDp = 18f
+    val VerticalOffsetRange: ClosedFloatingPointRange<Float> = MinVerticalOffsetDp..MaxVerticalOffsetDp
+
+    const val DefaultHorizontalGapDp = 1f
+    const val MinHorizontalGapDp = 0f
+    const val MaxHorizontalGapDp = 14f
+    val HorizontalGapRange: ClosedFloatingPointRange<Float> = MinHorizontalGapDp..MaxHorizontalGapDp
+
+    const val DefaultLineExtraDp = 1f
+    const val MinLineExtraDp = 0f
+    const val MaxLineExtraDp = 24f
+    val LineExtraRange: ClosedFloatingPointRange<Float> = MinLineExtraDp..MaxLineExtraDp
 
     const val DefaultFrequency = 50
     const val DefaultIntensity = 50
@@ -47,6 +69,9 @@ internal object InlineStickerDisplaySettings {
 
     private const val PreferencesName = "inline_sticker_display_settings"
     private const val SizeKey = "inline_sticker_size_dp"
+    private const val VerticalOffsetKey = "inline_sticker_vertical_offset_dp"
+    private const val HorizontalGapKey = "inline_sticker_horizontal_gap_dp"
+    private const val LineExtraKey = "inline_sticker_line_extra_dp"
     private const val FrequencyKey = "inline_sticker_frequency"
     private const val IntensityKey = "inline_sticker_intensity"
     private const val MaxPerReplyKey = "inline_sticker_max_per_reply"
@@ -56,6 +81,9 @@ internal object InlineStickerDisplaySettings {
 
     private data class PersistedValues(
         val sizeDp: Float,
+        val verticalOffsetDp: Float,
+        val horizontalGapDp: Float,
+        val lineExtraDp: Float,
         val frequency: Int,
         val intensity: Int,
         val maxPerReply: Int,
@@ -74,6 +102,15 @@ internal object InlineStickerDisplaySettings {
     private var sizeDpValue = DefaultSizeDp
 
     @Volatile
+    private var verticalOffsetDpValue = DefaultVerticalOffsetDp
+
+    @Volatile
+    private var horizontalGapDpValue = DefaultHorizontalGapDp
+
+    @Volatile
+    private var lineExtraDpValue = DefaultLineExtraDp
+
+    @Volatile
     private var frequencyValue = DefaultFrequency
 
     @Volatile
@@ -86,6 +123,9 @@ internal object InlineStickerDisplaySettings {
     private var repeatCountValue = DefaultRepeatCount
 
     private var sizeDpState by mutableFloatStateOf(DefaultSizeDp)
+    private var verticalOffsetDpState by mutableFloatStateOf(DefaultVerticalOffsetDp)
+    private var horizontalGapDpState by mutableFloatStateOf(DefaultHorizontalGapDp)
+    private var lineExtraDpState by mutableFloatStateOf(DefaultLineExtraDp)
     private var frequencyState by mutableIntStateOf(DefaultFrequency)
     private var intensityState by mutableIntStateOf(DefaultIntensity)
     private var maxPerReplyState by mutableIntStateOf(DefaultMaxPerReply)
@@ -95,6 +135,17 @@ internal object InlineStickerDisplaySettings {
     fun sizeDp(context: Context): Float {
         ensureInitialized(context)
         return sizeDpState
+    }
+
+    @Composable
+    fun layoutPreferences(context: Context): InlineStickerLayoutPreferences {
+        ensureInitialized(context)
+        return InlineStickerLayoutPreferences(
+            sizeDp = sizeDpState,
+            verticalOffsetDp = verticalOffsetDpState,
+            horizontalGapDp = horizontalGapDpState,
+            lineExtraDp = lineExtraDpState,
+        )
     }
 
     @Composable
@@ -108,9 +159,15 @@ internal object InlineStickerDisplaySettings {
         )
     }
 
+    fun currentLayoutPreferences(context: Context?): InlineStickerLayoutPreferences {
+        if (initialized.get()) return currentLayoutValues()
+        val appContext = context?.applicationContext ?: return currentLayoutValues()
+        return readLayoutPreferences(appContext)
+    }
+
     fun currentExpressionPreferences(context: Context?): InlineStickerExpressionPreferences {
-        if (initialized.get()) return currentValues()
-        val appContext = context?.applicationContext ?: return currentValues()
+        if (initialized.get()) return currentExpressionValues()
+        val appContext = context?.applicationContext ?: return currentExpressionValues()
         return readExpressionPreferences(appContext)
     }
 
@@ -120,6 +177,33 @@ internal object InlineStickerDisplaySettings {
         if (abs(sizeDpValue - normalized) <= ValueEpsilon) return
         sizeDpValue = normalized
         sizeDpState = normalized
+        enqueuePersistence()
+    }
+
+    fun updateVerticalOffsetDp(context: Context, value: Float) {
+        initialize(context.applicationContext)
+        val normalized = value.coerceIn(MinVerticalOffsetDp, MaxVerticalOffsetDp)
+        if (abs(verticalOffsetDpValue - normalized) <= ValueEpsilon) return
+        verticalOffsetDpValue = normalized
+        verticalOffsetDpState = normalized
+        enqueuePersistence()
+    }
+
+    fun updateHorizontalGapDp(context: Context, value: Float) {
+        initialize(context.applicationContext)
+        val normalized = value.coerceIn(MinHorizontalGapDp, MaxHorizontalGapDp)
+        if (abs(horizontalGapDpValue - normalized) <= ValueEpsilon) return
+        horizontalGapDpValue = normalized
+        horizontalGapDpState = normalized
+        enqueuePersistence()
+    }
+
+    fun updateLineExtraDp(context: Context, value: Float) {
+        initialize(context.applicationContext)
+        val normalized = value.coerceIn(MinLineExtraDp, MaxLineExtraDp)
+        if (abs(lineExtraDpValue - normalized) <= ValueEpsilon) return
+        lineExtraDpValue = normalized
+        lineExtraDpState = normalized
         enqueuePersistence()
     }
 
@@ -174,21 +258,44 @@ internal object InlineStickerDisplaySettings {
             val appContext = context.applicationContext
             val preferences = appContext.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
             applicationContext = appContext
-            sizeDpValue = preferences
-                .getFloat(SizeKey, DefaultSizeDp)
-                .coerceIn(MinSizeDp, MaxSizeDp)
+            val layout = readLayoutPreferences(appContext)
             val expression = readExpressionPreferences(appContext)
+            sizeDpValue = layout.sizeDp
+            verticalOffsetDpValue = layout.verticalOffsetDp
+            horizontalGapDpValue = layout.horizontalGapDp
+            lineExtraDpValue = layout.lineExtraDp
             frequencyValue = expression.frequency
             intensityValue = expression.intensity
             maxPerReplyValue = expression.maxPerReply
             repeatCountValue = expression.repeatCount
             sizeDpState = sizeDpValue
+            verticalOffsetDpState = verticalOffsetDpValue
+            horizontalGapDpState = horizontalGapDpValue
+            lineExtraDpState = lineExtraDpValue
             frequencyState = frequencyValue
             intensityState = intensityValue
             maxPerReplyState = maxPerReplyValue
             repeatCountState = repeatCountValue
             initialized.set(true)
         }
+    }
+
+    private fun readLayoutPreferences(context: Context): InlineStickerLayoutPreferences {
+        val preferences = context.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+        return InlineStickerLayoutPreferences(
+            sizeDp = preferences
+                .getFloat(SizeKey, DefaultSizeDp)
+                .coerceIn(MinSizeDp, MaxSizeDp),
+            verticalOffsetDp = preferences
+                .getFloat(VerticalOffsetKey, DefaultVerticalOffsetDp)
+                .coerceIn(MinVerticalOffsetDp, MaxVerticalOffsetDp),
+            horizontalGapDp = preferences
+                .getFloat(HorizontalGapKey, DefaultHorizontalGapDp)
+                .coerceIn(MinHorizontalGapDp, MaxHorizontalGapDp),
+            lineExtraDp = preferences
+                .getFloat(LineExtraKey, DefaultLineExtraDp)
+                .coerceIn(MinLineExtraDp, MaxLineExtraDp),
+        )
     }
 
     private fun readExpressionPreferences(context: Context): InlineStickerExpressionPreferences {
@@ -209,7 +316,16 @@ internal object InlineStickerDisplaySettings {
         )
     }
 
-    private fun currentValues(): InlineStickerExpressionPreferences {
+    private fun currentLayoutValues(): InlineStickerLayoutPreferences {
+        return InlineStickerLayoutPreferences(
+            sizeDp = sizeDpValue,
+            verticalOffsetDp = verticalOffsetDpValue,
+            horizontalGapDp = horizontalGapDpValue,
+            lineExtraDp = lineExtraDpValue,
+        )
+    }
+
+    private fun currentExpressionValues(): InlineStickerExpressionPreferences {
         return InlineStickerExpressionPreferences(
             frequency = frequencyValue,
             intensity = intensityValue,
@@ -223,6 +339,9 @@ internal object InlineStickerDisplaySettings {
         pendingWrites.trySend(
             PersistedValues(
                 sizeDp = sizeDpValue,
+                verticalOffsetDp = verticalOffsetDpValue,
+                horizontalGapDp = horizontalGapDpValue,
+                lineExtraDp = lineExtraDpValue,
                 frequency = frequencyValue,
                 intensity = intensityValue,
                 maxPerReply = maxPerReplyValue,
@@ -246,6 +365,9 @@ internal object InlineStickerDisplaySettings {
                     ?.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
                     ?.edit()
                     ?.putFloat(SizeKey, latestValue.sizeDp.coerceIn(MinSizeDp, MaxSizeDp))
+                    ?.putFloat(VerticalOffsetKey, latestValue.verticalOffsetDp.coerceIn(MinVerticalOffsetDp, MaxVerticalOffsetDp))
+                    ?.putFloat(HorizontalGapKey, latestValue.horizontalGapDp.coerceIn(MinHorizontalGapDp, MaxHorizontalGapDp))
+                    ?.putFloat(LineExtraKey, latestValue.lineExtraDp.coerceIn(MinLineExtraDp, MaxLineExtraDp))
                     ?.putInt(FrequencyKey, latestValue.frequency.coerceIn(0, 100))
                     ?.putInt(IntensityKey, latestValue.intensity.coerceIn(0, 100))
                     ?.putInt(MaxPerReplyKey, latestValue.maxPerReply.coerceIn(0, 64))
