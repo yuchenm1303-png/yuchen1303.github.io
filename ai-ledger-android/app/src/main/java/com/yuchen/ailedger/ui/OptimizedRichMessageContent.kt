@@ -69,6 +69,9 @@ private data class OptimizedRichTextRenderKey(
     val baseFontWeight: Int,
     val lineHeightBits: Int,
     val stickerSizePx: Int,
+    val stickerVerticalOffsetPx: Int,
+    val stickerHorizontalGapPx: Int,
+    val stickerLineExtraPx: Int,
     val densityBits: Int
 )
 
@@ -119,6 +122,7 @@ fun OptimizedRichMessageContent(
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
+    val stickerLayout = InlineStickerDisplaySettings.layoutPreferences(context)
     val resolvedColor = if (color != Color.Unspecified) color else Color.White.copy(alpha = 0.86f)
     val textSizePx = remember(fontSize, density) {
         if (fontSize != TextUnit.Unspecified) {
@@ -135,13 +139,23 @@ fun OptimizedRichMessageContent(
             textSizePx * 1.28f
         }
     }
-    val configuredStickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
-    val stickerSizePx = remember(density, textSizePx, configuredStickerSizeDp) {
-        val configuredPx = with(density) { configuredStickerSizeDp.dp.toPx() }
+    val stickerSizePx = remember(density, stickerLayout.sizeDp) {
+        with(density) { stickerLayout.sizeDp.dp.toPx() }
             .roundToInt()
             .coerceAtLeast(1)
-        val inlinePx = (textSizePx * 1.32f).roundToInt().coerceAtLeast(1)
-        min(configuredPx, inlinePx)
+    }
+    val stickerVerticalOffsetPx = remember(density, stickerLayout.verticalOffsetDp) {
+        with(density) { stickerLayout.verticalOffsetDp.dp.toPx() }.roundToInt()
+    }
+    val stickerHorizontalGapPx = remember(density, stickerLayout.horizontalGapDp) {
+        with(density) { stickerLayout.horizontalGapDp.dp.toPx() }
+            .roundToInt()
+            .coerceAtLeast(0)
+    }
+    val stickerLineExtraPx = remember(density, stickerLayout.lineExtraDp) {
+        with(density) { stickerLayout.lineExtraDp.dp.toPx() }
+            .roundToInt()
+            .coerceAtLeast(0)
     }
 
     if (shouldUseLegacyMobileCommandPanel(text)) {
@@ -191,6 +205,9 @@ fun OptimizedRichMessageContent(
         lineHeightPx,
         baseFontWeight,
         stickerSizePx,
+        stickerVerticalOffsetPx,
+        stickerHorizontalGapPx,
+        stickerLineExtraPx,
         density.density
     ) {
         OptimizedRichTextRenderKey(
@@ -200,6 +217,9 @@ fun OptimizedRichMessageContent(
             baseFontWeight = baseFontWeight,
             lineHeightBits = lineHeightPx.toBits(),
             stickerSizePx = stickerSizePx,
+            stickerVerticalOffsetPx = stickerVerticalOffsetPx,
+            stickerHorizontalGapPx = stickerHorizontalGapPx,
+            stickerLineExtraPx = stickerLineExtraPx,
             densityBits = density.density.toBits()
         )
     }
@@ -212,6 +232,9 @@ fun OptimizedRichMessageContent(
                 textSizePx = textSizePx,
                 baseFontWeight = baseFontWeight,
                 stickerSizePx = stickerSizePx,
+                stickerVerticalOffsetPx = stickerVerticalOffsetPx,
+                stickerHorizontalGapPx = stickerHorizontalGapPx,
+                stickerLineExtraPx = stickerLineExtraPx,
                 density = density.density
             )
         }
@@ -330,6 +353,9 @@ private fun buildOptimizedRichMessageSpannable(
     textSizePx: Float,
     baseFontWeight: Int,
     stickerSizePx: Int,
+    stickerVerticalOffsetPx: Int,
+    stickerHorizontalGapPx: Int,
+    stickerLineExtraPx: Int,
     density: Float
 ): CharSequence {
     val normalized = sanitizeOptimizedRichTextSource(raw)
@@ -365,7 +391,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, density
+                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
                 )
             }
             optimizedHeadingRegex.matches(trimmed) -> {
@@ -381,7 +407,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, headingText, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, density
+                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
                 )
                 builder.setSpan(
                     RelativeSizeSpan(size),
@@ -402,7 +428,7 @@ private fun buildOptimizedRichMessageSpannable(
                 builder.append("• ")
                 appendOptimizedInline(
                     builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, density
+                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
                 )
             }
             optimizedTableDividerRegex.matches(trimmed) -> Unit
@@ -415,7 +441,7 @@ private fun buildOptimizedRichMessageSpannable(
                     appendOptimizedCompactSeparator(builder)
                     appendOptimizedInline(
                         builder, cells.joinToString("  ·  "), context, formulaTokens, textColor, textSizePx,
-                        stickerSizePx, density
+                        stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
                     )
                 }
             }
@@ -423,7 +449,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, line.trim(), context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, density
+                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
                 )
             }
         }
@@ -488,6 +514,9 @@ private fun appendOptimizedInline(
     textColor: Int,
     textSizePx: Float,
     stickerSizePx: Int,
+    stickerVerticalOffsetPx: Int,
+    stickerHorizontalGapPx: Int,
+    stickerLineExtraPx: Int,
     density: Float
 ) {
     val codeTokens = linkedMapOf<String, String>()
@@ -513,6 +542,9 @@ private fun appendOptimizedInline(
             source = value,
             textSizePx = textSizePx,
             stickerSizePx = stickerSizePx,
+            stickerVerticalOffsetPx = stickerVerticalOffsetPx,
+            stickerHorizontalGapPx = stickerHorizontalGapPx,
+            stickerLineExtraPx = stickerLineExtraPx,
             density = density
         )
     }
@@ -536,6 +568,9 @@ private fun appendOptimizedInline(
                         span = OptimizedTypefaceSpanCompat(Typeface.MONOSPACE),
                         textSizePx = textSizePx,
                         stickerSizePx = stickerSizePx,
+                        stickerVerticalOffsetPx = stickerVerticalOffsetPx,
+                        stickerHorizontalGapPx = stickerHorizontalGapPx,
+                        stickerLineExtraPx = stickerLineExtraPx,
                         density = density
                     )
                 }
@@ -546,6 +581,9 @@ private fun appendOptimizedInline(
                         span = OptimizedWeightSpan(Typeface.BOLD),
                         textSizePx = textSizePx,
                         stickerSizePx = stickerSizePx,
+                        stickerVerticalOffsetPx = stickerVerticalOffsetPx,
+                        stickerHorizontalGapPx = stickerHorizontalGapPx,
+                        stickerLineExtraPx = stickerLineExtraPx,
                         density = density
                     )
                 }
@@ -561,6 +599,9 @@ private fun appendOptimizedTextWithInlineObjects(
     source: String,
     textSizePx: Float,
     stickerSizePx: Int,
+    stickerVerticalOffsetPx: Int,
+    stickerHorizontalGapPx: Int,
+    stickerLineExtraPx: Int,
     density: Float
 ) {
     if (source.isEmpty()) return
@@ -608,6 +649,9 @@ private fun appendOptimizedTextWithInlineObjects(
                         InlineStickerSpan(
                             assetKey = assetKey,
                             sizePx = stickerSizePx,
+                            verticalOffsetPx = stickerVerticalOffsetPx,
+                            horizontalGapPx = stickerHorizontalGapPx,
+                            lineExtraPx = stickerLineExtraPx,
                             initialBitmap = InlineStickerAssets.cachedBitmap(assetKey)
                         ),
                         start,
@@ -642,12 +686,15 @@ private fun appendOptimizedStyledInline(
     span: Any,
     textSizePx: Float,
     stickerSizePx: Int,
+    stickerVerticalOffsetPx: Int,
+    stickerHorizontalGapPx: Int,
+    stickerLineExtraPx: Int,
     density: Float
 ) {
     if (text.isEmpty()) return
     val start = builder.length
     appendOptimizedTextWithInlineObjects(
-        builder, text, textSizePx, stickerSizePx, density
+        builder, text, textSizePx, stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
     )
     if (builder.length > start) {
         builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -769,6 +816,9 @@ private class OptimizedTypefaceSpanCompat(private val typeface: Typeface) : Metr
 private class InlineStickerSpan(
     val assetKey: String,
     private val sizePx: Int,
+    private val verticalOffsetPx: Int,
+    private val horizontalGapPx: Int,
+    private val lineExtraPx: Int,
     initialBitmap: Bitmap?
 ) : ReplacementSpan() {
     @Volatile
@@ -791,14 +841,14 @@ private class InlineStickerSpan(
     ): Int {
         if (fm != null) {
             val original = paint.fontMetricsInt
-            val textCenter = (original.ascent + original.descent) / 2
+            val textCenter = (original.ascent + original.descent) / 2 + verticalOffsetPx
             val halfSize = sizePx / 2
-            fm.ascent = min(original.ascent, textCenter - halfSize)
+            fm.ascent = min(original.ascent, textCenter - halfSize - lineExtraPx)
             fm.top = min(original.top, fm.ascent)
-            fm.descent = max(original.descent, textCenter + halfSize)
+            fm.descent = max(original.descent, textCenter + halfSize + lineExtraPx)
             fm.bottom = max(original.bottom, fm.descent)
         }
-        return sizePx
+        return sizePx + horizontalGapPx * 2
     }
 
     override fun draw(
@@ -814,11 +864,13 @@ private class InlineStickerSpan(
     ) {
         val loaded = bitmap ?: return
         val fm = paint.fontMetricsInt
-        val stickerTop = y + fm.ascent + ((fm.descent - fm.ascent) - sizePx) / 2f
+        val textCenter = y + (fm.ascent + fm.descent) / 2f + verticalOffsetPx
+        val stickerTop = textCenter - sizePx / 2f
+        val left = x + horizontalGapPx
         destination.set(
-            x,
+            left,
             stickerTop,
-            x + sizePx,
+            left + sizePx,
             stickerTop + sizePx
         )
         canvas.drawBitmap(loaded, null, destination, bitmapPaint)
