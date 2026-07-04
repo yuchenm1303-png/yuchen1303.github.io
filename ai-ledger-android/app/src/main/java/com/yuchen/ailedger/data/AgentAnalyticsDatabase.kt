@@ -137,6 +137,12 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
         fun validate(context: Context, databaseName: String) {
             val appContext = context.applicationContext
             val safeName = safeDatabaseName(databaseName)
+            if (isUnavailable(safeName)) {
+                if (tryRepair(appContext, safeName)) return
+                check(!isUnavailable(safeName)) {
+                    "智能体统计数据库在本次进程中不可用：$safeName"
+                }
+            }
             val database = get(appContext, safeName)
             try {
                 database.openHelper.writableDatabase
@@ -153,7 +159,7 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
 
         fun isAvailable(databaseName: String): Boolean {
             val safeName = safeDatabaseName(databaseName)
-            return synchronized(instances) { safeName !in unavailableDatabaseNames }
+            return !isUnavailable(safeName)
         }
 
         private fun buildDatabase(context: Context, safeName: String): AgentAnalyticsDatabase =
@@ -169,10 +175,11 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
             synchronized(instances) {
                 if (safeName in repairedDatabaseNames) return false
                 repairedDatabaseNames += safeName
+                unavailableDatabaseNames -= safeName
+                instances.remove(safeName)?.let { database -> runCatching { database.close() } }
             }
             return runCatching {
                 context.applicationContext.deleteDatabase(safeName)
-                synchronized(instances) { unavailableDatabaseNames -= safeName }
                 val repaired = get(context.applicationContext, safeName)
                 repaired.openHelper.writableDatabase
                 true
@@ -181,6 +188,9 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
                 false
             }
         }
+
+        private fun isUnavailable(safeName: String): Boolean =
+            synchronized(instances) { safeName in unavailableDatabaseNames }
 
         private fun safeDatabaseName(databaseName: String): String =
             databaseName.trim().takeIf { it.endsWith(".db") } ?: "agent_analytics.db"
