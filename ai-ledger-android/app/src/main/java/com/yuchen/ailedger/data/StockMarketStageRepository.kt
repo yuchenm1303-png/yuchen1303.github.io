@@ -94,12 +94,34 @@ class StockMarketStageRepository(
                 snapshot.withStageWarning("market_stage:${stage.wireName}: warming_without_cache")
             }
         } catch (networkError: Throwable) {
+            if (stage == Stage.Indices) {
+                loadLegacyIndicesAfterPriorityFailure(networkError)?.let { return@runCatching it }
+            }
             if (cached == null) throw networkError
             cached.snapshot.withStageWarning(
                 "market_stage:${stage.wireName}: cache_fallback; cached=${cached.entry.source}; " +
                     "ageMs=${cached.entry.ageMs}; reason=${networkError.message.orEmpty().take(120)}"
             )
         }
+    }
+
+    private fun loadLegacyIndicesAfterPriorityFailure(reason: Throwable): StockMarketHomeSnapshot? {
+        return runCatching {
+            val body = StockHttpClient.get(
+                url = "${baseUrl()}$LEGACY_INDICES_PATH",
+                timeoutMs = 1_800,
+                emptyMessage = "legacy indices阶段行情返回为空",
+                microCacheMs = 120L,
+                requestGroup = "stock-index-priority-legacy"
+            )
+            val snapshot = parseStage(Stage.Indices, body)
+            if (!snapshot.hasStageData(Stage.Indices)) return@runCatching null
+            StockFileCache.write(Stage.Indices.cacheFileName, body)
+            snapshot.withStageWarning(
+                "market_stage:indices: legacy_route_after_priority_failure; " +
+                    "reason=${reason.message.orEmpty().take(96)}"
+            )
+        }.getOrNull()
     }
 
     private fun readUsableCache(stage: Stage): ParsedCache? {
@@ -157,6 +179,7 @@ class StockMarketStageRepository(
 
     companion object {
         private const val LEGACY_HOME_CACHE_FILE = "stock_market_home_cache_v1.json"
+        private const val LEGACY_INDICES_PATH = "/api/stock/a-share/market/indices"
         private const val CACHE_MAX_AGE_MS = 4L * 24L * 60L * 60L * 1_000L
         private const val MAX_WARNINGS = 24
     }
