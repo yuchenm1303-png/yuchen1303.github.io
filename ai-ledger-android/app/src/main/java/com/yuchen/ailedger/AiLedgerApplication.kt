@@ -12,6 +12,7 @@ import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.data.UserProfileRepository
 import com.yuchen.ailedger.data.switchAccount
 import com.yuchen.ailedger.service.AgentAnalyticsRuntime
+import com.yuchen.ailedger.service.AgentOverlayProgress
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
@@ -54,9 +55,23 @@ class AiLedgerApplication : Application() {
         }
 
         applicationScope.launch {
+            var previousAnalyticsProgress = AgentOverlayProgress()
             AgentRuntimeController.progress.collectLatest { progress ->
                 AgentOverlayService.syncForProgress(this@AiLedgerApplication, progress)
-                AgentAnalyticsRuntime.observeProgress(progress)
+                val terminalAnalyticsProgress = previousAnalyticsProgress.takeIf { previous ->
+                    previous.taskId > 0L &&
+                        previous.running &&
+                        progress.taskId == 0L &&
+                        !progress.running
+                }?.let { previous ->
+                    progress.copy(
+                        taskId = previous.taskId,
+                        currentAction = previous.currentAction,
+                        logs = (previous.logs + progress.logs).takeLast(24),
+                    )
+                }
+                AgentAnalyticsRuntime.observeProgress(terminalAnalyticsProgress ?: progress)
+                previousAnalyticsProgress = progress
                 if (progress.taskId > 0L || progress.running) {
                     VisualIntelligenceDiagnosticsStore.get(applicationContext)
                         .observeProgress(progress)
