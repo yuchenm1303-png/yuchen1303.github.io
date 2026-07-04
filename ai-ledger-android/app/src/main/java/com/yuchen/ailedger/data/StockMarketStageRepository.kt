@@ -6,7 +6,7 @@ import org.json.JSONObject
 /**
  * 市场首页分阶段数据仓库。
  *
- * 指数优先返回；市场宽度和榜单板块复用同一轮服务端市场扫描结果。
+ * 三大指数是首页首屏最高优先级：走独立极速报价路由，和市场宽度、榜单扫描完全隔离。
  * 旧版整页缓存只用于升级后的首次显示兜底，不再触发旧整页网络刷新。
  */
 class StockMarketStageRepository(
@@ -21,10 +21,10 @@ class StockMarketStageRepository(
     ) {
         Indices(
             wireName = "indices",
-            path = "/api/stock/a-share/market/indices",
-            cacheFileName = "stock_market_indices_cache_v1.json",
-            freshMs = 8_000L,
-            timeoutMs = 5_000
+            path = "/api/stock/a-share/index/priority/quotes",
+            cacheFileName = "stock_market_index_priority_quotes_cache_v1.json",
+            freshMs = 3_000L,
+            timeoutMs = 1_600
         ),
         Breadth(
             wireName = "breadth",
@@ -47,22 +47,30 @@ class StockMarketStageRepository(
         val snapshot: StockMarketHomeSnapshot
     )
 
-    fun loadIndices(forceNetwork: Boolean = false): Result<StockMarketHomeSnapshot> =
-        loadStage(Stage.Indices, forceNetwork)
+    fun loadIndices(
+        forceNetwork: Boolean = false,
+        allowStaleCache: Boolean = false
+    ): Result<StockMarketHomeSnapshot> = loadStage(Stage.Indices, forceNetwork, allowStaleCache)
 
     fun loadBreadth(forceNetwork: Boolean = false): Result<StockMarketHomeSnapshot> =
-        loadStage(Stage.Breadth, forceNetwork)
+        loadStage(Stage.Breadth, forceNetwork, allowStaleCache = false)
 
     fun loadDiscovery(forceNetwork: Boolean = false): Result<StockMarketHomeSnapshot> =
-        loadStage(Stage.Discovery, forceNetwork)
+        loadStage(Stage.Discovery, forceNetwork, allowStaleCache = false)
 
     private fun loadStage(
         stage: Stage,
-        forceNetwork: Boolean
+        forceNetwork: Boolean,
+        allowStaleCache: Boolean
     ): Result<StockMarketHomeSnapshot> = runCatching {
         val cached = readUsableCache(stage)
-        if (!forceNetwork && cached != null && cached.entry.ageMs <= stage.freshMs) {
-            return@runCatching cached.snapshot
+        if (!forceNetwork && cached != null) {
+            if (allowStaleCache || cached.entry.ageMs <= stage.freshMs) {
+                return@runCatching cached.snapshot.withStageWarning(
+                    "market_stage:${stage.wireName}: cache_first; cached=${cached.entry.source}; " +
+                        "ageMs=${cached.entry.ageMs}"
+                )
+            }
         }
 
         try {
@@ -70,9 +78,10 @@ class StockMarketStageRepository(
                 url = "${baseUrl()}${stage.path}",
                 timeoutMs = stage.timeoutMs,
                 emptyMessage = "${stage.wireName}阶段行情返回为空",
-                microCacheMs = 280L
+                microCacheMs = if (stage == Stage.Indices) 120L else 280L,
+                requestGroup = if (stage == Stage.Indices) "stock-index-priority" else null
             )
-            val snapshot = StockMarketSnapshotParser.parse(JSONObject(body))
+            val snapshot = parseStage(stage, body)
             if (snapshot.hasStageData(stage)) {
                 StockFileCache.write(stage.cacheFileName, body)
                 snapshot
@@ -107,9 +116,7 @@ class StockMarketStageRepository(
             )
         )
         for (entry in candidates) {
-            val parsed = runCatching {
-                StockMarketSnapshotParser.parse(JSONObject(entry.body))
-            }.getOrNull()
+            val parsed = runCatching { parseStage(stage, entry.body) }.getOrNull()
             if (parsed != null && parsed.hasStageData(stage)) {
                 return ParsedCache(entry, parsed)
             }
@@ -120,6 +127,17 @@ class StockMarketStageRepository(
             }
         }
         return null
+    }
+
+    private fun parseStage(stage: Stage, body: String): StockMarketHomeSnapshot {
+        val root = JSONObject(body)
+        if (stage != Stage.Indices) return StockMarketSnapshotParser.parse(root)
+        val priority = StockMarketSnapshotParser.parseIndexQuotes(root)
+        return if (priority.indices.isNotEmpty()) {
+            priority
+        } else {
+            StockMarketSnapshotParser.parse(root)
+        }
     }
 
     private fun StockMarketHomeSnapshot.hasStageData(stage: Stage): Boolean = when (stage) {
