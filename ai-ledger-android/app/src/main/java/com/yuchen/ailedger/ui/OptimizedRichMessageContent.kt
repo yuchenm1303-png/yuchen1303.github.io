@@ -155,9 +155,9 @@ fun OptimizedRichMessageContent(
             textSizePx * 1.28f
         }
     }
-    val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
+    val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context).dp
     val stickerSizePx = remember(density, stickerSizeDp) {
-        with(density) { stickerSizeDp.dp.toPx() }.roundToInt().coerceAtLeast(1)
+        with(density) { stickerSizeDp.toPx() }.roundToInt().coerceAtLeast(1)
     }
     val stickerBaselineDropPx = remember(density) {
         with(density) { INLINE_STICKER_BASELINE_DROP_DP.dp.toPx() }.roundToInt().coerceAtLeast(0)
