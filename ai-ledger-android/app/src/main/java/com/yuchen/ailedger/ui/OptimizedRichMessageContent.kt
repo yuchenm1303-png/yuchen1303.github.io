@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.lang.ref.WeakReference
 import kotlin.math.max
@@ -134,10 +135,11 @@ fun OptimizedRichMessageContent(
             textSizePx * 1.28f
         }
     }
-    val stickerSizePx = remember(context, density, textSizePx) {
-        val configuredPx = with(density) {
-            InlineStickerDisplaySettings.currentSizeDp(context).toDp().toPx()
-        }.roundToInt().coerceAtLeast(1)
+    val configuredStickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
+    val stickerSizePx = remember(density, textSizePx, configuredStickerSizeDp) {
+        val configuredPx = with(density) { configuredStickerSizeDp.dp.toPx() }
+            .roundToInt()
+            .coerceAtLeast(1)
         val inlinePx = (textSizePx * 1.32f).roundToInt().coerceAtLeast(1)
         min(configuredPx, inlinePx)
     }
