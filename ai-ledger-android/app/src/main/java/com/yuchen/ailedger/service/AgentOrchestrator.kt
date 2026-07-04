@@ -43,20 +43,17 @@ class AgentOrchestrator(
         } else {
             null
         }
-        if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall == null) {
-            return AgentTaskRunResult(
-                completed = false,
-                stoppedForConfirmation = false,
-                message = "未收到有效的云端视觉工具调用，本地没有启动视觉执行。",
-                logs = emptyList(),
-                handled = false,
-            )
+        val effectiveExecutionMode = if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall == null) {
+            AgentRuntimeController.noteDiagnostic("云端未携带可消费的视觉工具调用，已回落到稳定 VisualForce 执行入口。")
+            AgentExecutionMode.VisualForce
+        } else {
+            executionMode
         }
         return runVisualLoop(
             goal = goal,
             modelPreference = modelPreference,
             maxSteps = maxSteps,
-            executionMode = executionMode,
+            executionMode = effectiveExecutionMode,
             cloudCall = cloudCall,
         )
     }
