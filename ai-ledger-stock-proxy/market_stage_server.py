@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from fastapi import Response
 
+import index_priority_server as index_priority
 import main as legacy
 import market_breadth_server as breadth_service
 import market_home_server as home
@@ -16,8 +17,8 @@ app = home.app
 INDICES_PATH = "/api/stock/a-share/market/indices"
 BREADTH_PATH = "/api/stock/a-share/market/breadth"
 DISCOVERY_PATH = "/api/stock/a-share/market/discovery"
-STAGE_VERSION = "v6-full-universe-breadth"
-INDICES_REFRESH_SECONDS = 8.0
+STAGE_VERSION = "v7-priority-index-quotes"
+INDICES_REFRESH_SECONDS = 3.0
 MARKET_REFRESH_SECONDS = 30.0
 
 
@@ -148,14 +149,7 @@ def _stage_payload(
 
 
 def _cached_indices() -> dict[str, Any]:
-    return _cached_stage_module(
-        "market",
-        "indices",
-        "full-parallel",
-        "indices",
-        INDICES_REFRESH_SECONDS,
-        builder=home._load_indices_parallel,
-    )
+    return index_priority.load_index_priority_quotes_cached()
 
 
 def _cached_breadth() -> dict[str, Any]:
@@ -205,10 +199,11 @@ def a_share_market_indices(response: Response) -> dict[str, Any]:
         "indices",
         modules,
         started_at,
-        ["market_stage: indices_read_only"],
+        ["market_stage: indices_highest_priority"],
     )
     response.headers["X-Market-Stage"] = "indices"
     response.headers["X-Market-Stage-Version"] = STAGE_VERSION
+    response.headers["X-AI-Ledger-Stock-Priority"] = "index-quotes-highest"
     response.headers["Server-Timing"] = f"market-indices;dur={payload['buildLatencyMs']}"
     return payload
 
