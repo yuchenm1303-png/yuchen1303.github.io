@@ -16,35 +16,22 @@ import android.text.style.RelativeSizeSpan
 import android.text.style.ReplacementSpan
 import android.text.style.StyleSpan
 import android.widget.TextView
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text as MaterialText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import java.lang.ref.WeakReference
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 import ru.noties.jlatexmath.JLatexMathDrawable
-
-private const val INLINE_STICKER_BASELINE_DROP_DP = 9f
 
 private val optimizedRichMessageTokenRegex = Regex(
     pattern = """(\*\*.+?\*\*)|(\\\(.+?\\\))|(\\\[.+?\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$|(?m)^\s*【样本\d+】\s*$|(?m)^\s*>\s+""",
@@ -81,7 +68,6 @@ private data class OptimizedRichTextRenderKey(
     val baseFontWeight: Int,
     val lineHeightBits: Int,
     val stickerSizePx: Int,
-    val stickerBaselineDropPx: Int,
     val densityBits: Int
 )
 
@@ -100,11 +86,6 @@ private sealed interface OptimizedInlineObject {
         override val endExclusive: Int,
         val number: String
     ) : OptimizedInlineObject
-}
-
-private sealed interface OptimizedRichContentBlock {
-    data class Text(val text: String) : OptimizedRichContentBlock
-    data class Sticker(val assetKey: String) : OptimizedRichContentBlock
 }
 
 private object OptimizedRichMessageTextCache {
@@ -146,34 +127,19 @@ fun OptimizedRichMessageContent(
         }
     }
     val hasInlineStickerMarker = remember(text) { InlineStickerAssets.containsProtocolMarker(text) }
-    val lineHeightPx = remember(lineHeight, textSizePx, density, hasInlineStickerMarker) {
-        if (hasInlineStickerMarker) {
-            textSizePx * 1.2f
-        } else if (lineHeight != TextUnit.Unspecified) {
+    val lineHeightPx = remember(lineHeight, textSizePx, density) {
+        if (lineHeight != TextUnit.Unspecified) {
             with(density) { lineHeight.toPx() }.coerceAtLeast(textSizePx + 2f)
         } else {
             textSizePx * 1.28f
         }
     }
-    val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context).dp
-    val stickerSizePx = remember(density, stickerSizeDp) {
-        with(density) { stickerSizeDp.toPx() }.roundToInt().coerceAtLeast(1)
-    }
-    val stickerBaselineDropPx = remember(density) {
-        with(density) { INLINE_STICKER_BASELINE_DROP_DP.dp.toPx() }.roundToInt().coerceAtLeast(0)
-    }
-
-    if (hasInlineStickerMarker) {
-        OptimizedRichMessageStickerBlocks(
-            text = text,
-            modifier = modifier,
-            color = resolvedColor,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            fontWeight = fontWeight,
-            stickerSizeDp = stickerSizeDp
-        )
-        return
+    val stickerSizePx = remember(context, density, textSizePx) {
+        val configuredPx = with(density) {
+            InlineStickerDisplaySettings.currentSizeDp(context).toDp().toPx()
+        }.roundToInt().coerceAtLeast(1)
+        val inlinePx = (textSizePx * 1.32f).roundToInt().coerceAtLeast(1)
+        min(configuredPx, inlinePx)
     }
 
     if (shouldUseLegacyMobileCommandPanel(text)) {
@@ -189,7 +155,8 @@ fun OptimizedRichMessageContent(
     }
 
     val hasRichMarkup = remember(text, hasInlineStickerMarker) {
-        optimizedCitationRegex.containsMatchIn(text) ||
+        hasInlineStickerMarker ||
+            optimizedCitationRegex.containsMatchIn(text) ||
             (optimizedMayContainRichMarkup(text) && optimizedRichMessageTokenRegex.containsMatchIn(text))
     }
 
@@ -222,7 +189,6 @@ fun OptimizedRichMessageContent(
         lineHeightPx,
         baseFontWeight,
         stickerSizePx,
-        stickerBaselineDropPx,
         density.density
     ) {
         OptimizedRichTextRenderKey(
@@ -232,7 +198,6 @@ fun OptimizedRichMessageContent(
             baseFontWeight = baseFontWeight,
             lineHeightBits = lineHeightPx.toBits(),
             stickerSizePx = stickerSizePx,
-            stickerBaselineDropPx = stickerBaselineDropPx,
             densityBits = density.density.toBits()
         )
     }
@@ -245,7 +210,6 @@ fun OptimizedRichMessageContent(
                 textSizePx = textSizePx,
                 baseFontWeight = baseFontWeight,
                 stickerSizePx = stickerSizePx,
-                stickerBaselineDropPx = stickerBaselineDropPx,
                 density = density.density
             )
         }
@@ -270,108 +234,6 @@ fun OptimizedRichMessageContent(
             )
         }
     )
-}
-
-@Composable
-private fun OptimizedRichMessageStickerBlocks(
-    text: String,
-    modifier: Modifier,
-    color: Color,
-    fontSize: TextUnit,
-    lineHeight: TextUnit,
-    fontWeight: FontWeight?,
-    stickerSizeDp: Dp
-) {
-    val blocks = remember(text) { buildOptimizedRichContentBlocks(text) }
-    Column(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        blocks.forEach { block ->
-            when (block) {
-                is OptimizedRichContentBlock.Text -> {
-                    if (block.text.isNotBlank()) {
-                        OptimizedRichMessageContent(
-                            text = block.text,
-                            modifier = Modifier.fillMaxWidth(),
-                            color = color,
-                            fontSize = fontSize,
-                            lineHeight = lineHeight,
-                            fontWeight = fontWeight
-                        )
-                    }
-                }
-                is OptimizedRichContentBlock.Sticker -> {
-                    OptimizedStickerBlock(
-                        assetKey = block.assetKey,
-                        stickerSizeDp = stickerSizeDp
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun OptimizedStickerBlock(
-    assetKey: String,
-    stickerSizeDp: Dp
-) {
-    val stickerVisualSizeDp = remember(stickerSizeDp) {
-        min(stickerSizeDp.value, 32f).dp
-    }
-    val image = InlineStickerAssets.rememberImageBitmap(assetKey)
-    if (image != null) {
-        Image(
-            bitmap = image,
-            contentDescription = null,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.size(stickerVisualSizeDp)
-        )
-    }
-}
-
-private fun buildOptimizedRichContentBlocks(raw: String): List<OptimizedRichContentBlock> {
-    val normalized = sanitizeOptimizedRichTextSource(raw)
-    if (normalized.isBlank()) return emptyList()
-
-    val markers = InlineStickerAssets.findProtocolMarkers(normalized)
-        .sortedBy { it.start }
-        .fold(mutableListOf<InlineStickerProtocolMarker>()) { accepted, marker ->
-            if (accepted.none { marker.start < it.endExclusive && marker.endExclusive > it.start }) {
-                accepted += marker
-            }
-            accepted
-        }
-    if (markers.isEmpty()) return listOf(OptimizedRichContentBlock.Text(normalized))
-
-    val blocks = mutableListOf<OptimizedRichContentBlock>()
-    val textBuffer = StringBuilder()
-
-    fun appendTextSegment(value: String) {
-        if (value.isNotEmpty()) textBuffer.append(value)
-    }
-
-    fun flushText() {
-        val value = textBuffer.toString().trim()
-        if (value.isNotBlank()) blocks += OptimizedRichContentBlock.Text(value)
-        textBuffer.clear()
-    }
-
-    var cursor = 0
-    markers.forEach { marker ->
-        val start = marker.start.coerceIn(cursor, normalized.length)
-        val end = marker.endExclusive.coerceIn(start, normalized.length)
-        if (start > cursor) appendTextSegment(normalized.substring(cursor, start))
-        marker.assetKey?.let { assetKey ->
-            flushText()
-            blocks += OptimizedRichContentBlock.Sticker(assetKey)
-        }
-        cursor = max(cursor, end)
-    }
-    if (cursor < normalized.length) appendTextSegment(normalized.substring(cursor))
-    flushText()
-    return blocks
 }
 
 private class OptimizedRichTextView(context: Context) : TextView(context) {
@@ -466,7 +328,6 @@ private fun buildOptimizedRichMessageSpannable(
     textSizePx: Float,
     baseFontWeight: Int,
     stickerSizePx: Int,
-    stickerBaselineDropPx: Int,
     density: Float
 ): CharSequence {
     val normalized = sanitizeOptimizedRichTextSource(raw)
@@ -502,7 +363,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density
+                    stickerSizePx, density
                 )
             }
             optimizedHeadingRegex.matches(trimmed) -> {
@@ -518,7 +379,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, headingText, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density
+                    stickerSizePx, density
                 )
                 builder.setSpan(
                     RelativeSizeSpan(size),
@@ -539,7 +400,7 @@ private fun buildOptimizedRichMessageSpannable(
                 builder.append("• ")
                 appendOptimizedInline(
                     builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density
+                    stickerSizePx, density
                 )
             }
             optimizedTableDividerRegex.matches(trimmed) -> Unit
@@ -552,7 +413,7 @@ private fun buildOptimizedRichMessageSpannable(
                     appendOptimizedCompactSeparator(builder)
                     appendOptimizedInline(
                         builder, cells.joinToString("  ·  "), context, formulaTokens, textColor, textSizePx,
-                        stickerSizePx, stickerBaselineDropPx, density
+                        stickerSizePx, density
                     )
                 }
             }
@@ -560,7 +421,7 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedCompactSeparator(builder)
                 appendOptimizedInline(
                     builder, line.trim(), context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerBaselineDropPx, density
+                    stickerSizePx, density
                 )
             }
         }
@@ -625,7 +486,6 @@ private fun appendOptimizedInline(
     textColor: Int,
     textSizePx: Float,
     stickerSizePx: Int,
-    stickerBaselineDropPx: Int,
     density: Float
 ) {
     val codeTokens = linkedMapOf<String, String>()
@@ -651,7 +511,6 @@ private fun appendOptimizedInline(
             source = value,
             textSizePx = textSizePx,
             stickerSizePx = stickerSizePx,
-            stickerBaselineDropPx = stickerBaselineDropPx,
             density = density
         )
     }
@@ -675,7 +534,6 @@ private fun appendOptimizedInline(
                         span = OptimizedTypefaceSpanCompat(Typeface.MONOSPACE),
                         textSizePx = textSizePx,
                         stickerSizePx = stickerSizePx,
-                        stickerBaselineDropPx = stickerBaselineDropPx,
                         density = density
                     )
                 }
@@ -686,7 +544,6 @@ private fun appendOptimizedInline(
                         span = OptimizedWeightSpan(Typeface.BOLD),
                         textSizePx = textSizePx,
                         stickerSizePx = stickerSizePx,
-                        stickerBaselineDropPx = stickerBaselineDropPx,
                         density = density
                     )
                 }
@@ -702,7 +559,6 @@ private fun appendOptimizedTextWithInlineObjects(
     source: String,
     textSizePx: Float,
     stickerSizePx: Int,
-    stickerBaselineDropPx: Int,
     density: Float
 ) {
     if (source.isEmpty()) return
@@ -749,9 +605,7 @@ private fun appendOptimizedTextWithInlineObjects(
                     builder.setSpan(
                         InlineStickerSpan(
                             assetKey = assetKey,
-                            widthPx = stickerSizePx,
-                            heightPx = stickerSizePx,
-                            baselineDropPx = stickerBaselineDropPx,
+                            sizePx = stickerSizePx,
                             initialBitmap = InlineStickerAssets.cachedBitmap(assetKey)
                         ),
                         start,
@@ -786,13 +640,12 @@ private fun appendOptimizedStyledInline(
     span: Any,
     textSizePx: Float,
     stickerSizePx: Int,
-    stickerBaselineDropPx: Int,
     density: Float
 ) {
     if (text.isEmpty()) return
     val start = builder.length
     appendOptimizedTextWithInlineObjects(
-        builder, text, textSizePx, stickerSizePx, stickerBaselineDropPx, density
+        builder, text, textSizePx, stickerSizePx, density
     )
     if (builder.length > start) {
         builder.setSpan(span, start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
@@ -913,9 +766,7 @@ private class OptimizedTypefaceSpanCompat(private val typeface: Typeface) : Metr
 
 private class InlineStickerSpan(
     val assetKey: String,
-    private val widthPx: Int,
-    private val heightPx: Int,
-    private val baselineDropPx: Int,
+    private val sizePx: Int,
     initialBitmap: Bitmap?
 ) : ReplacementSpan() {
     @Volatile
@@ -938,14 +789,14 @@ private class InlineStickerSpan(
     ): Int {
         if (fm != null) {
             val original = paint.fontMetricsInt
-            val stickerTop = baselineDropPx - heightPx
-            val stickerBottom = baselineDropPx
-            fm.ascent = min(original.ascent, stickerTop)
-            fm.top = min(original.top, stickerTop)
-            fm.descent = max(original.descent, stickerBottom)
-            fm.bottom = max(original.bottom, stickerBottom)
+            val textCenter = (original.ascent + original.descent) / 2
+            val halfSize = sizePx / 2
+            fm.ascent = min(original.ascent, textCenter - halfSize)
+            fm.top = min(original.top, fm.ascent)
+            fm.descent = max(original.descent, textCenter + halfSize)
+            fm.bottom = max(original.bottom, fm.descent)
         }
-        return widthPx
+        return sizePx
     }
 
     override fun draw(
@@ -960,12 +811,13 @@ private class InlineStickerSpan(
         paint: Paint
     ) {
         val loaded = bitmap ?: return
-        val stickerTop = y + baselineDropPx - heightPx
+        val fm = paint.fontMetricsInt
+        val stickerTop = y + fm.ascent + ((fm.descent - fm.ascent) - sizePx) / 2f
         destination.set(
             x,
-            stickerTop.toFloat(),
-            x + widthPx,
-            (stickerTop + heightPx).toFloat()
+            stickerTop,
+            x + sizePx,
+            stickerTop + sizePx
         )
         canvas.drawBitmap(loaded, null, destination, bitmapPaint)
     }
