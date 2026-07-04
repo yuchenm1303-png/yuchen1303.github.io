@@ -24,6 +24,7 @@ internal object AiWorkerPayloadBuilder {
         val latestUserText = messages.latestUserText()
         val imageArray = messages.latestUserImageAttachments().toImageJsonArray()
         val hasImage = imageArray.length() > 0
+        val agentModeEnabled = !hasImage && AgentRuntimeController.isEnabled()
         val appContext = AiLedgerApplication.contextOrNull()
         val stickerPreferences = InlineStickerDisplaySettings.currentExpressionPreferences(appContext)
         val installedApps = if (hasImage) {
@@ -39,10 +40,18 @@ internal object AiWorkerPayloadBuilder {
             route.isAuto -> "auto"
             else -> route.resolved.id
         }
-        val supportedAgentActions = listOf("run_device_control", "run_agent_task", "observe_screen")
-        val supportedDeviceSteps = AI_WORKER_NORMAL_CHAT_DEVICE_TOOL_TYPES
-        val supportedMobileActions = listOf("set_alarm", "navigate")
-        val supportedPreferenceUpdates = listOf("navigation_address")
+        val supportedAgentActions = if (agentModeEnabled) {
+            listOf("run_agent_task", "observe_screen")
+        } else {
+            listOf("run_device_control", "run_agent_task", "observe_screen")
+        }
+        val supportedDeviceSteps = if (agentModeEnabled) {
+            emptyList()
+        } else {
+            AI_WORKER_NORMAL_CHAT_DEVICE_TOOL_TYPES
+        }
+        val supportedMobileActions = if (agentModeEnabled) emptyList() else listOf("set_alarm", "navigate")
+        val supportedPreferenceUpdates = if (agentModeEnabled) emptyList() else listOf("navigation_address")
         val searchMode = if (onlineEnabled) "auto" else "off"
 
         return JSONObject().apply {
@@ -65,6 +74,11 @@ internal object AiWorkerPayloadBuilder {
             put("originalModelPreference", route.requested.id)
             put("autoRequested", route.isAuto)
             put("autoRouteAuthority", AI_WORKER_AUTO_ROUTE_AUTHORITY)
+            if (agentModeEnabled) {
+                put("agentModeEnabled", true)
+                put("forceVisualAgent", true)
+                put("agentToolDomain", "visual_only")
+            }
 
             put("hasImage", hasImage)
             put("imageCount", imageArray.length())
@@ -85,9 +99,10 @@ internal object AiWorkerPayloadBuilder {
                 put("executionOwner", "android_structured_tool_executor")
                 put("clientToolCallSchema", AI_WORKER_CLIENT_TOOL_CALL_SCHEMA)
                 put("clientToolResultProtocol", AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL)
+                if (agentModeEnabled) put("agentToolDomain", "visual_only")
             })
             put("clientCapabilities", JSONObject().apply {
-                put("schema", "ai_ledger_android_client_capabilities_v2")
+                put("schema", if (agentModeEnabled) "ai_ledger_android_client_capabilities_v3" else "ai_ledger_android_client_capabilities_v2")
                 put("agentActions", JSONArray(supportedAgentActions))
                 put("deviceTools", JSONArray(supportedDeviceSteps))
                 put("mobileActions", JSONArray(supportedMobileActions))
@@ -99,6 +114,7 @@ internal object AiWorkerPayloadBuilder {
                 put("includeStructuredData", true)
                 put("includeClientToolCall", true)
                 put("includeEmbeddedCommandMarker", false)
+                if (agentModeEnabled) put("deferClientToolReply", true)
             })
 
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
@@ -151,11 +167,6 @@ internal object AiWorkerPayloadBuilder {
         it.role == MessageRole.User && it.status != MessageStatus.Sending
     }
 
-    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> =
-        latestUserMessage()?.attachments?.filter { attachment ->
-            attachment.mimeType.startsWith("image/") && attachment.base64Data.isNotBlank()
-        }.orEmpty()
-
     private fun List<ChatAttachment>.toImageJsonArray(): JSONArray = JSONArray().apply {
         forEach { attachment ->
             put(JSONObject().apply {
@@ -170,6 +181,11 @@ internal object AiWorkerPayloadBuilder {
             })
         }
     }
+
+    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> =
+        latestUserMessage()?.attachments?.filter { attachment ->
+            attachment.mimeType.startsWith("image/") && attachment.base64Data.isNotBlank()
+        }.orEmpty()
 
     private fun List<InstalledAppEntry>.toInstalledAppsJson(): JSONArray = JSONArray().apply {
         forEach { app ->
