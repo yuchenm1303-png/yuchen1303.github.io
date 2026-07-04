@@ -99,12 +99,20 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
 
     private val localSnapshot = MutableStateFlow(AgentAnalyticsSnapshot())
     private val otherDevicesDaily = MutableStateFlow<List<AgentDailyActivity>>(emptyList())
+    private val mutableDiagnostics = MutableStateFlow(AgentAnalyticsDiagnosticsUiState())
+    val diagnostics: StateFlow<AgentAnalyticsDiagnosticsUiState> = mutableDiagnostics.asStateFlow()
+
     val state: StateFlow<AgentAnalyticsSnapshot> = combine(
         localSnapshot,
         otherDevicesDaily,
     ) { local, remoteDaily ->
-        mergeAgentAnalyticsDaily(local, remoteDaily).also { merged ->
-            updateMergedDiagnostics(merged)
+        if (!local.loaded) {
+            updateMergedDiagnostics(local)
+            local
+        } else {
+            mergeAgentAnalyticsDaily(local, remoteDaily).also { merged ->
+                updateMergedDiagnostics(merged)
+            }
         }
     }
         .catch { error ->
@@ -127,9 +135,6 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
 
     private val mutableSkillInventory = MutableStateFlow(AgentSkillInventory())
     val skillInventory: StateFlow<AgentSkillInventory> = mutableSkillInventory.asStateFlow()
-
-    private val mutableDiagnostics = MutableStateFlow(AgentAnalyticsDiagnosticsUiState())
-    val diagnostics: StateFlow<AgentAnalyticsDiagnosticsUiState> = mutableDiagnostics.asStateFlow()
 
     private var pageVisible = false
     private var ownerCollectionJob: Job? = null
