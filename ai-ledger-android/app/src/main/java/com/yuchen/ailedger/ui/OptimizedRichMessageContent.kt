@@ -104,7 +104,7 @@ private sealed interface OptimizedInlineObject {
 
 private sealed interface OptimizedRichContentBlock {
     data class Text(val text: String) : OptimizedRichContentBlock
-    data class Stickers(val assetKeys: List<String>) : OptimizedRichContentBlock
+    data class Sticker(val assetKey: String) : OptimizedRichContentBlock
 }
 
 private object OptimizedRichMessageTextCache {
@@ -285,7 +285,7 @@ private fun OptimizedRichMessageStickerBlocks(
     val blocks = remember(text) { buildOptimizedRichContentBlocks(text) }
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         blocks.forEach { block ->
             when (block) {
@@ -301,9 +301,9 @@ private fun OptimizedRichMessageStickerBlocks(
                         )
                     }
                 }
-                is OptimizedRichContentBlock.Stickers -> {
+                is OptimizedRichContentBlock.Sticker -> {
                     OptimizedStickerBlock(
-                        assetKeys = block.assetKeys,
+                        assetKey = block.assetKey,
                         stickerSizeDp = stickerSizeDp
                     )
                 }
@@ -314,29 +314,20 @@ private fun OptimizedRichMessageStickerBlocks(
 
 @Composable
 private fun OptimizedStickerBlock(
-    assetKeys: List<String>,
+    assetKey: String,
     stickerSizeDp: Dp
 ) {
-    assetKeys.chunked(4).forEach { rowKeys ->
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            rowKeys.forEach { assetKey ->
-                val image = InlineStickerAssets.rememberImageBitmap(assetKey)
-                if (image != null) {
-                    Image(
-                        bitmap = image,
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.size(stickerSizeDp)
-                    )
-                }
-            }
-        }
+    val stickerVisualSizeDp = remember(stickerSizeDp) {
+        min(stickerSizeDp.value, 32f).dp
+    }
+    val image = InlineStickerAssets.rememberImageBitmap(assetKey)
+    if (image != null) {
+        Image(
+            bitmap = image,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(stickerVisualSizeDp)
+        )
     }
 }
 
@@ -344,12 +335,21 @@ private fun buildOptimizedRichContentBlocks(raw: String): List<OptimizedRichCont
     val normalized = sanitizeOptimizedRichTextSource(raw)
     if (normalized.isBlank()) return emptyList()
 
+    val markers = InlineStickerAssets.findProtocolMarkers(normalized)
+        .sortedBy { it.start }
+        .fold(mutableListOf<InlineStickerProtocolMarker>()) { accepted, marker ->
+            if (accepted.none { marker.start < it.endExclusive && marker.endExclusive > it.start }) {
+                accepted += marker
+            }
+            accepted
+        }
+    if (markers.isEmpty()) return listOf(OptimizedRichContentBlock.Text(normalized))
+
     val blocks = mutableListOf<OptimizedRichContentBlock>()
     val textBuffer = StringBuilder()
 
-    fun appendTextLine(line: String) {
-        if (textBuffer.isNotEmpty()) textBuffer.append('\n')
-        textBuffer.append(line)
+    fun appendTextSegment(value: String) {
+        if (value.isNotEmpty()) textBuffer.append(value)
     }
 
     fun flushText() {
@@ -358,39 +358,20 @@ private fun buildOptimizedRichContentBlocks(raw: String): List<OptimizedRichCont
         textBuffer.clear()
     }
 
-    normalized.lines().forEach { line ->
-        val markers = InlineStickerAssets.findProtocolMarkers(line)
-        if (markers.isEmpty()) {
-            appendTextLine(line)
-            return@forEach
-        }
-
-        appendTextLine(removeOptimizedInlineStickerMarkers(line, markers))
-        val assetKeys = markers.mapNotNull { it.assetKey }
-        if (assetKeys.isNotEmpty()) {
+    var cursor = 0
+    markers.forEach { marker ->
+        val start = marker.start.coerceIn(cursor, normalized.length)
+        val end = marker.endExclusive.coerceIn(start, normalized.length)
+        if (start > cursor) appendTextSegment(normalized.substring(cursor, start))
+        marker.assetKey?.let { assetKey ->
             flushText()
-            blocks += OptimizedRichContentBlock.Stickers(assetKeys)
+            blocks += OptimizedRichContentBlock.Sticker(assetKey)
         }
+        cursor = max(cursor, end)
     }
+    if (cursor < normalized.length) appendTextSegment(normalized.substring(cursor))
     flushText()
     return blocks
-}
-
-private fun removeOptimizedInlineStickerMarkers(
-    source: String,
-    markers: List<InlineStickerProtocolMarker>
-): String {
-    if (markers.isEmpty()) return source
-    val builder = StringBuilder()
-    var cursor = 0
-    markers.sortedBy { it.start }.forEach { marker ->
-        val start = marker.start.coerceIn(cursor, source.length)
-        val end = marker.endExclusive.coerceIn(start, source.length)
-        if (start > cursor) builder.append(source.substring(cursor, start))
-        cursor = end
-    }
-    if (cursor < source.length) builder.append(source.substring(cursor))
-    return builder.toString()
 }
 
 private class OptimizedRichTextView(context: Context) : TextView(context) {
