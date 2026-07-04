@@ -49,12 +49,23 @@ internal object StockMarketSnapshotParser {
         )
     }
 
+    fun parseIndexQuotes(root: JSONObject): StockMarketHomeSnapshot {
+        val payload = StockJsonReader.payloadObject(root)
+        val module = payload.optJSONObject("indices") ?: payload
+        return StockMarketHomeSnapshot(
+            indices = parseIndices(module),
+            indicesMeta = metaFromModule(module),
+            updatedAt = StockJsonReader.firstText(module, "updatedAt").orEmpty(),
+            warnings = StockJsonReader.stringList(module.optJSONArray("warnings"))
+        )
+    }
+
     fun metaFromModule(module: JSONObject?): StockModuleMeta {
         if (module == null) return StockModuleMeta()
         return StockModuleMeta(
             status = StockModuleStatus.fromWire(StockJsonReader.firstText(module, "status")),
-            source = StockJsonReader.firstText(module, "source").orEmpty(),
-            sourceUrlType = StockJsonReader.firstText(module, "sourceUrlType").orEmpty(),
+            source = StockJsonReader.firstText(module, "source", "provider").orEmpty(),
+            sourceUrlType = StockJsonReader.firstText(module, "sourceUrlType", "source_url_type").orEmpty(),
             updatedAt = StockJsonReader.firstText(module, "updatedAt").orEmpty(),
             cacheAgeMs = StockJsonReader.firstLong(module, "cacheAgeMs") ?: 0L,
             isDerived = StockJsonReader.firstBoolean(module, "isDerived") ?: false,
