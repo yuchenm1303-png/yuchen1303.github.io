@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+fun String.agentAnalyticsDiagnosticLine(): String = replace('\n', ' ').replace('\r', ' ').take(240)
+
 enum class AgentAnalyticsSyncPhase {
     Checking,
     Guest,
@@ -49,6 +51,29 @@ data class AgentAnalyticsSyncUiState(
     val uploadedDayCount: Int = 0,
     val remoteDayCount: Int = 0,
 )
+
+data class AgentAnalyticsDiagnosticsUiState(
+    val lastLocalLoadAtMillis: Long = 0L,
+    val lastLocalLoadDurationMs: Long = 0L,
+    val lastLocalLoadSuccess: Boolean = false,
+    val lastLocalLoadMessage: String = "尚未读取本机统计。",
+    val lastLocalLoadErrorType: String = "",
+    val ownerStorageKey: String = "",
+    val ownerDatabaseName: String = "",
+    val ownerIsGuest: Boolean = true,
+    val localDailyCount: Int = 0,
+    val localTaskCount: Int = 0,
+    val localModelCount: Int = 0,
+    val localCapabilityCount: Int = 0,
+    val localTotalTokens: Long = 0L,
+    val localModelCalls: Long = 0L,
+    val localCompletedTasks: Long = 0L,
+    val mergedDailyCount: Int = 0,
+    val mergedTotalTokens: Long = 0L,
+) {
+    val hasLocalLoadFailure: Boolean
+        get() = lastLocalLoadAtMillis > 0L && !lastLocalLoadSuccess
+}
 
 /**
  * 智能体统计页面数据入口。
@@ -78,11 +103,18 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         localSnapshot,
         otherDevicesDaily,
     ) { local, remoteDaily ->
-        mergeAgentAnalyticsDaily(local, remoteDaily)
+        mergeAgentAnalyticsDaily(local, remoteDaily).also { merged ->
+            updateMergedDiagnostics(merged)
+        }
     }
         .catch { error ->
             if (error is CancellationException) throw error
-            emit(EMPTY_LOADED_SNAPSHOT)
+            mutableDiagnostics.value = mutableDiagnostics.value.copy(
+                lastLocalLoadSuccess = false,
+                lastLocalLoadMessage = "合并统计快照失败：${error.message?.agentAnalyticsDiagnosticLine().orEmpty().ifBlank { "未知错误" }}",
+                lastLocalLoadErrorType = error::class.java.simpleName,
+            )
+            emit(UNLOADED_SNAPSHOT)
         }
         .stateIn(
             scope = viewModelScope,
@@ -95,6 +127,9 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
 
     private val mutableSkillInventory = MutableStateFlow(AgentSkillInventory())
     val skillInventory: StateFlow<AgentSkillInventory> = mutableSkillInventory.asStateFlow()
+
+    private val mutableDiagnostics = MutableStateFlow(AgentAnalyticsDiagnosticsUiState())
+    val diagnostics: StateFlow<AgentAnalyticsDiagnosticsUiState> = mutableDiagnostics.asStateFlow()
 
     private var pageVisible = false
     private var ownerCollectionJob: Job? = null
@@ -116,6 +151,12 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                 otherDevicesDaily.value = emptyList()
                 mutableSkillInventory.value = AgentSkillInventory()
                 skillLoadedOwnerKey = null
+                mutableDiagnostics.value = AgentAnalyticsDiagnosticsUiState(
+                    ownerStorageKey = activeOwner.storageKey,
+                    ownerDatabaseName = activeOwner.databaseName,
+                    ownerIsGuest = activeOwner.isGuest,
+                    lastLocalLoadMessage = "已切换统计空间，等待读取本机快照。",
+                )
                 mutableSyncState.value = if (activeOwner.isGuest) {
                     guestSyncState()
                 } else {
@@ -159,14 +200,59 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private suspend fun loadLocalSnapshot(activeOwner: AgentAnalyticsOwner): AgentAnalyticsSnapshot {
+        val started = System.currentTimeMillis()
         return try {
-            withContext(Dispatchers.IO) {
+            val snapshot = withContext(Dispatchers.IO) {
                 AgentAnalyticsSnapshotReader.load(appContext, activeOwner)
             }
+            mutableDiagnostics.value = mutableDiagnostics.value.copy(
+                lastLocalLoadAtMillis = System.currentTimeMillis(),
+                lastLocalLoadDurationMs = System.currentTimeMillis() - started,
+                lastLocalLoadSuccess = true,
+                lastLocalLoadMessage = "本机统计读取成功。",
+                lastLocalLoadErrorType = "",
+                ownerStorageKey = activeOwner.storageKey,
+                ownerDatabaseName = activeOwner.databaseName,
+                ownerIsGuest = activeOwner.isGuest,
+                localDailyCount = snapshot.dailyActivity.size,
+                localTaskCount = snapshot.recentTasks.size,
+                localModelCount = snapshot.modelUsage.size,
+                localCapabilityCount = snapshot.capabilityUsage.size,
+                localTotalTokens = snapshot.totals.totalTokens,
+                localModelCalls = snapshot.totals.modelCalls,
+                localCompletedTasks = snapshot.totals.completedTasks,
+            )
+            snapshot
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Throwable) {
-            EMPTY_LOADED_SNAPSHOT
+        } catch (error: Throwable) {
+            mutableDiagnostics.value = mutableDiagnostics.value.copy(
+                lastLocalLoadAtMillis = System.currentTimeMillis(),
+                lastLocalLoadDurationMs = System.currentTimeMillis() - started,
+                lastLocalLoadSuccess = false,
+                lastLocalLoadMessage = error.message?.agentAnalyticsDiagnosticLine()
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "本机统计读取失败，已停止把失败误显示成 0。",
+                lastLocalLoadErrorType = error::class.java.name,
+                ownerStorageKey = activeOwner.storageKey,
+                ownerDatabaseName = activeOwner.databaseName,
+                ownerIsGuest = activeOwner.isGuest,
+                localDailyCount = 0,
+                localTaskCount = 0,
+                localModelCount = 0,
+                localCapabilityCount = 0,
+                localTotalTokens = 0L,
+                localModelCalls = 0L,
+                localCompletedTasks = 0L,
+            )
+            if (!activeOwner.isGuest) {
+                mutableSyncState.value = AgentAnalyticsSyncUiState(
+                    phase = AgentAnalyticsSyncPhase.LocalOnly,
+                    message = "本机统计读取失败，已暂停云端同步，点右上角诊断复制详情继续排查。",
+                    lastSyncedAtMillis = mutableSyncState.value.lastSyncedAtMillis,
+                )
+            }
+            UNLOADED_SNAPSHOT
         }
     }
 
@@ -275,6 +361,13 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    private fun updateMergedDiagnostics(snapshot: AgentAnalyticsSnapshot) {
+        mutableDiagnostics.value = mutableDiagnostics.value.copy(
+            mergedDailyCount = snapshot.dailyActivity.size,
+            mergedTotalTokens = snapshot.totals.totalTokens,
+        )
+    }
+
     private fun guestSyncState() = AgentAnalyticsSyncUiState(
         phase = AgentAnalyticsSyncPhase.Guest,
         message = "访客统计只保存在当前设备；登录后会使用独立账号空间并启用跨设备聚合。",
@@ -287,6 +380,6 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
 
     private companion object {
         private const val LOCAL_REFRESH_INTERVAL_MS = 2_500L
-        val EMPTY_LOADED_SNAPSHOT = AgentAnalyticsSnapshot(loaded = true)
+        val UNLOADED_SNAPSHOT = AgentAnalyticsSnapshot(loaded = false)
     }
 }
