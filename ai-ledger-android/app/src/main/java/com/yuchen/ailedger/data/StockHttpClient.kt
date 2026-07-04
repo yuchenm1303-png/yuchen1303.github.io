@@ -21,8 +21,8 @@ import okhttp3.Request
 /**
  * 股票模块共享网络传输层。
  *
- * 所有股票接口复用连接池、singleflight 和极短响应微缓存。个股实时/详情属于用户主动请求，
- * 发起时会取消仍在传输中的功能页指数后台请求，避免四条指数链占用连接和 Render 处理窗口。
+ * 三大指数首屏报价属于最高优先级，不允许被详情页、逐笔成交或市场宽度请求取消。
+ * 个股实时/详情只会取消指数扩展分时、批量曲线这类低优先级辅助请求。
  */
 internal object StockHttpClient {
     private data class CachedBody(
@@ -67,7 +67,7 @@ internal object StockHttpClient {
         requestGroup: String? = null
     ): String {
         if (isInteractiveStockRoute(url)) {
-            cancelToolsIndexRequests()
+            cancelLowerPriorityIndexRequests()
         }
         val effectiveTimeoutMs = effectiveTimeoutMs(url, timeoutMs, allowColdStartWait)
         recent(url, microCacheMs)?.let { return it }
@@ -146,13 +146,15 @@ internal object StockHttpClient {
         }
     }
 
-    private fun cancelToolsIndexRequests() {
-        dispatcher.queuedCalls().forEach(::cancelIfToolsIndexRequest)
-        dispatcher.runningCalls().forEach(::cancelIfToolsIndexRequest)
+    private fun cancelLowerPriorityIndexRequests() {
+        dispatcher.queuedCalls().forEach(::cancelIfLowerPriorityIndexRequest)
+        dispatcher.runningCalls().forEach(::cancelIfLowerPriorityIndexRequest)
     }
 
-    private fun cancelIfToolsIndexRequest(call: Call) {
-        if (TOOLS_INDEX_ROUTE_TOKEN in call.request().url.encodedPath) {
+    private fun cancelIfLowerPriorityIndexRequest(call: Call) {
+        val path = call.request().url.encodedPath
+        if (INDEX_PRIORITY_QUOTES_ROUTE_TOKEN in path) return
+        if (INDEX_COMPACT_BATCH_ROUTE_TOKEN in path || INDEX_COMPACT_TREND_ROUTE_TOKEN in path) {
             call.cancel()
         }
     }
@@ -176,11 +178,12 @@ internal object StockHttpClient {
             return requestedTimeoutMs.coerceIn(MIN_REQUEST_TIMEOUT_MS, MAX_COLD_START_TIMEOUT_MS)
         }
         val routeCapMs = when {
-            "/api/stock/a-share/index/compact/trend" in url -> 4_000
-            "/api/stock/a-share/index/compact/batch" in url -> 4_800
-            "/api/stock/a-share/index/compact" in url -> 4_200
+            INDEX_PRIORITY_QUOTES_ROUTE_TOKEN in url -> 1_800
+            INDEX_COMPACT_TREND_ROUTE_TOKEN in url -> 4_000
+            INDEX_COMPACT_BATCH_ROUTE_TOKEN in url -> 4_800
+            TOOLS_INDEX_ROUTE_TOKEN in url -> 4_200
             "/api/stock/a-share/market/home" in url -> MARKET_HOME_TIMEOUT_MS
-            "/api/stock/a-share/market/indices" in url -> 3_000
+            "/api/stock/a-share/market/indices" in url -> 1_800
             "/api/stock/a-share/market/breadth" in url -> 4_500
             "/api/stock/a-share/market/discovery" in url -> 4_500
             "/api/stock/a-share/realtime" in url -> 3_800
@@ -210,7 +213,7 @@ internal object StockHttpClient {
     }
 
     private fun isToolsIndexHeroRoute(url: String): Boolean {
-        return TOOLS_INDEX_ROUTE_TOKEN in url
+        return TOOLS_INDEX_ROUTE_TOKEN in url || INDEX_PRIORITY_QUOTES_ROUTE_TOKEN in url
     }
 
     private fun normalizeTransportError(
@@ -311,7 +314,10 @@ internal object StockHttpClient {
         return ((System.nanoTime() - startedAtNs) / 1_000_000L).coerceAtLeast(0L)
     }
 
+    private const val INDEX_PRIORITY_QUOTES_ROUTE_TOKEN = "/api/stock/a-share/index/priority/quotes"
     private const val TOOLS_INDEX_ROUTE_TOKEN = "/api/stock/a-share/index/compact"
+    private const val INDEX_COMPACT_BATCH_ROUTE_TOKEN = "/api/stock/a-share/index/compact/batch"
+    private const val INDEX_COMPACT_TREND_ROUTE_TOKEN = "/api/stock/a-share/index/compact/trend"
     private const val DEFAULT_MICRO_CACHE_MS = 220L
     private const val MIN_REQUEST_TIMEOUT_MS = 700
     private const val MARKET_HOME_TIMEOUT_MS = 70_000
