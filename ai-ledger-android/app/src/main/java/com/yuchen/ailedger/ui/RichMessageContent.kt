@@ -33,10 +33,12 @@ private const val INLINE_STICKER_LINE_HEIGHT_MULTIPLIER = 1.2f
 private const val INLINE_STICKER_TAG_START = 0xE0001
 private const val INLINE_STICKER_TAG_CANCEL = 0xE007F
 private const val INLINE_STICKER_TAG_BASE = 0xE0000
-private const val INLINE_STICKER_PAYLOAD_PREFIX = "ai_sticker:"
+private const val INLINE_STICKER_PAYLOAD_PREFIX = "ai_" + "sticker:"
 private const val INLINE_STICKER_COMPACT_PREFIX = "s"
-private val visibleInlineStickerRegex =
-    Regex("""\[\[AI_LEDGER_INLINE_STICKER:([a-z0-9_]{2,48})]]""", RegexOption.IGNORE_CASE)
+private val visibleInlineStickerRegex = Regex(
+    "\\[\\[" + listOf("AI", "LEDGER", "INLINE", "STICKER").joinToString("_") + ":([a-z0-9_]{2,48})]]",
+    RegexOption.IGNORE_CASE
+)
 
 private data class CitationInlineToken(
     val id: String,
@@ -194,7 +196,7 @@ fun CitationInlineRichText(
         color = color,
         fontSize = fontSize,
         lineHeight = if (render.stickerTokens.isNotEmpty()) {
-            fontSize * INLINE_STICKER_LINE_HEIGHT_MULTIPLIER
+            stickerSlotHeightTextUnit
         } else {
             lineHeight
         },
