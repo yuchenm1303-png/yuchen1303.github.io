@@ -3,12 +3,17 @@ package com.yuchen.ailedger.service
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
+import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.WebSource
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
 import org.json.JSONObject
+
+private const val CLIENT_TOOL_RESULT_MARKER = "[[AI_LEDGER_CLIENT_TOOL_RESULT_V1]]"
 
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
@@ -129,7 +134,8 @@ class AiWorkerClient(
         endpointLoop@ for (cleanEndpoint in endpoints) {
             for (candidate in endpointCandidates(cleanEndpoint)) {
                 try {
-                    val response = transport.postChat(candidate, payload, route)
+                    val rawResponse = transport.postChat(candidate, payload, route)
+                    val response = completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
                     return response
                 } catch (error: IOException) {
@@ -165,12 +171,13 @@ class AiWorkerClient(
         endpointLoop@ for (cleanEndpoint in endpoints) {
             for (candidate in endpointCandidates(cleanEndpoint)) {
                 try {
-                    val response = transport.postStreamChat(
+                    val rawResponse = transport.postStreamChat(
                         endpoint = candidate,
                         payload = payload,
                         route = route,
                         onDelta = onDelta,
                     )
+                    val response = completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
                     return response
                 } catch (error: IOException) {
@@ -181,7 +188,7 @@ class AiWorkerClient(
                 }
             }
         }
-        val failure = lastError ?: IOException("云端 AI 流式请求失败，请检查 Worker 配置。")
+        val failure = lastError ?: IOException("云端 AI 流式请求失败，请检查网络或 Worker 配置。")
         AssistantMemoryUsageBridge.recordFailedPayload(payload, failure)
         throw failure
     }
@@ -215,6 +222,145 @@ class AiWorkerClient(
         onlineEnabled = onlineEnabled,
         resolvedClientId = resolvedClientId,
     )
+
+    private fun completeDeviceClientToolCallIfNeeded(
+        response: AiChatResponse,
+        modelPreference: ChatModel,
+    ): AiChatResponse? {
+        val call = response.clientToolCall ?: return null
+        val action = response.agentAction ?: return null
+        if (action.capability != "run_device_control") return null
+        val step = action.deviceControlStep ?: DeviceControlRouter.fromClientToolCall(call.toJson()) ?: return null
+        return completeDeviceClientToolCall(call, action, step, response, modelPreference)
+    }
+
+    private fun completeDeviceClientToolCall(
+        call: CloudClientToolCall,
+        action: CloudAgentAction,
+        step: CloudAgentStep,
+        response: AiChatResponse,
+        modelPreference: ChatModel,
+    ): AiChatResponse? {
+        val app = AiLedgerApplication.contextOrNull() ?: return null
+        val goal = call.originalUserGoal
+            ?.takeIf(String::isNotBlank)
+            ?: action.goal?.takeIf(String::isNotBlank)
+            ?: call.arguments.optString("goal").takeIf(String::isNotBlank)
+            ?: response.reply
+        val receipt = baseClientToolReceipt(call, goal)
+        val executor = DeviceToolExecutor(app)
+        if (!executor.canExecute(step)) {
+            receipt.put("status", "unsupported")
+            receipt.put("completed", false)
+            receipt.put("handled", false)
+            receipt.put("resultSummary", "Android 当前不支持云端选择的客户端工具：${step.type}。")
+            receipt.put("actions", JSONArray().apply {
+                put(deviceToolActionReceipt(call, step, null, "unsupported", "Android 当前不支持云端选择的客户端工具：${step.type}。"))
+            })
+            return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+        }
+
+        val requiresConfirmation = call.requiresConfirmation || action.requiresConfirmation || AgentSafetyPolicy.requiresConfirmation(goal, step)
+        val confirmedHighRisk = if (requiresConfirmation) {
+            runBlocking { AgentRuntimeController.requestRiskConfirmation(goal, step) }
+        } else {
+            false
+        }
+        if (requiresConfirmation && !confirmedHighRisk) {
+            receipt.put("status", "cancelled")
+            receipt.put("completed", false)
+            receipt.put("handled", true)
+            receipt.put("stoppedForConfirmation", true)
+            receipt.put("resultSummary", "该客户端工具需要用户确认，但确认流程未完成，所以没有执行。")
+            receipt.put("actions", JSONArray().apply {
+                put(deviceToolActionReceipt(call, step, null, "cancelled", "用户没有确认该客户端工具调用。"))
+            })
+            return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+        }
+
+        val raw = executor.execute(step, confirmedHighRisk = confirmedHighRisk)
+        val verified = DeviceControlActionVerifier(app).verify(step, raw)
+        val status = when {
+            verified.ok -> "verified"
+            raw.ok -> "state_mismatch"
+            else -> "failed"
+        }
+        val summary = verified.message.ifBlank { raw.message }
+        receipt.put("status", status)
+        receipt.put("completed", verified.ok)
+        receipt.put("handled", true)
+        receipt.put("resultSummary", summary.take(1_800))
+        receipt.put("actions", JSONArray().apply {
+            put(deviceToolActionReceipt(call, step, verified, status, summary))
+        })
+        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+    }
+
+    private fun baseClientToolReceipt(call: CloudClientToolCall, goal: String): JSONObject = JSONObject().apply {
+        put("protocol", call.resultProtocol)
+        put("toolCallId", call.id)
+        put("toolName", call.name)
+        put("toolArguments", JSONObject(call.arguments.toString()))
+        put("finalModel", call.finalModel ?: "")
+        put("goal", goal.trim().take(300))
+        put("stoppedForConfirmation", false)
+    }
+
+    private fun deviceToolActionReceipt(
+        call: CloudClientToolCall,
+        step: CloudAgentStep,
+        execution: AgentExecutionResult?,
+        status: String,
+        detail: String,
+    ): JSONObject = JSONObject().apply {
+        put("tool", step.type)
+        put("toolLabel", step.typeLabel)
+        put("requestedArgs", step.toolArgs?.let { JSONObject(it.toString()) } ?: JSONObject())
+        put("riskLevel", call.riskLevel)
+        put("requiresConfirmation", call.requiresConfirmation)
+        put("appName", step.appName.orEmpty())
+        put("packageName", step.packageName.orEmpty())
+        put("status", status)
+        put("ok", execution?.ok == true)
+        put("verified", status == "verified")
+        put("shouldContinue", execution?.shouldContinue == true)
+        put("technicalDetail", detail.take(1_800))
+        put("undoAvailable", false)
+    }
+
+    private fun sendClientToolResultForFinalReply(
+        call: CloudClientToolCall,
+        receipt: JSONObject,
+        originalResponse: AiChatResponse,
+        modelPreference: ChatModel,
+    ): AiChatResponse {
+        val resolvedModel = call.finalModel
+            ?.takeIf(String::isNotBlank)
+            ?.let(ChatModel::fromId)
+            ?: modelPreference
+        val marker = "$CLIENT_TOOL_RESULT_MARKER$receipt"
+        return runCatching {
+            sendChat(
+                messages = listOf(
+                    ChatMessage(
+                        id = "client-tool-result-${call.id}",
+                        text = marker,
+                        role = MessageRole.User,
+                    ),
+                ),
+                modelPreference = resolvedModel,
+                onlineEnabled = false,
+            )
+        }.getOrElse { error ->
+            originalResponse.copy(
+                reply = "客户端工具已返回结构化结果，但最终模型续写失败：${error.message.orEmpty().take(120)}",
+                source = "client_tool_result_report_failed",
+                agentAction = null,
+                clientToolCall = null,
+                mobileAction = null,
+            )
+        }
+    }
 
     private fun endpointPool(primary: String, fallbacks: List<String>): List<String> =
         (listOf(primary) + fallbacks)
