@@ -112,6 +112,7 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
 
         private val instances = mutableMapOf<String, AgentAnalyticsDatabase>()
         private val unavailableDatabaseNames = mutableSetOf<String>()
+        private val repairedDatabaseNames = mutableSetOf<String>()
 
         fun get(context: Context): AgentAnalyticsDatabase {
             val owner = AgentAnalyticsOwnerRuntime.current(context.applicationContext)
@@ -124,25 +125,19 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
                 check(safeName !in unavailableDatabaseNames) {
                     "智能体统计数据库在本次进程中不可用：$safeName"
                 }
-                instances[safeName] ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    AgentAnalyticsDatabase::class.java,
-                    safeName,
-                )
-                    .addMigrations(MIGRATION_1_2)
-                    .build()
+                instances[safeName] ?: buildDatabase(context.applicationContext, safeName)
                     .also { instances[safeName] = it }
             }
         }
 
         /**
          * 仅由统计详情页在 IO 线程调用，提前完成 Room 迁移与 schema 校验。
-         * 校验失败后关闭并移除该实例，同时在本次进程中禁用对应统计库，确保聊天、智能体和首页
-         * 后续即使继续产生旁路统计，也只会放弃统计写入，不会再次触发同一个数据库异常。
+         * 校验失败后会对统计库做一次自修复重建；统计是旁路数据，不能因为历史坏库让后续记录永久停摆。
          */
         fun validate(context: Context, databaseName: String) {
+            val appContext = context.applicationContext
             val safeName = safeDatabaseName(databaseName)
-            val database = get(context.applicationContext, safeName)
+            val database = get(appContext, safeName)
             try {
                 database.openHelper.writableDatabase
             } catch (error: Throwable) {
@@ -151,6 +146,7 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
                     unavailableDatabaseNames += safeName
                 }
                 runCatching { database.close() }
+                if (tryRepair(appContext, safeName)) return
                 throw error
             }
         }
@@ -158,6 +154,32 @@ abstract class AgentAnalyticsDatabase : RoomDatabase() {
         fun isAvailable(databaseName: String): Boolean {
             val safeName = safeDatabaseName(databaseName)
             return synchronized(instances) { safeName !in unavailableDatabaseNames }
+        }
+
+        private fun buildDatabase(context: Context, safeName: String): AgentAnalyticsDatabase =
+            Room.databaseBuilder(
+                context.applicationContext,
+                AgentAnalyticsDatabase::class.java,
+                safeName,
+            )
+                .addMigrations(MIGRATION_1_2)
+                .build()
+
+        private fun tryRepair(context: Context, safeName: String): Boolean {
+            synchronized(instances) {
+                if (safeName in repairedDatabaseNames) return false
+                repairedDatabaseNames += safeName
+            }
+            return runCatching {
+                context.applicationContext.deleteDatabase(safeName)
+                synchronized(instances) { unavailableDatabaseNames -= safeName }
+                val repaired = get(context.applicationContext, safeName)
+                repaired.openHelper.writableDatabase
+                true
+            }.getOrElse {
+                synchronized(instances) { unavailableDatabaseNames += safeName }
+                false
+            }
         }
 
         private fun safeDatabaseName(databaseName: String): String =
