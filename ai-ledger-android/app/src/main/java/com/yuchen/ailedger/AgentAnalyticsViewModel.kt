@@ -106,11 +106,16 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         localSnapshot,
         otherDevicesDaily,
     ) { local, remoteDaily ->
-        if (!local.loaded) {
-            updateMergedDiagnostics(local)
-            local
-        } else {
-            mergeAgentAnalyticsDaily(local, remoteDaily).also { merged ->
+        when {
+            !local.loaded -> {
+                updateMergedDiagnostics(local)
+                local
+            }
+            remoteDaily.isEmpty() -> {
+                updateMergedDiagnostics(local)
+                local
+            }
+            else -> mergeAgentAnalyticsDaily(local, remoteDaily).also { merged ->
                 updateMergedDiagnostics(merged)
             }
         }
