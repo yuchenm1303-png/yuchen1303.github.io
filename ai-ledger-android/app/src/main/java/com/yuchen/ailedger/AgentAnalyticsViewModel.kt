@@ -20,6 +20,7 @@ import com.yuchen.ailedger.model.AgentSkillInventory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -52,8 +53,8 @@ data class AgentAnalyticsSyncUiState(
 /**
  * 智能体统计页面数据入口。
  *
- * 页面每次可见时只在 IO 线程读取一次不可变快照，不订阅 Repository 内部的 Room stateIn。
- * 登录账号在页面可见期间按需同步每日聚合；访客数据始终留在本机且不会自动并入账号。
+ * 页面可见时低频刷新一次本机快照，避免用户停留在统计页期间看到旧数据。
+ * 登录账号按需同步每日聚合；访客数据始终留在本机且不会自动并入账号。
  */
 class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(application) {
     private val appContext = application.applicationContext
@@ -98,6 +99,7 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     private var pageVisible = false
     private var ownerCollectionJob: Job? = null
     private var syncJob: Job? = null
+    private var manualRefreshJob: Job? = null
     private var skillInventoryRequested = false
     private var skillLoadedOwnerKey: String? = null
 
@@ -108,6 +110,8 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
             owner.collectLatest { activeOwner ->
                 syncJob?.cancel()
                 syncJob = null
+                manualRefreshJob?.cancel()
+                manualRefreshJob = null
                 localSnapshot.value = AgentAnalyticsSnapshot()
                 otherDevicesDaily.value = emptyList()
                 mutableSkillInventory.value = AgentSkillInventory()
@@ -121,25 +125,21 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                     )
                 }
 
-                val local = try {
-                    withContext(Dispatchers.IO) {
-                        AgentAnalyticsSnapshotReader.load(appContext, activeOwner)
+                var firstLoad = true
+                while (pageVisible && owner.value.storageKey == activeOwner.storageKey) {
+                    val local = loadLocalSnapshot(activeOwner)
+                    if (!pageVisible || owner.value.storageKey != activeOwner.storageKey) break
+                    localSnapshot.value = local
+
+                    if (firstLoad) {
+                        if (!activeOwner.isGuest) {
+                            startCloudSync(activeOwner, local)
+                        } else if (skillInventoryRequested) {
+                            loadGuestSkillInventory(activeOwner.storageKey)
+                        }
+                        firstLoad = false
                     }
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Throwable) {
-                    EMPTY_LOADED_SNAPSHOT
-                }
-
-                if (!pageVisible || owner.value.storageKey != activeOwner.storageKey) {
-                    return@collectLatest
-                }
-                localSnapshot.value = local
-
-                if (!activeOwner.isGuest) {
-                    startCloudSync(activeOwner, local)
-                } else if (skillInventoryRequested) {
-                    loadGuestSkillInventory(activeOwner.storageKey)
+                    delay(LOCAL_REFRESH_INTERVAL_MS)
                 }
             }
         }
@@ -148,17 +148,33 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     fun retryCloudSync() {
         if (!pageVisible) return
         val activeOwner = owner.value
-        val local = localSnapshot.value
-        if (activeOwner.isGuest || !local.loaded || mutableSyncState.value.phase == AgentAnalyticsSyncPhase.Syncing) {
-            return
+        if (activeOwner.isGuest || mutableSyncState.value.phase == AgentAnalyticsSyncPhase.Syncing) return
+        manualRefreshJob?.cancel()
+        manualRefreshJob = viewModelScope.launch {
+            val refreshed = loadLocalSnapshot(activeOwner)
+            if (!pageVisible || owner.value.storageKey != activeOwner.storageKey || !refreshed.loaded) return@launch
+            localSnapshot.value = refreshed
+            startCloudSync(activeOwner, refreshed)
         }
-        startCloudSync(activeOwner, local)
+    }
+
+    private suspend fun loadLocalSnapshot(activeOwner: AgentAnalyticsOwner): AgentAnalyticsSnapshot {
+        return try {
+            withContext(Dispatchers.IO) {
+                AgentAnalyticsSnapshotReader.load(appContext, activeOwner)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            EMPTY_LOADED_SNAPSHOT
+        }
     }
 
     private fun startCloudSync(
         activeOwner: AgentAnalyticsOwner,
         local: AgentAnalyticsSnapshot,
     ) {
+        if (!local.loaded) return
         syncJob?.cancel()
         syncJob = viewModelScope.launch {
             mutableSyncState.value = AgentAnalyticsSyncUiState(
@@ -226,6 +242,8 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
         ownerCollectionJob = null
         syncJob?.cancel()
         syncJob = null
+        manualRefreshJob?.cancel()
+        manualRefreshJob = null
     }
 
     fun ensureSkillInventoryLoaded() {
@@ -268,6 +286,7 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private companion object {
+        private const val LOCAL_REFRESH_INTERVAL_MS = 2_500L
         val EMPTY_LOADED_SNAPSHOT = AgentAnalyticsSnapshot(loaded = true)
     }
 }
