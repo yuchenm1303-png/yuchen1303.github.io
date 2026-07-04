@@ -7,31 +7,34 @@ from fastapi import Response
 
 import fast_stock_server as fast
 import index_compact_server as compact
+import index_priority_server as index_priority
 import market_breadth_server as breadth
 import market_stage_server as stage
 
 
 class MarketStageServerTest(unittest.TestCase):
-    def test_indices_refresh_uses_stage_specific_ttl_and_caches_real_payload(self) -> None:
+    def test_indices_stage_uses_highest_priority_quotes_route(self) -> None:
         payload = {
             "status": "ok",
-            "source": "test",
-            "sourceUrlType": "test",
-            "items": [{"code": "000001", "name": "上证指数", "price": "3000"}],
+            "provider": "test-index-priority",
+            "items": [
+                {"code": "000001", "name": "上证指数", "price": "3000"},
+                {"code": "399001", "name": "深证成指", "price": "9500"},
+                {"code": "399006", "name": "创业板指", "price": "1900"},
+            ],
             "warnings": [],
         }
-        cache_put = Mock()
-        with (
-            patch.object(stage.legacy, "_cache_get", return_value=None),
-            patch.object(stage.legacy, "_cache_put", cache_put),
-            patch.object(stage.legacy, "_payload_has_real_items", return_value=True),
-            patch.object(stage.home, "_load_indices_parallel", return_value=payload),
-        ):
+        with patch.object(index_priority, "load_index_priority_quotes_cached", return_value=payload) as loader:
             result = stage._cached_indices()
 
         self.assertEqual(result, payload)
-        cache_put.assert_called_once()
-        self.assertEqual(stage.INDICES_REFRESH_SECONDS, 8.0)
+        loader.assert_called_once_with()
+        self.assertEqual(stage.INDICES_REFRESH_SECONDS, 3.0)
+        self.assertEqual(stage.STAGE_VERSION, "v7-priority-index-quotes")
+        self.assertEqual(
+            index_priority.INDEX_PRIORITY_QUOTES_PATH,
+            "/api/stock/a-share/index/priority/quotes",
+        )
 
     def test_fresh_stage_cache_does_not_call_builder(self) -> None:
         payload = {
@@ -91,7 +94,7 @@ class MarketStageServerTest(unittest.TestCase):
             discovery = stage.a_share_market_discovery(Response())
 
         start.assert_not_called()
-        self.assertIn("market_stage: indices_read_only", indices["warnings"])
+        self.assertIn("market_stage: indices_highest_priority", indices["warnings"])
         self.assertIn("market_stage: discovery_read_only", discovery["warnings"])
 
     def test_only_breadth_can_start_full_market_refresh(self) -> None:
@@ -120,7 +123,7 @@ class MarketStageServerTest(unittest.TestCase):
 
     def test_full_market_refresh_window_is_not_aggressive(self) -> None:
         self.assertGreaterEqual(stage.MARKET_REFRESH_SECONDS, 30.0)
-        self.assertEqual(stage.STAGE_VERSION, "v6-full-universe-breadth")
+        self.assertEqual(stage.STAGE_VERSION, "v7-priority-index-quotes")
 
     def test_market_breadth_counts_full_universe_and_board_limits(self) -> None:
         rows = [
@@ -214,6 +217,10 @@ class MarketStageServerTest(unittest.TestCase):
         self.assertEqual(
             compact.INDEX_COMPACT_QUOTES_PATH,
             "/api/stock/a-share/index/compact/quotes",
+        )
+        self.assertEqual(
+            index_priority.INDEX_PRIORITY_QUOTES_PATH,
+            "/api/stock/a-share/index/priority/quotes",
         )
         self.assertEqual(
             compact.INDEX_COMPACT_TREND_PATH,
