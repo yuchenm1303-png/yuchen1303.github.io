@@ -16,7 +16,7 @@ internal fun AgentAnalyticsRoute(
         analyticsViewModel.onScreenVisible()
         onDispose { analyticsViewModel.onScreenHidden() }
     }
-    AgentAnalyticsProfileScreen(
+    AgentAnalyticsProfileWideScreen(
         viewModel = analyticsViewModel,
         onBack = onBack,
     )
