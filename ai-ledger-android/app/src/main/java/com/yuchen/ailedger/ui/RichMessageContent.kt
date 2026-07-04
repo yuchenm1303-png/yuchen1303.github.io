@@ -26,7 +26,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private const val INLINE_STICKER_MAX_PER_MESSAGE = 2
+private const val INLINE_STICKER_RENDER_SAFETY_MAX = 64
 private const val INLINE_STICKER_SIZE_DP = 60
 private const val INLINE_STICKER_BASELINE_SHIFT_DP = -9
 private const val INLINE_STICKER_LINE_HEIGHT_MULTIPLIER = 1.2f
@@ -235,7 +235,7 @@ private fun buildCitationInlineRender(text: String): CitationInlineRender {
                 appendTextWithCitations(text.substring(cursor, marker.start))
             }
             val asset = inlineStickerCatalog[marker.assetKey]
-            if (asset != null && stickerTokens.size < INLINE_STICKER_MAX_PER_MESSAGE) {
+            if (asset != null && stickerTokens.size < INLINE_STICKER_RENDER_SAFETY_MAX) {
                 val id = "inline_sticker_${stickerIndex}_${marker.assetKey}"
                 stickerTokens += StickerInlineToken(
                     id = id,
@@ -271,7 +271,7 @@ private fun findInlineStickerMarkers(text: String): List<InlineStickerMarker> {
     }
 
     var index = 0
-    while (index < text.length && markers.size < INLINE_STICKER_MAX_PER_MESSAGE * 2) {
+    while (index < text.length && markers.size < INLINE_STICKER_RENDER_SAFETY_MAX) {
         val codePoint = Character.codePointAt(text, index)
         if (codePoint != INLINE_STICKER_TAG_START) {
             index += Character.charCount(codePoint)
@@ -316,7 +316,7 @@ private fun findInlineStickerMarkers(text: String): List<InlineStickerMarker> {
     return markers
         .sortedBy { it.start }
         .fold(mutableListOf<InlineStickerMarker>()) { accepted, marker ->
-            if (accepted.size < INLINE_STICKER_MAX_PER_MESSAGE &&
+            if (accepted.size < INLINE_STICKER_RENDER_SAFETY_MAX &&
                 accepted.none { marker.start < it.endExclusive && marker.endExclusive > it.start }
             ) {
                 accepted += marker
