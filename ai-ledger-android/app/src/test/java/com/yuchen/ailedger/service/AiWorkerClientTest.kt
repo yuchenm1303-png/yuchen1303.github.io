@@ -98,8 +98,8 @@ class AiWorkerClientTest {
 
     @Test
     fun stickerExpressionDefaultsRemainStable() {
-        assertEquals(50, InlineStickerDisplaySettings.DefaultFrequency)
-        assertEquals(50, InlineStickerDisplaySettings.DefaultIntensity)
+        assertEquals(34, InlineStickerDisplaySettings.DefaultFrequency)
+        assertEquals(79, InlineStickerDisplaySettings.DefaultIntensity)
         assertEquals(0, InlineStickerDisplaySettings.DefaultMaxPerReply)
         assertEquals(1, InlineStickerDisplaySettings.DefaultRepeatCount)
     }
