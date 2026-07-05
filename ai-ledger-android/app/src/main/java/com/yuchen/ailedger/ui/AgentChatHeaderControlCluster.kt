@@ -1,16 +1,29 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 
 /**
  * Assistant 页面同窗口覆盖层兼容入口。
  *
- * App.kt 仍会在 Assistant 页面根 Box 中调用本函数。这里不再绘制任何固定坐标按钮，
- * 只承载记忆面板的全页覆盖层；传入的旧固定 offset modifier 必须忽略。
+ * 面板本体复用 AnchoredQuickPanel；按钮优先由对话大玻璃内部挂载，旧 modifier 只作为兼容兜底。
  */
-@Suppress("UNUSED_PARAMETER")
 @Composable
 internal fun AgentChatHeaderControlCluster(modifier: Modifier = Modifier) {
-    MemoryQuickPanelSameWindowOverlayHost()
+    Box(modifier = Modifier) {
+        Row(
+            modifier = modifier,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkillQuickPanelButtonHost()
+            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+        }
+        MemoryQuickPanelSameWindowOverlayHost()
+        SkillQuickPanelSameWindowOverlayHost()
+    }
 }
