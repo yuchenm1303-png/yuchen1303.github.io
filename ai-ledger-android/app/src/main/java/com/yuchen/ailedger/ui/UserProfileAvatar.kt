@@ -3,6 +3,7 @@ package com.yuchen.ailedger.ui
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -17,10 +18,14 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -154,16 +159,16 @@ internal fun UserProfileAvatar(
                         )
                     } else {
                         listOf(
-                            Color.White.copy(alpha = 0.20f),
-                            Color(0xFF263269).copy(alpha = 0.72f),
-                            Color(0xFF11173F).copy(alpha = 0.96f),
+                            Color(0xFF9AF7FF).copy(alpha = 0.24f),
+                            Color(0xFF243A83).copy(alpha = 0.66f),
+                            Color(0xFF0B1236).copy(alpha = 0.98f),
                         )
                     }
                 )
             )
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = if (loggedIn) 0.42f else 0.20f),
+                color = Color.White.copy(alpha = if (loggedIn) 0.42f else 0.18f),
                 shape = shape,
             ),
         contentAlignment = Alignment.Center,
@@ -178,6 +183,8 @@ internal fun UserProfileAvatar(
                     .fillMaxSize()
                     .clip(shape),
             )
+        } else if (!loggedIn) {
+            LocalUserAvatarGlyph()
         } else {
             Box(
                 Modifier
@@ -195,5 +202,56 @@ internal fun UserProfileAvatar(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun LocalUserAvatarGlyph() {
+    Canvas(Modifier.fillMaxSize()) {
+        val side = minOf(size.width, size.height)
+        val center = Offset(size.width * 0.50f, size.height * 0.50f)
+        drawCircle(
+            color = Color(0xFF8DF9EA).copy(alpha = 0.10f),
+            radius = side * 0.36f,
+            center = center,
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = 0.80f),
+            radius = side * 0.105f,
+            center = Offset(size.width * 0.50f, size.height * 0.41f),
+        )
+        drawArc(
+            color = Color.White.copy(alpha = 0.66f),
+            startAngle = 205f,
+            sweepAngle = 130f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.33f, size.height * 0.47f),
+            size = Size(side * 0.34f, side * 0.24f),
+            style = Stroke(width = side * 0.045f, cap = StrokeCap.Round),
+        )
+        drawLine(
+            color = Color(0xFF8DF9EA).copy(alpha = 0.74f),
+            start = Offset(size.width * 0.30f, size.height * 0.34f),
+            end = Offset(size.width * 0.30f, size.height * 0.46f),
+            strokeWidth = side * 0.022f,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = Color(0xFF8DF9EA).copy(alpha = 0.74f),
+            start = Offset(size.width * 0.24f, size.height * 0.40f),
+            end = Offset(size.width * 0.36f, size.height * 0.40f),
+            strokeWidth = side * 0.022f,
+            cap = StrokeCap.Round,
+        )
+        drawCircle(
+            color = Color(0xFFFFB8F4).copy(alpha = 0.55f),
+            radius = side * 0.025f,
+            center = Offset(size.width * 0.69f, size.height * 0.34f),
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = 0.32f),
+            radius = side * 0.018f,
+            center = Offset(size.width * 0.67f, size.height * 0.64f),
+        )
     }
 }
