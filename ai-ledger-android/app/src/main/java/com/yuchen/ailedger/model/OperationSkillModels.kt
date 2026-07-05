@@ -1,11 +1,5 @@
 package com.yuchen.ailedger.model
 
-/**
- * 云端从一次视觉演示中提炼出的 Skill。
- *
- * 它描述“如何完成目标”，而不是保存固定控件、节点或坐标路线。运行时由视觉智能
- * 根据当前屏幕和本次输入重新决策，本地仅执行动作并守住权限与风险边界。
- */
 data class LearnedVisualSkill(
     val schemaVersion: String = SCHEMA_VERSION,
     val workflowId: String,
@@ -44,10 +38,15 @@ data class VisualDemonstrationFrame(
     val displayHeight: Int,
     val encryptedFileName: String,
     val digest: String,
+    val visualHash: String = "",
+    val captureKind: String = "timed",
+    val eventType: String = "",
+    val eventIndex: Int = 0,
+    val eventOccurredAtMillis: Long = 0L,
 )
 
 data class VisualDemonstrationManifest(
-    val schemaVersion: String = "ai_ledger_visual_demonstration_v1",
+    val schemaVersion: String = "ai_ledger_visual_demonstration_v2",
     val demonstrationId: String,
     val workflowId: String,
     val workflowTitle: String,
