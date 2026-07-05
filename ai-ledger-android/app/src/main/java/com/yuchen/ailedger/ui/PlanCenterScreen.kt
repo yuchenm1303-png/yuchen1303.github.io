@@ -109,7 +109,7 @@ fun PlanCenterScreen(
 
     LaunchedEffect(pageHostState) {
         withFrameNanos { }
-        delay(320)
+        delay(96)
         if (warmHandleHolder[0] == null) {
             warmHandleHolder[0] = pageHostState.precompose(PlanPageSlot.Editor) {
                 PlanEditorPage(
@@ -133,21 +133,12 @@ fun PlanCenterScreen(
             try {
                 pageAlpha.stop()
 
+                displayedDestination = target
                 if (motionScale <= 0.05f) {
-                    displayedDestination = target
                     pageAlpha.snapTo(1f)
                     return@launch
                 }
 
-                pageAlpha.animateTo(
-                    targetValue = 0f,
-                    animationSpec = tween(
-                        durationMillis = 82,
-                        easing = PlanFadeOutEasing,
-                    ),
-                )
-
-                displayedDestination = target
                 pageAlpha.snapTo(0f)
                 withFrameNanos { }
                 withFrameNanos { }
@@ -155,7 +146,7 @@ fun PlanCenterScreen(
                 pageAlpha.animateTo(
                     targetValue = 1f,
                     animationSpec = tween(
-                        durationMillis = 168,
+                        durationMillis = 182,
                         easing = PlanFadeInEasing,
                     ),
                 )
@@ -212,7 +203,7 @@ fun PlanCenterScreen(
                     .graphicsLayer {
                         val progress = pageAlpha.value
                         alpha = progress
-                        translationY = (1f - progress) * 22.dp.toPx()
+                        translationY = (1f - progress) * 20.dp.toPx()
                         val scale = secondaryPanelScale(progress)
                         scaleX = scale
                         scaleY = scale
