@@ -2,6 +2,15 @@ package com.yuchen.ailedger.ui
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -32,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -52,6 +62,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.yield
 
 @Composable
 fun NativeLedgerCenterScreen(
@@ -95,93 +107,165 @@ fun NativeLedgerCenterScreen(
         }
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 14.dp, bottom = 116.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        item {
-            LedgerHeader(
-                title = if (statisticsOnly) "数据统计" else "账单中心",
-                subtitle = if (statisticsOnly) {
-                    "按月份和分类查看收支结构"
-                } else {
-                    "主脑记账、手动维护、预算、筛选与云同步"
-                },
-                appState = appState,
-                onBack = onBack
-            )
-        }
-        item { LedgerSummaryCard(appState, ledgerState, monthFilter) }
-        item { LedgerSyncCard(appState, ledgerState, ledgerViewModel::syncNow) }
-
-        if (!statisticsOnly) {
-            item { LedgerBrainToolCard(appState, onOpenAssistant) }
+    SecondaryRouteEntrance(motionIntensity = appState.motionIntensity) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 14.dp, bottom = 116.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             item {
-                LedgerEditorCard(
-                    appState = appState,
-                    ledgerState = ledgerState,
-                    onTitleChange = ledgerViewModel::updateTitle,
-                    onAmountChange = ledgerViewModel::updateAmount,
-                    onDateChange = ledgerViewModel::updateDate,
-                    onTypeChange = ledgerViewModel::updateType,
-                    onCategoryChange = ledgerViewModel::updateCategory,
-                    onSave = ledgerViewModel::saveRecord,
-                    onCancelEdit = ledgerViewModel::cancelEdit
-                )
-            }
-            item { LedgerBudgetCard(appState, ledgerState, ledgerViewModel::updateBudget) }
-        }
-
-        item { LedgerCategoryStatsCard(appState, ledgerState.records, monthFilter) }
-        item {
-            LedgerFilterCard(
-                appState = appState,
-                searchText = searchText,
-                onSearchChange = { searchText = it.take(40) },
-                typeFilter = typeFilter,
-                onTypeFilterChange = { typeFilter = it },
-                categoryFilter = categoryFilter,
-                onCategoryFilterChange = { categoryFilter = it },
-                monthFilter = monthFilter,
-                onMonthFilterChange = { monthFilter = sanitizeMonth(it) }
-            )
-        }
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("账单明细", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                    Text(
-                        "共 ${filteredRecords.size} 笔符合条件",
-                        color = Color.White.copy(alpha = 0.46f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                LedgerAnimatedItem(index = 0, appState = appState) {
+                    LedgerHeader(
+                        title = if (statisticsOnly) "数据统计" else "账单中心",
+                        subtitle = if (statisticsOnly) {
+                            "按月份和分类查看收支结构"
+                        } else {
+                            "主脑记账、手动维护、预算、筛选与云同步"
+                        },
+                        appState = appState,
+                        onBack = onBack
                     )
                 }
-                LedgerSmallButton(
-                    text = "导出 JSON",
-                    appState = appState,
-                    onClick = { shareLedgerJson(context, ledgerViewModel.exportJson()) }
-                )
             }
-        }
-        if (filteredRecords.isEmpty()) {
+            item { LedgerAnimatedItem(index = 1, appState = appState) { LedgerSummaryCard(appState, ledgerState, monthFilter) } }
+            item { LedgerAnimatedItem(index = 2, appState = appState) { LedgerSyncCard(appState, ledgerState, ledgerViewModel::syncNow) } }
+
+            if (!statisticsOnly) {
+                item { LedgerAnimatedItem(index = 3, appState = appState) { LedgerBrainToolCard(appState, onOpenAssistant) } }
+                item {
+                    LedgerAnimatedItem(index = 4, appState = appState) {
+                        LedgerEditorCard(
+                            appState = appState,
+                            ledgerState = ledgerState,
+                            onTitleChange = ledgerViewModel::updateTitle,
+                            onAmountChange = ledgerViewModel::updateAmount,
+                            onDateChange = ledgerViewModel::updateDate,
+                            onTypeChange = ledgerViewModel::updateType,
+                            onCategoryChange = ledgerViewModel::updateCategory,
+                            onSave = ledgerViewModel::saveRecord,
+                            onCancelEdit = ledgerViewModel::cancelEdit
+                        )
+                    }
+                }
+                item { LedgerAnimatedItem(index = 5, appState = appState) { LedgerBudgetCard(appState, ledgerState, ledgerViewModel::updateBudget) } }
+            }
+
+            val statsIndex = if (statisticsOnly) 3 else 6
+            item { LedgerAnimatedItem(index = statsIndex, appState = appState) { LedgerCategoryStatsCard(appState, ledgerState.records, monthFilter) } }
             item {
-                LedgerEmptyCard(
-                    appState,
-                    if (ledgerState.records.isEmpty()) "还没有账单，可以让 AI 主脑记一笔。" else "当前筛选条件下没有账单。"
-                )
+                LedgerAnimatedItem(index = statsIndex + 1, appState = appState) {
+                    LedgerFilterCard(
+                        appState = appState,
+                        searchText = searchText,
+                        onSearchChange = { searchText = it.take(40) },
+                        typeFilter = typeFilter,
+                        onTypeFilterChange = { typeFilter = it },
+                        categoryFilter = categoryFilter,
+                        onCategoryFilterChange = { categoryFilter = it },
+                        monthFilter = monthFilter,
+                        onMonthFilterChange = { monthFilter = sanitizeMonth(it) }
+                    )
+                }
             }
-        } else {
-            items(filteredRecords, key = { it.id }) { record ->
-                LedgerRecordCard(
-                    appState = appState,
-                    record = record,
-                    onEdit = { ledgerViewModel.beginEdit(record) },
-                    onDelete = { ledgerViewModel.deleteRecord(record.id) }
-                )
+            item {
+                LedgerAnimatedItem(index = statsIndex + 2, appState = appState) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("账单明细", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                            Text(
+                                "共 ${filteredRecords.size} 笔符合条件",
+                                color = Color.White.copy(alpha = 0.46f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        LedgerSmallButton(
+                            text = "导出 JSON",
+                            appState = appState,
+                            onClick = { shareLedgerJson(context, ledgerViewModel.exportJson()) }
+                        )
+                    }
+                }
+            }
+            if (filteredRecords.isEmpty()) {
+                item {
+                    LedgerAnimatedItem(index = statsIndex + 3, appState = appState) {
+                        LedgerEmptyCard(
+                            appState,
+                            if (ledgerState.records.isEmpty()) "还没有账单，可以让 AI 主脑记一笔。" else "当前筛选条件下没有账单。"
+                        )
+                    }
+                }
+            } else {
+                itemsIndexed(filteredRecords, key = { _, record -> record.id }) { index, record ->
+                    LedgerAnimatedItem(
+                        index = statsIndex + 3 + index,
+                        appState = appState,
+                        baseDelayMillis = 10L,
+                        maxDelayMillis = 180L,
+                    ) {
+                        LedgerRecordCard(
+                            appState = appState,
+                            record = record,
+                            onEdit = { ledgerViewModel.beginEdit(record) },
+                            onDelete = { ledgerViewModel.deleteRecord(record.id) }
+                        )
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun LedgerAnimatedItem(
+    index: Int,
+    appState: AssistantUiState,
+    modifier: Modifier = Modifier,
+    baseDelayMillis: Long = 22L,
+    maxDelayMillis: Long = 210L,
+    content: @Composable () -> Unit,
+) {
+    val motion = appState.motionIntensity.coerceIn(0f, 1f)
+    var visible by remember(index) { mutableStateOf(motion <= 0.05f) }
+
+    LaunchedEffect(index, motion) {
+        if (motion <= 0.05f) {
+            visible = true
+            return@LaunchedEffect
+        }
+        visible = false
+        yield()
+        delay((index.coerceAtLeast(0).toLong() * baseDelayMillis).coerceAtMost(maxDelayMillis))
+        visible = true
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier.fillMaxWidth(),
+        enter = if (motion <= 0.05f) {
+            fadeIn(tween(durationMillis = 64))
+        } else {
+            fadeIn(tween(durationMillis = 142, delayMillis = 8)) +
+                slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = 0.82f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ) { height -> (height * 0.11f).toInt().coerceIn(10, 30) } +
+                scaleIn(
+                    initialScale = 0.982f,
+                    transformOrigin = TransformOrigin(0.50f, 0.70f),
+                    animationSpec = spring(
+                        dampingRatio = 0.86f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                )
+        },
+        exit = fadeOut(tween(durationMillis = 82)) +
+            slideOutVertically(tween(durationMillis = 92)) { height -> -(height * 0.04f).toInt().coerceIn(4, 10) },
+    ) {
+        content()
     }
 }
 
