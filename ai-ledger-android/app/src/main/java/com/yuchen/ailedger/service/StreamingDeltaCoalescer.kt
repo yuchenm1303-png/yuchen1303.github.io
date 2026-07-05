@@ -13,19 +13,20 @@ internal class StreamingDeltaCoalescer(
     private val targetChunkChars: Int = 48,
     private val maxDelayMs: Long = 120L,
 ) {
-    private val pending = StringBuilder()
+    private val pending = StringBuilder(targetChunkChars.coerceAtLeast(MIN_BUFFER_CAPACITY))
     private var emittedAny = false
     private var lastEmitAt = clockMs()
 
     fun append(delta: String) {
         if (delta.isEmpty()) return
         pending.append(delta)
+        val pendingLength = pending.length
         val now = clockMs()
-        val punctuationBoundary = pending.length >= MIN_PUNCTUATION_CHARS &&
-            pending.lastOrNull()?.let(::isBreakChar) == true
+        val punctuationBoundary = pendingLength >= MIN_PUNCTUATION_CHARS &&
+            isBreakChar(pending[pendingLength - 1])
         if (
             !emittedAny ||
-            pending.length >= targetChunkChars ||
+            pendingLength >= targetChunkChars ||
             punctuationBoundary ||
             now - lastEmitAt >= maxDelayMs
         ) {
@@ -54,6 +55,7 @@ internal class StreamingDeltaCoalescer(
     }
 
     private companion object {
+        const val MIN_BUFFER_CAPACITY = 16
         const val MIN_PUNCTUATION_CHARS = 5
     }
 }
