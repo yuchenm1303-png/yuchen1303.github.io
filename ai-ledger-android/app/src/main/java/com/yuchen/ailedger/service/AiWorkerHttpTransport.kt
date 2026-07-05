@@ -69,7 +69,11 @@ internal class AiWorkerHttpTransport(
                 mergedReply = response.reply,
                 responseReply = response.reply,
             )
-            response.also {
+            response.also { parsedResponse ->
+                InlineStickerDiagnosticsStore.recordLatest(
+                    AiLedgerApplication.contextOrNull(),
+                    parsedResponse.stickerDiagnosticsJson,
+                )
                 AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
             }
         } catch (error: SocketTimeoutException) {
@@ -148,7 +152,11 @@ internal class AiWorkerHttpTransport(
                     mergedReply = response.reply,
                     responseReply = response.reply,
                 )
-                return response.also {
+                return response.also { parsedResponse ->
+                    InlineStickerDiagnosticsStore.recordLatest(
+                        AiLedgerApplication.contextOrNull(),
+                        parsedResponse.stickerDiagnosticsJson,
+                    )
                     AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
                 }
             }
@@ -176,6 +184,14 @@ internal class AiWorkerHttpTransport(
                 streamedReply = streamedText,
                 finalReply = finalReply,
             )
+            val clientMergeDiagnostics = AiWorkerResponseParser.buildClientStickerMergeDiagnostics(
+                streamedReply = streamedText,
+                finalReply = finalReply,
+                mergedReply = mergedReply,
+            )
+            if (finalJson != null) {
+                AiWorkerResponseParser.attachClientStickerDiagnostics(finalJson, clientMergeDiagnostics)
+            }
             val response = when {
                 finalJson != null -> AiWorkerResponseParser.parse(
                     data = finalJson,
@@ -193,6 +209,7 @@ internal class AiWorkerHttpTransport(
                     } else {
                         route.resolved.label
                     },
+                    stickerDiagnosticsJson = clientMergeDiagnostics.toString(2),
                 )
                 else -> throw IOException("云端流式回复结束，但没有返回有效内容")
             }
@@ -206,7 +223,11 @@ internal class AiWorkerHttpTransport(
                 mergedReply = mergedReply,
                 responseReply = response.reply,
             )
-            response.also {
+            response.also { parsedResponse ->
+                InlineStickerDiagnosticsStore.recordLatest(
+                    AiLedgerApplication.contextOrNull(),
+                    parsedResponse.stickerDiagnosticsJson,
+                )
                 AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
             }
         } catch (error: SocketTimeoutException) {
