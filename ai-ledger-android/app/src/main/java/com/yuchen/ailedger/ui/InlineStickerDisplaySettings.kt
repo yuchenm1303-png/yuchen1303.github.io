@@ -38,22 +38,22 @@ internal data class InlineStickerLayoutPreferences(
  * and delayed until dragging settles, which avoids issuing a SharedPreferences write per frame.
  */
 internal object InlineStickerDisplaySettings {
-    const val DefaultSizeDp = 42f
+    const val DefaultSizeDp = 35f
     const val MinSizeDp = 24f
     const val MaxSizeDp = 88f
     val SizeRange: ClosedFloatingPointRange<Float> = MinSizeDp..MaxSizeDp
 
-    const val DefaultVerticalOffsetDp = 0f
+    const val DefaultVerticalOffsetDp = -5f
     const val MinVerticalOffsetDp = -18f
     const val MaxVerticalOffsetDp = 18f
     val VerticalOffsetRange: ClosedFloatingPointRange<Float> = MinVerticalOffsetDp..MaxVerticalOffsetDp
 
-    const val DefaultHorizontalGapDp = 1f
+    const val DefaultHorizontalGapDp = 0f
     const val MinHorizontalGapDp = 0f
     const val MaxHorizontalGapDp = 14f
     val HorizontalGapRange: ClosedFloatingPointRange<Float> = MinHorizontalGapDp..MaxHorizontalGapDp
 
-    const val DefaultLineExtraDp = 1f
+    const val DefaultLineExtraDp = 0f
     const val MinLineExtraDp = 0f
     const val MaxLineExtraDp = 24f
     val LineExtraRange: ClosedFloatingPointRange<Float> = MinLineExtraDp..MaxLineExtraDp
@@ -256,7 +256,6 @@ internal object InlineStickerDisplaySettings {
         synchronized(this) {
             if (initialized.get()) return
             val appContext = context.applicationContext
-            val preferences = appContext.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
             applicationContext = appContext
             val layout = readLayoutPreferences(appContext)
             val expression = readExpressionPreferences(appContext)
