@@ -4,10 +4,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
- * 旧的 App 根节点固定坐标入口只保留兼容空壳。
+ * Assistant 页面同窗口覆盖层兼容入口。
  *
- * 首页快捷按钮不能从这里绘制，否则会脱离对话 OpenGL 大玻璃，变成独立悬浮按钮。
+ * App.kt 仍会在 Assistant 页面根 Box 中调用本函数。这里不绘制任何固定坐标按钮，
+ * 只承载快捷面板弹窗；按钮本体必须挂在对话 OpenGL 大玻璃已有标题栏控件链里。
  */
 @Suppress("UNUSED_PARAMETER")
 @Composable
-internal fun AgentChatHeaderControlCluster(modifier: Modifier = Modifier) = Unit
+internal fun AgentChatHeaderControlCluster(modifier: Modifier = Modifier) {
+    MemoryQuickPanelSameWindowOverlayHost()
+    SkillQuickPanelSameWindowOverlayHost()
+}
