@@ -35,14 +35,6 @@ private val Context.assistantPreferencesDataStore: DataStore<Preferences> by pre
 
 private const val SLIDER_PERSIST_SETTLE_MS = 140L
 private const val SLIDER_VALUE_EPSILON = 0.0001f
-private const val DEBUG_GLASS_INTENSITY_MIN = 0f
-private const val DEBUG_GLASS_INTENSITY_MAX = 4f
-private const val DEBUG_MOTION_INTENSITY_MIN = 0f
-private const val DEBUG_MOTION_INTENSITY_MAX = 4f
-private const val DEBUG_RAINBOW_STANDARD_MIN = 0f
-private const val DEBUG_RAINBOW_STANDARD_MAX = 6f
-private const val DEBUG_RAINBOW_SWEEP_MIN = 0f
-private const val DEBUG_RAINBOW_SWEEP_MAX = 8f
 
 data class AssistantPreferences(
     val quality: RenderQuality = RenderQuality.Balanced,
@@ -106,20 +98,20 @@ class AssistantPreferencesStore(private val context: Context) {
             val legacySweep = preferences[Keys.legacyRainbowDiagonalSweep]
             val rawMin = if (rainbowProfileV2) {
                 preferences[Keys.rainbowSweepMin]
-                    ?: legacySweep?.let { (it * 0.50f).coerceIn(DEBUG_RAINBOW_SWEEP_MIN, DEBUG_RAINBOW_SWEEP_MAX) }
+                    ?: legacySweep?.let { (it * 0.50f).coerceIn(0f, 2f) }
                     ?: preset.sweepMin
             } else {
                 preset.sweepMin
             }
             val rawMax = if (rainbowProfileV2) {
                 preferences[Keys.rainbowSweepMax]
-                    ?: legacySweep?.let { it.coerceIn(DEBUG_RAINBOW_SWEEP_MIN, DEBUG_RAINBOW_SWEEP_MAX) }
+                    ?: legacySweep?.let { it.coerceIn(0f, 2f) }
                     ?: preset.sweepMax
             } else {
                 preset.sweepMax
             }
-            val sweepMin = minOf(rawMin, rawMax).coerceIn(DEBUG_RAINBOW_SWEEP_MIN, DEBUG_RAINBOW_SWEEP_MAX)
-            val sweepMax = maxOf(rawMin, rawMax).coerceIn(DEBUG_RAINBOW_SWEEP_MIN, DEBUG_RAINBOW_SWEEP_MAX)
+            val sweepMin = minOf(rawMin, rawMax).coerceIn(0f, 2f)
+            val sweepMax = maxOf(rawMin, rawMax).coerceIn(0f, 2f)
             val persisted = AssistantPreferences(
                 quality = preferences[Keys.renderQuality]?.let(RenderQuality::fromStorage)
                     ?: RenderQuality.Balanced,
@@ -129,27 +121,24 @@ class AssistantPreferencesStore(private val context: Context) {
                 backgroundTheme = preferences[Keys.backgroundTheme]?.let(BackgroundTheme::fromStorage)
                     ?: BackgroundTheme.Aurora,
                 customBackgroundPath = customPath,
-                glassIntensity = (preferences[Keys.glassIntensity] ?: 1f)
-                    .coerceIn(DEBUG_GLASS_INTENSITY_MIN, DEBUG_GLASS_INTENSITY_MAX),
-                motionIntensity = (preferences[Keys.motionIntensity] ?: 1f)
-                    .coerceIn(DEBUG_MOTION_INTENSITY_MIN, DEBUG_MOTION_INTENSITY_MAX),
+                glassIntensity = (preferences[Keys.glassIntensity] ?: 1f).coerceIn(0.6f, 1.4f),
+                motionIntensity = (preferences[Keys.motionIntensity] ?: 1f).coerceIn(0f, 1.4f),
                 rainbowPrismStyle = RainbowPrismStyle(
                     overall = if (rainbowProfileV2) {
-                        (preferences[Keys.rainbowOverall] ?: preset.overall)
-                            .coerceIn(DEBUG_RAINBOW_STANDARD_MIN, DEBUG_RAINBOW_STANDARD_MAX)
+                        (preferences[Keys.rainbowOverall] ?: preset.overall).coerceIn(0f, 2f)
                     } else {
                         preset.overall
                     },
                     edgeHighlight = if (rainbowProfileV2) {
                         (preferences[Keys.rainbowEdgeHighlight] ?: preset.edgeHighlight)
-                            .coerceIn(DEBUG_RAINBOW_STANDARD_MIN, DEBUG_RAINBOW_STANDARD_MAX)
+                            .coerceIn(0f, 2f)
                     } else {
                         preset.edgeHighlight
                     },
                     sweepMin = sweepMin,
                     sweepMax = sweepMax,
                     rainbowHalo = (preferences[Keys.rainbowHalo] ?: preset.rainbowHalo)
-                        .coerceIn(DEBUG_RAINBOW_STANDARD_MIN, DEBUG_RAINBOW_STANDARD_MAX)
+                        .coerceIn(0f, 2f)
                 ),
                 navigationHomeAddress = preferences[Keys.navigationHomeAddress].orEmpty(),
                 navigationSchoolAddress = preferences[Keys.navigationSchoolAddress].orEmpty(),
@@ -188,8 +177,8 @@ class AssistantPreferencesStore(private val context: Context) {
 
     suspend fun setGlassPreset(glassPreset: GlassPreset) {
         ensureSliderWritersStarted()
-        val glass = glassPreset.glassIntensity.coerceIn(DEBUG_GLASS_INTENSITY_MIN, DEBUG_GLASS_INTENSITY_MAX)
-        val motion = glassPreset.motionIntensity.coerceIn(DEBUG_MOTION_INTENSITY_MIN, DEBUG_MOTION_INTENSITY_MAX)
+        val glass = glassPreset.glassIntensity.coerceIn(0.6f, 1.4f)
+        val motion = glassPreset.motionIntensity.coerceIn(0f, 1.4f)
         pendingGlassIntensity.set(glass)
         pendingMotionIntensity.set(motion)
         glassIntensityWrites.send(glass)
@@ -224,21 +213,21 @@ class AssistantPreferencesStore(private val context: Context) {
 
     suspend fun setGlassIntensity(glassIntensity: Float) {
         ensureSliderWritersStarted()
-        val resolved = glassIntensity.coerceIn(DEBUG_GLASS_INTENSITY_MIN, DEBUG_GLASS_INTENSITY_MAX)
+        val resolved = glassIntensity.coerceIn(0.6f, 1.4f)
         pendingGlassIntensity.set(resolved)
         glassIntensityWrites.send(resolved)
     }
 
     suspend fun setMotionIntensity(motionIntensity: Float) {
         ensureSliderWritersStarted()
-        val resolved = motionIntensity.coerceIn(DEBUG_MOTION_INTENSITY_MIN, DEBUG_MOTION_INTENSITY_MAX)
+        val resolved = motionIntensity.coerceIn(0f, 1.4f)
         pendingMotionIntensity.set(resolved)
         motionIntensityWrites.send(resolved)
     }
 
     suspend fun setRainbowPrismStyle(style: RainbowPrismStyle) {
         ensureSliderWritersStarted()
-        val resolved = style.normalizedForDebugSliders()
+        val resolved = style.normalized()
         pendingRainbowPrism.set(resolved)
         rainbowPrismWrites.send(resolved)
     }
@@ -260,14 +249,14 @@ class AssistantPreferencesStore(private val context: Context) {
         sliderWriterScope.launch {
             consumeSettledValues(glassIntensityWrites) { value ->
                 context.assistantPreferencesDataStore.edit {
-                    it[Keys.glassIntensity] = value.coerceIn(DEBUG_GLASS_INTENSITY_MIN, DEBUG_GLASS_INTENSITY_MAX)
+                    it[Keys.glassIntensity] = value.coerceIn(0.6f, 1.4f)
                 }
             }
         }
         sliderWriterScope.launch {
             consumeSettledValues(motionIntensityWrites) { value ->
                 context.assistantPreferencesDataStore.edit {
-                    it[Keys.motionIntensity] = value.coerceIn(DEBUG_MOTION_INTENSITY_MIN, DEBUG_MOTION_INTENSITY_MAX)
+                    it[Keys.motionIntensity] = value.coerceIn(0f, 1.4f)
                 }
             }
         }
@@ -330,15 +319,15 @@ class AssistantPreferencesStore(private val context: Context) {
         }
     }
 
-    private fun RainbowPrismStyle.normalizedForDebugSliders(): RainbowPrismStyle {
-        val minValue = minOf(sweepMin, sweepMax).coerceIn(DEBUG_RAINBOW_SWEEP_MIN, DEBUG_RAINBOW_SWEEP_MAX)
-        val maxValue = maxOf(sweepMin, sweepMax).coerceIn(DEBUG_RAINBOW_SWEEP_MIN, DEBUG_RAINBOW_SWEEP_MAX)
+    private fun RainbowPrismStyle.normalized(): RainbowPrismStyle {
+        val minValue = minOf(sweepMin, sweepMax).coerceIn(0f, 2f)
+        val maxValue = maxOf(sweepMin, sweepMax).coerceIn(0f, 2f)
         return RainbowPrismStyle(
-            overall = overall.coerceIn(DEBUG_RAINBOW_STANDARD_MIN, DEBUG_RAINBOW_STANDARD_MAX),
-            edgeHighlight = edgeHighlight.coerceIn(DEBUG_RAINBOW_STANDARD_MIN, DEBUG_RAINBOW_STANDARD_MAX),
+            overall = overall.coerceIn(0f, 2f),
+            edgeHighlight = edgeHighlight.coerceIn(0f, 2f),
             sweepMin = minValue,
             sweepMax = maxValue,
-            rainbowHalo = rainbowHalo.coerceIn(DEBUG_RAINBOW_STANDARD_MIN, DEBUG_RAINBOW_STANDARD_MAX)
+            rainbowHalo = rainbowHalo.coerceIn(0f, 2f)
         )
     }
 
