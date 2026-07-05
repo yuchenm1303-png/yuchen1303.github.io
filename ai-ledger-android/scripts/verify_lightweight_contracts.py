@@ -305,7 +305,9 @@ def main() -> int:
             "VisualDemonstrationRecorder(",
             "OperationSkillLearningCoordinator.learn(",
             "本地不会扫描或编译控件节点",
-            "fun append(@Suppress(\"UNUSED_PARAMETER\") record: OperationTraceRecord): Boolean = false",
+            "fun append(record: OperationTraceRecord): Boolean",
+            "VisualDemonstrationEventHints.begin(config)",
+            "onUserActionEvent(",
         ],
         forbidden=[
             "OperationWorkflowCompilationCoordinator.compile(",
@@ -314,12 +316,25 @@ def main() -> int:
         ],
     )
 
+    event_hints = ROOT / "app/src/main/java/com/yuchen/ailedger/service/VisualDemonstrationEventHints.kt"
+    errors += require_text(
+        event_hints,
+        required=[
+            "VisualDemonstrationEventHints",
+            "AiAgentAccessibilityService.beginOperationRecording(config)",
+            "AiAgentAccessibilityService.endOperationRecording(demonstrationId)",
+        ],
+    )
+
     visual_recorder = ROOT / "app/src/main/java/com/yuchen/ailedger/service/VisualDemonstrationRecorder.kt"
     errors += require_text(
         visual_recorder,
         required=[
             "captureFreshSnapshot(forceVisual = true)",
-            "packageName !in allowedPackages",
+            "requestActionCapture(",
+            "POST_ACTION_CAPTURE_DELAY_MS",
+            "SETTLE_CAPTURE_DELAY_MS",
+            "HEARTBEAT_INTERVAL_MS",
             "session.appendFrame(",
         ],
         forbidden=[
@@ -346,7 +361,9 @@ def main() -> int:
             "AES/GCM/NoPadding",
             "AndroidKeyStore",
             "cleanupExpired",
-            "MAX_FRAMES = 24",
+            "MAX_FRAMES = 36",
+            "averageVisualHash",
+            "captureKind",
         ],
     )
 
