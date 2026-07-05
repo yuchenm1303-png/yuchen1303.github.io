@@ -67,6 +67,8 @@ internal data class PendingManagedAppAction(
     val app: ManagedAppSummary,
 )
 
+private const val ManagedAppListRouteKey = "__managed_app_list__"
+
 @Composable
 fun AppManagementScreen(
     state: AssistantUiState,
@@ -138,48 +140,55 @@ fun AppManagementScreen(
         }
     }
 
-    GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
-        val packageName = selectedPackage
-        if (packageName == null) {
-            ManagedAppListPage(
-                state = state,
-                apps = apps,
-                shellStatus = shellStatus,
-                loading = loading,
-                error = loadError,
-                repository = repository,
-                onBack = onBack,
-                onRefresh = { refreshGeneration += 1 },
-                onOpenApp = { selectedPackage = it.packageName },
-                onRequestShizuku = ::requestShizuku,
-                actionResult = actionResult,
-            )
-        } else {
-            ManagedAppDetailsPage(
-                state = state,
-                packageName = packageName,
-                refreshGeneration = refreshGeneration,
-                repository = repository,
-                shellStatus = shellStatus,
-                runningAction = runningAction,
-                actionResult = actionResult,
-                onBack = { selectedPackage = null },
-                onAction = ::requestAction,
-                onGrantStorageAccess = {
-                    val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
-                        data = Uri.parse("package:${context.packageName}")
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    runCatching { context.startActivity(intent) }
-                        .recoverCatching {
-                            context.startActivity(
-                                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                        }
-                },
-                onRequestShizuku = ::requestShizuku,
-            )
+    SecondaryRouteEntrance(motionIntensity = state.motionIntensity) {
+        GlassSceneScope(GlassSceneGroup.ToolsHomePage) {
+            SecondaryPageTransition(
+                targetState = selectedPackage ?: ManagedAppListRouteKey,
+                motionIntensity = state.motionIntensity,
+                modifier = Modifier.fillMaxSize(),
+            ) { routeKey ->
+                if (routeKey == ManagedAppListRouteKey) {
+                    ManagedAppListPage(
+                        state = state,
+                        apps = apps,
+                        shellStatus = shellStatus,
+                        loading = loading,
+                        error = loadError,
+                        repository = repository,
+                        onBack = onBack,
+                        onRefresh = { refreshGeneration += 1 },
+                        onOpenApp = { selectedPackage = it.packageName },
+                        onRequestShizuku = ::requestShizuku,
+                        actionResult = actionResult,
+                    )
+                } else {
+                    ManagedAppDetailsPage(
+                        state = state,
+                        packageName = routeKey,
+                        refreshGeneration = refreshGeneration,
+                        repository = repository,
+                        shellStatus = shellStatus,
+                        runningAction = runningAction,
+                        actionResult = actionResult,
+                        onBack = { selectedPackage = null },
+                        onAction = ::requestAction,
+                        onGrantStorageAccess = {
+                            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            runCatching { context.startActivity(intent) }
+                                .recoverCatching {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                                    )
+                                }
+                        },
+                        onRequestShizuku = ::requestShizuku,
+                    )
+                }
+            }
         }
     }
 
