@@ -2,6 +2,7 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -20,8 +21,9 @@ internal fun AgentChatHeaderControlCluster(modifier: Modifier = Modifier) {
             modifier = modifier,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            MemoryQuickPanelButtonHost()
+            Spacer(Modifier.width(6.dp))
             SkillQuickPanelButtonHost()
-            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
         }
         MemoryQuickPanelSameWindowOverlayHost()
         SkillQuickPanelSameWindowOverlayHost()
