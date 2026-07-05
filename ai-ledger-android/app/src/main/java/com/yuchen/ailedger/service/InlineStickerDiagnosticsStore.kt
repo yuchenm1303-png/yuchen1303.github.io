@@ -1,7 +1,9 @@
 package com.yuchen.ailedger.service
 
+import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,13 +19,53 @@ internal data class InlineStickerDiagnosticsSnapshot(
 )
 
 internal object InlineStickerDiagnosticsStore {
+    private const val PreferencesName = "inline_sticker_diagnostics"
+    private const val LatestJsonKey = "latest_json"
+    private const val EmptyDiagnostics = ""
+
     private val visibleStickerRegex = Regex(
         """\[\[AI_LEDGER_INLINE_STICKER:[a-z0-9_]{2,48}]]""",
         RegexOption.IGNORE_CASE,
     )
 
+    private val latestJsonState = MutableStateFlow(EmptyDiagnostics)
     private val _snapshot = MutableStateFlow(InlineStickerDiagnosticsSnapshot())
+
     val snapshot: StateFlow<InlineStickerDiagnosticsSnapshot> = _snapshot
+
+    fun observe(context: Context?): StateFlow<String> {
+        loadIfNeeded(context)
+        return latestJsonState.asStateFlow()
+    }
+
+    fun latestJson(context: Context?): String {
+        loadIfNeeded(context)
+        return latestJsonState.value
+    }
+
+    fun recordLatest(context: Context?, diagnosticsJson: String?) {
+        val clean = diagnosticsJson
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return
+        latestJsonState.value = clean
+        val appContext = context?.applicationContext ?: return
+        appContext
+            .getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+            .edit()
+            .putString(LatestJsonKey, clean)
+            .apply()
+    }
+
+    fun clear(context: Context?) {
+        latestJsonState.value = EmptyDiagnostics
+        val appContext = context?.applicationContext ?: return
+        appContext
+            .getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+            .edit()
+            .remove(LatestJsonKey)
+            .apply()
+    }
 
     fun emptyExportJson(): String = JSONObject(EMPTY_INLINE_STICKER_DIAGNOSTICS_JSON).toString(2)
 
@@ -102,6 +144,17 @@ internal object InlineStickerDiagnosticsStore {
             mergeSummary = "stream $streamedCount · final $finalCount · app $mergedCount · $selected",
             exportJson = export.toString(2),
         )
+    }
+
+    private fun loadIfNeeded(context: Context?) {
+        if (latestJsonState.value.isNotBlank()) return
+        val appContext = context?.applicationContext ?: return
+        val saved = appContext
+            .getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
+            .getString(LatestJsonKey, EmptyDiagnostics)
+            .orEmpty()
+            .trim()
+        if (saved.isNotBlank()) latestJsonState.value = saved
     }
 
     private fun extractBackendDiagnostics(data: JSONObject?): JSONObject? {
