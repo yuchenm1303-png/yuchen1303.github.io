@@ -7,7 +7,6 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import com.yuchen.ailedger.ui.OpenGLFrameFinalizer
-import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.math.max
 
 @Immutable
@@ -58,9 +57,11 @@ class OpenGLGlassDynamicState {
     private var pendingSnapshotDirty = false
 
     private var framePosted = false
-    private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val frameListeners = linkedSetOf<() -> Unit>()
     private val finalDispatchAction: () -> Unit = {
-        for (listener in frameListeners) listener()
+        if (frameListeners.isNotEmpty()) {
+            for (listener in frameListeners) listener()
+        }
     }
 
     internal val snapshotState: State<OpenGLGlassDynamicSnapshot>
