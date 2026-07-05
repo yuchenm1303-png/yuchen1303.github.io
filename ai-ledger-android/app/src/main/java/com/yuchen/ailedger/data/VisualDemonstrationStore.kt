@@ -1,6 +1,9 @@
 package com.yuchen.ailedger.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import com.yuchen.ailedger.model.VisualDemonstrationFrame
@@ -19,10 +22,6 @@ import javax.crypto.spec.GCMParameterSpec
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
- * 视觉演示只在应用私有目录短期保存。截图逐帧使用 Android Keystore AES-GCM 加密，
- * manifest 只包含时间、尺寸和包名等非图像元数据。
- */
 class VisualDemonstrationStore(context: Context) {
     private val applicationContext = context.applicationContext
     private val root = File(applicationContext.noBackupFilesDir, DIRECTORY).apply { mkdirs() }
@@ -199,6 +198,11 @@ class VisualDemonstrationStore(context: Context) {
                     put("displayHeight", frame.displayHeight)
                     put("encryptedFileName", frame.encryptedFileName)
                     put("digest", frame.digest)
+                    put("visualHash", frame.visualHash)
+                    put("captureKind", frame.captureKind)
+                    put("eventType", frame.eventType)
+                    put("eventIndex", frame.eventIndex)
+                    put("eventOccurredAtMillis", frame.eventOccurredAtMillis)
                 })
             }
         })
@@ -235,6 +239,11 @@ class VisualDemonstrationStore(context: Context) {
                             displayHeight = frame.optInt("displayHeight"),
                             encryptedFileName = frame.getString("encryptedFileName"),
                             digest = frame.optString("digest"),
+                            visualHash = frame.optString("visualHash"),
+                            captureKind = frame.optString("captureKind", "timed"),
+                            eventType = frame.optString("eventType"),
+                            eventIndex = frame.optInt("eventIndex"),
+                            eventOccurredAtMillis = frame.optLong("eventOccurredAtMillis"),
                         ),
                     )
                 }
@@ -278,10 +287,20 @@ class VisualDemonstrationSession internal constructor(
         displayWidth: Int,
         displayHeight: Int,
         bytes: ByteArray,
+        captureKind: String = "timed",
+        eventType: String = "",
+        eventIndex: Int = 0,
+        eventOccurredAtMillis: Long = 0L,
     ): Boolean {
         if (sealed || manifest.frames.size >= MAX_FRAMES) return false
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes).toHexString()
-        if (manifest.frames.lastOrNull()?.digest == digest) return false
+        val visualHash = bytes.averageVisualHash()
+        val previous = manifest.frames.lastOrNull()
+        if (previous?.digest == digest) return false
+        if (captureKind in SIMILAR_SKIPPABLE_KINDS && previous?.visualHash.isVisuallySimilarTo(visualHash)) {
+            return false
+        }
+
         val index = manifest.frames.size
         val id = "${manifest.demonstrationId}-frame-$index"
         val fileName = "frame-${index.toString().padStart(3, '0')}.bin"
@@ -297,6 +316,11 @@ class VisualDemonstrationSession internal constructor(
             displayHeight = displayHeight,
             encryptedFileName = fileName,
             digest = digest,
+            visualHash = visualHash,
+            captureKind = captureKind,
+            eventType = eventType,
+            eventIndex = eventIndex,
+            eventOccurredAtMillis = eventOccurredAtMillis,
         )
         manifest = manifest.copy(frames = manifest.frames + frame)
         persist()
@@ -317,7 +341,8 @@ class VisualDemonstrationSession internal constructor(
     }
 
     companion object {
-        const val MAX_FRAMES = 24
+        const val MAX_FRAMES = 36
+        private val SIMILAR_SKIPPABLE_KINDS = setOf("heartbeat", "action_settle", "timed")
     }
 }
 
@@ -331,6 +356,45 @@ private fun ByteArray.toHexString(): String {
     return String(chars)
 }
 
+private fun ByteArray.averageVisualHash(): String {
+    val source = BitmapFactory.decodeByteArray(this, 0, size) ?: return ""
+    val scaled = try {
+        Bitmap.createScaledBitmap(source, 8, 8, true)
+    } finally {
+        source.recycle()
+    }
+    return try {
+        val luminance = IntArray(64)
+        var sum = 0
+        for (y in 0 until 8) {
+            for (x in 0 until 8) {
+                val color = scaled.getPixel(x, y)
+                val gray = ((Color.red(color) * 299) + (Color.green(color) * 587) + (Color.blue(color) * 114)) / 1000
+                luminance[y * 8 + x] = gray
+                sum += gray
+            }
+        }
+        val average = sum / 64
+        var bits = 0L
+        luminance.forEachIndexed { index, value ->
+            if (value >= average) bits = bits or (1L shl index)
+        }
+        java.lang.Long.toUnsignedString(bits, 16).padStart(16, '0')
+    } finally {
+        scaled.recycle()
+    }
+}
+
+private fun String?.isVisuallySimilarTo(other: String): Boolean {
+    if (isNullOrBlank() || other.isBlank()) return false
+    return runCatching {
+        val left = java.lang.Long.parseUnsignedLong(this, 16)
+        val right = java.lang.Long.parseUnsignedLong(other, 16)
+        java.lang.Long.bitCount(left xor right) <= VISUAL_HASH_SIMILAR_THRESHOLD
+    }.getOrDefault(false)
+}
+
+private const val VISUAL_HASH_SIMILAR_THRESHOLD = 5
 private val HEX_DIGITS = "0123456789abcdef".toCharArray()
 
 private fun String.safeFileToken(): String = replace(Regex("[^A-Za-z0-9._-]"), "_").take(120)
