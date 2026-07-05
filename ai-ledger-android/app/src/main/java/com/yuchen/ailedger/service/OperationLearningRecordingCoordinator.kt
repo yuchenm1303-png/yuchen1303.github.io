@@ -160,6 +160,26 @@ object OperationLearningRecordingCoordinator {
         )
         activeSession = session
 
+        if (!AiAgentAccessibilityService.beginVisualDemonstrationEventHints(config)) {
+            activeSession = null
+            visualStore.delete(visualSession.manifestPath)
+            repository.finishDemonstration(
+                demonstrationId = demonstrationId,
+                workflowId = draft.id,
+                status = "aborted",
+                redactionStatus = "visual_deleted",
+                workflowStatus = WorkflowDraftStatus.Intent,
+                completedAtMillis = System.currentTimeMillis(),
+            )
+            mutableState.value = OperationRecordingState(
+                phase = OperationRecordingPhase.Failed,
+                workflowId = draft.id,
+                workflowTitle = draft.title,
+                message = "无法开启演示动作锚点，请稍后重试。",
+            )
+            return OperationRecordingStartResult(false, mutableState.value.message.orEmpty())
+        }
+
         val targetPackage = config.allowedPackages.firstOrNull()
         val targetOpened = targetPackage?.let { packageName ->
             launchTargetApplication(applicationContext, packageName)
@@ -197,12 +217,28 @@ object OperationLearningRecordingCoordinator {
     /** 旧无障碍录制入口仅为二进制兼容保留，新主链永远不接收节点或事件记录。 */
     fun append(@Suppress("UNUSED_PARAMETER") record: OperationTraceRecord): Boolean = false
 
+    fun onUserActionEvent(
+        packageName: String,
+        eventType: String,
+        occurredAtMillis: Long = System.currentTimeMillis(),
+    ): Boolean {
+        val session = activeSession ?: return false
+        if (packageName !in session.config.allowedPackages) return false
+        session.recorder.requestActionCapture(
+            eventType = eventType,
+            packageName = packageName,
+            occurredAtMillis = occurredAtMillis,
+        )
+        return true
+    }
+
     suspend fun stop(
         context: Context?,
         reason: OperationRecordingStopReason,
     ): Boolean = mutex.withLock {
         val session = activeSession ?: return false
         activeSession = null
+        AiAgentAccessibilityService.endVisualDemonstrationEventHints(session.config.demonstrationId)
         session.timeoutJob?.cancel()
         val applicationContext = context?.applicationContext
             ?: AiAgentAccessibilityService.applicationContextOrNull()
