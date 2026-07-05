@@ -85,21 +85,26 @@ internal object AiWorkerResponseParser {
     fun mergeStreamedReplyWithFinalReply(streamedReply: String, finalReply: String): String {
         val streamed = streamedReply.trim()
         val final = finalReply.trim()
-        val streamedHasInlineSticker = hasInlineStickerProtocolMarker(streamed)
-        val finalHasInlineSticker = hasInlineStickerProtocolMarker(final)
+        val streamedStickerCount = countInlineStickerProtocolMarkers(streamed)
+        val finalStickerCount = countInlineStickerProtocolMarkers(final)
         return when {
             streamed.isBlank() -> final
             final.isBlank() -> streamed
             final == streamed -> final
             final.startsWith(streamed) -> final
-            finalHasInlineSticker || streamedHasInlineSticker -> final
+            streamedStickerCount > finalStickerCount -> streamed
+            finalStickerCount > 0 || streamedStickerCount > 0 -> final
             else -> streamed
         }
     }
 
-    private fun hasInlineStickerProtocolMarker(value: String): Boolean {
-        return value.contains("[[AI_LEDGER_INLINE_STICKER:", ignoreCase = true) ||
-            value.any { char -> char.code in 0xDB40..0xDB7F }
+    private fun countInlineStickerProtocolMarkers(value: String): Int {
+        val visibleCount = Regex(
+            """\[\[AI_LEDGER_INLINE_STICKER:[a-z0-9_]{2,48}]]""",
+            RegexOption.IGNORE_CASE
+        ).findAll(value).count()
+        if (visibleCount > 0) return visibleCount
+        return if (value.any { char -> char.code in 0xDB40..0xDB7F }) 1 else 0
     }
 
     fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
