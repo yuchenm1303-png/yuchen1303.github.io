@@ -31,8 +31,9 @@ import kotlinx.coroutines.yield
 /**
  * 二级页面统一轻量转场。
  *
- * 路由切换只做透明换场和小位移，不在整页上做 scale，避免应用列表这类卡片密集页面
- * 在交接时出现背板闪烁；入口动画仍保留弹性 scale，保证二级页打开手感不变。
+ * 关键原则：路由切换不做旧新页面双层叠绘。详情页这类玻璃页面半透明，
+ * 如果旧页面继续淡出，会从背后透出卡片和返回按钮。这里让旧页立即不可见，
+ * 只保留新页面的入场动画，从根上消除背板闪烁和重叠卡片。
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -50,10 +51,9 @@ internal fun <T> SecondaryPageTransition(
         contentAlignment = contentAlignment,
         transitionSpec = {
             if (motion <= 0.05f) {
-                fadeIn(tween(durationMillis = 70)) togetherWith fadeOut(tween(durationMillis = 54))
+                fadeIn(tween(durationMillis = 70)) togetherWith fadeOut(tween(durationMillis = 1))
             } else {
                 val enterOffsetRatio = 0.034f + 0.024f * motion
-                val exitOffsetRatio = 0.014f + 0.008f * motion
                 val enter = fadeIn(tween(durationMillis = 126, delayMillis = 18)) +
                     slideInVertically(
                         animationSpec = spring(
@@ -63,11 +63,7 @@ internal fun <T> SecondaryPageTransition(
                     ) { height ->
                         (height * enterOffsetRatio).roundToInt().coerceIn(14, 30)
                     }
-                val exit = fadeOut(tween(durationMillis = 92)) +
-                    slideOutVertically(tween(durationMillis = 108)) { height ->
-                        -(height * exitOffsetRatio).roundToInt().coerceIn(6, 14)
-                    }
-                enter togetherWith exit
+                enter togetherWith fadeOut(tween(durationMillis = 1))
             }
         },
         label = "secondary-page-transition",
