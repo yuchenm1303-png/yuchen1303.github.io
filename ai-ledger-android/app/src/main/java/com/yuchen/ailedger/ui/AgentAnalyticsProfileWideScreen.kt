@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -63,13 +64,19 @@ private val WideStatsMint = Color(0xFF7BE8D2)
 private val WideStatsWarm = Color(0xFFFFC58A)
 private val WideStatsDanger = Color(0xFFFF9EAF)
 private val WideStatsCard = Color(0xFF11152F).copy(alpha = 0.78f)
+private val WidePagePadding = 9.dp
 
 private enum class WideStatsTab(val label: String) {
     Overview("总览"), Tokens("Token"), Tasks("任务"), Capabilities("能力")
 }
 
+private enum class WideHeatMode(val label: String) {
+    Daily("每日"), Weekly("每周"), Cumulative("累计")
+}
+
 private data class WideHeatCell(val column: Int, val row: Int, val tokens: Long, val future: Boolean)
 private data class WideHeatmap(val weeks: Int, val cells: List<WideHeatCell>, val maxTokens: Long, val activeDays: Int)
+private data class WideUsageMetric(val label: String, val value: String, val raw: Long, val tone: Color)
 
 @Composable
 internal fun AgentAnalyticsProfileWideScreen(
@@ -143,7 +150,7 @@ internal fun AgentAnalyticsProfileWideScreen(
 @Composable
 private fun WideTopBar(onBack: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = WidePagePadding),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -179,12 +186,20 @@ private fun WideIdentity(
     } else {
         "本地用户"
     }
+    val fallback = displayName.firstOrNull()?.uppercaseChar()?.toString().orEmpty().ifBlank { "AI" }
     val handle = if (loggedIn) "@" + email.substringBefore('@').trim().take(22).ifBlank { "account" } else "@local"
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = WidePagePadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
+        UserProfileAvatar(
+            localAvatarPath = profileState.localAvatarPath,
+            avatarVersion = profileState.profile?.avatarVersion ?: 0L,
+            fallbackText = fallback,
+            size = 92.dp,
+            loggedIn = loggedIn,
+        )
         Text(displayName, color = Color.White, fontSize = 29.sp, lineHeight = 34.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(handle, color = Color.White.copy(alpha = 0.46f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
@@ -255,13 +270,13 @@ private fun WideSyncCard(owner: AgentAnalyticsOwner, accountState: SupabaseAccou
 @Composable
 private fun WideTabs(selected: WideStatsTab, onSelected: (WideStatsTab) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).height(56.dp).clip(RoundedCornerShape(22.dp)).background(Color.White.copy(alpha = 0.045f)).border(1.dp, Color.White.copy(alpha = 0.055f), RoundedCornerShape(22.dp)).padding(5.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = WidePagePadding).height(58.dp).clip(RoundedCornerShape(23.dp)).background(Color.White.copy(alpha = 0.045f)).border(1.dp, Color.White.copy(alpha = 0.055f), RoundedCornerShape(23.dp)).padding(5.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         WideStatsTab.entries.forEach { tab ->
             val active = tab == selected
             Box(
-                modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(17.dp)).background(if (active) WideStatsViolet.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.025f)).border(1.dp, if (active) WideStatsViolet.copy(alpha = 0.28f) else Color.Transparent, RoundedCornerShape(17.dp)).clickable(enabled = !active) { onSelected(tab) },
+                modifier = Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(18.dp)).background(if (active) WideStatsViolet.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.025f)).border(1.dp, if (active) WideStatsViolet.copy(alpha = 0.28f) else Color.Transparent, RoundedCornerShape(18.dp)).clickable(enabled = !active) { onSelected(tab) },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(tab.label, color = Color.White.copy(alpha = if (active) 0.94f else 0.50f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, textAlign = TextAlign.Center)
@@ -272,52 +287,117 @@ private fun WideTabs(selected: WideStatsTab, onSelected: (WideStatsTab) -> Unit)
 
 @Composable
 private fun WideHeatmapCard(daily: List<AgentDailyActivity>) {
-    val heatmap = remember(daily) { wideBuildHeatmap(daily, 14) }
+    var modeName by rememberSaveable { mutableStateOf(WideHeatMode.Daily.name) }
+    val mode = remember(modeName) { WideHeatMode.entries.firstOrNull { it.name == modeName } ?: WideHeatMode.Daily }
+    val weeks = 52
+    val heatmap = remember(daily, mode) { wideBuildHeatmap(daily, weeks, mode) }
     val rows = 7
-    val gap = 5.dp
-    val cellHeight = 12.dp
+    val gap = 4.dp
+    val cellHeight = 10.dp
     val chartHeight = cellHeight * rows + gap * (rows - 1)
+    val monthLabels = remember(weeks) { wideMonthLabels(weeks) }
     WideCard {
-        Text("Token 活动", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-        Text("${heatmap.weeks} 周 · ${heatmap.activeDays} 个活跃日 · 每格一天", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp)
-        Spacer(Modifier.height(13.dp))
-        Canvas(Modifier.fillMaxWidth().height(chartHeight)) {
-            val columns = heatmap.weeks.coerceAtLeast(1)
-            val gapPx = gap.toPx()
-            val cellWidth = ((size.width - gapPx * (columns - 1)) / columns).coerceAtLeast(1f)
-            val cellHeightPx = cellHeight.toPx()
-            val max = heatmap.maxTokens.coerceAtLeast(1L).toFloat()
-            heatmap.cells.forEach { entry ->
-                val ratio = (entry.tokens.toFloat() / max).coerceIn(0f, 1f)
-                val color = when {
-                    entry.future -> Color.White.copy(alpha = 0.02f)
-                    entry.tokens <= 0L -> Color.White.copy(alpha = 0.055f)
-                    ratio < 0.20f -> WideStatsBlue.copy(alpha = 0.28f)
-                    ratio < 0.45f -> WideStatsBlue.copy(alpha = 0.52f)
-                    ratio < 0.72f -> WideStatsViolet.copy(alpha = 0.72f)
-                    else -> WideStatsMint.copy(alpha = 0.92f)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Token 活动", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                Text("近一年 · ${heatmap.activeDays} 个活跃日 · ${mode.label}视图", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp)
+            }
+            WideHeatModeTabs(mode) { modeName = it.name }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            Column(
+                modifier = Modifier.width(18.dp).height(chartHeight),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.Start,
+            ) {
+                listOf("一", "三", "五", "日").forEach { label ->
+                    Text(label, color = Color.White.copy(alpha = 0.28f), fontSize = 7.5.sp, lineHeight = 9.sp)
                 }
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(entry.column * (cellWidth + gapPx), entry.row * (cellHeightPx + gapPx)),
-                    size = Size(cellWidth, cellHeightPx),
-                    cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                )
+            }
+            Canvas(Modifier.weight(1f).height(chartHeight)) {
+                val columns = heatmap.weeks.coerceAtLeast(1)
+                val gapPx = gap.toPx()
+                val cellWidth = ((size.width - gapPx * (columns - 1)) / columns).coerceAtLeast(1f)
+                val cellHeightPx = cellHeight.toPx()
+                val max = heatmap.maxTokens.coerceAtLeast(1L).toFloat()
+                heatmap.cells.forEach { entry ->
+                    val ratio = (entry.tokens.toFloat() / max).coerceIn(0f, 1f)
+                    val color = when {
+                        entry.future -> Color.White.copy(alpha = 0.018f)
+                        entry.tokens <= 0L -> Color.White.copy(alpha = 0.050f)
+                        ratio < 0.20f -> WideStatsBlue.copy(alpha = 0.30f)
+                        ratio < 0.45f -> WideStatsBlue.copy(alpha = 0.54f)
+                        ratio < 0.72f -> WideStatsViolet.copy(alpha = 0.72f)
+                        else -> WideStatsMint.copy(alpha = 0.94f)
+                    }
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(entry.column * (cellWidth + gapPx), entry.row * (cellHeightPx + gapPx)),
+                        size = Size(cellWidth, cellHeightPx),
+                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().padding(start = 18.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            monthLabels.forEach { label ->
+                Text(label, color = Color.White.copy(alpha = 0.34f), fontSize = 8.sp, lineHeight = 10.sp, maxLines = 1)
             }
         }
     }
 }
 
 @Composable
+private fun WideHeatModeTabs(selected: WideHeatMode, onSelected: (WideHeatMode) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+        WideHeatMode.entries.forEach { mode ->
+            Text(
+                text = mode.label,
+                color = Color.White.copy(alpha = if (mode == selected) 0.92f else 0.42f),
+                fontSize = 10.sp,
+                fontWeight = if (mode == selected) FontWeight.Black else FontWeight.Bold,
+                modifier = Modifier.clickable(enabled = mode != selected) { onSelected(mode) },
+            )
+        }
+    }
+}
+
+@Composable
 private fun WideRuntimeCard(snapshot: AgentAnalyticsSnapshot) {
-    WideRows("运行概览", "本机明细与账号每日聚合", listOf(
-        Triple("累计 Token", wideNumber(snapshot.totals.totalTokens), WideStatsBlue),
-        Triple("模型调用", wideNumber(snapshot.totals.modelCalls), WideStatsViolet),
-        Triple("规划轮次", wideNumber(snapshot.totals.agentModelTurns), WideStatsMint),
-        Triple("完成任务", snapshot.totals.completedTasks.toString(), WideStatsWarm),
-        Triple("执行动作", wideNumber(snapshot.totals.executedActions), WideStatsBlue),
-        Triple("累计任务时长", wideDuration(snapshot.totals.totalTaskDurationMs), WideStatsViolet),
-    ))
+    val rows = listOf(
+        WideUsageMetric("累计 Token", wideNumber(snapshot.totals.totalTokens), snapshot.totals.totalTokens, WideStatsBlue),
+        WideUsageMetric("模型调用", wideNumber(snapshot.totals.modelCalls), snapshot.totals.modelCalls, WideStatsViolet),
+        WideUsageMetric("规划轮次", wideNumber(snapshot.totals.agentModelTurns), snapshot.totals.agentModelTurns, WideStatsMint),
+        WideUsageMetric("执行动作", wideNumber(snapshot.totals.executedActions), snapshot.totals.executedActions, WideStatsBlue),
+        WideUsageMetric("完成任务", snapshot.totals.completedTasks.toString(), snapshot.totals.completedTasks, WideStatsWarm),
+        WideUsageMetric("累计任务时长", wideDuration(snapshot.totals.totalTaskDurationMs), snapshot.totals.totalTaskDurationMs / 1_000L, WideStatsViolet),
+    )
+    val maxValue = rows.maxOfOrNull { it.raw }?.coerceAtLeast(1L) ?: 1L
+    WideCard {
+        Text("运行概览", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+        Text("本机明细与账号每日聚合", color = Color.White.copy(alpha = 0.42f), fontSize = 10.sp)
+        Spacer(Modifier.height(11.dp))
+        rows.forEach { metric ->
+            WideUsageBar(metric, maxValue)
+            Spacer(Modifier.height(9.dp))
+        }
+    }
+}
+
+@Composable
+private fun WideUsageBar(metric: WideUsageMetric, maxValue: Long) {
+    val progress = if (maxValue > 0L) (metric.raw.toFloat() / maxValue.toFloat()).coerceIn(0.02f, 1f) else 0.02f
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(metric.label, color = Color.White.copy(alpha = 0.48f), fontSize = 10.5.sp, modifier = Modifier.weight(1f))
+            Text(metric.value, color = metric.tone, fontSize = 11.5.sp, fontWeight = FontWeight.Black)
+        }
+        Box(Modifier.fillMaxWidth().height(7.dp).clip(RoundedCornerShape(999.dp)).background(Color.White.copy(alpha = 0.055f))) {
+            Box(Modifier.fillMaxWidth(progress).height(7.dp).clip(RoundedCornerShape(999.dp)).background(metric.tone.copy(alpha = 0.70f)))
+        }
+    }
 }
 
 @Composable
@@ -415,16 +495,16 @@ private fun WideInline(label: String, value: String, tone: Color) {
 
 @Composable
 private fun WideCard(content: @Composable () -> Unit) {
-    val shape = RoundedCornerShape(23.dp)
+    val shape = RoundedCornerShape(25.dp)
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).clip(shape).background(WideStatsCard).border(1.dp, Color.White.copy(alpha = 0.065f), shape).padding(horizontal = 16.dp, vertical = 15.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = WidePagePadding).clip(shape).background(WideStatsCard).border(1.dp, Color.White.copy(alpha = 0.065f), shape).padding(horizontal = 18.dp, vertical = 17.dp),
         verticalArrangement = Arrangement.spacedBy(1.dp),
     ) { content() }
 }
 
 @Composable
 private fun WideSectionTitle(title: String, subtitle: String) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = WidePagePadding), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
         Text(subtitle, color = Color.White.copy(alpha = 0.40f), fontSize = 10.5.sp)
     }
@@ -435,26 +515,53 @@ private fun WideEmpty(message: String) {
     WideCard { Text(message, color = Color.White.copy(alpha = 0.58f), fontSize = 12.sp) }
 }
 
-private fun wideBuildHeatmap(daily: List<AgentDailyActivity>, requestedWeeks: Int): WideHeatmap {
+private fun wideBuildHeatmap(daily: List<AgentDailyActivity>, requestedWeeks: Int, mode: WideHeatMode): WideHeatmap {
     val weeks = requestedWeeks.coerceIn(1, 52)
     val today = LocalDate.now(ZoneId.systemDefault())
     val endSunday = today.plusDays((7 - today.dayOfWeek.value).toLong())
     val startMonday = endSunday.minusDays(weeks * 7L - 1L)
     val values = daily.associate { it.dateKey to it.totalTokens.coerceAtLeast(0L) }
+    val raw = LongArray(weeks * 7)
+    val future = BooleanArray(weeks * 7)
+    repeat(weeks * 7) { index ->
+        val date = startMonday.plusDays(index.toLong())
+        future[index] = date.isAfter(today)
+        raw[index] = if (future[index]) 0L else values[date.toString()] ?: 0L
+    }
+    val weekly = LongArray(weeks)
+    raw.forEachIndexed { index, value -> weekly[index / 7] += value }
     val cells = ArrayList<WideHeatCell>(weeks * 7)
     var maxTokens = 0L
     var activeDays = 0
+    var cumulative = 0L
     repeat(weeks * 7) { index ->
-        val date = startMonday.plusDays(index.toLong())
-        val value = values[date.toString()] ?: 0L
-        val future = date.isAfter(today)
-        if (!future) {
-            maxTokens = maxOf(maxTokens, value)
-            if (value > 0L) activeDays += 1
+        if (!future[index]) {
+            cumulative += raw[index]
+            if (raw[index] > 0L) activeDays += 1
         }
-        cells += WideHeatCell(index / 7, index % 7, value, future)
+        val displayValue = when (mode) {
+            WideHeatMode.Daily -> raw[index]
+            WideHeatMode.Weekly -> weekly[index / 7]
+            WideHeatMode.Cumulative -> if (future[index]) 0L else cumulative
+        }
+        if (!future[index]) maxTokens = maxOf(maxTokens, displayValue)
+        cells += WideHeatCell(index / 7, index % 7, displayValue, future[index])
     }
     return WideHeatmap(weeks, cells, maxTokens, activeDays)
+}
+
+private fun wideMonthLabels(weeks: Int): List<String> {
+    val today = LocalDate.now(ZoneId.systemDefault())
+    val endSunday = today.plusDays((7 - today.dayOfWeek.value).toLong())
+    val startMonday = endSunday.minusDays(weeks.coerceIn(1, 52) * 7L - 1L)
+    val labels = ArrayList<String>()
+    var cursor = LocalDate.of(startMonday.year, startMonday.monthValue, 1)
+    val endMonth = LocalDate.of(today.year, today.monthValue, 1)
+    while (!cursor.isAfter(endMonth) && labels.size < 13) {
+        labels += "${cursor.monthValue}月"
+        cursor = cursor.plusMonths(1)
+    }
+    return labels.ifEmpty { listOf("${today.monthValue}月") }
 }
 
 private fun wideSyncLabel(phase: AgentAnalyticsSyncPhase): String = when (phase) {
