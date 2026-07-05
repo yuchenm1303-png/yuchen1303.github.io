@@ -334,7 +334,7 @@ private fun shouldUseLegacyMobileCommandPanel(text: String): Boolean {
 private fun optimizedMayContainRichMarkup(text: String): Boolean {
     for (ch in text) {
         when (ch) {
-            '*', '\\', '$', '#', '-', '|', '【', '>', '`' -> return true
+            '*', '\\', '$', '#', '-', '|', '【', '>', '`', '[', '~' -> return true
         }
     }
     return false
@@ -451,13 +451,6 @@ private fun sanitizeOptimizedRichTextSource(source: String): String {
 
 private fun normalizeMarkdownBoundariesAfterInlineStickers(source: String): String {
     val markers = InlineStickerAssets.findProtocolMarkers(source)
-        .sortedBy { it.start }
-        .fold(mutableListOf<InlineStickerProtocolMarker>()) { accepted, marker ->
-            if (accepted.none { marker.start < it.endExclusive && marker.endExclusive > it.start }) {
-                accepted += marker
-            }
-            accepted
-        }
     if (markers.isEmpty()) return source
 
     val builder = StringBuilder(source.length + markers.size)
@@ -473,13 +466,22 @@ private fun normalizeMarkdownBoundariesAfterInlineStickers(source: String): Stri
         while (probe < source.length && (source[probe] == ' ' || source[probe] == '\t')) {
             probe++
         }
-        if (probe > cursor && (isMarkdownHeadingPrefixAt(source, probe) || isMarkdownBulletPrefixAt(source, probe))) {
+        if (probe > cursor && isMarkdownBlockPrefixAt(source, probe)) {
             builder.append('\n')
             cursor = probe
         }
     }
     if (cursor < source.length) builder.append(source.substring(cursor))
     return builder.toString()
+}
+
+private fun isMarkdownBlockPrefixAt(source: String, index: Int): Boolean {
+    return isMarkdownHeadingPrefixAt(source, index) ||
+        isMarkdownBulletPrefixAt(source, index) ||
+        isMarkdownQuotePrefixAt(source, index) ||
+        isMarkdownTablePrefixAt(source, index) ||
+        isMarkdownCodeFencePrefixAt(source, index) ||
+        isMarkdownDisplayFormulaPrefixAt(source, index)
 }
 
 private fun isMarkdownHeadingPrefixAt(source: String, index: Int): Boolean {
@@ -495,6 +497,27 @@ private fun isMarkdownBulletPrefixAt(source: String, index: Int): Boolean {
     if (index !in source.indices) return false
     val ch = source[index]
     return (ch == '-' || ch == '*' || ch == '•') && index + 1 < source.length && source[index + 1].isWhitespace()
+}
+
+private fun isMarkdownQuotePrefixAt(source: String, index: Int): Boolean {
+    return index in source.indices &&
+        source[index] == '>' &&
+        index + 1 < source.length &&
+        source[index + 1].isWhitespace()
+}
+
+private fun isMarkdownTablePrefixAt(source: String, index: Int): Boolean {
+    if (index !in source.indices || source[index] != '|') return false
+    val lineEnd = source.indexOf('\n', index).let { if (it < 0) source.length else it }
+    return source.indexOf('|', index + 1).let { it in (index + 1) until lineEnd }
+}
+
+private fun isMarkdownCodeFencePrefixAt(source: String, index: Int): Boolean {
+    return source.startsWith("```", index) || source.startsWith("~~~", index)
+}
+
+private fun isMarkdownDisplayFormulaPrefixAt(source: String, index: Int): Boolean {
+    return source.startsWith("$$", index) || source.startsWith("\\[", index)
 }
 
 private fun extractOptimizedFormulaTokens(source: String): Pair<String, Map<String, OptimizedFormulaToken>> {
