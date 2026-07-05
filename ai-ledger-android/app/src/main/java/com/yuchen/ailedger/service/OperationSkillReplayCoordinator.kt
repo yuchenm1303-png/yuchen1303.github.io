@@ -1,18 +1,21 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import android.content.Intent
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/** Replay phases for a cloud-visual Skill run. */
 enum class SkillReplayPhase {
     Idle,
     Starting,
@@ -83,12 +86,19 @@ object OperationSkillReplayCoordinator {
                 phase = SkillReplayPhase.Starting,
                 workflowId = draft.id,
                 title = skill.name,
-                message = "正在把批准后的 Skill 交给视觉智能…",
+                message = "正在打开授权应用并启动视觉 Skill…",
             )
+            val opened = openFirstAuthorizedApp(context, draft)
+            if (opened) delay(TARGET_APP_SETTLE_DELAY_MS)
+
             val goal = buildVisualGoal(draft, skill, inputValues)
             mutableState.value = mutableState.value.copy(
                 phase = SkillReplayPhase.Running,
-                message = "视觉智能正在根据当前屏幕重新完成 Skill。",
+                message = if (opened) {
+                    "视觉智能正在授权应用中重新完成 Skill。"
+                } else {
+                    "未能自动打开授权应用，请手动切到目标应用后继续。"
+                },
             )
             val result = AgentOrchestrator(
                 aiWorkerClient = AiWorkerClient(),
@@ -152,6 +162,19 @@ object OperationSkillReplayCoordinator {
         return SkillReplayOutcome(false, message)
     }
 
+    private fun openFirstAuthorizedApp(
+        context: Context,
+        draft: LearnedWorkflowDraft,
+    ): Boolean = runCatching {
+        val packageName = draft.appScope.normalizedPackages.firstOrNull().orEmpty()
+        if (packageName.isBlank()) return@runCatching false
+        val intent = context.packageManager.getLaunchIntentForPackage(packageName)
+            ?: return@runCatching false
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.applicationContext.startActivity(intent)
+        true
+    }.getOrDefault(false)
+
     private fun buildVisualGoal(
         draft: LearnedWorkflowDraft,
         skill: LearnedVisualSkill,
@@ -192,6 +215,7 @@ object OperationSkillReplayCoordinator {
         appendLine("现在请观察当前屏幕并完成目标。每次动作后重新观察和验证，只有满足成功标准才能结束。")
     }.take(MAX_GOAL_CHARS)
 
+    private const val TARGET_APP_SETTLE_DELAY_MS = 650L
     private const val MAX_REPLAY_STEPS = 30
     private const val MAX_GOAL_CHARS = 8_000
 }
