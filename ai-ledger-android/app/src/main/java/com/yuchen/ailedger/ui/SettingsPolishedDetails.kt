@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -367,11 +368,9 @@ private fun AdvancedContent() {
 }
 
 @Composable
-private fun ChatPageSettingsContent(state: AssistantUiState) {
+private fun ChatPageSettingsContent(@Suppress("UNUSED_PARAMETER") state: AssistantUiState) {
     val context = LocalContext.current
     val stickerLayout = InlineStickerDisplaySettings.layoutPreferences(context)
-    val stickerDiagnostics by InlineStickerDiagnosticsStore.snapshot.collectAsState()
-    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
 
     SettingsParameterGroup(
         title = "内联表情排版",
@@ -414,35 +413,7 @@ private fun ChatPageSettingsContent(state: AssistantUiState) {
     }
 
     SettingsNestedOrdinaryGlassHost { InlineStickerExpressionSettingsControls() }
-
-    SettingsParameterGroup(
-        title = "表情链路诊断",
-        subtitle = "复制最近一次云端表情请求、后端目标、模型输出和 App 合并决策。",
-    ) {
-        SettingInfoRow("请求参数", stickerDiagnostics.requestSummary)
-        SettingInfoRow("后端目标", stickerDiagnostics.backendSummary)
-        SettingInfoRow("App 合并", stickerDiagnostics.mergeSummary)
-        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-            SettingActionButton(
-                "复制诊断 JSON",
-                "发给助手定位",
-                state,
-                Modifier.weight(1f),
-            ) {
-                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI Ledger 表情诊断", stickerDiagnostics.exportJson))
-                Toast.makeText(context, "已复制表情诊断", Toast.LENGTH_SHORT).show()
-            }
-            SettingActionButton(
-                "最近更新时间",
-                if (stickerDiagnostics.updatedAtMillis > 0L) "${stickerDiagnostics.updatedAtMillis}" else "暂无",
-                state,
-                Modifier.weight(1f),
-            ) {
-                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI Ledger 表情诊断", stickerDiagnostics.exportJson))
-                Toast.makeText(context, "已复制表情诊断", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    InlineStickerDiagnosticsSettingsCard()
 
     Column(
         Modifier
@@ -463,6 +434,109 @@ private fun ChatPageSettingsContent(state: AssistantUiState) {
         )
         Text("拖动上方滑块，示例和聊天页中的表情会同步更新。", color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
     }
+}
+
+@Composable
+private fun InlineStickerDiagnosticsSettingsCard() {
+    val context = LocalContext.current
+    val latestDiagnostics by InlineStickerDiagnosticsStore
+        .observe(context.applicationContext)
+        .collectAsState(initial = InlineStickerDiagnosticsStore.latestJson(context.applicationContext))
+    val clean = latestDiagnostics.trim()
+    val summary = remember(clean) { inlineStickerDiagnosticsSummary(clean) }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.060f))
+            .padding(horizontal = 13.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "表情诊断",
+                    color = Color.White.copy(alpha = 0.86f),
+                    fontSize = 14.5.sp,
+                    lineHeight = 18.sp,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                )
+                Text(
+                    text = summary,
+                    color = Color.White.copy(alpha = 0.46f),
+                    fontSize = 10.5.sp,
+                    lineHeight = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0xFF8DF9EA).copy(alpha = if (clean.isBlank()) 0.070f else 0.14f))
+                    .clickable(enabled = clean.isNotBlank()) {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("AI Ledger 表情诊断", clean))
+                        Toast.makeText(context, "表情诊断已复制", Toast.LENGTH_SHORT).show()
+                    }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = if (clean.isBlank()) "暂无" else "复制",
+                    color = Color.White.copy(alpha = if (clean.isBlank()) 0.40f else 0.88f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 1,
+                )
+            }
+        }
+        if (clean.isNotBlank()) {
+            Text(
+                text = clean.replace('\n', ' ').take(220),
+                color = Color.White.copy(alpha = 0.30f),
+                fontSize = 9.5.sp,
+                lineHeight = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            Text(
+                text = "发送一条云端回复后，这里会保存后端表情策略和 App 流式合并诊断。复制给我后能直接判断卡在哪一层。",
+                color = Color.White.copy(alpha = 0.34f),
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+    }
+}
+
+private fun inlineStickerDiagnosticsSummary(json: String): String {
+    if (json.isBlank()) return "还没有收到诊断数据"
+    fun findNumber(key: String): String? {
+        val match = Regex("\\\"$key\\\"\\s*:\\s*(-?\\d+)").find(json) ?: return null
+        return match.groupValues.getOrNull(1)
+    }
+    fun findText(key: String): String? {
+        val match = Regex("\\\"$key\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"").find(json) ?: return null
+        return match.groupValues.getOrNull(1)
+    }
+    val frequency = findNumber("frequency") ?: "?"
+    val intensity = findNumber("intensity") ?: "?"
+    val target = findNumber("targetLocationCount") ?: "?"
+    val model = findNumber("modelMarkerLocationCount") ?: findNumber("modelMarkerCount") ?: "?"
+    val final = findNumber("finalRetainedLocationCount") ?: findNumber("finalRetainedMarkerCount") ?: findNumber("outputMarkerCount") ?: "?"
+    val merge = findText("mergeDecision") ?: "无合并记录"
+    return "频率 $frequency · 强度 $intensity · 目标 $target · 模型 $model · 最终 $final · $merge"
 }
 
 @Composable
