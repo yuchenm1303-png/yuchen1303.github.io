@@ -67,6 +67,7 @@ internal object AiWorkerResponseParser {
             clientToolCall = clientToolCall,
             searchUsed = data?.optBoolean("searchUsed", false) ?: false,
             searchProvider = data?.optString("searchProvider").notBlankOrNull(),
+            stickerDiagnosticsJson = parseStickerDiagnostics(data)?.toString(2),
         )
     }
 
@@ -98,13 +99,60 @@ internal object AiWorkerResponseParser {
         }
     }
 
-    private fun countInlineStickerProtocolMarkers(value: String): Int {
+    internal fun countInlineStickerProtocolMarkers(value: String): Int {
         val visibleCount = Regex(
             """\[\[AI_LEDGER_INLINE_STICKER:[a-z0-9_]{2,48}]]""",
             RegexOption.IGNORE_CASE
         ).findAll(value).count()
         if (visibleCount > 0) return visibleCount
         return if (value.any { char -> char.code in 0xDB40..0xDB7F }) 1 else 0
+    }
+
+    internal fun buildClientStickerMergeDiagnostics(
+        streamedReply: String,
+        finalReply: String,
+        mergedReply: String,
+    ): JSONObject {
+        val streamed = streamedReply.trim()
+        val final = finalReply.trim()
+        val merged = mergedReply.trim()
+        val streamedStickerCount = countInlineStickerProtocolMarkers(streamed)
+        val finalStickerCount = countInlineStickerProtocolMarkers(final)
+        val mergedStickerCount = countInlineStickerProtocolMarkers(merged)
+        val decision = when {
+            streamed.isBlank() -> "final_stream_blank"
+            final.isBlank() -> "streamed_final_blank"
+            final == streamed -> "final_equal_streamed"
+            final.startsWith(streamed) -> "final_extends_streamed"
+            streamedStickerCount > finalStickerCount -> "streamed_more_stickers"
+            finalStickerCount > 0 || streamedStickerCount > 0 -> "final_has_sticker_protocol"
+            else -> "streamed_default"
+        }
+        return JSONObject().apply {
+            put("schema", "inline_sticker_client_merge_diagnostics_v1")
+            put("streamedStickerCount", streamedStickerCount)
+            put("finalStickerCount", finalStickerCount)
+            put("mergedStickerCount", mergedStickerCount)
+            put("streamedLength", streamed.length)
+            put("finalLength", final.length)
+            put("mergedLength", merged.length)
+            put("mergeDecision", decision)
+            put("streamedHead", streamed.take(160))
+            put("finalHead", final.take(160))
+            put("mergedHead", merged.take(160))
+        }
+    }
+
+    internal fun attachClientStickerDiagnostics(data: JSONObject, clientDiagnostics: JSONObject) {
+        val root = parseStickerDiagnostics(data) ?: JSONObject()
+        root.put("clientMerge", clientDiagnostics)
+        data.put("stickerDiagnostics", root)
+    }
+
+    private fun parseStickerDiagnostics(data: JSONObject?): JSONObject? {
+        return data?.optJSONObject("stickerDiagnostics")
+            ?: data?.optJSONObject("data")?.optJSONObject("stickerDiagnostics")
+            ?: data?.optJSONObject("result")?.optJSONObject("stickerDiagnostics")
     }
 
     fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
