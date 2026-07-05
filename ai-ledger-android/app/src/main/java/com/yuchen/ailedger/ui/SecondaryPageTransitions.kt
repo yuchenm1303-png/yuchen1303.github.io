@@ -31,8 +31,8 @@ import kotlinx.coroutines.yield
 /**
  * 二级页面统一轻量转场。
  *
- * 只驱动 alpha / translation / scale，不改变真实布局尺寸，不接入 OpenGL，
- * 用于功能页、设置页内部二级页面和列表详情页的硬切替换。
+ * 路由切换只做透明换场和小位移，不在整页上做 scale，避免应用列表这类卡片密集页面
+ * 在交接时出现背板闪烁；入口动画仍保留弹性 scale，保证二级页打开手感不变。
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -52,8 +52,8 @@ internal fun <T> SecondaryPageTransition(
             if (motion <= 0.05f) {
                 fadeIn(tween(durationMillis = 70)) togetherWith fadeOut(tween(durationMillis = 54))
             } else {
-                val enterOffsetRatio = 0.045f + 0.030f * motion
-                val exitOffsetRatio = 0.018f + 0.010f * motion
+                val enterOffsetRatio = 0.034f + 0.024f * motion
+                val exitOffsetRatio = 0.014f + 0.008f * motion
                 val enter = fadeIn(tween(durationMillis = 126, delayMillis = 18)) +
                     slideInVertically(
                         animationSpec = spring(
@@ -61,25 +61,12 @@ internal fun <T> SecondaryPageTransition(
                             stiffness = Spring.StiffnessMediumLow,
                         ),
                     ) { height ->
-                        (height * enterOffsetRatio).roundToInt().coerceAtLeast(18)
-                    } +
-                    scaleIn(
-                        initialScale = 0.965f,
-                        transformOrigin = TransformOrigin(0.50f, 0.58f),
-                        animationSpec = spring(
-                            dampingRatio = 0.78f,
-                            stiffness = Spring.StiffnessMediumLow,
-                        ),
-                    )
-                val exit = fadeOut(tween(durationMillis = 96)) +
-                    slideOutVertically(tween(durationMillis = 118)) { height ->
-                        -(height * exitOffsetRatio).roundToInt().coerceAtMost(16)
-                    } +
-                    scaleOut(
-                        targetScale = 0.982f,
-                        transformOrigin = TransformOrigin(0.50f, 0.54f),
-                        animationSpec = tween(durationMillis = 118),
-                    )
+                        (height * enterOffsetRatio).roundToInt().coerceIn(14, 30)
+                    }
+                val exit = fadeOut(tween(durationMillis = 92)) +
+                    slideOutVertically(tween(durationMillis = 108)) { height ->
+                        -(height * exitOffsetRatio).roundToInt().coerceIn(6, 14)
+                    }
                 enter togetherWith exit
             }
         },
@@ -88,7 +75,7 @@ internal fun <T> SecondaryPageTransition(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { clip = false },
+                .graphicsLayer { clip = true },
         ) {
             content(page)
         }
