@@ -58,7 +58,7 @@ internal object InlineStickerDisplaySettings {
     const val MaxLineExtraDp = 24f
     val LineExtraRange: ClosedFloatingPointRange<Float> = MinLineExtraDp..MaxLineExtraDp
 
-    const val DefaultFrequency = 50
+    const val DefaultFrequency = 34
     const val DefaultIntensity = 79
     const val DefaultMaxPerReply = 0
     const val DefaultRepeatCount = 1
