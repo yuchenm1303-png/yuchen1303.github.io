@@ -74,7 +74,7 @@ private val inlineStickerAltByKey: Map<String, InlineStickerAsset> = mapOf(
 )
 
 @Composable
-fun RichMessageContent(
+fun CitationInlineRichMessageContent(
     text: String,
     modifier: Modifier = Modifier,
     color: Color = Color.Unspecified,
