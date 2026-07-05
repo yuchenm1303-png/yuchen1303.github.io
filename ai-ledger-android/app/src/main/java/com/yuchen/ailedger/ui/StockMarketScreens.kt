@@ -1,18 +1,26 @@
 package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -24,6 +32,7 @@ import com.yuchen.ailedger.data.StockWatchlistRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockNativeHotType
 import com.yuchen.ailedger.model.StockNativeRankingType
+import kotlinx.coroutines.yield
 
 private sealed interface StockNativeRoute {
     data object Home : StockNativeRoute
@@ -34,6 +43,8 @@ private sealed interface StockNativeRoute {
     data class Detail(val code: String, val startInCommunity: Boolean = false) : StockNativeRoute
     data class Post(val code: String, val postId: String) : StockNativeRoute
 }
+
+private data class PendingStockOpen(val code: String)
 
 @Composable
 fun AStockMarketScreenV2(
@@ -47,6 +58,8 @@ fun AStockMarketScreenV2(
     val watchlistRepository = remember(context) { StockWatchlistRepository.get(context) }
     var route by remember { mutableStateOf<StockNativeRoute>(StockNativeRoute.Home) }
     val routeStack = remember { mutableStateListOf<StockNativeRoute>() }
+    var pendingOpen by remember { mutableStateOf<PendingStockOpen?>(null) }
+    var pendingBackToHome by remember { mutableStateOf(false) }
     val baseDensity = LocalDensity.current
 
     DisposableEffect(marketViewModel) {
@@ -63,26 +76,47 @@ fun AStockMarketScreenV2(
     fun openStock(code: String, startInCommunity: Boolean = false) {
         val normalized = code.trim()
         if (normalized.isBlank()) return
-        marketViewModel.openCode(normalized)
+        pendingOpen = PendingStockOpen(normalized)
         navigate(StockNativeRoute.Detail(normalized, startInCommunity))
     }
 
     fun navigateBack() {
+        val leavingDetail = route is StockNativeRoute.Detail
         val previous = if (routeStack.isNotEmpty()) {
             routeStack.removeAt(routeStack.lastIndex)
         } else {
             StockNativeRoute.Home
         }
-        if (route is StockNativeRoute.Detail) marketViewModel.backToHome()
         route = previous
+        if (leavingDetail) pendingBackToHome = true
+    }
+
+    LaunchedEffect(route, pendingOpen) {
+        val pending = pendingOpen
+        val current = route
+        if (pending != null && current is StockNativeRoute.Detail && current.code == pending.code) {
+            yield()
+            withFrameNanos { }
+            marketViewModel.openCode(pending.code)
+            pendingOpen = null
+        }
+    }
+
+    LaunchedEffect(route, pendingBackToHome) {
+        if (pendingBackToHome && route !is StockNativeRoute.Detail) {
+            yield()
+            withFrameNanos { }
+            marketViewModel.backToHome()
+            pendingBackToHome = false
+        }
     }
 
     BackHandler {
         if (route == StockNativeRoute.Home) onBack() else navigateBack()
     }
 
-    SecondaryPageTransition(
-        targetState = route,
+    StockRouteTransitionHost(
+        route = route,
         motionIntensity = state.motionIntensity,
         modifier = Modifier.fillMaxSize(),
     ) { current ->
@@ -285,5 +319,54 @@ fun AStockMarketScreenV2(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StockRouteTransitionHost(
+    route: StockNativeRoute,
+    motionIntensity: Float,
+    modifier: Modifier = Modifier,
+    content: @Composable (StockNativeRoute) -> Unit,
+) {
+    var displayedRoute by remember { mutableStateOf(route) }
+    val progress = remember { Animatable(1f) }
+    val motion = motionIntensity.coerceIn(0f, 1f)
+
+    LaunchedEffect(route, motion) {
+        displayedRoute = route
+        progress.stop()
+        if (motion <= 0.05f) {
+            progress.snapTo(1f)
+            return@LaunchedEffect
+        }
+        progress.snapTo(0f)
+        withFrameNanos { }
+        progress.animateTo(
+            targetValue = 1f,
+            animationSpec = spring(
+                dampingRatio = 0.84f,
+                stiffness = Spring.StiffnessMediumLow,
+            ),
+        )
+    }
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                val p = progress.value
+                val detailScaleBase = if (displayedRoute is StockNativeRoute.Detail) 0.992f else 0.986f
+                val maxOffset = if (displayedRoute is StockNativeRoute.Detail) 22.dp.toPx() else 16.dp.toPx()
+                alpha = p
+                translationY = (1f - p) * maxOffset
+                val scale = detailScaleBase + (1f - detailScaleBase) * p
+                scaleX = scale
+                scaleY = scale
+                clip = true
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            }
+            .fillMaxSize(),
+    ) {
+        content(displayedRoute)
     }
 }
