@@ -448,27 +448,15 @@ private fun ModelAndNetworkPanel(
                     }
                 }
             )
-            Row(
+            NetworkDropletCapsule(
+                state = state,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .fillMaxWidth(0.46f)
+                    .fillMaxWidth(0.30f)
                     .height(58.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
-            ) {
-                NetworkDropletCapsule(
-                    state = state,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(58.dp),
-                    enabled = !state.isSending,
-                    onClick = onToggleOnline
-                )
-                Spacer(Modifier.size(6.dp))
-                MemoryQuickPanelButtonHost()
-                Spacer(Modifier.size(6.dp))
-                SkillQuickPanelButtonHost()
-            }
+                enabled = !state.isSending,
+                onClick = onToggleOnline
+            )
         }
     }
 }
@@ -619,6 +607,10 @@ private fun ChatPanelV2(
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.size(10.dp))
+                    MemoryQuickPanelButtonHost()
+                    Spacer(Modifier.size(6.dp))
+                    SkillQuickPanelButtonHost()
                     Spacer(Modifier.weight(1f))
                     ClearChatButtonV2(
                         enabled = sourceMessages.isNotEmpty(),
