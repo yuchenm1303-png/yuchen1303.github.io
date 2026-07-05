@@ -55,6 +55,8 @@ class StorageAppCacheCleanupRepository(context: Context) {
         return loadRanking(forceRefresh = forceRefresh).sumOf(AppCacheUsage::cacheBytes)
     }
 
+    fun deviceFreeBytes(): Long = storageRepository.loadOverview().freeBytes
+
     fun shellStatus(forceRefresh: Boolean = false): DeviceShellStatus = shellBridge.probe(forceRefresh)
 
     fun requestShizukuPermission(): DeviceShellExecResult = shellBridge.requestShizukuPermission()
@@ -64,7 +66,7 @@ class StorageAppCacheCleanupRepository(context: Context) {
         check(StorageAppCacheCleanupPolicy.isCacheOnlyCommand(command)) {
             "应用缓存清理命令未通过固定策略校验"
         }
-        val before = cacheTotal(forceRefresh = true)
+        val before = deviceFreeBytes()
         val shell = shellBridge.runEnhancedCommand(
             title = "清理全机应用缓存",
             command = command,
@@ -81,12 +83,12 @@ class StorageAppCacheCleanupRepository(context: Context) {
             )
         }
         Thread.sleep(1_500L)
-        val after = cacheTotal(forceRefresh = true)
-        val released = if (before != null && after != null) (before - after).coerceAtLeast(0L) else null
-        val message = when {
-            released == null -> "Shizuku/ADB Shell 已执行缓存回收命令；未授权使用情况访问，因此无法核验清理前后体积。"
-            released > 0L -> "增强缓存回收已完成，统计到的应用缓存减少了 ${formatCacheBytes(released)}。"
-            else -> "增强缓存回收命令执行成功，但当前统计没有发现可释放缓存；系统可能保留了正在使用的缓存。"
+        val after = deviceFreeBytes()
+        val released = (after - before).coerceAtLeast(0L)
+        val message = if (released > 0L) {
+            "增强缓存回收已完成，设备可用空间增加了 ${formatCacheBytes(released)}。"
+        } else {
+            "增强缓存回收命令执行成功，但设备可用空间暂未增加；系统可能没有可回收缓存，或空间统计尚未刷新。"
         }
         return StorageAppCacheCleanupResult(
             ok = true,
