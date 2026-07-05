@@ -1,5 +1,9 @@
 package com.yuchen.ailedger.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -24,6 +28,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -44,6 +49,7 @@ import com.yuchen.ailedger.model.GlassBorderStyle
 import com.yuchen.ailedger.model.GlassPreset
 import com.yuchen.ailedger.model.RainbowPrismStyle
 import com.yuchen.ailedger.model.RenderQuality
+import com.yuchen.ailedger.service.InlineStickerDiagnosticsStore
 import kotlin.math.roundToInt
 
 @Composable
@@ -118,7 +124,7 @@ internal fun SettingsDetailPanel(
                         SettingsDetailSection.Data -> DataContent(state)
                         SettingsDetailSection.Service -> ServiceContent(state, aiEndpoint)
                         SettingsDetailSection.Advanced -> AdvancedContent()
-                        SettingsDetailSection.Chat -> ChatPageSettingsContent()
+                        SettingsDetailSection.Chat -> ChatPageSettingsContent(state)
                         SettingsDetailSection.Memory -> AccountMemorySettingsContent(state)
                         SettingsDetailSection.Debug -> GlassDebugFloatingPanel(
                             state,
@@ -361,9 +367,11 @@ private fun AdvancedContent() {
 }
 
 @Composable
-private fun ChatPageSettingsContent() {
+private fun ChatPageSettingsContent(state: AssistantUiState) {
     val context = LocalContext.current
     val stickerLayout = InlineStickerDisplaySettings.layoutPreferences(context)
+    val stickerDiagnostics by InlineStickerDiagnosticsStore.snapshot.collectAsState()
+    val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
 
     SettingsParameterGroup(
         title = "内联表情排版",
@@ -406,6 +414,35 @@ private fun ChatPageSettingsContent() {
     }
 
     SettingsNestedOrdinaryGlassHost { InlineStickerExpressionSettingsControls() }
+
+    SettingsParameterGroup(
+        title = "表情链路诊断",
+        subtitle = "复制最近一次云端表情请求、后端目标、模型输出和 App 合并决策。",
+    ) {
+        SettingInfoRow("请求参数", stickerDiagnostics.requestSummary)
+        SettingInfoRow("后端目标", stickerDiagnostics.backendSummary)
+        SettingInfoRow("App 合并", stickerDiagnostics.mergeSummary)
+        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+            SettingActionButton(
+                "复制诊断 JSON",
+                "发给助手定位",
+                state,
+                Modifier.weight(1f),
+            ) {
+                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI Ledger 表情诊断", stickerDiagnostics.exportJson))
+                Toast.makeText(context, "已复制表情诊断", Toast.LENGTH_SHORT).show()
+            }
+            SettingActionButton(
+                "最近更新时间",
+                if (stickerDiagnostics.updatedAtMillis > 0L) "${stickerDiagnostics.updatedAtMillis}" else "暂无",
+                state,
+                Modifier.weight(1f),
+            ) {
+                clipboardManager?.setPrimaryClip(ClipData.newPlainText("AI Ledger 表情诊断", stickerDiagnostics.exportJson))
+                Toast.makeText(context, "已复制表情诊断", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     Column(
         Modifier
