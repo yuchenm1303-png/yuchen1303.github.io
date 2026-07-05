@@ -28,6 +28,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.SubcomposeLayoutState
@@ -208,7 +209,13 @@ fun PlanCenterScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = pageAlpha.value
+                    val progress = pageAlpha.value
+                    alpha = progress
+                    translationY = (1f - progress) * 22.dp.toPx()
+                    val scale = secondaryPanelScale(progress)
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(0.50f, 0.58f)
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                 },
         ) {
