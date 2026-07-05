@@ -5,12 +5,15 @@ import kotlinx.coroutines.flow.StateFlow
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val EMPTY_INLINE_STICKER_DIAGNOSTICS_JSON =
+    """{"schema":"ai_ledger_inline_sticker_diagnostics_v1","state":"empty","hint":"先发送一条带表情设置的云端回复，再复制诊断。"}"""
+
 internal data class InlineStickerDiagnosticsSnapshot(
     val updatedAtMillis: Long = 0L,
     val requestSummary: String = "暂无请求",
     val backendSummary: String = "暂无后端诊断",
     val mergeSummary: String = "暂无合并诊断",
-    val exportJson: String = InlineStickerDiagnosticsStore.emptyExportJson(),
+    val exportJson: String = EMPTY_INLINE_STICKER_DIAGNOSTICS_JSON,
 )
 
 internal object InlineStickerDiagnosticsStore {
@@ -22,11 +25,7 @@ internal object InlineStickerDiagnosticsStore {
     private val _snapshot = MutableStateFlow(InlineStickerDiagnosticsSnapshot())
     val snapshot: StateFlow<InlineStickerDiagnosticsSnapshot> = _snapshot
 
-    fun emptyExportJson(): String = JSONObject()
-        .put("schema", "ai_ledger_inline_sticker_diagnostics_v1")
-        .put("state", "empty")
-        .put("hint", "先发送一条带表情设置的云端回复，再复制诊断。")
-        .toString(2)
+    fun emptyExportJson(): String = JSONObject(EMPTY_INLINE_STICKER_DIAGNOSTICS_JSON).toString(2)
 
     fun recordHttpExchange(
         route: AiWorkerModelRoute,
@@ -118,7 +117,7 @@ internal object InlineStickerDiagnosticsStore {
 
     private fun extractVisibleKeys(value: String): List<String> {
         return visibleStickerRegex.findAll(value)
-            .map { match -> match.value.substringAfter(':').substringBefore("]]" ).lowercase() }
+            .map { match -> match.value.substringAfter(':').substringBefore("]]").lowercase() }
             .toList()
     }
 }
