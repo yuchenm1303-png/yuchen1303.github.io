@@ -53,12 +53,23 @@ internal class AiWorkerHttpTransport(
                 )
             }
             AiWorkerResponseParser.throwIfServerReturnedFallbackSignal(data)
-            AiWorkerResponseParser.parse(
+            val response = AiWorkerResponseParser.parse(
                 data = data,
                 body = body,
                 payload = payload,
                 route = route,
-            ).also {
+            )
+            InlineStickerDiagnosticsStore.recordHttpExchange(
+                route = route,
+                payload = payload,
+                stream = false,
+                responseData = data,
+                streamedReply = "",
+                finalReply = response.reply,
+                mergedReply = response.reply,
+                responseReply = response.reply,
+            )
+            response.also {
                 AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
             }
         } catch (error: SocketTimeoutException) {
@@ -121,12 +132,23 @@ internal class AiWorkerHttpTransport(
                 val body = readBody(connection, status)
                 val data = body.toJsonOrNull()
                 AiWorkerResponseParser.throwIfServerReturnedFallbackSignal(data)
-                return AiWorkerResponseParser.parse(
+                val response = AiWorkerResponseParser.parse(
                     data = data,
                     body = body,
                     payload = payload,
                     route = route,
-                ).also {
+                )
+                InlineStickerDiagnosticsStore.recordHttpExchange(
+                    route = route,
+                    payload = payload,
+                    stream = false,
+                    responseData = data,
+                    streamedReply = "",
+                    finalReply = response.reply,
+                    mergedReply = response.reply,
+                    responseReply = response.reply,
+                )
+                return response.also {
                     AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
                 }
             }
@@ -154,7 +176,7 @@ internal class AiWorkerHttpTransport(
                 streamedReply = streamedText,
                 finalReply = finalReply,
             )
-            when {
+            val response = when {
                 finalJson != null -> AiWorkerResponseParser.parse(
                     data = finalJson,
                     body = finalJson.toString(),
@@ -173,7 +195,18 @@ internal class AiWorkerHttpTransport(
                     },
                 )
                 else -> throw IOException("云端流式回复结束，但没有返回有效内容")
-            }.also {
+            }
+            InlineStickerDiagnosticsStore.recordHttpExchange(
+                route = route,
+                payload = payload,
+                stream = true,
+                responseData = finalJson,
+                streamedReply = streamedText,
+                finalReply = finalReply,
+                mergedReply = mergedReply,
+                responseReply = response.reply,
+            )
+            response.also {
                 AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
             }
         } catch (error: SocketTimeoutException) {
