@@ -81,15 +81,18 @@ internal object InlineStickerDiagnosticsStore {
     ) {
         val request = payload.optJSONObject("chatExpressionPreferences") ?: JSONObject()
         val backendDiagnostics = extractBackendDiagnostics(responseData)
+        val mergedVisibleReply = mergedReply.ifBlank { responseReply }
+        val streamedTrimmed = streamedReply.trim()
+        val finalTrimmed = finalReply.trim()
         val streamedCount = countVisibleMarkers(streamedReply)
         val finalCount = countVisibleMarkers(finalReply)
-        val mergedCount = countVisibleMarkers(mergedReply.ifBlank { responseReply })
+        val mergedCount = countVisibleMarkers(mergedVisibleReply)
         val selected = when {
             !stream -> "non_stream_response"
             streamedReply.isBlank() -> "final_reply"
             finalReply.isBlank() -> "streamed_reply"
-            finalReply.trim() == streamedReply.trim() -> "same"
-            finalReply.trim().startsWith(streamedReply.trim()) -> "final_extends_stream"
+            finalTrimmed == streamedTrimmed -> "same"
+            finalTrimmed.startsWith(streamedTrimmed) -> "final_extends_stream"
             streamedCount > finalCount -> "streamed_has_more_markers"
             finalCount > 0 || streamedCount > 0 -> "final_has_marker"
             else -> "streamed_default"
@@ -120,11 +123,11 @@ internal object InlineStickerDiagnosticsStore {
                 put("streamedVisibleMarkerCount", streamedCount)
                 put("finalReplyLength", finalReply.length)
                 put("finalVisibleMarkerCount", finalCount)
-                put("mergedReplyLength", mergedReply.ifBlank { responseReply }.length)
+                put("mergedReplyLength", mergedVisibleReply.length)
                 put("mergedVisibleMarkerCount", mergedCount)
                 put("decision", selected)
             })
-            .put("acceptedMarkerKeys", JSONArray(extractVisibleKeys(mergedReply.ifBlank { responseReply })))
+            .put("acceptedMarkerKeys", JSONArray(extractVisibleKeys(mergedVisibleReply)))
             .put("quickRead", JSONObject().apply {
                 put("frequency", request.optInt("inlineStickerFrequency", -1))
                 put("intensity", request.optInt("inlineStickerIntensity", -1))
