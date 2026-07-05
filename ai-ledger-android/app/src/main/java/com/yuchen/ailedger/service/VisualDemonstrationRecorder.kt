@@ -14,12 +14,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/**
- * 事件对齐的视觉演示采样器。
- *
- * 无障碍事件只作为“用户刚做了动作”的时间锚点；本地不读取节点、不保存选择器、
- * 不推断步骤。截图仍是唯一视觉证据，云端根据动作前后关键帧理解 Skill。
- */
 class VisualDemonstrationRecorder(
     private val session: VisualDemonstrationSession,
     private val allowedPackages: Set<String>,
@@ -29,40 +23,17 @@ class VisualDemonstrationRecorder(
     private val captureMutex = Mutex()
     private val eventCounter = AtomicInteger(0)
 
-    @Volatile
-    private var stopped = false
-
-    @Volatile
-    private var lastCaptureStartedAtMillis = 0L
-
-    @Volatile
-    private var lastEventKey = ""
-
-    @Volatile
-    private var lastEventAtMillis = 0L
-
-    @Volatile
-    private var latestPackageHint: String = allowedPackages.firstOrNull().orEmpty()
+    @Volatile private var stopped = false
+    @Volatile private var lastCaptureStartedAtMillis = 0L
+    @Volatile private var lastEventKey = ""
+    @Volatile private var lastEventAtMillis = 0L
+    @Volatile private var latestPackageHint: String = allowedPackages.firstOrNull().orEmpty()
 
     suspend fun runCaptureLoop() {
-        captureFrame(
-            captureKind = "initial",
-            eventType = "session_start",
-            eventIndex = 0,
-            eventOccurredAtMillis = System.currentTimeMillis(),
-            packageHint = latestPackageHint,
-        )
+        captureFrame("initial", "session_start", 0, System.currentTimeMillis(), latestPackageHint)
         while (!stopped && session.frameCount < VisualDemonstrationSession.MAX_FRAMES - FINAL_FRAME_RESERVE) {
             delay(HEARTBEAT_INTERVAL_MS)
-            if (!stopped) {
-                captureFrame(
-                    captureKind = "heartbeat",
-                    eventType = "time_passed",
-                    eventIndex = 0,
-                    eventOccurredAtMillis = System.currentTimeMillis(),
-                    packageHint = latestPackageHint,
-                )
-            }
+            if (!stopped) captureFrame("heartbeat", "time_passed", 0, System.currentTimeMillis(), latestPackageHint)
         }
     }
 
@@ -75,39 +46,18 @@ class VisualDemonstrationRecorder(
         latestPackageHint = packageName
         val normalizedType = eventType.ifBlank { "user_action" }
         val key = "$packageName|$normalizedType"
-        val throttleMs = if (normalizedType == "text_changed") TEXT_ACTION_THROTTLE_MS else ACTION_THROTTLE_MS
+        val throttleMs = if (normalizedType == "view_text_changed") TEXT_ACTION_THROTTLE_MS else ACTION_THROTTLE_MS
         if (key == lastEventKey && occurredAtMillis - lastEventAtMillis < throttleMs) return
         lastEventKey = key
         lastEventAtMillis = occurredAtMillis
-
         val index = eventCounter.incrementAndGet()
-        scheduleEventFrame(
-            delayMs = POST_ACTION_CAPTURE_DELAY_MS,
-            captureKind = "after_action",
-            eventType = normalizedType,
-            eventIndex = index,
-            occurredAtMillis = occurredAtMillis,
-            packageName = packageName,
-        )
-        scheduleEventFrame(
-            delayMs = SETTLE_CAPTURE_DELAY_MS,
-            captureKind = "action_settle",
-            eventType = normalizedType,
-            eventIndex = index,
-            occurredAtMillis = occurredAtMillis,
-            packageName = packageName,
-        )
+        scheduleEventFrame(POST_ACTION_CAPTURE_DELAY_MS, "after_action", normalizedType, index, occurredAtMillis, packageName)
+        scheduleEventFrame(SETTLE_CAPTURE_DELAY_MS, "action_settle", normalizedType, index, occurredAtMillis, packageName)
     }
 
     suspend fun captureFinalFrame() = withContext(Dispatchers.Default) {
         if (!stopped) {
-            captureFrame(
-                captureKind = "final",
-                eventType = "session_finish",
-                eventIndex = eventCounter.get() + 1,
-                eventOccurredAtMillis = System.currentTimeMillis(),
-                packageHint = latestPackageHint,
-            )
+            captureFrame("final", "session_finish", eventCounter.get() + 1, System.currentTimeMillis(), latestPackageHint)
         }
         Unit
     }
@@ -126,15 +76,7 @@ class VisualDemonstrationRecorder(
         packageName: String,
     ): Job = scope.launch {
         delay(delayMs)
-        if (!stopped) {
-            captureFrame(
-                captureKind = captureKind,
-                eventType = eventType,
-                eventIndex = eventIndex,
-                eventOccurredAtMillis = occurredAtMillis,
-                packageHint = packageName,
-            )
-        }
+        if (!stopped) captureFrame(captureKind, eventType, eventIndex, occurredAtMillis, packageName)
     }
 
     private suspend fun captureFrame(
@@ -144,27 +86,19 @@ class VisualDemonstrationRecorder(
         eventOccurredAtMillis: Long,
         packageHint: String,
     ): Boolean = captureMutex.withLock {
-        if (stopped || session.frameCount >= VisualDemonstrationSession.MAX_FRAMES - FINAL_FRAME_RESERVE) {
-            return@withLock false
-        }
-        val now = System.currentTimeMillis()
+        if (stopped || session.frameCount >= VisualDemonstrationSession.MAX_FRAMES - FINAL_FRAME_RESERVE) return@withLock false
         val minGap = if (captureKind == "final") 0L else MIN_CAPTURE_GAP_MS
-        val waitMs = minGap - (now - lastCaptureStartedAtMillis)
+        val waitMs = minGap - (System.currentTimeMillis() - lastCaptureStartedAtMillis)
         if (waitMs > 0L) delay(waitMs)
         lastCaptureStartedAtMillis = System.currentTimeMillis()
 
-        val observation = runCatching {
-            AiAgentAccessibilityService.captureFreshVisualSnapshot(
-                preferredPackage = packageHint.takeIf(String::isNotBlank),
-                reason = "record_$captureKind",
-            )
-        }.getOrNull() ?: return@withLock false
+        val observation = runCatching { AiAgentAccessibilityService.captureFreshSnapshot(forceVisual = true) }.getOrNull()
+            ?: return@withLock false
         val snapshot = observation.toAgentScreenSnapshot()
         val visual = snapshot.visual?.takeIf { it.hasImage } ?: return@withLock false
         val packageName = snapshot.packageName.trim().ifBlank { packageHint }
         if (packageName.isBlank() || packageName !in allowedPackages) return@withLock false
         latestPackageHint = packageName
-
         val bytes = runCatching { Base64.decode(visual.base64Jpeg, Base64.DEFAULT) }.getOrNull()
             ?: return@withLock false
         val appended = withContext(Dispatchers.IO) {
