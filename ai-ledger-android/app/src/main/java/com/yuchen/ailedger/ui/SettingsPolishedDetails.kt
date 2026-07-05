@@ -231,23 +231,35 @@ private fun GlassContent(
     onMotionIntensityChange: (Float) -> Unit,
     onRainbowPrismChange: (RainbowPrismStyle) -> Unit,
     onBackdropChange: (BackdropDebugParams) -> Unit,
-    onBorderChange: (GlassBorderStyle) -> Unit,
+    @Suppress("UNUSED_PARAMETER") onBorderChange: (GlassBorderStyle) -> Unit,
 ) {
     val prism = state.rainbowPrismStyle
     val backdrop = state.backdropParams
-    val border = state.glassBorderStyle
+    val composeMotion = ComposeGlassLabState.motionStyle
 
-    GlassDebugParameterSections(
-        state = state,
-        prism = prism,
-        backdrop = backdrop,
-        border = border,
-        onGlassIntensityChange = onGlassIntensityChange,
-        onMotionIntensityChange = onMotionIntensityChange,
-        onRainbowPrismChange = onRainbowPrismChange,
-        onBackdropChange = onBackdropChange,
-        onBorderChange = onBorderChange,
-    )
+    SettingsParameterGroup(title = "Compose 玻璃光动效", subtitle = "只调普通 Compose 卡片、按钮和 Chip 的按压形变、触点白光、棱彩扫光与余辉。") {
+        SettingsParameterSlider("总光动效", "全局控制普通 Compose 点击光动效能量。", composeMotion.master, 0f..1.5f) {
+            ComposeGlassLabState.updateMotion(composeMotion.copy(master = it))
+        }
+        SettingsParameterSlider("按压形变", "控制横向膨胀、纵向压缩和下沉幅度。", composeMotion.deformation, 0f..1.5f) {
+            ComposeGlassLabState.updateMotion(composeMotion.copy(deformation = it))
+        }
+        SettingsParameterSlider("触点白光", "控制触点附近的连续体积白光与青白捕光。", composeMotion.touchLight, 0f..1.8f) {
+            ComposeGlassLabState.updateMotion(composeMotion.copy(touchLight = it))
+        }
+        SettingsParameterSlider("棱彩色散", "控制普通 Compose 组件上的粉黄青蓝色散，默认保持白光为主。", composeMotion.prism, 0f..1.5f) {
+            ComposeGlassLabState.updateMotion(composeMotion.copy(prism = it))
+        }
+        SettingsParameterSlider("棱彩扫光", "控制按下后沿组件横向流动的彩色光带。", composeMotion.sweep, 0f..1.5f) {
+            ComposeGlassLabState.updateMotion(composeMotion.copy(sweep = it))
+        }
+        SettingsParameterSlider("释放回弹", "控制松手后的反向弹起幅度。", composeMotion.rebound, 0f..1.5f) {
+            ComposeGlassLabState.updateMotion(composeMotion.copy(rebound = it))
+        }
+        SettingsParameterSlider("松手余辉", "控制透镜亮度和扫光在松手后的消散时间。", composeMotion.afterglow, 0f..1.5f) {
+            ComposeGlassLabState.updateMotion(composeMotion.copy(afterglow = it))
+        }
+    }
 
     SettingsParameterGroup(title = "玻璃基础", subtitle = "通用玻璃材质与动画幅度") {
         SliderSettingRow("玻璃强度", "控制通用玻璃的可见度、雾感和边缘能量。", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
@@ -303,116 +315,6 @@ private fun GlassContent(
         SettingsParameterSlider("月亮尺寸", "调节内置主题月体的整体尺寸。", backdrop.moonScale, 0.5f..1.8f) { onBackdropChange(backdrop.copy(moonScale = it)) }
         SettingsParameterSlider("月亮光晕", "调节月体周围柔和光晕的透明度。", backdrop.moonHaloAlpha, 0f..1f) { onBackdropChange(backdrop.copy(moonHaloAlpha = it)) }
         SettingsParameterSlider("月亮边缘光", "调节月体轮廓边缘的亮度。", backdrop.moonRimAlpha, 0f..1.2f) { onBackdropChange(backdrop.copy(moonRimAlpha = it)) }
-    }
-}
-
-@Composable
-private fun GlassDebugParameterSections(
-    state: AssistantUiState,
-    prism: RainbowPrismStyle,
-    backdrop: BackdropDebugParams,
-    border: GlassBorderStyle,
-    onGlassIntensityChange: (Float) -> Unit,
-    onMotionIntensityChange: (Float) -> Unit,
-    onRainbowPrismChange: (RainbowPrismStyle) -> Unit,
-    onBackdropChange: (BackdropDebugParams) -> Unit,
-    onBorderChange: (GlassBorderStyle) -> Unit,
-) {
-    SettingsParameterGroup(title = "调试｜全局玻璃与动效", subtitle = "所有玻璃共用入口；默认折叠，适合先做总量级校准。") {
-        SettingsParameterSlider("全局玻璃强度", "调试全局玻璃可见度入口；运行时持久层仍会保护正式范围。", state.glassIntensity, 0f..4f) { onGlassIntensityChange(it) }
-        SettingsParameterSlider("全局动态强度", "调试呼吸、扫光、按压和流体形变的总入口；0 为完全静态。", state.motionIntensity, 0f..4f) { onMotionIntensityChange(it) }
-    }
-
-    SettingsParameterGroup(title = "调试｜彩虹镀膜与随机扫光", subtitle = "彩虹边缘、棱彩高光、随机扫光和外缘彩色光晕。") {
-        SettingsParameterSlider("彩虹总强度", "控制彩虹镀膜整体能量，用于快速判断边缘光是否过强或过弱。", prism.overall, 0f..6f) { onRainbowPrismChange(prism.copy(overall = it)) }
-        SettingsParameterSlider("棱彩边缘高光", "放大圆角、边缘和肩部捕获彩色入射光的能力。", prism.edgeHighlight, 0f..6f) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
-        SettingsParameterSlider("随机扫光下限", "随机扫光每次出现时允许的最低亮度，大范围便于测试弱扫光。", prism.sweepMin, 0f..6f) { onRainbowPrismChange(prism.copy(sweepMin = it)) }
-        SettingsParameterSlider("随机扫光上限", "随机扫光每次出现时允许的最高亮度，大范围便于测试强扫光。", prism.sweepMax, 0f..8f) { onRainbowPrismChange(prism.copy(sweepMax = it)) }
-        SettingsParameterSlider("粉金青蓝光晕", "控制玻璃外缘粉、金、青、蓝彩色雾化光晕。", prism.rainbowHalo, 0f..6f) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
-    }
-
-    SettingsParameterGroup(title = "调试｜OpenGL Shell 主体与折射", subtitle = "只对应大型 Shell 玻璃；调主体显影、亮度、镜片折射和中心厚度。") {
-        SettingsParameterSlider("OpenGL 主体强度", "新版 OpenGL Shell 的主渲染强度，影响主体折射、圆肩和色散混合。", border.newOpenGlGlassIntensity, 0f..4f) { onBorderChange(border.copy(newOpenGlGlassIntensity = it)) }
-        SettingsParameterSlider("OpenGL 主体可见度", "主体区域显影门槛，极大范围用于判断玻璃是否被压暗或过曝。", border.newOpenGlBodyVisibility, 0f..80f) { onBorderChange(border.copy(newOpenGlBodyVisibility = it)) }
-        SettingsParameterSlider("OpenGL 主体最大透明", "限制主体输出 alpha 的上限，可测试厚玻璃与轻玻璃边界。", border.newOpenGlBodyMaxAlpha, 0f..4f) { onBorderChange(border.copy(newOpenGlBodyMaxAlpha = it)) }
-        SettingsParameterSlider("OpenGL 输出亮度", "控制主体采样后的输出亮度，用于排查玻璃发灰或发白。", border.newOpenGlBodyOutputBrightness, 0f..6f) { onBorderChange(border.copy(newOpenGlBodyOutputBrightness = it)) }
-        SettingsParameterSlider("主体基础折射", "新版 OpenGL 主体中心区域的基础折射拉力。", border.newOpenGlBodyLensBasePull, -1200f..1200f) { onBorderChange(border.copy(newOpenGlBodyLensBasePull = it)) }
-        SettingsParameterSlider("主体折射距离", "主体镜片向外采样的距离，正负大范围用于测试反向折射。", border.newOpenGlBodyLensPullDp, -1600f..1600f, { "${it.roundToInt()} dp" }) { onBorderChange(border.copy(newOpenGlBodyLensPullDp = it)) }
-        SettingsParameterSlider("主体折射集中度", "控制主体折射场从中心到边缘的聚合程度。", border.newOpenGlBodyLensConcentration, 0f..40f) { onBorderChange(border.copy(newOpenGlBodyLensConcentration = it)) }
-        SettingsParameterSlider("主体额外采样距离", "为主体镜片增加额外采样半径，便于观察背景位移边界。", border.newOpenGlBodyLensExtraDistance, -800f..1200f) { onBorderChange(border.copy(newOpenGlBodyLensExtraDistance = it)) }
-        SettingsParameterSlider("主体折射触达", "控制主体折射场在 dp 空间内的触达范围。", border.newOpenGlBodyLensReachDp, 0f..800f, { "${it.roundToInt()} dp" }) { onBorderChange(border.copy(newOpenGlBodyLensReachDp = it)) }
-        SettingsParameterSlider("主体暗部提取", "控制主体折射后的暗部压制和暗边可见度。", border.newOpenGlBodyLensDark, -4f..8f) { onBorderChange(border.copy(newOpenGlBodyLensDark = it)) }
-        SettingsParameterSlider("主体宽度", "调试主体玻璃中间带宽度，影响厚度和空间感。", border.newOpenGlBodyWidth, 0f..6f) { onBorderChange(border.copy(newOpenGlBodyWidth = it)) }
-        SettingsParameterSlider("主体曲线", "控制主体折射曲线形状，低值硬、高值软。", border.newOpenGlBodyCurve, 0f..4f) { onBorderChange(border.copy(newOpenGlBodyCurve = it)) }
-        SettingsParameterSlider("主体增益", "主体玻璃能量增益，大范围用于找厚玻璃临界点。", border.newOpenGlBodyGain, 0f..80f) { onBorderChange(border.copy(newOpenGlBodyGain = it)) }
-        SettingsParameterSlider("主体亮度混合", "新版 OpenGL 主体亮度混入比例。", border.newOpenGlBrightness, -2f..4f) { onBorderChange(border.copy(newOpenGlBrightness = it)) }
-        SettingsParameterSlider("主体光带位置", "调试主体玻璃内部亮带的位置。", border.newOpenGlBodyBandPos, -2f..3f) { onBorderChange(border.copy(newOpenGlBodyBandPos = it)) }
-        SettingsParameterSlider("主体光带宽度", "调试主体内部亮带宽度，过大时会变成整体泛白。", border.newOpenGlBodyBandWidth, 0f..2f) { onBorderChange(border.copy(newOpenGlBodyBandWidth = it)) }
-        SettingsParameterSlider("主体光带增益", "主体内部亮带的亮度增益。", border.newOpenGlBodyBandGain, 0f..160f) { onBorderChange(border.copy(newOpenGlBodyBandGain = it)) }
-    }
-
-    SettingsParameterGroup(title = "调试｜OpenGL Shell 圆肩与色散", subtitle = "只对应大型 Shell 玻璃；调圆肩捕光、肩部材质、切向流动和 RGB 色散。") {
-        SettingsParameterSlider("圆肩宽度", "玻璃肩部高光宽度，决定边缘厚度。", border.newOpenGlShoulderWidthDp, 0f..180f, { "${it.roundToInt()} dp" }) { onBorderChange(border.copy(newOpenGlShoulderWidthDp = it)) }
-        SettingsParameterSlider("圆肩捕获宽度", "肩部从背景中捕获颜色和光线的采样范围。", border.newOpenGlShoulderCaptureWidthDp, 0f..360f, { "${it.roundToInt()} dp" }) { onBorderChange(border.copy(newOpenGlShoulderCaptureWidthDp = it)) }
-        SettingsParameterSlider("圆肩最大角度", "控制肩部折射允许的最大入射角。", border.newOpenGlShoulderMaxAngleDeg, 0f..180f, { "${it.roundToInt()}°" }) { onBorderChange(border.copy(newOpenGlShoulderMaxAngleDeg = it)) }
-        SettingsParameterSlider("圆肩衰减圆润度", "调试肩部从亮到暗的过渡曲线。", border.newOpenGlShoulderFalloffRoundness, 0f..6f) { onBorderChange(border.copy(newOpenGlShoulderFalloffRoundness = it)) }
-        SettingsParameterSlider("圆肩材质强度", "圆肩材质感和硬边能量的总强度。", border.newOpenGlShoulderMaterialStrength, 0f..12f) { onBorderChange(border.copy(newOpenGlShoulderMaterialStrength = it)) }
-        SettingsParameterSlider("圆肩切向流动", "肩部沿边缘方向的流动/拖影强度。", border.newOpenGlShoulderTangentialFlowStrength, -4f..8f) { onBorderChange(border.copy(newOpenGlShoulderTangentialFlowStrength = it)) }
-        SettingsParameterSlider("色散强度", "红绿蓝边缘分离强度，主要影响高级玻璃的棱镜感。", border.newOpenGlDispersionStrength, 0f..8f) { onBorderChange(border.copy(newOpenGlDispersionStrength = it)) }
-        SettingsParameterSlider("色散距离", "色散通道采样间距，数值越大彩边越明显。", border.newOpenGlDispersionDistanceDp, 0f..40f, { "${it.settingsRoundedValue()} dp" }) { onBorderChange(border.copy(newOpenGlDispersionDistanceDp = it)) }
-        SettingsParameterSlider("色散边缘宽度", "色散在边缘区域扩散的宽度。", border.newOpenGlDispersionEdgeWidthDp, 0f..220f, { "${it.roundToInt()} dp" }) { onBorderChange(border.copy(newOpenGlDispersionEdgeWidthDp = it)) }
-        SettingsParameterSlider("色散集中度", "控制彩边向圆角和边缘集中的程度。", border.newOpenGlDispersionConcentration, 0f..16f) { onBorderChange(border.copy(newOpenGlDispersionConcentration = it)) }
-    }
-
-    SettingsParameterGroup(title = "调试｜OpenGL Shell 外缘与内壁", subtitle = "只对应大型 Shell 玻璃；调外缘压缩、内壁亮边、暗部抽取、清晰度和切向涂抹。") {
-        SettingsParameterSlider("外缘压缩宽度", "旧/新边缘外轮廓压缩宽度，用于测试边缘厚玻璃。", border.newOpenGlOuterRimWidthPx, 0f..160f, { "${it.roundToInt()} px" }) { onBorderChange(border.copy(newOpenGlOuterRimWidthPx = it)) }
-        SettingsParameterSlider("外缘压缩强度", "外缘向内压缩和凸起的强度。", border.newOpenGlOuterRimCompression, -8f..12f) { onBorderChange(border.copy(newOpenGlOuterRimCompression = it)) }
-        SettingsParameterSlider("外缘触达", "外缘压缩采样触达范围。", border.newOpenGlOuterRimReachPx, 0f..480f, { "${it.roundToInt()} px" }) { onBorderChange(border.copy(newOpenGlOuterRimReachPx = it)) }
-        SettingsParameterSlider("外缘增益", "外缘轮廓亮度和厚度增益。", border.newOpenGlOuterRimGain, -8f..20f) { onBorderChange(border.copy(newOpenGlOuterRimGain = it)) }
-        SettingsParameterSlider("内壁偏移", "玻璃内壁相对边缘的偏移。", border.newOpenGlInnerWallOffsetPx, -120f..160f, { "${it.roundToInt()} px" }) { onBorderChange(border.copy(newOpenGlInnerWallOffsetPx = it)) }
-        SettingsParameterSlider("内壁宽度", "玻璃内侧墙体/内描边宽度。", border.newOpenGlInnerWallWidthPx, 0f..180f, { "${it.roundToInt()} px" }) { onBorderChange(border.copy(newOpenGlInnerWallWidthPx = it)) }
-        SettingsParameterSlider("内壁增益", "内壁亮边与暗边的能量增益。", border.newOpenGlInnerWallGain, -8f..20f) { onBorderChange(border.copy(newOpenGlInnerWallGain = it)) }
-        SettingsParameterSlider("内壁衰减", "内壁从边缘向中心衰减的曲线。", border.newOpenGlInnerWallFalloff, 0f..12f) { onBorderChange(border.copy(newOpenGlInnerWallFalloff = it)) }
-        SettingsParameterSlider("内壁触达", "内壁材质向玻璃内部扩散的范围。", border.newOpenGlInnerWallReachPx, 0f..480f, { "${it.roundToInt()} px" }) { onBorderChange(border.copy(newOpenGlInnerWallReachPx = it)) }
-        SettingsParameterSlider("暗部抽取", "从背景中抽取暗部用于玻璃厚度和压暗。", border.newOpenGlDarkExtract, -4f..8f) { onBorderChange(border.copy(newOpenGlDarkExtract = it)) }
-        SettingsParameterSlider("边肩宽度", "边缘 shoulder 的像素宽度调试项。", border.newOpenGlEdgeShoulderWidthPx, 0f..240f, { "${it.roundToInt()} px" }) { onBorderChange(border.copy(newOpenGlEdgeShoulderWidthPx = it)) }
-        SettingsParameterSlider("边缘切向拖影", "边缘沿切线方向 smear/拖影强度。", border.newOpenGlEdgeTangentSmear, -4f..8f) { onBorderChange(border.copy(newOpenGlEdgeTangentSmear = it)) }
-        SettingsParameterSlider("清晰度混合", "清晰采样与模糊采样的混合权重。", border.newOpenGlClarity, 0f..4f) { onBorderChange(border.copy(newOpenGlClarity = it)) }
-        SettingsParameterSlider("切向涂抹", "主体和边缘共同的切向 smear 强度。", border.newOpenGlTangentSmear, -4f..8f) { onBorderChange(border.copy(newOpenGlTangentSmear = it)) }
-    }
-
-    SettingsParameterGroup(title = "调试｜兼容玻璃与旧版 OpenGL", subtitle = "旧版 OpenGL / Compose 玻璃对照参数，用于排查新旧渲染差异。") {
-        SettingsParameterSlider("旧版边缘拉力", "兼容旧 OpenGL/Compose 玻璃边缘折射拉力。", border.openGlPullScale, -1200f..1200f) { onBorderChange(border.copy(openGlPullScale = it)) }
-        SettingsParameterSlider("旧版压缩倍率", "旧版 OpenGL 压缩响应倍率。", border.openGlCompressionScale, -120f..120f) { onBorderChange(border.copy(openGlCompressionScale = it)) }
-        SettingsParameterSlider("旧版圆角倍率", "旧版圆角折射增强倍率。", border.openGlCornerScale, -600f..600f) { onBorderChange(border.copy(openGlCornerScale = it)) }
-        SettingsParameterSlider("旧版暗部倍率", "旧版暗部提取和边缘压暗倍率。", border.openGlDarkScale, -12f..12f) { onBorderChange(border.copy(openGlDarkScale = it)) }
-        SettingsParameterSlider("旧版采样半径", "旧版采样半径缩放，方便和新版 OpenGL 对照。", border.openGlSampleRadiusScale, 0f..80f) { onBorderChange(border.copy(openGlSampleRadiusScale = it)) }
-    }
-
-    SettingsParameterGroup(title = "调试｜背景模糊与色彩采样", subtitle = "所有玻璃共用背景源；调模糊缓存、迭代次数、亮度、对比度和饱和度。") {
-        SettingsParameterSlider("背景缓存分辨率", "调试背景模糊缓存分辨率，大范围用于压力测试；实际生成器仍有安全边界。", backdrop.scale, 0.1f..3f, { "${it.settingsRoundedValue()}×" }) { onBackdropChange(backdrop.copy(scale = it)) }
-        SettingsParameterSlider("背景模糊级别", "调试清晰、低、中、高模糊层连续插值。", backdrop.radius, 0f..16f, { "${it.settingsRoundedValue()} 级" }) { onBackdropChange(backdrop.copy(radius = it)) }
-        SettingsParameterSlider("背景模糊迭代", "调试模糊 pass 次数，范围放大用于寻找性能和质感边界。", backdrop.iterations, 0f..40f, { "${it.roundToInt()} 次" }) { onBackdropChange(backdrop.copy(iterations = it.roundToInt().toFloat())) }
-        SettingsParameterSlider("背景输出亮度", "调试背景采样亮度输出。", backdrop.brightness, 0f..6f) { onBackdropChange(backdrop.copy(brightness = it)) }
-        SettingsParameterSlider("背景输出对比度", "调试背景采样明暗反差。", backdrop.contrast, 0f..6f) { onBackdropChange(backdrop.copy(contrast = it)) }
-        SettingsParameterSlider("背景输出饱和度", "调试背景采样色彩浓度。", backdrop.saturation, 0f..6f) { onBackdropChange(backdrop.copy(saturation = it)) }
-    }
-
-    SettingsParameterGroup(title = "调试｜上传图片亮度保护", subtitle = "只影响自定义背景图；调基础亮度、高光压缩起点和输出上限。") {
-        SettingsParameterSlider("上传图亮度", "调试自定义背景基础亮度。", backdrop.customImageBrightness, 0f..3f) { onBackdropChange(backdrop.copy(customImageBrightness = it)) }
-        SettingsParameterSlider("上传图高光起点", "调试高光压缩起点，允许极宽范围观察过曝保护。", backdrop.customImageHighlightStart, 0f..1f, { "${(it * 100f).roundToInt()}%" }) { onBackdropChange(backdrop.copy(customImageHighlightStart = it)) }
-        SettingsParameterSlider("上传图高光上限", "调试高光输出上限，越低越压白。", backdrop.customImageHighlightLimit, 0f..1.5f, { "${(it * 100f).roundToInt()}%" }) { onBackdropChange(backdrop.copy(customImageHighlightLimit = it)) }
-    }
-
-    SettingsParameterGroup(title = "调试｜内置背景云雾与月亮", subtitle = "只影响内置主题背景；调云层、月亮、光晕和边缘光。") {
-        SettingsParameterSlider("云雾透明度", "调试内置背景云雾层可见度。", backdrop.cloudAlpha, 0f..6f) { onBackdropChange(backdrop.copy(cloudAlpha = it)) }
-        SettingsParameterSlider("云雾柔化", "调试云层边缘扩散。", backdrop.cloudSoftness, 0f..8f) { onBackdropChange(backdrop.copy(cloudSoftness = it)) }
-        SettingsParameterSlider("云层横向拉伸", "调试云层横向铺展。", backdrop.cloudStretchX, 0f..10f) { onBackdropChange(backdrop.copy(cloudStretchX = it)) }
-        SettingsParameterSlider("云层纵向拉伸", "调试云层纵向厚度。", backdrop.cloudStretchY, 0f..8f) { onBackdropChange(backdrop.copy(cloudStretchY = it)) }
-        SettingsParameterSlider("云层高光", "调试云雾亮部高光透明度。", backdrop.cloudHighlightAlpha, 0f..4f) { onBackdropChange(backdrop.copy(cloudHighlightAlpha = it)) }
-        SettingsParameterSlider("月亮尺寸", "调试内置背景月体尺寸。", backdrop.moonScale, 0f..4f) { onBackdropChange(backdrop.copy(moonScale = it)) }
-        SettingsParameterSlider("月亮光晕", "调试月体外部光晕。", backdrop.moonHaloAlpha, 0f..4f) { onBackdropChange(backdrop.copy(moonHaloAlpha = it)) }
-        SettingsParameterSlider("月亮边缘光", "调试月体轮廓边缘亮度。", backdrop.moonRimAlpha, 0f..4f) { onBackdropChange(backdrop.copy(moonRimAlpha = it)) }
     }
 }
 
