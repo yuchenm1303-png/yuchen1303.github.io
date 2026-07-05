@@ -226,14 +226,11 @@ fun OperationLearningScreen(
                 ) + fadeIn(
                     animationSpec = tween(durationMillis = 118, delayMillis = 22),
                 ),
-                exit = shrinkVertically(
+                exit = fadeOut(
+                    animationSpec = tween(durationMillis = 42),
+                ) + shrinkVertically(
                     shrinkTowards = Alignment.Top,
-                    animationSpec = spring(
-                        dampingRatio = 0.90f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                ) + fadeOut(
-                    animationSpec = tween(durationMillis = 92),
+                    animationSpec = tween(durationMillis = 168),
                 ),
             ) {
                 Box(
@@ -1072,13 +1069,11 @@ private fun SkillDraftCard(
                         stiffness = Spring.StiffnessMediumLow,
                     ),
                 ) + fadeIn(animationSpec = tween(durationMillis = 118, delayMillis = 18)),
-                exit = shrinkVertically(
-                    shrinkTowards = Alignment.Top,
-                    animationSpec = spring(
-                        dampingRatio = 0.90f,
-                        stiffness = Spring.StiffnessMediumLow,
+                exit = fadeOut(animationSpec = tween(durationMillis = 42)) +
+                    shrinkVertically(
+                        shrinkTowards = Alignment.Top,
+                        animationSpec = tween(durationMillis = 168),
                     ),
-                ) + fadeOut(animationSpec = tween(durationMillis = 92)),
             ) {
                 skill?.let { learnedSkill ->
                     Box(
