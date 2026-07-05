@@ -29,16 +29,6 @@ import androidx.compose.ui.unit.sp
 private const val INLINE_STICKER_RENDER_SAFETY_MAX = 64
 private const val INLINE_STICKER_SIZE_DP = 60
 private const val INLINE_STICKER_BASELINE_SHIFT_DP = -9
-private const val INLINE_STICKER_LINE_HEIGHT_MULTIPLIER = 1.2f
-private const val INLINE_STICKER_TAG_START = 0xE0001
-private const val INLINE_STICKER_TAG_CANCEL = 0xE007F
-private const val INLINE_STICKER_TAG_BASE = 0xE0000
-private const val INLINE_STICKER_PAYLOAD_PREFIX = "ai_" + "sticker:"
-private const val INLINE_STICKER_COMPACT_PREFIX = "s"
-private val visibleInlineStickerRegex = Regex(
-    "\\[\\[" + listOf("AI", "LEDGER", "INLINE", "STICKER").joinToString("_") + ":([a-z0-9_]{2,48})]]",
-    RegexOption.IGNORE_CASE
-)
 
 private data class CitationInlineToken(
     val id: String,
@@ -57,17 +47,11 @@ private data class CitationInlineRender(
     val stickerTokens: List<StickerInlineToken>
 )
 
-private data class InlineStickerMarker(
-    val start: Int,
-    val endExclusive: Int,
-    val assetKey: String
-)
-
 private data class InlineStickerAsset(
     val alt: String
 )
 
-private val inlineStickerCatalog: Map<String, InlineStickerAsset> = mapOf(
+private val inlineStickerAltByKey: Map<String, InlineStickerAsset> = mapOf(
     "joy_burst" to InlineStickerAsset("开心庆祝"),
     "affection_hug" to InlineStickerAsset("贴贴拥抱"),
     "health_check" to InlineStickerAsset("关心健康"),
@@ -89,27 +73,24 @@ private val inlineStickerCatalog: Map<String, InlineStickerAsset> = mapOf(
     "reject_no" to InlineStickerAsset("不同意")
 )
 
-private val inlineStickerKeyByCode: Map<String, String> = mapOf(
-    "0" to "joy_burst",
-    "1" to "affection_hug",
-    "2" to "health_check",
-    "3" to "thinking_soft",
-    "4" to "cheer_power",
-    "5" to "pout_no",
-    "6" to "comfort_friend",
-    "7" to "red_packet_congrats",
-    "8" to "gift_for_you",
-    "9" to "sparkle_excited",
-    "a" to "soft_smile",
-    "b" to "got_it_point",
-    "c" to "heart_thanks",
-    "d" to "confident_ready",
-    "e" to "playful_wink",
-    "f" to "confused_study",
-    "g" to "confirm_yes",
-    "h" to "idea_drawing",
-    "i" to "reject_no"
-)
+@Composable
+fun RichMessageContent(
+    text: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    lineHeight: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null
+) {
+    CitationInlineRichText(
+        text = text,
+        color = color,
+        fontSize = fontSize,
+        lineHeight = lineHeight,
+        fontWeight = fontWeight ?: FontWeight.Normal,
+        modifier = modifier
+    )
+}
 
 @Composable
 fun CitationInlineRichText(
@@ -209,7 +190,11 @@ private fun buildCitationInlineRender(text: String): CitationInlineRender {
     val citationRegex = Regex("""\[(\d{1,2})]""")
     val citationTokens = mutableListOf<CitationInlineToken>()
     val stickerTokens = mutableListOf<StickerInlineToken>()
-    val stickerMarkers = findInlineStickerMarkers(text)
+    val stickerMarkers = InlineStickerAssets.findProtocolMarkers(text)
+        .asSequence()
+        .filter { it.assetKey != null }
+        .take(INLINE_STICKER_RENDER_SAFETY_MAX)
+        .toList()
     var citationIndex = 0
     var stickerIndex = 0
 
@@ -233,21 +218,24 @@ private fun buildCitationInlineRender(text: String): CitationInlineRender {
 
         var cursor = 0
         stickerMarkers.forEach { marker ->
-            if (marker.start > cursor) {
-                appendTextWithCitations(text.substring(cursor, marker.start))
+            val start = marker.start.coerceIn(cursor, text.length)
+            val end = marker.endExclusive.coerceIn(start, text.length)
+            if (start > cursor) {
+                appendTextWithCitations(text.substring(cursor, start))
             }
-            val asset = inlineStickerCatalog[marker.assetKey]
-            if (asset != null && stickerTokens.size < INLINE_STICKER_RENDER_SAFETY_MAX) {
-                val id = "inline_sticker_${stickerIndex}_${marker.assetKey}"
+            val key = marker.assetKey
+            val asset = key?.let(inlineStickerAltByKey::get)
+            if (key != null && asset != null && stickerTokens.size < INLINE_STICKER_RENDER_SAFETY_MAX) {
+                val id = "inline_sticker_${stickerIndex}_${key}"
                 stickerTokens += StickerInlineToken(
                     id = id,
-                    assetKey = marker.assetKey,
+                    assetKey = key,
                     alt = asset.alt
                 )
                 appendInlineContent(id, asset.alt)
                 stickerIndex += 1
             }
-            cursor = marker.endExclusive
+            cursor = end
         }
         if (cursor < text.length) {
             appendTextWithCitations(text.substring(cursor))
@@ -259,72 +247,6 @@ private fun buildCitationInlineRender(text: String): CitationInlineRender {
         citationTokens = citationTokens,
         stickerTokens = stickerTokens
     )
-}
-
-private fun findInlineStickerMarkers(text: String): List<InlineStickerMarker> {
-    if (text.isBlank()) return emptyList()
-
-    val markers = mutableListOf<InlineStickerMarker>()
-    visibleInlineStickerRegex.findAll(text).forEach { match ->
-        val key = match.groupValues[1].lowercase()
-        if (key in inlineStickerCatalog) {
-            markers += InlineStickerMarker(match.range.first, match.range.last + 1, key)
-        }
-    }
-
-    var index = 0
-    while (index < text.length && markers.size < INLINE_STICKER_RENDER_SAFETY_MAX) {
-        val codePoint = Character.codePointAt(text, index)
-        if (codePoint != INLINE_STICKER_TAG_START) {
-            index += Character.charCount(codePoint)
-            continue
-        }
-
-        val markerStart = index
-        index += Character.charCount(codePoint)
-        val payload = StringBuilder()
-        var completed = false
-        while (index < text.length) {
-            val taggedCodePoint = Character.codePointAt(text, index)
-            index += Character.charCount(taggedCodePoint)
-            if (taggedCodePoint == INLINE_STICKER_TAG_CANCEL) {
-                completed = true
-                break
-            }
-            if (taggedCodePoint !in 0xE0020..0xE007E) {
-                payload.clear()
-                break
-            }
-            payload.append((taggedCodePoint - INLINE_STICKER_TAG_BASE).toChar())
-        }
-
-        if (completed) {
-            val decoded = payload.toString().lowercase()
-            val key = when {
-                decoded.startsWith(INLINE_STICKER_PAYLOAD_PREFIX) -> {
-                    decoded.removePrefix(INLINE_STICKER_PAYLOAD_PREFIX).takeIf { it in inlineStickerCatalog }
-                }
-                decoded.startsWith(INLINE_STICKER_COMPACT_PREFIX) -> {
-                    inlineStickerKeyByCode[decoded.removePrefix(INLINE_STICKER_COMPACT_PREFIX)]
-                }
-                else -> null
-            }
-            if (key != null) {
-                markers += InlineStickerMarker(markerStart, index, key)
-            }
-        }
-    }
-
-    return markers
-        .sortedBy { it.start }
-        .fold(mutableListOf<InlineStickerMarker>()) { accepted, marker ->
-            if (accepted.size < INLINE_STICKER_RENDER_SAFETY_MAX &&
-                accepted.none { marker.start < it.endExclusive && marker.endExclusive > it.start }
-            ) {
-                accepted += marker
-            }
-            accepted
-        }
 }
 
 @Composable
