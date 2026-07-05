@@ -159,9 +159,9 @@ internal fun UserProfileAvatar(
                         )
                     } else {
                         listOf(
-                            Color(0xFF9AF7FF).copy(alpha = 0.24f),
-                            Color(0xFF243A83).copy(alpha = 0.66f),
-                            Color(0xFF0B1236).copy(alpha = 0.98f),
+                            Color(0xFF96F3FF).copy(alpha = 0.20f),
+                            Color(0xFF273C8A).copy(alpha = 0.62f),
+                            Color(0xFF08112F).copy(alpha = 0.98f),
                         )
                     }
                 )
@@ -210,48 +210,85 @@ private fun LocalUserAvatarGlyph() {
     Canvas(Modifier.fillMaxSize()) {
         val side = minOf(size.width, size.height)
         val center = Offset(size.width * 0.50f, size.height * 0.50f)
+        val mint = Color(0xFF8DF9EA)
+        val violet = Color(0xFFB49BFF)
+        val pink = Color(0xFFFFB8F4)
+
         drawCircle(
-            color = Color(0xFF8DF9EA).copy(alpha = 0.10f),
-            radius = side * 0.36f,
+            color = Color.White.copy(alpha = 0.055f),
+            radius = side * 0.43f,
             center = center,
         )
         drawCircle(
-            color = Color.White.copy(alpha = 0.80f),
-            radius = side * 0.105f,
-            center = Offset(size.width * 0.50f, size.height * 0.41f),
+            color = mint.copy(alpha = 0.10f),
+            radius = side * 0.31f,
+            center = Offset(size.width * 0.47f, size.height * 0.47f),
         )
         drawArc(
-            color = Color.White.copy(alpha = 0.66f),
-            startAngle = 205f,
-            sweepAngle = 130f,
+            color = Color.White.copy(alpha = 0.25f),
+            startAngle = 213f,
+            sweepAngle = 226f,
             useCenter = false,
-            topLeft = Offset(size.width * 0.33f, size.height * 0.47f),
-            size = Size(side * 0.34f, side * 0.24f),
-            style = Stroke(width = side * 0.045f, cap = StrokeCap.Round),
+            topLeft = Offset(size.width * 0.20f, size.height * 0.20f),
+            size = Size(side * 0.60f, side * 0.60f),
+            style = Stroke(width = side * 0.018f, cap = StrokeCap.Round),
         )
+        drawArc(
+            color = mint.copy(alpha = 0.48f),
+            startAngle = 32f,
+            sweepAngle = 86f,
+            useCenter = false,
+            topLeft = Offset(size.width * 0.25f, size.height * 0.25f),
+            size = Size(side * 0.50f, side * 0.50f),
+            style = Stroke(width = side * 0.026f, cap = StrokeCap.Round),
+        )
+
+        val sparkleCenter = Offset(size.width * 0.50f, size.height * 0.47f)
+        val sparkleLong = side * 0.135f
+        val sparkleShort = side * 0.070f
         drawLine(
-            color = Color(0xFF8DF9EA).copy(alpha = 0.74f),
-            start = Offset(size.width * 0.30f, size.height * 0.34f),
-            end = Offset(size.width * 0.30f, size.height * 0.46f),
-            strokeWidth = side * 0.022f,
+            color = Color.White.copy(alpha = 0.86f),
+            start = Offset(sparkleCenter.x, sparkleCenter.y - sparkleLong),
+            end = Offset(sparkleCenter.x, sparkleCenter.y + sparkleLong),
+            strokeWidth = side * 0.034f,
             cap = StrokeCap.Round,
         )
         drawLine(
-            color = Color(0xFF8DF9EA).copy(alpha = 0.74f),
-            start = Offset(size.width * 0.24f, size.height * 0.40f),
-            end = Offset(size.width * 0.36f, size.height * 0.40f),
-            strokeWidth = side * 0.022f,
+            color = Color.White.copy(alpha = 0.86f),
+            start = Offset(sparkleCenter.x - sparkleLong, sparkleCenter.y),
+            end = Offset(sparkleCenter.x + sparkleLong, sparkleCenter.y),
+            strokeWidth = side * 0.034f,
             cap = StrokeCap.Round,
         )
+        drawLine(
+            color = violet.copy(alpha = 0.72f),
+            start = Offset(sparkleCenter.x - sparkleShort, sparkleCenter.y - sparkleShort),
+            end = Offset(sparkleCenter.x + sparkleShort, sparkleCenter.y + sparkleShort),
+            strokeWidth = side * 0.018f,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = violet.copy(alpha = 0.72f),
+            start = Offset(sparkleCenter.x + sparkleShort, sparkleCenter.y - sparkleShort),
+            end = Offset(sparkleCenter.x - sparkleShort, sparkleCenter.y + sparkleShort),
+            strokeWidth = side * 0.018f,
+            cap = StrokeCap.Round,
+        )
+
         drawCircle(
-            color = Color(0xFFFFB8F4).copy(alpha = 0.55f),
-            radius = side * 0.025f,
-            center = Offset(size.width * 0.69f, size.height * 0.34f),
+            color = mint.copy(alpha = 0.82f),
+            radius = side * 0.030f,
+            center = Offset(size.width * 0.70f, size.height * 0.34f),
         )
         drawCircle(
-            color = Color.White.copy(alpha = 0.32f),
-            radius = side * 0.018f,
-            center = Offset(size.width * 0.67f, size.height * 0.64f),
+            color = pink.copy(alpha = 0.58f),
+            radius = side * 0.022f,
+            center = Offset(size.width * 0.31f, size.height * 0.68f),
+        )
+        drawCircle(
+            color = Color.White.copy(alpha = 0.34f),
+            radius = side * 0.015f,
+            center = Offset(size.width * 0.68f, size.height * 0.67f),
         )
     }
 }
