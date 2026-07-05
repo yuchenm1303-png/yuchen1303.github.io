@@ -160,7 +160,7 @@ object OperationLearningRecordingCoordinator {
         )
         activeSession = session
 
-        if (!AiAgentAccessibilityService.beginVisualDemonstrationEventHints(config)) {
+        if (!VisualDemonstrationEventHints.begin(config)) {
             activeSession = null
             visualStore.delete(visualSession.manifestPath)
             repository.finishDemonstration(
@@ -214,8 +214,15 @@ object OperationLearningRecordingCoordinator {
         OperationRecordingStartResult(true, startedMessage)
     }
 
-    /** 旧无障碍录制入口仅为二进制兼容保留，新主链永远不接收节点或事件记录。 */
-    fun append(@Suppress("UNUSED_PARAMETER") record: OperationTraceRecord): Boolean = false
+    /** 旧无障碍录制入口仅为二进制兼容保留，新主链只把它转成动作时间锚点，不保存节点或选择器。 */
+    fun append(record: OperationTraceRecord): Boolean {
+        val event = record as? OperationAccessibilityEventRecord ?: return false
+        return onUserActionEvent(
+            packageName = event.packageName,
+            eventType = event.eventTypeLabel,
+            occurredAtMillis = event.capturedAtMillis,
+        ).let { false }
+    }
 
     fun onUserActionEvent(
         packageName: String,
@@ -238,7 +245,7 @@ object OperationLearningRecordingCoordinator {
     ): Boolean = mutex.withLock {
         val session = activeSession ?: return false
         activeSession = null
-        AiAgentAccessibilityService.endVisualDemonstrationEventHints(session.config.demonstrationId)
+        VisualDemonstrationEventHints.end(session.config.demonstrationId)
         session.timeoutJob?.cancel()
         val applicationContext = context?.applicationContext
             ?: AiAgentAccessibilityService.applicationContextOrNull()
