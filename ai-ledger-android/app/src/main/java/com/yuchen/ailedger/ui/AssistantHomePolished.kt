@@ -301,61 +301,66 @@ internal fun AssistantScreenV2(
             modelCardGlassStyle = state.modelCardGlassStyle
         )
     }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 12.dp, bottom = bottomPadding),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
-            AssistantHeroV2()
-        }
-
-        AssistantEntrance(
-            delayMs = 110,
-            modifier = Modifier.zIndex(4f),
-            initialOffsetY = 16,
-            initialScale = 0.965f
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 12.dp, bottom = bottomPadding),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            ModelAndNetworkPanel(
-                state = modelPanelState,
-                expanded = modelPanelExpanded,
-                panelHeight = modelPanelVisualHeight,
-                layoutHeight = collapsedPanelHeight,
-                onExpandedChange = { modelPanelExpanded = it },
-                onModelSelected = onModelSelected,
-                onToggleOnline = onToggleOnline
-            )
-        }
+            AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
+                AssistantHeroV2()
+            }
 
-        AssistantEntrance(
-            delayMs = 220,
-            modifier = Modifier.weight(1f),
-            initialOffsetY = 30,
-            initialScale = 0.955f
-        ) {
-            CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
-                ChatPanelV2(
-                    state = chatPanelState,
-                    modifier = Modifier.fillMaxWidth(),
-                    viewportTopInset = modelExpandDelta,
-                    onCopyMessage = onCopyMessage,
-                    onRetryMessage = onRetryMessage,
-                    onClearMessages = onClearMessages
+            AssistantEntrance(
+                delayMs = 110,
+                modifier = Modifier.zIndex(4f),
+                initialOffsetY = 16,
+                initialScale = 0.965f
+            ) {
+                ModelAndNetworkPanel(
+                    state = modelPanelState,
+                    expanded = modelPanelExpanded,
+                    panelHeight = modelPanelVisualHeight,
+                    layoutHeight = collapsedPanelHeight,
+                    onExpandedChange = { modelPanelExpanded = it },
+                    onModelSelected = onModelSelected,
+                    onToggleOnline = onToggleOnline
+                )
+            }
+
+            AssistantEntrance(
+                delayMs = 220,
+                modifier = Modifier.weight(1f),
+                initialOffsetY = 30,
+                initialScale = 0.955f
+            ) {
+                CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
+                    ChatPanelV2(
+                        state = chatPanelState,
+                        modifier = Modifier.fillMaxWidth(),
+                        viewportTopInset = modelExpandDelta,
+                        onCopyMessage = onCopyMessage,
+                        onRetryMessage = onRetryMessage,
+                        onClearMessages = onClearMessages
+                    )
+                }
+            }
+
+            AssistantEntrance(delayMs = 340, initialOffsetY = 18, initialScale = 0.965f) {
+                ComposerBarV2(
+                    state = composerBarState,
+                    onComposerChange = onComposerChange,
+                    onSend = onSend,
+                    onStopGenerating = onStopGenerating,
+                    onPickImage = onPickImage,
+                    onComposerFocusChange = { composerFocused = it }
                 )
             }
         }
 
-        AssistantEntrance(delayMs = 340, initialOffsetY = 18, initialScale = 0.965f) {
-            ComposerBarV2(
-                state = composerBarState,
-                onComposerChange = onComposerChange,
-                onSend = onSend,
-                onStopGenerating = onStopGenerating,
-                onPickImage = onPickImage,
-                onComposerFocusChange = { composerFocused = it }
-            )
-        }
+        MemoryQuickPanelSameWindowOverlayHost()
+        SkillQuickPanelSameWindowOverlayHost()
     }
 }
 
@@ -443,15 +448,27 @@ private fun ModelAndNetworkPanel(
                     }
                 }
             )
-            NetworkDropletCapsule(
-                state = state,
+            Row(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .fillMaxWidth(0.30f)
+                    .fillMaxWidth(0.46f)
                     .height(58.dp),
-                enabled = !state.isSending,
-                onClick = onToggleOnline
-            )
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                NetworkDropletCapsule(
+                    state = state,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(58.dp),
+                    enabled = !state.isSending,
+                    onClick = onToggleOnline
+                )
+                Spacer(Modifier.size(6.dp))
+                MemoryQuickPanelButtonHost()
+                Spacer(Modifier.size(6.dp))
+                SkillQuickPanelButtonHost()
+            }
         }
     }
 }
