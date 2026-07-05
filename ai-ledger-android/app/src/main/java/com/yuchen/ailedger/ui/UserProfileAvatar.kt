@@ -3,7 +3,6 @@ package com.yuchen.ailedger.ui
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,14 +17,10 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -159,9 +154,9 @@ internal fun UserProfileAvatar(
                         )
                     } else {
                         listOf(
-                            Color(0xFF96F3FF).copy(alpha = 0.20f),
-                            Color(0xFF273C8A).copy(alpha = 0.62f),
-                            Color(0xFF08112F).copy(alpha = 0.98f),
+                            Color(0xFF9AF7FF).copy(alpha = 0.24f),
+                            Color(0xFF243A83).copy(alpha = 0.66f),
+                            Color(0xFF0B1236).copy(alpha = 0.98f),
                         )
                     }
                 )
@@ -183,9 +178,7 @@ internal fun UserProfileAvatar(
                     .fillMaxSize()
                     .clip(shape),
             )
-        } else if (!loggedIn) {
-            LocalUserAvatarGlyph()
-        } else {
+        } else if (loggedIn) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -202,93 +195,5 @@ internal fun UserProfileAvatar(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun LocalUserAvatarGlyph() {
-    Canvas(Modifier.fillMaxSize()) {
-        val side = minOf(size.width, size.height)
-        val center = Offset(size.width * 0.50f, size.height * 0.50f)
-        val mint = Color(0xFF8DF9EA)
-        val violet = Color(0xFFB49BFF)
-        val pink = Color(0xFFFFB8F4)
-
-        drawCircle(
-            color = Color.White.copy(alpha = 0.055f),
-            radius = side * 0.43f,
-            center = center,
-        )
-        drawCircle(
-            color = mint.copy(alpha = 0.10f),
-            radius = side * 0.31f,
-            center = Offset(size.width * 0.47f, size.height * 0.47f),
-        )
-        drawArc(
-            color = Color.White.copy(alpha = 0.25f),
-            startAngle = 213f,
-            sweepAngle = 226f,
-            useCenter = false,
-            topLeft = Offset(size.width * 0.20f, size.height * 0.20f),
-            size = Size(side * 0.60f, side * 0.60f),
-            style = Stroke(width = side * 0.018f, cap = StrokeCap.Round),
-        )
-        drawArc(
-            color = mint.copy(alpha = 0.48f),
-            startAngle = 32f,
-            sweepAngle = 86f,
-            useCenter = false,
-            topLeft = Offset(size.width * 0.25f, size.height * 0.25f),
-            size = Size(side * 0.50f, side * 0.50f),
-            style = Stroke(width = side * 0.026f, cap = StrokeCap.Round),
-        )
-
-        val sparkleCenter = Offset(size.width * 0.50f, size.height * 0.47f)
-        val sparkleLong = side * 0.135f
-        val sparkleShort = side * 0.070f
-        drawLine(
-            color = Color.White.copy(alpha = 0.86f),
-            start = Offset(sparkleCenter.x, sparkleCenter.y - sparkleLong),
-            end = Offset(sparkleCenter.x, sparkleCenter.y + sparkleLong),
-            strokeWidth = side * 0.034f,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = Color.White.copy(alpha = 0.86f),
-            start = Offset(sparkleCenter.x - sparkleLong, sparkleCenter.y),
-            end = Offset(sparkleCenter.x + sparkleLong, sparkleCenter.y),
-            strokeWidth = side * 0.034f,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = violet.copy(alpha = 0.72f),
-            start = Offset(sparkleCenter.x - sparkleShort, sparkleCenter.y - sparkleShort),
-            end = Offset(sparkleCenter.x + sparkleShort, sparkleCenter.y + sparkleShort),
-            strokeWidth = side * 0.018f,
-            cap = StrokeCap.Round,
-        )
-        drawLine(
-            color = violet.copy(alpha = 0.72f),
-            start = Offset(sparkleCenter.x + sparkleShort, sparkleCenter.y - sparkleShort),
-            end = Offset(sparkleCenter.x - sparkleShort, sparkleCenter.y + sparkleShort),
-            strokeWidth = side * 0.018f,
-            cap = StrokeCap.Round,
-        )
-
-        drawCircle(
-            color = mint.copy(alpha = 0.82f),
-            radius = side * 0.030f,
-            center = Offset(size.width * 0.70f, size.height * 0.34f),
-        )
-        drawCircle(
-            color = pink.copy(alpha = 0.58f),
-            radius = side * 0.022f,
-            center = Offset(size.width * 0.31f, size.height * 0.68f),
-        )
-        drawCircle(
-            color = Color.White.copy(alpha = 0.34f),
-            radius = side * 0.015f,
-            center = Offset(size.width * 0.68f, size.height * 0.67f),
-        )
     }
 }
