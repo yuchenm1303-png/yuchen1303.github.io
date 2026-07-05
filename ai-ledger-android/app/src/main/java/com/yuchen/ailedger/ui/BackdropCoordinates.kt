@@ -17,7 +17,6 @@ import androidx.compose.ui.unit.IntSize
 import com.yuchen.ailedger.model.RenderQuality
 import java.util.ArrayDeque
 import java.util.IdentityHashMap
-import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * OpenGL Shell 的最终帧提交器。
@@ -32,7 +31,7 @@ import java.util.concurrent.CopyOnWriteArraySet
  */
 internal object OpenGLFrameFinalizer {
     private val boundRoots = IdentityHashMap<View, Int>()
-    private val activeTickers = CopyOnWriteArraySet<BackdropFrameTicker>()
+    private val activeTickers = linkedSetOf<BackdropFrameTicker>()
     private val pendingActions = ArrayDeque<() -> Unit>()
 
     private var scheduledView: View? = null
@@ -86,7 +85,6 @@ internal object OpenGLFrameFinalizer {
      */
     fun requestActiveTickerFrame(frameTimeNanos: Long = System.nanoTime()): Boolean {
         if (activeTickers.isEmpty()) return false
-        // CopyOnWriteArraySet 的迭代器本身就是稳定快照，无需再 toTypedArray() 复制一次。
         for (ticker in activeTickers) {
             ticker.requestFinalizedFrame(frameTimeNanos)
         }
@@ -146,7 +144,7 @@ internal object OpenGLFrameFinalizer {
 class BackdropCoordinateSource {
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
-    private val placementListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val placementListeners = linkedSetOf<() -> Unit>()
 
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -198,6 +196,7 @@ class BackdropCoordinateSource {
 
     private fun notifyPlacementListeners() {
         if (OpenGLFrameFinalizer.requestActiveTickerFrame()) return
+        if (placementListeners.isEmpty()) return
         for (listener in placementListeners) listener()
     }
 }
@@ -206,7 +205,7 @@ class GlassCoordinateSource {
     private var wasAttached = false
     private var lastRootOffset: Offset? = null
     private var lastSize: IntSize = IntSize.Zero
-    private val placementListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val placementListeners = linkedSetOf<() -> Unit>()
 
     var placementVersion by mutableLongStateOf(0L)
         private set
@@ -282,6 +281,7 @@ class GlassCoordinateSource {
 
     private fun notifyPlacementListeners() {
         if (OpenGLFrameFinalizer.requestActiveTickerFrame()) return
+        if (placementListeners.isEmpty()) return
         for (listener in placementListeners) listener()
     }
 }
@@ -299,14 +299,16 @@ class BackdropFrameTicker {
     private var framePosted = false
     private var finalDispatchQueued = false
     private var pendingFrameNanos = 0L
-    private val frameListeners = CopyOnWriteArraySet<() -> Unit>()
+    private val frameListeners = linkedSetOf<() -> Unit>()
 
     private val finalDispatchAction: () -> Unit = {
         finalDispatchQueued = false
         val committedFrameNanos = pendingFrameNanos.coerceAtLeast(System.nanoTime())
         pendingFrameNanos = 0L
         frameNanos = committedFrameNanos
-        for (listener in frameListeners) listener()
+        if (frameListeners.isNotEmpty()) {
+            for (listener in frameListeners) listener()
+        }
     }
 
     fun addFrameListener(listener: () -> Unit): () -> Unit {
