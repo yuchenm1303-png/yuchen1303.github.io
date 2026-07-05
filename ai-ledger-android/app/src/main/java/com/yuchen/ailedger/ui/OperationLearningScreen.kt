@@ -2,8 +2,15 @@ package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -206,11 +213,46 @@ fun OperationLearningScreen(
             )
         }
 
-        item {
+        item(key = "skill-intent-editor") {
             AnimatedVisibility(
                 visible = uiState.editorVisible && !recordingState.active && uiState.runningSkillId == null,
-                enter = fadeIn() + slideInVertically { -it / 10 },
-                exit = fadeOut() + slideOutVertically { -it / 10 },
+                enter = expandVertically(
+                    expandFrom = Alignment.Top,
+                    animationSpec = spring(
+                        dampingRatio = 0.82f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ) + fadeIn(
+                    animationSpec = tween(durationMillis = 135, delayMillis = 28),
+                ) + slideInVertically(
+                    animationSpec = spring(
+                        dampingRatio = 0.84f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ) { height ->
+                    -(height / 14).coerceAtLeast(8)
+                } + scaleIn(
+                    initialScale = 0.982f,
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.50f, 0.18f),
+                    animationSpec = spring(
+                        dampingRatio = 0.86f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ),
+                exit = shrinkVertically(
+                    shrinkTowards = Alignment.Top,
+                    animationSpec = tween(durationMillis = 185),
+                ) + fadeOut(
+                    animationSpec = tween(durationMillis = 110),
+                ) + slideOutVertically(
+                    animationSpec = tween(durationMillis = 185),
+                ) { height ->
+                    -(height / 18).coerceAtLeast(6)
+                } + scaleOut(
+                    targetScale = 0.992f,
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.50f, 0.18f),
+                    animationSpec = tween(durationMillis = 185),
+                ),
             ) {
                 SkillIntentEditor(
                     state = state,
