@@ -8,11 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -69,6 +66,7 @@ import java.util.Locale
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
+private val OperationLearningSurface = Color(0xFF10153A)
 private val OperationLearningDanger = Color(0xFFFFA6B2)
 
 private data class LearningFlowStep(
@@ -164,11 +162,12 @@ fun OperationLearningScreen(
         )
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
-        verticalArrangement = Arrangement.spacedBy(13.dp),
-    ) {
+    SecondaryRouteEntrance(motionIntensity = state.motionIntensity) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = 14.dp, bottom = 110.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
         item {
             OperationLearningBackButton(
                 state = state,
@@ -215,53 +214,43 @@ fun OperationLearningScreen(
         item(key = "skill-intent-editor") {
             AnimatedVisibility(
                 visible = uiState.editorVisible && !recordingState.active && uiState.runningSkillId == null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clipToBounds(),
                 enter = expandVertically(
                     expandFrom = Alignment.Top,
                     animationSpec = spring(
-                        dampingRatio = 0.82f,
+                        dampingRatio = 0.88f,
                         stiffness = Spring.StiffnessMediumLow,
                     ),
                 ) + fadeIn(
-                    animationSpec = tween(durationMillis = 135, delayMillis = 28),
-                ) + slideInVertically(
-                    animationSpec = spring(
-                        dampingRatio = 0.84f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                ) { height ->
-                    -(height / 14).coerceAtLeast(8)
-                } + scaleIn(
-                    initialScale = 0.982f,
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.50f, 0.18f),
-                    animationSpec = spring(
-                        dampingRatio = 0.86f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
+                    animationSpec = tween(durationMillis = 118, delayMillis = 22),
                 ),
                 exit = shrinkVertically(
                     shrinkTowards = Alignment.Top,
-                    animationSpec = tween(durationMillis = 185),
+                    animationSpec = spring(
+                        dampingRatio = 0.90f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
                 ) + fadeOut(
-                    animationSpec = tween(durationMillis = 110),
-                ) + slideOutVertically(
-                    animationSpec = tween(durationMillis = 185),
-                ) { height ->
-                    -(height / 18).coerceAtLeast(6)
-                } + scaleOut(
-                    targetScale = 0.992f,
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.50f, 0.18f),
-                    animationSpec = tween(durationMillis = 185),
+                    animationSpec = tween(durationMillis = 92),
                 ),
             ) {
-                SkillIntentEditor(
-                    state = state,
-                    uiState = uiState,
-                    onTitleChange = viewModel::updateTitle,
-                    onGoalChange = viewModel::updateGoal,
-                    onChooseApp = { appPickerVisible = true },
-                    onCancel = viewModel::closeIntentEditor,
-                    onSave = { viewModel.createIntentDraft() },
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clipToBounds(),
+                ) {
+                    SkillIntentEditor(
+                        state = state,
+                        uiState = uiState,
+                        onTitleChange = viewModel::updateTitle,
+                        onGoalChange = viewModel::updateGoal,
+                        onChooseApp = { appPickerVisible = true },
+                        onCancel = viewModel::closeIntentEditor,
+                        onSave = { viewModel.createIntentDraft() },
+                    )
+                }
             }
         }
 
@@ -311,6 +300,7 @@ fun OperationLearningScreen(
         }
 
         item { SafetyBoundaryCard() }
+        }
     }
 }
 
@@ -382,9 +372,35 @@ private fun InstalledAppPickerDialog(
             )
 
             when {
-                loading -> OperationLearningDialogMessage("正在读取已安装应用…")
-                error != null -> OperationLearningDialogMessage(error, danger = true)
-                filteredApps.isEmpty() -> OperationLearningDialogMessage("没有找到匹配的应用")
+                loading -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("正在读取已安装应用…", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+                    }
+                }
+                error != null -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            error,
+                            color = OperationLearningDanger.copy(alpha = 0.82f),
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+                filteredApps.isEmpty() -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(160.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("没有找到匹配的应用", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp)
+                    }
+                }
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 470.dp),
@@ -400,21 +416,6 @@ private fun InstalledAppPickerDialog(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun OperationLearningDialogMessage(text: String, danger: Boolean = false) {
-    Box(
-        modifier = Modifier.fillMaxWidth().height(160.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = text,
-            color = if (danger) OperationLearningDanger.copy(alpha = 0.82f) else Color.White.copy(alpha = 0.55f),
-            fontSize = 12.sp,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 
@@ -508,24 +509,6 @@ private fun OperationLearningHeader() {
 }
 
 @Composable
-private fun OperationLearningFrostCard(
-    radius: Float,
-    frostAlpha: Float,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    FrostInfoGlassPanel(
-        radius = radius,
-        backdropAlpha = 1f,
-        frostAlpha = frostAlpha,
-        dimAlpha = 0f,
-        modifier = modifier.fillMaxWidth(),
-    ) {
-        content()
-    }
-}
-
-@Composable
 private fun RecordingStatusCard(
     state: AssistantUiState,
     recordingState: OperationRecordingState,
@@ -548,10 +531,18 @@ private fun RecordingStatusCard(
         OperationRecordingPhase.Idle -> "视觉演示状态"
     }
 
-    OperationLearningFrostCard(radius = 19f, frostAlpha = 0.092f) {
+    FrostInfoGlassPanel(
+        radius = 19f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.092f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(27.dp))
+                .background(accent.copy(alpha = 0.07f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -651,10 +642,18 @@ private fun CreateIntentCard(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.082f) {
+    FrostInfoGlassPanel(
+        radius = 18f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.082f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(25.dp))
+                .background(OperationLearningViolet.copy(alpha = 0.055f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -695,10 +694,18 @@ private fun SkillIntentEditor(
     onCancel: () -> Unit,
     onSave: () -> Boolean,
 ) {
-    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.084f) {
+    FrostInfoGlassPanel(
+        radius = 18f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.084f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(25.dp))
+                .background(OperationLearningSurface.copy(alpha = 0.24f))
                 .padding(horizontal = 16.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -879,10 +886,18 @@ private fun LearningSectionTitle(title: String, trailing: String) {
 
 @Composable
 private fun LearningFlowCard() {
-    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.078f) {
+    FrostInfoGlassPanel(
+        radius = 18f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.078f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(25.dp))
+                .background(OperationLearningSurface.copy(alpha = 0.22f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
@@ -898,10 +913,18 @@ private fun LearningFlowCard() {
 
 @Composable
 private fun CloudAuthorityCard() {
-    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.076f) {
+    FrostInfoGlassPanel(
+        radius = 18f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.076f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(25.dp))
+                .background(Color(0xFF11163D).copy(alpha = 0.21f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -927,10 +950,18 @@ private fun LearnedOperationsEmptyCard(
     enabled: Boolean,
     onCreate: () -> Unit,
 ) {
-    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.074f) {
+    FrostInfoGlassPanel(
+        radius = 18f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.074f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(25.dp))
+                .background(Color(0xFF12163D).copy(alpha = 0.20f))
                 .padding(horizontal = 18.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -998,13 +1029,21 @@ private fun SkillDraftCard(
         else -> "暂不可演示"
     }
 
-    OperationLearningFrostCard(
+    FrostInfoGlassPanel(
         radius = 18f,
+        backdropAlpha = 1f,
         frostAlpha = if (selected || thisRecording || thisRunning) 0.088f else 0.072f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(25.dp))
+                .background(
+                    if (selected || thisRecording || thisRunning) OperationLearningViolet.copy(alpha = 0.075f)
+                    else Color(0xFF11163D).copy(alpha = 0.20f),
+                )
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -1021,13 +1060,40 @@ private fun SkillDraftCard(
                 DraftMeta("置信度", skill?.let { "${(it.confidence * 100).toInt()}%" } ?: "--", Modifier.weight(1f))
             }
 
-            if (selected && skill != null) {
-                SkillUnderstandingPanel(
-                    skill = skill,
-                    inputValues = replayInputValues,
-                    editableInputs = draft.status in setOf(WorkflowDraftStatus.Approved, WorkflowDraftStatus.Verified) && !thisRunning,
-                    onInputChange = onReplayInputChange,
-                )
+            AnimatedVisibility(
+                visible = selected && skill != null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clipToBounds(),
+                enter = expandVertically(
+                    expandFrom = Alignment.Top,
+                    animationSpec = spring(
+                        dampingRatio = 0.88f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ) + fadeIn(animationSpec = tween(durationMillis = 118, delayMillis = 18)),
+                exit = shrinkVertically(
+                    shrinkTowards = Alignment.Top,
+                    animationSpec = spring(
+                        dampingRatio = 0.90f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                ) + fadeOut(animationSpec = tween(durationMillis = 92)),
+            ) {
+                skill?.let { learnedSkill ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clipToBounds(),
+                    ) {
+                        SkillUnderstandingPanel(
+                            skill = learnedSkill,
+                            inputValues = replayInputValues,
+                            editableInputs = draft.status in setOf(WorkflowDraftStatus.Approved, WorkflowDraftStatus.Verified) && !thisRunning,
+                            onInputChange = onReplayInputChange,
+                        )
+                    }
+                }
             }
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1158,10 +1224,18 @@ private fun DraftMeta(label: String, value: String, modifier: Modifier) {
 
 @Composable
 private fun SafetyBoundaryCard() {
-    OperationLearningFrostCard(radius = 17f, frostAlpha = 0.066f) {
+    FrostInfoGlassPanel(
+        radius = 17f,
+        backdropAlpha = 1f,
+        frostAlpha = 0.066f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xFF101536).copy(alpha = 0.18f))
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
