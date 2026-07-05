@@ -34,18 +34,13 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import ru.noties.jlatexmath.JLatexMathDrawable
 
-private val optimizedRichMessageTokenRegex = Regex(
-    pattern = """(\*\*.+?\*\*)|(\\\(.+?\\\))|(\\\[.+?\\\])|(\$\$.+?\$\$)|(?m)^\s{0,3}#{1,6}\s+|(?m)^\s*---+\s*$|(?m)^\s*[-*]\s+|(?m)^\s*\|.+\|\s*$|(?m)^\s*【样本\d+】\s*$|(?m)^\s*>\s+""",
-    options = setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.MULTILINE)
-)
-
-private val optimizedHeadingRegex = Regex("""^\s*(#{1,6})\s*(.+?)\s*$""")
+private val optimizedHeadingRegex = Regex("""^\s*(#{1,6})\s+(.+?)\s*$""")
 private val optimizedBulletRegex = Regex("""^\s*[-*•]\s+(.+?)\s*$""")
 private val optimizedQuoteRegex = Regex("""^\s*>\s*(.+?)\s*$""")
 private val optimizedSampleLabelRegex = Regex("""^\s*【样本\d+】\s*$""")
 private val optimizedTableRowRegex = Regex("""^\s*\|(.+)\|\s*$""")
 private val optimizedTableDividerRegex = Regex("""^\s*\|?\s*[:\-]+(?:\s*\|\s*[:\-]+)+\s*\|?\s*$""")
-private val optimizedHorizontalRuleRegex = Regex("""---+""")
+private val optimizedHorizontalRuleRegex = Regex("""^\s*---+\s*$""")
 private val optimizedDisplayBracketFormulaRegex = Regex("""(?s)\\\[(.+?)\\\]""")
 private val optimizedDisplayDollarFormulaRegex = Regex("""(?s)\$\$(.+?)\$\$""")
 private val optimizedInlineFormulaRegex = Regex("""(?s)\\\((.+?)\\\)""")
@@ -53,6 +48,8 @@ private val optimizedBoldRegex = Regex("""\*\*(.+?)\*\*""")
 private val optimizedCodeRegex = Regex("""`([^`]+)`""")
 private val optimizedCitationRegex = Regex("""\[(\d{1,2})]""")
 private val optimizedTokenRegex = Regex("""(@@FORMULA_\d+@@)|(@@CODE_\d+@@)|(@@BOLD_\d+@@)""")
+private val optimizedSentenceHeadingBoundaryRegex = Regex("""([。！？!?；;：:]|\.)\s+(#{1,6}\s+)""")
+private val optimizedSentenceBulletBoundaryRegex = Regex("""([。！？!?；;]|\.)\s+([-*•]\s+)""")
 private val optimizedLeadingFormulaGapRegex = Regex("""\n{2,}(@@FORMULA_\d+@@)""")
 private val optimizedTrailingFormulaGapRegex = Regex("""(@@FORMULA_\d+@@)\n{2,}""")
 
@@ -131,7 +128,6 @@ fun OptimizedRichMessageContent(
             with(density) { 14f * fontScale }.coerceAtLeast(12f)
         }
     }
-    val hasInlineStickerMarker = remember(text) { InlineStickerAssets.containsProtocolMarker(text) }
     val lineHeightPx = remember(lineHeight, textSizePx, density) {
         if (lineHeight != TextUnit.Unspecified) {
             with(density) { lineHeight.toPx() }.coerceAtLeast(textSizePx + 2f)
@@ -139,6 +135,35 @@ fun OptimizedRichMessageContent(
             textSizePx * 1.28f
         }
     }
+    val hasInlineStickerMarker = remember(text) { InlineStickerAssets.containsProtocolMarker(text) }
+    val hasRichMarkup = remember(text, hasInlineStickerMarker) {
+        hasInlineStickerMarker || optimizedCitationRegex.containsMatchIn(text) || optimizedMayContainRichMarkup(text)
+    }
+
+    if (shouldUseLegacyMobileCommandPanel(text)) {
+        RichMessageContent(
+            text = text,
+            modifier = modifier,
+            color = resolvedColor,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight
+        )
+        return
+    }
+
+    if (!hasRichMarkup) {
+        MaterialText(
+            text = text,
+            modifier = modifier,
+            color = resolvedColor,
+            fontSize = fontSize,
+            lineHeight = lineHeight,
+            fontWeight = fontWeight
+        )
+        return
+    }
+
     val stickerSizePx = remember(density, stickerLayout.sizeDp) {
         with(density) { stickerLayout.sizeDp.dp.toPx() }
             .roundToInt()
@@ -157,37 +182,6 @@ fun OptimizedRichMessageContent(
             .roundToInt()
             .coerceAtLeast(0)
     }
-
-    if (shouldUseLegacyMobileCommandPanel(text)) {
-        RichMessageContent(
-            text = text,
-            modifier = modifier,
-            color = resolvedColor,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            fontWeight = fontWeight
-        )
-        return
-    }
-
-    val hasRichMarkup = remember(text, hasInlineStickerMarker) {
-        hasInlineStickerMarker ||
-            optimizedCitationRegex.containsMatchIn(text) ||
-            (optimizedMayContainRichMarkup(text) && optimizedRichMessageTokenRegex.containsMatchIn(text))
-    }
-
-    if (!hasRichMarkup) {
-        MaterialText(
-            text = text,
-            modifier = modifier,
-            color = resolvedColor,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            fontWeight = fontWeight
-        )
-        return
-    }
-
     val baseFontWeight = if (
         fontWeight == FontWeight.Bold ||
         fontWeight == FontWeight.ExtraBold ||
@@ -361,9 +355,8 @@ private fun buildOptimizedRichMessageSpannable(
     val normalized = sanitizeOptimizedRichTextSource(raw)
     val (tokenized, formulaTokens) = extractOptimizedFormulaTokens(normalized)
     val builder = SpannableStringBuilder()
-    val lines = tokenized.lines()
 
-    lines.forEach { rawLine ->
+    tokenized.lines().forEach { rawLine ->
         val line = rawLine.trimEnd()
         val trimmed = line.trim()
         if (trimmed.isEmpty()) {
@@ -387,82 +380,55 @@ private fun buildOptimizedRichMessageSpannable(
                 appendOptimizedStyled(builder, trimmed, RelativeSizeSpan(0.92f), OptimizedWeightSpan(Typeface.BOLD))
             }
             optimizedQuoteRegex.matches(trimmed) -> {
-                val content = optimizedQuoteRegex.matchEntire(trimmed)!!.groupValues[1]
+                val content = optimizedQuoteRegex.matchEntire(trimmed)?.groupValues?.getOrNull(1).orEmpty()
                 appendOptimizedCompactSeparator(builder)
-                appendOptimizedInline(
-                    builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
-                )
+                appendOptimizedInline(builder, content, context, formulaTokens, textColor, textSizePx, stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density)
             }
             optimizedHeadingRegex.matches(trimmed) -> {
                 val match = optimizedHeadingRegex.matchEntire(trimmed)!!
                 val level = match.groupValues[1].length.coerceIn(1, 6)
                 val headingText = match.groupValues[2].trim()
                 val size = when (level) {
-                    1 -> 1.04f
-                    2 -> 1.03f
-                    3 -> 1.01f
+                    1 -> 1.05f
+                    2 -> 1.04f
+                    3 -> 1.02f
                     else -> 1.00f
                 }
                 appendOptimizedCompactSeparator(builder)
-                appendOptimizedInline(
-                    builder, headingText, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
-                )
-                builder.setSpan(
-                    RelativeSizeSpan(size),
-                    findOptimizedLineStart(builder),
-                    builder.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-                builder.setSpan(
-                    OptimizedWeightSpan(Typeface.BOLD),
-                    findOptimizedLineStart(builder),
-                    builder.length,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
+                val start = builder.length
+                appendOptimizedInline(builder, headingText, context, formulaTokens, textColor, textSizePx, stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density)
+                if (builder.length > start) {
+                    builder.setSpan(RelativeSizeSpan(size), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    builder.setSpan(OptimizedWeightSpan(Typeface.BOLD), start, builder.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                }
             }
             optimizedBulletRegex.matches(trimmed) -> {
-                val content = optimizedBulletRegex.matchEntire(trimmed)!!.groupValues[1]
+                val content = optimizedBulletRegex.matchEntire(trimmed)?.groupValues?.getOrNull(1).orEmpty()
                 appendOptimizedCompactSeparator(builder)
                 builder.append("• ")
-                appendOptimizedInline(
-                    builder, content, context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
-                )
+                appendOptimizedInline(builder, content, context, formulaTokens, textColor, textSizePx, stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density)
             }
             optimizedTableDividerRegex.matches(trimmed) -> Unit
             optimizedTableRowRegex.matches(trimmed) -> {
-                val cells = optimizedTableRowRegex.matchEntire(trimmed)!!.groupValues[1]
+                val cells = optimizedTableRowRegex.matchEntire(trimmed)?.groupValues?.getOrNull(1).orEmpty()
                     .split('|')
                     .map { it.trim() }
                     .filter { it.isNotEmpty() }
                 if (cells.isNotEmpty()) {
                     appendOptimizedCompactSeparator(builder)
-                    appendOptimizedInline(
-                        builder, cells.joinToString("  ·  "), context, formulaTokens, textColor, textSizePx,
-                        stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
-                    )
+                    appendOptimizedInline(builder, cells.joinToString("  ·  "), context, formulaTokens, textColor, textSizePx, stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density)
                 }
             }
             else -> {
                 appendOptimizedCompactSeparator(builder)
-                appendOptimizedInline(
-                    builder, line.trim(), context, formulaTokens, textColor, textSizePx,
-                    stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density
-                )
+                appendOptimizedInline(builder, line.trim(), context, formulaTokens, textColor, textSizePx, stickerSizePx, stickerVerticalOffsetPx, stickerHorizontalGapPx, stickerLineExtraPx, density)
             }
         }
     }
 
     trimOptimizedTrailingNewlines(builder)
     if (baseFontWeight == Typeface.BOLD && builder.isNotEmpty()) {
-        builder.setSpan(
-            OptimizedWeightSpan(Typeface.NORMAL),
-            0,
-            builder.length,
-            Spanned.SPAN_INCLUSIVE_INCLUSIVE
-        )
+        builder.setSpan(OptimizedWeightSpan(Typeface.NORMAL), 0, builder.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
     }
     return builder
 }
@@ -476,8 +442,59 @@ private fun sanitizeOptimizedRichTextSource(source: String): String {
     text = text.replace(Regex("""\\\\([A-Za-z])""")) { match ->
         "\\${match.groupValues[1]}"
     }
+    text = normalizeMarkdownBoundariesAfterInlineStickers(text)
+    text = text.replace(optimizedSentenceHeadingBoundaryRegex, "$1\n$2")
+    text = text.replace(optimizedSentenceBulletBoundaryRegex, "$1\n$2")
     text = text.replace(Regex("""\n{3,}"""), "\n\n")
     return text.trim()
+}
+
+private fun normalizeMarkdownBoundariesAfterInlineStickers(source: String): String {
+    val markers = InlineStickerAssets.findProtocolMarkers(source)
+        .sortedBy { it.start }
+        .fold(mutableListOf<InlineStickerProtocolMarker>()) { accepted, marker ->
+            if (accepted.none { marker.start < it.endExclusive && marker.endExclusive > it.start }) {
+                accepted += marker
+            }
+            accepted
+        }
+    if (markers.isEmpty()) return source
+
+    val builder = StringBuilder(source.length + markers.size)
+    var cursor = 0
+    markers.forEach { marker ->
+        val start = marker.start.coerceIn(cursor, source.length)
+        val end = marker.endExclusive.coerceIn(start, source.length)
+        if (start > cursor) builder.append(source.substring(cursor, start))
+        builder.append(source.substring(start, end))
+        cursor = end
+
+        var probe = cursor
+        while (probe < source.length && (source[probe] == ' ' || source[probe] == '\t')) {
+            probe++
+        }
+        if (probe > cursor && (isMarkdownHeadingPrefixAt(source, probe) || isMarkdownBulletPrefixAt(source, probe))) {
+            builder.append('\n')
+            cursor = probe
+        }
+    }
+    if (cursor < source.length) builder.append(source.substring(cursor))
+    return builder.toString()
+}
+
+private fun isMarkdownHeadingPrefixAt(source: String, index: Int): Boolean {
+    if (index !in source.indices || source[index] != '#') return false
+    var count = 0
+    while (index + count < source.length && source[index + count] == '#') {
+        count++
+    }
+    return count in 1..6 && index + count < source.length && source[index + count].isWhitespace()
+}
+
+private fun isMarkdownBulletPrefixAt(source: String, index: Int): Boolean {
+    if (index !in source.indices) return false
+    val ch = source[index]
+    return (ch == '-' || ch == '*' || ch == '•') && index + 1 < source.length && source[index + 1].isWhitespace()
 }
 
 private fun extractOptimizedFormulaTokens(source: String): Pair<String, Map<String, OptimizedFormulaToken>> {
@@ -551,9 +568,7 @@ private fun appendOptimizedInline(
 
     var cursor = 0
     optimizedTokenRegex.findAll(working).forEach { match ->
-        if (match.range.first > cursor) {
-            appendObjects(working.substring(cursor, match.range.first))
-        }
+        if (match.range.first > cursor) appendObjects(working.substring(cursor, match.range.first))
         when (val token = match.value) {
             in formulaTokens.keys -> {
                 formulaTokens[token]?.let { formula ->
@@ -781,13 +796,6 @@ private fun trimOptimizedTrailingNewlines(builder: SpannableStringBuilder) {
     while (builder.isNotEmpty() && builder.last() == '\n') {
         builder.delete(builder.length - 1, builder.length)
     }
-}
-
-private fun findOptimizedLineStart(builder: SpannableStringBuilder): Int {
-    for (i in builder.length - 1 downTo 0) {
-        if (builder[i] == '\n') return i + 1
-    }
-    return 0
 }
 
 private fun CharSequence.endsWithOptimized(value: String): Boolean {
