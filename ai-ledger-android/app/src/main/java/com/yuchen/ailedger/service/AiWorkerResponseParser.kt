@@ -85,12 +85,21 @@ internal object AiWorkerResponseParser {
     fun mergeStreamedReplyWithFinalReply(streamedReply: String, finalReply: String): String {
         val streamed = streamedReply.trim()
         val final = finalReply.trim()
+        val streamedHasInlineSticker = hasInlineStickerProtocolMarker(streamed)
+        val finalHasInlineSticker = hasInlineStickerProtocolMarker(final)
         return when {
             streamed.isBlank() -> final
-            final.isBlank() || final == streamed -> streamed
+            final.isBlank() -> streamed
+            final == streamed -> final
             final.startsWith(streamed) -> final
+            finalHasInlineSticker || streamedHasInlineSticker -> final
             else -> streamed
         }
+    }
+
+    private fun hasInlineStickerProtocolMarker(value: String): Boolean {
+        return value.contains("[[AI_LEDGER_INLINE_STICKER:", ignoreCase = true) ||
+            value.any { char -> char.code in 0xDB40..0xDB7F }
     }
 
     fun throwIfServerReturnedFallbackSignal(data: JSONObject?) {
