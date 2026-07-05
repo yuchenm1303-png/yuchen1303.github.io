@@ -105,6 +105,7 @@ internal fun SettingsDetailPanel(
                             onUploadBackgroundClick,
                             onClearCustomBackgroundClick,
                         )
+
                         SettingsDetailSection.Glass -> GlassContent(
                             state,
                             onGlassIntensityChange,
@@ -112,6 +113,7 @@ internal fun SettingsDetailPanel(
                             onRainbowPrismChange,
                             onBackdropChange,
                         )
+
                         SettingsDetailSection.Assistant -> VisualAgentHudSettingsContent(state)
                         SettingsDetailSection.Data -> DataContent(state)
                         SettingsDetailSection.Service -> ServiceContent(state, aiEndpoint)
@@ -198,15 +200,15 @@ private fun AppearanceContent(
         modifier = Modifier.fillMaxWidth(),
     ) {
         SettingActionButton(
-            "上传背景",
-            if (state.customBackgroundPath == null) "选择图片" else "已自定义",
+            "涓婁紶鑳屾櫙",
+            if (state.customBackgroundPath == null) "閫夋嫨鍥剧墖" else "宸茶嚜瀹氫箟",
             state,
             Modifier.weight(1f),
             onUploadBackgroundClick,
         )
         SettingActionButton(
-            "清除背景",
-            "恢复主题",
+            "娓呴櫎鑳屾櫙",
+            "鎭㈠涓婚",
             state,
             Modifier.weight(1f),
             onClearCustomBackgroundClick,
@@ -225,232 +227,65 @@ private fun GlassContent(
     val prism = state.rainbowPrismStyle
     val backdrop = state.backdropParams
 
-    SettingsParameterGroup(
-        title = "玻璃基础",
-        subtitle = "通用玻璃材质与动画幅度",
-    ) {
-        SliderSettingRow(
-            "玻璃强度",
-            "控制通用玻璃的可见度、雾感和边缘能量。",
-            state.glassIntensity,
-            0.6f..1.4f,
-            onGlassIntensityChange,
-        )
-        SliderSettingRow(
-            "动态强度",
-            "控制呼吸、扫光和形变动画幅度，0 为静态。",
-            state.motionIntensity,
-            0f..1.4f,
-            onMotionIntensityChange,
-        )
+    SettingsParameterGroup(title = "鐜荤拑鍩虹", subtitle = "閫氱敤鐜荤拑鏉愯川涓庡姩鐢诲箙搴�") {
+        SliderSettingRow("鐜荤拑寮哄害", "鎺у埗閫氱敤鐜荤拑鐨勫彲瑙佸害銆侀浘鎰熷拰杈圭紭鑳介噺銆�", state.glassIntensity, 0.6f..1.4f, onGlassIntensityChange)
+        SliderSettingRow("鍔ㄦ€佸己搴�", "鎺у埗鍛煎惛銆佹壂鍏夊拰褰㈠彉鍔ㄧ敾骞呭害锛�0 涓洪潤鎬併€�", state.motionIntensity, 0f..1.4f, onMotionIntensityChange)
     }
 
-    SettingsParameterGroup(
-        title = "彩虹镀膜",
-        subtitle = "聊天大玻璃边缘与外缘彩虹能量",
-    ) {
-        SliderSettingRow(
-            "整体彩虹强度",
-            "统一调节聊天大玻璃彩虹镀膜的总能量。",
-            prism.overall,
-            0f..2f,
-        ) { onRainbowPrismChange(prism.copy(overall = it)) }
-        SliderSettingRow(
-            "棱彩边缘高光",
-            "增强圆角和玻璃边缘对彩色入射光的捕获。",
-            prism.edgeHighlight,
-            0f..2f,
-        ) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
-        SliderSettingRow(
-            "粉金青蓝彩虹光晕",
-            "调节粉、金、青、蓝在玻璃外缘形成的柔和光晕。",
-            prism.rainbowHalo,
-            0f..2f,
-        ) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
+    SettingsParameterGroup(title = "褰╄櫣闀€鑶�", subtitle = "鑱婂ぉ澶х幓鐠冭竟缂樹笌澶栫紭褰╄櫣鑳介噺") {
+        SliderSettingRow("鏁翠綋褰╄櫣寮哄害", "缁熶竴璋冭妭鑱婂ぉ澶х幓鐠冨僵铏归晙鑶滅殑鎬昏兘閲忋€�", prism.overall, 0f..2f) { onRainbowPrismChange(prism.copy(overall = it)) }
+        SliderSettingRow("妫卞僵杈圭紭楂樺厜", "澧炲己鍦嗚鍜岀幓鐠冭竟缂樺褰╄壊鍏ュ皠鍏夌殑鎹曡幏銆�", prism.edgeHighlight, 0f..2f) { onRainbowPrismChange(prism.copy(edgeHighlight = it)) }
+        SliderSettingRow("绮夐噾闈掕摑褰╄櫣鍏夋檿", "璋冭妭绮夈€侀噾銆侀潚銆佽摑鍦ㄧ幓鐠冨缂樺舰鎴愮殑鏌斿拰鍏夋檿銆�", prism.rainbowHalo, 0f..2f) { onRainbowPrismChange(prism.copy(rainbowHalo = it)) }
     }
 
-    SettingsParameterGroup(
-        title = "随机渐变扫光",
-        subtitle = "聊天大玻璃随机扫光亮度区间",
-    ) {
-        SliderSettingRow(
-            "扫光强度下限",
-            "随机扫光每次出现时允许的最低亮度。",
-            prism.sweepMin,
-            0f..2f,
-        ) { onRainbowPrismChange(prism.copy(sweepMin = it)) }
-        SliderSettingRow(
-            "扫光强度上限",
-            "随机扫光每次出现时允许的最高亮度。",
-            prism.sweepMax,
-            0f..2f,
-        ) { onRainbowPrismChange(prism.copy(sweepMax = it)) }
+    SettingsParameterGroup(title = "闅忔満娓愬彉鎵厜", subtitle = "鑱婂ぉ澶х幓鐠冮殢鏈烘壂鍏変寒搴﹀尯闂�") {
+        SliderSettingRow("鎵厜寮哄害涓嬮檺", "闅忔満鎵厜姣忔鍑虹幇鏃跺厑璁哥殑鏈€浣庝寒搴︺€�", prism.sweepMin, 0f..2f) { onRainbowPrismChange(prism.copy(sweepMin = it)) }
+        SliderSettingRow("鎵厜寮哄害涓婇檺", "闅忔満鎵厜姣忔鍑虹幇鏃跺厑璁哥殑鏈€楂樹寒搴︺€�", prism.sweepMax, 0f..2f) { onRainbowPrismChange(prism.copy(sweepMax = it)) }
     }
 
-    SettingsParameterGroup(
-        title = "背景模糊金字塔",
-        subtitle = "单一背景源的清晰、低、中、高四级采样",
-    ) {
-        SettingsParameterSlider(
-            title = "缓存分辨率",
-            description = "调节背景模糊缓存的有效分辨率；范围与运行时安全边界完全一致。",
-            value = backdrop.scale.coerceIn(0.28f, 0.72f),
-            valueRange = 0.28f..0.72f,
-            valueText = { "${it.settingsRoundedValue()}×" },
-        ) { onBackdropChange(backdrop.copy(scale = it)) }
-        SettingsParameterSlider(
-            title = "模糊层级",
-            description = "0=清晰，1=低，2=中，4=高；中间值连续插值。",
-            value = backdrop.radius,
-            valueRange = 0f..4f,
-            valueText = { "${it.settingsRoundedValue()} 级" },
-        ) { onBackdropChange(backdrop.copy(radius = it)) }
-        SettingsParameterSlider(
-            title = "模糊迭代",
-            description = "0 跳过全部模糊 pass；1–12 控制低、中、高缓存生成轮数。",
-            value = backdrop.iterations,
-            valueRange = 0f..12f,
-            valueText = { "${it.roundToInt()} 次" },
-        ) { onBackdropChange(backdrop.copy(iterations = it.roundToInt().toFloat())) }
+    SettingsParameterGroup(title = "鑳屾櫙妯＄硦閲戝瓧濉�", subtitle = "鍗曚竴鑳屾櫙婧愮殑娓呮櫚銆佷綆銆佷腑銆侀珮鍥涚骇閲囨牱") {
+        SettingsParameterSlider("缂撳瓨鍒嗚鲸鐜�", "璋冭妭鑳屾櫙妯＄硦缂撳瓨鐨勬湁鏁堝垎杈ㄧ巼锛涜寖鍥翠笌杩愯鏃跺畨鍏ㄨ竟鐣屽畬鍏ㄤ竴鑷淬€�", backdrop.scale.coerceIn(0.28f, 0.72f), 0.28f..0.72f, { "${it.settingsRoundedValue()}脳" }) { onBackdropChange(backdrop.copy(scale = it)) }
+        SettingsParameterSlider("妯＄硦灞傜骇", "0=娓呮櫚锛�1=浣庯紝2=涓紝4=楂橈紱涓棿鍊艰繛缁彃鍊笺€�", backdrop.radius, 0f..4f, { "${it.settingsRoundedValue()} 绾�" }) { onBackdropChange(backdrop.copy(radius = it)) }
+        SettingsParameterSlider("妯＄硦杩唬", "0 璺宠繃鍏ㄩ儴妯＄硦 pass锛�1鈥�12 鎺у埗浣庛€佷腑銆侀珮缂撳瓨鐢熸垚杞暟銆�", backdrop.iterations, 0f..12f, { "${it.roundToInt()} 娆�" }) { onBackdropChange(backdrop.copy(iterations = it.roundToInt().toFloat())) }
     }
 
-    SettingsParameterGroup(
-        title = "背景色彩输出",
-        subtitle = "模糊缓存生成后的明暗与色彩",
-    ) {
-        SettingsParameterSlider(
-            title = "背景亮度",
-            description = "调节玻璃采样背景的整体明暗。",
-            value = backdrop.brightness,
-            valueRange = 0.4f..2.2f,
-        ) { onBackdropChange(backdrop.copy(brightness = it)) }
-        SettingsParameterSlider(
-            title = "背景对比度",
-            description = "调节玻璃采样背景的明暗反差。",
-            value = backdrop.contrast,
-            valueRange = 0.5f..1.8f,
-        ) { onBackdropChange(backdrop.copy(contrast = it)) }
-        SettingsParameterSlider(
-            title = "背景饱和度",
-            description = "调节玻璃采样背景的综合色彩浓度；范围与纹理生成器一致。",
-            value = backdrop.saturation.coerceIn(0.3f, 1.8f),
-            valueRange = 0.3f..1.8f,
-        ) { onBackdropChange(backdrop.copy(saturation = it)) }
+    SettingsParameterGroup(title = "鑳屾櫙鑹插僵杈撳嚭", subtitle = "妯＄硦缂撳瓨鐢熸垚鍚庣殑鏄庢殫涓庤壊褰�") {
+        SettingsParameterSlider("鑳屾櫙浜害", "璋冭妭鐜荤拑閲囨牱鑳屾櫙鐨勬暣浣撴槑鏆椼€�", backdrop.brightness, 0.4f..2.2f) { onBackdropChange(backdrop.copy(brightness = it)) }
+        SettingsParameterSlider("鑳屾櫙瀵规瘮搴�", "璋冭妭鐜荤拑閲囨牱鑳屾櫙鐨勬槑鏆楀弽宸€�", backdrop.contrast, 0.5f..1.8f) { onBackdropChange(backdrop.copy(contrast = it)) }
+        SettingsParameterSlider("鑳屾櫙楗卞拰搴�", "璋冭妭鐜荤拑閲囨牱鑳屾櫙鐨勭患鍚堣壊褰╂祿搴︼紱鑼冨洿涓庣汗鐞嗙敓鎴愬櫒涓€鑷淬€�", backdrop.saturation.coerceIn(0.3f, 1.8f), 0.3f..1.8f) { onBackdropChange(backdrop.copy(saturation = it)) }
     }
 
-    SettingsParameterGroup(
-        title = "上传图片亮度保护",
-        subtitle = "只在参数稳定后重建一次自定义背景缓存",
-    ) {
-        SettingsParameterSlider(
-            title = "上传图亮度",
-            description = "只调节用户上传原图的基础亮度；内置主题和默认壁纸不受影响。",
-            value = backdrop.customImageBrightness,
-            valueRange = 0.50f..1.10f,
-        ) { onBackdropChange(backdrop.copy(customImageBrightness = it)) }
-        SettingsParameterSlider(
-            title = "高光压缩起点",
-            description = "图片亮度超过该位置后开始柔和压缩，暗部和中间调尽量保持原样。",
-            value = backdrop.customImageHighlightStart,
-            valueRange = 0.35f..0.85f,
-            valueText = { "${(it * 100f).roundToInt()}%" },
-        ) {
+    SettingsParameterGroup(title = "涓婁紶鍥剧墖浜害淇濇姢", subtitle = "鍙湪鍙傛暟绋冲畾鍚庨噸寤轰竴娆¤嚜瀹氫箟鑳屾櫙缂撳瓨") {
+        SettingsParameterSlider("涓婁紶鍥句寒搴�", "鍙皟鑺傜敤鎴蜂笂浼犲師鍥剧殑鍩虹浜害锛涘唴缃富棰樺拰榛樿澹佺焊涓嶅彈褰卞搷銆�", backdrop.customImageBrightness, 0.50f..1.10f) { onBackdropChange(backdrop.copy(customImageBrightness = it)) }
+        SettingsParameterSlider("楂樺厜鍘嬬缉璧风偣", "鍥剧墖浜害瓒呰繃璇ヤ綅缃悗寮€濮嬫煍鍜屽帇缂╋紝鏆楅儴鍜屼腑闂磋皟灏介噺淇濇寔鍘熸牱銆�", backdrop.customImageHighlightStart, 0.35f..0.85f, { "${(it * 100f).roundToInt()}%" }) {
             val start = it
-            val limit = maxOf(backdrop.customImageHighlightLimit, start + 0.02f)
-                .coerceAtMost(0.92f)
-            onBackdropChange(
-                backdrop.copy(
-                    customImageHighlightStart = start,
-                    customImageHighlightLimit = limit,
-                )
-            )
+            val limit = maxOf(backdrop.customImageHighlightLimit, start + 0.02f).coerceAtMost(0.92f)
+            onBackdropChange(backdrop.copy(customImageHighlightStart = start, customImageHighlightLimit = limit))
         }
-        SettingsParameterSlider(
-            title = "亮度输出上限",
-            description = "限制上传图片最亮区域的最终亮度，避免白色背景冲淡玻璃上的文字。",
-            value = backdrop.customImageHighlightLimit,
-            valueRange = 0.50f..0.92f,
-            valueText = { "${(it * 100f).roundToInt()}%" },
-        ) {
+        SettingsParameterSlider("浜害杈撳嚭涓婇檺", "闄愬埗涓婁紶鍥剧墖鏈€浜尯鍩熺殑鏈€缁堜寒搴︼紝閬垮厤鐧借壊鑳屾櫙鍐叉贰鐜荤拑涓婄殑鏂囧瓧銆�", backdrop.customImageHighlightLimit, 0.50f..0.92f, { "${(it * 100f).roundToInt()}%" }) {
             val limit = it
-            val start = minOf(backdrop.customImageHighlightStart, limit - 0.02f)
-                .coerceAtLeast(0.35f)
-            onBackdropChange(
-                backdrop.copy(
-                    customImageHighlightStart = start,
-                    customImageHighlightLimit = limit,
-                )
-            )
+            val start = minOf(backdrop.customImageHighlightStart, limit - 0.02f).coerceAtLeast(0.35f)
+            onBackdropChange(backdrop.copy(customImageHighlightStart = start, customImageHighlightLimit = limit))
         }
     }
 
-    SettingsParameterGroup(
-        title = "背景云雾层",
-        subtitle = "内置主题的云层形态与高光",
-    ) {
-        SettingsParameterSlider(
-            title = "云雾透明度",
-            description = "调节内置主题背景云雾层的整体可见度。",
-            value = backdrop.cloudAlpha,
-            valueRange = 0f..2f,
-        ) { onBackdropChange(backdrop.copy(cloudAlpha = it)) }
-        SettingsParameterSlider(
-            title = "云雾柔化",
-            description = "调节云层边缘的扩散与柔和程度。",
-            value = backdrop.cloudSoftness,
-            valueRange = 0f..3f,
-        ) { onBackdropChange(backdrop.copy(cloudSoftness = it)) }
-        SettingsParameterSlider(
-            title = "云层横向拉伸",
-            description = "调节云雾层在水平方向的铺展范围。",
-            value = backdrop.cloudStretchX,
-            valueRange = 0.4f..4f,
-        ) { onBackdropChange(backdrop.copy(cloudStretchX = it)) }
-        SettingsParameterSlider(
-            title = "云层纵向拉伸",
-            description = "调节云雾层在垂直方向的厚度。",
-            value = backdrop.cloudStretchY,
-            valueRange = 0.2f..2f,
-        ) { onBackdropChange(backdrop.copy(cloudStretchY = it)) }
-        SettingsParameterSlider(
-            title = "云层高光",
-            description = "调节云雾亮部的局部高光透明度。",
-            value = backdrop.cloudHighlightAlpha,
-            valueRange = 0f..1f,
-        ) { onBackdropChange(backdrop.copy(cloudHighlightAlpha = it)) }
+    SettingsParameterGroup(title = "鑳屾櫙浜戦浘灞�", subtitle = "鍐呯疆涓婚鐨勪簯灞傚舰鎬佷笌楂樺厜") {
+        SettingsParameterSlider("浜戦浘閫忔槑搴�", "璋冭妭鍐呯疆涓婚鑳屾櫙浜戦浘灞傜殑鏁翠綋鍙搴︺€�", backdrop.cloudAlpha, 0f..2f) { onBackdropChange(backdrop.copy(cloudAlpha = it)) }
+        SettingsParameterSlider("浜戦浘鏌斿寲", "璋冭妭浜戝眰杈圭紭鐨勬墿鏁ｄ笌鏌斿拰绋嬪害銆�", backdrop.cloudSoftness, 0f..3f) { onBackdropChange(backdrop.copy(cloudSoftness = it)) }
+        SettingsParameterSlider("浜戝眰妯悜鎷変几", "璋冭妭浜戦浘灞傚湪姘村钩鏂瑰悜鐨勯摵灞曡寖鍥淬€�", backdrop.cloudStretchX, 0.4f..4f) { onBackdropChange(backdrop.copy(cloudStretchX = it)) }
+        SettingsParameterSlider("浜戝眰绾靛悜鎷変几", "璋冭妭浜戦浘灞傚湪鍨傜洿鏂瑰悜鐨勫帤搴︺€�", backdrop.cloudStretchY, 0.2f..2f) { onBackdropChange(backdrop.copy(cloudStretchY = it)) }
+        SettingsParameterSlider("浜戝眰楂樺厜", "璋冭妭浜戦浘浜儴鐨勫眬閮ㄩ珮鍏夐€忔槑搴︺€�", backdrop.cloudHighlightAlpha, 0f..1f) { onBackdropChange(backdrop.copy(cloudHighlightAlpha = it)) }
     }
 
-    SettingsParameterGroup(
-        title = "背景月亮层",
-        subtitle = "内置主题的月体、光晕与边缘",
-    ) {
-        SettingsParameterSlider(
-            title = "月亮尺寸",
-            description = "调节内置主题月体的整体尺寸。",
-            value = backdrop.moonScale,
-            valueRange = 0.5f..1.8f,
-        ) { onBackdropChange(backdrop.copy(moonScale = it)) }
-        SettingsParameterSlider(
-            title = "月亮光晕",
-            description = "调节月体周围柔和光晕的透明度。",
-            value = backdrop.moonHaloAlpha,
-            valueRange = 0f..1f,
-        ) { onBackdropChange(backdrop.copy(moonHaloAlpha = it)) }
-        SettingsParameterSlider(
-            title = "月亮边缘光",
-            description = "调节月体轮廓边缘的亮度。",
-            value = backdrop.moonRimAlpha,
-            valueRange = 0f..1.2f,
-        ) { onBackdropChange(backdrop.copy(moonRimAlpha = it)) }
+    SettingsParameterGroup(title = "鑳屾櫙鏈堜寒灞�", subtitle = "鍐呯疆涓婚鐨勬湀浣撱€佸厜鏅曚笌杈圭紭") {
+        SettingsParameterSlider("鏈堜寒灏哄", "璋冭妭鍐呯疆涓婚鏈堜綋鐨勬暣浣撳昂瀵搞€�", backdrop.moonScale, 0.5f..1.8f) { onBackdropChange(backdrop.copy(moonScale = it)) }
+        SettingsParameterSlider("鏈堜寒鍏夋檿", "璋冭妭鏈堜綋鍛ㄥ洿鏌斿拰鍏夋檿鐨勯€忔槑搴︺€�", backdrop.moonHaloAlpha, 0f..1f) { onBackdropChange(backdrop.copy(moonHaloAlpha = it)) }
+        SettingsParameterSlider("鏈堜寒杈圭紭鍏�", "璋冭妭鏈堜綋杞粨杈圭紭鐨勪寒搴︺€�", backdrop.moonRimAlpha, 0f..1.2f) { onBackdropChange(backdrop.copy(moonRimAlpha = it)) }
     }
 }
 
 @Composable
-private fun SettingsParameterGroup(
-    title: String,
-    subtitle: String,
-    content: @Composable () -> Unit,
-) {
+private fun SettingsParameterGroup(title: String, subtitle: String, content: @Composable () -> Unit) {
     var expanded by rememberSaveable(title) { mutableStateOf(false) }
     val shape = RoundedCornerShape(20.dp)
     Column(
@@ -458,62 +293,22 @@ private fun SettingsParameterGroup(
             .fillMaxWidth()
             .clip(shape)
             .background(Color.White.copy(alpha = if (expanded) 0.070f else 0.048f))
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = 0.86f,
-                    stiffness = Spring.StiffnessMediumLow,
-                )
-            ),
+            .animateContentSize(animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 13.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(horizontal = 13.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(
-                    title,
-                    color = Color.White.copy(alpha = 0.88f),
-                    fontSize = 14.5.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    subtitle,
-                    color = Color.White.copy(alpha = 0.42f),
-                    fontSize = 10.5.sp,
-                    lineHeight = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Color.White.copy(alpha = 0.88f), fontSize = 14.5.sp, lineHeight = 18.sp, fontWeight = FontWeight.Black, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(
-                if (expanded) "收起 ︿" else "展开 ﹀",
-                color = Color.White.copy(alpha = 0.56f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                maxLines = 1,
-            )
+            Text(if (expanded) "鏀惰捣 锔�" else "灞曞紑 锕€", color = Color.White.copy(alpha = 0.56f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         }
         if (expanded) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                content()
-            }
+            Column(modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
         }
     }
 }
@@ -524,78 +319,94 @@ private fun SettingsParameterSlider(
     description: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,
-    valueText: (Float) -> String = { "${it.settingsRoundedValue()}×" },
+    valueText: (Float) -> String = { "${it.settingsRoundedValue()}脳" },
     onValueChange: (Float) -> Unit,
 ) {
     val safeValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
-    InsetGlassParameterSlider(
-        title = title,
-        description = description,
-        value = safeValue,
-        valueRange = valueRange,
-        onValueChange = onValueChange,
-        valueText = valueText(safeValue),
-    )
+    InsetGlassParameterSlider(title = title, description = description, value = safeValue, valueRange = valueRange, onValueChange = onValueChange, valueText = valueText(safeValue))
 }
 
-private fun Float.settingsRoundedValue(): String =
-    ((this * 100f).roundToInt() / 100f).toString()
+private fun Float.settingsRoundedValue(): String = ((this * 100f).roundToInt() / 100f).toString()
 
 @Composable
 private fun DataContent(state: AssistantUiState) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        MiniSettingMetric("账单", "${state.ledgerRecords.size} 笔", Modifier.weight(1f))
-        MiniSettingMetric(
-            "预算",
-            "¥${state.ledgerBudgetText.ifBlank { "0" }}",
-            Modifier.weight(1f),
-        )
-        MiniSettingMetric("同步", "自动", Modifier.weight(1f))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+        MiniSettingMetric("璐﹀崟", "${state.ledgerRecords.size} 绗�", Modifier.weight(1f))
+        MiniSettingMetric("棰勭畻", "楼${state.ledgerBudgetText.ifBlank { "0" }}", Modifier.weight(1f))
+        MiniSettingMetric("鍚屾", "鑷姩", Modifier.weight(1f))
     }
-    SettingInfoRow("数据保存", "LedgerStore 统一持久化，手动与 AI 记账共用数据源")
-    SettingInfoRow("云同步", "登录后自动合并并同步；未登录时保存在本机")
-    SettingInfoRow("家", state.navigationHomeAddress.ifBlank { "未设置" })
-    SettingInfoRow("学校", state.navigationSchoolAddress.ifBlank { "未设置" })
-    SettingInfoRow("公司", state.navigationCompanyAddress.ifBlank { "未设置" })
-    SettingInfoRow("宿舍", state.navigationDormAddress.ifBlank { "未设置" })
+    SettingInfoRow("鏁版嵁淇濆瓨", "LedgerStore 缁熶竴鎸佷箙鍖栵紝鎵嬪姩涓� AI 璁拌处鍏辩敤鏁版嵁婧�")
+    SettingInfoRow("浜戝悓姝�", "鐧诲綍鍚庤嚜鍔ㄥ悎骞跺苟鍚屾锛涙湭鐧诲綍鏃朵繚瀛樺湪鏈満")
+    SettingInfoRow("瀹�", state.navigationHomeAddress.ifBlank { "鏈缃�" })
+    SettingInfoRow("瀛︽牎", state.navigationSchoolAddress.ifBlank { "鏈缃�" })
+    SettingInfoRow("鍏徃", state.navigationCompanyAddress.ifBlank { "鏈缃�" })
+    SettingInfoRow("瀹胯垗", state.navigationDormAddress.ifBlank { "鏈缃�" })
 }
 
 @Composable
 private fun ServiceContent(state: AssistantUiState, aiEndpoint: String) {
     SettingsNestedOrdinaryGlassHost { NativeAccountSettingsCard(state) }
-    SettingInfoRow(
-        "AI 接口",
-        if (aiEndpoint.isBlank()) "未配置，使用本地占位回复" else aiEndpoint,
-    )
-    SettingInfoRow("执行模式", "云端理解，本地确认后执行")
-    SettingInfoRow("云端协议", "mobileAction / preferenceUpdate")
+    SettingInfoRow("AI 鎺ュ彛", if (aiEndpoint.isBlank()) "鏈厤缃紝浣跨敤鏈湴鍗犱綅鍥炲" else aiEndpoint)
+    SettingInfoRow("鎵ц妯″紡", "浜戠鐞嗚В锛屾湰鍦扮‘璁ゅ悗鎵ц")
+    SettingInfoRow("浜戠鍗忚", "mobileAction / preferenceUpdate")
 }
 
 @Composable
 private fun AdvancedContent() {
-    SettingInfoRow("玻璃渲染", "仅真正的大型 Shell 使用 OpenGL")
-    SettingInfoRow("功能页栏目", "普通入口卡片固定使用 Compose 玻璃")
-    SettingInfoRow("隔离范围", "Card / Chip / Floating / Nav / Flex")
-    SettingInfoRow("几何同步", "普通控件不注册 registry，也不请求 geometry sync")
-    SettingInfoRow("账号控件", "纯 Compose + REST API，不接入 OpenGL registry")
+    SettingInfoRow("鐜荤拑娓叉煋", "浠呯湡姝ｇ殑澶у瀷 Shell 浣跨敤 OpenGL")
+    SettingInfoRow("鍔熻兘椤垫爮鐩�", "鏅€氬叆鍙ｅ崱鐗囧浐瀹氫娇鐢� Compose 鐜荤拑")
+    SettingInfoRow("闅旂鑼冨洿", "Card / Chip / Floating / Nav / Flex")
+    SettingInfoRow("鍑犱綍鍚屾", "鏅€氭帶浠朵笉娉ㄥ唽 registry锛屼篃涓嶈姹� geometry sync")
+    SettingInfoRow("璐﹀彿鎺т欢", "绾� Compose + REST API锛屼笉鎺ュ叆 OpenGL registry")
 }
 
 @Composable
 private fun ChatPageSettingsContent() {
     val context = LocalContext.current
-    val stickerSizeDp = InlineStickerDisplaySettings.sizeDp(context)
-    InsetGlassParameterSlider(
-        title = "表情包大小",
-        description = "调节聊天消息中内联表情的显示与排版占位尺寸。",
-        value = stickerSizeDp,
-        valueRange = InlineStickerDisplaySettings.SizeRange,
-        onValueChange = { InlineStickerDisplaySettings.updateSizeDp(context, it) },
-        valueText = "${stickerSizeDp.roundToInt()} dp",
-    )
+    val stickerLayout = InlineStickerDisplaySettings.layoutPreferences(context)
+
+    SettingsParameterGroup(
+        title = "鍐呰仈琛ㄦ儏鎺掔増",
+        subtitle = "鐩存帴鎺у埗鑱婂ぉ姝ｆ枃閲岀殑琛ㄦ儏澶у皬銆佸亸绉汇€侀棿璺濆拰琛岄珮鍗犱綅銆�",
+    ) {
+        SettingsParameterSlider(
+            title = "琛ㄦ儏鍖呭ぇ灏�",
+            description = "鎺у埗鑱婂ぉ娑堟伅涓唴鑱旇〃鎯呯殑瀹為檯缁樺埗灏哄锛屼笉鍐嶅彧浣滀负涓婇檺銆�",
+            value = stickerLayout.sizeDp,
+            valueRange = InlineStickerDisplaySettings.SizeRange,
+            valueText = { "${it.roundToInt()} dp" },
+        ) { InlineStickerDisplaySettings.updateSizeDp(context, it) }
+
+        SettingsParameterSlider(
+            title = "涓婁笅鍋忕Щ",
+            description = "鎺у埗琛ㄦ儏鐩稿鏂囧瓧鍩虹嚎鐨勪笂涓嬩綅缃紱璐熸暟涓婄Щ锛屾鏁颁笅绉汇€�",
+            value = stickerLayout.verticalOffsetDp,
+            valueRange = InlineStickerDisplaySettings.VerticalOffsetRange,
+            valueText = {
+                val rounded = it.roundToInt()
+                if (rounded > 0) "+$rounded dp" else "$rounded dp"
+            },
+        ) { InlineStickerDisplaySettings.updateVerticalOffsetDp(context, it) }
+
+        SettingsParameterSlider(
+            title = "宸﹀彸闂磋窛",
+            description = "鎺у埗琛ㄦ儏宸﹀彸涓や晶鐣欑櫧锛岄伩鍏嶈创瀛楁垨杩囧害鎸ゅ帇姝ｆ枃銆�",
+            value = stickerLayout.horizontalGapDp,
+            valueRange = InlineStickerDisplaySettings.HorizontalGapRange,
+            valueText = { "${it.roundToInt()} dp" },
+        ) { InlineStickerDisplaySettings.updateHorizontalGapDp(context, it) }
+
+        SettingsParameterSlider(
+            title = "琛岄珮浣欓噺",
+            description = "鎺у埗琛ㄦ儏鍙備笌鏂囧瓧琛岄珮娴嬮噺鏃堕澶栭鐣欑殑涓婁笅绌洪棿銆�",
+            value = stickerLayout.lineExtraDp,
+            valueRange = InlineStickerDisplaySettings.LineExtraRange,
+            valueText = { "${it.roundToInt()} dp" },
+        ) { InlineStickerDisplaySettings.updateLineExtraDp(context, it) }
+    }
+
     SettingsNestedOrdinaryGlassHost { InlineStickerExpressionSettingsControls() }
+
     Column(
         Modifier
             .fillMaxWidth()
@@ -604,39 +415,22 @@ private fun ChatPageSettingsContent() {
             .padding(horizontal = 13.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            "示例消息",
-            color = Color.White.copy(alpha = 0.58f),
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            fontWeight = FontWeight.ExtraBold,
-        )
+        Text("绀轰緥娑堟伅", color = Color.White.copy(alpha = 0.58f), fontSize = 11.sp, lineHeight = 14.sp, fontWeight = FontWeight.ExtraBold)
         OptimizedRichMessageContent(
-            text = "这次终于调顺了[[AI_LEDGER_INLINE_STICKER:joy_burst]][[AI_LEDGER_INLINE_STICKER:sparkle_excited]]，句中的表情也会跟着当前尺寸实时变化。",
+            text = "杩欐缁堜簬璋冮『浜哰[AI_LEDGER_INLINE_STICKER:joy_burst]][[AI_LEDGER_INLINE_STICKER:sparkle_excited]]锛屽彞涓殑琛ㄦ儏浼氳窡鐫€澶у皬銆佸亸绉汇€侀棿璺濆拰琛岄珮璁剧疆瀹炴椂鍙樺寲銆�",
             color = Color.White.copy(alpha = 0.88f),
             fontSize = 14.sp,
             lineHeight = 20.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier.fillMaxWidth(),
         )
-        Text(
-            "拖动上方滑块，示例和聊天页中的表情会同步更新。",
-            color = Color.White.copy(alpha = 0.42f),
-            fontSize = 10.5.sp,
-            lineHeight = 14.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        Text("鎷栧姩涓婃柟婊戝潡锛岀ず渚嬪拰鑱婂ぉ椤典腑鐨勮〃鎯呬細鍚屾鏇存柊銆�", color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun SettingsNestedOrdinaryGlassHost(content: @Composable () -> Unit) {
-    OrdinaryGlassSceneHost(
-        group = LocalGlassSceneContext.current.group,
-        modifier = Modifier.fillMaxWidth(),
-        renderMode = OrdinaryGlassRenderMode.ParentDraw,
-        content = content,
-    )
+    OrdinaryGlassSceneHost(group = LocalGlassSceneContext.current.group, modifier = Modifier.fillMaxWidth(), renderMode = OrdinaryGlassRenderMode.ParentDraw, content = content)
 }
 
 private fun SettingsDetailSection.settingsOrder(): Int = when (this) {
@@ -652,25 +446,25 @@ private fun SettingsDetailSection.settingsOrder(): Int = when (this) {
 }
 
 private fun panelTitle(panel: SettingsDetailSection): String = when (panel) {
-    SettingsDetailSection.Appearance -> "主题"
-    SettingsDetailSection.Glass -> "玻璃"
-    SettingsDetailSection.Assistant -> "视觉智能"
-    SettingsDetailSection.Data -> "数据偏好"
-    SettingsDetailSection.Service -> "账号设置"
-    SettingsDetailSection.Advanced -> "系统信息"
-    SettingsDetailSection.Chat -> "聊天设置"
-    SettingsDetailSection.Memory -> "记忆"
-    SettingsDetailSection.Debug -> "玻璃实验室"
+    SettingsDetailSection.Appearance -> "涓婚"
+    SettingsDetailSection.Glass -> "鐜荤拑"
+    SettingsDetailSection.Assistant -> "瑙嗚鏅鸿兘"
+    SettingsDetailSection.Data -> "鏁版嵁鍋忓ソ"
+    SettingsDetailSection.Service -> "璐﹀彿璁剧疆"
+    SettingsDetailSection.Advanced -> "绯荤粺淇℃伅"
+    SettingsDetailSection.Chat -> "鑱婂ぉ璁剧疆"
+    SettingsDetailSection.Memory -> "璁板繂"
+    SettingsDetailSection.Debug -> "鐜荤拑瀹為獙瀹�"
 }
 
 private fun panelSubtitle(panel: SettingsDetailSection): String = when (panel) {
-    SettingsDetailSection.Appearance -> "背景、主题和自定义图片。"
-    SettingsDetailSection.Glass -> "玻璃、彩虹光效、背景模糊与上传图亮度保护。"
-    SettingsDetailSection.Assistant -> "边缘光效、鼠标光标与运行 HUD 的全部参数。"
-    SettingsDetailSection.Data -> "账单状态、预算、本地数据和常用导航地址。"
-    SettingsDetailSection.Service -> "账号登录、AI Worker 和云端接口。"
-    SettingsDetailSection.Advanced -> "渲染边界和 OpenGL 隔离状态。"
-    SettingsDetailSection.Chat -> "聊天消息、内联表情显示与云端表达偏好。"
-    SettingsDetailSection.Memory -> "登录后查看、整理并控制 AI 的长期记忆。"
-    SettingsDetailSection.Debug -> "高级玻璃参数与实验入口。"
+    SettingsDetailSection.Appearance -> "鑳屾櫙銆佷富棰樺拰鑷畾涔夊浘鐗囥€�"
+    SettingsDetailSection.Glass -> "鐜荤拑銆佸僵铏瑰厜鏁堛€佽儗鏅ā绯婁笌涓婁紶鍥句寒搴︿繚鎶ゃ€�"
+    SettingsDetailSection.Assistant -> "杈圭紭鍏夋晥銆侀紶鏍囧厜鏍囦笌杩愯 HUD 鐨勫叏閮ㄥ弬鏁般€�"
+    SettingsDetailSection.Data -> "璐﹀崟鐘舵€併€侀绠椼€佹湰鍦版暟鎹拰甯哥敤瀵艰埅鍦板潃銆�"
+    SettingsDetailSection.Service -> "璐﹀彿鐧诲綍銆丄I Worker 鍜屼簯绔帴鍙ｃ€�"
+    SettingsDetailSection.Advanced -> "娓叉煋杈圭晫鍜� OpenGL 闅旂鐘舵€併€�"
+    SettingsDetailSection.Chat -> "鑱婂ぉ娑堟伅銆佸唴鑱旇〃鎯呮樉绀轰笌浜戠琛ㄨ揪鍋忓ソ銆�"
+    SettingsDetailSection.Memory -> "鐧诲綍鍚庢煡鐪嬨€佹暣鐞嗗苟鎺у埗 AI 鐨勯暱鏈熻蹇嗐€�"
+    SettingsDetailSection.Debug -> "楂樼骇鐜荤拑鍙傛暟涓庡疄楠屽叆鍙ｃ€�"
 }
