@@ -66,7 +66,7 @@ internal fun StorageAppCacheCleanupScreen(
     var expanded by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var confirmationMethod by remember { mutableStateOf<AppCacheCleanupMethod?>(null) }
-    var systemCleanupBeforeBytes by remember { mutableStateOf<Long?>(null) }
+    var systemCleanupBeforeFreeBytes by remember { mutableStateOf<Long?>(null) }
 
     BackHandler(onBack = onBack)
 
@@ -122,25 +122,21 @@ internal fun StorageAppCacheCleanupScreen(
             val updatedRanking = withContext(Dispatchers.IO) {
                 if (currentUsageGranted) repository.loadRanking(forceRefresh = true) else emptyList()
             }
-            val afterBytes = if (currentUsageGranted) updatedRanking.sumOf(AppCacheUsage::cacheBytes) else null
-            val releasedBytes = if (systemCleanupBeforeBytes != null && afterBytes != null) {
-                (systemCleanupBeforeBytes!! - afterBytes).coerceAtLeast(0L)
-            } else {
-                null
-            }
+            val afterFreeBytes = withContext(Dispatchers.IO) { repository.deviceFreeBytes() }
+            val releasedBytes = systemCleanupBeforeFreeBytes?.let { before -> (afterFreeBytes - before).coerceAtLeast(0L) }
             usageGranted = currentUsageGranted
             ranking = updatedRanking
             operationRunning = false
             message = when (result.resultCode) {
                 Activity.RESULT_OK -> when {
-                    releasedBytes == null -> "Android 系统已完成全应用缓存清理；未获得统计权限，无法显示实际释放量。"
-                    releasedBytes > 0L -> "Android 系统已完成全应用缓存清理，统计到缓存减少 ${formatStorageBytes(releasedBytes)}。"
-                    else -> "Android 系统返回缓存清理完成，但当前统计没有发现可释放空间；部分缓存可能已被系统保留或统计尚未更新。"
+                    releasedBytes == null -> "Android 系统已完成全应用缓存清理；无法读取清理前空间快照，因此未计算实际释放量。"
+                    releasedBytes > 0L -> "Android 系统已完成全应用缓存清理，设备可用空间增加 ${formatStorageBytes(releasedBytes)}。"
+                    else -> "Android 系统返回缓存清理完成，但设备可用空间暂未增加；部分缓存可能已被系统保留或空间统计尚未刷新。"
                 }
                 Activity.RESULT_CANCELED -> "已取消系统缓存清理，没有继续删除应用缓存。"
                 else -> "系统缓存清理返回错误代码 ${result.resultCode}，请稍后重试或使用 Shizuku 增强回收。"
             }
-            systemCleanupBeforeBytes = null
+            systemCleanupBeforeFreeBytes = null
         }
     }
 
@@ -164,15 +160,17 @@ internal fun StorageAppCacheCleanupScreen(
             requestAllFilesAccess()
             return
         }
-        systemCleanupBeforeBytes = if (usageGranted) ranking.sumOf(AppCacheUsage::cacheBytes) else null
         operationRunning = true
         message = "正在打开 Android 全应用缓存清理确认…"
-        runCatching { systemCacheCleanupLauncher.launch(repository.systemCacheCleanupIntent()) }
-            .onFailure { error ->
-                operationRunning = false
-                systemCleanupBeforeBytes = null
-                message = error.message?.takeIf(String::isNotBlank) ?: "当前系统没有提供全应用缓存清理界面。"
-            }
+        scope.launch {
+            systemCleanupBeforeFreeBytes = withContext(Dispatchers.IO) { repository.deviceFreeBytes() }
+            runCatching { systemCacheCleanupLauncher.launch(repository.systemCacheCleanupIntent()) }
+                .onFailure { error ->
+                    operationRunning = false
+                    systemCleanupBeforeFreeBytes = null
+                    message = error.message?.takeIf(String::isNotBlank) ?: "当前系统没有提供全应用缓存清理界面。"
+                }
+        }
     }
 
     fun clearAllCachesEnhanced() {
@@ -227,7 +225,7 @@ internal fun StorageAppCacheCleanupScreen(
                     Text("APP CACHE CLEANUP", color = StorageWarning.copy(alpha = 0.80f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                     Text("全机应用缓存", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                     Text(
-                        "一键调用 Android 的全应用缓存清理，并提供 Shizuku/ADB Shell 增强回收和清理前后核验。",
+                        "一键调用 Android 的全应用缓存清理，并提供 Shizuku/ADB Shell 增强回收和清理后可用空间核验。",
                         color = Color.White.copy(alpha = 0.58f),
                         fontSize = 13.sp,
                         lineHeight = 19.sp,
@@ -236,8 +234,8 @@ internal fun StorageAppCacheCleanupScreen(
             }
             item {
                 StorageNoticePanel(
-                    title = "这次不只是跳转单个应用",
-                    text = "主按钮会调用 Android 官方的全应用缓存清理流程；系统确认成功后会重新统计缓存。Shizuku 可用时还可以直接执行增强缓存回收。两种方式都不会执行 pm clear，也不会删除登录状态、数据库和用户文件。",
+                    title = "缓存统计和系统页面口径可能不同",
+                    text = "应用列表里的数值来自 Android StorageStatsManager，部分系统会把可清缓存、外部缓存或应用内部临时数据合并成不同口径；系统设置页的“清空缓存”数值才是该厂商界面的清理按钮口径。实际释放空间现在以清理后设备可用空间变化为准。",
                     tone = StorageWarning,
                 )
             }
@@ -258,9 +256,9 @@ internal fun StorageAppCacheCleanupScreen(
                     StorageAccessRow(
                         title = "缓存统计权限",
                         detail = if (usageGranted) {
-                            "已获得使用情况访问权，可以显示应用缓存排行并核验实际释放量。"
+                            "已获得使用情况访问权，可以显示系统统计口径的缓存排行。"
                         } else {
-                            "清理仍可执行，但无法准确显示清理前后缓存总量。"
+                            "清理仍可执行，但无法显示每个应用的统计口径缓存。"
                         },
                         granted = usageGranted,
                         actionText = if (usageGranted) "已授权" else "去授权",
@@ -290,7 +288,7 @@ internal fun StorageAppCacheCleanupScreen(
             item {
                 StorageSection("一键清理") {
                     StorageMetricRow("已统计应用", if (usageGranted) ranking.size.toString() else "需要统计权限")
-                    StorageMetricRow("当前缓存合计", if (usageGranted) formatStorageBytes(totalCache) else "清理后无法核验")
+                    StorageMetricRow("统计口径缓存", if (usageGranted) formatStorageBytes(totalCache) else "未授权")
                     StoragePrimaryAction(
                         text = when {
                             operationRunning -> "正在清理全机应用缓存…"
@@ -319,10 +317,10 @@ internal fun StorageAppCacheCleanupScreen(
             }
             when {
                 loading -> item { StorageLoadingPanel("正在读取应用缓存统计和清理权限状态…") }
-                !usageGranted -> item { StorageEmptyPanel("授权使用情况访问后，可查看每个应用的缓存明细；上方系统一键清理不依赖这项统计权限。") }
-                ranking.isEmpty() -> item { StorageEmptyPanel("当前没有读取到可展示的应用缓存。") }
+                !usageGranted -> item { StorageEmptyPanel("授权使用情况访问后，可查看每个应用的缓存统计明细；上方系统一键清理不依赖这项统计权限。") }
+                ranking.isEmpty() -> item { StorageEmptyPanel("当前没有读取到可展示的应用缓存统计。") }
                 else -> {
-                    item { OptimizeSectionHeader("应用缓存明细", "点击单个应用可进入系统详情进行精细管理") }
+                    item { OptimizeSectionHeader("应用缓存统计明细", "点击单个应用可进入系统详情，以厂商系统页面数值为准") }
                     items(displayedRanking, key = AppCacheUsage::packageName) { app ->
                         AppCacheCard(app = app, onOpen = { openAppStorage(app.packageName) })
                     }
@@ -347,7 +345,7 @@ internal fun StorageAppCacheCleanupScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        if (usageGranted) "当前统计到约 ${formatStorageBytes(totalCache)} 应用缓存。" else "当前未获得缓存统计权限，无法预估实际释放空间。",
+                        if (usageGranted) "当前系统统计口径约 ${formatStorageBytes(totalCache)}，实际释放空间以清理后可用空间变化为准。" else "当前未获得缓存统计权限，但仍可执行系统缓存清理。",
                         color = Color.White.copy(alpha = 0.90f),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.ExtraBold,
