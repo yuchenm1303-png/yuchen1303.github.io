@@ -301,66 +301,61 @@ internal fun AssistantScreenV2(
             modelCardGlassStyle = state.modelCardGlassStyle
         )
     }
-    Box(Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 12.dp, bottom = bottomPadding),
-            verticalArrangement = Arrangement.spacedBy(9.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 12.dp, bottom = bottomPadding),
+        verticalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
+            AssistantHeroV2()
+        }
+
+        AssistantEntrance(
+            delayMs = 110,
+            modifier = Modifier.zIndex(4f),
+            initialOffsetY = 16,
+            initialScale = 0.965f
         ) {
-            AssistantEntrance(delayMs = 0, initialOffsetY = -10, initialScale = 0.98f) {
-                AssistantHeroV2()
-            }
+            ModelAndNetworkPanel(
+                state = modelPanelState,
+                expanded = modelPanelExpanded,
+                panelHeight = modelPanelVisualHeight,
+                layoutHeight = collapsedPanelHeight,
+                onExpandedChange = { modelPanelExpanded = it },
+                onModelSelected = onModelSelected,
+                onToggleOnline = onToggleOnline
+            )
+        }
 
-            AssistantEntrance(
-                delayMs = 110,
-                modifier = Modifier.zIndex(4f),
-                initialOffsetY = 16,
-                initialScale = 0.965f
-            ) {
-                ModelAndNetworkPanel(
-                    state = modelPanelState,
-                    expanded = modelPanelExpanded,
-                    panelHeight = modelPanelVisualHeight,
-                    layoutHeight = collapsedPanelHeight,
-                    onExpandedChange = { modelPanelExpanded = it },
-                    onModelSelected = onModelSelected,
-                    onToggleOnline = onToggleOnline
-                )
-            }
-
-            AssistantEntrance(
-                delayMs = 220,
-                modifier = Modifier.weight(1f),
-                initialOffsetY = 30,
-                initialScale = 0.955f
-            ) {
-                CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
-                    ChatPanelV2(
-                        state = chatPanelState,
-                        modifier = Modifier.fillMaxWidth(),
-                        viewportTopInset = modelExpandDelta,
-                        onCopyMessage = onCopyMessage,
-                        onRetryMessage = onRetryMessage,
-                        onClearMessages = onClearMessages
-                    )
-                }
-            }
-
-            AssistantEntrance(delayMs = 340, initialOffsetY = 18, initialScale = 0.965f) {
-                ComposerBarV2(
-                    state = composerBarState,
-                    onComposerChange = onComposerChange,
-                    onSend = onSend,
-                    onStopGenerating = onStopGenerating,
-                    onPickImage = onPickImage,
-                    onComposerFocusChange = { composerFocused = it }
+        AssistantEntrance(
+            delayMs = 220,
+            modifier = Modifier.weight(1f),
+            initialOffsetY = 30,
+            initialScale = 0.955f
+        ) {
+            CompositionLocalProvider(LocalOpenGLGlassSurfaceAnchor provides shellAnchor) {
+                ChatPanelV2(
+                    state = chatPanelState,
+                    modifier = Modifier.fillMaxWidth(),
+                    viewportTopInset = modelExpandDelta,
+                    onCopyMessage = onCopyMessage,
+                    onRetryMessage = onRetryMessage,
+                    onClearMessages = onClearMessages
                 )
             }
         }
 
-        MemoryQuickPanelSameWindowOverlayHost()
-        SkillQuickPanelSameWindowOverlayHost()
+        AssistantEntrance(delayMs = 340, initialOffsetY = 18, initialScale = 0.965f) {
+            ComposerBarV2(
+                state = composerBarState,
+                onComposerChange = onComposerChange,
+                onSend = onSend,
+                onStopGenerating = onStopGenerating,
+                onPickImage = onPickImage,
+                onComposerFocusChange = { composerFocused = it }
+            )
+        }
     }
 }
 
@@ -607,10 +602,6 @@ private fun ChatPanelV2(
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
-                    Spacer(Modifier.size(10.dp))
-                    MemoryQuickPanelButtonHost()
-                    Spacer(Modifier.size(6.dp))
-                    SkillQuickPanelButtonHost()
                     Spacer(Modifier.weight(1f))
                     ClearChatButtonV2(
                         enabled = sourceMessages.isNotEmpty(),
@@ -734,7 +725,7 @@ private fun AnimatedMessageBubbleV2(
             showActions = showActions,
             revealAlreadyPlayed = revealAlreadyPlayed,
             wasStreamed = wasStreamed,
-            streamRevealAlreadyCompleted = streamRevealAlreadyCompleted,
+            streamRevealAlreadyCompleted = streamRevealCompletedMessageIds,
             longReplyExpanded = longReplyExpanded,
             onRevealCompleted = onRevealCompleted,
             onStreamRevealCompleted = onStreamRevealCompleted,
