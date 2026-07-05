@@ -69,7 +69,6 @@ import java.util.Locale
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
-private val OperationLearningSurface = Color(0xFF10153A)
 private val OperationLearningDanger = Color(0xFFFFA6B2)
 
 private data class LearningFlowStep(
@@ -383,35 +382,9 @@ private fun InstalledAppPickerDialog(
             )
 
             when {
-                loading -> {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(160.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("正在读取已安装应用…", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
-                    }
-                }
-                error != null -> {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(160.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            error,
-                            color = OperationLearningDanger.copy(alpha = 0.82f),
-                            fontSize = 12.sp,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-                }
-                filteredApps.isEmpty() -> {
-                    Box(
-                        modifier = Modifier.fillMaxWidth().height(160.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("没有找到匹配的应用", color = Color.White.copy(alpha = 0.50f), fontSize = 12.sp)
-                    }
-                }
+                loading -> OperationLearningDialogMessage("正在读取已安装应用…")
+                error != null -> OperationLearningDialogMessage(error, danger = true)
+                filteredApps.isEmpty() -> OperationLearningDialogMessage("没有找到匹配的应用")
                 else -> {
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().heightIn(max = 470.dp),
@@ -427,6 +400,21 @@ private fun InstalledAppPickerDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OperationLearningDialogMessage(text: String, danger: Boolean = false) {
+    Box(
+        modifier = Modifier.fillMaxWidth().height(160.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (danger) OperationLearningDanger.copy(alpha = 0.82f) else Color.White.copy(alpha = 0.55f),
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -520,6 +508,24 @@ private fun OperationLearningHeader() {
 }
 
 @Composable
+private fun OperationLearningFrostCard(
+    radius: Float,
+    frostAlpha: Float,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    FrostInfoGlassPanel(
+        radius = radius,
+        backdropAlpha = 1f,
+        frostAlpha = frostAlpha,
+        dimAlpha = 0f,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        content()
+    }
+}
+
+@Composable
 private fun RecordingStatusCard(
     state: AssistantUiState,
     recordingState: OperationRecordingState,
@@ -542,18 +548,10 @@ private fun RecordingStatusCard(
         OperationRecordingPhase.Idle -> "视觉演示状态"
     }
 
-    FrostInfoGlassPanel(
-        radius = 19f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.092f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    OperationLearningFrostCard(radius = 19f, frostAlpha = 0.092f) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(27.dp))
-                .background(accent.copy(alpha = 0.07f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -653,18 +651,10 @@ private fun CreateIntentCard(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    FrostInfoGlassPanel(
-        radius = 18f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.082f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.082f) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(OperationLearningViolet.copy(alpha = 0.055f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -705,18 +695,10 @@ private fun SkillIntentEditor(
     onCancel: () -> Unit,
     onSave: () -> Boolean,
 ) {
-    FrostInfoGlassPanel(
-        radius = 18f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.084f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.084f) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(OperationLearningSurface.copy(alpha = 0.24f))
                 .padding(horizontal = 16.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -897,18 +879,10 @@ private fun LearningSectionTitle(title: String, trailing: String) {
 
 @Composable
 private fun LearningFlowCard() {
-    FrostInfoGlassPanel(
-        radius = 18f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.078f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.078f) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(OperationLearningSurface.copy(alpha = 0.22f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(15.dp),
         ) {
@@ -924,18 +898,10 @@ private fun LearningFlowCard() {
 
 @Composable
 private fun CloudAuthorityCard() {
-    FrostInfoGlassPanel(
-        radius = 18f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.076f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.076f) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(Color(0xFF11163D).copy(alpha = 0.21f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -961,18 +927,10 @@ private fun LearnedOperationsEmptyCard(
     enabled: Boolean,
     onCreate: () -> Unit,
 ) {
-    FrostInfoGlassPanel(
-        radius = 18f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.074f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    OperationLearningFrostCard(radius = 18f, frostAlpha = 0.074f) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(Color(0xFF12163D).copy(alpha = 0.20f))
                 .padding(horizontal = 18.dp, vertical = 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(7.dp),
@@ -1040,21 +998,13 @@ private fun SkillDraftCard(
         else -> "暂不可演示"
     }
 
-    FrostInfoGlassPanel(
+    OperationLearningFrostCard(
         radius = 18f,
-        backdropAlpha = 1f,
         frostAlpha = if (selected || thisRecording || thisRunning) 0.088f else 0.072f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(25.dp))
-                .background(
-                    if (selected || thisRecording || thisRunning) OperationLearningViolet.copy(alpha = 0.075f)
-                    else Color(0xFF11163D).copy(alpha = 0.20f),
-                )
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
         ) {
@@ -1208,18 +1158,10 @@ private fun DraftMeta(label: String, value: String, modifier: Modifier) {
 
 @Composable
 private fun SafetyBoundaryCard() {
-    FrostInfoGlassPanel(
-        radius = 17f,
-        backdropAlpha = 1f,
-        frostAlpha = 0.066f,
-        dimAlpha = 0f,
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    OperationLearningFrostCard(radius = 17f, frostAlpha = 0.066f) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF101536).copy(alpha = 0.18f))
                 .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
