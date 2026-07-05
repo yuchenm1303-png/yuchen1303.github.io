@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import android.content.Intent
+import com.yuchen.ailedger.MainActivity
 import com.yuchen.ailedger.data.OperationWorkflowRepository
 import com.yuchen.ailedger.data.VisualDemonstrationSession
 import com.yuchen.ailedger.data.VisualDemonstrationStore
@@ -203,11 +204,16 @@ object OperationLearningRecordingCoordinator {
         val session = activeSession ?: return false
         activeSession = null
         session.timeoutJob?.cancel()
+        val applicationContext = context?.applicationContext
+            ?: AiAgentAccessibilityService.applicationContextOrNull()
         mutableState.value = mutableState.value.copy(
             phase = OperationRecordingPhase.Stopping,
             capturedEventCount = session.visualSession.frameCount,
             message = "正在封存视觉演示并交给云端理解…",
         )
+        if (reason.shouldReturnToHostApp()) {
+            applicationContext?.let(::returnToHostApp)
+        }
 
         session.captureJob?.cancelAndJoin()
         runCatching { session.recorder.captureFinalFrame() }
@@ -215,8 +221,6 @@ object OperationLearningRecordingCoordinator {
         val frameCount = session.visualSession.frameCount
         session.frameCount.set(frameCount)
 
-        val applicationContext = context?.applicationContext
-            ?: AiAgentAccessibilityService.applicationContextOrNull()
         val userAcceptedCapture = reason in setOf(
             OperationRecordingStopReason.UserFinished,
             OperationRecordingStopReason.NotificationFinished,
@@ -311,6 +315,27 @@ object OperationLearningRecordingCoordinator {
         context.startActivity(launchIntent)
         true
     }.getOrDefault(false)
+
+    private fun returnToHostApp(context: Context) {
+        runCatching {
+            val intent = Intent(context, MainActivity::class.java).apply {
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                )
+            }
+            context.startActivity(intent)
+        }
+    }
+
+    private fun OperationRecordingStopReason.shouldReturnToHostApp(): Boolean = this in setOf(
+        OperationRecordingStopReason.UserFinished,
+        OperationRecordingStopReason.UserCancelled,
+        OperationRecordingStopReason.NotificationFinished,
+        OperationRecordingStopReason.DurationLimit,
+        OperationRecordingStopReason.EventLimit,
+    )
 
     private const val TARGET_APP_SETTLE_DELAY_MS = 650L
     private const val MINIMUM_VISUAL_FRAMES = 2
