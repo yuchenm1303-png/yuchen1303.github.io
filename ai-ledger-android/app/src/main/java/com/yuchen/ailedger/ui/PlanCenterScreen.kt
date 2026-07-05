@@ -204,101 +204,103 @@ fun PlanCenterScreen(
 
     val transitionBlocker = remember { MutableInteractionSource() }
 
-    Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    val progress = pageAlpha.value
-                    alpha = progress
-                    translationY = (1f - progress) * 22.dp.toPx()
-                    val scale = secondaryPanelScale(progress)
-                    scaleX = scale
-                    scaleY = scale
-                    transformOrigin = TransformOrigin(0.50f, 0.58f)
-                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                },
-        ) {
-            PlanRetainedPageHost(
-                state = pageHostState,
-                destination = displayedDestination,
-                modifier = Modifier.fillMaxSize(),
-            ) { page ->
-                when (page) {
-                    PlanCenterDestination.Home -> {
-                        PlanCenterHomePage(
-                            state = state,
-                            listState = homeListState,
-                            quickTitle = quickTitle,
-                            activeCount = planState.activeCount,
-                            exactAlarmReady = planState.exactAlarmReady,
-                            filter = planState.filter,
-                            tasks = planState.tasks,
-                            visibleTasks = planState.visibleTasks,
-                            onBack = onBack,
-                            onQuickTitleChange = { quickTitle = it.take(80) },
-                            onOpenEditor = { task, template -> openEditor(task, template) },
-                            onRequestExactAlarm = {
-                                if (!viewModel.requestExactAlarmAccess()) {
-                                    Toast.makeText(
-                                        context,
-                                        "当前系统没有可用的精确闹钟设置页面",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
-                                }
-                            },
-                            onFilterChange = viewModel::setFilter,
-                            onToggleTask = { task, enabled ->
-                                val result = viewModel.toggleTask(task.id, enabled)
-                                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                            },
-                            onDeleteTask = { task ->
-                                navigateTo(PlanCenterDestination.Delete(task))
-                            },
-                        )
-                    }
-
-                    is PlanCenterDestination.Editor -> {
-                        PlanEditorPage(
-                            state = state,
-                            initial = page.draft,
-                            editing = page.editingId != null,
-                            exactAlarmReady = planState.exactAlarmReady,
-                            onBack = ::returnHome,
-                            onSave = { draft ->
-                                val result = viewModel.saveTask(page.editingId, draft)
-                                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-                                if (result.ok) returnHome()
-                            },
-                        )
-                    }
-
-                    is PlanCenterDestination.Delete -> {
-                        PlanDeletePage(
-                            state = state,
-                            task = page.task,
-                            onBack = ::returnHome,
-                            onConfirm = {
-                                val result = viewModel.deleteTask(page.task.id)
-                                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                                if (result.ok) returnHome()
-                            },
-                        )
-                    }
-                }
-            }
-        }
-
-        if (transitionRunning) {
+    SecondaryRouteEntrance(motionIntensity = state.motionIntensity) {
+        Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clickable(
-                        interactionSource = transitionBlocker,
-                        indication = null,
-                        onClick = {},
-                    ),
-            )
+                    .graphicsLayer {
+                        val progress = pageAlpha.value
+                        alpha = progress
+                        translationY = (1f - progress) * 22.dp.toPx()
+                        val scale = secondaryPanelScale(progress)
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(0.50f, 0.58f)
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    },
+            ) {
+                PlanRetainedPageHost(
+                    state = pageHostState,
+                    destination = displayedDestination,
+                    modifier = Modifier.fillMaxSize(),
+                ) { page ->
+                    when (page) {
+                        PlanCenterDestination.Home -> {
+                            PlanCenterHomePage(
+                                state = state,
+                                listState = homeListState,
+                                quickTitle = quickTitle,
+                                activeCount = planState.activeCount,
+                                exactAlarmReady = planState.exactAlarmReady,
+                                filter = planState.filter,
+                                tasks = planState.tasks,
+                                visibleTasks = planState.visibleTasks,
+                                onBack = onBack,
+                                onQuickTitleChange = { quickTitle = it.take(80) },
+                                onOpenEditor = { task, template -> openEditor(task, template) },
+                                onRequestExactAlarm = {
+                                    if (!viewModel.requestExactAlarmAccess()) {
+                                        Toast.makeText(
+                                            context,
+                                            "当前系统没有可用的精确闹钟设置页面",
+                                            Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
+                                onFilterChange = viewModel::setFilter,
+                                onToggleTask = { task, enabled ->
+                                    val result = viewModel.toggleTask(task.id, enabled)
+                                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                },
+                                onDeleteTask = { task ->
+                                    navigateTo(PlanCenterDestination.Delete(task))
+                                },
+                            )
+                        }
+
+                        is PlanCenterDestination.Editor -> {
+                            PlanEditorPage(
+                                state = state,
+                                initial = page.draft,
+                                editing = page.editingId != null,
+                                exactAlarmReady = planState.exactAlarmReady,
+                                onBack = ::returnHome,
+                                onSave = { draft ->
+                                    val result = viewModel.saveTask(page.editingId, draft)
+                                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+                                    if (result.ok) returnHome()
+                                },
+                            )
+                        }
+
+                        is PlanCenterDestination.Delete -> {
+                            PlanDeletePage(
+                                state = state,
+                                task = page.task,
+                                onBack = ::returnHome,
+                                onConfirm = {
+                                    val result = viewModel.deleteTask(page.task.id)
+                                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                    if (result.ok) returnHome()
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (transitionRunning) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            interactionSource = transitionBlocker,
+                            indication = null,
+                            onClick = {},
+                        ),
+                )
+            }
         }
     }
 }
