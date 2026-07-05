@@ -725,7 +725,7 @@ private fun AnimatedMessageBubbleV2(
             showActions = showActions,
             revealAlreadyPlayed = revealAlreadyPlayed,
             wasStreamed = wasStreamed,
-            streamRevealAlreadyCompleted = streamRevealCompletedMessageIds,
+            streamRevealAlreadyCompleted = streamRevealAlreadyCompleted,
             longReplyExpanded = longReplyExpanded,
             onRevealCompleted = onRevealCompleted,
             onStreamRevealCompleted = onStreamRevealCompleted,
