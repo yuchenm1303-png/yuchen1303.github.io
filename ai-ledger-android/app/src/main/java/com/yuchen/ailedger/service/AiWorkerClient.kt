@@ -97,6 +97,7 @@ data class AiChatResponse(
     val clientToolCall: CloudClientToolCall? = null,
     val searchUsed: Boolean = false,
     val searchProvider: String? = null,
+    val stickerDiagnosticsJson: String? = null,
 )
 
 class AiWorkerClient(
