@@ -2,6 +2,7 @@ package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -40,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -63,6 +66,7 @@ import com.yuchen.ailedger.service.OperationRecordingState
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationStage
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
@@ -212,43 +216,16 @@ fun OperationLearningScreen(
         }
 
         item(key = "skill-intent-editor") {
-            AnimatedVisibility(
+            SkillIntentEditorSlot(
                 visible = uiState.editorVisible && !recordingState.active && uiState.runningSkillId == null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clipToBounds(),
-                enter = expandVertically(
-                    expandFrom = Alignment.Top,
-                    animationSpec = spring(
-                        dampingRatio = 0.88f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                ) + fadeIn(
-                    animationSpec = tween(durationMillis = 118, delayMillis = 22),
-                ),
-                exit = fadeOut(
-                    animationSpec = tween(durationMillis = 42),
-                ) + shrinkVertically(
-                    shrinkTowards = Alignment.Top,
-                    animationSpec = tween(durationMillis = 168),
-                ),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clipToBounds(),
-                ) {
-                    SkillIntentEditor(
-                        state = state,
-                        uiState = uiState,
-                        onTitleChange = viewModel::updateTitle,
-                        onGoalChange = viewModel::updateGoal,
-                        onChooseApp = { appPickerVisible = true },
-                        onCancel = viewModel::closeIntentEditor,
-                        onSave = { viewModel.createIntentDraft() },
-                    )
-                }
-            }
+                state = state,
+                uiState = uiState,
+                onTitleChange = viewModel::updateTitle,
+                onGoalChange = viewModel::updateGoal,
+                onChooseApp = { appPickerVisible = true },
+                onCancel = viewModel::closeIntentEditor,
+                onSave = { viewModel.createIntentDraft() },
+            )
         }
 
         item { LearningSectionTitle("工作方式", "云端理解") }
@@ -677,6 +654,83 @@ private fun CreateIntentCard(
                 enabled = enabled,
                 onClick = onClick,
             )
+        }
+    }
+}
+
+@Composable
+private fun SkillIntentEditorSlot(
+    visible: Boolean,
+    state: AssistantUiState,
+    uiState: OperationLearningUiState,
+    onTitleChange: (String) -> Unit,
+    onGoalChange: (String) -> Unit,
+    onChooseApp: () -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Boolean,
+) {
+    val progress = remember { Animatable(if (visible) 1f else 0f) }
+
+    LaunchedEffect(visible) {
+        progress.stop()
+        if (visible) {
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = spring(
+                    dampingRatio = 0.90f,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
+            )
+        } else {
+            progress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 218),
+            )
+        }
+    }
+
+    val p = progress.value.coerceIn(0f, 1f)
+    if (visible || p > 0.001f) {
+        SubcomposeLayout(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clipToBounds(),
+        ) { constraints ->
+            val visualAlpha = if (visible) {
+                ((p - 0.08f) / 0.92f).coerceIn(0f, 1f)
+            } else {
+                (p * (0.34f + 0.66f * p)).coerceIn(0f, 1f)
+            }
+            val placeables = subcompose("skill-intent-editor") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            alpha = visualAlpha
+                            clip = true
+                        },
+                ) {
+                    SkillIntentEditor(
+                        state = state,
+                        uiState = uiState,
+                        onTitleChange = onTitleChange,
+                        onGoalChange = onGoalChange,
+                        onChooseApp = onChooseApp,
+                        onCancel = onCancel,
+                        onSave = onSave,
+                    )
+                }
+            }.map { measurable ->
+                measurable.measure(constraints.copy(minHeight = 0))
+            }
+            val fullHeight = placeables.maxOfOrNull { it.height } ?: 0
+            val animatedHeight = (fullHeight * p).roundToInt().coerceAtLeast(0)
+
+            layout(constraints.maxWidth, animatedHeight) {
+                placeables.forEach { placeable ->
+                    placeable.placeRelative(0, 0)
+                }
+            }
         }
     }
 }
