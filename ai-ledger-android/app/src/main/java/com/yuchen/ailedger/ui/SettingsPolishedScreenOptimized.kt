@@ -157,7 +157,7 @@ internal fun SettingsPolishedScreenOptimized(
                 SettingsOptimizedEntrance("settings-section-title", entranceSessions, 170, 18, 0.97f) {
                     SettingsOptimizedSectionTitle(
                         "常用设置",
-                        "选中的入口会保持静态高亮，方便快速定位当前面板。",
+                        "个性化模型与界面参数。",
                     )
                 }
             }
@@ -401,7 +401,7 @@ private fun SettingsPersonalSpaceCard(
                     maxLines = 1,
                 )
                 Text(
-                    text = "查看统计  ›",
+                    text = "查看统计页  ›",
                     color = Color(0xFF9CCBFF).copy(alpha = 0.68f),
                     fontSize = 10.sp,
                     lineHeight = 12.sp,
@@ -475,7 +475,7 @@ private fun SettingsPersonalSpaceCard(
                         )
                     } else {
                         Text(
-                            text = "登录后同步昵称、头像与长期记忆",
+                            text = "登录以进行数据同步 >",
                             color = Color.White.copy(alpha = 0.36f),
                             fontSize = 8.5.sp,
                             lineHeight = 11.sp,
@@ -511,9 +511,9 @@ private fun SettingsPersonalSpaceCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 SettingsPersonalMetric(
-                    label = "自选",
+                    label = "自选股",
                     value = "${watchlistState.items.size} 只",
-                    detail = "股票关注",
+                    detail = "关注的股票",
                     modifier = Modifier.weight(1f),
                 )
                 SettingsPersonalDivider()
@@ -923,9 +923,9 @@ private fun profileAccountStatus(
 ): String {
     return when {
         loading -> "正在恢复账号"
-        !loggedIn -> "本地模式 · 登录后开启长期记忆"
-        memoryEnabled -> "已登录 · 长期记忆已开启"
-        else -> "已登录 · 长期记忆未开启"
+        !loggedIn -> "本地模式 · 登录后开启记忆"
+        memoryEnabled -> "已登录 · 记忆已开启"
+        else -> "已登录 · 记忆未开启"
     }
 }
 
