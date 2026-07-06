@@ -38,6 +38,16 @@ data class AppOptimizationSignal(
     val lowUseButActive: Boolean,
 )
 
+data class AppMemorySnapshot(
+    val totalBytes: Long,
+    val availableBytes: Long,
+    val usedBytes: Long,
+    val thresholdBytes: Long,
+    val usagePercent: Int,
+    val lowMemory: Boolean,
+    val stateLabel: String,
+)
+
 data class AppControlDashboard(
     val totalApps: Int,
     val runningApps: Int,
@@ -45,6 +55,7 @@ data class AppControlDashboard(
     val storageHeavyApps: Int,
     val lowUseButActiveApps: Int,
     val estimatedRuntimeBytes: Long?,
+    val memory: AppMemorySnapshot?,
     val usageAccessGranted: Boolean,
     val enhancedControlAvailable: Boolean,
     val shellMessage: String,
@@ -65,6 +76,7 @@ class AppControlInsightsRepository(context: Context) {
 
     fun loadInsights(apps: List<ManagedAppSummary>): AppControlInsights {
         val now = System.currentTimeMillis()
+        val memory = memorySnapshot()
         val runtimeByPackage = runtimeSignals()
         val usageAccess = hasUsageStatsAccess()
         val usageByPackage = if (usageAccess) usageStats(now - APP_CONTROL_WEEK_MS, now) else emptyMap()
@@ -89,6 +101,7 @@ class AppControlInsightsRepository(context: Context) {
             storageHeavyApps = signals.count { it.storageHeavy },
             lowUseButActiveApps = signals.count { it.lowUseButActive },
             estimatedRuntimeBytes = estimatedRuntimeBytes,
+            memory = memory,
             usageAccessGranted = usageAccess,
             enhancedControlAvailable = shellStatus.isAdbShellLike || shellStatus.shizukuGranted,
             shellMessage = shellStatus.message,
@@ -150,10 +163,11 @@ class AppControlInsightsRepository(context: Context) {
             if (shellStatus.shizukuGranted) add("增强可控")
         }.distinct()
         val score = buildScore(app, runtime, storageHeavy, lowUseButActive, cleanCandidate)
+        val memoryLabel = runtime?.estimatedMemoryBytes?.appControlHumanBytes()
         val recommendation = when {
             app.isProtected -> app.protectionReason.ifBlank { "核心应用已保护，只建议查看信息。" }
             lowUseButActive -> "近期很少使用但仍在后台活跃，建议清后台或限制后台活动。"
-            cleanCandidate -> "当前在后台运行，可加入智能清后台候选。"
+            cleanCandidate -> "后台运行中${memoryLabel?.let { "，估算占用 $it" } ?: ""}，可加入智能清后台候选。"
             storageHeavy -> "安装体积偏大，建议查看存储详情或长期不用时卸载。"
             runtime != null -> "正在运行，建议先观察用途，必要时再清后台。"
             else -> "暂无明显异常，可保留常规管理入口。"
@@ -189,6 +203,7 @@ class AppControlInsightsRepository(context: Context) {
     ): Int {
         var score = 0
         if (runtime != null) score += 26
+        runtime?.estimatedMemoryBytes?.let { score += ((it / (90L * APP_CONTROL_MB)).coerceAtMost(18L)).toInt() }
         if (cleanCandidate) score += 28
         if (lowUseButActive) score += 28
         if (storageHeavy) score += ((app.apkBytes / (180L * APP_CONTROL_MB)).coerceAtMost(22L)).toInt()
@@ -223,6 +238,33 @@ class AppControlInsightsRepository(context: Context) {
                 foregroundLike = bestImportance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_PERCEPTIBLE,
             )
         }
+    }
+
+    private fun memorySnapshot(): AppMemorySnapshot? {
+        val manager = activityManager ?: return null
+        return runCatching {
+            val info = ActivityManager.MemoryInfo()
+            manager.getMemoryInfo(info)
+            val total = info.totalMem.coerceAtLeast(0L)
+            val available = info.availMem.coerceAtLeast(0L)
+            val used = (total - available).coerceAtLeast(0L)
+            val percent = if (total > 0L) ((used.toDouble() / total.toDouble()) * 100.0).roundToInt().coerceIn(0, 100) else 0
+            AppMemorySnapshot(
+                totalBytes = total,
+                availableBytes = available,
+                usedBytes = used,
+                thresholdBytes = info.threshold.coerceAtLeast(0L),
+                usagePercent = percent,
+                lowMemory = info.lowMemory,
+                stateLabel = when {
+                    info.lowMemory -> "内存紧张"
+                    percent >= 88 -> "高负载"
+                    percent >= 72 -> "偏高"
+                    percent >= 50 -> "稳定"
+                    else -> "宽裕"
+                },
+            )
+        }.getOrNull()
     }
 
     private fun estimateMemoryBytes(manager: ActivityManager, pids: List<Int>): Long? {
