@@ -74,6 +74,10 @@ object OperationSkillLearningCoordinator {
                     demonstrationId = demonstrationId,
                 )
                 VisualDemonstrationStore(applicationContext).delete(manifestPath)
+                OperationSkillAssetSyncRuntime.requestSyncAfterLearning(
+                    context = applicationContext,
+                    workflowId = workflowId,
+                )
             }
             SkillLearningOutcome(
                 completed = true,
