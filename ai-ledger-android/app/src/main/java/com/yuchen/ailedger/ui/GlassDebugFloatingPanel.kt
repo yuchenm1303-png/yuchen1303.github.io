@@ -58,38 +58,42 @@ fun GlassDebugFloatingPanel(
             )
             GlassLabFoldout(
                 "Compose光动效效果",
-                "全局小按钮与卡片的按压形变、触点白光、棱彩扫光和余辉",
+                "普通 Compose 玻璃按压胶囊、白光场、释放余辉",
                 true,
                 state,
             ) {
                 ComposeGlassMotionPreview()
-                LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..1.5f) {
+                LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..3f) {
                     ComposeGlassLabState.updateMotion(motion.copy(master = it))
                 }
-                LabSlider("光动效速度", "控制普通 Compose 白光扩散、扫光流动和余辉消散速度", motion.speed, 0.35f..2.5f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(speed = it))
+                Group("胶囊动效", "速度、形变和释放粘滞感", state, initiallyExpanded = true) {
+                    LabSlider("胶囊速度", "只控制普通 Compose 玻璃按压胶囊与白光场速度", motion.speed, 0.08f..8f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(speed = it))
+                    }
+                    LabSlider("按压形变", "控制胶囊膨胀、下沉和压入幅度", motion.deformation, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
+                    }
+                    LabSlider("释放粘度", "越高回弹越明显；默认降低，保留粘滞回落", motion.rebound, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
+                    }
                 }
-                LabSlider("按压形变", "控制横向膨胀、纵向压缩和下沉幅度", motion.deformation, 0f..1.5f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
-                }
-                LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..1.8f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
-                }
-                LabSlider("棱彩色散", "控制粉黄青蓝色散，默认保持白光为主", motion.prism, 0f..1.5f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(prism = it))
-                }
-                LabSlider("棱彩扫光", "控制按下后沿组件横向流动的彩色光带", motion.sweep, 0f..1.5f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(sweep = it))
-                }
-                LabSlider("释放回弹", "控制松手后的反向弹起幅度", motion.rebound, 0f..1.5f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
-                }
-                LabSlider("松手余辉", "控制透镜亮度和扫光在松手后的消散时间", motion.afterglow, 0f..1.5f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
+                Group("白光光场", "触点白光、连续扩散和松手余辉", state, initiallyExpanded = false) {
+                    LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
+                    }
+                    LabSlider("白光扩散", "控制按下后光场沿组件内部扩散的强度", motion.sweep, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(sweep = it))
+                    }
+                    LabSlider("松手余辉", "控制透镜亮度和光场在松手后的消散时间", motion.afterglow, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
+                    }
+                    LabSlider("棱彩色散", "当前普通玻璃保持白光为主，默认禁用色散", motion.prism, 0f..1.5f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(prism = it))
+                    }
                 }
                 LabActionButton(
                     title = "恢复光动效默认值",
-                    subtitle = "白光约 75% · 棱彩约 25% · 速度 1x",
+                    subtitle = "胶囊更重 · 回弹更黏 · 速度 1x",
                     state = state,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = ComposeGlassLabState::resetMotion,
@@ -298,8 +302,14 @@ private fun GlassLabFoldout(
 }
 
 @Composable
-private fun Group(title: String, subtitle: String, state: AssistantUiState, content: @Composable () -> Unit) {
-    var expanded by rememberSaveable(title) { mutableStateOf(true) }
+private fun Group(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    initiallyExpanded: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
     val groupShape = RoundedCornerShape(20.dp)
     val actionShape = RoundedCornerShape(999.dp)
     Column(
