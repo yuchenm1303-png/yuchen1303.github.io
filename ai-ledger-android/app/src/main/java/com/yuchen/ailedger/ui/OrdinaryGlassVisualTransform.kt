@@ -34,25 +34,31 @@ internal fun updateOrdinaryGlassVisualTransform(
         return
     }
 
-    val elasticity = node.elasticity.coerceIn(0f, 1f)
     val positivePress = node.pressProgress.coerceAtLeast(0f)
     val rebound = ordinaryVisualSmoothStep(
-        (-node.pressProgress / 0.18f).coerceIn(0f, 1f)
+        (-node.pressProgress).coerceAtLeast(0f).coerceIn(0f, 2.0f) / 2.0f
     )
     val compression = ordinaryVisualSmoothStep(
-        (positivePress / 0.94f).coerceIn(0f, 1f)
+        positivePress.coerceIn(0f, 2.20f) / 2.20f
     )
     if (compression == 0f && rebound == 0f) {
         out.setIdentity()
         return
     }
 
-    out.scaleX = 1f + compression * (0.006f + 0.049f * elasticity) -
-        rebound * 0.018f * elasticity
-    out.scaleY = 1f - compression * (0.010f + 0.064f * elasticity) +
-        rebound * 0.030f * elasticity
-    out.translationY = compression * (0.70f + 3.90f * elasticity) -
-        rebound * 1.55f * elasticity
+    val motion = ComposeGlassLabState.motionStyle.normalized()
+    val master = ordinaryVisualMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
+    val grow = (ordinaryVisualMotionPower(value = motion.deformation, uiMax = 1.5f, effectiveMax = 8f) * master)
+        .coerceIn(0f, 12f)
+    val bounce = (ordinaryVisualMotionPower(value = motion.rebound, uiMax = 1.5f, effectiveMax = 8f) * master)
+        .coerceIn(0f, 10f)
+
+    out.scaleX = 1f + compression * (0.080f + 0.018f * grow) -
+        rebound * (0.018f + 0.007f * bounce)
+    out.scaleY = 1f + compression * (0.058f + 0.014f * grow) -
+        rebound * (0.014f + 0.006f * bounce)
+    out.translationY = compression * (0.45f + 0.22f * grow) -
+        rebound * (0.36f + 0.16f * bounce)
     out.originX = node.pressCenter.x.coerceIn(0f, 1f)
     out.originY = node.pressCenter.y.coerceIn(0f, 1f)
 }
@@ -73,6 +79,14 @@ internal fun ordinaryGlassTransformedBounds(
         right = left + rect.width * transform.scaleX,
         bottom = top + rect.height * transform.scaleY
     )
+}
+
+private fun ordinaryVisualMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
+    val clean = value.coerceAtLeast(0f)
+    if (clean <= 1f) return clean
+    val span = (uiMax - 1f).coerceAtLeast(0.001f)
+    val t = ((clean - 1f) / span).coerceIn(0f, 1f)
+    return 1f + t * (effectiveMax - 1f)
 }
 
 private fun ordinaryVisualSmoothStep(value: Float): Float {
