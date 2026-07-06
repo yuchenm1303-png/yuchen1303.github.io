@@ -31,13 +31,13 @@ import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.launch
 
 /**
- * 只把 Compose 玻璃光动效接入真实普通 PressableGlass 点击链。
+ * 普通玻璃真实光动效桥接层。
  *
- * 不修改普通玻璃静态材质，不控制上下固定高光、固定边框、底部固定暗边。
+ * 这里不修改普通玻璃静态材质，不控制上下固定高光、固定边框、底部固定暗边。
  * 这里只处理手指按压/释放期间临时出现的真实动态层：胶囊膨胀、触点白光、棱彩扫光、释放回弹和余辉。
  * Shell 角色直接转发，避免触碰 OpenGL 大玻璃稳定链。
  *
- * 这个重载刻意不提供默认参数，避免和 Glass.kt 里带 intensity 默认值的原始 PressableGlass 抢解析时继续落回弱动画版本。
+ * 这组重载刻意不提供默认参数，优先命中最常用的普通 GlassPanel / PressableGlass 调用，避免落回弱动画分支。
  */
 @Composable
 fun PressableGlass(
@@ -75,6 +75,46 @@ fun PressableGlass(
         modifier = modifier.composeTruePressLightAndMotion(radius = radius, role = role, motion = motion),
         role = role,
         onClick = onClick,
+        intensity = null,
+        content = content
+    )
+}
+
+@Composable
+fun GlassPanel(
+    quality: RenderQuality,
+    glassIntensity: Float,
+    motionIntensity: Float,
+    radius: Int,
+    modifier: Modifier,
+    role: GlassRole,
+    content: @Composable () -> Unit
+) {
+    if (role == GlassRole.Shell) {
+        GlassPanel(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = motionIntensity,
+            radius = radius,
+            modifier = modifier,
+            role = role,
+            viewportTopInset = 0.dp,
+            intensity = null,
+            content = content
+        )
+        return
+    }
+
+    val motion = ComposeGlassLabState.motionStyle.normalized()
+    val baseMotionGate = if (motion.master <= 0.001f) 0f else motionIntensity * motion.master.coerceIn(0f, 1f)
+    GlassPanel(
+        quality = quality,
+        glassIntensity = glassIntensity,
+        motionIntensity = baseMotionGate,
+        radius = radius,
+        modifier = modifier.composeTruePressLightAndMotion(radius = radius, role = role, motion = motion),
+        role = role,
+        viewportTopInset = 0.dp,
         intensity = null,
         content = content
     )
