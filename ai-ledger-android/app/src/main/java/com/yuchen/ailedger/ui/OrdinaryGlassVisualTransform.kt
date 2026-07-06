@@ -34,9 +34,12 @@ internal fun updateOrdinaryGlassVisualTransform(
         return
     }
 
-    val positivePress = node.pressProgress.coerceAtLeast(0f)
+    val motion = ComposeGlassLabState.motionStyle.normalized()
+    val speed = motion.speed.coerceIn(0.35f, 2.50f)
+    val timeScale = (0.54f + speed * 0.46f).coerceIn(0.70f, 1.70f)
+    val positivePress = node.pressProgress.coerceAtLeast(0f) * timeScale
     val rebound = ordinaryVisualSmoothStep(
-        (-node.pressProgress).coerceAtLeast(0f).coerceIn(0f, 2.0f) / 2.0f
+        ((-node.pressProgress).coerceAtLeast(0f) * timeScale).coerceIn(0f, 2.0f) / 2.0f
     )
     val compression = ordinaryVisualSmoothStep(
         positivePress.coerceIn(0f, 2.20f) / 2.20f
@@ -46,7 +49,6 @@ internal fun updateOrdinaryGlassVisualTransform(
         return
     }
 
-    val motion = ComposeGlassLabState.motionStyle.normalized()
     val master = ordinaryVisualMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     val grow = (ordinaryVisualMotionPower(value = motion.deformation, uiMax = 1.5f, effectiveMax = 8f) * master)
         .coerceIn(0f, 12f)
