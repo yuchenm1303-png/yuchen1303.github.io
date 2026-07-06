@@ -77,10 +77,10 @@ class AppControlInsightsRepository(context: Context) {
     fun loadInsights(apps: List<ManagedAppSummary>): AppControlInsights {
         val now = System.currentTimeMillis()
         val memory = memorySnapshot()
-        val runtimeByPackage = runtimeSignals()
+        val shellStatus = shellBridge.probe(forceRefresh = false)
+        val runtimeByPackage = runtimeSignals(apps, shellStatus)
         val usageAccess = hasUsageStatsAccess()
         val usageByPackage = if (usageAccess) usageStats(now - APP_CONTROL_WEEK_MS, now) else emptyMap()
-        val shellStatus = shellBridge.probe(forceRefresh = false)
         val signals = apps.map { app ->
             val runtime = runtimeByPackage[app.packageName]
             val usage = usageByPackage[app.packageName]
@@ -150,7 +150,7 @@ class AppControlInsightsRepository(context: Context) {
         val storageHeavy = app.apkBytes >= 350L * APP_CONTROL_MB
         val lowUse = usageAccess && (foregroundMs < 12L * 60L * 1000L) && lastUsedDays >= 3
         val lowUseButActive = lowUse && runtime != null && !app.isProtected
-        val cleanCandidate = runtime != null && !runtime.foregroundLike && !app.isProtected
+        val cleanCandidate = runtime != null && !runtime.foregroundLike && !app.isProtected && !app.isSystemApp
         val tags = buildList {
             if (runtime != null) add(runtime.stateLabel)
             if (cleanCandidate) add("可清后台")
@@ -213,7 +213,13 @@ class AppControlInsightsRepository(context: Context) {
         return score.coerceIn(0, 100)
     }
 
-    private fun runtimeSignals(): Map<String, AppRuntimeSignal> {
+    private fun runtimeSignals(apps: List<ManagedAppSummary>, shellStatus: DeviceShellStatus): Map<String, AppRuntimeSignal> {
+        val enhanced = enhancedRuntimeSignals(apps, shellStatus).toMutableMap()
+        enhanced.putAll(apiRuntimeSignals())
+        return enhanced
+    }
+
+    private fun apiRuntimeSignals(): Map<String, AppRuntimeSignal> {
         val manager = activityManager ?: return emptyMap()
         val processes = runCatching { manager.runningAppProcesses.orEmpty() }.getOrDefault(emptyList())
         val grouped = linkedMapOf<String, MutableList<ActivityManager.RunningAppProcessInfo>>()
@@ -238,6 +244,54 @@ class AppControlInsightsRepository(context: Context) {
                 foregroundLike = bestImportance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_PERCEPTIBLE,
             )
         }
+    }
+
+    private fun enhancedRuntimeSignals(apps: List<ManagedAppSummary>, shellStatus: DeviceShellStatus): Map<String, AppRuntimeSignal> {
+        if (!shellStatus.isAdbShellLike) return emptyMap()
+        val result = shellBridge.runReadOnlyEnhancedCommand(
+            title = "后台进程快照",
+            command = "ps -A -o PID,RSS,ARGS 2>/dev/null || ps -A",
+            timeoutMs = 1_600L,
+        )
+        if (!result.ok || result.output.isBlank()) return emptyMap()
+        val samples = result.output.lineSequence().mapNotNull(::parseShellProcessLine).toList()
+        if (samples.isEmpty()) return emptyMap()
+        return apps.mapNotNull { app ->
+            val matched = samples.filter { processMatchesPackage(it.processName, app.packageName) }
+            if (matched.isEmpty()) return@mapNotNull null
+            val rss = matched.mapNotNull { it.rssBytes }.takeIf { it.isNotEmpty() }?.sum()
+            app.packageName to AppRuntimeSignal(
+                packageName = app.packageName,
+                processCount = matched.size,
+                processNames = matched.map { it.processName }.distinct().take(4),
+                importance = ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE,
+                stateLabel = "增强后台",
+                estimatedMemoryBytes = rss,
+                foregroundLike = false,
+            )
+        }.toMap()
+    }
+
+    private fun parseShellProcessLine(line: String): ShellProcessSample? {
+        val trimmed = line.trim()
+        if (trimmed.isBlank() || trimmed.startsWith("PID ", ignoreCase = true) || trimmed.startsWith("USER ", ignoreCase = true)) return null
+        val tokens = trimmed.split(Regex("\\s+"))
+        if (tokens.size < 3) return null
+        tokens[0].toIntOrNull()?.let { pid ->
+            val rssBytes = tokens.getOrNull(1)?.toLongOrNull()?.times(1024L)
+            val command = tokens.drop(2).joinToString(" ").trim().substringBefore(' ')
+            return ShellProcessSample(pid = pid, rssBytes = rssBytes, processName = command)
+        }
+        val fallbackPid = tokens.getOrNull(1)?.toIntOrNull() ?: return null
+        val fallbackRss = tokens.getOrNull(4)?.toLongOrNull()?.times(1024L)
+        val name = tokens.lastOrNull().orEmpty()
+        if (name.isBlank() || name.startsWith("[")) return null
+        return ShellProcessSample(pid = fallbackPid, rssBytes = fallbackRss, processName = name)
+    }
+
+    private fun processMatchesPackage(processName: String, packageName: String): Boolean {
+        val name = processName.trim().substringAfterLast('/').substringBefore(' ')
+        return name == packageName || name.startsWith("$packageName:")
     }
 
     private fun memorySnapshot(): AppMemorySnapshot? {
@@ -293,6 +347,12 @@ class AppControlInsightsRepository(context: Context) {
     }
 
     private fun normalize(value: String): String = value.trim().lowercase(Locale.ROOT)
+
+    private data class ShellProcessSample(
+        val pid: Int,
+        val rssBytes: Long?,
+        val processName: String,
+    )
 }
 
 fun Long.appControlHumanBytes(): String {
