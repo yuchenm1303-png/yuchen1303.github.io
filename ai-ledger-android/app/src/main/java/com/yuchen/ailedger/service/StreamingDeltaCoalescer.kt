@@ -60,7 +60,7 @@ internal class StreamingDeltaCoalescer(
                 val prefix = line.takeWhile { it == '\n' }
                 val clean = line.trim()
                 if (clean.isBlank()) return@mapNotNull line
-                if (clean == "AI 正在工作…" || clean == "AI 正在工作...") {
+                if (clean == "AI 正在工作…" || clean == "AI 正在工作..." || clean == "AI 正在工作") {
                     return@mapNotNull "AI 正在工作…"
                 }
                 val mapped = mapProgressLine(clean)
@@ -76,17 +76,17 @@ internal class StreamingDeltaCoalescer(
     private fun mapProgressLine(line: String): String {
         val tool = extractToolName(line)
         if (tool.isNotBlank()) {
-            return "▣ ${toolTitle(tool)}    $tool · 内部工具"
+            return "${toolTitle(tool)}    $tool · 内部工具"
         }
         return when {
-            line.contains("进入工作空间") -> "◈ 已进入工作空间"
-            line.contains("分析下一步") -> "◐ 正在分析下一步"
-            line.contains("等待手机端执行") -> "⋯ 等待手机端执行结果"
-            line.contains("继续检查") -> "↻ 继续检查任务结果"
-            line.contains("整理最终回复") -> "◑ 正在整理最终回复"
-            line.contains("收到") && line.contains("结果") -> "✓ 已收到工具结果"
-            line.contains("完成") -> "✓ 任务已完成"
-            else -> "• $line"
+            line.contains("进入工作空间") -> "已进入工作空间"
+            line.contains("分析下一步") -> "正在分析下一步"
+            line.contains("等待手机端执行") -> "等待手机端执行结果"
+            line.contains("继续检查") -> "继续检查任务结果"
+            line.contains("整理最终回复") -> "正在整理最终回复"
+            line.contains("收到") && line.contains("结果") -> "已收到工具结果"
+            line.contains("完成") -> "任务已完成"
+            else -> line
         }
     }
 
