@@ -520,13 +520,17 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
         }
     }
 
-    if (attachmentSourceMenuVisible && state.currentTab == AppTab.Assistant) {
-        AttachmentSourceDialog(
-            onDismiss = { attachmentSourceMenuVisible = false },
-            onPickGallery = onPickAssistantFromGallery,
-            onTakePhoto = onTakeAssistantPhoto
-        )
-    }
+    AttachmentSourceQuickPanel(
+        visible = attachmentSourceMenuVisible && state.currentTab == AppTab.Assistant,
+        rootView = rootView,
+        bottomDockVisible = bottomDockVisible,
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = effectiveMotionIntensity,
+        onDismiss = { attachmentSourceMenuVisible = false },
+        onPickGallery = onPickAssistantFromGallery,
+        onTakePhoto = onTakeAssistantPhoto,
+    )
 }
 
 @Composable
