@@ -59,7 +59,7 @@ fun NativeToolsPanel(
         NativeFeatureCard("ledger", "▤", "账单中心", "查看记录、分类和导出数据"),
         NativeFeatureCard("stats", "▣", "数据统计", "收支总览、趋势和分类结构"),
         NativeFeatureCard("alarm", "⏰", "提醒闹钟", "通过原生系统闹钟执行"),
-        NativeFeatureCard("apps", "◎", "应用控制", "打开微信、支付宝、地图等应用"),
+        NativeFeatureCard("apps", "◎", "应用控制", "后台体检、智能清理和增强控制"),
         NativeFeatureCard("shortcuts", "⌁", "快捷指令", "沉淀常用手机动作"),
         NativeFeatureCard("tasks", "✓", "任务记录", "查看动作卡片和执行历史"),
     )
@@ -107,6 +107,14 @@ fun NativeDetailPanel(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (detailId == "apps") {
+        NativeAppControlPanel(
+            onBack = onBack,
+            modifier = modifier,
+        )
+        return
+    }
+
     val info = detailInfo(detailId)
     NativePageSurface(
         eyebrow = info.eyebrow,
@@ -150,10 +158,10 @@ private fun detailInfo(id: String): NativeDetailInfo = when (id) {
         listOf("执行方式" to "AlarmClock.ACTION_SET_ALARM", "安全策略" to "用户确认后跳转系统闹钟", "下一步" to "补常用提醒模板"),
     )
     "apps" -> NativeDetailInfo(
-        "原生应用控制",
+        "应用体检与控制",
         "应用控制",
-        "打开应用能力已经接到原生 Router，下一步补应用包名管理。",
-        listOf("执行方式" to "PackageManager.getLaunchIntentForPackage", "常用应用" to "微信、支付宝、高德、百度地图等", "下一步" to "做原生应用选择器"),
+        "后台体检、智能清后台、存储风险和增强控制已接入原生页面。",
+        listOf("后台运行" to "扫描普通模式可见进程", "智能清理" to "根据运行状态、低频使用和保护策略推荐", "增强控制" to "Shizuku/ADB 可执行强停、禁用、清数据等动作"),
     )
     "shortcuts" -> NativeDetailInfo(
         "原生快捷指令",
