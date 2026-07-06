@@ -85,15 +85,15 @@ private fun Modifier.composeTruePressLightAndMotion(
     motion: ComposeGlassMotionStyle
 ): Modifier {
     if (role == GlassRole.Shell) return this
-    val master = composeMotionPower(value = motion.master, uiMax = 8f, effectiveMax = 8f)
+    val master = composeMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     if (master <= 0.001f) return this
 
-    val deformation = composeMotionPower(value = motion.deformation, uiMax = 8f, effectiveMax = 8f) * master
-    val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 16f, effectiveMax = 16f) * master
-    val prism = composeMotionPower(value = motion.prism, uiMax = 16f, effectiveMax = 16f) * master
-    val sweep = composeMotionPower(value = motion.sweep, uiMax = 16f, effectiveMax = 16f) * master
-    val rebound = composeMotionPower(value = motion.rebound, uiMax = 8f, effectiveMax = 8f) * master
-    val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 12f, effectiveMax = 12f) * master
+    val deformation = composeMotionPower(value = motion.deformation, uiMax = 1.5f, effectiveMax = 8f) * master
+    val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
+    val prism = composeMotionPower(value = motion.prism, uiMax = 1.5f, effectiveMax = 16f) * master
+    val sweep = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
+    val rebound = composeMotionPower(value = motion.rebound, uiMax = 1.5f, effectiveMax = 8f) * master
+    val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
 
     val scope = rememberCoroutineScope()
     val press = remember { Animatable(0f) }
