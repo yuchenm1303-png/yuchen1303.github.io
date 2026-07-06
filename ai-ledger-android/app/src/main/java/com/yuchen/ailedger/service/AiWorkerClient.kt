@@ -136,9 +136,8 @@ class AiWorkerClient(
             for (candidate in endpointCandidates(cleanEndpoint)) {
                 try {
                     val rawResponse = transport.postChat(candidate, payload, route)
-                    val response = completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
-                    return response
+                    return completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                 } catch (error: IOException) {
                     lastError = error
                     if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
@@ -178,9 +177,8 @@ class AiWorkerClient(
                         route = route,
                         onDelta = onDelta,
                     )
-                    val response = completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
-                    return response
+                    return completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                 } catch (error: IOException) {
                     lastError = error
                     if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
