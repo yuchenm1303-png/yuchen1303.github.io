@@ -322,8 +322,8 @@ internal class OperationSkillAssetSyncRepository private constructor(context: Co
             .apply()
     }
 
-    private inline fun runSyncCatching(
-        block: () -> OperationSkillAssetSyncResult,
+    private suspend inline fun runSyncCatching(
+        block: suspend () -> OperationSkillAssetSyncResult,
     ): OperationSkillAssetSyncResult = try {
         block()
     } catch (cancelled: CancellationException) {
@@ -364,7 +364,7 @@ internal class OperationSkillAssetSyncRepository private constructor(context: Co
         val digest = MessageDigest.getInstance("SHA-256")
         parts.forEach { part ->
             digest.update(part.toByteArray(Charsets.UTF_8))
-            digest.update(0)
+            digest.update(0.toByte())
         }
         return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
