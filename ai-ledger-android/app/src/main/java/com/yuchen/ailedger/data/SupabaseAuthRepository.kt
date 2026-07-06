@@ -1,6 +1,8 @@
 package com.yuchen.ailedger.data
 
 import android.content.Context
+import com.yuchen.ailedger.model.OperationSkillAssetSyncReason
+import com.yuchen.ailedger.service.OperationSkillAssetSyncRuntime
 import com.yuchen.ailedger.service.SupabaseAuthClient
 import com.yuchen.ailedger.service.SupabaseUserSession
 import kotlinx.coroutines.CoroutineScope
@@ -265,6 +267,10 @@ class SupabaseAuthRepository private constructor(context: Context) {
             tone = SupabaseAccountMessageTone.Success
         )
         scheduleAutomaticRefresh(session)
+        OperationSkillAssetSyncRuntime.requestFullSync(
+            context = appContext,
+            reason = OperationSkillAssetSyncReason.AccountReady,
+        )
     }
 
     private fun scheduleAutomaticRefresh(session: SupabaseUserSession) {
