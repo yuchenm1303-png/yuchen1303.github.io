@@ -408,7 +408,7 @@ fun OrdinaryGlassSceneHost(
                                         itemIndex = index,
                                         itemBounds = item.transformedBounds
                                     ) {
-                                        drawOrdinaryParentPressOptics(item = item)
+                                        drawOrdinaryParentWhitePressOptics(item = item)
                                     }
                                 }
                             }
