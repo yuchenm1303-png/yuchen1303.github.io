@@ -2,6 +2,7 @@ package com.yuchen.ailedger.service
 
 import android.content.Context
 import android.content.Intent
+import com.yuchen.ailedger.AgentAccessibilityGuideActivity
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
@@ -70,7 +71,9 @@ object OperationSkillReplayCoordinator {
                 validation.blockingIssues.firstOrNull()?.message ?: "Skill 未通过执行前安全校验"
             }
             if (!AiAgentAccessibilityService.isConnected()) {
-                return failBeforeStart(draft, skill, "请先启用 AI 智能体无障碍服务。")
+                val message = "需要先开启手机智能体无障碍服务，才能运行视觉 Skill。"
+                AgentAccessibilityGuideActivity.open(context)
+                return failBeforeStart(draft, skill, message)
             }
             val missing = skill.inputs.filter { input ->
                 input.required && !input.sensitive && inputValues[input.key].orEmpty().trim().isBlank()
