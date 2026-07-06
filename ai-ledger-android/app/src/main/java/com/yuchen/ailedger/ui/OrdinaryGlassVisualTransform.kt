@@ -35,16 +35,13 @@ internal fun updateOrdinaryGlassVisualTransform(
     }
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
-    val speed = motion.speed.coerceIn(0.35f, 2.50f)
-    val timeScale = (0.54f + speed * 0.46f).coerceIn(0.70f, 1.70f)
+    val speed = motion.speed.coerceIn(0.08f, 8f)
+    val timeScale = ordinaryVisualSpeedToScale(speed)
     val positivePress = node.pressProgress.coerceAtLeast(0f) * timeScale
-    val rebound = ordinaryVisualSmoothStep(
-        ((-node.pressProgress).coerceAtLeast(0f) * timeScale).coerceIn(0f, 2.0f) / 2.0f
-    )
-    val compression = ordinaryVisualSmoothStep(
-        positivePress.coerceIn(0f, 2.20f) / 2.20f
-    )
-    if (compression == 0f && rebound == 0f) {
+    val releasePress = (-node.pressProgress).coerceAtLeast(0f) * timeScale
+    val compression = ordinaryVisualSmoothStep(positivePress.coerceIn(0f, 2.20f) / 2.20f)
+    val release = ordinaryVisualSmoothStep(releasePress.coerceIn(0f, 2.0f) / 2.0f)
+    if (compression == 0f && release == 0f) {
         out.setIdentity()
         return
     }
@@ -52,15 +49,17 @@ internal fun updateOrdinaryGlassVisualTransform(
     val master = ordinaryVisualMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     val grow = (ordinaryVisualMotionPower(value = motion.deformation, uiMax = 1.5f, effectiveMax = 8f) * master)
         .coerceIn(0f, 12f)
-    val bounce = (ordinaryVisualMotionPower(value = motion.rebound, uiMax = 1.5f, effectiveMax = 8f) * master)
+    val reboundControl = (ordinaryVisualMotionPower(value = motion.rebound, uiMax = 1.5f, effectiveMax = 8f) * master)
         .coerceIn(0f, 10f)
+    val viscosity = (1.30f - speed * 0.055f).coerceIn(0.72f, 1.32f)
+    val reboundSoftener = (0.26f + reboundControl * 0.026f).coerceIn(0.18f, 0.54f)
 
-    out.scaleX = 1f + compression * (0.080f + 0.018f * grow) -
-        rebound * (0.018f + 0.007f * bounce)
-    out.scaleY = 1f + compression * (0.058f + 0.014f * grow) -
-        rebound * (0.014f + 0.006f * bounce)
-    out.translationY = compression * (0.45f + 0.22f * grow) -
-        rebound * (0.36f + 0.16f * bounce)
+    out.scaleX = 1f + compression * (0.058f + 0.013f * grow) -
+        release * reboundSoftener * (0.010f + 0.003f * reboundControl)
+    out.scaleY = 1f + compression * (0.040f + 0.010f * grow) -
+        release * reboundSoftener * (0.007f + 0.002f * reboundControl)
+    out.translationY = compression * viscosity * (0.78f + 0.20f * grow) +
+        release * viscosity * (0.18f + 0.030f * reboundControl)
     out.originX = node.pressCenter.x.coerceIn(0f, 1f)
     out.originY = node.pressCenter.y.coerceIn(0f, 1f)
 }
@@ -82,6 +81,12 @@ internal fun ordinaryGlassTransformedBounds(
         bottom = top + rect.height * transform.scaleY
     )
 }
+
+private fun ordinaryVisualSpeedToScale(speed: Float): Float =
+    when {
+        speed <= 1f -> (0.16f + speed * 0.84f).coerceIn(0.22f, 1f)
+        else -> (1f + (speed - 1f) * 0.62f).coerceIn(1f, 5.35f)
+    }
 
 private fun ordinaryVisualMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
     val clean = value.coerceAtLeast(0f)
