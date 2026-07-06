@@ -30,13 +30,14 @@ import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
-/**
- * 普通玻璃新版光动效运行层。
+/*
+ * New ordinary glass motion layer.
  *
- * 原始 Glass.kt 里的 ordinaryPress/ordinaryLens/ordinarySweep 代码保留不删除，后续可随时把
- * motionIntensity 交回原链路；App 当前运行时给原链路 motionIntensity=0f，只保留玻璃本体，
- * 光效和形变由这里的一套 newPress 进度统一驱动，避免新旧两套光效叠加或节奏分裂。
- * Shell 角色直接转发，避免触碰 OpenGL 大玻璃稳定链。
+ * The original Glass.kt ordinaryPress / ordinaryLens / ordinarySweep code is kept untouched
+ * and can be reconnected later by passing motionIntensity back to the original chain.
+ * The app currently passes motionIntensity = 0f to the original chain so only the glass body
+ * remains there. This file provides one unified newPress progress for shape, bloom, sweep,
+ * afterglow, and rebound. Shell is forwarded directly and never enters this ordinary layer.
  */
 @Composable
 fun PressableGlass(
@@ -70,7 +71,12 @@ fun PressableGlass(
         glassIntensity = glassIntensity,
         motionIntensity = 0f,
         radius = radius,
-        modifier = modifier.newOrdinaryGlassMotionLayer(radius = radius, role = role, motion = motion, baseMotion = motionIntensity),
+        modifier = modifier.newOrdinaryGlassMotionLayer(
+            radius = radius,
+            role = role,
+            motion = motion,
+            baseMotion = motionIntensity
+        ),
         role = role,
         onClick = onClick,
         intensity = null,
@@ -109,7 +115,12 @@ fun GlassPanel(
         glassIntensity = glassIntensity,
         motionIntensity = 0f,
         radius = radius,
-        modifier = modifier.newOrdinaryGlassMotionLayer(radius = radius, role = role, motion = motion, baseMotion = motionIntensity),
+        modifier = modifier.newOrdinaryGlassMotionLayer(
+            radius = radius,
+            role = role,
+            motion = motion,
+            baseMotion = motionIntensity
+        ),
         role = role,
         viewportTopInset = 0.dp,
         intensity = null,
@@ -125,6 +136,7 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
     baseMotion: Float,
 ): Modifier {
     if (role == GlassRole.Shell) return this
+
     val master = motion.master.coerceIn(0f, 8f) * baseMotion.coerceIn(0f, 1.4f)
     if (master <= 0.001f) return this
 
@@ -145,7 +157,10 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
 
     return this
         .onSizeChanged { size ->
-            measuredSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat())
+            measuredSize = Size(
+                width = size.width.coerceAtLeast(1).toFloat(),
+                height = size.height.coerceAtLeast(1).toFloat()
+            )
         }
         .pointerInput(master, deformation, touchLight, sweep, rebound, afterglow, speed, role) {
             awaitEachGesture {
@@ -159,19 +174,32 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
                 val down = awaitFirstDown(requireUnconsumed = false)
                 updateCenter(down.position)
 
-                val instant = (0.18f + deformation * 0.018f + touchLight * 0.004f).coerceIn(0.14f, 0.56f)
-                val burst = (0.54f + deformation * 0.060f + touchLight * 0.010f).coerceIn(0.22f, 1.22f)
-                val hold = (0.40f + deformation * 0.042f + afterglow * 0.010f).coerceIn(0.18f, 0.94f)
+                val instant = (0.18f + deformation * 0.018f + touchLight * 0.004f)
+                    .coerceIn(0.14f, 0.56f)
+                val burst = (0.54f + deformation * 0.060f + touchLight * 0.010f)
+                    .coerceIn(0.22f, 1.22f)
+                val hold = (0.40f + deformation * 0.042f + afterglow * 0.010f)
+                    .coerceIn(0.18f, 0.94f)
 
                 scope.launch(start = CoroutineStart.UNDISPATCHED) {
                     newPress.snapTo(maxOf(newPress.value, instant))
-                    newPress.animateTo(burst, tween(scaledDuration(104), easing = FastOutSlowInEasing))
-                    newPress.animateTo(hold, spring(dampingRatio = 0.66f, stiffness = Spring.StiffnessMediumLow))
+                    newPress.animateTo(
+                        burst,
+                        tween(scaledDuration(104), easing = FastOutSlowInEasing)
+                    )
+                    newPress.animateTo(
+                        hold,
+                        spring(
+                            dampingRatio = 0.66f,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
                 }
 
                 while (true) {
                     val event = awaitPointerEvent()
-                    val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                    val tracked = event.changes.firstOrNull { it.id == down.id }
+                        ?: event.changes.firstOrNull()
                     if (tracked != null) {
                         updateCenter(tracked.position)
                         if (!tracked.pressed) break
@@ -181,9 +209,24 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
 
                 scope.launch {
                     newPress.stop()
-                    newPress.animateTo((-0.09f - rebound * 0.016f).coerceIn(-0.62f, -0.015f), tween(scaledDuration(136), easing = FastOutSlowInEasing))
-                    newPress.animateTo((0.030f + afterglow * 0.004f).coerceIn(0.018f, 0.090f), spring(dampingRatio = 0.54f, stiffness = Spring.StiffnessMediumLow))
-                    newPress.animateTo(0f, spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessLow))
+                    newPress.animateTo(
+                        (-0.09f - rebound * 0.016f).coerceIn(-0.62f, -0.015f),
+                        tween(scaledDuration(136), easing = FastOutSlowInEasing)
+                    )
+                    newPress.animateTo(
+                        (0.030f + afterglow * 0.004f).coerceIn(0.018f, 0.090f),
+                        spring(
+                            dampingRatio = 0.54f,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                    newPress.animateTo(
+                        0f,
+                        spring(
+                            dampingRatio = 0.76f,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
                 }
             }
         }
@@ -194,10 +237,14 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
             val r = newMotionSmoothStep((releaseNegative / 0.62f).coerceIn(0f, 1f))
             val grow = deformation.coerceIn(0f, 8f)
             val bounce = rebound.coerceIn(0f, 8f)
+
             transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
-            scaleX = 1f + p * (0.030f + 0.010f * grow) - r * (0.008f + 0.003f * bounce)
-            scaleY = 1f + p * (0.022f + 0.007f * grow) - r * (0.006f + 0.003f * bounce)
-            translationY = p * (0.16f + 0.10f * grow) - r * (0.12f + 0.06f * bounce)
+            scaleX = 1f + p * (0.030f + 0.010f * grow) -
+                r * (0.008f + 0.003f * bounce)
+            scaleY = 1f + p * (0.022f + 0.007f * grow) -
+                r * (0.006f + 0.003f * bounce)
+            translationY = p * (0.16f + 0.10f * grow) -
+                r * (0.12f + 0.06f * bounce)
             shadowElevation = p * (0.40f + 0.10f * grow)
         }
         .drawWithContent {
@@ -212,14 +259,21 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
             val w = size.width.coerceAtLeast(1f)
             val h = size.height.coerceAtLeast(1f)
             val maxSide = maxOf(w, h)
-            val center = Offset(pressCenter.x.coerceIn(0f, 1f) * w, pressCenter.y.coerceIn(0f, 1f) * h)
+            val center = Offset(
+                x = pressCenter.x.coerceIn(0f, 1f) * w,
+                y = pressCenter.y.coerceIn(0f, 1f) * h
+            )
             val radiusPx = minOf(radius.dp.toPx(), w * 0.5f, h * 0.5f)
             val cornerRadius = CornerRadius(radiusPx, radiusPx)
-            val bloomPower = (touchLight * (0.30f + p * 0.62f + r * 0.18f)).coerceIn(0f, 48f)
+            val bloomPower = (touchLight * (0.30f + p * 0.62f + r * 0.18f))
+                .coerceIn(0f, 48f)
             val sweepPower = (sweep * p).coerceIn(0f, 36f)
             val afterPower = (afterglow * (r * 0.70f + p * 0.18f)).coerceIn(0f, 28f)
             val minBloomRadius = 108.dp.toPx() * (0.74f + active * 0.28f)
-            val bloomRadius = maxOf(maxSide * (0.40f + active * 0.26f + bloomPower.coerceIn(0f, 12f) * 0.018f), minBloomRadius)
+            val bloomRadius = maxOf(
+                maxSide * (0.40f + active * 0.26f + bloomPower.coerceIn(0f, 12f) * 0.018f),
+                minBloomRadius
+            )
             val sweepX = -0.30f + p * 1.48f
 
             drawRoundRect(
