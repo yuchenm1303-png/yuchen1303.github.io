@@ -70,39 +70,86 @@ data class ComposeGlassStyle(
 }
 
 object ComposeGlassLabState {
-    var style by mutableStateOf(defaultComposeGlassStyle())
+    private var baseStyle: ComposeGlassStyle = defaultComposeGlassStyle()
+
+    var style by mutableStateOf(motionAppliedComposeGlassStyle(baseStyle, defaultComposeGlassMotionStyle()))
         private set
 
     var motionStyle by mutableStateOf(defaultComposeGlassMotionStyle())
         private set
 
     fun update(next: ComposeGlassStyle) {
-        style = next
+        baseStyle = next
+        style = motionAppliedComposeGlassStyle(baseStyle, motionStyle)
     }
 
     fun updateMotion(next: ComposeGlassMotionStyle) {
         motionStyle = next.normalized()
+        style = motionAppliedComposeGlassStyle(baseStyle, motionStyle)
     }
 
     fun usePreset(preset: ComposeGlassPreset) {
-        style = defaultComposeGlassStyle(preset)
+        baseStyle = defaultComposeGlassStyle(preset)
+        style = motionAppliedComposeGlassStyle(baseStyle, motionStyle)
     }
 
     fun reset() {
-        style = defaultComposeGlassStyle(style.preset)
+        baseStyle = defaultComposeGlassStyle(baseStyle.preset)
+        style = motionAppliedComposeGlassStyle(baseStyle, motionStyle)
     }
 
     fun resetMotion() {
         motionStyle = defaultComposeGlassMotionStyle()
+        style = motionAppliedComposeGlassStyle(baseStyle, motionStyle)
     }
 
     fun resetAll() {
-        style = defaultComposeGlassStyle()
+        baseStyle = defaultComposeGlassStyle()
         motionStyle = defaultComposeGlassMotionStyle()
+        style = motionAppliedComposeGlassStyle(baseStyle, motionStyle)
     }
 }
 
 private fun defaultComposeGlassMotionStyle(): ComposeGlassMotionStyle = ComposeGlassMotionStyle()
+
+private fun motionAppliedComposeGlassStyle(
+    base: ComposeGlassStyle,
+    motion: ComposeGlassMotionStyle
+): ComposeGlassStyle {
+    val normalized = motion.normalized()
+    val master = normalized.master.coerceIn(0f, 1.5f)
+    val deformation = normalized.deformation.coerceIn(0f, 1.5f) * master
+    val touchLight = normalized.touchLight.coerceIn(0f, 1.8f) * master
+    val prism = normalized.prism.coerceIn(0f, 1.5f) * master
+    val sweep = normalized.sweep.coerceIn(0f, 1.5f) * master
+    val rebound = normalized.rebound.coerceIn(0f, 1.5f) * master
+    val afterglow = normalized.afterglow.coerceIn(0f, 1.5f) * master
+    val quietLift = (1.08f - master * 0.16f).coerceIn(0.74f, 1.18f)
+    val lightLift = (0.42f + touchLight * 0.58f).coerceIn(0f, 1.85f)
+    val prismLift = (0.18f + prism * 0.82f).coerceIn(0f, 1.65f)
+    val sweepLift = (0.10f + sweep * 0.90f).coerceIn(0f, 1.70f)
+    val afterglowLift = (0.34f + afterglow * 0.66f).coerceIn(0f, 1.70f)
+    val reboundLift = (0.88f + rebound * 0.10f).coerceIn(0.82f, 1.10f)
+    val deformationLift = (0.92f + deformation * 0.12f).coerceIn(0.88f, 1.14f)
+
+    return base.copy(
+        backdropHighlight = (base.backdropHighlight * (0.54f + touchLight * 0.34f)).coerceIn(0f, 1.85f),
+        quiet = (base.quiet * quietLift).coerceIn(0f, 1.45f),
+        bodyAbsorption = (base.bodyAbsorption * (0.90f + deformation * 0.10f)).coerceIn(0f, 1.40f),
+        lowerBodyMass = (base.lowerBodyMass * (0.92f + deformation * 0.12f)).coerceIn(0f, 1.50f),
+        innerTransition = (base.innerTransition * (0.82f + touchLight * 0.16f + prism * 0.10f)).coerceIn(0f, 1.40f),
+        topLight = (base.topLight * lightLift).coerceIn(0f, 3.20f),
+        topWidthDp = (base.topWidthDp * (0.92f + touchLight * 0.10f)).coerceIn(0.04f, 6.00f),
+        topVariation = ((base.topVariation + 0.52f * prismLift + 0.46f * sweepLift) * master.coerceIn(0f, 1.25f)).coerceIn(0f, 3.00f),
+        bottomLight = (base.bottomLight * afterglowLift).coerceIn(0f, 2.80f),
+        bottomWidthDp = (base.bottomWidthDp * (0.92f + afterglow * 0.12f)).coerceIn(0.04f, 5.50f),
+        outerRim = (base.outerRim * (0.58f + prism * 0.30f + sweep * 0.18f)).coerceIn(0f, 2.50f),
+        bottomMass = (base.bottomMass * (0.88f + afterglow * 0.12f + deformation * 0.08f)).coerceIn(0f, 2.20f),
+        sideLight = (base.sideLight + prism * 0.055f + sweep * 0.035f).coerceIn(0f, 0.70f),
+        radius = (base.radius * deformationLift * reboundLift).coerceIn(16f, 76f),
+        ribbon = (base.ribbon + prismLift * 0.16f + sweepLift * 0.12f).coerceIn(0f, 1.00f),
+    )
+}
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
     ComposeGlassPreset.Clear -> ComposeGlassStyle(
