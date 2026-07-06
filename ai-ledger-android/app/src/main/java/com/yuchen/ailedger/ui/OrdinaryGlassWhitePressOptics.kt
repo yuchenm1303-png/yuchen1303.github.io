@@ -43,8 +43,8 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     )
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
-    val speed = motion.speed.coerceIn(0.35f, 2.50f)
-    val timeScale = (0.54f + speed * 0.46f).coerceIn(0.70f, 1.70f)
+    val speed = motion.speed.coerceIn(0.08f, 8f)
+    val timeScale = whiteOpticsSpeedToScale(speed)
     val master = whiteOpticsMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     val touchLight = whiteOpticsMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
     val sweepGain = whiteOpticsMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
@@ -189,6 +189,12 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
         }
     }
 }
+
+private fun whiteOpticsSpeedToScale(speed: Float): Float =
+    when {
+        speed <= 1f -> (0.16f + speed * 0.84f).coerceIn(0.22f, 1f)
+        else -> (1f + (speed - 1f) * 0.62f).coerceIn(1f, 5.35f)
+    }
 
 private fun whiteOpticsMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
     val clean = value.coerceAtLeast(0f)
