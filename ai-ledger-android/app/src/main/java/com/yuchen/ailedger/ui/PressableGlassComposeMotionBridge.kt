@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,9 +37,10 @@ import kotlinx.coroutines.launch
  *
  * The original Glass.kt ordinaryPress / ordinaryLens / ordinarySweep code is kept untouched
  * and can be reconnected later by passing motionIntensity back to the original chain.
- * The app currently passes motionIntensity = 0f to the original chain so only the glass body
- * remains there. This file provides one unified newPress progress for shape, bloom, sweep,
- * afterglow, and rebound. Shell is forwarded directly and never enters this ordinary layer.
+ * The app currently passes motionIntensity = 0f to the original chain and blocks the
+ * parent frost-layer motion fallback, so only the glass body remains there. This file
+ * provides one unified newPress progress for shape, bloom, sweep, afterglow, and rebound.
+ * Shell is forwarded directly and never enters this ordinary layer.
  */
 @Composable
 fun PressableGlass(
@@ -67,22 +69,24 @@ fun PressableGlass(
     }
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
-    PressableGlass(
-        quality = quality,
-        glassIntensity = glassIntensity,
-        motionIntensity = 0f,
-        radius = radius,
-        modifier = modifier.newOrdinaryGlassMotionLayer(
+    CompositionLocalProvider(LocalSettingsFrostParentLayer provides null) {
+        PressableGlass(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = 0f,
             radius = radius,
+            modifier = modifier.newOrdinaryGlassMotionLayer(
+                radius = radius,
+                role = role,
+                motion = motion,
+                baseMotion = motionIntensity
+            ),
             role = role,
-            motion = motion,
-            baseMotion = motionIntensity
-        ),
-        role = role,
-        onClick = onClick,
-        intensity = null,
-        content = content
-    )
+            onClick = onClick,
+            intensity = null,
+            content = content
+        )
+    }
 }
 
 @Composable
@@ -111,22 +115,24 @@ fun GlassPanel(
     }
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
-    GlassPanel(
-        quality = quality,
-        glassIntensity = glassIntensity,
-        motionIntensity = 0f,
-        radius = radius,
-        modifier = modifier.newOrdinaryGlassMotionLayer(
+    CompositionLocalProvider(LocalSettingsFrostParentLayer provides null) {
+        GlassPanel(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = 0f,
             radius = radius,
+            modifier = modifier.newOrdinaryGlassMotionLayer(
+                radius = radius,
+                role = role,
+                motion = motion,
+                baseMotion = motionIntensity
+            ),
             role = role,
-            motion = motion,
-            baseMotion = motionIntensity
-        ),
-        role = role,
-        viewportTopInset = 0.dp,
-        intensity = null,
-        content = content
-    )
+            viewportTopInset = 0.dp,
+            intensity = null,
+            content = content
+        )
+    }
 }
 
 @Composable
@@ -232,32 +238,6 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
                 }
             }
         }
-        .graphicsLayer {
-            val pressPositive = newPress.value.coerceAtLeast(0f)
-            val releaseNegative = (-newPress.value).coerceAtLeast(0f)
-            val p = newMotionSmoothStep((pressPositive / 1.34f).coerceIn(0f, 1f))
-            val r = newMotionSmoothStep((releaseNegative / 0.58f).coerceIn(0f, 1f))
-            val grow = deformation.coerceIn(0f, 10f)
-            val bounce = rebound.coerceIn(0f, 8f)
-            val dx = (pressCenter.x - 0.5f).coerceIn(-0.5f, 0.5f)
-            val dy = (pressCenter.y - 0.5f).coerceIn(-0.5f, 0.5f)
-            val horizontalBias = (abs(dx) * 2f).coerceIn(0f, 1f)
-            val verticalBias = (abs(dy) * 2f).coerceIn(0f, 1f)
-            val minSide = minOf(measuredSize.width, measuredSize.height).coerceAtLeast(1f)
-            val directionalPush = p * minSide * (0.010f + 0.0026f * grow)
-            val reboundPull = r * minSide * (0.004f + 0.0015f * bounce)
-
-            transformOrigin = TransformOrigin(0.5f, 0.5f)
-            scaleX = 1f + p * (0.044f + 0.011f * grow + 0.014f * horizontalBias) -
-                r * (0.005f + 0.002f * bounce)
-            scaleY = 1f + p * (0.035f + 0.008f * grow + 0.012f * verticalBias) -
-                r * (0.004f + 0.002f * bounce)
-            translationX = dx * (directionalPush - reboundPull)
-            translationY = dy * (directionalPush - reboundPull)
-            rotationY = dx * p * (1.8f + 0.22f * grow) - dx * r * (0.5f + 0.08f * bounce)
-            rotationX = -dy * p * (1.4f + 0.18f * grow) + dy * r * (0.4f + 0.06f * bounce)
-            shadowElevation = p * (0.46f + 0.10f * grow)
-        }
         .drawWithContent {
             val pressValue = newPress.value
             val p = newMotionSmoothStep((pressValue.coerceAtLeast(0f) / 1.34f).coerceIn(0f, 1f))
@@ -321,6 +301,32 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
                     blendMode = BlendMode.Screen
                 )
             }
+        }
+        .graphicsLayer {
+            val pressPositive = newPress.value.coerceAtLeast(0f)
+            val releaseNegative = (-newPress.value).coerceAtLeast(0f)
+            val p = newMotionSmoothStep((pressPositive / 1.34f).coerceIn(0f, 1f))
+            val r = newMotionSmoothStep((releaseNegative / 0.58f).coerceIn(0f, 1f))
+            val grow = deformation.coerceIn(0f, 10f)
+            val bounce = rebound.coerceIn(0f, 8f)
+            val dx = (pressCenter.x - 0.5f).coerceIn(-0.5f, 0.5f)
+            val dy = (pressCenter.y - 0.5f).coerceIn(-0.5f, 0.5f)
+            val horizontalBias = (abs(dx) * 2f).coerceIn(0f, 1f)
+            val verticalBias = (abs(dy) * 2f).coerceIn(0f, 1f)
+            val minSide = minOf(measuredSize.width, measuredSize.height).coerceAtLeast(1f)
+            val directionalPush = p * minSide * (0.010f + 0.0026f * grow)
+            val reboundPull = r * minSide * (0.004f + 0.0015f * bounce)
+
+            transformOrigin = TransformOrigin(0.5f, 0.5f)
+            scaleX = 1f + p * (0.044f + 0.011f * grow + 0.014f * horizontalBias) -
+                r * (0.005f + 0.002f * bounce)
+            scaleY = 1f + p * (0.035f + 0.008f * grow + 0.012f * verticalBias) -
+                r * (0.004f + 0.002f * bounce)
+            translationX = dx * (directionalPush - reboundPull)
+            translationY = dy * (directionalPush - reboundPull)
+            rotationY = dx * p * (1.8f + 0.22f * grow) - dx * r * (0.5f + 0.08f * bounce)
+            rotationX = -dy * p * (1.4f + 0.18f * grow) + dy * r * (0.4f + 0.06f * bounce)
+            shadowElevation = p * (0.46f + 0.10f * grow)
         }
 }
 
