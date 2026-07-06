@@ -28,6 +28,7 @@ class AiWorkerClientTest {
         val preferences = payload.getJSONObject("chatExpressionPreferences")
         val protocol = payload.getJSONObject("commandProtocol")
         val capabilities = payload.getJSONObject("clientCapabilities")
+        val memoryRequest = payload.getJSONObject("memoryRequest")
         assertEquals(
             "ai_ledger_chat_expression_preferences_v1",
             preferences.getString("schema"),
@@ -47,9 +48,15 @@ class AiWorkerClientTest {
         assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
         assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
         assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
-        assertTrue(capabilities.getJSONArray("deviceTools").toString().contains("ledger_add_record"))
+        assertFalse(capabilities.getJSONArray("deviceTools").toString().contains("ledger_add_record"))
         assertTrue(payload.getString("requestId").isNotBlank())
-        assertFalse(payload.has("memoryMode"))
+        assertEquals("auto", payload.getString("memoryMode"))
+        assertTrue(payload.getBoolean("memoryEnabled"))
+        assertEquals("ai_ledger_cloud_memory_request_v3", memoryRequest.getString("schema"))
+        assertEquals("cloud_orchestrated", memoryRequest.getString("intent"))
+        assertEquals("backend_cloud_v4", memoryRequest.getString("selectionOwner"))
+        assertFalse(payload.has("memorySnapshot"))
+        assertFalse(payload.has("personaConfig"))
         assertFalse(payload.has("systemPrompt"))
     }
 
