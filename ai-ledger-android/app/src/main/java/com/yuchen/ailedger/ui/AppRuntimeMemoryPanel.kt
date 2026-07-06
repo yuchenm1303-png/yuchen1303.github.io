@@ -35,6 +35,7 @@ internal fun RuntimeMemoryHeroCard(
 ) {
     val memory = dashboard?.memory
     val usage = memory?.usagePercent ?: 0
+    val enhanced = dashboard?.enhancedControlAvailable == true
     val statusTone = when {
         memory?.lowMemory == true -> AppCritical
         usage >= 88 -> AppWarning
@@ -63,7 +64,7 @@ internal fun RuntimeMemoryHeroCard(
                     Text("BACKGROUND SCAN", color = AppAccent.copy(alpha = 0.72f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                     Text("后台运行扫描", color = Color.White.copy(alpha = 0.96f), fontSize = 23.sp, lineHeight = 27.sp, fontWeight = FontWeight.Black)
                     Text(
-                        memory?.stateLabel ?: "正在读取系统内存状态…",
+                        if (enhanced) "${memory?.stateLabel ?: "读取中"} · 增强扫描" else "${memory?.stateLabel ?: "读取中"} · 普通模式受限",
                         color = statusTone.copy(alpha = 0.86f),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.ExtraBold,
@@ -78,11 +79,28 @@ internal fun RuntimeMemoryHeroCard(
                     Text("运行内存已用", color = Color.White.copy(alpha = 0.52f), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     MemoryUsageBar(progress = usage / 100f, tone = statusTone)
                     Text(
-                        memory?.let { "已用 ${it.usedBytes.appControlHumanBytes()} / 总计 ${it.totalBytes.appControlHumanBytes()}" } ?: "普通模式正在估算，部分机型会隐藏跨应用内存。",
+                        memory?.let { "已用 ${it.usedBytes.appControlHumanBytes()} / 总计 ${it.totalBytes.appControlHumanBytes()}" } ?: "正在估算系统运行内存。",
                         color = Color.White.copy(alpha = 0.46f),
                         fontSize = 10.5.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            if (!enhanced) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(17.dp),
+                    color = AppWarning.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, AppWarning.copy(alpha = 0.18f)),
+                ) {
+                    Text(
+                        "安卓高版本普通权限只能看到本应用和少量可见进程；授权 Shizuku 后可读取真实后台进程列表。",
+                        color = Color.White.copy(alpha = 0.62f),
+                        fontSize = 10.8.sp,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 9.dp),
                     )
                 }
             }
