@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.data
 
 import android.content.Context
+import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.TargetSelectorBundle
 import com.yuchen.ailedger.model.TargetSelectorCandidate
@@ -27,7 +28,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class OperationWorkflowRepository private constructor(context: Context) {
-    private val dao = OperationWorkflowDatabase.get(context).workflowDao()
+    private val appContext = context.applicationContext
+    private val dao = OperationWorkflowDatabase.get(appContext).workflowDao()
 
     suspend fun loadDrafts(): List<LearnedWorkflowDraft> {
         return dao.loadActiveWorkflows().map { loadGraph(it) }
@@ -39,6 +41,10 @@ class OperationWorkflowRepository private constructor(context: Context) {
 
     suspend fun loadDemonstration(demonstrationId: String): OperationDemonstrationEntity? {
         return dao.loadDemonstration(demonstrationId)
+    }
+
+    suspend fun loadLatestVersion(workflowId: String): OperationWorkflowVersionEntity? {
+        return dao.loadLatestVersion(workflowId)
     }
 
     suspend fun saveIntent(draft: LearnedWorkflowDraft) {
@@ -59,87 +65,51 @@ class OperationWorkflowRepository private constructor(context: Context) {
         draft: LearnedWorkflowDraft,
         demonstrationId: String,
     ) {
-        val variables = draft.variables.map { variable ->
-            OperationWorkflowVariableEntity(
-                id = "${draft.id}-variable-${variable.key}",
-                workflowId = draft.id,
-                variableKey = variable.key,
-                label = variable.label,
-                type = variable.type.name,
-                required = variable.required,
-                sensitive = variable.sensitive,
-                persistValue = variable.persistValue,
-                allowedValuesJson = JSONArray(variable.allowedValues).toString(),
-                description = variable.description,
-            )
-        }
-        val milestones = draft.milestones.map { milestone ->
-            OperationWorkflowMilestoneEntity(
-                id = milestone.id,
-                workflowId = draft.id,
-                title = milestone.title,
-                sortOrder = milestone.order,
-            )
-        }
-        val steps = draft.steps.map { step ->
-            OperationWorkflowStepEntity(
-                id = step.id,
-                workflowId = draft.id,
-                milestoneId = step.milestoneId,
-                sortOrder = step.order,
-                title = step.title,
-                actionType = step.action.type.name,
-                variableKey = step.action.variableKey,
-                fixedArgument = step.action.fixedArgument,
-                selectorMinimumScore = step.target?.minimumScore,
-                coordinateFallbackAllowed = step.target?.coordinateFallbackAllowed == true,
-                retryMaxAttempts = step.retryPolicy.maxAttempts,
-                retryDelayMs = step.retryPolicy.delayMs,
-                riskLevel = step.riskLevel.name,
-                confirmationPolicy = step.confirmationPolicy.name,
-            )
-        }
-        val selectors = draft.steps.flatMap { step ->
-            step.target?.candidates.orEmpty().mapIndexed { index, selector ->
-                OperationWorkflowSelectorEntity(
-                    id = "${step.id}-selector-$index",
-                    stepId = step.id,
-                    kind = selector.kind.name,
-                    value = selector.value,
-                    weight = selector.weight,
-                    packageName = selector.packageName,
-                    role = selector.role,
-                    ancestorHint = selector.ancestorHint,
-                )
-            }
-        }
-        val checks = buildList {
-            draft.completionChecks.forEach { check ->
-                add(check.toEntity(draft.id, OWNER_WORKFLOW, draft.id, PHASE_COMPLETION))
-            }
-            draft.milestones.forEach { milestone ->
-                milestone.completionChecks.forEach { check ->
-                    add(check.toEntity(draft.id, OWNER_MILESTONE, milestone.id, PHASE_COMPLETION))
-                }
-            }
-            draft.steps.forEach { step ->
-                step.preconditions.forEach { check ->
-                    add(check.toEntity(draft.id, OWNER_STEP, step.id, PHASE_PRE))
-                }
-                step.postconditions.forEach { check ->
-                    add(check.toEntity(draft.id, OWNER_STEP, step.id, PHASE_POST))
-                }
-            }
-        }
-
         dao.saveCompiledGraph(
             workflow = draft.toWorkflowEntity(),
-            variables = variables,
-            milestones = milestones,
-            steps = steps,
-            selectors = selectors,
-            stateChecks = checks,
+            variables = draft.toVariableEntities(),
+            milestones = draft.toMilestoneEntities(),
+            steps = draft.toStepEntities(),
+            selectors = draft.toSelectorEntities(),
+            stateChecks = draft.toStateCheckEntities(),
             demonstrationId = demonstrationId,
+        )
+    }
+
+    suspend fun saveSyncedCloudVisualDraft(
+        draft: LearnedWorkflowDraft,
+        skill: LearnedVisualSkill,
+    ) {
+        require(draft.id == skill.workflowId) { "Skill 与草稿不属于同一工作流" }
+        OperationSkillArtifactStore(appContext).save(skill)
+        val cloudDraft = draft.copy(
+            executionMode = WorkflowExecutionMode.CloudVisual,
+            milestones = emptyList(),
+            steps = emptyList(),
+            completionChecks = emptyList(),
+        )
+        dao.saveSyncedCloudVisualGraph(
+            workflow = cloudDraft.toWorkflowEntity(),
+            appScopes = cloudDraft.toAppScopeEntities(),
+            variables = cloudDraft.toVariableEntities(),
+        )
+    }
+
+    suspend fun saveSyncedApprovedVersion(
+        workflowId: String,
+        versionId: String,
+        versionNumber: Int,
+        snapshotJson: String,
+        approvedAtMillis: Long,
+        changeSummary: String = "由账号云同步恢复",
+    ) {
+        dao.upsertSyncedVersion(
+            workflowId = workflowId,
+            versionId = versionId,
+            versionNumber = versionNumber,
+            snapshotJson = snapshotJson,
+            approvedAtMillis = approvedAtMillis,
+            changeSummary = changeSummary,
         )
     }
 
@@ -328,6 +298,102 @@ class OperationWorkflowRepository private constructor(context: Context) {
         riskPolicyJson = riskPolicy.toJson(),
         recoveryPolicyJson = recoveryPolicy.toJson(),
     )
+
+    private fun LearnedWorkflowDraft.toAppScopeEntities(): List<OperationWorkflowAppScopeEntity> {
+        return appScope.normalizedPackages.mapIndexed { index, packageName ->
+            OperationWorkflowAppScopeEntity(
+                workflowId = id,
+                packageName = packageName,
+                displayName = appScope.displayNames.getOrNull(index).orEmpty(),
+                allowSystemSurfaces = appScope.allowSystemSurfaces,
+            )
+        }
+    }
+
+    private fun LearnedWorkflowDraft.toVariableEntities(): List<OperationWorkflowVariableEntity> {
+        return variables.map { variable ->
+            OperationWorkflowVariableEntity(
+                id = "${id}-variable-${variable.key}",
+                workflowId = id,
+                variableKey = variable.key,
+                label = variable.label,
+                type = variable.type.name,
+                required = variable.required,
+                sensitive = variable.sensitive,
+                persistValue = variable.persistValue,
+                allowedValuesJson = JSONArray(variable.allowedValues).toString(),
+                description = variable.description,
+            )
+        }
+    }
+
+    private fun LearnedWorkflowDraft.toMilestoneEntities(): List<OperationWorkflowMilestoneEntity> {
+        return milestones.map { milestone ->
+            OperationWorkflowMilestoneEntity(
+                id = milestone.id,
+                workflowId = id,
+                title = milestone.title,
+                sortOrder = milestone.order,
+            )
+        }
+    }
+
+    private fun LearnedWorkflowDraft.toStepEntities(): List<OperationWorkflowStepEntity> {
+        return steps.map { step ->
+            OperationWorkflowStepEntity(
+                id = step.id,
+                workflowId = id,
+                milestoneId = step.milestoneId,
+                sortOrder = step.order,
+                title = step.title,
+                actionType = step.action.type.name,
+                variableKey = step.action.variableKey,
+                fixedArgument = step.action.fixedArgument,
+                selectorMinimumScore = step.target?.minimumScore,
+                coordinateFallbackAllowed = step.target?.coordinateFallbackAllowed == true,
+                retryMaxAttempts = step.retryPolicy.maxAttempts,
+                retryDelayMs = step.retryPolicy.delayMs,
+                riskLevel = step.riskLevel.name,
+                confirmationPolicy = step.confirmationPolicy.name,
+            )
+        }
+    }
+
+    private fun LearnedWorkflowDraft.toSelectorEntities(): List<OperationWorkflowSelectorEntity> {
+        return steps.flatMap { step ->
+            step.target?.candidates.orEmpty().mapIndexed { index, selector ->
+                OperationWorkflowSelectorEntity(
+                    id = "${step.id}-selector-$index",
+                    stepId = step.id,
+                    kind = selector.kind.name,
+                    value = selector.value,
+                    weight = selector.weight,
+                    packageName = selector.packageName,
+                    role = selector.role,
+                    ancestorHint = selector.ancestorHint,
+                )
+            }
+        }
+    }
+
+    private fun LearnedWorkflowDraft.toStateCheckEntities(): List<OperationWorkflowStateCheckEntity> = buildList {
+        completionChecks.forEach { check ->
+            add(check.toEntity(id, OWNER_WORKFLOW, id, PHASE_COMPLETION))
+        }
+        milestones.forEach { milestone ->
+            milestone.completionChecks.forEach { check ->
+                add(check.toEntity(id, OWNER_MILESTONE, milestone.id, PHASE_COMPLETION))
+            }
+        }
+        steps.forEach { step ->
+            step.preconditions.forEach { check ->
+                add(check.toEntity(id, OWNER_STEP, step.id, PHASE_PRE))
+            }
+            step.postconditions.forEach { check ->
+                add(check.toEntity(id, OWNER_STEP, step.id, PHASE_POST))
+            }
+        }
+    }
 
     private fun WorkflowStateCheck.toEntity(
         workflowId: String,
