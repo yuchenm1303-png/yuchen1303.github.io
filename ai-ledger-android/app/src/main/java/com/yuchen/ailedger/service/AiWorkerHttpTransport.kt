@@ -52,6 +52,7 @@ internal class AiWorkerHttpTransport(
                         },
                 )
             }
+            data?.ensureClientToolFallbackReply()
             AiWorkerResponseParser.throwIfServerReturnedFallbackSignal(data)
             val response = AiWorkerResponseParser.parse(
                 data = data,
@@ -135,6 +136,7 @@ internal class AiWorkerHttpTransport(
             ) {
                 val body = readBody(connection, status)
                 val data = body.toJsonOrNull()
+                data?.ensureClientToolFallbackReply()
                 AiWorkerResponseParser.throwIfServerReturnedFallbackSignal(data)
                 val response = AiWorkerResponseParser.parse(
                     data = data,
@@ -163,11 +165,23 @@ internal class AiWorkerHttpTransport(
 
             val streamedReply = StringBuilder()
             var finalData: JSONObject? = null
+            var progressDisplayed = false
+            var assistantContentStarted = false
             connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                 reader.forEachStreamPayload { payloadText ->
                     val event = parseStreamPayload(payloadText)
                         ?: return@forEachStreamPayload
+                    if (event.progressLabel.isNotBlank() && !assistantContentStarted) {
+                        val text = if (progressDisplayed) {
+                            "\n${event.progressLabel}"
+                        } else {
+                            "AI 正在工作…\n${event.progressLabel}"
+                        }
+                        progressDisplayed = true
+                        deltaCoalescer.append(text)
+                    }
                     if (event.delta.isNotBlank()) {
+                        assistantContentStarted = true
                         streamedReply.append(event.delta)
                         deltaCoalescer.append(event.delta)
                     }
@@ -176,7 +190,7 @@ internal class AiWorkerHttpTransport(
             }
 
             val streamedText = streamedReply.toString().trim()
-            val finalJson = finalData
+            val finalJson = finalData?.also { it.ensureClientToolFallbackReply() }
             val finalReply = finalJson
                 ?.let { data -> AiWorkerResponseParser.extractReply(data, data.toString()) }
                 .orEmpty()
@@ -279,6 +293,7 @@ internal class AiWorkerHttpTransport(
 
     private data class StreamPayload(
         val delta: String = "",
+        val progressLabel: String = "",
         val done: Boolean = false,
         val data: JSONObject? = null,
     )
@@ -319,6 +334,12 @@ internal class AiWorkerHttpTransport(
 
         val data = clean.toJsonOrNull() ?: return StreamPayload(delta = clean)
         val type = data.optString("type").lowercase()
+        if (type == "agent_progress") {
+            val label = data.optString("label")
+                .ifBlank { data.optString("status") }
+                .trim()
+            return if (label.isNotBlank()) StreamPayload(progressLabel = label) else null
+        }
         val choices = data.optJSONArray("choices")
         val firstChoice = choices?.optJSONObject(0)
         val choiceDelta = firstChoice
@@ -333,7 +354,9 @@ internal class AiWorkerHttpTransport(
                 data.has("response") ||
                 data.has("answer") ||
                 data.optJSONObject("data") != null ||
-                data.optJSONObject("result") != null
+                data.optJSONObject("result") != null ||
+                data.optJSONObject("clientToolCall") != null ||
+                data.optJSONObject("deviceIntent")?.optJSONObject("clientToolCall") != null
         val done =
             type in setOf("done", "final", "complete", "completed") ||
                 data.optBoolean("done", false) ||
@@ -360,6 +383,17 @@ internal class AiWorkerHttpTransport(
             .ifBlank { choiceDelta }
             .ifBlank { choiceText }
         return if (delta.isNotBlank()) StreamPayload(delta = delta) else null
+    }
+
+    private fun JSONObject.ensureClientToolFallbackReply() {
+        if (AiWorkerResponseParser.extractReply(this, toString()).isNotBlank()) return
+        val call = optJSONObject("clientToolCall")
+            ?: optJSONObject("data")?.optJSONObject("clientToolCall")
+            ?: optJSONObject("result")?.optJSONObject("clientToolCall")
+            ?: optJSONObject("deviceIntent")?.optJSONObject("clientToolCall")
+            ?: return
+        val toolName = call.optString("name").ifBlank { "client_tool" }
+        put("reply", "正在调用本地工具：$toolName…")
     }
 
     private fun readBody(connection: HttpURLConnection, status: Int): String {
