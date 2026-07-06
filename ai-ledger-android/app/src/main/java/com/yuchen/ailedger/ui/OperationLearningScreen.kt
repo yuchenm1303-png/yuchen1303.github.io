@@ -37,14 +37,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.SubcomposeLayout
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -57,9 +58,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.OperationSkillAssetSyncRepository
+import com.yuchen.ailedger.data.OperationSkillAssetSyncStatusStore
+import com.yuchen.ailedger.data.SupabaseAccountState
+import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
+import com.yuchen.ailedger.model.OperationSkillAssetSyncReason
+import com.yuchen.ailedger.model.OperationSkillAssetSyncSource
+import com.yuchen.ailedger.model.OperationSkillAssetSyncStatusSnapshot
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import com.yuchen.ailedger.service.InstalledLaunchableApp
 import com.yuchen.ailedger.service.InstalledLaunchableAppCatalog
@@ -68,8 +76,11 @@ import com.yuchen.ailedger.service.OperationRecordingPhase
 import com.yuchen.ailedger.service.OperationRecordingState
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationStage
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
@@ -114,6 +125,17 @@ fun OperationLearningScreen(
     var installedAppsLoading by remember { mutableStateOf(false) }
     var installedAppsError by remember { mutableStateOf<String?>(null) }
     val applicationContext = AiLedgerApplication.contextOrNull()
+    val authRepository = remember(applicationContext) { applicationContext?.let(SupabaseAuthRepository::get) }
+    val accountState by (authRepository?.state?.collectAsState()
+        ?: remember { mutableStateOf(SupabaseAccountState(loading = false, message = "账号状态不可用")) })
+    val skillSyncRepository = remember(applicationContext) { applicationContext?.let(OperationSkillAssetSyncRepository::get) }
+    val skillSyncStatusStore = remember(applicationContext) { applicationContext?.let(OperationSkillAssetSyncStatusStore::get) }
+    var skillSyncStatus by remember(skillSyncStatusStore) {
+        mutableStateOf(skillSyncStatusStore?.read() ?: OperationSkillAssetSyncStatusSnapshot())
+    }
+    var skillSyncing by remember { mutableStateOf(false) }
+    var skillSyncMessage by remember { mutableStateOf<String?>(null) }
+    val skillSyncScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         viewModel.refresh()
@@ -121,6 +143,10 @@ fun OperationLearningScreen(
 
     LaunchedEffect(recordingState.phase, recordingState.demonstrationId) {
         if (recordingState.phase == OperationRecordingPhase.Captured) viewModel.refresh()
+    }
+
+    LaunchedEffect(uiState.drafts.size, uiState.skillArtifacts.size, accountState.isLoggedIn) {
+        skillSyncStatus = skillSyncStatusStore?.read() ?: skillSyncStatus
     }
 
     LaunchedEffect(appPickerVisible) {
@@ -235,6 +261,36 @@ fun OperationLearningScreen(
         item { LearningFlowCard() }
         item { LearningSectionTitle("架构原则", "薄客户端") }
         item { CloudAuthorityCard() }
+        item {
+            OperationSkillCloudSyncCard(
+                state = state,
+                accountState = accountState,
+                syncStatus = skillSyncStatus,
+                syncing = skillSyncing,
+                syncMessage = skillSyncMessage,
+                localSkillCount = uiState.drafts.size,
+                approvedSkillCount = uiState.drafts.count { it.status == WorkflowDraftStatus.Approved || it.status == WorkflowDraftStatus.Verified },
+                reviewSkillCount = uiState.drafts.count { it.status == WorkflowDraftStatus.ReadyForReview },
+                onManualSync = {
+                    val repository = skillSyncRepository
+                    if (repository != null && !skillSyncing) {
+                        skillSyncing = true
+                        skillSyncMessage = "正在同步本机和云端 Skill…"
+                        skillSyncScope.launch {
+                            val result = repository.syncAllVisibleAssets(OperationSkillAssetSyncReason.Manual)
+                            skillSyncStatus = skillSyncStatusStore?.read() ?: skillSyncStatus
+                            skillSyncMessage = when (result.source) {
+                                OperationSkillAssetSyncSource.Failed -> result.errorMessage ?: "Skill 云同步失败，本机功能不受影响。"
+                                OperationSkillAssetSyncSource.Skipped -> result.errorMessage ?: "Skill 云同步已跳过。"
+                                OperationSkillAssetSyncSource.Network -> "同步完成：上传 ${result.uploadedCount} 个，拉取 ${result.downloadedCount} 个。"
+                            }
+                            skillSyncing = false
+                            viewModel.refresh()
+                        }
+                    }
+                },
+            )
+        }
         item {
             LearningSectionTitle(
                 title = "我的 Skill",
@@ -674,29 +730,20 @@ private fun SkillIntentEditorSlot(
     onSave: () -> Boolean,
 ) {
     val progress = remember { Animatable(if (visible) 1f else 0f) }
-    val lastMeasuredHeightPx = remember { intArrayOf(0) }
-    val closingStartHeightPx = remember { intArrayOf(0) }
+    var lastMeasuredHeight by remember { mutableStateOf(0) }
+    var frozenClosingHeight by remember { mutableStateOf(0) }
 
     LaunchedEffect(visible) {
         progress.stop()
-        if (visible) {
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = 278,
-                    easing = FastOutSlowInEasing,
-                ),
-            )
-        } else {
-            closingStartHeightPx[0] = lastMeasuredHeightPx[0]
-            progress.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 224,
-                    easing = FastOutSlowInEasing,
-                ),
-            )
-        }
+        if (!visible) frozenClosingHeight = lastMeasuredHeight.coerceAtLeast(frozenClosingHeight)
+        progress.animateTo(
+            targetValue = if (visible) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (visible) 286 else 214,
+                easing = FastOutSlowInEasing,
+            ),
+        )
+        if (visible) frozenClosingHeight = 0
     }
 
     val p = progress.value.coerceIn(0f, 1f)
@@ -706,13 +753,18 @@ private fun SkillIntentEditorSlot(
                 .fillMaxWidth()
                 .clipToBounds(),
         ) { constraints ->
+            val visualAlpha = if (visible) {
+                ((p - 0.06f) / 0.94f).coerceIn(0f, 1f)
+            } else {
+                (p * p).coerceIn(0f, 1f)
+            }
             val placeables = subcompose("skill-intent-editor") {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .graphicsLayer {
-                            alpha = intentEditorAlpha(p, visible)
-                            translationY = intentEditorTranslationY(p, visible)
+                            alpha = visualAlpha
+                            translationY = if (visible) (1f - p) * 14f else (1f - p) * -6f
                             clip = true
                         },
                 ) {
@@ -730,13 +782,11 @@ private fun SkillIntentEditorSlot(
                 measurable.measure(constraints.copy(minHeight = 0))
             }
             val measuredHeight = placeables.maxOfOrNull { it.height } ?: 0
-            if (visible && measuredHeight > 0) {
-                lastMeasuredHeightPx[0] = measuredHeight
-            }
+            if (measuredHeight > 0 && visible) lastMeasuredHeight = measuredHeight
             val stableHeight = when {
-                visible -> measuredHeight
-                closingStartHeightPx[0] > 0 -> closingStartHeightPx[0]
-                else -> measuredHeight
+                visible -> measuredHeight.coerceAtLeast(lastMeasuredHeight)
+                frozenClosingHeight > 0 -> frozenClosingHeight
+                else -> lastMeasuredHeight.coerceAtLeast(measuredHeight)
             }
             val animatedHeight = (stableHeight * p).roundToInt().coerceAtLeast(0)
 
@@ -747,25 +797,6 @@ private fun SkillIntentEditorSlot(
             }
         }
     }
-}
-
-private fun intentEditorAlpha(
-    progress: Float,
-    visible: Boolean,
-): Float {
-    return if (visible) {
-        ((progress - 0.10f) / 0.90f).coerceIn(0f, 1f)
-    } else {
-        (progress * 0.92f).coerceIn(0f, 1f)
-    }
-}
-
-private fun intentEditorTranslationY(
-    progress: Float,
-    visible: Boolean,
-): Float {
-    val offset = (1f - progress).coerceIn(0f, 1f) * 12f
-    return if (visible) -offset else -offset * 0.35f
 }
 
 @Composable
@@ -899,7 +930,7 @@ private fun OperationLearningTextField(
     singleLine: Boolean,
     maxChars: Int = Int.MAX_VALUE,
 ) {
-    var fieldValue by remember(label, singleLine, maxChars) {
+    var fieldValue by remember(label) {
         mutableStateOf(
             TextFieldValue(
                 text = value,
@@ -910,10 +941,9 @@ private fun OperationLearningTextField(
 
     LaunchedEffect(value) {
         if (value != fieldValue.text) {
-            val cursor = fieldValue.selection.end.coerceIn(0, value.length)
             fieldValue = TextFieldValue(
                 text = value,
-                selection = TextRange(cursor),
+                selection = TextRange(value.length),
             )
         }
     }
@@ -921,24 +951,16 @@ private fun OperationLearningTextField(
     OutlinedTextField(
         value = fieldValue,
         onValueChange = { next ->
-            val cleanText = sanitizeOperationLearningInput(
-                text = next.text,
-                singleLine = singleLine,
-                maxChars = maxChars,
-            )
-            val cleanSelection = if (cleanText == next.text) {
-                next.selection.constrainTo(cleanText.length)
+            val cleanText = if (singleLine) {
+                next.text.replace("\n", "").take(maxChars)
             } else {
-                TextRange(cleanText.length)
+                next.text.take(maxChars)
             }
-            val fixedValue = TextFieldValue(
+            val fixed = next.copy(
                 text = cleanText,
-                selection = cleanSelection,
-                composition = next.composition
-                    ?.takeIf { cleanText == next.text }
-                    ?.constrainTo(cleanText.length),
+                selection = next.selection.constrainTo(cleanText.length),
             )
-            fieldValue = fixedValue
+            fieldValue = fixed
             if (cleanText != value) onValueChange(cleanText)
         },
         label = { Text(label) },
@@ -962,19 +984,12 @@ private fun OperationLearningTextField(
     )
 }
 
-private fun sanitizeOperationLearningInput(
-    text: String,
-    singleLine: Boolean,
-    maxChars: Int,
-): String {
-    val normalized = if (singleLine) text.replace("\n", "") else text
-    return normalized.take(maxChars.coerceAtLeast(0))
+private fun TextRange.constrainTo(textLength: Int): TextRange {
+    return TextRange(
+        start.coerceIn(0, textLength),
+        end.coerceIn(0, textLength),
+    )
 }
-
-private fun TextRange.constrainTo(textLength: Int): TextRange = TextRange(
-    start = start.coerceIn(0, textLength),
-    end = end.coerceIn(0, textLength),
-)
 
 @Composable
 private fun OperationLearningActionButton(
@@ -1021,6 +1036,108 @@ private fun LearningTag(text: String, modifier: Modifier = Modifier) {
     ) {
         Text(text, color = Color.White.copy(alpha = 0.61f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
+}
+
+@Composable
+private fun OperationSkillCloudSyncCard(
+    state: AssistantUiState,
+    accountState: SupabaseAccountState,
+    syncStatus: OperationSkillAssetSyncStatusSnapshot,
+    syncing: Boolean,
+    syncMessage: String?,
+    localSkillCount: Int,
+    approvedSkillCount: Int,
+    reviewSkillCount: Int,
+    onManualSync: () -> Unit,
+) {
+    val loggedIn = accountState.isLoggedIn
+    val title = when {
+        !loggedIn -> "Skill 云同步未开启"
+        syncing -> "正在同步 Skill 资产"
+        syncStatus.hasError -> "Skill 云同步需要处理"
+        syncStatus.hasSyncedBefore -> "Skill 云同步已接入"
+        else -> "Skill 云同步待首次完成"
+    }
+    val subtitle = when {
+        !loggedIn -> "当前 ${localSkillCount} 个 Skill 只保存在本机；登录账号后才会上传待审核 Skill 和已批准版本。"
+        syncing -> "账号：${accountState.email.orEmpty().ifBlank { "已登录" }}。正在同步本机和云端 Skill 资产。"
+        syncMessage != null -> syncMessage
+        syncStatus.hasError -> "上次同步失败：${syncStatus.lastError}。本机 Skill 仍可正常使用。"
+        syncStatus.hasSyncedBefore -> "账号：${accountState.email.orEmpty().ifBlank { "已登录" }}。上次成功同步：${formatSkillSyncTime(syncStatus.lastSuccessAtMillis)}。"
+        else -> "账号：${accountState.email.orEmpty().ifBlank { "已登录" }}。点击立即同步，或在学习完成、审核批准后自动同步。"
+    }
+    FrostInfoGlassPanel(
+        radius = 18f,
+        backdropAlpha = 1f,
+        frostAlpha = if (loggedIn) 0.086f else 0.072f,
+        dimAlpha = 0f,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(25.dp))
+                .background(OperationLearningAccent.copy(alpha = if (loggedIn) 0.060f else 0.038f))
+                .padding(horizontal = 17.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(11.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(title, color = Color.White.copy(alpha = 0.94f), fontSize = 17.sp, fontWeight = FontWeight.Black)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.54f), fontSize = 11.5.sp, lineHeight = 17.sp)
+                }
+                WorkflowStatusPill(
+                    text = when {
+                        !loggedIn -> "本机"
+                        syncing -> "同步中"
+                        syncStatus.hasError -> "失败"
+                        syncStatus.hasSyncedBefore -> "已同步"
+                        else -> "待同步"
+                    },
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                DraftMeta("本机 Skill", "$localSkillCount 个", Modifier.weight(1f))
+                DraftMeta("已批准", "$approvedSkillCount 个", Modifier.weight(1f))
+                DraftMeta("待审核", "$reviewSkillCount 个", Modifier.weight(1f))
+            }
+            OperationLearningActionButton(
+                state = state,
+                label = when {
+                    !loggedIn -> "登录后同步云端 Skill"
+                    syncing -> "正在同步…"
+                    else -> "立即同步云端 Skill"
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = loggedIn && !syncing,
+                onClick = onManualSync,
+            )
+            Text(
+                text = "同步范围：Skill 语义、工作流安全边界和审核快照；不会上传原始演示截图、节点树、坐标脚本或运行时敏感输入。",
+                color = Color.White.copy(alpha = 0.40f),
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkflowStatusPill(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color.White.copy(alpha = 0.075f))
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = OperationLearningAccent.copy(alpha = 0.76f), fontSize = 9.5.sp, fontWeight = FontWeight.Black)
+    }
+}
+
+private fun formatSkillSyncTime(millis: Long): String {
+    if (millis <= 0L) return "尚未成功同步"
+    return SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
 }
 
 @Composable
