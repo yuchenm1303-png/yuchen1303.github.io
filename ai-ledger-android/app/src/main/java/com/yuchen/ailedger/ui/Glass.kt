@@ -50,8 +50,10 @@ import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
 import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 enum class GlassRole {
@@ -483,6 +485,296 @@ private fun OrdinaryGlassPanel(
 
 @Composable
 fun PressableGlass(
+    quality: RenderQuality,
+    glassIntensity: Float = 1f,
+    motionIntensity: Float = 1f,
+    radius: Int,
+    modifier: Modifier = Modifier,
+    role: GlassRole = GlassRole.Chip,
+    onClick: () -> Unit = {},
+    intensity: Float? = null,
+    content: @Composable () -> Unit
+) {
+    if (role == GlassRole.Shell) {
+        LegacyPressableGlass(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = motionIntensity,
+            radius = radius,
+            modifier = modifier,
+            role = role,
+            onClick = onClick,
+            intensity = intensity,
+            content = content
+        )
+        return
+    }
+
+    val effectiveRadius = effectiveGlassRadius(radius, role)
+    val baseIntensity = intensity ?: glassIntensity
+    val interaction = remember { MutableInteractionSource() }
+    val pressScope = rememberCoroutineScope()
+    val newPress = remember { Animatable(0f) }
+    var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
+    var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
+
+    val motion = ComposeGlassLabState.motionStyle.normalized()
+    val master = newOrdinaryMotionPower(motion.master, uiMax = 1.5f, effectiveMax = 7.5f) *
+        motionIntensity.coerceIn(0f, 1.4f)
+    val newPressEnabled = master > 0.001f
+    val deformation = newOrdinaryMotionPower(motion.deformation, uiMax = 1.5f, effectiveMax = 9.5f) * master
+    val touchLight = newOrdinaryMotionPower(motion.touchLight, uiMax = 1.8f, effectiveMax = 18f) * master
+    val sweep = newOrdinaryMotionPower(motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
+    val reboundControl = newOrdinaryMotionPower(motion.rebound, uiMax = 1.5f, effectiveMax = 9f) * master
+    val afterglow = newOrdinaryMotionPower(motion.afterglow, uiMax = 1.5f, effectiveMax = 14f) * master
+    val speed = motion.speed.coerceIn(0.35f, 2.5f)
+    val durationScale = (1f / speed).coerceIn(0.42f, 2.85f)
+    fun scaledDuration(ms: Int): Int = (ms * durationScale).toInt().coerceIn(40, 1800)
+
+    val pressValue = if (newPressEnabled) newPress.value.coerceIn(-0.58f, 1.34f) else 0f
+    val positivePress = pressValue.coerceAtLeast(0f)
+    val negativePress = (-pressValue).coerceAtLeast(0f)
+    val pressProgress = newOrdinaryMotionSmoothStep((positivePress / 1.34f).coerceIn(0f, 1f))
+    val releaseProgress = newOrdinaryMotionSmoothStep((negativePress / 0.58f).coerceIn(0f, 1f))
+    val activeProgress = maxOf(pressProgress, releaseProgress)
+    val pressedIntensity = baseIntensity * (1f + pressProgress * (0.030f + 0.006f * deformation.coerceIn(0f, 10f)))
+    val shimmer = rememberGlassShimmer(quality, 0f)
+    val breathe = rememberGlassBreath(quality, 0f)
+    val coordinates = remember { GlassCoordinateSource() }
+    val backdrop = LocalGlassBackdrop.current
+
+    ReportOrdinaryGlassNode(
+        coordinates = coordinates,
+        role = role,
+        quality = quality,
+        radius = effectiveRadius,
+        glassIntensity = pressedIntensity,
+        backdropAlpha = ordinaryBackdropAlpha(role, pressedIntensity),
+        edgeStrength = UNIFIED_EDGE_STRENGTH,
+        pressable = false,
+        shimmer = shimmer,
+        breathe = breathe,
+        pressProgress = 0f,
+        lensProgress = 0f,
+        sweepProgress = 0f,
+        elasticity = 0f,
+        pressCenter = Offset(0.5f, 0.5f)
+    )
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { size ->
+                pressSize = Size(
+                    width = size.width.coerceAtLeast(1).toFloat(),
+                    height = size.height.coerceAtLeast(1).toFloat()
+                )
+            }
+            .pointerInput(newPressEnabled, master, deformation, touchLight, sweep, reboundControl, afterglow, speed, role) {
+                if (!newPressEnabled) return@pointerInput
+                awaitEachGesture {
+                    fun updatePressCenter(position: Offset) {
+                        pressCenter = Offset(
+                            x = (position.x / pressSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                            y = (position.y / pressSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        )
+                    }
+
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    updatePressCenter(down.position)
+
+                    val instant = (0.20f + deformation * 0.014f + touchLight * 0.003f)
+                        .coerceIn(0.16f, 0.68f)
+                    val burst = (0.58f + deformation * 0.050f + touchLight * 0.008f)
+                        .coerceIn(0.24f, 1.34f)
+                    val hold = (0.43f + deformation * 0.034f + afterglow * 0.010f)
+                        .coerceIn(0.18f, 1.02f)
+
+                    pressScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                        newPress.snapTo(maxOf(newPress.value, instant))
+                        newPress.animateTo(
+                            burst,
+                            tween(scaledDuration(122), easing = FastOutSlowInEasing)
+                        )
+                        newPress.animateTo(
+                            hold,
+                            spring(
+                                dampingRatio = 0.70f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                    }
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == down.id }
+                            ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            updatePressCenter(tracked.position)
+                            if (!tracked.pressed) break
+                        }
+                        if (event.changes.none { it.pressed }) break
+                    }
+
+                    pressScope.launch {
+                        newPress.stop()
+                        newPress.animateTo(
+                            (-0.085f - reboundControl * 0.012f).coerceIn(-0.58f, -0.012f),
+                            tween(scaledDuration(154), easing = FastOutSlowInEasing)
+                        )
+                        newPress.animateTo(
+                            (0.026f + afterglow * 0.0035f).coerceIn(0.014f, 0.082f),
+                            spring(
+                                dampingRatio = 0.58f,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                        newPress.animateTo(
+                            0f,
+                            spring(
+                                dampingRatio = 0.78f,
+                                stiffness = Spring.StiffnessLow
+                            )
+                        )
+                    }
+                }
+            }
+            .onPlaced { coordinates.coordinates = it }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .ordinaryGlassFrame(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                role = role,
+                parentOwnsOrdinaryGlass = false
+            )
+            .drawWithContent {
+                drawContent()
+                if (activeProgress <= 0.001f) return@drawWithContent
+
+                val w = size.width.coerceAtLeast(1f)
+                val h = size.height.coerceAtLeast(1f)
+                val maxSide = maxOf(w, h)
+                val center = Offset(
+                    x = pressCenter.x.coerceIn(0f, 1f) * w,
+                    y = pressCenter.y.coerceIn(0f, 1f) * h
+                )
+                val radiusPx = minOf(effectiveRadius.dp.toPx(), w * 0.5f, h * 0.5f)
+                val cornerRadius = CornerRadius(radiusPx, radiusPx)
+                val bloomPower = (touchLight * (0.32f + pressProgress * 0.64f + releaseProgress * 0.18f))
+                    .coerceIn(0f, 60f)
+                val sweepPower = (sweep * pressProgress).coerceIn(0f, 48f)
+                val afterPower = (afterglow * (releaseProgress * 0.70f + pressProgress * 0.16f))
+                    .coerceIn(0f, 36f)
+                val minBloomRadius = 116.dp.toPx() * (0.76f + activeProgress * 0.30f)
+                val bloomRadius = maxOf(
+                    maxSide * (0.44f + activeProgress * 0.28f + bloomPower.coerceIn(0f, 14f) * 0.018f),
+                    minBloomRadius
+                )
+                val sweepX = -0.28f + pressProgress * 1.44f
+
+                drawRoundRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color(0xFFFFF2FA).copy(alpha = (0.040f * bloomPower).coerceIn(0f, 0.84f)),
+                            Color(0xFFE6FFFB).copy(alpha = (0.030f * bloomPower).coerceIn(0f, 0.56f)),
+                            Color(0xFFFFE9C8).copy(alpha = (0.010f * bloomPower + 0.010f * afterPower).coerceIn(0f, 0.30f)),
+                            Color.Transparent
+                        ),
+                        center = center,
+                        radius = bloomRadius
+                    ),
+                    size = Size(w, h),
+                    cornerRadius = cornerRadius,
+                    blendMode = BlendMode.Screen
+                )
+
+                if (sweepPower > 0.001f) {
+                    drawRoundRect(
+                        brush = Brush.linearGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color(0xFFEFFFFF).copy(alpha = (0.020f * bloomPower).coerceIn(0f, 0.40f)),
+                                Color(0xFFFFE6B8).copy(alpha = (0.014f * sweepPower).coerceIn(0f, 0.36f)),
+                                Color(0xFF91FFF2).copy(alpha = (0.014f * sweepPower).coerceIn(0f, 0.36f)),
+                                Color.Transparent
+                            ),
+                            start = Offset(w * (sweepX - 0.44f), h * -0.08f),
+                            end = Offset(w * (sweepX + 0.42f), h * 1.08f)
+                        ),
+                        size = Size(w, h),
+                        cornerRadius = cornerRadius,
+                        blendMode = BlendMode.Screen
+                    )
+                }
+            }
+            .graphicsLayer {
+                val grow = deformation.coerceIn(0f, 10f)
+                val bounce = reboundControl.coerceIn(0f, 8f)
+                val dx = (pressCenter.x - 0.5f).coerceIn(-0.5f, 0.5f)
+                val dy = (pressCenter.y - 0.5f).coerceIn(-0.5f, 0.5f)
+                val horizontalBias = (abs(dx) * 2f).coerceIn(0f, 1f)
+                val verticalBias = (abs(dy) * 2f).coerceIn(0f, 1f)
+                val minSide = minOf(pressSize.width, pressSize.height).coerceAtLeast(1f)
+                val directionalPush = pressProgress * minSide * (0.010f + 0.0026f * grow)
+                val reboundPull = releaseProgress * minSide * (0.004f + 0.0015f * bounce)
+
+                transformOrigin = TransformOrigin(0.5f, 0.5f)
+                scaleX = 1f + pressProgress * (0.044f + 0.011f * grow + 0.014f * horizontalBias) -
+                    releaseProgress * (0.005f + 0.002f * bounce)
+                scaleY = 1f + pressProgress * (0.035f + 0.008f * grow + 0.012f * verticalBias) -
+                    releaseProgress * (0.004f + 0.002f * bounce)
+                translationX = dx * (directionalPush - reboundPull)
+                translationY = dy * (directionalPush - reboundPull)
+                rotationY = dx * pressProgress * (1.8f + 0.22f * grow) -
+                    dx * releaseProgress * (0.5f + 0.08f * bounce)
+                rotationX = -dy * pressProgress * (1.4f + 0.18f * grow) +
+                    dy * releaseProgress * (0.4f + 0.06f * bounce)
+                shadowElevation = pressProgress * (0.46f + 0.10f * grow)
+            }
+    ) {
+        if (backdrop != null) {
+            SampledWeatherGlassBackdrop(
+                modifier = Modifier.matchParentSize(),
+                radius = effectiveRadius,
+                coordinateSource = coordinates,
+                quality = backdrop.quality,
+                motionIntensity = backdrop.motionIntensity,
+                theme = backdrop.theme,
+                blurRadiusDp = blurForRole(role),
+                liftAlpha = ordinaryBackdropAlpha(role, pressedIntensity)
+            )
+        }
+        Box(
+            Modifier
+                .matchParentSize()
+                .glassSkin(
+                    quality,
+                    effectiveRadius,
+                    shimmer,
+                    breathe,
+                    pressedIntensity,
+                    role = role,
+                    includeShadow = false
+                )
+        )
+        content()
+    }
+}
+
+private fun newOrdinaryMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
+    val clean = value.coerceAtLeast(0f)
+    if (clean <= 1f) return clean
+    val span = (uiMax - 1f).coerceAtLeast(0.001f)
+    val t = ((clean - 1f) / span).coerceIn(0f, 1f)
+    return 1f + t * (effectiveMax - 1f)
+}
+
+private fun newOrdinaryMotionSmoothStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+
+@Composable
+private fun LegacyPressableGlass(
     quality: RenderQuality,
     glassIntensity: Float = 1f,
     motionIntensity: Float = 1f,
