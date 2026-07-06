@@ -2,7 +2,7 @@ package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -10,8 +10,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -45,11 +43,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +69,7 @@ import com.yuchen.ailedger.service.OperationRecordingState
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationStage
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
@@ -631,12 +631,6 @@ private fun CreateIntentCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
-                .animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = 0.94f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                )
                 .background(OperationLearningViolet.copy(alpha = 0.055f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
@@ -679,80 +673,99 @@ private fun SkillIntentEditorSlot(
     onCancel: () -> Unit,
     onSave: () -> Boolean,
 ) {
-    /*
-     * 这里不要再用 SubcomposeLayout 每帧手动测量高度。
-     * 教学卡里有 TextField，手动测量会在输入和展开动画同时发生时放大重组，
-     * 部分输入法会丢 selection，表现为光标跳到开头。
-     *
-     * AnimatedVisibility 让 Compose 自己接管进入/退出和父级重测量；
-     * clipToBounds 只裁掉视觉溢出，不参与输入状态。
-     */
-    AnimatedVisibility(
-        visible = visible,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clipToBounds()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = 0.92f,
-                    stiffness = Spring.StiffnessMediumLow,
+    val progress = remember { Animatable(if (visible) 1f else 0f) }
+    val lastMeasuredHeightPx = remember { intArrayOf(0) }
+    val closingStartHeightPx = remember { intArrayOf(0) }
+
+    LaunchedEffect(visible) {
+        progress.stop()
+        if (visible) {
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 278,
+                    easing = FastOutSlowInEasing,
                 ),
-            ),
-        enter = expandVertically(
-            expandFrom = Alignment.Top,
-            animationSpec = spring(
-                dampingRatio = 0.92f,
-                stiffness = Spring.StiffnessMediumLow,
-            ),
-        ) + fadeIn(
-            animationSpec = tween(
-                durationMillis = 132,
-                delayMillis = 24,
-                easing = FastOutSlowInEasing,
-            ),
-        ) + slideInVertically(
-            animationSpec = tween(
-                durationMillis = 180,
-                easing = FastOutSlowInEasing,
-            ),
-            initialOffsetY = { height -> (-height * 0.10f).toInt() },
-        ),
-        exit = fadeOut(
-            animationSpec = tween(
-                durationMillis = 82,
-                easing = FastOutSlowInEasing,
-            ),
-        ) + slideOutVertically(
-            animationSpec = tween(
-                durationMillis = 128,
-                easing = FastOutSlowInEasing,
-            ),
-            targetOffsetY = { height -> (-height * 0.06f).toInt() },
-        ) + shrinkVertically(
-            shrinkTowards = Alignment.Top,
-            animationSpec = tween(
-                durationMillis = 172,
-                easing = FastOutSlowInEasing,
-            ),
-        ),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clipToBounds()
-                .graphicsLayer { clip = true },
-        ) {
-            SkillIntentEditor(
-                state = state,
-                uiState = uiState,
-                onTitleChange = onTitleChange,
-                onGoalChange = onGoalChange,
-                onChooseApp = onChooseApp,
-                onCancel = onCancel,
-                onSave = onSave,
+            )
+        } else {
+            closingStartHeightPx[0] = lastMeasuredHeightPx[0]
+            progress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 224,
+                    easing = FastOutSlowInEasing,
+                ),
             )
         }
     }
+
+    val p = progress.value.coerceIn(0f, 1f)
+    if (visible || p > 0.001f) {
+        SubcomposeLayout(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clipToBounds(),
+        ) { constraints ->
+            val placeables = subcompose("skill-intent-editor") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            alpha = intentEditorAlpha(p, visible)
+                            translationY = intentEditorTranslationY(p, visible)
+                            clip = true
+                        },
+                ) {
+                    SkillIntentEditor(
+                        state = state,
+                        uiState = uiState,
+                        onTitleChange = onTitleChange,
+                        onGoalChange = onGoalChange,
+                        onChooseApp = onChooseApp,
+                        onCancel = onCancel,
+                        onSave = onSave,
+                    )
+                }
+            }.map { measurable ->
+                measurable.measure(constraints.copy(minHeight = 0))
+            }
+            val measuredHeight = placeables.maxOfOrNull { it.height } ?: 0
+            if (visible && measuredHeight > 0) {
+                lastMeasuredHeightPx[0] = measuredHeight
+            }
+            val stableHeight = when {
+                visible -> measuredHeight
+                closingStartHeightPx[0] > 0 -> closingStartHeightPx[0]
+                else -> measuredHeight
+            }
+            val animatedHeight = (stableHeight * p).roundToInt().coerceAtLeast(0)
+
+            layout(constraints.maxWidth, animatedHeight) {
+                placeables.forEach { placeable ->
+                    placeable.placeRelative(0, 0)
+                }
+            }
+        }
+    }
+}
+
+private fun intentEditorAlpha(
+    progress: Float,
+    visible: Boolean,
+): Float {
+    return if (visible) {
+        ((progress - 0.10f) / 0.90f).coerceIn(0f, 1f)
+    } else {
+        (progress * 0.92f).coerceIn(0f, 1f)
+    }
+}
+
+private fun intentEditorTranslationY(
+    progress: Float,
+    visible: Boolean,
+): Float {
+    val offset = (1f - progress).coerceIn(0f, 1f) * 12f
+    return if (visible) -offset else -offset * 0.35f
 }
 
 @Composable
@@ -776,12 +789,6 @@ private fun SkillIntentEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
-                .animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = 0.94f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                )
                 .background(OperationLearningSurface.copy(alpha = 0.24f))
                 .padding(horizontal = 16.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -892,11 +899,6 @@ private fun OperationLearningTextField(
     singleLine: Boolean,
     maxChars: Int = Int.MAX_VALUE,
 ) {
-    /*
-     * 使用 TextFieldValue 保存 selection/composition。
-     * 外层 ViewModel 仍然只接收 String，避免侵入数据层；输入框本地保留光标位置，
-     * 防止教学目标卡片重组或动画测量时光标被重置到开头。
-     */
     var fieldValue by remember(label, singleLine, maxChars) {
         mutableStateOf(
             TextFieldValue(
@@ -908,9 +910,10 @@ private fun OperationLearningTextField(
 
     LaunchedEffect(value) {
         if (value != fieldValue.text) {
+            val cursor = fieldValue.selection.end.coerceIn(0, value.length)
             fieldValue = TextFieldValue(
                 text = value,
-                selection = TextRange(value.length),
+                selection = TextRange(cursor),
             )
         }
     }
@@ -918,18 +921,25 @@ private fun OperationLearningTextField(
     OutlinedTextField(
         value = fieldValue,
         onValueChange = { next ->
-            val cleanText = next.text.normalizeLearningInput(
+            val cleanText = sanitizeOperationLearningInput(
+                text = next.text,
                 singleLine = singleLine,
                 maxChars = maxChars,
             )
-            val cleanValue = next.copy(
-                text = cleanText,
-                selection = next.selection.constrainTo(cleanText.length),
-            )
-            fieldValue = cleanValue
-            if (cleanText != value) {
-                onValueChange(cleanText)
+            val cleanSelection = if (cleanText == next.text) {
+                next.selection.constrainTo(cleanText.length)
+            } else {
+                TextRange(cleanText.length)
             }
+            val fixedValue = TextFieldValue(
+                text = cleanText,
+                selection = cleanSelection,
+                composition = next.composition
+                    ?.takeIf { cleanText == next.text }
+                    ?.constrainTo(cleanText.length),
+            )
+            fieldValue = fixedValue
+            if (cleanText != value) onValueChange(cleanText)
         },
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),
@@ -952,21 +962,19 @@ private fun OperationLearningTextField(
     )
 }
 
-private fun String.normalizeLearningInput(
+private fun sanitizeOperationLearningInput(
+    text: String,
     singleLine: Boolean,
     maxChars: Int,
 ): String {
-    val clean = if (singleLine) replace("\n", "").replace("\r", "") else this
-    return clean.take(maxChars.coerceAtLeast(0))
+    val normalized = if (singleLine) text.replace("\n", "") else text
+    return normalized.take(maxChars.coerceAtLeast(0))
 }
 
-private fun TextRange.constrainTo(textLength: Int): TextRange {
-    val safeLength = textLength.coerceAtLeast(0)
-    return TextRange(
-        start = start.coerceIn(0, safeLength),
-        end = end.coerceIn(0, safeLength),
-    )
-}
+private fun TextRange.constrainTo(textLength: Int): TextRange = TextRange(
+    start = start.coerceIn(0, textLength),
+    end = end.coerceIn(0, textLength),
+)
 
 @Composable
 private fun OperationLearningActionButton(
@@ -1182,12 +1190,6 @@ private fun SkillDraftCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
-                .animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = 0.92f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                )
                 .background(
                     if (selected || thisRecording || thisRunning) OperationLearningViolet.copy(alpha = 0.075f)
                     else Color(0xFF11163D).copy(alpha = 0.20f),
@@ -1216,40 +1218,15 @@ private fun SkillDraftCard(
                 enter = expandVertically(
                     expandFrom = Alignment.Top,
                     animationSpec = spring(
-                        dampingRatio = 0.92f,
+                        dampingRatio = 0.88f,
                         stiffness = Spring.StiffnessMediumLow,
                     ),
-                ) + fadeIn(
-                    animationSpec = tween(
-                        durationMillis = 128,
-                        delayMillis = 18,
-                        easing = FastOutSlowInEasing,
+                ) + fadeIn(animationSpec = tween(durationMillis = 118, delayMillis = 18)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 42)) +
+                    shrinkVertically(
+                        shrinkTowards = Alignment.Top,
+                        animationSpec = tween(durationMillis = 168),
                     ),
-                ) + slideInVertically(
-                    animationSpec = tween(
-                        durationMillis = 170,
-                        easing = FastOutSlowInEasing,
-                    ),
-                    initialOffsetY = { height -> (-height * 0.08f).toInt() },
-                ),
-                exit = fadeOut(
-                    animationSpec = tween(
-                        durationMillis = 78,
-                        easing = FastOutSlowInEasing,
-                    ),
-                ) + slideOutVertically(
-                    animationSpec = tween(
-                        durationMillis = 116,
-                        easing = FastOutSlowInEasing,
-                    ),
-                    targetOffsetY = { height -> (-height * 0.05f).toInt() },
-                ) + shrinkVertically(
-                    shrinkTowards = Alignment.Top,
-                    animationSpec = tween(
-                        durationMillis = 158,
-                        easing = FastOutSlowInEasing,
-                    ),
-                ),
             ) {
                 skill?.let { learnedSkill ->
                     Box(
