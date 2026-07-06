@@ -87,12 +87,15 @@ internal object AssistantMemoryUsageBridge {
         val requestContext = AssistantMemoryRequestContextRuntime.consumeCurrentThread()
         val captured = responseForCurrentThread.get()
         responseForCurrentThread.remove()
-        val ticket = requestContext?.ticket ?: return null
-        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return null
-
         val response = captured
-            ?.takeIf { it.requestToken == requestContext.token }
+            ?.takeIf { requestContext == null || it.requestToken == requestContext.token }
             ?.response
+        val ticket = requestContext?.ticket
+        if (ticket == null || !AssistantAccountSessionRuntime.isCurrent(ticket)) {
+            recordDiagnosticsWithoutTicket(payload = payload, response = response, failure = null)
+            return null
+        }
+
         val mutationReceipt = response?.let { AssistantMemoryMutationRuntime.captureResponse(it, ticket) }
         val appContext = AiLedgerApplication.contextOrNull()
         if (
@@ -123,9 +126,16 @@ internal object AssistantMemoryUsageBridge {
         recordAnalyticsTransport(payload = payload, success = false)
 
         val requestContext = AssistantMemoryRequestContextRuntime.consumeCurrentThread()
+        val captured = responseForCurrentThread.get()
         responseForCurrentThread.remove()
-        val ticket = requestContext?.ticket ?: return
-        if (!AssistantAccountSessionRuntime.isCurrent(ticket)) return
+        val response = captured
+            ?.takeIf { requestContext == null || it.requestToken == requestContext.token }
+            ?.response
+        val ticket = requestContext?.ticket
+        if (ticket == null || !AssistantAccountSessionRuntime.isCurrent(ticket)) {
+            recordDiagnosticsWithoutTicket(payload = payload, response = response, failure = error)
+            return
+        }
 
         val payloadSnapshot = compactMemoryDiagnosticPayload(payload)
         diagnosticsExecutor.execute {
@@ -135,6 +145,31 @@ internal object AssistantMemoryUsageBridge {
                     payload = payloadSnapshot,
                     response = null,
                     failure = error,
+                )
+            }
+        }
+    }
+
+    private fun recordDiagnosticsWithoutTicket(
+        payload: JSONObject,
+        response: JSONObject?,
+        failure: Throwable?,
+    ) {
+        if (
+            !payload.has("memoryMode") &&
+            !payload.has("memoryEnabled") &&
+            !payload.has("memoryRequest") &&
+            response == null &&
+            failure == null
+        ) return
+        val payloadSnapshot = compactMemoryDiagnosticPayload(payload)
+        val responseSnapshot = response?.let(::compactMemoryDiagnosticResponse)
+        diagnosticsExecutor.execute {
+            runCatching {
+                AssistantMemoryDiagnostics.record(
+                    payload = payloadSnapshot,
+                    response = responseSnapshot,
+                    failure = failure,
                 )
             }
         }
