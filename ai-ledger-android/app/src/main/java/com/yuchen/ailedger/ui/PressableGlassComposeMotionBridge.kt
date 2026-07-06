@@ -28,6 +28,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 /**
@@ -155,9 +156,6 @@ private fun Modifier.unifiedOrdinaryGlassMotionLayer(
                 val down = awaitFirstDown(requireUnconsumed = false)
                 updateCenter(down.position)
 
-                press.stop()
-                lens.stop()
-                sweepProgress.stop()
                 val instantPress = (0.24f + deformation * 0.030f).coerceIn(0.20f, 0.58f)
                 val instantLens = (0.34f + touchLight * 0.035f).coerceIn(0.24f, 0.92f)
                 val instantSweep = (0.10f + sweep * 0.012f).coerceIn(0.05f, 0.32f)
@@ -165,18 +163,18 @@ private fun Modifier.unifiedOrdinaryGlassMotionLayer(
                 val holdTarget = (0.42f + deformation * 0.085f).coerceIn(0.18f, 1.18f)
                 val lensTarget = (0.58f + touchLight * 0.13f).coerceIn(0.24f, 2.15f)
                 val sweepTarget = (0.66f + sweep * 0.10f).coerceIn(0.20f, 2.20f)
-                press.snapTo(maxOf(press.value, instantPress))
-                lens.snapTo(maxOf(lens.value, instantLens))
-                sweepProgress.snapTo(maxOf(sweepProgress.value, instantSweep))
 
-                scope.launch {
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    press.snapTo(maxOf(press.value, instantPress))
                     press.animateTo(burstTarget, tween(46, easing = FastOutSlowInEasing))
                     press.animateTo(holdTarget, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium))
                 }
-                scope.launch {
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    lens.snapTo(maxOf(lens.value, instantLens))
                     lens.animateTo(lensTarget, tween(58, easing = FastOutSlowInEasing))
                 }
-                scope.launch {
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    sweepProgress.snapTo(maxOf(sweepProgress.value, instantSweep))
                     sweepProgress.animateTo(sweepTarget, tween(210, easing = FastOutSlowInEasing))
                 }
 
