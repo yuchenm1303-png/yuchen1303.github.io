@@ -155,23 +155,29 @@ private fun Modifier.unifiedOrdinaryGlassMotionLayer(
                 val down = awaitFirstDown(requireUnconsumed = false)
                 updateCenter(down.position)
 
+                press.stop()
+                lens.stop()
+                sweepProgress.stop()
+                val instantPress = (0.24f + deformation * 0.030f).coerceIn(0.20f, 0.58f)
+                val instantLens = (0.34f + touchLight * 0.035f).coerceIn(0.24f, 0.92f)
+                val instantSweep = (0.10f + sweep * 0.012f).coerceIn(0.05f, 0.32f)
+                val burstTarget = (0.54f + deformation * 0.15f).coerceIn(0.24f, 1.72f)
+                val holdTarget = (0.42f + deformation * 0.085f).coerceIn(0.18f, 1.18f)
+                val lensTarget = (0.58f + touchLight * 0.13f).coerceIn(0.24f, 2.15f)
+                val sweepTarget = (0.66f + sweep * 0.10f).coerceIn(0.20f, 2.20f)
+                press.snapTo(maxOf(press.value, instantPress))
+                lens.snapTo(maxOf(lens.value, instantLens))
+                sweepProgress.snapTo(maxOf(sweepProgress.value, instantSweep))
+
                 scope.launch {
-                    press.stop()
-                    if (press.value < 0.16f) press.snapTo(0.16f)
-                    val burstTarget = (0.52f + deformation * 0.15f).coerceIn(0.20f, 1.72f)
-                    val holdTarget = (0.40f + deformation * 0.085f).coerceIn(0.16f, 1.18f)
-                    press.animateTo(burstTarget, tween(70, easing = FastOutSlowInEasing))
+                    press.animateTo(burstTarget, tween(46, easing = FastOutSlowInEasing))
                     press.animateTo(holdTarget, spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium))
                 }
                 scope.launch {
-                    lens.stop()
-                    if (lens.value < 0.16f) lens.snapTo(0.16f)
-                    lens.animateTo((0.52f + touchLight * 0.13f).coerceIn(0.18f, 2.15f), tween(110, easing = FastOutSlowInEasing))
+                    lens.animateTo(lensTarget, tween(58, easing = FastOutSlowInEasing))
                 }
                 scope.launch {
-                    sweepProgress.stop()
-                    sweepProgress.snapTo(0f)
-                    sweepProgress.animateTo((0.60f + sweep * 0.10f).coerceIn(0.18f, 2.20f), tween(330, easing = FastOutSlowInEasing))
+                    sweepProgress.animateTo(sweepTarget, tween(210, easing = FastOutSlowInEasing))
                 }
 
                 while (true) {
@@ -187,19 +193,19 @@ private fun Modifier.unifiedOrdinaryGlassMotionLayer(
                 scope.launch {
                     press.stop()
                     val reboundTarget = (-0.12f - rebound * 0.028f).coerceIn(-1.40f, -0.025f)
-                    press.animateTo(reboundTarget, tween(95, easing = FastOutSlowInEasing))
+                    press.animateTo(reboundTarget, tween(88, easing = FastOutSlowInEasing))
                     press.animateTo(0.040f, spring(dampingRatio = 0.48f, stiffness = Spring.StiffnessMediumLow))
                     press.animateTo(0f, spring(dampingRatio = 0.70f, stiffness = Spring.StiffnessLow))
                 }
                 scope.launch {
                     lens.stop()
-                    lens.animateTo((0.16f + afterglow * 0.060f).coerceIn(0.01f, 1.45f), tween((180 + afterglow * 26f).toInt().coerceIn(180, 760), easing = FastOutSlowInEasing))
-                    lens.animateTo(0f, tween((260 + afterglow * 34f).toInt().coerceIn(260, 980), easing = FastOutSlowInEasing))
+                    lens.animateTo((0.16f + afterglow * 0.060f).coerceIn(0.01f, 1.45f), tween((170 + afterglow * 22f).toInt().coerceIn(170, 700), easing = FastOutSlowInEasing))
+                    lens.animateTo(0f, tween((240 + afterglow * 30f).toInt().coerceIn(240, 900), easing = FastOutSlowInEasing))
                 }
                 scope.launch {
                     sweepProgress.stop()
-                    sweepProgress.animateTo((0.08f + afterglow * 0.035f).coerceIn(0f, 0.88f), tween((190 + afterglow * 24f).toInt().coerceIn(190, 720), easing = FastOutSlowInEasing))
-                    sweepProgress.animateTo(0f, tween((240 + afterglow * 30f).toInt().coerceIn(240, 840), easing = FastOutSlowInEasing))
+                    sweepProgress.animateTo((0.08f + afterglow * 0.035f).coerceIn(0f, 0.88f), tween((180 + afterglow * 22f).toInt().coerceIn(180, 680), easing = FastOutSlowInEasing))
+                    sweepProgress.animateTo(0f, tween((220 + afterglow * 28f).toInt().coerceIn(220, 780), easing = FastOutSlowInEasing))
                 }
             }
         }
