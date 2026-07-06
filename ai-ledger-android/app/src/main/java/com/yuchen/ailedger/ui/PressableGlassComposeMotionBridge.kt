@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
@@ -238,14 +239,23 @@ private fun Modifier.newOrdinaryGlassMotionLayer(
             val r = newMotionSmoothStep((releaseNegative / 0.58f).coerceIn(0f, 1f))
             val grow = deformation.coerceIn(0f, 10f)
             val bounce = rebound.coerceIn(0f, 8f)
+            val dx = (pressCenter.x - 0.5f).coerceIn(-0.5f, 0.5f)
+            val dy = (pressCenter.y - 0.5f).coerceIn(-0.5f, 0.5f)
+            val horizontalBias = (abs(dx) * 2f).coerceIn(0f, 1f)
+            val verticalBias = (abs(dy) * 2f).coerceIn(0f, 1f)
+            val minSide = minOf(measuredSize.width, measuredSize.height).coerceAtLeast(1f)
+            val directionalPush = p * minSide * (0.010f + 0.0026f * grow)
+            val reboundPull = r * minSide * (0.004f + 0.0015f * bounce)
 
             transformOrigin = TransformOrigin(0.5f, 0.5f)
-            scaleX = 1f + p * (0.050f + 0.014f * grow) -
-                r * (0.006f + 0.002f * bounce)
-            scaleY = 1f + p * (0.040f + 0.010f * grow) -
+            scaleX = 1f + p * (0.044f + 0.011f * grow + 0.014f * horizontalBias) -
                 r * (0.005f + 0.002f * bounce)
-            translationX = 0f
-            translationY = 0f
+            scaleY = 1f + p * (0.035f + 0.008f * grow + 0.012f * verticalBias) -
+                r * (0.004f + 0.002f * bounce)
+            translationX = dx * (directionalPush - reboundPull)
+            translationY = dy * (directionalPush - reboundPull)
+            rotationY = dx * p * (1.8f + 0.22f * grow) - dx * r * (0.5f + 0.08f * bounce)
+            rotationX = -dy * p * (1.4f + 0.18f * grow) + dy * r * (0.4f + 0.06f * bounce)
             shadowElevation = p * (0.46f + 0.10f * grow)
         }
         .drawWithContent {
