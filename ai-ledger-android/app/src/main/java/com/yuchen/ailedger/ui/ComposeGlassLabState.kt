@@ -14,12 +14,12 @@ enum class ComposeGlassPreset {
 
 data class ComposeGlassMotionStyle(
     val master: Float = 1f,
-    val deformation: Float = 0.92f,
+    val deformation: Float = 0.88f,
     val touchLight: Float = 1f,
     val prism: Float = 0f,
     val sweep: Float = 0.90f,
-    val rebound: Float = 0.90f,
-    val afterglow: Float = 0.86f,
+    val rebound: Float = 0.46f,
+    val afterglow: Float = 0.96f,
     val speed: Float = 1f,
 ) {
     internal fun normalized(): ComposeGlassMotionStyle = copy(
@@ -30,7 +30,7 @@ data class ComposeGlassMotionStyle(
         sweep = sweep.coerceIn(0f, 16f),
         rebound = rebound.coerceIn(0f, 8f),
         afterglow = afterglow.coerceIn(0f, 12f),
-        speed = speed.coerceIn(0.35f, 2.5f),
+        speed = speed.coerceIn(0.08f, 8f),
     )
 }
 
