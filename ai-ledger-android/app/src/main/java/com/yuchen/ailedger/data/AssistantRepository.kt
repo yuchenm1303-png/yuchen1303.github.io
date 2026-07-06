@@ -19,12 +19,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val WELCOME_MESSAGE_TEXTS = listOf(
-    "你好，我是你的 AI 助手[[AI_LEDGER_INLINE_STICKER:soft_smile]]。你可以直接告诉我需要处理的事情。",
-    "欢迎使用 AI 助手[[AI_LEDGER_INLINE_STICKER:confirm_yes]]。请告诉我你希望完成什么。",
-    "我已准备就绪[[AI_LEDGER_INLINE_STICKER:confident_ready]]。可以开始处理你的问题或任务。",
-    "你好，有什么需要协助的吗[[AI_LEDGER_INLINE_STICKER:soft_smile]]？",
-    "请直接描述你的需求[[AI_LEDGER_INLINE_STICKER:got_it_point]]。我会尽可能清晰地为你处理。",
-    "欢迎回来[[AI_LEDGER_INLINE_STICKER:soft_smile]]。今天需要我协助处理什么？"
+    "你好，我是你的 AI 助手[[AI_LEDGER_INLINE_STICKER:playful_wink]]。你可以直接告诉我需要处理的事情。",
+    "欢迎使用 AI 助手[[AI_LEDGER_INLINE_STICKER:cheer_power]]。请告诉我你希望完成什么。",
+    "我已准备就绪[[AI_LEDGER_INLINE_STICKER:gift_for_you]]。可以开始处理你的问题或任务。",
+    "你好，有什么需要协助的吗[[AI_LEDGER_INLINE_STICKER:playful_wink]]？",
+    "请直接描述你的需求[[AI_LEDGER_INLINE_STICKER:comfort_friend]]。我会尽可能清晰地为你处理。",
+    "欢迎回来[[AI_LEDGER_INLINE_STICKER:gift_for_you]]。今天需要我协助处理什么？"
 )
 
 interface AssistantRepository {
