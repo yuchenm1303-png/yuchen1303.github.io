@@ -517,6 +517,9 @@ fun PressableGlass(
     val newPress = remember { Animatable(0f) }
     var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
     var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
+    val backdrop = LocalGlassBackdrop.current
+    val parentOwnsOrdinaryGlass =
+        LocalOrdinaryGlassRenderMode.current == OrdinaryGlassRenderMode.ParentDraw
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
     val master = newOrdinaryMotionPower(motion.master, uiMax = 1.5f, effectiveMax = 7.5f) *
@@ -537,11 +540,20 @@ fun PressableGlass(
     val pressProgress = newOrdinaryMotionSmoothStep((positivePress / 1.34f).coerceIn(0f, 1f))
     val releaseProgress = newOrdinaryMotionSmoothStep((negativePress / 0.58f).coerceIn(0f, 1f))
     val activeProgress = maxOf(pressProgress, releaseProgress)
-    val pressedIntensity = baseIntensity * (1f + pressProgress * (0.030f + 0.006f * deformation.coerceIn(0f, 10f)))
-    val shimmer = rememberGlassShimmer(quality, 0f)
-    val breathe = rememberGlassBreath(quality, 0f)
+    val grow = deformation.coerceIn(0f, 10f)
+    val bounce = reboundControl.coerceIn(0f, 8f)
+    val dx = (pressCenter.x - 0.5f).coerceIn(-0.5f, 0.5f)
+    val dy = (pressCenter.y - 0.5f).coerceIn(-0.5f, 0.5f)
+    val horizontalBias = (abs(dx) * 2f).coerceIn(0f, 1f)
+    val verticalBias = (abs(dy) * 2f).coerceIn(0f, 1f)
+    val minSide = minOf(pressSize.width, pressSize.height).coerceAtLeast(1f)
+    val directionalPush = pressProgress * minSide * (0.010f + 0.0026f * grow)
+    val reboundPull = releaseProgress * minSide * (0.004f + 0.0015f * bounce)
+    val elasticity = if (newPressEnabled) ordinaryGlassElasticity(role, pressSize) * master.coerceIn(0f, 1f) else 0f
+    val pressedIntensity = baseIntensity * (1f + pressProgress * (0.030f + 0.006f * grow))
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
+    val breathe = rememberGlassBreath(quality, motionIntensity)
     val coordinates = remember { GlassCoordinateSource() }
-    val backdrop = LocalGlassBackdrop.current
 
     ReportOrdinaryGlassNode(
         coordinates = coordinates,
@@ -551,14 +563,14 @@ fun PressableGlass(
         glassIntensity = pressedIntensity,
         backdropAlpha = ordinaryBackdropAlpha(role, pressedIntensity),
         edgeStrength = UNIFIED_EDGE_STRENGTH,
-        pressable = false,
-        shimmer = shimmer,
+        pressable = true,
+        shimmer = shimmer + 0.030f * pressProgress,
         breathe = breathe,
-        pressProgress = 0f,
-        lensProgress = 0f,
-        sweepProgress = 0f,
-        elasticity = 0f,
-        pressCenter = Offset(0.5f, 0.5f)
+        pressProgress = pressValue.coerceIn(-0.20f, 1.32f),
+        lensProgress = activeProgress.coerceIn(0f, 1.12f),
+        sweepProgress = pressProgress.coerceIn(0f, 1.18f),
+        elasticity = elasticity,
+        pressCenter = pressCenter
     )
 
     Box(
@@ -639,84 +651,7 @@ fun PressableGlass(
                 }
             }
             .onPlaced { coordinates.coordinates = it }
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .ordinaryGlassFrame(
-                radius = effectiveRadius,
-                glassIntensity = pressedIntensity,
-                role = role,
-                parentOwnsOrdinaryGlass = false
-            )
-            .drawWithContent {
-                drawContent()
-                if (activeProgress <= 0.001f) return@drawWithContent
-
-                val w = size.width.coerceAtLeast(1f)
-                val h = size.height.coerceAtLeast(1f)
-                val maxSide = maxOf(w, h)
-                val center = Offset(
-                    x = pressCenter.x.coerceIn(0f, 1f) * w,
-                    y = pressCenter.y.coerceIn(0f, 1f) * h
-                )
-                val radiusPx = minOf(effectiveRadius.dp.toPx(), w * 0.5f, h * 0.5f)
-                val cornerRadius = CornerRadius(radiusPx, radiusPx)
-                val bloomPower = (touchLight * (0.32f + pressProgress * 0.64f + releaseProgress * 0.18f))
-                    .coerceIn(0f, 60f)
-                val sweepPower = (sweep * pressProgress).coerceIn(0f, 48f)
-                val afterPower = (afterglow * (releaseProgress * 0.70f + pressProgress * 0.16f))
-                    .coerceIn(0f, 36f)
-                val minBloomRadius = 116.dp.toPx() * (0.76f + activeProgress * 0.30f)
-                val bloomRadius = maxOf(
-                    maxSide * (0.44f + activeProgress * 0.28f + bloomPower.coerceIn(0f, 14f) * 0.018f),
-                    minBloomRadius
-                )
-                val sweepX = -0.28f + pressProgress * 1.44f
-
-                drawRoundRect(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFFFF2FA).copy(alpha = (0.040f * bloomPower).coerceIn(0f, 0.84f)),
-                            Color(0xFFE6FFFB).copy(alpha = (0.030f * bloomPower).coerceIn(0f, 0.56f)),
-                            Color(0xFFFFE9C8).copy(alpha = (0.010f * bloomPower + 0.010f * afterPower).coerceIn(0f, 0.30f)),
-                            Color.Transparent
-                        ),
-                        center = center,
-                        radius = bloomRadius
-                    ),
-                    size = Size(w, h),
-                    cornerRadius = cornerRadius,
-                    blendMode = BlendMode.Screen
-                )
-
-                if (sweepPower > 0.001f) {
-                    drawRoundRect(
-                        brush = Brush.linearGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                Color(0xFFEFFFFF).copy(alpha = (0.020f * bloomPower).coerceIn(0f, 0.40f)),
-                                Color(0xFFFFE6B8).copy(alpha = (0.014f * sweepPower).coerceIn(0f, 0.36f)),
-                                Color(0xFF91FFF2).copy(alpha = (0.014f * sweepPower).coerceIn(0f, 0.36f)),
-                                Color.Transparent
-                            ),
-                            start = Offset(w * (sweepX - 0.44f), h * -0.08f),
-                            end = Offset(w * (sweepX + 0.42f), h * 1.08f)
-                        ),
-                        size = Size(w, h),
-                        cornerRadius = cornerRadius,
-                        blendMode = BlendMode.Screen
-                    )
-                }
-            }
             .graphicsLayer {
-                val grow = deformation.coerceIn(0f, 10f)
-                val bounce = reboundControl.coerceIn(0f, 8f)
-                val dx = (pressCenter.x - 0.5f).coerceIn(-0.5f, 0.5f)
-                val dy = (pressCenter.y - 0.5f).coerceIn(-0.5f, 0.5f)
-                val horizontalBias = (abs(dx) * 2f).coerceIn(0f, 1f)
-                val verticalBias = (abs(dy) * 2f).coerceIn(0f, 1f)
-                val minSide = minOf(pressSize.width, pressSize.height).coerceAtLeast(1f)
-                val directionalPush = pressProgress * minSide * (0.010f + 0.0026f * grow)
-                val reboundPull = releaseProgress * minSide * (0.004f + 0.0015f * bounce)
-
                 transformOrigin = TransformOrigin(0.5f, 0.5f)
                 scaleX = 1f + pressProgress * (0.044f + 0.011f * grow + 0.014f * horizontalBias) -
                     releaseProgress * (0.005f + 0.002f * bounce)
@@ -730,8 +665,15 @@ fun PressableGlass(
                     dy * releaseProgress * (0.4f + 0.06f * bounce)
                 shadowElevation = pressProgress * (0.46f + 0.10f * grow)
             }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .ordinaryGlassFrame(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                role = role,
+                parentOwnsOrdinaryGlass = parentOwnsOrdinaryGlass
+            )
     ) {
-        if (backdrop != null) {
+        if (!parentOwnsOrdinaryGlass && backdrop != null) {
             SampledWeatherGlassBackdrop(
                 modifier = Modifier.matchParentSize(),
                 radius = effectiveRadius,
@@ -743,20 +685,37 @@ fun PressableGlass(
                 liftAlpha = ordinaryBackdropAlpha(role, pressedIntensity)
             )
         }
-        Box(
-            Modifier
-                .matchParentSize()
-                .glassSkin(
-                    quality,
-                    effectiveRadius,
-                    shimmer,
-                    breathe,
-                    pressedIntensity,
-                    role = role,
-                    includeShadow = false
-                )
-        )
+        if (!parentOwnsOrdinaryGlass) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .glassSkin(
+                        quality,
+                        effectiveRadius,
+                        shimmer + 0.030f * pressProgress,
+                        breathe,
+                        pressedIntensity,
+                        role = role,
+                        includeShadow = false
+                    )
+            )
+        }
         content()
+        if (!parentOwnsOrdinaryGlass && newPressEnabled && activeProgress > 0.001f) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .newOrdinaryPressSurfaceOptics(
+                        pressProgress = pressProgress,
+                        releaseProgress = releaseProgress,
+                        radius = effectiveRadius,
+                        pressCenter = pressCenter,
+                        touchLight = touchLight,
+                        sweep = sweep,
+                        afterglow = afterglow
+                    )
+            )
+        }
     }
 }
 
@@ -773,7 +732,75 @@ private fun newOrdinaryMotionSmoothStep(value: Float): Float {
     return x * x * (3f - 2f * x)
 }
 
+private fun Modifier.newOrdinaryPressSurfaceOptics(
+    pressProgress: Float,
+    releaseProgress: Float,
+    radius: Int,
+    pressCenter: Offset,
+    touchLight: Float,
+    sweep: Float,
+    afterglow: Float
+): Modifier = drawWithContent {
+    drawContent()
+    val active = maxOf(pressProgress, releaseProgress)
+    if (active <= 0.001f) return@drawWithContent
 
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val maxSide = maxOf(w, h)
+    val center = Offset(
+        x = pressCenter.x.coerceIn(0f, 1f) * w,
+        y = pressCenter.y.coerceIn(0f, 1f) * h
+    )
+    val radiusPx = minOf(radius.dp.toPx(), w * 0.5f, h * 0.5f)
+    val cornerRadius = CornerRadius(radiusPx, radiusPx)
+    val bloomPower = (touchLight * (0.32f + pressProgress * 0.64f + releaseProgress * 0.18f))
+        .coerceIn(0f, 60f)
+    val sweepPower = (sweep * pressProgress).coerceIn(0f, 48f)
+    val afterPower = (afterglow * (releaseProgress * 0.70f + pressProgress * 0.16f))
+        .coerceIn(0f, 36f)
+    val minBloomRadius = 116.dp.toPx() * (0.76f + active * 0.30f)
+    val bloomRadius = maxOf(
+        maxSide * (0.44f + active * 0.28f + bloomPower.coerceIn(0f, 14f) * 0.018f),
+        minBloomRadius
+    )
+    val sweepX = -0.28f + pressProgress * 1.44f
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFFFF2FA).copy(alpha = (0.040f * bloomPower).coerceIn(0f, 0.84f)),
+                Color(0xFFE6FFFB).copy(alpha = (0.030f * bloomPower).coerceIn(0f, 0.56f)),
+                Color(0xFFFFE9C8).copy(alpha = (0.010f * bloomPower + 0.010f * afterPower).coerceIn(0f, 0.30f)),
+                Color.Transparent
+            ),
+            center = center,
+            radius = bloomRadius
+        ),
+        size = Size(w, h),
+        cornerRadius = cornerRadius,
+        blendMode = BlendMode.Screen
+    )
+
+    if (sweepPower > 0.001f) {
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color(0xFFEFFFFF).copy(alpha = (0.020f * bloomPower).coerceIn(0f, 0.40f)),
+                    Color(0xFFFFE6B8).copy(alpha = (0.014f * sweepPower).coerceIn(0f, 0.36f)),
+                    Color(0xFF91FFF2).copy(alpha = (0.014f * sweepPower).coerceIn(0f, 0.36f)),
+                    Color.Transparent
+                ),
+                start = Offset(w * (sweepX - 0.44f), h * -0.08f),
+                end = Offset(w * (sweepX + 0.42f), h * 1.08f)
+            ),
+            size = Size(w, h),
+            cornerRadius = cornerRadius,
+            blendMode = BlendMode.Screen
+        )
+    }
+}
 
 @Composable
 private fun LegacyPressableGlass(
