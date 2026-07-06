@@ -2,6 +2,7 @@ package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -33,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,7 +42,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -212,43 +216,16 @@ fun OperationLearningScreen(
         }
 
         item(key = "skill-intent-editor") {
-            AnimatedVisibility(
+            SkillIntentEditorSlot(
                 visible = uiState.editorVisible && !recordingState.active && uiState.runningSkillId == null,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clipToBounds(),
-                enter = expandVertically(
-                    expandFrom = Alignment.Top,
-                    animationSpec = spring(
-                        dampingRatio = 0.88f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                ) + fadeIn(
-                    animationSpec = tween(durationMillis = 118, delayMillis = 22),
-                ),
-                exit = fadeOut(
-                    animationSpec = tween(durationMillis = 42),
-                ) + shrinkVertically(
-                    shrinkTowards = Alignment.Top,
-                    animationSpec = tween(durationMillis = 168),
-                ),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clipToBounds(),
-                ) {
-                    SkillIntentEditor(
-                        state = state,
-                        uiState = uiState,
-                        onTitleChange = viewModel::updateTitle,
-                        onGoalChange = viewModel::updateGoal,
-                        onChooseApp = { appPickerVisible = true },
-                        onCancel = viewModel::closeIntentEditor,
-                        onSave = { viewModel.createIntentDraft() },
-                    )
-                }
-            }
+                state = state,
+                uiState = uiState,
+                onTitleChange = viewModel::updateTitle,
+                onGoalChange = viewModel::updateGoal,
+                onChooseApp = { appPickerVisible = true },
+                onCancel = viewModel::closeIntentEditor,
+                onSave = { viewModel.createIntentDraft() },
+            )
         }
 
         item { LearningSectionTitle("工作方式", "云端理解") }
@@ -676,6 +653,84 @@ private fun CreateIntentCard(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
                 onClick = onClick,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SkillIntentEditorSlot(
+    visible: Boolean,
+    state: AssistantUiState,
+    uiState: OperationLearningUiState,
+    onTitleChange: (String) -> Unit,
+    onGoalChange: (String) -> Unit,
+    onChooseApp: () -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Boolean,
+) {
+    val density = LocalDensity.current
+    var measuredHeightPx by remember { mutableIntStateOf(0) }
+    val collapseProgress = remember { Animatable(if (visible) 1f else 0f) }
+
+    LaunchedEffect(visible, measuredHeightPx) {
+        if (visible) {
+            collapseProgress.snapTo(1f)
+        } else if (measuredHeightPx > 0) {
+            collapseProgress.snapTo(1f)
+            collapseProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 185),
+            )
+        } else {
+            collapseProgress.snapTo(0f)
+        }
+    }
+
+    AnimatedVisibility(
+        visible = visible || collapseProgress.value > 0.01f,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clipToBounds(),
+        enter = expandVertically(
+            expandFrom = Alignment.Top,
+            animationSpec = spring(
+                dampingRatio = 0.88f,
+                stiffness = Spring.StiffnessMediumLow,
+            ),
+        ) + fadeIn(
+            animationSpec = tween(durationMillis = 118, delayMillis = 22),
+        ),
+        exit = fadeOut(animationSpec = tween(durationMillis = 1)),
+    ) {
+        if (visible) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .onSizeChanged { size ->
+                        if (size.height > 0) measuredHeightPx = size.height
+                    },
+            ) {
+                SkillIntentEditor(
+                    state = state,
+                    uiState = uiState,
+                    onTitleChange = onTitleChange,
+                    onGoalChange = onGoalChange,
+                    onChooseApp = onChooseApp,
+                    onCancel = onCancel,
+                    onSave = onSave,
+                )
+            }
+        } else {
+            val collapseHeight = with(density) {
+                (measuredHeightPx * collapseProgress.value).toDp()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(collapseHeight)
+                    .clipToBounds(),
             )
         }
     }
