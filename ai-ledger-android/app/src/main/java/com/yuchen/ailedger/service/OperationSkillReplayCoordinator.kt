@@ -59,6 +59,7 @@ object OperationSkillReplayCoordinator {
         if (!running.compareAndSet(false, true)) {
             return SkillReplayOutcome(false, "已有 Skill 正在运行。")
         }
+        var enabledAgentForReplay = false
         try {
             require(draft.id == skill.workflowId) { "Skill 与草稿不匹配" }
             require(draft.status in setOf(WorkflowDraftStatus.Approved, WorkflowDraftStatus.Verified)) {
@@ -80,6 +81,11 @@ object OperationSkillReplayCoordinator {
                     skill,
                     "请先填写：${missing.joinToString { it.label }}。",
                 )
+            }
+
+            if (!AgentRuntimeController.isEnabled()) {
+                AgentRuntimeController.setEnabled(true)
+                enabledAgentForReplay = true
             }
 
             mutableState.value = SkillReplayState(
@@ -140,6 +146,9 @@ object OperationSkillReplayCoordinator {
             )
             SkillReplayOutcome(false, message)
         } finally {
+            if (enabledAgentForReplay && AgentRuntimeController.isEnabled()) {
+                AgentRuntimeController.setEnabled(false)
+            }
             running.set(false)
         }
     }
@@ -182,8 +191,14 @@ object OperationSkillReplayCoordinator {
     ): String = buildString {
         appendLine("执行一个已经由用户演示并审核批准的视觉 Skill。")
         appendLine("Skill：${skill.name}")
-        appendLine("目标：${skill.description}")
+        appendLine("用户原始教学目标：${draft.goal}")
+        appendLine("云端整理后的目标说明：${skill.description}")
         appendLine("允许应用包：${draft.appScope.normalizedPackages.joinToString()}")
+        appendLine()
+        appendLine("执行要求：")
+        appendLine("- 用户原始教学目标优先级最高；云端整理说明只作为补充，不得把任务简化成仅打开应用。")
+        appendLine("- 如果目标是进入某个具体页面，例如设置页、详情页或功能页，必须继续观察并操作到该页面，不能在应用首页提前结束。")
+        appendLine("- 只有同时满足用户原始教学目标和下方成功标准，才允许调用 finish。")
         appendLine()
         appendLine("本次输入：")
         if (skill.inputs.isEmpty()) {
@@ -212,7 +227,7 @@ object OperationSkillReplayCoordinator {
             "无法可靠判断时请求用户帮助，不得自由探索无关页面。",
         )).distinct().forEach { appendLine("- $it") }
         appendLine()
-        appendLine("现在请观察当前屏幕并完成目标。每次动作后重新观察和验证，只有满足成功标准才能结束。")
+        appendLine("现在请观察当前屏幕并完成目标。每次动作后重新观察和验证，只有满足用户原始教学目标与成功标准才能结束。")
     }.take(MAX_GOAL_CHARS)
 
     private const val TARGET_APP_SETTLE_DELAY_MS = 650L
