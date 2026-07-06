@@ -506,6 +506,21 @@ fun PressableGlass(
     intensity: Float? = null,
     content: @Composable () -> Unit
 ) {
+    if (role == GlassRole.Shell) {
+        LegacyPressableGlass(
+            quality = quality,
+            glassIntensity = glassIntensity,
+            motionIntensity = motionIntensity,
+            radius = radius,
+            modifier = modifier,
+            role = role,
+            onClick = onClick,
+            intensity = intensity,
+            content = content
+        )
+        return
+    }
+
     val effectiveRadius = effectiveGlassRadius(radius, role)
     val baseIntensity = intensity ?: glassIntensity
     val interaction = remember { MutableInteractionSource() }
@@ -525,24 +540,23 @@ fun PressableGlass(
     } else {
         null
     }
-    val motion = settingsMotion ?: requestedMotion
+    val motionGate = settingsMotion ?: requestedMotion
+    val motion = ComposeGlassLabState.motionStyle.normalized()
+    val master = composeMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f) *
+        motionGate.coerceIn(0f, 1f)
+    val ordinaryPressEnabled = role != GlassRole.Shell && master > 0.001f
+    val deformation = composeMotionPower(value = motion.deformation, uiMax = 1.5f, effectiveMax = 8f) * master
+    val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
+    val prism = composeMotionPower(value = motion.prism, uiMax = 1.5f, effectiveMax = 16f) * master
+    val sweep = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
+    val reboundControl = composeMotionPower(value = motion.rebound, uiMax = 1.5f, effectiveMax = 8f) * master
+    val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
 
-    val composeMotion = ComposeGlassLabState.motionStyle.normalized()
-    val composeMaster = composeMotionPower(value = composeMotion.master, uiMax = 1.5f, effectiveMax = 8f) *
-        motion.coerceIn(0f, 1f)
-    val deformation = composeMotionPower(value = composeMotion.deformation, uiMax = 1.5f, effectiveMax = 8f) * composeMaster
-    val touchLight = composeMotionPower(value = composeMotion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * composeMaster
-    val prism = composeMotionPower(value = composeMotion.prism, uiMax = 1.5f, effectiveMax = 16f) * composeMaster
-    val sweep = composeMotionPower(value = composeMotion.sweep, uiMax = 1.5f, effectiveMax = 16f) * composeMaster
-    val reboundGain = composeMotionPower(value = composeMotion.rebound, uiMax = 1.5f, effectiveMax = 8f) * composeMaster
-    val afterglow = composeMotionPower(value = composeMotion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * composeMaster
-
-    val ordinaryPressEnabled = role != GlassRole.Shell && composeMaster > 0.02f
-    val elasticity = if (ordinaryPressEnabled) ordinaryGlassElasticity(role, pressSize) * composeMaster.coerceIn(0f, 1f) else 0f
+    val elasticity = if (ordinaryPressEnabled) ordinaryGlassElasticity(role, pressSize) * master.coerceIn(0f, 1f) else 0f
     val pressValue = if (ordinaryPressEnabled) ordinaryPress.value.coerceIn(-2.00f, 2.20f) else 0f
     val positivePress = pressValue.coerceAtLeast(0f)
     val rebound = composeMotionSmoothStep((-pressValue).coerceAtLeast(0f).coerceIn(0f, 2.0f) / 2.0f)
-    val pressCompression = composeMotionSmoothStep(positivePress.coerceIn(0f, 2.2f) / 2.2f)
+    val pressCompression = composeMotionSmoothStep(positivePress.coerceIn(0f, 2.20f) / 2.20f)
     val lensValue = if (ordinaryPressEnabled) ordinaryLens.value.coerceIn(0f, 3.40f) else 0f
     val sweepValue = if (ordinaryPressEnabled) ordinarySweep.value.coerceIn(0f, 3.60f) else 0f
     val opticsPress = maxOf(positivePress, lensValue * 0.60f, rebound * 0.36f)
@@ -563,7 +577,7 @@ fun PressableGlass(
         radius = effectiveRadius,
         glassIntensity = pressedIntensity,
         backdropAlpha = ordinaryBackdropAlpha(role, pressedIntensity),
-        edgeStrength = UNIFIED_EDGE_STRENGTH,
+        edgeStrength = 0f,
         pressable = true,
         shimmer = shimmer + 0.030f * pressCompression,
         breathe = breathe,
@@ -577,18 +591,15 @@ fun PressableGlass(
     Box(
         modifier = modifier
             .onSizeChanged { size ->
-                pressSize = Size(
-                    width = size.width.coerceAtLeast(1).toFloat(),
-                    height = size.height.coerceAtLeast(1).toFloat()
-                )
+                pressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat())
             }
-            .pointerInput(ordinaryPressEnabled, composeMaster, deformation, touchLight, prism, sweep, reboundGain, afterglow, role) {
+            .pointerInput(ordinaryPressEnabled, master, deformation, touchLight, prism, sweep, reboundControl, afterglow, role) {
                 if (!ordinaryPressEnabled) return@pointerInput
                 awaitEachGesture {
                     fun updatePressCenter(position: Offset) {
                         pressCenter = Offset(
-                            x = (position.x / pressSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
-                            y = (position.y / pressSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                            (position.x / pressSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
+                            (position.y / pressSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f)
                         )
                     }
 
@@ -628,7 +639,7 @@ fun PressableGlass(
 
                     pressScope.launch {
                         ordinaryPress.stop()
-                        val reboundTarget = (-0.18f - reboundGain * 0.040f).coerceIn(-2.00f, -0.030f)
+                        val reboundTarget = (-0.18f - reboundControl * 0.040f).coerceIn(-2.00f, -0.030f)
                         ordinaryPress.animateTo(reboundTarget, tween(92, easing = FastOutSlowInEasing))
                         ordinaryPress.animateTo(0.055f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow))
                         ordinaryPress.animateTo(0f, spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessLow))
@@ -662,7 +673,7 @@ fun PressableGlass(
                 val p = composeMotionSmoothStep(ordinaryPress.value.coerceAtLeast(0f).coerceIn(0f, 2.2f) / 2.2f)
                 val r = composeMotionSmoothStep((-ordinaryPress.value).coerceAtLeast(0f).coerceIn(0f, 2.0f) / 2.0f)
                 val grow = deformation.coerceIn(0f, 12f)
-                val bounce = reboundGain.coerceIn(0f, 10f)
+                val bounce = reboundControl.coerceIn(0f, 10f)
                 transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
                 scaleX = 1f + p * (0.080f + 0.018f * grow) - r * (0.018f + 0.007f * bounce)
                 scaleY = 1f + p * (0.058f + 0.014f * grow) - r * (0.014f + 0.006f * bounce)
@@ -678,53 +689,172 @@ fun PressableGlass(
             )
     ) {
         if (useNewOpenGlBackdrop) {
-            NewOpenGLGlassCardLayer(
-                radius = effectiveRadius,
-                glassIntensity = pressedIntensity,
-                coordinateSource = coordinates,
-                modifier = Modifier.matchParentSize()
-            )
+            NewOpenGLGlassCardLayer(radius = effectiveRadius, glassIntensity = pressedIntensity, coordinateSource = coordinates, modifier = Modifier.matchParentSize())
         } else if (!parentOwnsOrdinaryGlass && !viewportOwnsShell && backdrop != null) {
-            SampledWeatherGlassBackdrop(
-                modifier = Modifier.matchParentSize(),
-                radius = effectiveRadius,
-                coordinateSource = coordinates,
-                quality = backdrop.quality,
-                motionIntensity = backdrop.motionIntensity,
-                theme = backdrop.theme,
-                blurRadiusDp = blurForRole(role),
-                liftAlpha = ordinaryBackdropAlpha(role, pressedIntensity)
-            )
+            SampledWeatherGlassBackdrop(Modifier.matchParentSize(), effectiveRadius, coordinates, backdrop.quality, backdrop.motionIntensity, backdrop.theme, blurForRole(role), ordinaryBackdropAlpha(role, pressedIntensity))
         }
         if (!parentOwnsOrdinaryGlass && !useNewOpenGlBackdrop) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .glassSkin(
-                        quality,
-                        effectiveRadius,
-                        shimmer + 0.030f * pressCompression,
-                        breathe,
-                        pressedIntensity,
-                        role = role,
-                        includeShadow = false
-                    )
-            )
+            Box(Modifier.matchParentSize().glassSkin(quality, effectiveRadius, shimmer + 0.030f * pressCompression, breathe, pressedIntensity, role = role, includeShadow = false))
         }
         content()
         if (!parentOwnsOrdinaryGlass && ordinaryPressEnabled && opticsPress > 0.001f) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .ordinaryPressSurfaceOptics(
-                        press = opticsPress,
-                        sweep = sweepValue,
-                        radius = effectiveRadius,
-                        pressCenter = pressCenter,
-                        role = role,
-                        elasticity = elasticity
-                    )
+            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, sweepValue, effectiveRadius, pressCenter, role, elasticity))
+        }
+    }
+}
+
+@Composable
+private fun LegacyPressableGlass(
+    quality: RenderQuality,
+    glassIntensity: Float = 1f,
+    motionIntensity: Float = 1f,
+    radius: Int,
+    modifier: Modifier = Modifier,
+    role: GlassRole = GlassRole.Chip,
+    onClick: () -> Unit = {},
+    intensity: Float? = null,
+    content: @Composable () -> Unit
+) {
+    val effectiveRadius = effectiveGlassRadius(radius, role)
+    val baseIntensity = intensity ?: glassIntensity
+    val interaction = remember { MutableInteractionSource() }
+    val pressScope = rememberCoroutineScope()
+    val ordinaryPress = remember { Animatable(0f) }
+    val ordinaryLens = remember { Animatable(0f) }
+    val ordinarySweep = remember { Animatable(0f) }
+    var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
+    var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
+    val backdrop = LocalGlassBackdrop.current
+    val requestedMotion = motionIntensity.coerceIn(0f, 1f)
+    val settingsMotion = if (
+        requestedMotion <= 0.02f &&
+        LocalSettingsFrostParentLayer.current != null
+    ) {
+        backdrop?.motionIntensity?.coerceIn(0f, 1f)
+    } else {
+        null
+    }
+    val motion = settingsMotion ?: requestedMotion
+    val ordinaryPressEnabled = role != GlassRole.Shell && motion > 0.02f
+    val elasticity = if (ordinaryPressEnabled) ordinaryGlassElasticity(role, pressSize) * motion else 0f
+    val pressValue = if (ordinaryPressEnabled) ordinaryPress.value.coerceIn(-0.20f, 1.32f) else 0f
+    val positivePress = pressValue.coerceAtLeast(0f)
+    val rebound = glassSmoothStep((-pressValue / 0.18f).coerceIn(0f, 1f))
+    val pressCompression = glassSmoothStep((positivePress / 0.94f).coerceIn(0f, 1f))
+    val lensValue = if (ordinaryPressEnabled) ordinaryLens.value.coerceIn(0f, 1.12f) else 0f
+    val sweepValue = if (ordinaryPressEnabled) ordinarySweep.value.coerceIn(0f, 1.18f) else 0f
+    val opticsPress = maxOf(positivePress, lensValue * 0.86f, rebound * 0.28f)
+    val pressedIntensity = baseIntensity * (1f + pressCompression * (0.040f + 0.150f * elasticity))
+    val shimmer = rememberGlassShimmer(quality, motionIntensity)
+    val breathe = rememberGlassBreath(quality, motionIntensity)
+    val coordinates = remember { GlassCoordinateSource() }
+    val cardBackdrop = LocalBlurredBackdrop.current
+    val viewportOwnsShell = LocalOpenGLGlassViewportActive.current && role == GlassRole.Shell
+    val useNewOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && role == GlassRole.Shell && !viewportOwnsShell && cardBackdrop != null
+    val parentOwnsOrdinaryGlass = role != GlassRole.Shell &&
+        LocalOrdinaryGlassRenderMode.current == OrdinaryGlassRenderMode.ParentDraw
+
+    ReportOrdinaryGlassNode(
+        coordinates = coordinates,
+        role = role,
+        quality = quality,
+        radius = effectiveRadius,
+        glassIntensity = pressedIntensity,
+        backdropAlpha = ordinaryBackdropAlpha(role, pressedIntensity),
+        edgeStrength = UNIFIED_EDGE_STRENGTH,
+        pressable = true,
+        shimmer = shimmer + 0.030f * pressCompression,
+        breathe = breathe,
+        pressProgress = pressValue,
+        lensProgress = lensValue,
+        sweepProgress = sweepValue,
+        elasticity = elasticity,
+        pressCenter = pressCenter
+    )
+
+    Box(
+        modifier = modifier
+            .onSizeChanged { size -> pressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat()) }
+            .pointerInput(ordinaryPressEnabled, motion, role) {
+                if (!ordinaryPressEnabled) return@pointerInput
+                awaitEachGesture {
+                    fun updatePressCenter(position: Offset) {
+                        pressCenter = Offset((position.x / pressSize.width.coerceAtLeast(1f)).coerceIn(0f, 1f), (position.y / pressSize.height.coerceAtLeast(1f)).coerceIn(0f, 1f))
+                    }
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    updatePressCenter(down.position)
+                    pressScope.launch {
+                        ordinaryPress.stop()
+                        if (ordinaryPress.value < 0.22f) ordinaryPress.snapTo(0.22f)
+                        ordinaryPress.animateTo(0.92f, tween(132, easing = OrdinaryPressEasing))
+                        ordinaryPress.animateTo(1.10f, tween(210, easing = OrdinarySinkEasing))
+                        ordinaryPress.animateTo(0.94f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow))
+                    }
+                    pressScope.launch {
+                        ordinaryLens.stop()
+                        if (ordinaryLens.value < 0.18f) ordinaryLens.snapTo(0.18f)
+                        ordinaryLens.animateTo(0.78f, tween(150, easing = OrdinaryPressEasing))
+                        ordinaryLens.animateTo(1.04f, tween(330, easing = FastOutSlowInEasing))
+                    }
+                    pressScope.launch {
+                        ordinarySweep.stop()
+                        ordinarySweep.snapTo(0f)
+                        ordinarySweep.animateTo(1.18f, tween(520, easing = FastOutSlowInEasing))
+                    }
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
+                        if (tracked != null) {
+                            updatePressCenter(tracked.position)
+                            if (!tracked.pressed) break
+                        }
+                        if (event.changes.none { it.pressed }) break
+                    }
+                    pressScope.launch {
+                        ordinaryPress.stop()
+                        ordinaryPress.animateTo(-0.145f, tween(130, easing = OrdinaryReleaseEasing))
+                        ordinaryPress.animateTo(0.060f, spring(dampingRatio = 0.50f, stiffness = Spring.StiffnessMediumLow))
+                        ordinaryPress.animateTo(0f, spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow))
+                    }
+                    pressScope.launch {
+                        ordinaryLens.stop()
+                        ordinaryLens.animateTo(0.42f, tween(180, easing = OrdinaryReleaseEasing))
+                        ordinaryLens.animateTo(0f, tween(480, easing = FastOutSlowInEasing))
+                    }
+                    pressScope.launch {
+                        ordinarySweep.stop()
+                        ordinarySweep.animateTo(0.18f, tween(260, easing = FastOutSlowInEasing))
+                        ordinarySweep.animateTo(0f, tween(420, easing = FastOutSlowInEasing))
+                    }
+                }
+            }
+            .onPlaced { coordinates.coordinates = it }
+            .graphicsLayer {
+                transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
+                scaleX = 1f + pressCompression * (0.006f + 0.049f * elasticity) - rebound * 0.018f * elasticity
+                scaleY = 1f - pressCompression * (0.010f + 0.064f * elasticity) + rebound * 0.030f * elasticity
+                translationY = pressCompression * (0.70f + 3.90f * elasticity) - rebound * 1.55f * elasticity
+                shadowElevation = pressCompression * (0.16f + 0.66f * elasticity)
+            }
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .ordinaryGlassFrame(
+                radius = effectiveRadius,
+                glassIntensity = pressedIntensity,
+                role = role,
+                parentOwnsOrdinaryGlass = parentOwnsOrdinaryGlass
             )
+    ) {
+        if (useNewOpenGlBackdrop) {
+            NewOpenGLGlassCardLayer(radius = effectiveRadius, glassIntensity = pressedIntensity, coordinateSource = coordinates, modifier = Modifier.matchParentSize())
+        } else if (!parentOwnsOrdinaryGlass && !viewportOwnsShell && backdrop != null) {
+            SampledWeatherGlassBackdrop(Modifier.matchParentSize(), effectiveRadius, coordinates, backdrop.quality, backdrop.motionIntensity, backdrop.theme, blurForRole(role), ordinaryBackdropAlpha(role, pressedIntensity))
+        }
+        if (!parentOwnsOrdinaryGlass && !useNewOpenGlBackdrop) {
+            Box(Modifier.matchParentSize().glassSkin(quality, effectiveRadius, shimmer + 0.030f * pressCompression, breathe, pressedIntensity, role = role, includeShadow = false))
+        }
+        content()
+        if (!parentOwnsOrdinaryGlass && ordinaryPressEnabled && opticsPress > 0.001f) {
+            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, sweepValue, effectiveRadius, pressCenter, role, elasticity))
         }
     }
 }
@@ -739,19 +869,21 @@ private fun Modifier.ordinaryPressSurfaceOptics(
 ): Modifier = drawWithContent {
     drawContent()
 
+    if (role == GlassRole.Shell) return@drawWithContent
+
     val dynamicPress = press.coerceAtLeast(0f)
     val lensValue = (press * 0.72f).coerceAtLeast(0f)
     val sweepValue = sweep.coerceAtLeast(0f)
     val afterValue = (sweep * 0.55f).coerceAtLeast(0f)
     val active = maxOf(dynamicPress, lensValue, sweepValue, afterValue)
-    if (active <= 0.001f || role == GlassRole.Shell) return@drawWithContent
+    if (active <= 0.001f) return@drawWithContent
 
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val maxSide = maxOf(w, h)
     val center = Offset(
-        x = pressCenter.x.coerceIn(0f, 1f) * w,
-        y = pressCenter.y.coerceIn(0f, 1f) * h
+        pressCenter.x.coerceIn(0f, 1f) * w,
+        pressCenter.y.coerceIn(0f, 1f) * h
     )
     val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
 
@@ -761,12 +893,13 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     val prism = composeMotionPower(value = motion.prism, uiMax = 1.5f, effectiveMax = 16f) * master
     val sweepGain = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
     val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
+    val elasticityBoost = elasticity.coerceIn(0.08f, 1f)
 
     val pressShape = composeMotionSmoothStep((dynamicPress + lensValue * 0.60f).coerceIn(0f, 3.4f) / 3.4f)
-    val lightPower = (touchLight * (0.42f + lensValue * 0.72f + afterValue * 0.18f)).coerceIn(0f, 72f)
-    val prismPower = (prism * (0.24f + dynamicPress * 0.34f + sweepValue * 0.46f)).coerceIn(0f, 72f)
-    val sweepPower = (sweepGain * (0.16f + sweepValue * 0.92f)).coerceIn(0f, 72f)
-    val afterPower = (afterglow * (afterValue * 0.85f + lensValue * 0.22f)).coerceIn(0f, 54f)
+    val lightPower = (touchLight * (0.42f + lensValue * 0.72f + afterValue * 0.18f) * elasticityBoost).coerceIn(0f, 72f)
+    val prismPower = (prism * (0.24f + dynamicPress * 0.34f + sweepValue * 0.46f) * elasticityBoost).coerceIn(0f, 72f)
+    val sweepPower = (sweepGain * (0.16f + sweepValue * 0.92f) * elasticityBoost).coerceIn(0f, 72f)
+    val afterPower = (afterglow * (afterValue * 0.85f + lensValue * 0.22f) * elasticityBoost).coerceIn(0f, 54f)
     val sweepPhase = (sweepValue / 3.60f).coerceIn(0f, 1.30f)
     val sweepX = -0.46f + sweepPhase * 1.92f
     val rimInset = 0.42.dp.toPx()
@@ -807,10 +940,9 @@ private fun Modifier.ordinaryPressSurfaceOptics(
             brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFFFF67DA).copy(alpha = (0.036f * prismPower).coerceIn(0f, 1f)),
-                    Color(0xFFFFF3AA).copy(alpha = (0.034f * prismPower + 0.032f * sweepPower).coerceIn(0f, 1f)),
-                    Color(0xFF6CFFF1).copy(alpha = (0.044f * prismPower + 0.040f * sweepPower).coerceIn(0f, 1f)),
-                    Color(0xFF9BA9FF).copy(alpha = (0.030f * prismPower).coerceIn(0f, 1f)),
+                    Color.White.copy(alpha = (0.024f * prismPower).coerceIn(0f, 0.88f)),
+                    Color(0xFFFFFBDF).copy(alpha = (0.018f * prismPower + 0.020f * sweepPower).coerceIn(0f, 0.72f)),
+                    Color(0xFFE8FFFF).copy(alpha = (0.024f * prismPower + 0.030f * sweepPower).coerceIn(0f, 0.86f)),
                     Color.Transparent
                 ),
                 start = Offset(w * (sweepX - 0.40f), h * -0.10f),
@@ -841,7 +973,6 @@ private fun Modifier.ordinaryPressSurfaceOptics(
         )
     }
 }
-
 
 private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float): Float = if (quality.enableMotion && motionIntensity > 0.02f) 0.20f else 0.16f
 
