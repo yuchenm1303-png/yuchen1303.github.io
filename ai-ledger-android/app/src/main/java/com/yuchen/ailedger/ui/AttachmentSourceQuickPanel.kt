@@ -54,6 +54,7 @@ internal fun AttachmentSourceQuickPanel(
         cornerRadius = 25.dp,
         tailHeight = 12.dp,
         tailHalfWidth = 15.dp,
+        safeMargin = 0.dp,
         precomposeWhenHidden = false,
     ) { layout ->
         val topTailInset = if (layout.placement == AnchoredQuickPanelPlacement.Below) layout.tailHeight else 0.dp
