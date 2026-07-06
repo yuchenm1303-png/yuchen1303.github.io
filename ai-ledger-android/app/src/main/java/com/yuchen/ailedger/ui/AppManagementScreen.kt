@@ -44,6 +44,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.service.AgentExecutionResult
 import com.yuchen.ailedger.service.AppControlInsights
 import com.yuchen.ailedger.service.AppControlInsightsRepository
+import com.yuchen.ailedger.service.AppManagementActionPolicy
 import com.yuchen.ailedger.service.AppManagementController
 import com.yuchen.ailedger.service.AppManagementRepository
 import com.yuchen.ailedger.service.AppOptimizationSignal
@@ -102,7 +103,10 @@ fun AppManagementScreen(
     var loadError by remember { mutableStateOf<String?>(null) }
     var selectedPackage by remember { mutableStateOf<String?>(null) }
     var pendingAction by remember { mutableStateOf<PendingManagedAppAction?>(null) }
+    var pendingSmartClean by remember { mutableStateOf<List<AppOptimizationSignal>>(emptyList()) }
     var runningAction by remember { mutableStateOf<ManagedAppAction?>(null) }
+    var smartCleanRunning by remember { mutableStateOf(false) }
+    var smartCleanResult by remember { mutableStateOf<SmartCleanResult?>(null) }
     var actionResult by remember { mutableStateOf<AgentExecutionResult?>(null) }
 
     BackHandler {
@@ -135,8 +139,18 @@ fun AppManagementScreen(
         loading = false
     }
 
+    fun smartCleanCandidates(): List<AppOptimizationSignal> {
+        return appInsights?.signals.orEmpty()
+            .asSequence()
+            .filter { it.cleanCandidate }
+            .filter { AppManagementActionPolicy.availability(ManagedAppAction.ForceStop, it.app).enabled }
+            .sortedByDescending { it.score }
+            .take(12)
+            .toList()
+    }
+
     fun executeAction(action: ManagedAppAction, app: ManagedAppSummary, confirmed: Boolean) {
-        if (runningAction != null) return
+        if (runningAction != null || smartCleanRunning) return
         runningAction = action
         actionResult = null
         scope.launch {
@@ -152,8 +166,43 @@ fun AppManagementScreen(
         else executeAction(action, app, confirmed = false)
     }
 
+    fun requestSmartClean() {
+        if (smartCleanRunning || runningAction != null) return
+        val candidates = smartCleanCandidates()
+        if (candidates.isEmpty()) {
+            smartCleanResult = SmartCleanResult(requested = 0, success = 0, failed = 0, beforeBytes = null)
+            return
+        }
+        pendingSmartClean = candidates
+    }
+
+    fun confirmSmartClean() {
+        val targets = pendingSmartClean
+        pendingSmartClean = emptyList()
+        if (targets.isEmpty() || smartCleanRunning || runningAction != null) return
+        smartCleanRunning = true
+        actionResult = null
+        scope.launch {
+            val beforeBytes = targets.mapNotNull { it.runtime?.estimatedMemoryBytes }.takeIf { it.isNotEmpty() }?.sum()
+            val results = withContext(Dispatchers.IO) {
+                targets.map { signal -> signal to controller.execute(ManagedAppAction.ForceStop, signal.app, confirmed = true) }
+            }
+            val success = results.count { it.second.ok }
+            val failedLabels = results.filter { !it.second.ok }.map { it.first.app.label }
+            smartCleanResult = SmartCleanResult(
+                requested = targets.size,
+                success = success,
+                failed = targets.size - success,
+                beforeBytes = beforeBytes,
+                failedLabels = failedLabels,
+            )
+            smartCleanRunning = false
+            refreshGeneration += 1
+        }
+    }
+
     fun requestShizuku() {
-        if (runningAction != null) return
+        if (runningAction != null || smartCleanRunning) return
         scope.launch {
             actionResult = withContext(Dispatchers.IO) { controller.requestShizukuPermission() }
             delay(700L)
@@ -178,10 +227,14 @@ fun AppManagementScreen(
                         loading = loading,
                         error = loadError,
                         repository = repository,
+                        smartCleanCandidateCount = smartCleanCandidates().size,
+                        smartCleanRunning = smartCleanRunning,
+                        smartCleanResult = smartCleanResult,
                         onBack = onBack,
                         onRefresh = { refreshGeneration += 1 },
                         onOpenApp = { selectedPackage = it.packageName },
                         onRequestShizuku = ::requestShizuku,
+                        onSmartClean = ::requestSmartClean,
                         actionResult = actionResult,
                     )
                 } else {
@@ -226,6 +279,13 @@ fun AppManagementScreen(
             },
         )
     }
+    if (pendingSmartClean.isNotEmpty()) {
+        SmartCleanConfirmationDialog(
+            candidates = pendingSmartClean,
+            onDismiss = { pendingSmartClean = emptyList() },
+            onConfirm = ::confirmSmartClean,
+        )
+    }
 }
 
 @Composable
@@ -237,10 +297,14 @@ private fun ManagedAppListPage(
     loading: Boolean,
     error: String?,
     repository: AppManagementRepository,
+    smartCleanCandidateCount: Int,
+    smartCleanRunning: Boolean,
+    smartCleanResult: SmartCleanResult?,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onOpenApp: (ManagedAppSummary) -> Unit,
     onRequestShizuku: () -> Unit,
+    onSmartClean: () -> Unit,
     actionResult: AgentExecutionResult?,
 ) {
     var query by remember { mutableStateOf("") }
@@ -355,6 +419,14 @@ private fun ManagedAppListPage(
                     }
                 }
             }
+        }
+        item {
+            SmartCleanControlPanel(
+                candidateCount = smartCleanCandidateCount,
+                running = smartCleanRunning,
+                result = smartCleanResult,
+                onSmartClean = onSmartClean,
+            )
         }
         actionResult?.let { result -> item { AppActionResultPanel(result) } }
         item { AppSearchField(query = query, onQueryChange = { query = it }) }
