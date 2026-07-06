@@ -4,6 +4,7 @@ import android.content.Context
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.WorkflowDraftStatus
+import com.yuchen.ailedger.service.OperationSkillAssetSyncRuntime
 import java.util.UUID
 
 /**
@@ -11,7 +12,8 @@ import java.util.UUID
  * 审核快照不依赖历史步骤表，也不会把 Skill 降级为空的固定路线壳。
  */
 class OperationSkillApprovalRepository(context: Context) {
-    private val dao = OperationWorkflowDatabase.get(context.applicationContext).workflowDao()
+    private val appContext = context.applicationContext
+    private val dao = OperationWorkflowDatabase.get(appContext).workflowDao()
 
     suspend fun approve(
         draft: LearnedWorkflowDraft,
@@ -24,15 +26,24 @@ class OperationSkillApprovalRepository(context: Context) {
             status = WorkflowDraftStatus.Approved,
             updatedAtMillis = approvedAtMillis,
         )
-        return dao.approveWorkflow(
+        val snapshotJson = OperationSkillJsonCodec.encodeApprovedSnapshot(
+            draft = approvedDraft,
+            skill = skill,
+        )
+        val versionNumber = dao.approveWorkflow(
             workflowId = draft.id,
             versionId = UUID.randomUUID().toString(),
-            snapshotJson = OperationSkillJsonCodec.encodeApprovedSnapshot(
-                draft = approvedDraft,
-                skill = skill,
-            ),
+            snapshotJson = snapshotJson,
             changeSummary = "由视觉演示生成并经用户审核",
             approvedAtMillis = approvedAtMillis,
         )
+        OperationSkillAssetSyncRuntime.requestSyncAfterApproval(
+            context = appContext,
+            draft = approvedDraft,
+            skill = skill,
+            versionNumber = versionNumber,
+            approvedSnapshotJson = snapshotJson,
+        )
+        return versionNumber
     }
 }
