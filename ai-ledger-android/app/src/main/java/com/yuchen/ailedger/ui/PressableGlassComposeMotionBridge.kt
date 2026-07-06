@@ -238,17 +238,23 @@ private fun Modifier.unifiedOrdinaryGlassMotionLayer(
             val sweepPower = (sweep * sweepValue).coerceIn(0f, 30f)
             val sweepPhase = (sweepValue / 2.20f).coerceIn(0f, 1.20f)
             val sweepX = -0.42f + sweepPhase * 1.84f
+            val minBloomRadius = 112.dp.toPx() * (0.76f + pressShape * 0.28f)
+            val softBloomRadius = maxOf(
+                maxSide * (0.28f + 0.030f * lightPower.coerceIn(0f, 14f) + 0.22f * pressShape),
+                minBloomRadius
+            )
 
             drawRoundRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = (0.060f * lightPower).coerceIn(0f, 0.92f)),
-                        Color(0xFFE6FFFF).copy(alpha = (0.030f * lightPower).coerceIn(0f, 0.48f)),
-                        Color(0xFF83FFF1).copy(alpha = (0.010f * lightPower + 0.010f * chromaPower).coerceIn(0f, 0.34f)),
+                        Color(0xFFFFF1FA).copy(alpha = (0.050f * lightPower + 0.010f * chromaPower).coerceIn(0f, 0.82f)),
+                        Color(0xFFE8FFFB).copy(alpha = (0.034f * lightPower).coerceIn(0f, 0.52f)),
+                        Color(0xFFFFE4C7).copy(alpha = (0.012f * lightPower + 0.012f * chromaPower).coerceIn(0f, 0.30f)),
+                        Color(0xFFBDEBFF).copy(alpha = (0.012f * chromaPower).coerceIn(0f, 0.28f)),
                         Color.Transparent
                     ),
                     center = center,
-                    radius = maxSide * (0.24f + 0.035f * lightPower.coerceIn(0f, 14f) + 0.24f * pressShape)
+                    radius = softBloomRadius
                 ),
                 size = Size(w, h),
                 cornerRadius = cornerRadius,
@@ -260,9 +266,9 @@ private fun Modifier.unifiedOrdinaryGlassMotionLayer(
                     brush = Brush.linearGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color(0xFFFF78DA).copy(alpha = (0.022f * chromaPower).coerceIn(0f, 0.52f)),
-                            Color.White.copy(alpha = (0.034f * lightPower + 0.018f * sweepPower).coerceIn(0f, 0.72f)),
-                            Color(0xFF76FFF0).copy(alpha = (0.026f * chromaPower + 0.022f * sweepPower).coerceIn(0f, 0.60f)),
+                            Color(0xFFFF78DA).copy(alpha = (0.020f * chromaPower).coerceIn(0f, 0.46f)),
+                            Color(0xFFFFE6B8).copy(alpha = (0.026f * lightPower + 0.016f * sweepPower).coerceIn(0f, 0.58f)),
+                            Color(0xFF76FFF0).copy(alpha = (0.024f * chromaPower + 0.020f * sweepPower).coerceIn(0f, 0.54f)),
                             Color.Transparent
                         ),
                         start = Offset(w * (sweepX - 0.34f), h * -0.06f),
