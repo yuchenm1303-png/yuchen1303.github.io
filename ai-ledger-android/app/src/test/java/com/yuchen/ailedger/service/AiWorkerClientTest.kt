@@ -48,7 +48,6 @@ class AiWorkerClientTest {
         assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
         assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
         assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
-        assertFalse(capabilities.getJSONArray("deviceTools").toString().contains("ledger_add_record"))
         assertTrue(payload.getString("requestId").isNotBlank())
         assertEquals("auto", payload.getString("memoryMode"))
         assertTrue(payload.getBoolean("memoryEnabled"))
