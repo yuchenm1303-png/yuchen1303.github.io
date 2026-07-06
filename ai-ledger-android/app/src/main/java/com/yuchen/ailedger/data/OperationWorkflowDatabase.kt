@@ -302,6 +302,28 @@ abstract class OperationWorkflowDao {
     @Query("SELECT * FROM operation_demonstrations WHERE id = :demonstrationId LIMIT 1")
     abstract suspend fun loadDemonstration(demonstrationId: String): OperationDemonstrationEntity?
 
+    @Query(
+        """
+        SELECT * FROM operation_workflow_versions
+        WHERE workflowId = :workflowId
+        ORDER BY versionNumber DESC
+        LIMIT 1
+        """,
+    )
+    abstract suspend fun loadLatestVersion(workflowId: String): OperationWorkflowVersionEntity?
+
+    @Query(
+        """
+        SELECT * FROM operation_workflow_versions
+        WHERE workflowId = :workflowId AND versionNumber = :versionNumber
+        LIMIT 1
+        """,
+    )
+    abstract suspend fun loadVersion(
+        workflowId: String,
+        versionNumber: Int,
+    ): OperationWorkflowVersionEntity?
+
     @Upsert
     abstract suspend fun upsertWorkflow(entity: OperationWorkflowEntity)
 
@@ -480,6 +502,23 @@ abstract class OperationWorkflowDao {
     }
 
     @Transaction
+    open suspend fun saveSyncedCloudVisualGraph(
+        workflow: OperationWorkflowEntity,
+        appScopes: List<OperationWorkflowAppScopeEntity>,
+        variables: List<OperationWorkflowVariableEntity>,
+    ) {
+        deleteSelectors(workflow.id)
+        deleteStateChecks(workflow.id)
+        deleteSteps(workflow.id)
+        deleteMilestones(workflow.id)
+        deleteVariables(workflow.id)
+        deleteAppScopes(workflow.id)
+        upsertWorkflow(workflow)
+        if (appScopes.isNotEmpty()) upsertAppScopes(appScopes)
+        if (variables.isNotEmpty()) upsertVariables(variables)
+    }
+
+    @Transaction
     open suspend fun approveWorkflow(
         workflowId: String,
         versionId: String,
@@ -501,6 +540,29 @@ abstract class OperationWorkflowDao {
         )
         updateWorkflowStatus(workflowId, "Approved", approvedAtMillis)
         return nextVersion
+    }
+
+    @Transaction
+    open suspend fun upsertSyncedVersion(
+        workflowId: String,
+        versionId: String,
+        versionNumber: Int,
+        snapshotJson: String,
+        approvedAtMillis: Long,
+        changeSummary: String,
+    ) {
+        val existing = loadVersion(workflowId, versionNumber)
+        upsertVersion(
+            OperationWorkflowVersionEntity(
+                id = existing?.id ?: versionId,
+                workflowId = workflowId,
+                versionNumber = versionNumber.coerceAtLeast(1),
+                snapshotJson = snapshotJson,
+                approvedAtMillis = approvedAtMillis.coerceAtLeast(0L),
+                verifiedAtMillis = existing?.verifiedAtMillis,
+                changeSummary = changeSummary,
+            ),
+        )
     }
 
     @Transaction
