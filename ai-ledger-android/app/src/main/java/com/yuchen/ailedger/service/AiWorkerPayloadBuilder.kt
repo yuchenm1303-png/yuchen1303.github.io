@@ -79,6 +79,8 @@ internal object AiWorkerPayloadBuilder {
             put("memoryMode", memoryCompilation.requestMode)
             put("memoryEnabled", memoryCompilation.memoryRequested)
             put("memoryRequest", memoryCompilation.diagnosticsJson())
+            put("agentProgressStream", true)
+            put("workspaceProgressStream", true)
 
             put("chatExpressionPreferences", JSONObject().apply {
                 put("schema", "ai_ledger_chat_expression_preferences_v1")
@@ -133,6 +135,7 @@ internal object AiWorkerPayloadBuilder {
                 put("includeStructuredData", true)
                 put("includeClientToolCall", true)
                 put("includeEmbeddedCommandMarker", false)
+                put("includeAgentProgress", true)
                 if (agentModeEnabled) put("deferClientToolReply", true)
             })
 
