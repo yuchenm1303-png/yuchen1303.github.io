@@ -50,3 +50,16 @@ internal data class OperationSkillAssetSyncResult(
     val syncedAtMillis: Long = 0L,
     val errorMessage: String? = null,
 )
+
+internal data class OperationSkillAssetSyncStatusSnapshot(
+    val lastSuccessAtMillis: Long = 0L,
+    val lastError: String? = null,
+    val pullWatermarkMillis: Long = 0L,
+    val lastReason: String? = null,
+) {
+    val hasSyncedBefore: Boolean
+        get() = lastSuccessAtMillis > 0L
+
+    val hasError: Boolean
+        get() = !lastError.isNullOrBlank()
+}
