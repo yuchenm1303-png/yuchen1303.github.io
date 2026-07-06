@@ -44,17 +44,22 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
     val speed = motion.speed.coerceIn(0.35f, 2.50f)
+    val timeScale = (0.54f + speed * 0.46f).coerceIn(0.70f, 1.70f)
     val master = whiteOpticsMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     val touchLight = whiteOpticsMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
     val sweepGain = whiteOpticsMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
     val afterglow = whiteOpticsMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
     val elasticityBoost = node.elasticity.coerceIn(0.08f, 1f)
 
-    val pressShape = whiteOpticsSmoothStep((dynamicPress + lensValue * 0.48f).coerceIn(0f, 3.4f) / 3.4f)
-    val diffusionPhase = whiteOpticsSmoothStep(
-        ((sweepValue / 3.60f) * (0.58f + speed * 0.46f)).coerceIn(0f, 1f)
+    val pressShape = whiteOpticsSmoothStep(
+        ((dynamicPress + lensValue * 0.48f) * timeScale).coerceIn(0f, 3.4f) / 3.4f
     )
-    val releasePhase = whiteOpticsSmoothStep((releaseValue + afterValue * 0.32f).coerceIn(0f, 2f) / 2f)
+    val diffusionPhase = whiteOpticsSmoothStep(
+        ((sweepValue * timeScale) / 3.60f).coerceIn(0f, 1f)
+    )
+    val releasePhase = whiteOpticsSmoothStep(
+        ((releaseValue + afterValue * 0.32f) * timeScale).coerceIn(0f, 2f) / 2f
+    )
 
     val lightPower = (touchLight * (0.20f + lensValue * 0.44f + dynamicPress * 0.10f + afterValue * 0.08f) * elasticityBoost)
         .coerceIn(0f, 50f)
@@ -75,7 +80,7 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     val innerAlpha = (0.0092f * fieldPower).coerceIn(0f, 0.34f)
     val milkAlpha = (0.0048f * fieldPower).coerceIn(0f, 0.18f)
 
-    val sweepPhase = ((sweepValue / 3.60f) * (0.70f + speed * 0.38f)).coerceIn(0f, 1.26f)
+    val sweepPhase = ((sweepValue * timeScale) / 3.60f).coerceIn(0f, 1.26f)
     val sweepX = -0.30f + sweepPhase * 1.54f
     val rimInset = 0.62.dp.toPx()
     val radiusPx = node.radius.dp.toPx()
@@ -96,8 +101,6 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
             pivot = Offset(w * transform.originX, h * transform.originY),
         )
     }) {
-        // 连续内部光场：只画一张超大半径的场，中心放在组件下方并轻微跟随触点。
-        // 这样看不到圆心和边界，只会感觉玻璃内部被整体揉亮、压开。
         drawRoundRect(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -114,7 +117,6 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
             blendMode = BlendMode.Plus,
         )
 
-        // 全域乳白流场：覆盖整个玻璃表面，只改变整体明暗梯度，不形成单独光块。
         drawRoundRect(
             brush = Brush.verticalGradient(
                 colors = listOf(
@@ -131,7 +133,6 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
             blendMode = BlendMode.Screen,
         )
 
-        // 扩散感也并入同一个场：只让同源大场半径继续打开，不画独立水波环。
         if (wavePower > 0.001f) {
             val waveAlpha = (0.0038f * wavePower * (1f - diffusionPhase * 0.36f)).coerceIn(0f, 0.12f)
             drawRoundRect(
@@ -151,7 +152,6 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
             )
         }
 
-        // 贴边细光：只在边缘走一条薄亮线，避免粗白圈压过内部连续场。
         val rimPower = maxOf(wavePower, lightPower * 0.16f, afterPower * 0.22f).coerceIn(0f, 32f)
         if (rimPower > 0.001f) {
             drawRoundRect(
