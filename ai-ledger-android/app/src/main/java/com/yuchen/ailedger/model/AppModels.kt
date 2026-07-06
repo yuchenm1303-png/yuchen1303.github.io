@@ -25,7 +25,7 @@ enum class ToolDestination(
     Reminder("计划", "安排提醒、闹钟与周期任务", "计", true),
     AppControl("应用控制", "打开常用应用入口", "控", true),
     StorageManagement("存储管理", "安全扫描缓存、大文件与授权目录", "存", true),
-    Shortcuts("操作学习", "演示一次，让助手学会重复操作", "学", true),
+    Shortcuts("record & replay", "演示一次，让助手学会重复操作", "学", true),
     TaskHistory("任务记录", "查看助手执行历史", "记");
 }
 
@@ -62,7 +62,7 @@ enum class GlassPreset(val label: String, val glassIntensity: Float, val motionI
 
     companion object {
         fun fromStorage(value: String): GlassPreset {
-            return entries.firstOrNull { it.name == value } ?: Liquid
+            return entries.firstOrNull { it.storageValue == value || it.name == value } ?: Liquid
         }
     }
 }
@@ -219,169 +219,5 @@ enum class LedgerRecordType(val label: String) { Expense("支出"), Income("收�
 data class WebSource(
     val title: String = "",
     val url: String = "",
-    val domain: String = "",
-    val snippet: String = "",
-    val publishedAt: String? = null
-)
-
-@Immutable
-data class StructuredMetric(
-    val label: String = "",
-    val value: String = "",
-    val unit: String? = null,
-    val detail: String? = null
-) {
-    val displayLabel: String get() = label.trim().ifBlank { "指标" }
-    val displayValue: String
-        get() {
-            val cleanValue = value.trim().ifBlank { "--" }
-            val cleanUnit = unit?.trim().orEmpty()
-            return cleanValue + (cleanUnit.takeIf { it.isNotBlank() && !cleanValue.contains(it) }?.let { " $it" } ?: "")
-        }
-    val displayDetail: String? get() = detail?.trim()?.takeIf { it.isNotBlank() }
-}
-
-@Immutable
-data class StructuredDataCard(
-    val type: String = "realtime",
-    val title: String = "实时数据",
-    val subtitle: String? = null,
-    val timestamp: String? = null,
-    val metrics: List<StructuredMetric> = emptyList(),
-    val rawText: String? = null
-)
-
-@Immutable
-data class ChatAttachment(
-    val id: String,
-    val mimeType: String = "image/jpeg",
-    val base64Data: String,
-    val fileName: String? = null,
-    val width: Int? = null,
-    val height: Int? = null,
-    val sizeBytes: Int? = null,
-    val previewUri: String? = null
-)
-
-enum class ComposerAttachmentStatus { Preparing, Ready, Uploading, Failed }
-
-@Immutable
-data class ComposerAttachment(
-    val id: String,
-    val localUri: String,
-    val mimeType: String = "image/jpeg",
-    val fileName: String? = null,
-    val width: Int? = null,
-    val height: Int? = null,
-    val sizeBytes: Int? = null,
-    val base64Data: String? = null,
-    val previewUri: String? = null,
-    val progress: Float = 0f,
-    val status: ComposerAttachmentStatus = ComposerAttachmentStatus.Preparing,
-    val errorText: String? = null,
-) {
-    val isReady: Boolean get() = status == ComposerAttachmentStatus.Ready && !base64Data.isNullOrBlank()
-
-    fun toChatAttachment(): ChatAttachment? {
-        val data = base64Data?.takeIf { it.isNotBlank() } ?: return null
-        return ChatAttachment(id, mimeType, data, fileName, width, height, sizeBytes, previewUri)
-    }
-}
-
-@Immutable
-data class ChatMessage(
-    val id: String,
-    val text: String,
-    val role: MessageRole,
-    val status: MessageStatus = MessageStatus.Sent,
-    val source: String? = null,
-    val model: String? = null,
-    val modelLabel: String? = null,
-    val version: String? = null,
-    val errorText: String? = null,
-    val webSources: List<WebSource> = emptyList(),
-    val structuredData: StructuredDataCard? = null,
-    val searchUsed: Boolean = false,
-    val searchProvider: String? = null,
-    val attachments: List<ChatAttachment> = emptyList(),
-    val createdAt: Long = System.currentTimeMillis()
-) {
-    val hasImageAttachments: Boolean
-        get() = attachments.any { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }
-}
-
-@Immutable
-data class StatSummary(val title: String, val value: String)
-
-@Immutable
-data class ToolEntry(
-    val destination: ToolDestination,
-    val title: String = destination.title,
-    val subtitle: String = destination.subtitle,
-    val icon: String = destination.icon,
-)
-
-@Immutable
-data class LedgerRecord(
-    val id: String,
-    val title: String,
-    val amount: Float,
-    val type: LedgerRecordType,
-    val category: String,
-    val dateLabel: String
-)
-
-object LedgerStateBridge {
-    var records by mutableStateOf<List<LedgerRecord>>(emptyList())
-        private set
-    var budgetText by mutableStateOf("3000")
-        private set
-
-    fun update(records: List<LedgerRecord>, budgetText: String) {
-        this.records = records
-        this.budgetText = budgetText
-    }
-}
-
-@Immutable
-data class AssistantUiState(
-    val currentTab: AppTab = AppTab.Assistant,
-    val quality: RenderQuality = RenderQuality.Balanced,
-    val showPreviewConversation: Boolean = true,
-    val glassPreset: GlassPreset = GlassPreset.Liquid,
-    val backgroundTheme: BackgroundTheme = BackgroundTheme.Aurora,
-    val customBackgroundPath: String? = null,
-    val glassIntensity: Float = 1f,
-    val motionIntensity: Float = 1f,
-    val rainbowPrismStyle: RainbowPrismStyle = RainbowPrismStyle(),
-    val modelCardGlassStyle: ModelCardGlassStyle = ModelCardGlassStyle(),
-    val backdropParams: BackdropDebugParams = BackdropDebugParams(),
-    val glassBorderStyle: GlassBorderStyle = GlassBorderStyle(),
-    val navigationHomeAddress: String = "",
-    val navigationSchoolAddress: String = "",
-    val navigationCompanyAddress: String = "",
-    val navigationDormAddress: String = "",
-    val stats: List<StatSummary> = emptyList(),
-    val messages: List<ChatMessage> = emptyList(),
-    val tools: List<ToolEntry> = emptyList(),
-    val composerText: String = "",
-    val composerAttachments: List<ComposerAttachment> = emptyList(),
-    val selectedModel: ChatModel = ChatModel.Auto,
-    val selectedModelLabel: String = ChatModel.Auto.label,
-    val onlineEnabled: Boolean = false,
-    val agentEnabled: Boolean = true,
-    val isSending: Boolean = false,
-    val selectedTool: ToolDestination? = null,
-) {
-    val ledgerRecords: List<LedgerRecord> get() = LedgerStateBridge.records
-    val ledgerBudgetText: String get() = LedgerStateBridge.budgetText
-}
-
-@Immutable
-data class RainbowPrismStyle(
-    val overall: Float = 1.00f,
-    val edgeHighlight: Float = 2.00f,
-    val sweepMin: Float = 0.70f,
-    val sweepMax: Float = 1.80f,
-    val rainbowHalo: Float = 0.80f
+    val snippet: String = ""
 )
