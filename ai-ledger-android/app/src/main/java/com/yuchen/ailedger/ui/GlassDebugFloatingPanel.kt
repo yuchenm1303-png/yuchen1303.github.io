@@ -66,6 +66,9 @@ fun GlassDebugFloatingPanel(
                 LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..1.5f) {
                     ComposeGlassLabState.updateMotion(motion.copy(master = it))
                 }
+                LabSlider("光动效速度", "控制普通 Compose 白光扩散、扫光流动和余辉消散速度", motion.speed, 0.35f..2.5f) {
+                    ComposeGlassLabState.updateMotion(motion.copy(speed = it))
+                }
                 LabSlider("按压形变", "控制横向膨胀、纵向压缩和下沉幅度", motion.deformation, 0f..1.5f) {
                     ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
                 }
@@ -86,7 +89,7 @@ fun GlassDebugFloatingPanel(
                 }
                 LabActionButton(
                     title = "恢复光动效默认值",
-                    subtitle = "白光约 75% · 棱彩约 25%",
+                    subtitle = "白光约 75% · 棱彩约 25% · 速度 1x",
                     state = state,
                     modifier = Modifier.fillMaxWidth(),
                     onClick = ComposeGlassLabState::resetMotion,
@@ -238,158 +241,3 @@ private fun OpenGlGlassLab(
         LabSlider("旧边缘宽度", "旧 shader rim 宽度", style.ringWidthDp, 0f..96f) { onStyleChange(style.copy(ringWidthDp = it)) }
     }
 }
-
-private fun legacyOpenGlLabStyle(): GlassBorderStyle = GlassBorderStyle(
-    ringWidthDp = 8.295f,
-    edgePullDp = -199.078f,
-    edgeBrightness = 1.083f,
-    openGlVisibility = 19.954f,
-    openGlMaxAlpha = 1f,
-    openGlPullScale = -5.53f,
-    openGlCompressionScale = -10f,
-    openGlCornerScale = 54.378f,
-    openGlDarkScale = -2.21f,
-    openGlSampleRadiusScale = 66.359f
-)
-
-@Composable
-private fun GlassLabFoldout(
-    title: String,
-    subtitle: String,
-    initiallyExpanded: Boolean,
-    state: AssistantUiState,
-    content: @Composable () -> Unit
-) {
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
-        PressableGlass(
-            state.quality,
-            state.glassIntensity * if (expanded) 0.94f else 0.76f,
-            state.motionIntensity,
-            24,
-            Modifier.fillMaxWidth().height(58.dp),
-            GlassRole.Flex,
-            onClick = { expanded = !expanded }
-        ) {
-            Row(
-                Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                    Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
-                    Text(subtitle, color = Color.White.copy(alpha = 0.44f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-                Text(if (expanded) "收起 ︿" else "展开 ﹀", color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-        GlassFoldoutAnimatedContent(
-            expanded = expanded,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Group(title: String, subtitle: String, state: AssistantUiState, content: @Composable () -> Unit) {
-    var expanded by rememberSaveable(title) { mutableStateOf(true) }
-    val groupShape = RoundedCornerShape(20.dp)
-    val actionShape = RoundedCornerShape(999.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(groupShape)
-            .background(Color.White.copy(alpha = 0.045f))
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(title, color = Color.White.copy(alpha = 0.86f), fontSize = 14.sp, fontWeight = FontWeight.Black)
-                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            Text(
-                if (expanded) "收起" else "展开",
-                color = Color.White.copy(alpha = 0.54f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier
-                    .composeGlassMotionClickable(shape = actionShape) { expanded = !expanded }
-                    .clip(actionShape)
-                    .background(Color.White.copy(alpha = 0.060f))
-                    .padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-        }
-        GlassFoldoutAnimatedContent(
-            expanded = expanded,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LabSlider(
-    title: String,
-    subtitle: String,
-    value: Float,
-    range: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit
-) {
-    InsetGlassParameterSlider(
-        title = title,
-        description = subtitle,
-        value = value,
-        valueRange = range,
-        onValueChange = onValueChange,
-        valueText = value.formatLabValue()
-    )
-}
-
-@Composable
-private fun LabActionButton(
-    title: String,
-    subtitle: String,
-    state: AssistantUiState,
-    modifier: Modifier,
-    onClick: () -> Unit
-) {
-    PressableGlass(
-        state.quality,
-        state.glassIntensity * 0.72f,
-        state.motionIntensity,
-        22,
-        modifier.height(54.dp),
-        GlassRole.Chip,
-        onClick = onClick
-    ) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(title, color = Color.White.copy(alpha = 0.86f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
-            Text(subtitle, color = Color.White.copy(alpha = 0.44f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun Metric(label: String, value: Float, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .height(42.dp)
-            .clip(RoundedCornerShape(15.dp))
-            .background(Color.White.copy(alpha = 0.060f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-        Text(value.formatLabValue(), color = Color.White.copy(alpha = 0.86f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
-    }
-}
-
-private fun Float.formatLabValue(): String = ((this * 100f).roundToInt() / 100f).toString()
