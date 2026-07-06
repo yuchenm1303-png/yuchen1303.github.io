@@ -31,10 +31,10 @@ import com.yuchen.ailedger.model.RenderQuality
 import kotlinx.coroutines.launch
 
 /**
- * 只把“Compose 玻璃光动效”接入真实普通 PressableGlass 点击链。
+ * 只把 Compose 玻璃光动效接入真实普通 PressableGlass 点击链。
  *
- * 这里不修改普通玻璃静态材质，不控制上下固定高光、固定边框、底部固定暗边等“假光效”。
- * 滑块只影响按压/释放时临时出现的真实动态层：形变、触点白光、棱彩扫光、释放回弹和余辉。
+ * 不修改普通玻璃静态材质，不控制上下固定高光、固定边框、底部固定暗边。
+ * 这里只处理手指按压/释放期间临时出现的真实动态层：胶囊膨胀、触点白光、棱彩扫光、释放回弹和余辉。
  * Shell 角色直接转发，避免触碰 OpenGL 大玻璃稳定链。
  */
 @Composable
@@ -64,11 +64,11 @@ fun PressableGlass(
     }
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
-    val oldMotionGate = if (motion.master <= 0.001f) 0f else motionIntensity * motion.master.coerceIn(0f, 1f)
+    val baseMotionGate = if (motion.master <= 0.001f) 0f else motionIntensity * motion.master.coerceIn(0f, 1f)
     PressableGlass(
         quality = quality,
         glassIntensity = glassIntensity,
-        motionIntensity = oldMotionGate,
+        motionIntensity = baseMotionGate,
         radius = radius,
         modifier = modifier.composeTruePressLightAndMotion(radius = radius, role = role, motion = motion),
         role = role,
@@ -85,20 +85,21 @@ private fun Modifier.composeTruePressLightAndMotion(
     motion: ComposeGlassMotionStyle
 ): Modifier {
     if (role == GlassRole.Shell) return this
-    val master = motion.master.coerceIn(0f, 8f)
+    val master = composeMotionPower(value = motion.master, uiMax = 8f, effectiveMax = 8f)
     if (master <= 0.001f) return this
 
-    val deformation = motion.deformation.coerceIn(0f, 8f) * master
-    val touchLight = motion.touchLight.coerceIn(0f, 16f) * master
-    val prism = motion.prism.coerceIn(0f, 16f) * master
-    val sweep = motion.sweep.coerceIn(0f, 16f) * master
-    val rebound = motion.rebound.coerceIn(0f, 8f) * master
-    val afterglow = motion.afterglow.coerceIn(0f, 12f) * master
+    val deformation = composeMotionPower(value = motion.deformation, uiMax = 8f, effectiveMax = 8f) * master
+    val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 16f, effectiveMax = 16f) * master
+    val prism = composeMotionPower(value = motion.prism, uiMax = 16f, effectiveMax = 16f) * master
+    val sweep = composeMotionPower(value = motion.sweep, uiMax = 16f, effectiveMax = 16f) * master
+    val rebound = composeMotionPower(value = motion.rebound, uiMax = 8f, effectiveMax = 8f) * master
+    val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 12f, effectiveMax = 12f) * master
 
     val scope = rememberCoroutineScope()
     val press = remember { Animatable(0f) }
     val lens = remember { Animatable(0f) }
     val sweepProgress = remember { Animatable(0f) }
+    val afterglowProgress = remember { Animatable(0f) }
     var pressCenter by remember { mutableStateOf(Offset(0.5f, 0.5f)) }
     var measuredSize by remember { mutableStateOf(Size(1f, 1f)) }
 
@@ -119,20 +120,28 @@ private fun Modifier.composeTruePressLightAndMotion(
 
                 scope.launch {
                     press.stop()
-                    val target = (0.34f + deformation * 0.12f).coerceIn(0.08f, 1.80f)
-                    if (press.value < 0.12f) press.snapTo(0.12f)
-                    press.animateTo(target, tween(96, easing = FastOutSlowInEasing))
-                    press.animateTo(target * 0.86f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessMediumLow))
+                    if (press.value < 0.18f) press.snapTo(0.18f)
+                    val burstTarget = (0.68f + deformation * 0.20f).coerceIn(0.28f, 2.20f)
+                    val holdTarget = (0.52f + deformation * 0.12f).coerceIn(0.20f, 1.55f)
+                    press.animateTo(burstTarget, tween(72, easing = FastOutSlowInEasing))
+                    press.animateTo(holdTarget, spring(dampingRatio = 0.54f, stiffness = Spring.StiffnessMedium))
                 }
                 scope.launch {
                     lens.stop()
-                    if (lens.value < 0.10f) lens.snapTo(0.10f)
-                    lens.animateTo((0.42f + touchLight * 0.14f).coerceIn(0.10f, 2.40f), tween(130, easing = FastOutSlowInEasing))
+                    if (lens.value < 0.18f) lens.snapTo(0.18f)
+                    val lensTarget = (0.76f + touchLight * 0.22f).coerceIn(0.24f, 3.40f)
+                    lens.animateTo(lensTarget, tween(96, easing = FastOutSlowInEasing))
                 }
                 scope.launch {
                     sweepProgress.stop()
                     sweepProgress.snapTo(0f)
-                    sweepProgress.animateTo((0.55f + sweep * 0.11f).coerceIn(0.20f, 2.60f), tween(360, easing = FastOutSlowInEasing))
+                    val sweepTarget = (0.88f + sweep * 0.15f).coerceIn(0.26f, 3.60f)
+                    sweepProgress.animateTo(sweepTarget, tween(300, easing = FastOutSlowInEasing))
+                }
+                scope.launch {
+                    afterglowProgress.stop()
+                    afterglowProgress.snapTo(0f)
+                    afterglowProgress.animateTo((0.38f + afterglow * 0.09f).coerceIn(0.12f, 1.80f), tween(180, easing = FastOutSlowInEasing))
                 }
 
                 while (true) {
@@ -147,29 +156,38 @@ private fun Modifier.composeTruePressLightAndMotion(
 
                 scope.launch {
                     press.stop()
-                    press.animateTo((-0.060f - rebound * 0.020f).coerceIn(-1.80f, -0.010f), tween(120, easing = FastOutSlowInEasing))
-                    press.animateTo(0f, spring(dampingRatio = 0.58f, stiffness = Spring.StiffnessLow))
+                    val reboundTarget = (-0.18f - rebound * 0.040f).coerceIn(-2.00f, -0.030f)
+                    press.animateTo(reboundTarget, tween(92, easing = FastOutSlowInEasing))
+                    press.animateTo(0.055f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow))
+                    press.animateTo(0f, spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessLow))
                 }
                 scope.launch {
                     lens.stop()
-                    lens.animateTo((0.12f + afterglow * 0.060f).coerceIn(0f, 1.60f), tween((180 + afterglow * 34f).toInt().coerceIn(180, 820), easing = FastOutSlowInEasing))
-                    lens.animateTo(0f, tween((280 + afterglow * 42f).toInt().coerceIn(280, 1100), easing = FastOutSlowInEasing))
+                    lens.animateTo((0.22f + afterglow * 0.085f).coerceIn(0.02f, 2.20f), tween((190 + afterglow * 28f).toInt().coerceIn(190, 920), easing = FastOutSlowInEasing))
+                    lens.animateTo(0f, tween((300 + afterglow * 44f).toInt().coerceIn(300, 1280), easing = FastOutSlowInEasing))
                 }
                 scope.launch {
                     sweepProgress.stop()
-                    sweepProgress.animateTo((0.06f + afterglow * 0.040f).coerceIn(0f, 1.20f), tween((220 + afterglow * 30f).toInt().coerceIn(220, 900), easing = FastOutSlowInEasing))
-                    sweepProgress.animateTo(0f, tween((260 + afterglow * 34f).toInt().coerceIn(260, 980), easing = FastOutSlowInEasing))
+                    sweepProgress.animateTo((0.12f + afterglow * 0.055f).coerceIn(0.01f, 1.50f), tween((210 + afterglow * 30f).toInt().coerceIn(210, 980), easing = FastOutSlowInEasing))
+                    sweepProgress.animateTo(0f, tween((260 + afterglow * 42f).toInt().coerceIn(260, 1140), easing = FastOutSlowInEasing))
+                }
+                scope.launch {
+                    afterglowProgress.stop()
+                    afterglowProgress.animateTo((0.36f + afterglow * 0.10f).coerceIn(0.02f, 2.20f), tween(140, easing = FastOutSlowInEasing))
+                    afterglowProgress.animateTo(0f, tween((520 + afterglow * 46f).toInt().coerceIn(520, 1500), easing = FastOutSlowInEasing))
                 }
             }
         }
         .graphicsLayer {
-            val p = composeMotionSmoothStep(press.value.coerceAtLeast(0f).coerceIn(0f, 2f) / 1.8f)
-            val r = composeMotionSmoothStep((-press.value).coerceAtLeast(0f).coerceIn(0f, 2f) / 1.8f)
-            val deformationGain = deformation.coerceIn(0f, 10f)
+            val p = composeMotionSmoothStep(press.value.coerceAtLeast(0f).coerceIn(0f, 2.2f) / 2.2f)
+            val r = composeMotionSmoothStep((-press.value).coerceAtLeast(0f).coerceIn(0f, 2.0f) / 2.0f)
+            val grow = deformation.coerceIn(0f, 12f)
+            val bounce = rebound.coerceIn(0f, 10f)
             transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
-            scaleX = 1f + p * 0.018f * deformationGain - r * 0.010f * rebound.coerceIn(0f, 10f)
-            scaleY = 1f - p * 0.024f * deformationGain + r * 0.018f * rebound.coerceIn(0f, 10f)
-            translationY = p * 1.45f * deformationGain - r * 0.90f * rebound.coerceIn(0f, 10f)
+            scaleX = 1f + p * (0.080f + 0.018f * grow) - r * (0.018f + 0.007f * bounce)
+            scaleY = 1f + p * (0.058f + 0.014f * grow) - r * (0.014f + 0.006f * bounce)
+            translationY = p * (0.45f + 0.22f * grow) - r * (0.36f + 0.16f * bounce)
+            shadowElevation = p * (1.2f + 0.18f * grow)
         }
         .drawWithContent {
             drawContent()
@@ -177,7 +195,8 @@ private fun Modifier.composeTruePressLightAndMotion(
             val dynamicPress = press.value.coerceAtLeast(0f)
             val lensValue = lens.value.coerceAtLeast(0f)
             val sweepValue = sweepProgress.value.coerceAtLeast(0f)
-            val active = maxOf(dynamicPress, lensValue, sweepValue)
+            val afterValue = afterglowProgress.value.coerceAtLeast(0f)
+            val active = maxOf(dynamicPress, lensValue, sweepValue, afterValue)
             if (active <= 0.001f) return@drawWithContent
 
             val w = size.width.coerceAtLeast(1f)
@@ -185,26 +204,40 @@ private fun Modifier.composeTruePressLightAndMotion(
             val maxSide = maxOf(w, h)
             val center = Offset(pressCenter.x.coerceIn(0f, 1f) * w, pressCenter.y.coerceIn(0f, 1f) * h)
             val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
-            val lightPower = (touchLight * (0.32f + lensValue * 0.68f)).coerceIn(0f, 32f)
-            val prismPower = (prism * (0.20f + dynamicPress * 0.40f + sweepValue * 0.40f)).coerceIn(0f, 32f)
-            val sweepPower = (sweep * sweepValue).coerceIn(0f, 32f)
-            val afterPower = (afterglow * lensValue).coerceIn(0f, 24f)
-            val p = composeMotionSmoothStep((dynamicPress + lensValue * 0.78f).coerceIn(0f, 3.2f) / 3.2f)
-            val sweepPhase = (sweepValue / 2.60f).coerceIn(0f, 1.25f)
-            val sweepX = -0.42f + sweepPhase * 1.86f
-            val rimInset = 0.54.dp.toPx()
+            val pressShape = composeMotionSmoothStep((dynamicPress + lensValue * 0.60f).coerceIn(0f, 3.4f) / 3.4f)
+            val lightPower = (touchLight * (0.42f + lensValue * 0.72f + afterValue * 0.18f)).coerceIn(0f, 72f)
+            val prismPower = (prism * (0.24f + dynamicPress * 0.34f + sweepValue * 0.46f)).coerceIn(0f, 72f)
+            val sweepPower = (sweep * (0.16f + sweepValue * 0.92f)).coerceIn(0f, 72f)
+            val afterPower = (afterglow * (afterValue * 0.85f + lensValue * 0.22f)).coerceIn(0f, 54f)
+            val sweepPhase = (sweepValue / 3.60f).coerceIn(0f, 1.30f)
+            val sweepX = -0.46f + sweepPhase * 1.92f
+            val rimInset = 0.42.dp.toPx()
             val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
 
             drawRoundRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color.White.copy(alpha = (0.055f * lightPower).coerceIn(0f, 1f)),
-                        Color(0xFFCFFFFF).copy(alpha = (0.030f * lightPower).coerceIn(0f, 1f)),
-                        Color(0xFF7DFFF0).copy(alpha = (0.010f * lightPower).coerceIn(0f, 1f)),
+                        Color.White.copy(alpha = (0.070f * lightPower).coerceIn(0f, 1f)),
+                        Color(0xFFE8FFFF).copy(alpha = (0.044f * lightPower).coerceIn(0f, 1f)),
+                        Color(0xFF89FFF3).copy(alpha = (0.018f * lightPower).coerceIn(0f, 1f)),
                         Color.Transparent
                     ),
                     center = center,
-                    radius = maxSide * (0.20f + 0.18f * lightPower.coerceIn(0f, 8f) + 0.22f * p)
+                    radius = maxSide * (0.26f + 0.030f * lightPower.coerceIn(0f, 18f) + 0.30f * pressShape)
+                ),
+                size = Size(w, h),
+                cornerRadius = cornerRadius,
+                blendMode = BlendMode.Plus
+            )
+
+            drawRoundRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = (0.030f * lightPower).coerceIn(0f, 0.72f)),
+                        Color.Transparent
+                    ),
+                    center = center,
+                    radius = maxSide * (0.10f + 0.018f * lightPower.coerceIn(0f, 20f))
                 ),
                 size = Size(w, h),
                 cornerRadius = cornerRadius,
@@ -216,19 +249,19 @@ private fun Modifier.composeTruePressLightAndMotion(
                     brush = Brush.linearGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color(0xFFFF68D9).copy(alpha = (0.030f * prismPower).coerceIn(0f, 1f)),
-                            Color(0xFFFFF0A6).copy(alpha = (0.034f * prismPower + 0.028f * sweepPower).coerceIn(0f, 1f)),
-                            Color(0xFF67FFF0).copy(alpha = (0.040f * prismPower + 0.034f * sweepPower).coerceIn(0f, 1f)),
-                            Color(0xFF8EA3FF).copy(alpha = (0.026f * prismPower).coerceIn(0f, 1f)),
+                            Color(0xFFFF67DA).copy(alpha = (0.036f * prismPower).coerceIn(0f, 1f)),
+                            Color(0xFFFFF3AA).copy(alpha = (0.034f * prismPower + 0.032f * sweepPower).coerceIn(0f, 1f)),
+                            Color(0xFF6CFFF1).copy(alpha = (0.044f * prismPower + 0.040f * sweepPower).coerceIn(0f, 1f)),
+                            Color(0xFF9BA9FF).copy(alpha = (0.030f * prismPower).coerceIn(0f, 1f)),
                             Color.Transparent
                         ),
-                        start = Offset(w * (sweepX - 0.30f), h * -0.08f),
-                        end = Offset(w * (sweepX + 0.34f), h * 1.06f)
+                        start = Offset(w * (sweepX - 0.40f), h * -0.10f),
+                        end = Offset(w * (sweepX + 0.48f), h * 1.10f)
                     ),
                     topLeft = Offset(rimInset, rimInset),
                     size = rimSize,
                     cornerRadius = cornerRadius,
-                    style = Stroke((0.45.dp.toPx() + 0.12.dp.toPx() * sweepPower.coerceIn(0f, 18f)).coerceAtMost(7.5.dp.toPx())),
+                    style = Stroke((0.60.dp.toPx() + 0.16.dp.toPx() * sweepPower.coerceIn(0f, 24f)).coerceAtMost(9.0.dp.toPx())),
                     blendMode = BlendMode.Plus
                 )
             }
@@ -237,12 +270,12 @@ private fun Modifier.composeTruePressLightAndMotion(
                 drawRoundRect(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = (0.020f * afterPower).coerceIn(0f, 0.72f)),
-                            Color(0xFFB8FFF9).copy(alpha = (0.016f * afterPower).coerceIn(0f, 0.52f)),
+                            Color.White.copy(alpha = (0.026f * afterPower).coerceIn(0f, 0.78f)),
+                            Color(0xFFB8FFF9).copy(alpha = (0.020f * afterPower).coerceIn(0f, 0.58f)),
                             Color.Transparent
                         ),
                         center = Offset(w * 0.50f, h * 0.42f),
-                        radius = maxSide * (0.42f + afterPower.coerceIn(0f, 8f) * 0.06f)
+                        radius = maxSide * (0.46f + afterPower.coerceIn(0f, 10f) * 0.065f)
                     ),
                     size = Size(w, h),
                     cornerRadius = cornerRadius,
@@ -250,6 +283,14 @@ private fun Modifier.composeTruePressLightAndMotion(
                 )
             }
         }
+}
+
+private fun composeMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
+    val clean = value.coerceAtLeast(0f)
+    if (clean <= 1f) return clean
+    val span = (uiMax - 1f).coerceAtLeast(0.001f)
+    val t = ((clean - 1f) / span).coerceIn(0f, 1f)
+    return 1f + t * (effectiveMax - 1f)
 }
 
 private fun composeMotionSmoothStep(value: Float): Float {
