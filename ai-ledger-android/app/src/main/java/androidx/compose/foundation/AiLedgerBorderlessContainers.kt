@@ -45,7 +45,7 @@ fun Modifier.border(
 ): Modifier = this
 
 /**
- * 精确拦截尚未迁移的 FrostInfoGlassPanel 内容根节点重复深蓝染色层。
+ * 精确拦截尚未迁移的 FrostInfoGlassPanel 内容根节点重复染色层。
  *
  * 使用单参数重载，使其他颜色仍回落到 Compose 原生 background(color, shape)，
  * 不改变普通背景、图标底色、标签底色或带显式 shape 的背景。
@@ -64,6 +64,15 @@ private fun Color.isAiLedgerRedundantFrostTint(): Boolean = when (toArgb()) {
     0x47111742, // 应用控制统计卡 28%
     0x40111742, // 应用搜索框 25%
     0x47151A4F, // 未完成工具占位卡 28%
+    0x128DF9EA, // 操作学习录制状态卡内层染色 7%
+    0x0ECAB8FF, // 操作学习创建 Skill 卡内层染色 5.5%
+    0x13CAB8FF, // 操作学习选中 Skill 草稿卡内层染色 7.5%
+    0x3D10153A, // 操作学习编辑卡内层深色底 24%
+    0x3810153A, // 操作学习工作方式卡内层深色底 22%
+    0x3611163D, // 操作学习架构原则卡内层深色底 21%
+    0x3311163D, // 操作学习 Skill 草稿卡内层深色底 20%
+    0x3312163D, // 操作学习空 Skill 卡内层深色底 20%
+    0x2E101536, // 操作学习安全边界卡内层深色底 18%
     -> true
     else -> false
 }
