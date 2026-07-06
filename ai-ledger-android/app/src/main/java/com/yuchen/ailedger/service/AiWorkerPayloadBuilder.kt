@@ -1,6 +1,9 @@
 package com.yuchen.ailedger.service
 
 import com.yuchen.ailedger.AiLedgerApplication
+import com.yuchen.ailedger.data.AssistantMemoryCompiler
+import com.yuchen.ailedger.data.AssistantMemoryRepository
+import com.yuchen.ailedger.data.AssistantMemoryRequestContextRuntime
 import com.yuchen.ailedger.model.ChatAttachment
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
@@ -19,6 +22,7 @@ internal object AiWorkerPayloadBuilder {
         resolvedClientId: String,
     ): JSONObject {
         messages.clientToolResultReceiptOrNull()?.let { receipt ->
+            AssistantMemoryRequestContextRuntime.clearCurrentThread()
             return buildClientToolResultPayload(receipt, route, resolvedClientId)
         }
         val latestUserText = messages.latestUserText()
@@ -26,6 +30,18 @@ internal object AiWorkerPayloadBuilder {
         val hasImage = imageArray.length() > 0
         val agentModeEnabled = !hasImage && AgentRuntimeController.isEnabled()
         val appContext = AiLedgerApplication.contextOrNull()
+        val memoryCompilation = appContext
+            ?.let { context ->
+                runCatching {
+                    AssistantMemoryCompiler.compile(
+                        userText = latestUserText,
+                        memoryState = AssistantMemoryRepository.get(context).state.value,
+                    )
+                }.getOrElse {
+                    AssistantMemoryCompiler.compileBackendOwned(latestUserText)
+                }
+            }
+            ?: AssistantMemoryCompiler.compileBackendOwned(latestUserText)
         val stickerPreferences = InlineStickerDisplaySettings.currentExpressionPreferences(appContext)
         val installedApps = if (hasImage) {
             emptyList()
@@ -60,6 +76,9 @@ internal object AiWorkerPayloadBuilder {
             put("intent", if (hasImage) "vision_chat" else "chat")
             put("messages", messages.toWorkerMessages())
             put("message", latestUserText)
+            put("memoryMode", memoryCompilation.requestMode)
+            put("memoryEnabled", memoryCompilation.memoryRequested)
+            put("memoryRequest", memoryCompilation.diagnosticsJson())
 
             put("chatExpressionPreferences", JSONObject().apply {
                 put("schema", "ai_ledger_chat_expression_preferences_v1")
