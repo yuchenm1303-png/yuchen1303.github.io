@@ -137,7 +137,7 @@ class AiWorkerClient(
                 try {
                     val rawResponse = transport.postChat(candidate, payload, route)
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
-                    return completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
+                    return completeClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                 } catch (error: IOException) {
                     lastError = error
                     if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
@@ -178,7 +178,7 @@ class AiWorkerClient(
                         onDelta = onDelta,
                     )
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
-                    return completeDeviceClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
+                    return completeClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
                 } catch (error: IOException) {
                     lastError = error
                     if (error is SocketTimeoutException || error.cause is SocketTimeoutException) {
@@ -221,6 +221,25 @@ class AiWorkerClient(
         onlineEnabled = onlineEnabled,
         resolvedClientId = resolvedClientId,
     )
+
+    private fun completeClientToolCallIfNeeded(
+        response: AiChatResponse,
+        modelPreference: ChatModel,
+    ): AiChatResponse? {
+        return completePlanClientToolCallIfNeeded(response, modelPreference)
+            ?: completeDeviceClientToolCallIfNeeded(response, modelPreference)
+    }
+
+    private fun completePlanClientToolCallIfNeeded(
+        response: AiChatResponse,
+        modelPreference: ChatModel,
+    ): AiChatResponse? {
+        val call = response.clientToolCall ?: return null
+        if (!PlanClientToolExecutor.isPlanTool(call.name)) return null
+        val app = AiLedgerApplication.contextOrNull() ?: return null
+        val receipt = PlanClientToolExecutor(app).execute(call, response.reply)
+        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+    }
 
     private fun completeDeviceClientToolCallIfNeeded(
         response: AiChatResponse,
@@ -422,11 +441,9 @@ class AiWorkerClient(
         }?.hasImageAttachments == true
 
     companion object {
-        const val ALIYUN_CN_ENDPOINT =
-            "https://" + "ai-ledg-chat-cn-dnuxlrhytb.cn-hangzhou.fcapp.run"
-        const val CLOUDFLARE_WORKER_ENDPOINT =
-            "https://" + "ai-ledger-parser.552078638.workers.dev"
-        const val DEFAULT_ENDPOINT = ALIYUN_CN_ENDPOINT
+        val ALIYUN_CN_ENDPOINT: String = AI_WORKER_ALIYUN_CN_ENDPOINT
+        val CLOUDFLARE_WORKER_ENDPOINT: String = AI_WORKER_CLOUDFLARE_WORKER_ENDPOINT
+        val DEFAULT_ENDPOINT: String = ALIYUN_CN_ENDPOINT
         val DEFAULT_FALLBACK_ENDPOINTS = listOf(CLOUDFLARE_WORKER_ENDPOINT)
     }
 }
