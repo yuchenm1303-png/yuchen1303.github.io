@@ -2,13 +2,16 @@ package com.yuchen.ailedger.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -42,9 +45,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,7 +70,6 @@ import com.yuchen.ailedger.service.OperationRecordingState
 import com.yuchen.ailedger.service.OperationWorkflowValidator
 import com.yuchen.ailedger.service.WorkflowValidationStage
 import java.util.Locale
-import kotlin.math.roundToInt
 
 private val OperationLearningAccent = Color(0xFF8DF9EA)
 private val OperationLearningViolet = Color(0xFFCAB8FF)
@@ -343,6 +346,7 @@ private fun InstalledAppPickerDialog(
                 onValueChange = onQueryChange,
                 label = "搜索应用",
                 singleLine = true,
+                maxChars = 60,
             )
 
             when {
@@ -627,6 +631,12 @@ private fun CreateIntentCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.94f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                )
                 .background(OperationLearningViolet.copy(alpha = 0.055f))
                 .padding(horizontal = 17.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(11.dp),
@@ -669,68 +679,78 @@ private fun SkillIntentEditorSlot(
     onCancel: () -> Unit,
     onSave: () -> Boolean,
 ) {
-    val progress = remember { Animatable(if (visible) 1f else 0f) }
-
-    LaunchedEffect(visible) {
-        progress.stop()
-        if (visible) {
-            progress.animateTo(
-                targetValue = 1f,
+    /*
+     * 这里不要再用 SubcomposeLayout 每帧手动测量高度。
+     * 教学卡里有 TextField，手动测量会在输入和展开动画同时发生时放大重组，
+     * 部分输入法会丢 selection，表现为光标跳到开头。
+     *
+     * AnimatedVisibility 让 Compose 自己接管进入/退出和父级重测量；
+     * clipToBounds 只裁掉视觉溢出，不参与输入状态。
+     */
+    AnimatedVisibility(
+        visible = visible,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clipToBounds()
+            .animateContentSize(
                 animationSpec = spring(
-                    dampingRatio = 0.90f,
+                    dampingRatio = 0.92f,
                     stiffness = Spring.StiffnessMediumLow,
                 ),
-            )
-        } else {
-            progress.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(durationMillis = 218),
-            )
-        }
-    }
-
-    val p = progress.value.coerceIn(0f, 1f)
-    if (visible || p > 0.001f) {
-        SubcomposeLayout(
+            ),
+        enter = expandVertically(
+            expandFrom = Alignment.Top,
+            animationSpec = spring(
+                dampingRatio = 0.92f,
+                stiffness = Spring.StiffnessMediumLow,
+            ),
+        ) + fadeIn(
+            animationSpec = tween(
+                durationMillis = 132,
+                delayMillis = 24,
+                easing = FastOutSlowInEasing,
+            ),
+        ) + slideInVertically(
+            animationSpec = tween(
+                durationMillis = 180,
+                easing = FastOutSlowInEasing,
+            ),
+            initialOffsetY = { height -> (-height * 0.10f).toInt() },
+        ),
+        exit = fadeOut(
+            animationSpec = tween(
+                durationMillis = 82,
+                easing = FastOutSlowInEasing,
+            ),
+        ) + slideOutVertically(
+            animationSpec = tween(
+                durationMillis = 128,
+                easing = FastOutSlowInEasing,
+            ),
+            targetOffsetY = { height -> (-height * 0.06f).toInt() },
+        ) + shrinkVertically(
+            shrinkTowards = Alignment.Top,
+            animationSpec = tween(
+                durationMillis = 172,
+                easing = FastOutSlowInEasing,
+            ),
+        ),
+    ) {
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clipToBounds(),
-        ) { constraints ->
-            val visualAlpha = if (visible) {
-                ((p - 0.08f) / 0.92f).coerceIn(0f, 1f)
-            } else {
-                (p * (0.34f + 0.66f * p)).coerceIn(0f, 1f)
-            }
-            val placeables = subcompose("skill-intent-editor") {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer {
-                            alpha = visualAlpha
-                            clip = true
-                        },
-                ) {
-                    SkillIntentEditor(
-                        state = state,
-                        uiState = uiState,
-                        onTitleChange = onTitleChange,
-                        onGoalChange = onGoalChange,
-                        onChooseApp = onChooseApp,
-                        onCancel = onCancel,
-                        onSave = onSave,
-                    )
-                }
-            }.map { measurable ->
-                measurable.measure(constraints.copy(minHeight = 0))
-            }
-            val fullHeight = placeables.maxOfOrNull { it.height } ?: 0
-            val animatedHeight = (fullHeight * p).roundToInt().coerceAtLeast(0)
-
-            layout(constraints.maxWidth, animatedHeight) {
-                placeables.forEach { placeable ->
-                    placeable.placeRelative(0, 0)
-                }
-            }
+                .clipToBounds()
+                .graphicsLayer { clip = true },
+        ) {
+            SkillIntentEditor(
+                state = state,
+                uiState = uiState,
+                onTitleChange = onTitleChange,
+                onGoalChange = onGoalChange,
+                onChooseApp = onChooseApp,
+                onCancel = onCancel,
+                onSave = onSave,
+            )
         }
     }
 }
@@ -756,6 +776,12 @@ private fun SkillIntentEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.94f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                )
                 .background(OperationLearningSurface.copy(alpha = 0.24f))
                 .padding(horizontal = 16.dp, vertical = 17.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -767,8 +793,20 @@ private fun SkillIntentEditor(
                 fontSize = 11.5.sp,
                 lineHeight = 17.sp,
             )
-            OperationLearningTextField(uiState.titleInput, onTitleChange, "Skill 名称", true)
-            OperationLearningTextField(uiState.goalInput, onGoalChange, "想完成什么，以及哪些内容可能变化", false)
+            OperationLearningTextField(
+                value = uiState.titleInput,
+                onValueChange = onTitleChange,
+                label = "Skill 名称",
+                singleLine = true,
+                maxChars = 60,
+            )
+            OperationLearningTextField(
+                value = uiState.goalInput,
+                onValueChange = onGoalChange,
+                label = "想完成什么，以及哪些内容可能变化",
+                singleLine = false,
+                maxChars = 240,
+            )
             SelectedAppField(
                 appName = uiState.appNameInput,
                 onClick = onChooseApp,
@@ -852,10 +890,47 @@ private fun OperationLearningTextField(
     onValueChange: (String) -> Unit,
     label: String,
     singleLine: Boolean,
+    maxChars: Int = Int.MAX_VALUE,
 ) {
+    /*
+     * 使用 TextFieldValue 保存 selection/composition。
+     * 外层 ViewModel 仍然只接收 String，避免侵入数据层；输入框本地保留光标位置，
+     * 防止教学目标卡片重组或动画测量时光标被重置到开头。
+     */
+    var fieldValue by remember(label, singleLine, maxChars) {
+        mutableStateOf(
+            TextFieldValue(
+                text = value,
+                selection = TextRange(value.length),
+            ),
+        )
+    }
+
+    LaunchedEffect(value) {
+        if (value != fieldValue.text) {
+            fieldValue = TextFieldValue(
+                text = value,
+                selection = TextRange(value.length),
+            )
+        }
+    }
+
     OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
+        value = fieldValue,
+        onValueChange = { next ->
+            val cleanText = next.text.normalizeLearningInput(
+                singleLine = singleLine,
+                maxChars = maxChars,
+            )
+            val cleanValue = next.copy(
+                text = cleanText,
+                selection = next.selection.constrainTo(cleanText.length),
+            )
+            fieldValue = cleanValue
+            if (cleanText != value) {
+                onValueChange(cleanText)
+            }
+        },
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = singleLine,
@@ -874,6 +949,22 @@ private fun OperationLearningTextField(
             focusedContainerColor = Color.White.copy(alpha = 0.025f),
             unfocusedContainerColor = Color.White.copy(alpha = 0.018f),
         ),
+    )
+}
+
+private fun String.normalizeLearningInput(
+    singleLine: Boolean,
+    maxChars: Int,
+): String {
+    val clean = if (singleLine) replace("\n", "").replace("\r", "") else this
+    return clean.take(maxChars.coerceAtLeast(0))
+}
+
+private fun TextRange.constrainTo(textLength: Int): TextRange {
+    val safeLength = textLength.coerceAtLeast(0)
+    return TextRange(
+        start = start.coerceIn(0, safeLength),
+        end = end.coerceIn(0, safeLength),
     )
 }
 
@@ -1091,6 +1182,12 @@ private fun SkillDraftCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(25.dp))
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = 0.92f,
+                        stiffness = Spring.StiffnessMediumLow,
+                    ),
+                )
                 .background(
                     if (selected || thisRecording || thisRunning) OperationLearningViolet.copy(alpha = 0.075f)
                     else Color(0xFF11163D).copy(alpha = 0.20f),
@@ -1119,15 +1216,40 @@ private fun SkillDraftCard(
                 enter = expandVertically(
                     expandFrom = Alignment.Top,
                     animationSpec = spring(
-                        dampingRatio = 0.88f,
+                        dampingRatio = 0.92f,
                         stiffness = Spring.StiffnessMediumLow,
                     ),
-                ) + fadeIn(animationSpec = tween(durationMillis = 118, delayMillis = 18)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 42)) +
-                    shrinkVertically(
-                        shrinkTowards = Alignment.Top,
-                        animationSpec = tween(durationMillis = 168),
+                ) + fadeIn(
+                    animationSpec = tween(
+                        durationMillis = 128,
+                        delayMillis = 18,
+                        easing = FastOutSlowInEasing,
                     ),
+                ) + slideInVertically(
+                    animationSpec = tween(
+                        durationMillis = 170,
+                        easing = FastOutSlowInEasing,
+                    ),
+                    initialOffsetY = { height -> (-height * 0.08f).toInt() },
+                ),
+                exit = fadeOut(
+                    animationSpec = tween(
+                        durationMillis = 78,
+                        easing = FastOutSlowInEasing,
+                    ),
+                ) + slideOutVertically(
+                    animationSpec = tween(
+                        durationMillis = 116,
+                        easing = FastOutSlowInEasing,
+                    ),
+                    targetOffsetY = { height -> (-height * 0.05f).toInt() },
+                ) + shrinkVertically(
+                    shrinkTowards = Alignment.Top,
+                    animationSpec = tween(
+                        durationMillis = 158,
+                        easing = FastOutSlowInEasing,
+                    ),
+                ),
             ) {
                 skill?.let { learnedSkill ->
                     Box(
@@ -1230,6 +1352,7 @@ private fun SkillUnderstandingPanel(
                         onValueChange = { value -> onInputChange(input.key, value) },
                         label = if (input.required) "${input.label}（必填）" else input.label,
                         singleLine = true,
+                        maxChars = 500,
                     )
                 } else {
                     Text(
