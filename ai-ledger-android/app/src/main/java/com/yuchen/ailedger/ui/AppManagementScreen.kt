@@ -42,12 +42,18 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.service.AgentExecutionResult
+import com.yuchen.ailedger.service.AppControlInsights
+import com.yuchen.ailedger.service.AppControlInsightsRepository
 import com.yuchen.ailedger.service.AppManagementController
 import com.yuchen.ailedger.service.AppManagementRepository
+import com.yuchen.ailedger.service.AppOptimizationSignal
 import com.yuchen.ailedger.service.DeviceShellStatus
 import com.yuchen.ailedger.service.ManagedAppAction
 import com.yuchen.ailedger.service.ManagedAppDetails
 import com.yuchen.ailedger.service.ManagedAppSummary
+import com.yuchen.ailedger.service.appControlDurationLabel
+import com.yuchen.ailedger.service.appControlHumanBytes
+import com.yuchen.ailedger.service.appControlUsageLabel
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -55,11 +61,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private enum class ManagedAppFilter(val label: String) {
-    All("全部"), User("用户应用"), System("系统应用"), Disabled("已禁用"), Launchable("可打开")
+    Optimize("优化"),
+    Running("后台"),
+    Storage("存储"),
+    Risk("风险"),
+    All("全部"),
+    User("用户应用"),
+    System("系统应用"),
+    Disabled("已禁用"),
+    Launchable("可打开"),
 }
 
 private enum class ManagedAppSort(val label: String) {
-    Name("按名称"), Size("按安装包大小")
+    Score("按体检分"), Name("按名称"), Size("按安装包大小")
 }
 
 internal data class PendingManagedAppAction(
@@ -77,10 +91,12 @@ fun AppManagementScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val repository = remember(context) { AppManagementRepository(context.applicationContext) }
+    val insightsRepository = remember(context) { AppControlInsightsRepository(context.applicationContext) }
     val controller = remember(context) { AppManagementController(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var refreshGeneration by remember { mutableIntStateOf(0) }
     var apps by remember { mutableStateOf<List<ManagedAppSummary>>(emptyList()) }
+    var appInsights by remember { mutableStateOf<AppControlInsights?>(null) }
     var shellStatus by remember { mutableStateOf<DeviceShellStatus?>(null) }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
@@ -108,8 +124,13 @@ fun AppManagementScreen(
         loading = apps.isEmpty()
         loadError = null
         val loaded = withContext(Dispatchers.IO) { runCatching { repository.loadApps() } }
-        loaded.onSuccess { apps = it }
-            .onFailure { loadError = it.message?.takeIf(String::isNotBlank) ?: "无法读取应用列表" }
+        loaded.onSuccess { value ->
+            apps = value
+            appInsights = withContext(Dispatchers.IO) { insightsRepository.loadInsights(value) }
+        }.onFailure { error ->
+            loadError = error.message?.takeIf(String::isNotBlank) ?: "无法读取应用列表"
+            appInsights = null
+        }
         shellStatus = withContext(Dispatchers.IO) { controller.shellStatus(forceRefresh = refreshGeneration > 0) }
         loading = false
     }
@@ -137,6 +158,7 @@ fun AppManagementScreen(
             actionResult = withContext(Dispatchers.IO) { controller.requestShizukuPermission() }
             delay(700L)
             shellStatus = withContext(Dispatchers.IO) { controller.shellStatus(forceRefresh = true) }
+            appInsights = withContext(Dispatchers.IO) { insightsRepository.loadInsights(apps) }
         }
     }
 
@@ -151,6 +173,7 @@ fun AppManagementScreen(
                     ManagedAppListPage(
                         state = state,
                         apps = apps,
+                        insights = appInsights,
                         shellStatus = shellStatus,
                         loading = loading,
                         error = loadError,
@@ -167,6 +190,7 @@ fun AppManagementScreen(
                         packageName = routeKey,
                         refreshGeneration = refreshGeneration,
                         repository = repository,
+                        insight = appInsights?.byPackage?.get(routeKey),
                         shellStatus = shellStatus,
                         runningAction = runningAction,
                         actionResult = actionResult,
@@ -208,6 +232,7 @@ fun AppManagementScreen(
 private fun ManagedAppListPage(
     state: AssistantUiState,
     apps: List<ManagedAppSummary>,
+    insights: AppControlInsights?,
     shellStatus: DeviceShellStatus?,
     loading: Boolean,
     error: String?,
@@ -219,9 +244,10 @@ private fun ManagedAppListPage(
     actionResult: AgentExecutionResult?,
 ) {
     var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(ManagedAppFilter.All) }
-    var sort by remember { mutableStateOf(ManagedAppSort.Name) }
-    val filteredApps by remember(apps, query, filter, sort) {
+    var filter by remember { mutableStateOf(ManagedAppFilter.Optimize) }
+    var sort by remember { mutableStateOf(ManagedAppSort.Score) }
+    val signalByPackage = insights?.byPackage.orEmpty()
+    val filteredApps by remember(apps, signalByPackage, query, filter, sort) {
         derivedStateOf {
             val cleanQuery = query.trim().lowercase(Locale.ROOT)
             apps.asSequence()
@@ -230,7 +256,12 @@ private fun ManagedAppListPage(
                         app.packageName.lowercase(Locale.ROOT).contains(cleanQuery)
                 }
                 .filter { app ->
+                    val signal = signalByPackage[app.packageName]
                     when (filter) {
+                        ManagedAppFilter.Optimize -> signal?.let { it.cleanCandidate || it.lowUseButActive || it.storageHeavy } == true
+                        ManagedAppFilter.Running -> signal?.runtime != null
+                        ManagedAppFilter.Storage -> signal?.storageHeavy == true
+                        ManagedAppFilter.Risk -> signal?.lowUseButActive == true || app.isProtected || !app.isEnabled
                         ManagedAppFilter.All -> true
                         ManagedAppFilter.User -> !app.isSystemApp
                         ManagedAppFilter.System -> app.isSystemApp
@@ -240,6 +271,11 @@ private fun ManagedAppListPage(
                 }
                 .let { sequence ->
                     when (sort) {
+                        ManagedAppSort.Score -> sequence.sortedWith(
+                            compareByDescending<ManagedAppSummary> { signalByPackage[it.packageName]?.score ?: 0 }
+                                .thenBy { it.label.lowercase(Locale.ROOT) }
+                                .thenBy { it.packageName },
+                        )
                         ManagedAppSort.Name -> sequence.sortedWith(
                             compareBy<ManagedAppSummary> { it.label.lowercase(Locale.ROOT) }
                                 .thenBy { it.packageName },
@@ -252,6 +288,7 @@ private fun ManagedAppListPage(
     }
     val userCount = remember(apps) { apps.count { !it.isSystemApp } }
     val systemCount = remember(apps) { apps.count { it.isSystemApp } }
+    val dashboard = insights?.dashboard
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -264,7 +301,7 @@ private fun ManagedAppListPage(
                 Text("APP CONTROL", color = AppAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Text("应用控制", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                 Text(
-                    "查看所有应用的详细信息，并通过统一安全执行链管理存储、权限和运行状态。",
+                    "后台体检、智能清理、存储风险和增强控制已经接入当前页面。",
                     color = Color.White.copy(alpha = 0.58f),
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
@@ -289,6 +326,16 @@ private fun ManagedAppListPage(
                         AppSummaryMetric("用户", userCount.toString(), Modifier.weight(1f))
                         AppSummaryMetric("系统", systemCount.toString(), Modifier.weight(1f))
                     }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppSummaryMetric("后台", dashboard?.runningApps?.toString() ?: "--", Modifier.weight(1f))
+                        AppSummaryMetric("可清", dashboard?.cleanCandidates?.toString() ?: "--", Modifier.weight(1f))
+                        AppSummaryMetric("低频活跃", dashboard?.lowUseButActiveApps?.toString() ?: "--", Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppSummaryMetric("空间大户", dashboard?.storageHeavyApps?.toString() ?: "--", Modifier.weight(1f))
+                        AppSummaryMetric("估算内存", dashboard?.estimatedRuntimeBytes?.appControlHumanBytes() ?: "受限", Modifier.weight(1f))
+                        AppSummaryMetric("模式", if (dashboard?.enhancedControlAvailable == true) "增强" else "普通", Modifier.weight(1f))
+                    }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text("增强控制", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
@@ -297,6 +344,14 @@ private fun ManagedAppListPage(
                         if (shellStatus?.shizukuAvailable == true && !shellStatus.shizukuGranted) {
                             AppCompactAction("请求授权", onRequestShizuku)
                         }
+                    }
+                    if (dashboard?.usageAccessGranted == false) {
+                        Text(
+                            "开启使用情况访问后，可识别低频但后台活跃应用，并显示更准确的存储/使用建议。",
+                            color = AppWarning.copy(alpha = 0.84f),
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        )
                     }
                 }
             }
@@ -325,11 +380,11 @@ private fun ManagedAppListPage(
             }
         }
         when {
-            loading -> item { AppLoadingPanel("正在读取已安装应用…") }
+            loading -> item { AppLoadingPanel("正在读取已安装应用和后台体检状态…") }
             error != null -> item { AppErrorPanel(error, onRefresh) }
             filteredApps.isEmpty() -> item { AppEmptyPanel("没有找到符合条件的应用") }
             else -> items(filteredApps, key = { it.packageName }) { app ->
-                ManagedAppCard(app, state, repository) { onOpenApp(app) }
+                ManagedAppCard(app, state, repository, signalByPackage[app.packageName]) { onOpenApp(app) }
             }
         }
     }
@@ -341,6 +396,7 @@ private fun ManagedAppDetailsPage(
     packageName: String,
     refreshGeneration: Int,
     repository: AppManagementRepository,
+    insight: AppOptimizationSignal?,
     shellStatus: DeviceShellStatus?,
     runningAction: ManagedAppAction?,
     actionResult: AgentExecutionResult?,
@@ -381,6 +437,29 @@ private fun ManagedAppDetailsPage(
                     item { AppNoticePanel("系统保护已开启", app.protectionReason, AppWarning) }
                 }
                 actionResult?.let { result -> item { AppActionResultPanel(result) } }
+                item {
+                    AppDetailSection("运行与优化") {
+                        val runtime = insight?.runtime
+                        AppDetailRow("体检建议", insight?.recommendation ?: "正在等待后台体检结果")
+                        AppDetailRow("运行状态", runtime?.stateLabel ?: "未运行或普通模式不可见")
+                        AppDetailRow("进程数量", runtime?.processCount?.toString() ?: "--")
+                        AppDetailRow("估算内存", runtime?.estimatedMemoryBytes?.appControlHumanBytes() ?: "受限")
+                        AppDetailRow(
+                            "近 7 天使用",
+                            insight?.let { "${it.totalForegroundMs.appControlDurationLabel()} · ${it.lastUsedTime.appControlUsageLabel()}" } ?: "暂无记录",
+                        )
+                        if (!insight?.tags.isNullOrEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                insight?.tags.orEmpty().joinToString("  ·  "),
+                                color = AppAccent.copy(alpha = 0.78f),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                            )
+                        }
+                    }
+                }
                 item {
                     AppDetailSection("基本信息") {
                         AppDetailRow("应用类型", if (app.isSystemApp) "系统应用" else "用户应用")
