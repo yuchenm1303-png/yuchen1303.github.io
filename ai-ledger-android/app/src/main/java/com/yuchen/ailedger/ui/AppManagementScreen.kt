@@ -235,6 +235,7 @@ fun AppManagementScreen(
                         onOpenApp = { selectedPackage = it.packageName },
                         onRequestShizuku = ::requestShizuku,
                         onSmartClean = ::requestSmartClean,
+                        onAction = ::requestAction,
                         actionResult = actionResult,
                     )
                 } else {
@@ -305,12 +306,18 @@ private fun ManagedAppListPage(
     onOpenApp: (ManagedAppSummary) -> Unit,
     onRequestShizuku: () -> Unit,
     onSmartClean: () -> Unit,
+    onAction: (ManagedAppAction, ManagedAppSummary) -> Unit,
     actionResult: AgentExecutionResult?,
 ) {
     var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(ManagedAppFilter.Optimize) }
+    var filter by remember { mutableStateOf(ManagedAppFilter.Running) }
     var sort by remember { mutableStateOf(ManagedAppSort.Score) }
     val signalByPackage = insights?.byPackage.orEmpty()
+    val runningSignals = remember(insights) {
+        insights?.signals.orEmpty()
+            .filter { it.runtime != null }
+            .sortedByDescending { it.runtime?.estimatedMemoryBytes ?: 0L }
+    }
     val filteredApps by remember(apps, signalByPackage, query, filter, sort) {
         derivedStateOf {
             val cleanQuery = query.trim().lowercase(Locale.ROOT)
@@ -365,12 +372,19 @@ private fun ManagedAppListPage(
                 Text("APP CONTROL", color = AppAccent.copy(alpha = 0.74f), fontSize = 10.sp, fontWeight = FontWeight.Black)
                 Text("应用控制", color = Color.White, fontSize = 32.sp, lineHeight = 36.sp, fontWeight = FontWeight.Black)
                 Text(
-                    "后台体检、智能清理、存储风险和增强控制已经接入当前页面。",
+                    "先看谁在后台跑、占多少内存，再决定单独清理或智能清理。",
                     color = Color.White.copy(alpha = 0.58f),
                     fontSize = 13.sp,
                     lineHeight = 19.sp,
                 )
             }
+        }
+        item {
+            RuntimeMemoryHeroCard(
+                dashboard = dashboard,
+                runningSignals = runningSignals,
+                onRefresh = onRefresh,
+            )
         }
         item {
             FrostInfoGlassPanel(
@@ -394,11 +408,6 @@ private fun ManagedAppListPage(
                         AppSummaryMetric("后台", dashboard?.runningApps?.toString() ?: "--", Modifier.weight(1f))
                         AppSummaryMetric("可清", dashboard?.cleanCandidates?.toString() ?: "--", Modifier.weight(1f))
                         AppSummaryMetric("低频活跃", dashboard?.lowUseButActiveApps?.toString() ?: "--", Modifier.weight(1f))
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppSummaryMetric("空间大户", dashboard?.storageHeavyApps?.toString() ?: "--", Modifier.weight(1f))
-                        AppSummaryMetric("估算内存", dashboard?.estimatedRuntimeBytes?.appControlHumanBytes() ?: "受限", Modifier.weight(1f))
-                        AppSummaryMetric("模式", if (dashboard?.enhancedControlAvailable == true) "增强" else "普通", Modifier.weight(1f))
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -452,11 +461,19 @@ private fun ManagedAppListPage(
             }
         }
         when {
-            loading -> item { AppLoadingPanel("正在读取已安装应用和后台体检状态…") }
+            loading -> item { AppLoadingPanel("正在扫描后台运行应用和内存占用…") }
             error != null -> item { AppErrorPanel(error, onRefresh) }
-            filteredApps.isEmpty() -> item { AppEmptyPanel("没有找到符合条件的应用") }
+            filteredApps.isEmpty() -> item { AppEmptyPanel("没有找到符合条件的运行应用") }
             else -> items(filteredApps, key = { it.packageName }) { app ->
-                ManagedAppCard(app, state, repository, signalByPackage[app.packageName]) { onOpenApp(app) }
+                val signal = signalByPackage[app.packageName]
+                val canClean = signal?.cleanCandidate == true && AppManagementActionPolicy.availability(ManagedAppAction.ForceStop, app).enabled
+                ManagedAppCard(
+                    app = app,
+                    state = state,
+                    repository = repository,
+                    signal = signal,
+                    onClean = if (canClean) ({ onAction(ManagedAppAction.ForceStop, app) }) else null,
+                ) { onOpenApp(app) }
             }
         }
     }
@@ -516,6 +533,7 @@ private fun ManagedAppDetailsPage(
                         AppDetailRow("运行状态", runtime?.stateLabel ?: "未运行或普通模式不可见")
                         AppDetailRow("进程数量", runtime?.processCount?.toString() ?: "--")
                         AppDetailRow("估算内存", runtime?.estimatedMemoryBytes?.appControlHumanBytes() ?: "受限")
+                        AppDetailRow("任务进程", runtime?.processNames?.joinToString(" · ") ?: "暂无可见进程")
                         AppDetailRow(
                             "近 7 天使用",
                             insight?.let { "${it.totalForegroundMs.appControlDurationLabel()} · ${it.lastUsedTime.appControlUsageLabel()}" } ?: "暂无记录",
