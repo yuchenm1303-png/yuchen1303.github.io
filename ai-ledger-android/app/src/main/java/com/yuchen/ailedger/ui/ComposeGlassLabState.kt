@@ -16,19 +16,21 @@ data class ComposeGlassMotionStyle(
     val master: Float = 1f,
     val deformation: Float = 0.92f,
     val touchLight: Float = 1f,
-    val prism: Float = 0.68f,
+    val prism: Float = 0f,
     val sweep: Float = 0.90f,
     val rebound: Float = 0.90f,
     val afterglow: Float = 0.86f,
+    val speed: Float = 1f,
 ) {
     internal fun normalized(): ComposeGlassMotionStyle = copy(
         master = master.coerceIn(0f, 8f),
         deformation = deformation.coerceIn(0f, 8f),
         touchLight = touchLight.coerceIn(0f, 16f),
-        prism = prism.coerceIn(0f, 16f),
+        prism = 0f,
         sweep = sweep.coerceIn(0f, 16f),
         rebound = rebound.coerceIn(0f, 8f),
         afterglow = afterglow.coerceIn(0f, 12f),
+        speed = speed.coerceIn(0.35f, 2.5f),
     )
 }
 
