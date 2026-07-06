@@ -65,6 +65,8 @@ private fun Color.isAiLedgerRedundantFrostTint(): Boolean = when (toArgb()) {
     0x40111742, // 应用搜索框 25%
     0x47151A4F, // 未完成工具占位卡 28%
     0x128DF9EA, // 操作学习录制状态卡内层染色 7%
+    0x12CAB8FF, // 操作学习录制状态卡内层紫色状态染色 7%
+    0x12FFA6B2, // 操作学习录制状态卡内层失败状态染色 7%
     0x0ECAB8FF, // 操作学习创建 Skill 卡内层染色 5.5%
     0x13CAB8FF, // 操作学习选中 Skill 草稿卡内层染色 7.5%
     0x3D10153A, // 操作学习编辑卡内层深色底 24%
