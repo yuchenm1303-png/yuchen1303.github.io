@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.RenderQuality
 
+private const val AttachmentSourceCompactScale = 0.90f
+
 @Composable
 internal fun AttachmentSourceQuickPanel(
     visible: Boolean,
@@ -127,10 +129,14 @@ private fun attachmentSourceButtonAnchorBounds(rootView: View, bottomDockVisible
     rootView.getLocationInWindow(location)
     val density = rootView.resources.displayMetrics.density.coerceAtLeast(1f)
     val rootHeight = rootView.height.takeIf { it > 0 } ?: 1
-    val buttonSizePx = 48f * density
-    val left = location[0] + 24f * density
-    val bottomInsetDp = if (bottomDockVisible) 92f else 32f
-    val bottom = location[1] + rootHeight - bottomInsetDp * density
+
+    // 加号按钮位于 AssistantScreenV2 的 compact density 区域内：外层水平 padding 为 12dp，
+    // Composer 底部留白为 bottomPadding，按钮本体为 48dp。锚点必须按同一 compact scale
+    // 换算成窗口像素，否则 AnchoredQuickPanel 会认为按钮更靠上，导致弹窗和按钮脱节。
+    val buttonSizePx = 48f * AttachmentSourceCompactScale * density
+    val left = location[0] + 12f * AttachmentSourceCompactScale * density
+    val bottomInsetDp = if (bottomDockVisible) 68f else 8f
+    val bottom = location[1] + rootHeight - bottomInsetDp * AttachmentSourceCompactScale * density
     val top = bottom - buttonSizePx
     return Rect(
         left = left,
