@@ -59,7 +59,7 @@ internal object OperationSkillAssetSyncRuntime {
         }
     }
 
-    private suspend inline fun runCatchingSync(block: suspend () -> Unit) {
+    private suspend inline fun runCatchingSync(block: suspend () -> Any?) {
         try {
             block()
         } catch (cancelled: CancellationException) {
