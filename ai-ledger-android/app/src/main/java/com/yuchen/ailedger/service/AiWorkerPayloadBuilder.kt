@@ -28,7 +28,8 @@ internal object AiWorkerPayloadBuilder {
         val latestUserText = messages.latestUserText()
         val imageArray = messages.latestUserImageAttachments().toImageJsonArray()
         val hasImage = imageArray.length() > 0
-        val agentModeEnabled = !hasImage && AgentRuntimeController.isEnabled()
+        val visualAgentModeEnabled = !hasImage && AgentRuntimeController.isEnabled()
+        val workspaceModeEnabled = !hasImage && AgentWorkspaceModeController.isEnabled()
         val appContext = AiLedgerApplication.contextOrNull()
         val memoryCompilation = appContext
             ?.let { context ->
@@ -56,18 +57,18 @@ internal object AiWorkerPayloadBuilder {
             route.isAuto -> "auto"
             else -> route.resolved.id
         }
-        val supportedAgentActions = if (agentModeEnabled) {
+        val supportedAgentActions = if (visualAgentModeEnabled) {
             listOf("run_agent_task", "observe_screen")
         } else {
             listOf("run_device_control", "run_agent_task", "observe_screen")
         }
-        val supportedDeviceSteps = if (agentModeEnabled) {
+        val supportedDeviceSteps = if (visualAgentModeEnabled) {
             emptyList()
         } else {
             AI_WORKER_NORMAL_CHAT_DEVICE_TOOL_TYPES
         }
-        val supportedMobileActions = if (agentModeEnabled) emptyList() else listOf("set_alarm", "navigate")
-        val supportedPreferenceUpdates = if (agentModeEnabled) emptyList() else listOf("navigation_address")
+        val supportedMobileActions = if (visualAgentModeEnabled) emptyList() else listOf("set_alarm", "navigate")
+        val supportedPreferenceUpdates = if (visualAgentModeEnabled) emptyList() else listOf("navigation_address")
         val searchMode = if (onlineEnabled) "auto" else "off"
 
         return JSONObject().apply {
@@ -79,8 +80,10 @@ internal object AiWorkerPayloadBuilder {
             put("memoryMode", memoryCompilation.requestMode)
             put("memoryEnabled", memoryCompilation.memoryRequested)
             put("memoryRequest", memoryCompilation.diagnosticsJson())
-            put("agentProgressStream", true)
-            put("workspaceProgressStream", true)
+            put("workspaceModeEnabled", workspaceModeEnabled)
+            put("agentWorkspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
+            put("agentProgressStream", workspaceModeEnabled)
+            put("workspaceProgressStream", workspaceModeEnabled)
 
             put("chatExpressionPreferences", JSONObject().apply {
                 put("schema", "ai_ledger_chat_expression_preferences_v1")
@@ -95,7 +98,11 @@ internal object AiWorkerPayloadBuilder {
             put("originalModelPreference", route.requested.id)
             put("autoRequested", route.isAuto)
             put("autoRouteAuthority", AI_WORKER_AUTO_ROUTE_AUTHORITY)
-            if (agentModeEnabled) {
+            if (workspaceModeEnabled) {
+                put("workspaceToolLoop", "cloud_controlled_multi_step")
+                put("workspaceDecisionOwner", "cloud_workspace_agent")
+            }
+            if (visualAgentModeEnabled) {
                 put("agentModeEnabled", true)
                 put("forceVisualAgent", true)
                 put("agentToolDomain", "visual_only")
@@ -116,33 +123,37 @@ internal object AiWorkerPayloadBuilder {
             put("commandProtocol", JSONObject().apply {
                 put("version", AI_WORKER_CHAT_PROTOCOL_VERSION)
                 put("client", AI_WORKER_CHAT_CLIENT_NAME)
-                put("decisionOwner", "cloud_final_chat_model")
+                put("decisionOwner", if (workspaceModeEnabled) "cloud_workspace_agent" else "cloud_final_chat_model")
                 put("executionOwner", "android_structured_tool_executor")
                 put("clientToolCallSchema", AI_WORKER_CLIENT_TOOL_CALL_SCHEMA)
                 put("clientToolResultProtocol", AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL)
-                if (agentModeEnabled) put("agentToolDomain", "visual_only")
+                put("workspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
+                put("workspaceModeEnabled", workspaceModeEnabled)
+                if (visualAgentModeEnabled) put("agentToolDomain", "visual_only")
             })
             put("clientCapabilities", JSONObject().apply {
-                put("schema", if (agentModeEnabled) "ai_ledger_android_client_capabilities_v3" else "ai_ledger_android_client_capabilities_v2")
+                put("schema", if (visualAgentModeEnabled || workspaceModeEnabled) "ai_ledger_android_client_capabilities_v3" else "ai_ledger_android_client_capabilities_v2")
                 put("agentActions", JSONArray(supportedAgentActions))
                 put("deviceTools", JSONArray(supportedDeviceSteps))
                 put("mobileActions", JSONArray(supportedMobileActions))
                 put("preferenceUpdates", JSONArray(supportedPreferenceUpdates))
                 put("installedApps", installedApps.toInstalledAppsJson())
+                put("workspaceModeToggle", true)
+                put("workspaceModeEnabled", workspaceModeEnabled)
             })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
                 put("includeStructuredData", true)
                 put("includeClientToolCall", true)
                 put("includeEmbeddedCommandMarker", false)
-                put("includeAgentProgress", true)
-                if (agentModeEnabled) put("deferClientToolReply", true)
+                put("includeAgentProgress", workspaceModeEnabled)
+                if (workspaceModeEnabled || visualAgentModeEnabled) put("deferClientToolReply", true)
             })
 
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v2")
+            put("clientVersion", "compose-native-cloud-first-v3-workspace-toggle")
             put("now", System.currentTimeMillis())
         }
     }
@@ -153,6 +164,7 @@ internal object AiWorkerPayloadBuilder {
         resolvedClientId: String,
     ): JSONObject {
         val selectedModelId = if (route.isAuto) "auto" else route.resolved.id
+        val workspaceModeEnabled = AgentWorkspaceModeController.isEnabled()
         return JSONObject().apply {
             put("requestId", java.util.UUID.randomUUID().toString())
             put("action", "internal_control_report")
@@ -160,6 +172,10 @@ internal object AiWorkerPayloadBuilder {
             put("mode", "internal_control_report")
             put("message", "client_tool_result:${receipt.optString("toolCallId")}")
             put("internalControlReceipt", JSONObject(receipt.toString()))
+            put("workspaceModeEnabled", workspaceModeEnabled)
+            put("agentWorkspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
+            put("agentProgressStream", workspaceModeEnabled)
+            put("workspaceProgressStream", workspaceModeEnabled)
             put("modelPreference", selectedModelId)
             put("requestedModelPreference", selectedModelId)
             put("resolvedFinalModel", selectedModelId)
@@ -167,7 +183,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v2")
+            put("clientVersion", "compose-native-cloud-first-v3-workspace-toggle")
         }
     }
 
