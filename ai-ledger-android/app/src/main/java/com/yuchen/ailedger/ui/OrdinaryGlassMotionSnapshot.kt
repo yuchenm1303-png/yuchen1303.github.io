@@ -58,15 +58,15 @@ internal fun updateOrdinaryGlassMotionSnapshot(
 
     val holdPhase = (positive * 0.52f + lens * 0.30f + sweep * 0.12f) * timeScale
     val tapPhase = (lens * 0.82f + sweep * 0.48f + positive * 0.18f) * timeScale
-    val releasePhase = (negative * 0.34f + lens * 0.36f + sweep * 0.26f) * timeScale
+    val releasePhase = (negative * 0.42f + lens * 0.12f + sweep * 0.08f) * timeScale
     val hold = ordinarySnapshotSmoothStep(holdPhase.coerceIn(0f, 1.84f) / 1.84f)
     val tap = ordinarySnapshotSmoothStep(tapPhase.coerceIn(0f, 1.74f) / 1.74f)
-    val release = ordinarySnapshotSmoothStep(releasePhase.coerceIn(0f, 1.96f) / 1.96f)
+    val release = ordinarySnapshotSmoothStep(releasePhase.coerceIn(0f, 2.28f) / 2.28f)
     val contactLead = ordinarySnapshotSmoothStep((positive * 3.20f + lens * 0.72f).coerceIn(0f, 1f)) *
         (1f - release * 0.48f).coerceIn(0.52f, 1f)
     val responsePress = maxOf(hold, contactLead * 0.20f)
     val responseTap = maxOf(tap, contactLead * 0.10f)
-    val releaseFade = (1f - release * 0.82f).coerceIn(0f, 1f)
+    val releaseFade = (1f - release * 0.74f).coerceIn(0f, 1f)
     val light = maxOf(
         responsePress * 0.66f,
         responseTap * 0.82f,
