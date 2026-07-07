@@ -345,8 +345,10 @@ private fun GlassLabFoldout(
             expanded = expanded,
             modifier = Modifier.fillMaxWidth()
         ) {
-            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+            OrdinaryParentDrawScopeIfEnabled {
+                InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+                }
             }
         }
     }
@@ -392,10 +394,23 @@ private fun Group(
             expanded = expanded,
             modifier = Modifier.fillMaxWidth()
         ) {
-            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+            OrdinaryParentDrawScopeIfEnabled {
+                InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun OrdinaryParentDrawScopeIfEnabled(content: @Composable () -> Unit) {
+    if (GlassFoldoutParentDrawGate.displayedEnabled) {
+        CompositionLocalProvider(LocalOrdinaryGlassRenderMode provides OrdinaryGlassRenderMode.ParentDraw) {
+            content()
+        }
+    } else {
+        content()
     }
 }
 
