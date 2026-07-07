@@ -25,21 +25,14 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     val node = item.node
     if (!node.pressable || node.role == GlassRole.Shell) return
 
-    val dynamicPress = node.pressProgress.coerceAtLeast(0f)
-    val lensValue = node.lensProgress.coerceAtLeast(0f)
-    val sweepValue = node.sweepProgress.coerceAtLeast(0f)
-    val releaseValue = (-node.pressProgress).coerceAtLeast(0f)
-    val tailEnergy = maxOf(
-        sweepValue * 0.46f,
-        releaseValue * 0.68f,
-        lensValue * 0.30f
-    ).coerceAtLeast(0f)
-    val active = maxOf(dynamicPress, lensValue, sweepValue, tailEnergy)
-    if (active <= 0.0001f) return
-
-    val visibility = whiteOpticsSmootherStep((active / 0.28f).coerceIn(0f, 1f))
-    val tailVisibility = whiteOpticsSmootherStep((tailEnergy / 0.34f).coerceIn(0f, 1f))
-    if (visibility <= 0.0001f && tailVisibility <= 0.0001f) return
+    val motion = ComposeGlassLabState.motionStyle.normalized()
+    val field = ordinaryGlassMotionField(
+        pressProgress = node.pressProgress,
+        lensProgress = node.lensProgress,
+        sweepProgress = node.sweepProgress,
+        motion = motion,
+    )
+    if (field.visibility <= 0.0001f) return
 
     val rect = item.rect
     val w = rect.width.coerceAtLeast(1f)
@@ -50,9 +43,6 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
         y = node.pressCenter.y.coerceIn(0f, 1f) * h,
     )
 
-    val motion = ComposeGlassLabState.motionStyle.normalized()
-    val speed = motion.speed.coerceIn(0.08f, 8f)
-    val timeScale = whiteOpticsSpeedToScale(speed)
     val master = whiteOpticsMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     val touchLight = whiteOpticsMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
     val sweepGain = whiteOpticsMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
@@ -68,25 +58,21 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     }
     val compactLightBalance = (roleLightBalance * (0.88f + elasticityBoost * 0.36f)).coerceIn(0.76f, 1.86f)
 
-    val pressShape = whiteOpticsSmootherStep(
-        ((dynamicPress + lensValue * 0.42f) * timeScale).coerceIn(0f, 3.4f) / 3.4f
-    )
-    val diffusionPhase = whiteOpticsSmootherStep(
-        ((sweepValue * timeScale) / 3.60f).coerceIn(0f, 1f)
-    )
-    val releasePhase = whiteOpticsSmootherStep(
-        ((releaseValue * 0.72f + tailEnergy * 0.58f + lensValue * 0.08f) * timeScale).coerceIn(0f, 2f) / 2f
-    )
+    val pressShape = field.compression
+    val diffusionPhase = field.sweepEnergy
+    val releasePhase = field.releaseEnergy
+    val tailVisibility = field.glowEnergy.coerceIn(0f, 1f)
+    val visibility = field.visibility.coerceIn(0f, 1f)
 
-    val lightPower = (touchLight * compactLightBalance * (0.18f + lensValue * 0.42f + dynamicPress * 0.11f + tailEnergy * 0.10f) * elasticityBoost)
+    val lightPower = (touchLight * compactLightBalance * (0.16f + field.contactEnergy * 0.46f + field.tapImpulse * 0.08f + field.glowEnergy * 0.10f) * elasticityBoost)
         .coerceIn(0f, 58f)
-    val wavePower = (sweepGain * compactLightBalance * (0.09f + sweepValue * 0.40f + tailEnergy * 0.10f) * elasticityBoost)
+    val wavePower = (sweepGain * compactLightBalance * (0.08f + field.sweepEnergy * 0.46f + field.glowEnergy * 0.10f) * elasticityBoost)
         .coerceIn(0f, 42f)
-    val afterPower = (afterglow * compactLightBalance * (tailEnergy * 0.66f + releasePhase * 0.24f) * elasticityBoost)
+    val afterPower = (afterglow * compactLightBalance * (field.glowEnergy * 0.72f + releasePhase * 0.20f) * elasticityBoost)
         .coerceIn(0f, 36f)
     val visibleLightPower = lightPower * visibility
     val visibleWavePower = wavePower * maxOf(visibility, tailVisibility * 0.82f)
-    val visibleAfterPower = afterPower * maxOf(visibility * 0.74f, tailVisibility)
+    val visibleAfterPower = afterPower * maxOf(visibility * 0.72f, tailVisibility)
 
     val fieldPower = maxOf(visibleLightPower, visibleWavePower * 0.70f, visibleAfterPower * 0.92f)
     if (fieldPower <= 0.0001f) return
@@ -100,8 +86,7 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     val innerAlpha = (0.0092f * fieldPower).coerceIn(0f, 0.36f)
     val milkAlpha = (0.0048f * fieldPower).coerceIn(0f, 0.20f)
 
-    val sweepPhase = ((sweepValue * timeScale) / 3.60f).coerceIn(0f, 1.26f)
-    val sweepX = -0.30f + sweepPhase * 1.54f
+    val sweepX = -0.30f + field.sweepEnergy.coerceIn(0f, 1.26f) * 1.54f
     val rimInset = 0.62.dp.toPx()
     val radiusPx = node.radius.dp.toPx()
     val cornerRadius = CornerRadius(radiusPx, radiusPx)
@@ -210,21 +195,10 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     }
 }
 
-private fun whiteOpticsSpeedToScale(speed: Float): Float =
-    when {
-        speed <= 1f -> (0.10f + speed * 0.66f).coerceIn(0.16f, 0.76f)
-        else -> (0.76f + (speed - 1f) * 0.58f).coerceIn(0.76f, 4.82f)
-    }
-
 private fun whiteOpticsMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
     val clean = value.coerceAtLeast(0f)
     if (clean <= 1f) return clean
     val span = (uiMax - 1f).coerceAtLeast(0.001f)
     val t = ((clean - 1f) / span).coerceIn(0f, 1f)
     return 1f + t * (effectiveMax - 1f)
-}
-
-private fun whiteOpticsSmootherStep(value: Float): Float {
-    val x = value.coerceIn(0f, 1f)
-    return x * x * x * (x * (x * 6f - 15f) + 10f)
 }
