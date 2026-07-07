@@ -73,7 +73,7 @@ private fun DrawScope.drawWorkspaceTetrahedron(time: Float, phaseOffset: Float, 
     val edges = tetraEdges.indices.map { edgeOf(points, it) }
     val sorted = edges.sortedBy { it.midZ }
     val path = tetraPath.map { edgeOf(points, it) }
-    val base = min(size.width, size.height) * 0.055f * 1.05f
+    val base = min(size.width, size.height) * 0.055f * 0.95f
     val activeEnergy = 0.82f * 1.34f
     val energy = activeEnergy * lerp(0.34f, 1f, activation)
     val center = Offset(points.map { it.x }.average().toFloat(), points.map { it.y }.average().toFloat())
@@ -118,7 +118,7 @@ private fun DrawScope.projectTetra(time: Float, phaseOffset: Float): List<P2> {
         28f.rad() + wander * (0.28f * sin(time * 0.48f + 2.2f) + 0.11f * sin(time * 0.17f + 1.3f)),
         (-12f).rad() + wander * (0.18f * sin(time * 0.55f + 5.4f) + 0.08f * sin(time * 0.27f + 2.0f))
     )
-    val iconSize = min(size.width, size.height) * 0.235f * 1.32f * (1f + 0.23f * 0.045f * sin(time * 1.72f + phaseOffset * 9f))
+    val iconSize = min(size.width, size.height) * 0.235f * 1.52f * (1f + 0.23f * 0.045f * sin(time * 1.72f + phaseOffset * 9f))
     val perspective = min(size.width, size.height) * (1.25f + 0.25f * 1.2f)
     return tetraVertices.map { vertex ->
         var point = V3(vertex.x, vertex.y, vertex.z * 0.95f)
