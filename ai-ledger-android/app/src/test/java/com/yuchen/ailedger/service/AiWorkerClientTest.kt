@@ -13,6 +13,7 @@ import org.junit.Test
 class AiWorkerClientTest {
     @Test
     fun chatPayloadIncludesCloudFirstClientToolContract() {
+        AgentWorkspaceModeController.setEnabled(false)
         val payload = AiWorkerClient().buildChatPayloadForTest(
             messages = listOf(
                 ChatMessage(
@@ -38,16 +39,24 @@ class AiWorkerClientTest {
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-cloud-first-v2",
+            "compose-native-cloud-first-v3-workspace-toggle",
             payload.getString("clientVersion"),
         )
         assertEquals("cloud_final_model_v1", payload.getString("autoRouteAuthority"))
         assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
+        assertEquals("classic", protocol.getString("workspaceMode"))
+        assertFalse(protocol.getBoolean("workspaceModeEnabled"))
         assertEquals("android_structured_tool_executor", protocol.getString("executionOwner"))
         assertEquals(AI_WORKER_CLIENT_TOOL_CALL_SCHEMA, protocol.getString("clientToolCallSchema"))
         assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
         assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
         assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
+        assertTrue(capabilities.getBoolean("workspaceModeToggle"))
+        assertFalse(capabilities.getBoolean("workspaceModeEnabled"))
+        assertFalse(payload.getBoolean("workspaceModeEnabled"))
+        assertEquals("classic", payload.getString("agentWorkspaceMode"))
+        assertFalse(payload.getBoolean("agentProgressStream"))
+        assertFalse(payload.getBoolean("workspaceProgressStream"))
         assertTrue(payload.getString("requestId").isNotBlank())
         assertEquals("auto", payload.getString("memoryMode"))
         assertTrue(payload.getBoolean("memoryEnabled"))
@@ -60,6 +69,32 @@ class AiWorkerClientTest {
     }
 
     @Test
+    fun workspaceModeSwitchChangesChatPayloadContract() {
+        try {
+            val payload = payloadFor("帮我查天气并根据结果继续安排提醒", workspaceModeEnabled = true)
+            val protocol = payload.getJSONObject("commandProtocol")
+            val capabilities = payload.getJSONObject("clientCapabilities")
+            val responseFormat = payload.getJSONObject("responseFormat")
+
+            assertTrue(payload.getBoolean("workspaceModeEnabled"))
+            assertEquals("workspace", payload.getString("agentWorkspaceMode"))
+            assertEquals("cloud_controlled_multi_step", payload.getString("workspaceToolLoop"))
+            assertEquals("cloud_workspace_agent", payload.getString("workspaceDecisionOwner"))
+            assertTrue(payload.getBoolean("agentProgressStream"))
+            assertTrue(payload.getBoolean("workspaceProgressStream"))
+            assertEquals("cloud_workspace_agent", protocol.getString("decisionOwner"))
+            assertEquals("workspace", protocol.getString("workspaceMode"))
+            assertTrue(protocol.getBoolean("workspaceModeEnabled"))
+            assertTrue(capabilities.getBoolean("workspaceModeToggle"))
+            assertTrue(capabilities.getBoolean("workspaceModeEnabled"))
+            assertTrue(responseFormat.getBoolean("includeAgentProgress"))
+            assertTrue(responseFormat.getBoolean("deferClientToolReply"))
+        } finally {
+            AgentWorkspaceModeController.setEnabled(false)
+        }
+    }
+
+    @Test
     fun ordinaryQuestionDeclaresCapabilitiesWithoutLocalIntentRouting() {
         val payload = payloadFor("解释一下三相异步电动机的工作原理")
         val protocol = payload.getJSONObject("commandProtocol")
@@ -68,6 +103,8 @@ class AiWorkerClientTest {
         assertFalse(payload.has("normalChatDeviceToolProbe"))
         assertFalse(payload.has("agentModeEnabled"))
         assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
+        assertEquals("classic", protocol.getString("workspaceMode"))
+        assertFalse(protocol.getBoolean("workspaceModeEnabled"))
         assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
         assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
         assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeClientToolCall"))
@@ -188,13 +225,19 @@ class AiWorkerClientTest {
         assertNull(headers["Authorization"])
     }
 
-    private fun payloadFor(text: String, model: ChatModel = ChatModel.Kimi) = AiWorkerClient(
+    private fun payloadFor(
+        text: String,
+        model: ChatModel = ChatModel.Kimi,
+        workspaceModeEnabled: Boolean = false,
+    ) = AiWorkerClient(
         AiWorkerConfig(
             clientId = "test-device",
             clientAuthToken = "app-token",
             userAccessTokenProvider = { null },
         ),
-    ).buildChatPayloadForTest(
+    ).also {
+        AgentWorkspaceModeController.setEnabled(workspaceModeEnabled)
+    }.buildChatPayloadForTest(
         messages = listOf(
             ChatMessage(
                 id = "user-test",
