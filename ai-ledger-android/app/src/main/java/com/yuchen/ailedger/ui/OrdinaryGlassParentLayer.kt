@@ -16,11 +16,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onPlaced
 import com.yuchen.ailedger.model.RenderQuality
@@ -408,7 +413,7 @@ fun OrdinaryGlassSceneHost(
                                         itemIndex = index,
                                         itemBounds = item.transformedBounds
                                     ) {
-                                        drawOrdinaryParentWhitePressOptics(item = item)
+                                        drawOrdinaryParentPressureFieldOptics(item = item)
                                     }
                                 }
                             }
@@ -521,4 +526,118 @@ private fun DrawScope.withLaterVisibleBoundsExcluded(
         block()
     }
     drawFrom(itemIndex + 1)
+}
+
+private fun ordinaryParentPressureSmoothStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
+}
+
+private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinaryGlassItem) {
+    val node = item.node
+    if (!node.pressable || node.role == GlassRole.Shell) return
+
+    val rect = item.transformedBounds
+    val w = rect.width.coerceAtLeast(1f)
+    val h = rect.height.coerceAtLeast(1f)
+    if (w <= 1f || h <= 1f) return
+
+    val positivePress = node.pressProgress.coerceAtLeast(0f)
+    val lens = node.lensProgress.coerceAtLeast(0f)
+    val sweep = node.sweepProgress.coerceAtLeast(0f)
+    val rawActive = maxOf(positivePress * 0.52f, lens * 0.48f, sweep * 0.34f)
+    val active = ordinaryParentPressureSmoothStep((rawActive / 1.42f).coerceIn(0f, 1f))
+    if (active <= 0.001f) return
+
+    val maxSide = maxOf(w, h)
+    val minSide = minOf(w, h).coerceAtLeast(1f)
+    val centerNorm = Offset(
+        node.pressCenter.x.coerceIn(0f, 1f),
+        node.pressCenter.y.coerceIn(0f, 1f)
+    )
+    val tapCenter = Offset(
+        rect.left + centerNorm.x * w,
+        rect.top + centerNorm.y * h
+    )
+    val visualCenter = Offset(rect.left + w * 0.50f, rect.top + h * 0.48f)
+
+    val phaseFromSweep = ordinaryParentPressureSmoothStep((sweep / 3.10f).coerceIn(0f, 1f))
+    val phaseFromLens = ordinaryParentPressureSmoothStep((lens / 3.35f).coerceIn(0f, 1f))
+    val phase = maxOf(phaseFromSweep, phaseFromLens * 0.62f, active * 0.38f).coerceIn(0f, 1f)
+    val drift = (0.12f + phase * 0.24f + node.elasticity.coerceIn(0f, 1f) * 0.030f)
+        .coerceIn(0.08f, 0.40f)
+    val fieldCenter = Offset(
+        tapCenter.x + (visualCenter.x - tapCenter.x) * drift,
+        tapCenter.y + (visualCenter.y - tapCenter.y) * drift * 0.82f
+    )
+
+    val motion = ComposeGlassLabState.motionStyle.normalized()
+    val master = composeMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
+    val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
+    val sweepGain = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
+    val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
+    val capsule = ComposeGlassLabState.capsuleTuning.normalized()
+    val capsuleLight = (1f + capsule.tapPx * 4.8f + capsule.sticky * 7.2f + capsule.basePx * 3.6f)
+        .coerceIn(0.92f, 1.74f)
+
+    val lightUnit = (touchLight / 128f).coerceIn(0f, 1f)
+    val sweepUnit = (sweepGain / 128f).coerceIn(0f, 1f)
+    val afterUnit = (afterglow / 96f).coerceIn(0f, 1f)
+    val elasticityBoost = node.elasticity.coerceIn(0.08f, 1f)
+    val phaseTail = ordinaryParentPressureSmoothStep(((phase - 0.18f) / 0.82f).coerceIn(0f, 1f))
+
+    val fieldEnergy = (active * (0.82f + lightUnit * 0.26f + afterUnit * 0.14f) * capsuleLight * elasticityBoost)
+        .coerceIn(0f, 1.28f)
+    val waveEnergy = (active * (0.46f + sweepUnit * 0.34f + afterUnit * 0.18f) * capsuleLight)
+        .coerceIn(0f, 1.18f)
+    val fieldRadius = (maxSide * (0.34f + phase * 0.70f + fieldEnergy * 0.11f))
+        .coerceAtLeast(minSide * 0.74f)
+
+    val bodyAlpha = (0.11f * fieldEnergy).coerceIn(0f, 0.20f)
+    val coreAlpha = (0.050f * fieldEnergy).coerceIn(0f, 0.10f)
+    val waveAlpha = (0.085f * waveEnergy * (0.62f + phaseTail * 0.38f)).coerceIn(0f, 0.16f)
+    val tailAlpha = (0.040f * fieldEnergy * (0.70f + afterUnit * 0.30f)).coerceIn(0f, 0.09f)
+    val cornerRadius = CornerRadius(node.radius.toFloat(), node.radius.toFloat())
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            0.00f to Color.White.copy(alpha = coreAlpha),
+            0.24f to Color(0xFFF2FAFF).copy(alpha = bodyAlpha * 0.72f),
+            0.48f to Color.White.copy(alpha = waveAlpha),
+            0.68f to Color(0xFFDFFFFF).copy(alpha = tailAlpha),
+            1.00f to Color.Transparent,
+            center = fieldCenter,
+            radius = fieldRadius
+        ),
+        topLeft = Offset(rect.left, rect.top),
+        size = Size(w, h),
+        cornerRadius = cornerRadius,
+        blendMode = BlendMode.Screen
+    )
+
+    val rimInset = (minSide * 0.006f).coerceIn(0.40f, 1.20f)
+    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+    val rimCorner = CornerRadius(
+        (node.radius.toFloat() - rimInset).coerceAtLeast(0f),
+        (node.radius.toFloat() - rimInset).coerceAtLeast(0f)
+    )
+    val edgeStroke = (0.60f + minSide * 0.010f * active + 0.22f * sweepUnit).coerceIn(0.55f, 3.20f)
+    val edgeEnergy = (fieldEnergy * 0.82f + waveEnergy * 0.54f).coerceIn(0f, 1.26f)
+
+    drawRoundRect(
+        brush = Brush.radialGradient(
+            0.00f to Color.White.copy(alpha = (0.060f * edgeEnergy).coerceIn(0f, 0.13f)),
+            0.36f to Color(0xFFF8FFFF).copy(alpha = (0.044f * edgeEnergy).coerceIn(0f, 0.10f)),
+            0.58f to Color.White.copy(alpha = (0.115f * edgeEnergy).coerceIn(0f, 0.22f)),
+            0.80f to Color(0xFFCFFFFA).copy(alpha = (0.048f * edgeEnergy).coerceIn(0f, 0.11f)),
+            1.00f to Color.Transparent,
+            center = fieldCenter,
+            radius = fieldRadius * 1.08f
+        ),
+        topLeft = Offset(rect.left + rimInset, rect.top + rimInset),
+        size = rimSize,
+        cornerRadius = rimCorner,
+        style = Stroke(edgeStroke),
+        blendMode = BlendMode.Plus
+    )
 }
