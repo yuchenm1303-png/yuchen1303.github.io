@@ -34,6 +34,32 @@ data class ComposeGlassMotionStyle(
     )
 }
 
+data class OrdinaryGlassCapsuleTuning(
+    val compactBoost: Float = 1.16f,
+    val elongatedX: Float = 0.52f,
+    val elongatedY: Float = 0.20f,
+    val basePx: Float = 0.026f,
+    val tapPx: Float = 0.034f,
+    val tapPop: Float = 1.45f,
+    val tapCarry: Float = 0.30f,
+    val sticky: Float = 0.030f,
+    val sink: Float = 0.70f,
+    val settle: Float = 0.34f,
+) {
+    internal fun normalized(): OrdinaryGlassCapsuleTuning = copy(
+        compactBoost = compactBoost.coerceIn(0f, 2.40f),
+        elongatedX = elongatedX.coerceIn(0f, 0.90f),
+        elongatedY = elongatedY.coerceIn(0f, 0.60f),
+        basePx = basePx.coerceIn(0.005f, 0.085f),
+        tapPx = tapPx.coerceIn(0f, 0.120f),
+        tapPop = tapPop.coerceIn(0.20f, 2.80f),
+        tapCarry = tapCarry.coerceIn(0f, 1.40f),
+        sticky = sticky.coerceIn(0f, 0.080f),
+        sink = sink.coerceIn(0f, 1.80f),
+        settle = settle.coerceIn(0f, 1f),
+    )
+}
+
 data class ComposeGlassStyle(
     val preset: ComposeGlassPreset,
     val backdrop: Float,
@@ -78,12 +104,19 @@ object ComposeGlassLabState {
     var motionStyle by mutableStateOf(defaultComposeGlassMotionStyle())
         private set
 
+    var capsuleTuning by mutableStateOf(defaultOrdinaryGlassCapsuleTuning())
+        private set
+
     fun update(next: ComposeGlassStyle) {
         style = next
     }
 
     fun updateMotion(next: ComposeGlassMotionStyle) {
         motionStyle = next.normalized()
+    }
+
+    fun updateCapsuleTuning(next: OrdinaryGlassCapsuleTuning) {
+        capsuleTuning = next.normalized()
     }
 
     fun usePreset(preset: ComposeGlassPreset) {
@@ -98,13 +131,20 @@ object ComposeGlassLabState {
         motionStyle = defaultComposeGlassMotionStyle()
     }
 
+    fun resetCapsuleTuning() {
+        capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
+    }
+
     fun resetAll() {
         style = defaultComposeGlassStyle()
         motionStyle = defaultComposeGlassMotionStyle()
+        capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
     }
 }
 
 private fun defaultComposeGlassMotionStyle(): ComposeGlassMotionStyle = ComposeGlassMotionStyle()
+
+private fun defaultOrdinaryGlassCapsuleTuning(): OrdinaryGlassCapsuleTuning = OrdinaryGlassCapsuleTuning()
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
     ComposeGlassPreset.Clear -> ComposeGlassStyle(
