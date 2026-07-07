@@ -990,7 +990,7 @@ private fun StreamingAssistantContentV2(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 SweepingProgressTextV2(
                     text = progressLabel,
                     fontSize = 9.sp,
@@ -1113,32 +1113,32 @@ private fun AgentProgressPanelV2(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(11.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             SweepingProgressTextV2(
                 text = state.title,
-                fontSize = 15.sp,
-                lineHeight = 20.sp,
+                fontSize = 14.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.ExtraBold,
                 motionClock = motionClock
             )
-            ThinkingDotsV2(size = 5, color = Color.White.copy(alpha = 0.64f), motionClock = motionClock)
+            ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.60f), motionClock = motionClock)
         }
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             state.steps.forEachIndexed { index, step ->
                 AgentProgressStepRowV2(
                     step = step,
                     motionClock = motionClock,
                     delayMs = index * 56L,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(0.9f)
                 )
             }
         }
@@ -1173,13 +1173,13 @@ private fun AgentProgressStepRowV2(
             AgentProgressMarkerV2(step = step, motionClock = motionClock)
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(if (step.toolName != null) 5.dp else 0.dp)
+                verticalArrangement = Arrangement.spacedBy(if (step.toolName != null) 4.dp else 0.dp)
             ) {
                 if (step.active) {
                     SweepingProgressTextV2(
                         text = step.primary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
                         fontWeight = FontWeight.Bold,
                         motionClock = motionClock
                     )
@@ -1187,8 +1187,8 @@ private fun AgentProgressStepRowV2(
                     Text(
                         text = step.primary,
                         color = Color.White.copy(alpha = 0.82f),
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -1203,7 +1203,7 @@ private fun AgentProgressStepRowV2(
                 }
             }
             if (step.active) {
-                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.58f), motionClock = motionClock)
+                ThinkingDotsV2(size = 3, color = Color.White.copy(alpha = 0.54f), motionClock = motionClock)
             }
         }
     }
@@ -1218,7 +1218,7 @@ private fun AgentProgressCardSurfaceV2(
     content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit
 ) {
     val shellAlpha by animateFloatAsState(
-        targetValue = if (active) 0.17f else 0.105f,
+        targetValue = if (active) 0.16f else 0.10f,
         animationSpec = tween(220),
         label = "agent-progress-shell-alpha"
     )
@@ -1231,7 +1231,7 @@ private fun AgentProgressCardSurfaceV2(
     }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(18.dp))
             .background(Color.White.copy(alpha = shellAlpha))
     ) {
         Box(
@@ -1243,9 +1243,9 @@ private fun AgentProgressCardSurfaceV2(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
             content = content
         )
     }
@@ -1256,7 +1256,7 @@ private fun agentProgressCardSweepBrushV2(
     strong: Boolean
 ): Brush {
     val startX = phase * 620f - 380f
-    val width = if (strong) 320f else 280f
+    val width = if (strong) 280f else 240f
     return Brush.linearGradient(
         colors = listOf(
             Color.Transparent,
@@ -1282,7 +1282,7 @@ private fun AgentProgressMarkerV2(
             val pulse = if (step.active) 0.90f + motionClock.pingPong(920L) * 0.15f else 1f
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(22.dp)
                     .graphicsLayer {
                         scaleX = pulse
                         scaleY = pulse
@@ -1294,7 +1294,7 @@ private fun AgentProgressMarkerV2(
                 Text(
                     text = "✓",
                     color = Color(0xFF55E1B4),
-                    fontSize = 16.sp,
+                    fontSize = 13.sp,
                     lineHeight = 16.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -1307,7 +1307,7 @@ private fun AgentProgressMarkerV2(
             val pulse = if (step.active) 0.94f + motionClock.pingPong(980L) * 0.12f else 1f
             Box(
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(22.dp)
                     .graphicsLayer {
                         scaleX = pulse
                         scaleY = pulse
@@ -1318,7 +1318,7 @@ private fun AgentProgressMarkerV2(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(if (step.active) 10.dp else 8.dp)
+                        .size(if (step.active) 8.dp else 7.dp)
                         .clip(RoundedCornerShape(999.dp))
                         .background(Color.White.copy(alpha = if (step.active) 0.88f else 0.72f))
                 )
@@ -1338,7 +1338,7 @@ private fun AgentToolChipV2(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0xFF8DF9EA).copy(alpha = alpha))
-            .padding(horizontal = 8.dp, vertical = 5.dp),
+            .padding(horizontal = 7.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
@@ -1346,8 +1346,8 @@ private fun AgentToolChipV2(
         Text(
             text = toolName,
             color = Color(0xFFCCFFF6).copy(alpha = if (active) 0.94f else 0.78f),
-            fontSize = 9.sp,
-            lineHeight = 11.sp,
+            fontSize = 8.5.sp,
+            lineHeight = 10.sp,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
@@ -1361,7 +1361,7 @@ private fun AgentToolGlyphV2(
     motionClock: AssistantHomeMotionClock,
     compact: Boolean = false
 ) {
-    val shellSize = if (compact) 16.dp else 28.dp
+    val shellSize = if (compact) 14.dp else 22.dp
     val pulse = if (active) 0.94f + motionClock.pingPong(980L) * 0.10f else 1f
     val bgAlpha = if (active) 0.18f else 0.12f
     Box(
@@ -1371,11 +1371,11 @@ private fun AgentToolGlyphV2(
                 scaleX = pulse
                 scaleY = pulse
             }
-            .clip(RoundedCornerShape(if (compact) 6.dp else 9.dp))
+            .clip(RoundedCornerShape(if (compact) 5.dp else 7.dp))
             .background(Color.White.copy(alpha = bgAlpha)),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.size(if (compact) 11.dp else 18.dp)) {
+        Canvas(Modifier.size(if (compact) 9.dp else 14.dp)) {
             val w = size.width
             val h = size.height
             val topPath = Path().apply {
