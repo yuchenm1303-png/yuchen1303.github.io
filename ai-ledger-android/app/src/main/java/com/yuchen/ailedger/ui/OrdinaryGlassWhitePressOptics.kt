@@ -192,8 +192,8 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
 
 private fun whiteOpticsSpeedToScale(speed: Float): Float =
     when {
-        speed <= 1f -> (0.16f + speed * 0.84f).coerceIn(0.22f, 1f)
-        else -> (1f + (speed - 1f) * 0.62f).coerceIn(1f, 5.35f)
+        speed <= 1f -> (0.10f + speed * 0.66f).coerceIn(0.16f, 0.76f)
+        else -> (0.76f + (speed - 1f) * 0.58f).coerceIn(0.76f, 4.82f)
     }
 
 private fun whiteOpticsMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
