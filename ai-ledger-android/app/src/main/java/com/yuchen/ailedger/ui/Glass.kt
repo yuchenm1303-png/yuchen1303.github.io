@@ -539,6 +539,7 @@ fun PressableGlass(
     val pressScope = rememberCoroutineScope()
     val ordinaryMaterial = remember { Animatable(0f) }
     val ordinaryTapFlash = remember { Animatable(0f) }
+    val ordinaryLightPhase = remember { Animatable(1f) }
     var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
     var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
 
@@ -597,13 +598,18 @@ fun PressableGlass(
     } else {
         0f
     }
+    val lightPhaseValue = if (ordinaryPressEnabled) {
+        ordinaryLightPhase.value.coerceIn(0f, 1f)
+    } else {
+        1f
+    }
 
     /*
      * 跟手胶囊版普通玻璃材料曲线：
      * - 几何形变只看 positiveMaterial，按下和松手都保持一段主动画。
-     * - 极短点击的可见反馈交给 ordinaryTapFlash；它只参与白胶光场、边缘亮线和扫光，
+     * - 极短点击的可见反馈交给 ordinaryTapFlash；它只参与连续压力光场，
      *   不参与 scale / translation / shadow，避免松手后按钮本体继续“补动画”。
-     * - 胶囊体积、触点白胶、边缘亮线从几何主曲线和光效保底曲线连续派生。
+     * - ordinaryLightPhase 控制光场从触点揉开到整颗胶囊，边缘高光与内部白场同源。
      */
     val pressCompression = composeMotionSmoothStep((positiveMaterial / 0.82f).coerceIn(0f, 1f))
     val flashEnvelope = composeMotionSmoothStep((tapFlashValue / 0.86f).coerceIn(0f, 1f))
@@ -770,7 +776,16 @@ fun PressableGlass(
                         ordinaryTapFlash.snapTo(maxOf(ordinaryTapFlash.value, flashTarget))
                         ordinaryTapFlash.animateTo(
                             0f,
-                            tween(ordinaryDuration(220, 150, 320), easing = FastOutSlowInEasing)
+                            tween(ordinaryDuration(240, 170, 340), easing = FastOutSlowInEasing)
+                        )
+                    }
+
+                    pressScope.launch {
+                        ordinaryLightPhase.stop()
+                        ordinaryLightPhase.snapTo(0f)
+                        ordinaryLightPhase.animateTo(
+                            1f,
+                            tween(ordinaryDuration(360, 220, 560), easing = FastOutSlowInEasing)
                         )
                     }
 
@@ -870,7 +885,7 @@ fun PressableGlass(
         }
         content()
         if (!parentOwnsOrdinaryGlass && ordinaryPressEnabled && opticsPress > 0.001f) {
-            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, sweepValue, effectiveRadius, pressCenter, role, elasticity))
+            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, sweepValue, effectiveRadius, pressCenter, role, elasticity, lightPhaseValue))
         }
     }
 }
@@ -1037,115 +1052,100 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     radius: Int,
     pressCenter: Offset,
     role: GlassRole,
-    elasticity: Float
+    elasticity: Float,
+    fieldPhase: Float = 1f
 ): Modifier = drawWithContent {
     drawContent()
 
     if (role == GlassRole.Shell) return@drawWithContent
 
     val dynamicPress = press.coerceAtLeast(0f)
-    val lensValue = (press * 0.72f).coerceAtLeast(0f)
     val sweepValue = sweep.coerceAtLeast(0f)
-    val afterValue = (sweep * 0.55f).coerceAtLeast(0f)
-    val active = maxOf(dynamicPress, lensValue, sweepValue, afterValue)
+    val rawActive = maxOf(dynamicPress * 0.48f, sweepValue * 0.28f)
+    val active = composeMotionSmoothStep((rawActive / 1.36f).coerceIn(0f, 1f))
     if (active <= 0.001f) return@drawWithContent
 
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val maxSide = maxOf(w, h)
-    val center = Offset(
+    val minSide = minOf(w, h).coerceAtLeast(1f)
+    val tapCenter = Offset(
         pressCenter.x.coerceIn(0f, 1f) * w,
         pressCenter.y.coerceIn(0f, 1f) * h
+    )
+    val visualCenter = Offset(w * 0.50f, h * 0.48f)
+    val phase = composeMotionSmoothStep(fieldPhase.coerceIn(0f, 1f))
+    val drift = (0.12f + phase * 0.24f + elasticity.coerceIn(0f, 1f) * 0.030f).coerceIn(0.08f, 0.40f)
+    val fieldCenter = Offset(
+        tapCenter.x + (visualCenter.x - tapCenter.x) * drift,
+        tapCenter.y + (visualCenter.y - tapCenter.y) * drift * 0.82f
     )
     val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
     val master = composeMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
-    val prism = composeMotionPower(value = motion.prism, uiMax = 1.5f, effectiveMax = 16f) * master
     val sweepGain = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
     val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
     val elasticityBoost = elasticity.coerceIn(0.08f, 1f)
 
     val capsule = ComposeGlassLabState.capsuleTuning.normalized()
-    val capsuleLight = (1f + capsule.tapPx * 5.2f + capsule.sticky * 8.0f + capsule.basePx * 4.0f).coerceIn(0.92f, 1.82f)
-    val pressShape = composeMotionSmoothStep((dynamicPress + lensValue * 0.82f).coerceIn(0f, 3.2f) / 3.2f)
-    val lightPower = (touchLight * (0.54f + lensValue * 0.82f + afterValue * 0.20f) * elasticityBoost * capsuleLight).coerceIn(0f, 86f)
-    val prismPower = (prism * (0.24f + dynamicPress * 0.36f + sweepValue * 0.46f) * elasticityBoost).coerceIn(0f, 72f)
-    val sweepPower = (sweepGain * (0.18f + sweepValue * 0.94f) * elasticityBoost).coerceIn(0f, 78f)
-    val afterPower = (afterglow * (afterValue * 0.80f + lensValue * 0.28f) * elasticityBoost * capsuleLight).coerceIn(0f, 62f)
-    val sweepPhase = (sweepValue / 3.60f).coerceIn(0f, 1.30f)
-    val sweepX = -0.46f + sweepPhase * 1.92f
-    val rimInset = 0.42.dp.toPx()
+    val capsuleLight = (1f + capsule.tapPx * 4.8f + capsule.sticky * 7.2f + capsule.basePx * 3.6f).coerceIn(0.92f, 1.74f)
+    val lightUnit = (touchLight / 128f).coerceIn(0f, 1f)
+    val sweepUnit = (sweepGain / 128f).coerceIn(0f, 1f)
+    val afterUnit = (afterglow / 96f).coerceIn(0f, 1f)
+    val phaseTail = composeMotionSmoothStep(((phase - 0.18f) / 0.82f).coerceIn(0f, 1f))
+    val fieldEnergy = (active * (0.82f + lightUnit * 0.26f + afterUnit * 0.14f) * capsuleLight * elasticityBoost)
+        .coerceIn(0f, 1.28f)
+    val waveEnergy = (active * (0.46f + sweepUnit * 0.34f + afterUnit * 0.18f) * capsuleLight)
+        .coerceIn(0f, 1.18f)
+    val radiusGrow = 0.34f + phase * 0.70f + fieldEnergy * 0.11f
+    val fieldRadius = (maxSide * radiusGrow).coerceAtLeast(minSide * 0.74f)
+    val edgeStroke = (0.64.dp.toPx() + minSide * 0.010f * active + 0.22.dp.toPx() * sweepUnit).coerceIn(0.55.dp.toPx(), 3.2.dp.toPx())
+    val rimInset = 0.46.dp.toPx()
     val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+    val rimRadius = (radius.dp.toPx() - rimInset).coerceAtLeast(0f)
+    val rimCorner = CornerRadius(rimRadius, rimRadius)
 
+    val bodyAlpha = (0.11f * fieldEnergy).coerceIn(0f, 0.20f)
+    val coreAlpha = (0.050f * fieldEnergy).coerceIn(0f, 0.10f)
+    val waveAlpha = (0.085f * waveEnergy * (0.62f + phaseTail * 0.38f)).coerceIn(0f, 0.16f)
+    val tailAlpha = (0.040f * fieldEnergy * (0.70f + afterUnit * 0.30f)).coerceIn(0f, 0.09f)
+
+    // 一个连续的内部压力白场：中心、扩散波峰、余辉都在同一个 radial field 里完成。
     drawRoundRect(
         brush = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = (0.086f * lightPower).coerceIn(0f, 1f)),
-                Color(0xFFE8FFFF).copy(alpha = (0.054f * lightPower).coerceIn(0f, 1f)),
-                Color(0xFF89FFF3).copy(alpha = (0.022f * lightPower).coerceIn(0f, 1f)),
-                Color.Transparent
-            ),
-            center = center,
-            radius = maxSide * (0.22f + 0.026f * lightPower.coerceIn(0f, 20f) + 0.34f * pressShape)
+            0.00f to Color.White.copy(alpha = coreAlpha),
+            0.24f to Color(0xFFF2FAFF).copy(alpha = bodyAlpha * 0.72f),
+            0.48f to Color.White.copy(alpha = waveAlpha),
+            0.68f to Color(0xFFDFFFFF).copy(alpha = tailAlpha),
+            1.00f to Color.Transparent,
+            center = fieldCenter,
+            radius = fieldRadius
         ),
         size = Size(w, h),
         cornerRadius = cornerRadius,
-        blendMode = BlendMode.Plus
+        blendMode = BlendMode.Screen
     )
 
+    // 同源边缘投影：边缘高光不是固定描边，而是由同一片压力光场照到边界上。
+    val edgeEnergy = (fieldEnergy * 0.82f + waveEnergy * 0.54f).coerceIn(0f, 1.26f)
     drawRoundRect(
         brush = Brush.radialGradient(
-            colors = listOf(
-                Color.White.copy(alpha = (0.040f * lightPower).coerceIn(0f, 0.82f)),
-                Color.Transparent
-            ),
-            center = center,
-            radius = maxSide * (0.10f + 0.018f * lightPower.coerceIn(0f, 20f))
+            0.00f to Color.White.copy(alpha = (0.060f * edgeEnergy).coerceIn(0f, 0.13f)),
+            0.36f to Color(0xFFF8FFFF).copy(alpha = (0.044f * edgeEnergy).coerceIn(0f, 0.10f)),
+            0.58f to Color.White.copy(alpha = (0.115f * edgeEnergy).coerceIn(0f, 0.22f)),
+            0.80f to Color(0xFFCFFFFA).copy(alpha = (0.048f * edgeEnergy).coerceIn(0f, 0.11f)),
+            1.00f to Color.Transparent,
+            center = fieldCenter,
+            radius = fieldRadius * 1.08f
         ),
-        size = Size(w, h),
-        cornerRadius = cornerRadius,
+        topLeft = Offset(rimInset, rimInset),
+        size = rimSize,
+        cornerRadius = rimCorner,
+        style = Stroke(edgeStroke),
         blendMode = BlendMode.Plus
     )
-
-    if (sweepPower > 0.001f || prismPower > 0.001f) {
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                colors = listOf(
-                    Color.Transparent,
-                    Color.White.copy(alpha = (0.024f * prismPower).coerceIn(0f, 0.88f)),
-                    Color(0xFFFFFBDF).copy(alpha = (0.018f * prismPower + 0.020f * sweepPower).coerceIn(0f, 0.72f)),
-                    Color(0xFFE8FFFF).copy(alpha = (0.024f * prismPower + 0.030f * sweepPower).coerceIn(0f, 0.86f)),
-                    Color.Transparent
-                ),
-                start = Offset(w * (sweepX - 0.40f), h * -0.10f),
-                end = Offset(w * (sweepX + 0.48f), h * 1.10f)
-            ),
-            topLeft = Offset(rimInset, rimInset),
-            size = rimSize,
-            cornerRadius = cornerRadius,
-            style = Stroke((0.78.dp.toPx() + 0.20.dp.toPx() * sweepPower.coerceIn(0f, 24f)).coerceAtMost(9.5.dp.toPx())),
-            blendMode = BlendMode.Plus
-        )
-    }
-
-    if (afterPower > 0.001f) {
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    Color.White.copy(alpha = (0.026f * afterPower).coerceIn(0f, 0.78f)),
-                    Color(0xFFB8FFF9).copy(alpha = (0.020f * afterPower).coerceIn(0f, 0.58f)),
-                    Color.Transparent
-                ),
-                center = Offset(w * 0.50f, h * 0.42f),
-                radius = maxSide * (0.46f + afterPower.coerceIn(0f, 10f) * 0.065f)
-            ),
-            size = Size(w, h),
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
-    }
 }
 
 private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float): Float = if (quality.enableMotion && motionIntensity > 0.02f) 0.20f else 0.16f
