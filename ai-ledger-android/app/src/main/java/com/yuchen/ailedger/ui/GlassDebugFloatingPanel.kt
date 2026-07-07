@@ -23,6 +23,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,6 +47,7 @@ fun GlassDebugFloatingPanel(
     val border = state.glassBorderStyle
     val motion = ComposeGlassLabState.motionStyle
     val capsule = ComposeGlassLabState.capsuleTuning
+    val clipboard = LocalClipboardManager.current
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -141,16 +144,27 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(prism = it))
                     }
                 }
-                LabActionButton(
-                    title = "恢复光动效默认值",
-                    subtitle = "只恢复光动效和胶囊细调参数",
-                    state = state,
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        ComposeGlassLabState.resetMotion()
-                        ComposeGlassLabState.resetCapsuleTuning()
-                    },
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+                    LabActionButton(
+                        title = "复制参数 JSON",
+                        subtitle = "导出当前光动效和胶囊参数",
+                        state = state,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            clipboard.setText(AnnotatedString(composeGlassMotionExportJson(motion, capsule)))
+                        },
+                    )
+                    LabActionButton(
+                        title = "恢复默认值",
+                        subtitle = "只恢复光动效和胶囊细调",
+                        state = state,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            ComposeGlassLabState.resetMotion()
+                            ComposeGlassLabState.resetCapsuleTuning()
+                        },
+                    )
+                }
             }
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
                 OpenGlGlassLab(state, params, legacyBorder) { legacyBorder = it }
@@ -469,6 +483,43 @@ private fun Metric(label: String, value: Float, modifier: Modifier = Modifier) {
         Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
         Text(value.formatLabValue(), color = Color.White.copy(alpha = 0.86f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
     }
+}
+
+private fun composeGlassMotionExportJson(
+    motion: ComposeGlassMotionStyle,
+    capsule: OrdinaryGlassCapsuleTuning
+): String {
+    fun Float.exportValue(): String = ((this * 1000f).roundToInt() / 1000f).toString()
+    return """
+        {
+          "composeGlassMotionStyle": {
+            "master": ${motion.master.exportValue()},
+            "deformation": ${motion.deformation.exportValue()},
+            "touchLight": ${motion.touchLight.exportValue()},
+            "prism": ${motion.prism.exportValue()},
+            "sweep": ${motion.sweep.exportValue()},
+            "rebound": ${motion.rebound.exportValue()},
+            "afterglow": ${motion.afterglow.exportValue()},
+            "speed": ${motion.speed.exportValue()},
+            "tapImpulse": ${motion.tapImpulse.exportValue()},
+            "releaseCohesion": ${motion.releaseCohesion.exportValue()},
+            "fieldContinuity": ${motion.fieldContinuity.exportValue()},
+            "sweepMomentum": ${motion.sweepMomentum.exportValue()}
+          },
+          "ordinaryGlassCapsuleTuning": {
+            "compactBoost": ${capsule.compactBoost.exportValue()},
+            "elongatedX": ${capsule.elongatedX.exportValue()},
+            "elongatedY": ${capsule.elongatedY.exportValue()},
+            "basePx": ${capsule.basePx.exportValue()},
+            "tapPx": ${capsule.tapPx.exportValue()},
+            "tapPop": ${capsule.tapPop.exportValue()},
+            "tapCarry": ${capsule.tapCarry.exportValue()},
+            "sticky": ${capsule.sticky.exportValue()},
+            "sink": ${capsule.sink.exportValue()},
+            "settle": ${capsule.settle.exportValue()}
+          }
+        }
+    """.trimIndent()
 }
 
 private fun Float.formatLabValue(): String = ((this * 100f).roundToInt() / 100f).toString()
