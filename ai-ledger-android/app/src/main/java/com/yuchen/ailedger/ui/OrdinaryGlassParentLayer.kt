@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
@@ -554,8 +555,8 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
     val positivePress = node.pressProgress.coerceAtLeast(0f)
     val lens = node.lensProgress.coerceAtLeast(0f)
     val sweep = node.sweepProgress.coerceAtLeast(0f)
-    val rawActive = maxOf(positivePress * 0.52f, lens * 0.48f, sweep * 0.34f)
-    val active = ordinaryParentPressureSmoothStep((rawActive / 1.42f).coerceIn(0f, 1f))
+    val rawActive = maxOf(positivePress * 0.50f, lens * 0.56f, sweep * 0.42f)
+    val active = ordinaryParentPressureSmoothStep((rawActive / 1.18f).coerceIn(0f, 1f))
     if (active <= 0.001f) return
 
     val maxSide = maxOf(w, h)
@@ -595,57 +596,59 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
     val elasticityBoost = node.elasticity.coerceIn(0.08f, 1f)
     val phaseTail = ordinaryParentPressureSmoothStep(((phase - 0.18f) / 0.82f).coerceIn(0f, 1f))
 
-    val fieldEnergy = (active * (0.82f + lightUnit * 0.26f + afterUnit * 0.14f) * capsuleLight * elasticityBoost)
+    val fieldEnergy = (active * (0.96f + lightUnit * 0.30f + afterUnit * 0.18f) * capsuleLight * elasticityBoost)
+        .coerceIn(0f, 1.38f)
+    val waveEnergy = (active * (0.58f + sweepUnit * 0.40f + afterUnit * 0.20f) * capsuleLight)
         .coerceIn(0f, 1.28f)
-    val waveEnergy = (active * (0.46f + sweepUnit * 0.34f + afterUnit * 0.18f) * capsuleLight)
-        .coerceIn(0f, 1.18f)
-    val fieldRadius = (maxSide * (0.34f + phase * 0.70f + fieldEnergy * 0.11f))
+    val fieldRadius = (maxSide * (0.34f + phase * 0.70f + fieldEnergy * 0.12f))
         .coerceAtLeast(minSide * 0.74f)
 
-    val bodyAlpha = (0.11f * fieldEnergy).coerceIn(0f, 0.20f)
-    val coreAlpha = (0.050f * fieldEnergy).coerceIn(0f, 0.10f)
-    val waveAlpha = (0.085f * waveEnergy * (0.62f + phaseTail * 0.38f)).coerceIn(0f, 0.16f)
-    val tailAlpha = (0.040f * fieldEnergy * (0.70f + afterUnit * 0.30f)).coerceIn(0f, 0.09f)
+    val bodyAlpha = (0.145f * fieldEnergy).coerceIn(0f, 0.28f)
+    val coreAlpha = (0.072f * fieldEnergy).coerceIn(0f, 0.14f)
+    val waveAlpha = (0.125f * waveEnergy * (0.60f + phaseTail * 0.40f)).coerceIn(0f, 0.24f)
+    val tailAlpha = (0.058f * fieldEnergy * (0.70f + afterUnit * 0.30f)).coerceIn(0f, 0.13f)
     val radiusPx = node.radius.dp.toPx()
     val cornerRadius = CornerRadius(radiusPx, radiusPx)
 
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            0.00f to Color.White.copy(alpha = coreAlpha),
-            0.24f to Color(0xFFF2FAFF).copy(alpha = bodyAlpha * 0.72f),
-            0.48f to Color.White.copy(alpha = waveAlpha),
-            0.68f to Color(0xFFDFFFFF).copy(alpha = tailAlpha),
-            1.00f to Color.Transparent,
-            center = fieldCenter,
-            radius = fieldRadius
-        ),
-        topLeft = Offset(rect.left, rect.top),
-        size = Size(w, h),
-        cornerRadius = cornerRadius,
-        blendMode = BlendMode.Screen
-    )
+    translate(left = rect.left, top = rect.top) {
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                0.00f to Color.White.copy(alpha = coreAlpha),
+                0.22f to Color(0xFFF2FAFF).copy(alpha = bodyAlpha * 0.74f),
+                0.48f to Color.White.copy(alpha = waveAlpha),
+                0.68f to Color(0xFFDFFFFF).copy(alpha = tailAlpha),
+                1.00f to Color.Transparent,
+                center = fieldCenter,
+                radius = fieldRadius
+            ),
+            topLeft = Offset.Zero,
+            size = Size(w, h),
+            cornerRadius = cornerRadius,
+            blendMode = BlendMode.Screen
+        )
 
-    val rimInset = (minSide * 0.006f).coerceIn(0.40f, 1.20f)
-    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-    val rimRadius = (radiusPx - rimInset).coerceAtLeast(0f)
-    val rimCorner = CornerRadius(rimRadius, rimRadius)
-    val edgeStroke = (0.60f + minSide * 0.010f * active + 0.22f * sweepUnit).coerceIn(0.55f, 3.20f)
-    val edgeEnergy = (fieldEnergy * 0.82f + waveEnergy * 0.54f).coerceIn(0f, 1.26f)
+        val rimInset = (minSide * 0.006f).coerceIn(0.40f, 1.20f)
+        val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+        val rimRadius = (radiusPx - rimInset).coerceAtLeast(0f)
+        val rimCorner = CornerRadius(rimRadius, rimRadius)
+        val edgeStroke = (0.60f + minSide * 0.010f * active + 0.22f * sweepUnit).coerceIn(0.55f, 3.20f)
+        val edgeEnergy = (fieldEnergy * 0.88f + waveEnergy * 0.58f).coerceIn(0f, 1.34f)
 
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            0.00f to Color.White.copy(alpha = (0.060f * edgeEnergy).coerceIn(0f, 0.13f)),
-            0.36f to Color(0xFFF8FFFF).copy(alpha = (0.044f * edgeEnergy).coerceIn(0f, 0.10f)),
-            0.58f to Color.White.copy(alpha = (0.115f * edgeEnergy).coerceIn(0f, 0.22f)),
-            0.80f to Color(0xFFCFFFFA).copy(alpha = (0.048f * edgeEnergy).coerceIn(0f, 0.11f)),
-            1.00f to Color.Transparent,
-            center = fieldCenter,
-            radius = fieldRadius * 1.08f
-        ),
-        topLeft = Offset(rect.left + rimInset, rect.top + rimInset),
-        size = rimSize,
-        cornerRadius = rimCorner,
-        style = Stroke(edgeStroke),
-        blendMode = BlendMode.Plus
-    )
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                0.00f to Color.White.copy(alpha = (0.075f * edgeEnergy).coerceIn(0f, 0.16f)),
+                0.34f to Color(0xFFF8FFFF).copy(alpha = (0.060f * edgeEnergy).coerceIn(0f, 0.13f)),
+                0.58f to Color.White.copy(alpha = (0.155f * edgeEnergy).coerceIn(0f, 0.28f)),
+                0.80f to Color(0xFFCFFFFA).copy(alpha = (0.062f * edgeEnergy).coerceIn(0f, 0.14f)),
+                1.00f to Color.Transparent,
+                center = fieldCenter,
+                radius = fieldRadius * 1.08f
+            ),
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = rimCorner,
+            style = Stroke(edgeStroke),
+            blendMode = BlendMode.Plus
+        )
+    }
 }
