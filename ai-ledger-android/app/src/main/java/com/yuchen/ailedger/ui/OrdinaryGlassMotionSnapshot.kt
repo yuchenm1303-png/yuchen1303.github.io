@@ -50,33 +50,36 @@ internal fun updateOrdinaryGlassMotionSnapshot(
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
     val speed = motion.speed.coerceIn(0.08f, 8f)
+    val timeScale = ordinarySnapshotSpeedToScale(speed)
     val positive = node.pressProgress.coerceAtLeast(0f)
     val negative = (-node.pressProgress).coerceAtLeast(0f)
     val lens = node.lensProgress.coerceAtLeast(0f)
     val sweep = node.sweepProgress.coerceAtLeast(0f)
 
-    val press = ordinarySnapshotSmoothStep((positive * 9.60f + lens * 2.20f).coerceIn(0f, 1f))
-    val tap = ordinarySnapshotSmoothStep((positive * 7.20f + lens * 1.65f + sweep * 0.26f).coerceIn(0f, 1f))
-    val release = ordinarySnapshotSmoothStep((negative * 4.80f).coerceIn(0f, 1f))
-    val releaseCut = (1f - release).coerceIn(0f, 1f)
-    val settle = release * (1f - press * 0.64f).coerceIn(0.36f, 1f)
+    val holdPhase = (positive * 0.52f + lens * 0.30f + sweep * 0.12f) * timeScale
+    val tapPhase = (lens * 0.82f + sweep * 0.48f + positive * 0.18f) * timeScale
+    val releasePhase = (negative * 0.34f + lens * 0.36f + sweep * 0.26f) * timeScale
+    val hold = ordinarySnapshotSmoothStep(holdPhase.coerceIn(0f, 1.84f) / 1.84f)
+    val tap = ordinarySnapshotSmoothStep(tapPhase.coerceIn(0f, 1.74f) / 1.74f)
+    val release = ordinarySnapshotSmoothStep(releasePhase.coerceIn(0f, 1.96f) / 1.96f)
+    val releaseFade = (1f - release * 0.82f).coerceIn(0f, 1f)
     val light = maxOf(
-        press * 0.76f,
-        tap * 0.72f,
-        lens.coerceIn(0f, 1f) * 0.42f,
-    ).coerceIn(0f, 1f)
+        hold * 0.66f,
+        tap * 0.82f,
+        lens.coerceIn(0f, 1f) * 0.62f
+    ).coerceIn(0f, 1f) * releaseFade
     val cleanSweep = maxOf(
-        tap * 0.58f,
-        ordinarySnapshotSmoothStep((sweep * 0.62f).coerceIn(0f, 1f)),
-    ).coerceIn(0f, 1f)
+        tap * 0.68f,
+        ordinarySnapshotSmoothStep((sweep * timeScale).coerceIn(0f, 1.18f) / 1.18f)
+    ).coerceIn(0f, 1f) * releaseFade
 
     val master = ordinarySnapshotMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
-    out.pressPhase = press * (1f - settle * 0.32f).coerceIn(0.68f, 1f)
-    out.tapPhase = tap * (1f - settle * 0.42f).coerceIn(0.58f, 1f)
+    out.pressPhase = hold
+    out.tapPhase = tap
     out.releasePhase = release
-    out.lightPhase = if (negative > 0.001f) 0f else light * releaseCut
-    out.sweepPhase = if (negative > 0.001f) 0f else cleanSweep * releaseCut
-    out.settlePhase = settle
+    out.lightPhase = light
+    out.sweepPhase = cleanSweep
+    out.settlePhase = release
     out.pressCenter = node.pressCenter
     out.speed = speed
     out.master = master
@@ -86,6 +89,12 @@ internal fun updateOrdinaryGlassMotionSnapshot(
     out.sweepGain = ordinarySnapshotMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
     out.afterglow = ordinarySnapshotMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
 }
+
+private fun ordinarySnapshotSpeedToScale(speed: Float): Float =
+    when {
+        speed <= 1f -> (0.92f / speed.coerceAtLeast(0.08f)).coerceIn(0.92f, 3.80f)
+        else -> (0.92f / speed).coerceIn(0.48f, 0.92f)
+    }
 
 private fun ordinarySnapshotMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
     val clean = value.coerceAtLeast(0f)
