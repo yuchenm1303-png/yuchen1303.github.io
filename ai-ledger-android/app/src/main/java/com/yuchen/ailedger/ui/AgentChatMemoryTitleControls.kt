@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 /**
  * 聊天大玻璃内部的唯一标题控件行。
  *
- * Agent、浮窗沿用既有实现；记忆与 Skill 入口作为同一 Row 的普通 Compose 子节点追加，
+ * Workspace、Agent、浮窗沿用同一标题控制带；记忆与 Skill 入口作为同一 Row 的普通 Compose 子节点追加，
  * 因而四者共享聊天 Shell 的位移与形变，但快捷面板不创建额外窗口。
  */
 @Composable
@@ -24,7 +24,7 @@ internal fun AgentChatMemoryTitleControls(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        WorkspaceTetrahedronTitleIcon()
+        WorkspaceModeTitleSwitch()
         AgentChatGlassTitleControls()
         MemoryQuickPanelButtonHost()
         SkillQuickPanelButtonHost()
