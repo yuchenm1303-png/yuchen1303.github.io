@@ -32,12 +32,12 @@ object AgentWorkspaceModeController {
     }
 
     private fun loadInitialEnabled(): Boolean {
-        val context = AiLedgerApplication.contextOrNull() ?: return false
+        val context = AiLedgerApplication.contextOrNull() ?: return true
         return runCatching {
             context
                 .getSharedPreferences(AGENT_WORKSPACE_PREFS, android.content.Context.MODE_PRIVATE)
-                .getBoolean(KEY_WORKSPACE_MODE_ENABLED, false)
-        }.getOrDefault(false)
+                .getBoolean(KEY_WORKSPACE_MODE_ENABLED, true)
+        }.getOrDefault(true)
     }
 
     private fun persist(value: Boolean) {
