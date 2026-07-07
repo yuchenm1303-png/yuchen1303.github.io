@@ -569,6 +569,13 @@ fun PressableGlass(
     val useNewOpenGlBackdrop = USE_CARD_BOUND_OPENGL_GLASS && role == GlassRole.Shell && !viewportOwnsShell && cardBackdrop != null
     val parentOwnsOrdinaryGlass = role != GlassRole.Shell &&
         LocalOrdinaryGlassRenderMode.current == OrdinaryGlassRenderMode.ParentDraw
+    val ordinarySpeed = motion.speed.coerceIn(0.08f, 8f)
+    val ordinaryDurationScale = when {
+        ordinarySpeed <= 1f -> (1.18f / ordinarySpeed.coerceAtLeast(0.08f)).coerceIn(1.18f, 5.40f)
+        else -> (1.18f / ordinarySpeed).coerceIn(0.34f, 1.18f)
+    }
+    fun ordinaryDuration(baseMs: Int, minMs: Int, maxMs: Int): Int =
+        (baseMs * ordinaryDurationScale).roundToInt().coerceIn(minMs, maxMs)
 
     ReportOrdinaryGlassNode(
         coordinates = coordinates,
@@ -593,7 +600,7 @@ fun PressableGlass(
             .onSizeChanged { size ->
                 pressSize = Size(size.width.coerceAtLeast(1).toFloat(), size.height.coerceAtLeast(1).toFloat())
             }
-            .pointerInput(ordinaryPressEnabled, master, deformation, touchLight, prism, sweep, reboundControl, afterglow, role) {
+            .pointerInput(ordinaryPressEnabled, master, deformation, touchLight, prism, sweep, reboundControl, afterglow, ordinarySpeed, role) {
                 if (!ordinaryPressEnabled) return@pointerInput
                 awaitEachGesture {
                     fun updatePressCenter(position: Offset) {
@@ -604,81 +611,165 @@ fun PressableGlass(
                     }
 
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    val downTimeNanos = System.nanoTime()
                     updatePressCenter(down.position)
 
                     pressScope.launch {
                         ordinaryPress.stop()
-                        if (ordinaryPress.value < 0.18f) ordinaryPress.snapTo(0.18f)
-                        val burstTarget = (0.68f + deformation * 0.20f).coerceIn(0.28f, 2.20f)
-                        val holdTarget = (0.52f + deformation * 0.12f).coerceIn(0.20f, 1.55f)
-                        ordinaryPress.animateTo(burstTarget, tween(72, easing = FastOutSlowInEasing))
-                        ordinaryPress.animateTo(holdTarget, spring(dampingRatio = 0.54f, stiffness = Spring.StiffnessMedium))
+                        if (ordinaryPress.value < 0.10f) ordinaryPress.snapTo(0.10f)
+                        val preloadTarget = (0.36f + deformation * 0.045f).coerceIn(0.18f, 0.72f)
+                        val capsuleTarget = (0.82f + deformation * 0.13f).coerceIn(0.42f, 2.04f)
+                        val holdTarget = (0.60f + deformation * 0.080f).coerceIn(0.26f, 1.46f)
+                        ordinaryPress.animateTo(
+                            preloadTarget,
+                            tween(ordinaryDuration(82, 48, 300), easing = OrdinaryPressEasing)
+                        )
+                        ordinaryPress.animateTo(
+                            capsuleTarget,
+                            tween(ordinaryDuration(168, 80, 520), easing = OrdinarySinkEasing)
+                        )
+                        ordinaryPress.animateTo(
+                            holdTarget,
+                            spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow)
+                        )
                     }
                     pressScope.launch {
                         ordinaryLens.stop()
-                        if (ordinaryLens.value < 0.18f) ordinaryLens.snapTo(0.18f)
-                        val lensTarget = (0.76f + touchLight * 0.22f).coerceIn(0.24f, 3.40f)
-                        ordinaryLens.animateTo(lensTarget, tween(96, easing = FastOutSlowInEasing))
+                        if (ordinaryLens.value < 0.10f) ordinaryLens.snapTo(0.10f)
+                        val lensPreload = (0.46f + touchLight * 0.055f).coerceIn(0.18f, 1.30f)
+                        val lensTarget = (0.92f + touchLight * 0.12f).coerceIn(0.28f, 3.40f)
+                        ordinaryLens.animateTo(
+                            lensPreload,
+                            tween(ordinaryDuration(112, 58, 360), easing = OrdinaryPressEasing)
+                        )
+                        ordinaryLens.animateTo(
+                            lensTarget,
+                            tween(ordinaryDuration(230, 90, 680), easing = FastOutSlowInEasing)
+                        )
                     }
                     pressScope.launch {
                         ordinarySweep.stop()
                         ordinarySweep.snapTo(0f)
-                        val sweepTarget = (0.88f + sweep * 0.15f).coerceIn(0.26f, 3.60f)
-                        ordinarySweep.animateTo(sweepTarget, tween(300, easing = FastOutSlowInEasing))
+                        val sweepTarget = (1.04f + sweep * 0.13f).coerceIn(0.28f, 3.60f)
+                        ordinarySweep.animateTo(
+                            sweepTarget,
+                            tween(ordinaryDuration(420, 150, 1320), easing = FastOutSlowInEasing)
+                        )
                     }
 
+                    var releasedInsideGesture = false
                     while (true) {
                         val event = awaitPointerEvent()
                         val tracked = event.changes.firstOrNull { it.id == down.id } ?: event.changes.firstOrNull()
                         if (tracked != null) {
                             updatePressCenter(tracked.position)
-                            if (!tracked.pressed) break
+                            if (!tracked.pressed) {
+                                releasedInsideGesture = true
+                                break
+                            }
                         }
-                        if (event.changes.none { it.pressed }) break
+                        if (event.changes.none { it.pressed }) {
+                            releasedInsideGesture = true
+                            break
+                        }
                     }
+
+                    val heldMs = ((System.nanoTime() - downTimeNanos) / 1_000_000L).coerceAtLeast(0L)
+                    val shortTap = releasedInsideGesture && heldMs < 180L
 
                     pressScope.launch {
                         ordinaryPress.stop()
-                        val reboundTarget = (-0.18f - reboundControl * 0.040f).coerceIn(-2.00f, -0.030f)
-                        ordinaryPress.animateTo(reboundTarget, tween(92, easing = FastOutSlowInEasing))
-                        ordinaryPress.animateTo(0.055f, spring(dampingRatio = 0.42f, stiffness = Spring.StiffnessMediumLow))
-                        ordinaryPress.animateTo(0f, spring(dampingRatio = 0.68f, stiffness = Spring.StiffnessLow))
+                        if (shortTap) {
+                            val tapPeak = (1.02f + deformation * 0.12f).coerceIn(0.62f, 2.12f)
+                            val tapHold = (0.44f + deformation * 0.040f).coerceIn(0.18f, 1.02f)
+                            if (ordinaryPress.value < 0.30f) {
+                                ordinaryPress.animateTo(
+                                    0.30f,
+                                    tween(ordinaryDuration(42, 30, 160), easing = OrdinaryPressEasing)
+                                )
+                            }
+                            ordinaryPress.animateTo(
+                                tapPeak,
+                                tween(ordinaryDuration(118, 62, 330), easing = OrdinarySinkEasing)
+                            )
+                            ordinaryPress.animateTo(
+                                tapHold,
+                                tween(ordinaryDuration(128, 68, 380), easing = FastOutSlowInEasing)
+                            )
+                            ordinaryPress.animateTo(
+                                (-0.095f - reboundControl * 0.020f).coerceIn(-0.70f, -0.030f),
+                                tween(ordinaryDuration(136, 72, 420), easing = OrdinaryReleaseEasing)
+                            )
+                        } else {
+                            val reboundTarget = (-0.16f - reboundControl * 0.034f).coerceIn(-1.20f, -0.030f)
+                            ordinaryPress.animateTo(
+                                reboundTarget,
+                                tween(ordinaryDuration(156, 76, 540), easing = OrdinaryReleaseEasing)
+                            )
+                        }
+                        ordinaryPress.animateTo(
+                            0.045f,
+                            spring(dampingRatio = 0.52f, stiffness = Spring.StiffnessMediumLow)
+                        )
+                        ordinaryPress.animateTo(
+                            0f,
+                            spring(dampingRatio = 0.76f, stiffness = Spring.StiffnessLow)
+                        )
                     }
                     pressScope.launch {
                         ordinaryLens.stop()
+                        if (shortTap && ordinaryLens.value < 0.58f) {
+                            ordinaryLens.animateTo(
+                                (0.70f + touchLight * 0.040f).coerceIn(0.24f, 1.80f),
+                                tween(ordinaryDuration(96, 52, 280), easing = OrdinaryPressEasing)
+                            )
+                        }
                         ordinaryLens.animateTo(
-                            (0.22f + afterglow * 0.085f).coerceIn(0.02f, 2.20f),
-                            tween((190 + afterglow * 28f).toInt().coerceIn(190, 920), easing = FastOutSlowInEasing)
+                            (0.34f + afterglow * 0.090f).coerceIn(0.04f, 2.20f),
+                            tween(ordinaryDuration(if (shortTap) 260 else 230, 120, 980), easing = OrdinaryReleaseEasing)
                         )
                         ordinaryLens.animateTo(
                             0f,
-                            tween((300 + afterglow * 44f).toInt().coerceIn(300, 1280), easing = FastOutSlowInEasing)
+                            tween(ordinaryDuration(if (shortTap) 520 else 420, 220, 1480), easing = FastOutSlowInEasing)
                         )
                     }
                     pressScope.launch {
                         ordinarySweep.stop()
+                        if (shortTap && ordinarySweep.value < 0.64f) {
+                            ordinarySweep.animateTo(
+                                (0.92f + sweep * 0.060f).coerceIn(0.20f, 2.40f),
+                                tween(ordinaryDuration(152, 72, 420), easing = FastOutSlowInEasing)
+                            )
+                        }
                         ordinarySweep.animateTo(
-                            (0.12f + afterglow * 0.055f).coerceIn(0.01f, 1.50f),
-                            tween((210 + afterglow * 30f).toInt().coerceIn(210, 980), easing = FastOutSlowInEasing)
+                            (0.20f + afterglow * 0.060f).coerceIn(0.02f, 1.50f),
+                            tween(ordinaryDuration(if (shortTap) 280 else 250, 120, 1040), easing = FastOutSlowInEasing)
                         )
                         ordinarySweep.animateTo(
                             0f,
-                            tween((260 + afterglow * 42f).toInt().coerceIn(260, 1140), easing = FastOutSlowInEasing)
+                            tween(ordinaryDuration(if (shortTap) 500 else 380, 220, 1320), easing = FastOutSlowInEasing)
                         )
                     }
                 }
             }
             .onPlaced { coordinates.coordinates = it }
             .graphicsLayer {
-                val p = composeMotionSmoothStep(ordinaryPress.value.coerceAtLeast(0f).coerceIn(0f, 2.2f) / 2.2f)
-                val r = composeMotionSmoothStep((-ordinaryPress.value).coerceAtLeast(0f).coerceIn(0f, 2.0f) / 2.0f)
-                val grow = deformation.coerceIn(0f, 12f)
-                val bounce = reboundControl.coerceIn(0f, 10f)
                 transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
-                scaleX = 1f + p * (0.080f + 0.018f * grow) - r * (0.018f + 0.007f * bounce)
-                scaleY = 1f + p * (0.058f + 0.014f * grow) - r * (0.014f + 0.006f * bounce)
-                translationY = p * (0.45f + 0.22f * grow) - r * (0.36f + 0.16f * bounce)
-                shadowElevation = p * (1.2f + 0.18f * grow)
+                if (parentOwnsOrdinaryGlass) {
+                    scaleX = 1f
+                    scaleY = 1f
+                    translationY = 0f
+                    shadowElevation = 0f
+                } else {
+                    val p = composeMotionSmoothStep(ordinaryPress.value.coerceAtLeast(0f).coerceIn(0f, 2.2f) / 2.2f)
+                    val r = composeMotionSmoothStep((-ordinaryPress.value).coerceAtLeast(0f).coerceIn(0f, 2.0f) / 2.0f)
+                    val grow = deformation.coerceIn(0f, 12f)
+                    val bounce = reboundControl.coerceIn(0f, 10f)
+                    scaleX = 1f + p * (0.050f + 0.010f * grow) - r * (0.012f + 0.004f * bounce)
+                    scaleY = 1f + p * (0.040f + 0.008f * grow) - r * (0.010f + 0.003f * bounce)
+                    translationY = p * (0.36f + 0.16f * grow) - r * (0.22f + 0.09f * bounce)
+                    shadowElevation = p * (0.8f + 0.12f * grow)
+                }
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .ordinaryGlassFrame(
