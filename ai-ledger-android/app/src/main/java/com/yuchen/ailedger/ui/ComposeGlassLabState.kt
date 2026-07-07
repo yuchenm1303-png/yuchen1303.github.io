@@ -68,6 +68,30 @@ data class OrdinaryGlassCapsuleTuning(
     )
 }
 
+data class OrdinaryGlassPressureOpticsTuning(
+    val fieldIntensity: Float = 5.20f,
+    val fieldSpread: Float = 4.20f,
+    val fieldSoftness: Float = 4.80f,
+    val fieldUniformity: Float = 4.30f,
+    val fieldFollow: Float = 0.18f,
+    val edgeIntensity: Float = 4.80f,
+    val edgeWidth: Float = 2.40f,
+    val edgeSoftness: Float = 4.20f,
+    val edgeBloom: Float = 3.80f,
+) {
+    internal fun normalized(): OrdinaryGlassPressureOpticsTuning = copy(
+        fieldIntensity = fieldIntensity.coerceIn(0f, 12f),
+        fieldSpread = fieldSpread.coerceIn(0f, 8f),
+        fieldSoftness = fieldSoftness.coerceIn(0f, 8f),
+        fieldUniformity = fieldUniformity.coerceIn(0f, 8f),
+        fieldFollow = fieldFollow.coerceIn(0f, 1f),
+        edgeIntensity = edgeIntensity.coerceIn(0f, 12f),
+        edgeWidth = edgeWidth.coerceIn(0f, 8f),
+        edgeSoftness = edgeSoftness.coerceIn(0f, 8f),
+        edgeBloom = edgeBloom.coerceIn(0f, 8f),
+    )
+}
+
 data class ComposeGlassStyle(
     val preset: ComposeGlassPreset,
     val backdrop: Float,
@@ -115,6 +139,9 @@ object ComposeGlassLabState {
     var capsuleTuning by mutableStateOf(defaultOrdinaryGlassCapsuleTuning())
         private set
 
+    var pressureOpticsTuning by mutableStateOf(defaultOrdinaryGlassPressureOpticsTuning())
+        private set
+
     fun update(next: ComposeGlassStyle) {
         style = next
     }
@@ -125,6 +152,10 @@ object ComposeGlassLabState {
 
     fun updateCapsuleTuning(next: OrdinaryGlassCapsuleTuning) {
         capsuleTuning = next.normalized()
+    }
+
+    fun updatePressureOpticsTuning(next: OrdinaryGlassPressureOpticsTuning) {
+        pressureOpticsTuning = next.normalized()
     }
 
     fun usePreset(preset: ComposeGlassPreset) {
@@ -143,16 +174,23 @@ object ComposeGlassLabState {
         capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
     }
 
+    fun resetPressureOpticsTuning() {
+        pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
+    }
+
     fun resetAll() {
         style = defaultComposeGlassStyle()
         motionStyle = defaultComposeGlassMotionStyle()
         capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
+        pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
     }
 }
 
 private fun defaultComposeGlassMotionStyle(): ComposeGlassMotionStyle = ComposeGlassMotionStyle()
 
 private fun defaultOrdinaryGlassCapsuleTuning(): OrdinaryGlassCapsuleTuning = OrdinaryGlassCapsuleTuning()
+
+private fun defaultOrdinaryGlassPressureOpticsTuning(): OrdinaryGlassPressureOpticsTuning = OrdinaryGlassPressureOpticsTuning()
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
     ComposeGlassPreset.Clear -> ComposeGlassStyle(
@@ -258,11 +296,11 @@ private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPr
         topWidthDp = 1.20f,
         topVariation = 0.72f,
         bottomLight = 0.62f,
-        bottomWidthDp = 1.45f,
-        outerRim = 0.42f,
-        bottomMass = 0.82f,
-        sideLight = 0.06f,
-        radius = 44f,
-        ribbon = 0.08f
+        bottomWidthDp = 1.60f,
+        outerRim = 0.58f,
+        bottomMass = 0.78f,
+        sideLight = 0.08f,
+        radius = 46f,
+        ribbon = 0.34f
     )
 }
