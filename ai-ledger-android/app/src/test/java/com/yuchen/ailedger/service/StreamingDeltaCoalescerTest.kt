@@ -1,26 +1,31 @@
 package com.yuchen.ailedger.service
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StreamingDeltaCoalescerTest {
     @Test
-    fun firstFragmentIsImmediateAndRemainingTextIsPreserved() {
+    fun firstTinyFragmentWaitsForSmallLatencyBudgetAndTextIsPreserved() {
+        var now = 0L
         val emitted = mutableListOf<String>()
         val coalescer = StreamingDeltaCoalescer(
             onDelta = emitted::add,
-            clockMs = { 0L },
+            clockMs = { now },
             targetChunkChars = 32,
             maxDelayMs = 1_000L,
         )
 
         coalescer.append("你")
+        assertTrue(emitted.isEmpty())
+
+        now = 80L
         coalescer.append("好")
         coalescer.append("，世界")
         coalescer.drain()
 
         assertEquals("你好，世界", emitted.joinToString(separator = ""))
-        assertEquals("你", emitted.first())
+        assertEquals(listOf("你好", "，世界"), emitted)
     }
 
     @Test
@@ -33,14 +38,17 @@ class StreamingDeltaCoalescerTest {
             maxDelayMs = 1_000L,
         )
 
-        coalescer.append("a")
-        coalescer.append("b")
-        coalescer.append("c")
-        coalescer.append("d")
-        coalescer.append("e")
+        coalescer.append("abcdefgh")
+        coalescer.append("i")
+        coalescer.append("j")
+        coalescer.append("k")
+        coalescer.append("l")
+        coalescer.append("m")
+        coalescer.append("n")
+        coalescer.append("op")
         coalescer.drain()
 
-        assertEquals(listOf("a", "bcde"), emitted)
+        assertEquals(listOf("abcdefgh", "ijklmn", "op"), emitted)
     }
 
     @Test
@@ -54,11 +62,11 @@ class StreamingDeltaCoalescerTest {
             maxDelayMs = 48L,
         )
 
-        coalescer.append("首")
-        coalescer.append("这是句号。")
+        coalescer.append("首段已经足够长啦")
+        coalescer.append("这一段内容已经超过标点最小长度并且到了句号。")
         now = 60L
         coalescer.append("延迟")
 
-        assertEquals(listOf("首", "这是句号。", "延迟"), emitted)
+        assertEquals(listOf("首段已经足够长啦", "这一段内容已经超过标点最小长度并且到了句号。", "延迟"), emitted)
     }
 }
