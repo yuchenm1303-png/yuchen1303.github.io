@@ -21,6 +21,7 @@ internal fun AgentChatMemoryTitleControls(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        WorkspaceTetrahedronTitleIcon()
         AgentChatGlassTitleControls()
         MemoryQuickPanelButtonHost()
         SkillQuickPanelButtonHost()
