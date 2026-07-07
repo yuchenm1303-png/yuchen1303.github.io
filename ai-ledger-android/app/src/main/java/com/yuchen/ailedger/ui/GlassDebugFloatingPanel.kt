@@ -45,6 +45,7 @@ fun GlassDebugFloatingPanel(
     val border = state.glassBorderStyle
     val motion = ComposeGlassLabState.motionStyle
     val capsule = ComposeGlassLabState.capsuleTuning
+    val style = ComposeGlassLabState.style
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -143,7 +144,6 @@ fun GlassDebugFloatingPanel(
                 }
                 Group("背景采样", "普通 Compose 玻璃背景透明、模糊和底层乳化", state, initiallyExpanded = false) {
                     ComposeGlassMotionPreview()
-                    val style = ComposeGlassLabState.style
                     LabSlider("背景采样", "控制普通玻璃背景采样透明度", style.backdrop, 0.12f..1.55f) {
                         ComposeGlassLabState.update(style.copy(backdrop = it))
                     }
@@ -162,7 +162,6 @@ fun GlassDebugFloatingPanel(
                 }
                 Group("静态玻璃材质", "普通 Compose 玻璃底材、边缘、雾面和暗部质量", state, initiallyExpanded = false) {
                     ComposeGlassMotionPreview()
-                    val style = ComposeGlassLabState.style
                     LabSlider("安静吸收", "控制玻璃内部暗部与安静度", style.quiet, 0.2f..2.2f) {
                         ComposeGlassLabState.update(style.copy(quiet = it))
                     }
@@ -193,7 +192,6 @@ fun GlassDebugFloatingPanel(
                 }
                 Group("边缘高光", "普通 Compose 玻璃上下沿光带和横向流动", state, initiallyExpanded = false) {
                     ComposeGlassMotionPreview()
-                    val style = ComposeGlassLabState.style
                     LabSlider("顶部高光", "控制普通玻璃上沿高光强度", style.topLight, 0.02f..3.4f) {
                         ComposeGlassLabState.update(style.copy(topLight = it))
                     }
