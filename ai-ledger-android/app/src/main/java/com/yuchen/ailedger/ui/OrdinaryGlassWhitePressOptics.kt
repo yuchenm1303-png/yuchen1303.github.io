@@ -46,14 +46,16 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
         GlassRole.Shell -> 0f
     }
     val compactLightBalance = (roleLightBalance * (0.88f + elasticityBoost * 0.36f)).coerceIn(0.76f, 1.86f)
-    val releaseCut = (1f - motion.releasePhase * 0.92f).coerceIn(0f, 1f)
+    val lightEnvelope = motion.lightPhase.coerceIn(0f, 1f)
+    val sweepEnvelope = motion.sweepPhase.coerceIn(0f, 1f)
+    val opticalFade = (1f - motion.releasePhase * 0.28f).coerceIn(0.58f, 1f)
 
-    val lightPower = (motion.touchLight * compactLightBalance * (0.20f + motion.lightPhase * 0.54f + motion.pressPhase * 0.10f) * elasticityBoost * releaseCut)
+    val lightPower = (motion.touchLight * compactLightBalance * (0.12f + lightEnvelope * 0.62f + motion.pressPhase * 0.050f) * elasticityBoost * opticalFade)
         .coerceIn(0f, 58f)
-    val wavePower = (motion.sweepGain * compactLightBalance * (0.10f + motion.sweepPhase * 0.44f) * elasticityBoost * releaseCut)
+    val wavePower = (motion.sweepGain * compactLightBalance * (0.045f + sweepEnvelope * 0.42f + lightEnvelope * 0.075f) * elasticityBoost * opticalFade)
         .coerceIn(0f, 42f)
-    val afterPower = (motion.afterglow * compactLightBalance * motion.sweepPhase * 0.18f * elasticityBoost * releaseCut)
-        .coerceIn(0f, 16f)
+    val afterPower = (motion.afterglow * compactLightBalance * maxOf(sweepEnvelope * 0.12f, lightEnvelope * 0.060f) * elasticityBoost * opticalFade)
+        .coerceIn(0f, 14f)
 
     val fieldPower = maxOf(lightPower, wavePower * 0.72f, afterPower * 0.58f)
     if (fieldPower <= 0.001f) return
@@ -62,12 +64,12 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
         x = (w * 0.50f + (center.x - w * 0.50f) * 0.18f).coerceIn(-w * 0.20f, w * 1.20f),
         y = h * (1.06f - motion.pressPhase * 0.12f) + (center.y - h * 0.50f) * 0.08f,
     )
-    val fieldRadius = maxSide * (1.34f + motion.sweepPhase * 0.62f + motion.pressPhase * 0.20f)
+    val fieldRadius = maxSide * (1.34f + sweepEnvelope * 0.62f + motion.pressPhase * 0.20f)
     val broadAlpha = (0.0068f * fieldPower).coerceIn(0f, 0.30f)
     val innerAlpha = (0.0092f * fieldPower).coerceIn(0f, 0.36f)
     val milkAlpha = (0.0048f * fieldPower).coerceIn(0f, 0.20f)
 
-    val sweepX = -0.30f + motion.sweepPhase * 1.54f
+    val sweepX = -0.30f + sweepEnvelope * 1.54f
     val rimInset = 0.62.dp.toPx()
     val radiusPx = node.radius.dp.toPx()
     val cornerRadius = CornerRadius(radiusPx, radiusPx)
@@ -108,7 +110,7 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
                 colors = listOf(
                     Color.White.copy(alpha = milkAlpha * 0.34f),
                     Color(0xFFF7FFFF).copy(alpha = milkAlpha * (0.78f + motion.pressPhase * 0.20f)),
-                    Color(0xFFE6FFFF).copy(alpha = milkAlpha * (1.18f + motion.sweepPhase * 0.30f)),
+                    Color(0xFFE6FFFF).copy(alpha = milkAlpha * (1.18f + sweepEnvelope * 0.30f)),
                     Color.Transparent,
                 ),
                 startY = -h * 0.18f,
@@ -120,7 +122,7 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
         )
 
         if (wavePower > 0.001f) {
-            val waveAlpha = (0.0038f * wavePower * (1f - motion.sweepPhase * 0.36f)).coerceIn(0f, 0.13f)
+            val waveAlpha = (0.0038f * wavePower * (1f - sweepEnvelope * 0.36f)).coerceIn(0f, 0.13f)
             drawRoundRect(
                 brush = Brush.radialGradient(
                     colors = listOf(
@@ -130,7 +132,7 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
                         Color.Transparent,
                     ),
                     center = fieldCenter,
-                    radius = fieldRadius * (1.12f + motion.sweepPhase * 0.42f),
+                    radius = fieldRadius * (1.12f + sweepEnvelope * 0.42f),
                 ),
                 size = Size(w, h),
                 cornerRadius = cornerRadius,
