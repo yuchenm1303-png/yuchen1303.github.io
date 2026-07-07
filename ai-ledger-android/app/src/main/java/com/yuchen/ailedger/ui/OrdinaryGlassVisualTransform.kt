@@ -48,15 +48,17 @@ internal fun updateOrdinaryGlassVisualTransform(
     val lens = node.lensProgress.coerceAtLeast(0f)
     val sweep = node.sweepProgress.coerceAtLeast(0f)
 
-    val holdPhase = (positive * 0.36f + lens * 0.30f + sweep * 0.16f) * timeScale
-    val tapPhase = (lens * 0.92f + sweep * 0.68f + positive * 0.10f) * timeScale
-    val returnPhase = (negative * 0.26f + lens * 0.46f + sweep * 0.34f) * timeScale
-    val tailPhase = (negative * 0.18f + lens * 0.30f + sweep * 0.42f) * timeScale
-    val hold = ordinaryVisualSmoothStep(holdPhase.coerceIn(0f, 2.72f) / 2.72f)
-    val tap = ordinaryVisualSmoothStep(tapPhase.coerceIn(0f, 2.00f) / 2.00f)
-    val returnSettle = ordinaryVisualSmoothStep(returnPhase.coerceIn(0f, 2.58f) / 2.58f)
-    val visualTail = ordinaryVisualSmoothStep(tailPhase.coerceIn(0f, 2.36f) / 2.36f)
-    val settle = maxOf(returnSettle, visualTail * 0.62f)
+    val positiveDamp = 1f - ordinaryVisualSmootherStep((positive / 1.18f).coerceIn(0f, 1f)) * 0.58f
+    val pressEnergy = positive * 0.38f + lens * 0.26f + sweep * 0.12f
+    val tapEnergy = lens * 0.76f + sweep * 0.46f + positive * 0.20f
+    val releaseEnergy = negative * 0.42f + lens * 0.34f * positiveDamp + sweep * 0.38f * positiveDamp
+    val tailEnergy = negative * 0.24f + lens * 0.24f + sweep * 0.46f
+
+    val hold = ordinaryVisualSmootherStep((pressEnergy * timeScale).coerceIn(0f, 2.72f) / 2.72f)
+    val tap = ordinaryVisualSmootherStep((tapEnergy * timeScale).coerceIn(0f, 2.08f) / 2.08f)
+    val releaseEnvelope = ordinaryVisualSmootherStep((releaseEnergy * timeScale).coerceIn(0f, 2.48f) / 2.48f)
+    val opticalTail = ordinaryVisualSmootherStep((tailEnergy * timeScale).coerceIn(0f, 2.56f) / 2.56f)
+    val settle = maxOf(releaseEnvelope, opticalTail * 0.58f)
     if (maxOf(hold, tap, settle) <= 0.0001f) {
         out.setIdentity()
         return
@@ -78,14 +80,11 @@ internal fun updateOrdinaryGlassVisualTransform(
     val sizeBoost = (roleBoost * compactBoost * (0.82f + elasticity * 0.36f)).coerceIn(0.60f, 3.05f)
     val viscosity = (1.46f - speed * 0.050f).coerceIn(0.84f, 1.46f)
 
-    val tapPop = ordinaryVisualSmoothStep((tap * tuning.tapPop).coerceIn(0f, 1f))
+    val tapPop = ordinaryVisualSmootherStep((tap * tuning.tapPop).coerceIn(0f, 1f))
     val tapCarry = (tap * (1f - hold * 0.16f)).coerceIn(0f, 1.26f)
-    val sticky = (lens * 0.021f + sweep * 0.015f + tapCarry * tuning.sticky).coerceIn(0f, 0.12f)
-    val body = (hold * 0.72f + tapPop * 1.06f + tapCarry * tuning.tapCarry).coerceIn(0f, 1.76f)
-    val settleBody = maxOf(
-        settle * (1f - tapCarry * 0.60f).coerceIn(0.18f, 1f),
-        visualTail * 0.18f
-    ).coerceIn(0f, 1.10f)
+    val sticky = (lens * 0.019f + sweep * 0.014f + opticalTail * 0.018f + tapCarry * tuning.sticky).coerceIn(0f, 0.12f)
+    val body = (hold * 0.72f + tapPop * 1.04f + tapCarry * tuning.tapCarry).coerceIn(0f, 1.76f)
+    val settleBody = (releaseEnvelope * (1f - tapCarry * 0.54f).coerceIn(0.22f, 1f) + opticalTail * 0.16f).coerceIn(0f, 1.10f)
     val reboundSoft = (0.13f + rebound * 0.012f).coerceIn(0.09f, 0.30f)
 
     val basePx = minSide * sizeBoost * (tuning.basePx + 0.0058f * grow + sticky * 0.38f)
@@ -139,4 +138,9 @@ private fun ordinaryVisualMotionPower(value: Float, uiMax: Float, effectiveMax: 
 private fun ordinaryVisualSmoothStep(value: Float): Float {
     val x = value.coerceIn(0f, 1f)
     return x * x * (3f - 2f * x)
+}
+
+private fun ordinaryVisualSmootherStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * x * (x * (x * 6f - 15f) + 10f)
 }
