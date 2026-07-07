@@ -152,7 +152,7 @@ object ScreenObservationStore {
                 append(hintTitle)
                 append(" · ")
             }
-            append("视觉截图权威")
+            append(VISUAL_AUTHORITY_TITLE)
             if (hasOwnHudNodes) append(" · HUD节点已隔离")
         }.take(120)
 
@@ -179,13 +179,22 @@ object ScreenObservationStore {
             text == "暂停智能体" ||
             text == "恢复智能体执行" ||
             text == "当前正在等待用户处理" ||
+            text == "当前状态" ||
             text == "与 GUI Plus 沟通" ||
             text == "GUI Plus 正在准备下一步操作" ||
             text == "等待 GUI Plus 发来消息…" ||
+            text == "停止本次任务" ||
+            text == "收起" ||
+            text == "暂停并沟通" ||
+            text == "发送给 GUI Plus" ||
+            text == "已完成，继续" ||
             text.startsWith("Step ") ||
+            text.startsWith("补充刚才的操作") ||
             text.contains("GUI Plus 正在根据页面证据") ||
+            text.contains("等待 GUI Plus") ||
             text.contains("视觉智能体")
     }
 
-    private const val WINDOW_PACKAGE_HINT_MAX_AGE_MS = 600L
+    private const val VISUAL_AUTHORITY_TITLE = "视觉截图权威V2"
+    private const val WINDOW_PACKAGE_HINT_MAX_AGE_MS = 1_800L
 }
