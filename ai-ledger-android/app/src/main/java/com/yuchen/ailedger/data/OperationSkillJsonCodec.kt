@@ -48,6 +48,13 @@ object OperationSkillJsonCodec {
                     put("visualAnchor", step.visualAnchor)
                     put("expectedEvidence", step.expectedEvidence)
                     put("fallback", step.fallback)
+                    put("startState", step.startState)
+                    put("visualAnchors", JSONArray(step.visualAnchors))
+                    put("preferredAction", step.preferredAction)
+                    put("expectedEvidenceList", JSONArray(step.expectedEvidenceList))
+                    put("discouragedActions", JSONArray(step.discouragedActions))
+                    put("fallbackPolicy", step.fallbackPolicy)
+                    put("skippable", step.skippable)
                 })
             }
         })
@@ -96,6 +103,7 @@ object OperationSkillJsonCodec {
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
             val instruction = item.optString("instruction").trim()
+                .ifBlank { item.optString("preferredAction").trim() }
             if (instruction.isBlank()) continue
             add(
                 VisualSkillRouteStep(
@@ -104,6 +112,13 @@ object OperationSkillJsonCodec {
                     visualAnchor = item.optString("visualAnchor").trim(),
                     expectedEvidence = item.optString("expectedEvidence").trim(),
                     fallback = item.optString("fallback").trim(),
+                    startState = item.optString("startState").trim(),
+                    visualAnchors = item.optJSONArray("visualAnchors").toStringList(),
+                    preferredAction = item.optString("preferredAction").trim(),
+                    expectedEvidenceList = item.optJSONArray("expectedEvidenceList").toStringList(),
+                    discouragedActions = item.optJSONArray("discouragedActions").toStringList(),
+                    fallbackPolicy = item.optString("fallbackPolicy").trim(),
+                    skippable = item.optBoolean("skippable", false),
                 ),
             )
         }
