@@ -3,15 +3,15 @@ package com.yuchen.ailedger.service
 /**
  * Coalesces tiny SSE fragments before they cross into Compose-visible state.
  *
- * The first fragment is emitted immediately to preserve time-to-first-text. Later fragments are
- * grouped by size, punctuation or a short time budget. [drain] guarantees byte-for-byte ordering
- * and releases any remaining suffix when the stream ends.
+ * The first visible fragment is released with a very small budget to preserve perceived latency.
+ * Later fragments are grouped by size, punctuation or a short time budget. [drain] guarantees
+ * byte-for-byte ordering and releases any remaining suffix when the stream ends.
  */
 internal class StreamingDeltaCoalescer(
     private val onDelta: (String) -> Unit,
     private val clockMs: () -> Long = System::currentTimeMillis,
-    private val targetChunkChars: Int = 48,
-    private val maxDelayMs: Long = 120L,
+    private val targetChunkChars: Int = 96,
+    private val maxDelayMs: Long = 190L,
 ) {
     private val pending = StringBuilder(targetChunkChars.coerceAtLeast(MIN_BUFFER_CAPACITY))
     private val emittedProgressLines = LinkedHashSet<String>()
@@ -27,12 +27,17 @@ internal class StreamingDeltaCoalescer(
         val now = clockMs()
         val punctuationBoundary = pendingLength >= MIN_PUNCTUATION_CHARS &&
             isBreakChar(pending[pendingLength - 1])
-        if (
-            !emittedAny ||
+        val firstFragmentReady = !emittedAny && (
+            pendingLength >= FIRST_CHUNK_CHARS ||
+                punctuationBoundary ||
+                now - lastEmitAt >= FIRST_MAX_DELAY_MS
+            )
+        val steadyFragmentReady = emittedAny && (
             pendingLength >= targetChunkChars ||
-            punctuationBoundary ||
-            now - lastEmitAt >= maxDelayMs
-        ) {
+                punctuationBoundary ||
+                now - lastEmitAt >= maxDelayMs
+            )
+        if (firstFragmentReady || steadyFragmentReady) {
             emit(now)
         }
     }
@@ -117,6 +122,8 @@ internal class StreamingDeltaCoalescer(
 
     private companion object {
         const val MIN_BUFFER_CAPACITY = 16
-        const val MIN_PUNCTUATION_CHARS = 5
+        const val FIRST_CHUNK_CHARS = 8
+        const val FIRST_MAX_DELAY_MS = 80L
+        const val MIN_PUNCTUATION_CHARS = 22
     }
 }
