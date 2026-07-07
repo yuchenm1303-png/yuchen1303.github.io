@@ -26,10 +26,12 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     if (!node.pressable || node.role == GlassRole.Shell) return
 
     val dynamicPress = node.pressProgress.coerceAtLeast(0f)
+    val releaseValue = (-node.pressProgress).coerceAtLeast(0f)
+    if (releaseValue > 0.001f && dynamicPress <= 0.001f) return
+
     val lensValue = node.lensProgress.coerceAtLeast(0f)
     val sweepValue = node.sweepProgress.coerceAtLeast(0f)
-    val releaseValue = (-node.pressProgress).coerceAtLeast(0f)
-    val afterValue = maxOf(sweepValue * 0.42f, releaseValue * 0.62f).coerceAtLeast(0f)
+    val afterValue = sweepValue * 0.30f
     val active = maxOf(dynamicPress, lensValue, sweepValue, afterValue)
     if (active <= 0.001f) return
 
@@ -66,18 +68,16 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     val diffusionPhase = whiteOpticsSmoothStep(
         ((sweepValue * timeScale) / 3.60f).coerceIn(0f, 1f)
     )
-    val releasePhase = whiteOpticsSmoothStep(
-        ((releaseValue + afterValue * 0.32f) * timeScale).coerceIn(0f, 2f) / 2f
-    )
+    val releasePhase = 0f
 
     val lightPower = (touchLight * compactLightBalance * (0.20f + lensValue * 0.44f + dynamicPress * 0.10f + afterValue * 0.08f) * elasticityBoost)
         .coerceIn(0f, 58f)
     val wavePower = (sweepGain * compactLightBalance * (0.10f + sweepValue * 0.44f) * elasticityBoost)
         .coerceIn(0f, 42f)
-    val afterPower = (afterglow * compactLightBalance * (afterValue * 0.56f + releasePhase * 0.22f) * elasticityBoost)
-        .coerceIn(0f, 36f)
+    val afterPower = (afterglow * compactLightBalance * afterValue * 0.42f * elasticityBoost)
+        .coerceIn(0f, 24f)
 
-    val fieldPower = maxOf(lightPower, wavePower * 0.72f, afterPower * 0.88f)
+    val fieldPower = maxOf(lightPower, wavePower * 0.72f, afterPower * 0.70f)
     if (fieldPower <= 0.001f) return
 
     val fieldCenter = Offset(
