@@ -14,6 +14,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +59,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1025,7 +1027,8 @@ private data class AgentProgressStepV2(
     val primary: String,
     val toolName: String?,
     val kind: AgentProgressStepKindV2,
-    val active: Boolean
+    val active: Boolean,
+    val phaseOffset: Float
 )
 
 private enum class AgentProgressStepKindV2 {
@@ -1047,6 +1050,7 @@ private fun parseAgentProgressStateV2(text: String): AgentProgressPanelStateV2? 
                 line.contains("分析下一步") ||
                 line.contains("等待手机端执行") ||
                 line.contains("返回结果") ||
+                line.contains("已收到") ||
                 line.contains("内部工具") ||
                 Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+").containsMatchIn(line)
         }
@@ -1072,8 +1076,7 @@ private fun parseAgentProgressStepV2(index: Int, line: String): AgentProgressSte
     val toolName = extractAgentToolNameV2(clean)
     val primary = when {
         "    " in clean -> clean.substringBefore("    ").trim()
-        toolName != null && clean.contains("正在") -> clean.substringBefore(toolName).trim().ifBlank { clean }
-        toolName != null && clean.contains("·") -> clean.substringBefore("·").trim()
+        toolName != null && clean.contains("·") -> clean.substringBefore("·").trim().ifBlank { clean }
         else -> clean
     }
     val kind = when {
@@ -1081,13 +1084,13 @@ private fun parseAgentProgressStepV2(index: Int, line: String): AgentProgressSte
         toolName != null -> AgentProgressStepKindV2.Tool
         else -> AgentProgressStepKindV2.Neutral
     }
-    val displayPrimary = primary.removeSuffix("· 内部工具").trim().ifBlank { clean }
     return AgentProgressStepV2(
-        id = "agent-progress-$index-${displayPrimary.hashCode()}-${toolName.orEmpty().hashCode()}",
-        primary = displayPrimary,
+        id = "agent-progress-step-$index",
+        primary = primary.removeSuffix("· 内部工具").trim().ifBlank { clean },
         toolName = toolName,
         kind = kind,
-        active = false
+        active = false,
+        phaseOffset = ((index * 97) % 100) / 100f
     )
 }
 
@@ -1110,17 +1113,17 @@ private fun AgentProgressPanelV2(
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(11.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(11.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             SweepingProgressTextV2(
                 text = state.title,
-                fontSize = 14.sp,
-                lineHeight = 19.sp,
+                fontSize = 15.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.ExtraBold,
                 motionClock = motionClock
             )
@@ -1128,13 +1131,13 @@ private fun AgentProgressPanelV2(
         }
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             state.steps.forEachIndexed { index, step ->
                 AgentProgressStepRowV2(
                     step = step,
                     motionClock = motionClock,
-                    delayMs = index * 42L,
+                    delayMs = index * 56L,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1156,33 +1159,21 @@ private fun AgentProgressStepRowV2(
     }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(180)) +
-            slideInVertically(tween(240, easing = FastOutSlowInEasing)) { it / 3 } +
-            scaleIn(initialScale = 0.92f, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)),
+        enter = fadeIn(tween(200)) +
+            slideInVertically(tween(260, easing = FastOutSlowInEasing)) { it / 3 } +
+            scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.84f, stiffness = Spring.StiffnessMediumLow)),
         exit = fadeOut(tween(120))
     ) {
-        val pillAlpha by animateFloatAsState(
-            targetValue = if (step.active) 0.18f else 0.10f,
-            animationSpec = tween(220),
-            label = "agent-progress-pill-alpha"
-        )
-        val verticalPadding by animateDpAsState(
-            targetValue = if (step.active) 9.dp else 8.dp,
-            animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
-            label = "agent-progress-pill-padding"
-        )
-        Row(
+        AgentProgressCardSurfaceV2(
+            active = step.active,
+            motionClock = motionClock,
+            phaseOffset = step.phaseOffset,
             modifier = modifier
-                .clip(RoundedCornerShape(18.dp))
-                .background(Color.White.copy(alpha = pillAlpha))
-                .padding(horizontal = 10.dp, vertical = verticalPadding),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             AgentProgressMarkerV2(step = step, motionClock = motionClock)
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(if (step.toolName != null) 4.dp else 0.dp)
+                verticalArrangement = Arrangement.spacedBy(if (step.toolName != null) 5.dp else 0.dp)
             ) {
                 if (step.active) {
                     SweepingProgressTextV2(
@@ -1195,7 +1186,7 @@ private fun AgentProgressStepRowV2(
                 } else {
                     Text(
                         text = step.primary,
-                        color = Color.White.copy(alpha = 0.80f),
+                        color = Color.White.copy(alpha = 0.82f),
                         fontSize = 13.sp,
                         lineHeight = 18.sp,
                         fontWeight = FontWeight.Bold,
@@ -1212,10 +1203,73 @@ private fun AgentProgressStepRowV2(
                 }
             }
             if (step.active) {
-                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.60f), motionClock = motionClock)
+                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.58f), motionClock = motionClock)
             }
         }
     }
+}
+
+@Composable
+private fun AgentProgressCardSurfaceV2(
+    active: Boolean,
+    motionClock: AssistantHomeMotionClock,
+    phaseOffset: Float,
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit
+) {
+    val shellAlpha by animateFloatAsState(
+        targetValue = if (active) 0.17f else 0.105f,
+        animationSpec = tween(220),
+        label = "agent-progress-shell-alpha"
+    )
+    val sweepAlpha = if (active) 0.20f else 0.13f
+    val brush = remember(motionClock.phase(2280L), phaseOffset, active) {
+        agentProgressCardSweepBrushV2(
+            phase = (motionClock.phase(2280L) + phaseOffset) % 1f,
+            strong = active
+        )
+    }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(22.dp))
+            .background(Color.White.copy(alpha = shellAlpha))
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(brush)
+                .graphicsLayer { alpha = sweepAlpha }
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            content = content
+        )
+    }
+}
+
+private fun agentProgressCardSweepBrushV2(
+    phase: Float,
+    strong: Boolean
+): Brush {
+    val startX = phase * 620f - 380f
+    val width = if (strong) 320f else 280f
+    return Brush.linearGradient(
+        colors = listOf(
+            Color.Transparent,
+            Color.White.copy(alpha = 0.06f),
+            Color.White.copy(alpha = 0.12f),
+            Color.White.copy(alpha = 0.20f),
+            Color.White.copy(alpha = 0.12f),
+            Color.White.copy(alpha = 0.05f),
+            Color.Transparent
+        ),
+        start = Offset(startX, 0f),
+        end = Offset(startX + width, 90f)
+    )
 }
 
 @Composable
@@ -1225,22 +1279,22 @@ private fun AgentProgressMarkerV2(
 ) {
     when (step.kind) {
         AgentProgressStepKindV2.Success -> {
-            val pulse = if (step.active) 0.88f + motionClock.pingPong(920L) * 0.18f else 1f
+            val pulse = if (step.active) 0.90f + motionClock.pingPong(920L) * 0.15f else 1f
             Box(
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(28.dp)
                     .graphicsLayer {
                         scaleX = pulse
                         scaleY = pulse
                     }
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Color(0xFF53E2B2).copy(alpha = 0.18f)),
+                    .background(Color(0xFF55E1B4).copy(alpha = 0.18f)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "✓",
-                    color = Color(0xFF53E2B2),
-                    fontSize = 15.sp,
+                    color = Color(0xFF55E1B4),
+                    fontSize = 16.sp,
                     lineHeight = 16.sp,
                     fontWeight = FontWeight.Black
                 )
@@ -1250,10 +1304,10 @@ private fun AgentProgressMarkerV2(
             AgentToolGlyphV2(active = step.active, motionClock = motionClock)
         }
         AgentProgressStepKindV2.Neutral -> {
-            val pulse = if (step.active) 0.92f + motionClock.pingPong(980L) * 0.14f else 1f
+            val pulse = if (step.active) 0.94f + motionClock.pingPong(980L) * 0.12f else 1f
             Box(
                 modifier = Modifier
-                    .size(24.dp)
+                    .size(28.dp)
                     .graphicsLayer {
                         scaleX = pulse
                         scaleY = pulse
@@ -1266,7 +1320,7 @@ private fun AgentProgressMarkerV2(
                     modifier = Modifier
                         .size(if (step.active) 10.dp else 8.dp)
                         .clip(RoundedCornerShape(999.dp))
-                        .background(Color.White.copy(alpha = if (step.active) 0.88f else 0.70f))
+                        .background(Color.White.copy(alpha = if (step.active) 0.88f else 0.72f))
                 )
             }
         }
@@ -1279,19 +1333,19 @@ private fun AgentToolChipV2(
     active: Boolean,
     motionClock: AssistantHomeMotionClock
 ) {
-    val alpha = if (active) 0.17f else 0.11f
+    val alpha = if (active) 0.20f else 0.12f
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(Color(0xFF8DF9EA).copy(alpha = alpha))
-            .padding(horizontal = 7.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         AgentToolGlyphV2(active = active, motionClock = motionClock, compact = true)
         Text(
             text = toolName,
-            color = Color(0xFFBDFBF3).copy(alpha = if (active) 0.90f else 0.76f),
+            color = Color(0xFFCCFFF6).copy(alpha = if (active) 0.94f else 0.78f),
             fontSize = 9.sp,
             lineHeight = 11.sp,
             fontWeight = FontWeight.ExtraBold,
@@ -1307,8 +1361,9 @@ private fun AgentToolGlyphV2(
     motionClock: AssistantHomeMotionClock,
     compact: Boolean = false
 ) {
-    val shellSize = if (compact) 14.dp else 24.dp
-    val pulse = if (active) 0.92f + motionClock.pingPong(980L) * 0.12f else 1f
+    val shellSize = if (compact) 16.dp else 28.dp
+    val pulse = if (active) 0.94f + motionClock.pingPong(980L) * 0.10f else 1f
+    val bgAlpha = if (active) 0.18f else 0.12f
     Box(
         modifier = Modifier
             .size(shellSize)
@@ -1316,24 +1371,38 @@ private fun AgentToolGlyphV2(
                 scaleX = pulse
                 scaleY = pulse
             }
-            .clip(RoundedCornerShape(if (compact) 5.dp else 8.dp))
-            .background(Color(0xFF8DF9EA).copy(alpha = if (active) 0.24f else 0.16f)),
+            .clip(RoundedCornerShape(if (compact) 6.dp else 9.dp))
+            .background(Color.White.copy(alpha = bgAlpha)),
         contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(if (compact) 7.dp else 12.dp)
-                .clip(RoundedCornerShape(if (compact) 2.5.dp else 4.dp))
-                .background(Color(0xFFBFFEF7).copy(alpha = if (active) 0.96f else 0.82f))
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = if (compact) 2.dp else 3.dp, end = if (compact) 2.dp else 3.dp)
-                .size(if (compact) 3.dp else 4.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color.White.copy(alpha = if (active) 0.92f else 0.70f))
-        )
+        Canvas(Modifier.size(if (compact) 11.dp else 18.dp)) {
+            val w = size.width
+            val h = size.height
+            val topPath = Path().apply {
+                moveTo(w * 0.50f, h * 0.08f)
+                lineTo(w * 0.86f, h * 0.28f)
+                lineTo(w * 0.50f, h * 0.48f)
+                lineTo(w * 0.14f, h * 0.28f)
+                close()
+            }
+            val leftPath = Path().apply {
+                moveTo(w * 0.14f, h * 0.28f)
+                lineTo(w * 0.50f, h * 0.48f)
+                lineTo(w * 0.50f, h * 0.88f)
+                lineTo(w * 0.14f, h * 0.68f)
+                close()
+            }
+            val rightPath = Path().apply {
+                moveTo(w * 0.86f, h * 0.28f)
+                lineTo(w * 0.50f, h * 0.48f)
+                lineTo(w * 0.50f, h * 0.88f)
+                lineTo(w * 0.86f, h * 0.68f)
+                close()
+            }
+            drawPath(topPath, color = Color(0xFFFFD26A).copy(alpha = if (active) 0.98f else 0.86f))
+            drawPath(leftPath, color = Color(0xFFFF9FC7).copy(alpha = if (active) 0.96f else 0.82f))
+            drawPath(rightPath, color = Color(0xFF8EDCFF).copy(alpha = if (active) 0.96f else 0.82f))
+        }
     }
 }
 
@@ -1547,18 +1616,20 @@ private fun SweepingProgressTextV2(
     fontWeight: FontWeight,
     motionClock: AssistantHomeMotionClock
 ) {
-    val phase = motionClock.phase(1880L)
-    val startX = phase * 420f - 260f
+    val phase = motionClock.phase(1980L)
+    val startX = phase * 560f - 340f
     val brush = Brush.linearGradient(
         colors = listOf(
+            Color.White.copy(alpha = 0.96f),
             Color.White.copy(alpha = 0.88f),
-            Color.White.copy(alpha = 0.78f),
-            Color.White.copy(alpha = 0.42f),
-            Color.White.copy(alpha = 0.78f),
-            Color.White.copy(alpha = 0.88f)
+            Color(0xFFD7E6F7).copy(alpha = 0.78f),
+            Color(0xFF223349).copy(alpha = 0.98f),
+            Color(0xFFD7E6F7).copy(alpha = 0.78f),
+            Color.White.copy(alpha = 0.88f),
+            Color.White.copy(alpha = 0.96f)
         ),
         start = Offset(startX, 0f),
-        end = Offset(startX + 260f, 0f)
+        end = Offset(startX + 360f, 0f)
     )
     Text(
         text = text,
