@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.dp
 internal fun AgentChatMemoryTitleControls(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
-            .height(22.dp)
-            .offset(x = (-54).dp, y = 2.dp),
+            .height(26.dp)
+            .offset(x = (-22).dp, y = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
