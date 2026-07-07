@@ -52,11 +52,11 @@ internal fun updateOrdinaryGlassVisualTransform(
     val tapPhase = (lens * 0.92f + sweep * 0.68f + positive * 0.10f) * timeScale
     val returnPhase = (negative * 0.26f + lens * 0.46f + sweep * 0.34f) * timeScale
     val hold = ordinaryVisualSmoothStep(holdPhase.coerceIn(0f, 2.72f) / 2.72f)
-    val tap = ordinaryVisualSmoothStep(tapPhase.coerceIn(0f, 2.00f) / 2.00f)
+    val delayedTap = ordinaryVisualSmoothStep(tapPhase.coerceIn(0f, 2.00f) / 2.00f)
     val settle = ordinaryVisualSmoothStep(returnPhase.coerceIn(0f, 2.58f) / 2.58f)
     val instantPress = ordinaryVisualSmoothStep((positive * 7.50f + lens * 1.20f).coerceIn(0f, 1f)) *
         (1f - settle * 0.42f).coerceIn(0.58f, 1f)
-    if (instantPress == 0f && hold == 0f && tap == 0f && settle == 0f) {
+    if (instantPress == 0f && hold == 0f && delayedTap == 0f && settle == 0f) {
         out.setIdentity()
         return
     }
@@ -77,11 +77,14 @@ internal fun updateOrdinaryGlassVisualTransform(
     val sizeBoost = (roleBoost * compactBoost * (0.82f + elasticity * 0.36f)).coerceIn(0.60f, 3.05f)
     val viscosity = (1.46f - speed * 0.050f).coerceIn(0.84f, 1.46f)
 
-    val tapPop = ordinaryVisualSmoothStep((tap * tuning.tapPop).coerceIn(0f, 1f))
-    val tapCarry = (tap * (1f - hold * 0.16f)).coerceIn(0f, 1.26f)
+    val delayedTapPop = ordinaryVisualSmoothStep((delayedTap * tuning.tapPop).coerceIn(0f, 1f))
+    val instantTapPop = instantPress * 0.96f
+    val tapPop = maxOf(instantTapPop, delayedTapPop).coerceIn(0f, 1f)
+    val tapCarry = (delayedTap * (1f - hold * 0.16f)).coerceIn(0f, 1.26f)
     val sticky = (lens * 0.021f + sweep * 0.015f + tapCarry * tuning.sticky).coerceIn(0f, 0.12f)
-    val instantBody = instantPress * (0.30f + tuning.tapCarry * 0.055f)
-    val body = (maxOf(hold * 0.72f, instantBody) + tapPop * 1.06f + tapCarry * tuning.tapCarry).coerceIn(0f, 1.76f)
+    val instantBody = instantPress * (1.02f + tuning.tapCarry * 0.18f)
+    val delayedBody = hold * 0.72f + delayedTapPop * 1.06f + tapCarry * tuning.tapCarry
+    val body = maxOf(instantBody, delayedBody).coerceIn(0f, 1.76f)
     val settleBody = settle * (1f - tapCarry * 0.60f).coerceIn(0.18f, 1f)
     val reboundSoft = (0.13f + rebound * 0.012f).coerceIn(0.09f, 0.30f)
 
