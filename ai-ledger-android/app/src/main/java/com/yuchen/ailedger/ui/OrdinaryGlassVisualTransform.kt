@@ -55,19 +55,31 @@ internal fun updateOrdinaryGlassVisualTransform(
         .coerceIn(0f, 12f)
     val reboundControl = (ordinaryVisualMotionPower(value = motion.rebound, uiMax = 1.5f, effectiveMax = 8f) * master)
         .coerceIn(0f, 10f)
+    val elasticity = node.elasticity.coerceIn(0.16f, 1f)
+    val roleBalance = when (node.role) {
+        GlassRole.Chip -> 1.62f
+        GlassRole.Flex -> 1.42f
+        GlassRole.Floating -> 1.16f
+        GlassRole.Card -> 0.82f
+        GlassRole.Nav -> 0.74f
+        GlassRole.Shell -> 0f
+    }
+    val compactBalance = (0.72f + elasticity * 0.72f).coerceIn(0.78f, 1.44f)
+    val sizeBalance = (roleBalance * compactBalance).coerceIn(0.58f, 2.18f)
+    val translationBalance = sizeBalance.coerceIn(0.72f, 1.64f)
     val viscosity = (1.38f - speed * 0.050f).coerceIn(0.76f, 1.38f)
     val stickyHold = (node.lensProgress.coerceAtLeast(0f) * 0.018f + node.sweepProgress.coerceAtLeast(0f) * 0.010f)
         .coerceIn(0f, 0.060f)
     val reboundSoftener = (0.18f + reboundControl * 0.018f).coerceIn(0.12f, 0.40f)
 
-    val pressScaleX = compression * (0.046f + 0.010f * grow + stickyHold)
-    val pressScaleY = compression * (0.032f + 0.008f * grow + stickyHold * 0.62f)
-    val releaseScaleX = release * reboundSoftener * (0.006f + 0.002f * reboundControl)
-    val releaseScaleY = release * reboundSoftener * (0.004f + 0.0015f * reboundControl)
+    val pressScaleX = compression * sizeBalance * (0.034f + 0.0075f * grow + stickyHold)
+    val pressScaleY = compression * sizeBalance * (0.024f + 0.0058f * grow + stickyHold * 0.54f)
+    val releaseScaleX = release * sizeBalance * reboundSoftener * (0.0048f + 0.0016f * reboundControl)
+    val releaseScaleY = release * sizeBalance * reboundSoftener * (0.0032f + 0.0011f * reboundControl)
     out.scaleX = 1f + pressScaleX - releaseScaleX
     out.scaleY = 1f + pressScaleY - releaseScaleY
-    out.translationY = compression * viscosity * (0.96f + 0.22f * grow) +
-        release * viscosity * (0.26f + 0.024f * reboundControl)
+    out.translationY = compression * viscosity * translationBalance * (0.96f + 0.22f * grow) +
+        release * viscosity * translationBalance * (0.26f + 0.024f * reboundControl)
     out.originX = node.pressCenter.x.coerceIn(0f, 1f)
     out.originY = node.pressCenter.y.coerceIn(0f, 1f)
 }
