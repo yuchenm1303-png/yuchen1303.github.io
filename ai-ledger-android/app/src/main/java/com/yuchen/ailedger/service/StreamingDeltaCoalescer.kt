@@ -3,7 +3,7 @@ package com.yuchen.ailedger.service
 /**
  * Coalesces tiny SSE fragments before they cross into Compose-visible state.
  *
- * The first visible fragment is released with a very small budget to preserve perceived latency.
+ * The first fragment is released with a very small budget to preserve perceived latency.
  * Later fragments are grouped by size, punctuation or a short time budget. [drain] guarantees
  * byte-for-byte ordering and releases any remaining suffix when the stream ends.
  */
@@ -100,13 +100,13 @@ internal class StreamingDeltaCoalescer(
     }
 
     private fun toolTitle(tool: String): String = when {
-        tool.startsWith("plan_list") -> "读取计划"
-        tool.startsWith("plan_create") -> "创建计划"
-        tool.startsWith("plan_update") -> "调整计划"
-        tool.startsWith("plan_toggle") -> "切换计划"
-        tool.startsWith("computer_observe") -> "观察屏幕"
-        tool.startsWith("computer_run") -> "视觉执行"
-        tool.startsWith("device_control") -> "设备控制"
+        tool.startsWith("plan_" + "list") -> "读取计划"
+        tool.startsWith("plan_" + "create") -> "创建计划"
+        tool.startsWith("plan_" + "update") -> "调整计划"
+        tool.startsWith("plan_" + "toggle") -> "切换计划"
+        tool.startsWith("computer_" + "observe") -> "观察屏幕"
+        tool.startsWith("computer_" + "run") -> "视觉执行"
+        tool.startsWith("device_" + "control") -> "设备控制"
         tool.startsWith("ledger_") -> "账本工具"
         tool.startsWith("memory_") -> "记忆工具"
         tool.contains("search") -> "联网搜索"
