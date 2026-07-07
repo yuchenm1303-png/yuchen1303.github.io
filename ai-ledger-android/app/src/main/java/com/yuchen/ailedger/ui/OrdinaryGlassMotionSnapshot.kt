@@ -56,21 +56,23 @@ internal fun updateOrdinaryGlassMotionSnapshot(
     val lens = node.lensProgress.coerceAtLeast(0f)
     val sweep = node.sweepProgress.coerceAtLeast(0f)
 
-    val holdPhase = (positive * 0.52f + lens * 0.30f + sweep * 0.12f) * timeScale
+    val holdPhase = (positive * 0.58f + lens * 0.30f + sweep * 0.12f) * timeScale
     val tapPhase = (lens * 0.82f + sweep * 0.48f + positive * 0.18f) * timeScale
     val releasePhase = (negative * 0.42f + lens * 0.12f + sweep * 0.08f) * timeScale
-    val hold = ordinarySnapshotSmoothStep(holdPhase.coerceIn(0f, 1.84f) / 1.84f)
+    val hold = ordinarySnapshotSmoothStep(holdPhase.coerceIn(0f, 1.76f) / 1.76f)
     val tap = ordinarySnapshotSmoothStep(tapPhase.coerceIn(0f, 1.74f) / 1.74f)
     val release = ordinarySnapshotSmoothStep(releasePhase.coerceIn(0f, 2.28f) / 2.28f)
     val contactLead = ordinarySnapshotSmoothStep((positive * 3.20f + lens * 0.72f).coerceIn(0f, 1f)) *
         (1f - release * 0.48f).coerceIn(0.52f, 1f)
-    val responsePress = maxOf(hold, contactLead * 0.20f)
-    val responseTap = maxOf(tap, contactLead * 0.10f)
+    val pressLeadFade = (1f - hold * 0.78f).coerceIn(0.16f, 1f)
+    val tapLeadFade = (1f - tap * 0.64f).coerceIn(0.22f, 1f)
+    val responsePress = (hold + contactLead * 0.16f * pressLeadFade).coerceIn(0f, 1f)
+    val responseTap = (tap + contactLead * 0.075f * tapLeadFade).coerceIn(0f, 1f)
     val releaseFade = (1f - release * 0.74f).coerceIn(0f, 1f)
     val light = maxOf(
         responsePress * 0.66f,
         responseTap * 0.82f,
-        contactLead * 0.36f,
+        contactLead * 0.30f,
         lens.coerceIn(0f, 1f) * 0.62f
     ).coerceIn(0f, 1f) * releaseFade
     val cleanSweep = maxOf(
