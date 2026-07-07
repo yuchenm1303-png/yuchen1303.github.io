@@ -52,7 +52,7 @@ private fun DrawScope.drawWorkspaceTetrahedron(time: Float, phaseOffset: Float) 
     val edges = tetraEdges.indices.map { edgeOf(points, it) }
     val sorted = edges.sortedBy { it.midZ }
     val path = tetraPath.map { edgeOf(points, it) }
-    val base = min(size.width, size.height) * 0.055f * 1.90f
+    val base = min(size.width, size.height) * 0.055f * 1.05f
     val energy = 0.82f * 1.34f
     val center = Offset(points.map { it.x }.average().toFloat(), points.map { it.y }.average().toFloat())
     drawCircle(Brush.radialGradient(listOf(themeColor(0.12f, 0.11f * energy), themeColor(0.65f, 0.05f * energy), rgba(90, 100, 255, 0f)), center, base * 6.5f), base * 6.5f, center, blendMode = BlendMode.Plus)
@@ -154,7 +154,7 @@ private fun DrawScope.drawBeam(edge: Edge, start: Float, end: Float, width: Floa
 }
 
 private fun DrawScope.drawVertex(point: P2, base: Float, alpha: Float, time: Float, front: Float) {
-    val strength = 0.57f * alpha * front * 1.34f
+    val strength = 0.30f * alpha * front * 1.34f
     val radius = base * (0.45f + 0.65f * strength)
     val twinkle = 1f + 0.10f * sin(time * 7.1f + point.x * 0.01f) + 0.06f * sin(time * 13.4f + point.y * 0.01f)
     val center = Offset(point.x, point.y)
