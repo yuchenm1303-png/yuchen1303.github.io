@@ -574,11 +574,12 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
     val phaseFromSweep = ordinaryParentPressureSmoothStep((sweep / 3.10f).coerceIn(0f, 1f))
     val phaseFromLens = ordinaryParentPressureSmoothStep((lens / 3.35f).coerceIn(0f, 1f))
     val phase = maxOf(phaseFromSweep, phaseFromLens * 0.64f, active * 0.36f).coerceIn(0f, 1f)
-    val drift = (0.06f + phase * 0.20f + node.elasticity.coerceIn(0f, 1f) * 0.020f)
-        .coerceIn(0.04f, 0.30f)
+    val optics = ComposeGlassLabState.pressureOpticsTuning.normalized()
+    val drift = (optics.fieldFollow * (0.24f + phase * 0.42f) + node.elasticity.coerceIn(0f, 1f) * 0.016f)
+        .coerceIn(0f, 0.58f)
     val fieldCenter = Offset(
         tapCenter.x + (visualCenter.x - tapCenter.x) * drift,
-        tapCenter.y + (visualCenter.y - tapCenter.y) * drift * 0.70f
+        tapCenter.y + (visualCenter.y - tapCenter.y) * drift * 0.72f
     )
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
@@ -590,32 +591,34 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
     val capsuleLight = (1f + capsule.tapPx * 4.8f + capsule.sticky * 7.2f + capsule.basePx * 3.6f)
         .coerceIn(0.92f, 1.74f)
 
-    val lightScale = (0.48f + touchLight / 16f + afterglow / 30f).coerceIn(0.48f, 13.80f)
-    val edgeScale = (0.56f + touchLight / 22f + sweepGain / 34f + afterglow / 42f).coerceIn(0.56f, 12.60f)
+    val fieldKnob = optics.fieldIntensity.coerceIn(0f, 12f)
+    val spreadKnob = optics.fieldSpread.coerceIn(0f, 8f)
+    val softnessKnob = optics.fieldSoftness.coerceIn(0f, 8f)
+    val uniformity = (optics.fieldUniformity / 8f).coerceIn(0f, 1f)
+    val edgeKnob = optics.edgeIntensity.coerceIn(0f, 12f)
+    val edgeSoftness = (optics.edgeSoftness / 8f).coerceIn(0f, 1f)
+    val edgeBloomKnob = optics.edgeBloom.coerceIn(0f, 8f)
     val elasticityBoost = node.elasticity.coerceIn(0.08f, 1f)
     val fieldEnergy = (active * capsuleLight * elasticityBoost).coerceIn(0f, 1.40f)
     val softCarry = ordinaryParentPressureSmoothStep(((phase + active) * 0.50f).coerceIn(0f, 1f))
 
-    /*
-     * 图 2 目标不是可见圆形波纹，而是几乎铺满胶囊的超大雾化光场。
-     * 半径必须远大于组件尺寸，组件内部只采样渐变的低梯度核心区域，
-     * 这样看不到圆心、环、边界，只能感觉到一整片白光被按压拖动。
-     */
-    val fieldRadius = (maxSide * (2.10f + phase * 1.25f + fieldEnergy * 0.34f))
-        .coerceAtLeast(maxSide * 2.35f)
+    val lightScale = (0.32f + fieldKnob * 0.82f + touchLight / 34f + afterglow / 42f).coerceIn(0f, 18f)
+    val fieldRadius = (maxSide * (1.42f + spreadKnob * 0.48f + softnessKnob * 0.34f + phase * 0.42f + fieldEnergy * 0.20f))
+        .coerceAtLeast(maxSide * (1.85f + softnessKnob * 0.22f))
 
-    val mistAlpha = (0.092f * fieldEnergy * lightScale).coerceIn(0f, 1.00f)
-    val coreAlpha = (0.070f * fieldEnergy * lightScale).coerceIn(0f, 0.82f)
-    val carryAlpha = (0.060f * fieldEnergy * (0.70f + softCarry * 0.30f) * lightScale).coerceIn(0f, 0.72f)
+    val baseAlpha = (0.055f * fieldEnergy * lightScale).coerceIn(0f, 1.18f)
+    val coreAlpha = (baseAlpha * (0.52f - uniformity * 0.30f)).coerceIn(0f, 0.82f)
+    val mistAlpha = (baseAlpha * (0.92f + uniformity * 0.36f)).coerceIn(0f, 1.00f)
+    val carryAlpha = (baseAlpha * (0.70f + softCarry * 0.22f + uniformity * 0.28f)).coerceIn(0f, 0.92f)
     val radiusPx = node.radius.dp.toPx()
     val cornerRadius = CornerRadius(radiusPx, radiusPx)
 
     translate(left = rect.left, top = rect.top) {
         drawRoundRect(
             brush = Brush.radialGradient(
-                0.00f to Color.White.copy(alpha = coreAlpha * 0.78f),
-                0.36f to Color(0xFFF8FCFF).copy(alpha = mistAlpha),
-                0.74f to Color(0xFFEFFFFF).copy(alpha = carryAlpha),
+                0.00f to Color.White.copy(alpha = coreAlpha),
+                0.46f to Color(0xFFF8FCFF).copy(alpha = mistAlpha),
+                0.88f to Color(0xFFEFFFFF).copy(alpha = carryAlpha),
                 1.00f to Color.Transparent,
                 center = fieldCenter,
                 radius = fieldRadius
@@ -630,19 +633,20 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
         val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
         val rimRadius = (radiusPx - rimInset).coerceAtLeast(0f)
         val rimCorner = CornerRadius(rimRadius, rimRadius)
-        val edgeStroke = (0.72f + minSide * 0.010f * active + 0.20f * edgeScale).coerceIn(0.75f, 4.60f)
-        val edgeEnergy = (fieldEnergy * 0.92f + active * 0.28f).coerceIn(0f, 1.52f)
-        val edgeAlpha = (0.070f * edgeEnergy * edgeScale).coerceIn(0f, 0.86f)
-        val edgeBloom = (0.034f * edgeEnergy * lightScale).coerceIn(0f, 0.42f)
+        val edgeScale = (0.28f + edgeKnob * 0.72f + touchLight / 58f + sweepGain / 72f + afterglow / 72f).coerceIn(0f, 16f)
+        val edgeStroke = (0.62f + optics.edgeWidth * 0.42f + minSide * 0.006f * active).coerceIn(0.58f, 6.40f)
+        val edgeEnergy = (fieldEnergy * 0.86f + active * 0.24f).coerceIn(0f, 1.52f)
+        val edgeAlpha = (0.052f * edgeEnergy * edgeScale).coerceIn(0f, 1.00f)
+        val edgeBloom = (0.026f * edgeEnergy * (edgeBloomKnob * 0.64f + lightScale * 0.22f)).coerceIn(0f, 0.62f)
 
         drawRoundRect(
             brush = Brush.radialGradient(
-                0.00f to Color.White.copy(alpha = edgeBloom * 0.72f),
-                0.46f to Color(0xFFF8FFFF).copy(alpha = edgeAlpha),
-                0.86f to Color(0xFFE6FFFF).copy(alpha = edgeAlpha * 0.58f),
+                0.00f to Color.White.copy(alpha = edgeBloom * (0.42f + edgeSoftness * 0.30f)),
+                0.58f to Color(0xFFF8FFFF).copy(alpha = edgeAlpha),
+                0.92f to Color(0xFFE6FFFF).copy(alpha = edgeAlpha * (0.36f + edgeSoftness * 0.34f)),
                 1.00f to Color.Transparent,
                 center = fieldCenter,
-                radius = fieldRadius * 1.16f
+                radius = fieldRadius * (1.10f + edgeSoftness * 0.36f)
             ),
             topLeft = Offset(rimInset, rimInset),
             size = rimSize,
