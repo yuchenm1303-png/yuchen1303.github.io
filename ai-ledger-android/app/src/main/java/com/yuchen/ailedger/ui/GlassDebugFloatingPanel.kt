@@ -44,6 +44,7 @@ fun GlassDebugFloatingPanel(
     val params = state.backdropParams
     val border = state.glassBorderStyle
     val motion = ComposeGlassLabState.motionStyle
+    val capsule = ComposeGlassLabState.capsuleTuning
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -63,40 +64,130 @@ fun GlassDebugFloatingPanel(
                 state,
             ) {
                 ComposeGlassMotionPreview()
-                LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..3f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(master = it))
-                }
-                Group("胶囊动效", "速度、形变和释放粘滞感", state, initiallyExpanded = true) {
+                Group("总控", "全局能量、速度和整体光动效开关", state, initiallyExpanded = true) {
+                    ComposeGlassMotionPreview()
+                    LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(master = it))
+                    }
                     LabSlider("胶囊速度", "只控制普通 Compose 玻璃按压胶囊与白光场速度", motion.speed, 0.08f..8f) {
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
                     }
+                }
+                Group("胶囊源头", "Glass.kt 源头状态机派生的按压、冲量和释放包络", state, initiallyExpanded = true) {
+                    ComposeGlassMotionPreview()
                     LabSlider("按压形变", "控制胶囊膨胀、下沉和压入幅度", motion.deformation, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
+                    }
+                    LabSlider("短点击冲量", "点一下时额外推高 tap 相位和释放前胶囊能量", motion.tapImpulse, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(tapImpulse = it))
                     }
                     LabSlider("释放粘度", "越高回弹越明显；默认降低，保留粘滞回落", motion.rebound, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
                     }
+                    LabSlider("释放凝聚", "控制松手时负向释放包络的连贯和黏性", motion.releaseCohesion, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(releaseCohesion = it))
+                    }
+                    LabSlider("光场连续", "控制二次点击继承尾迹和释放阶段的连续感", motion.fieldContinuity, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(fieldContinuity = it))
+                    }
+                }
+                Group("App内胶囊细调", "直接调真实 App 内的尺寸函数和父级胶囊形变", state, initiallyExpanded = true) {
+                    ComposeGlassMotionPreview()
+                    LabSlider("小尺寸增强", "越高小按钮、小卡片越明显；大卡片基本不变", capsule.compactBoost, 0f..2.4f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(compactBoost = it))
+                    }
+                    LabSlider("长条横向抑制", "越高长按钮越不左右拉爆；方形按钮几乎不受影响", capsule.elongatedX, 0f..0.9f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(elongatedX = it))
+                    }
+                    LabSlider("长条纵向补偿", "越高长按钮上下胶囊感越明显；过高会显得竖向弹", capsule.elongatedY, 0f..0.6f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(elongatedY = it))
+                    }
+                    LabSlider("基础像素形变", "真实像素膨胀基准，控制按压/长按的胶囊体积", capsule.basePx, 0.005f..0.085f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(basePx = it))
+                    }
+                    LabSlider("短点击像素", "点一下时额外鼓起的胶囊体积，优先调这个找点击手感", capsule.tapPx, 0f..0.12f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapPx = it))
+                    }
+                    LabSlider("点击峰值", "短点击 tap 相位的峰值放大，越高越像弹起的胶囊", capsule.tapPop, 0.2f..2.8f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapPop = it))
+                    }
+                    LabSlider("点击拖尾", "短点击松手后继续托住胶囊的黏滞尾巴", capsule.tapCarry, 0f..1.4f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapCarry = it))
+                    }
+                    LabSlider("黏滞白胶", "跟随 lens/sweep 的额外粘性，过高会糊", capsule.sticky, 0f..0.08f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(sticky = it))
+                    }
+                    LabSlider("下沉重量", "点击和按压的向下沉入量，控制手指压下的重量感", capsule.sink, 0f..1.8f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(sink = it))
+                    }
+                    LabSlider("释放回落", "释放阶段反向回落的可见程度，过高会抖", capsule.settle, 0f..1f) {
+                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(settle = it))
+                    }
                 }
                 Group("白光光场", "触点白光、连续扩散和松手余辉", state, initiallyExpanded = false) {
+                    ComposeGlassMotionPreview()
                     LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
                     }
                     LabSlider("白光扩散", "控制按下后光场沿组件内部扩散的强度", motion.sweep, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(sweep = it))
                     }
+                    LabSlider("扩散惯性", "控制释放阶段扫光尾迹和白光扩散的持续感", motion.sweepMomentum, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(sweepMomentum = it))
+                    }
                     LabSlider("松手余辉", "控制透镜亮度和光场在松手后的消散时间", motion.afterglow, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
                     }
-                    LabSlider("棱彩色散", "当前普通玻璃保持白光为主，默认禁用色散", motion.prism, 0f..1.5f) {
+                    LabSlider("棱彩色散", "当前普通玻璃 normalized 后保持白光为主，默认禁用色散", motion.prism, 0f..1.5f) {
                         ComposeGlassLabState.updateMotion(motion.copy(prism = it))
+                    }
+                }
+                Group("静态玻璃材质", "普通 Compose 玻璃底材、边缘、雾面和背景采样", state, initiallyExpanded = false) {
+                    ComposeGlassMotionPreview()
+                    val style = ComposeGlassLabState.style
+                    LabSlider("背景采样", "控制普通玻璃背景采样透明度", style.backdrop, 0.12f..1.55f) {
+                        ComposeGlassLabState.update(style.copy(backdrop = it))
+                    }
+                    LabSlider("背景模糊", "控制普通玻璃背景模糊缩放", style.backdropBlur, 0.35f..2.2f) {
+                        ComposeGlassLabState.update(style.copy(backdropBlur = it))
+                    }
+                    LabSlider("安静吸收", "控制玻璃内部暗部与安静度", style.quiet, 0.2f..2.2f) {
+                        ComposeGlassLabState.update(style.copy(quiet = it))
+                    }
+                    LabSlider("顶部高光", "控制普通玻璃上沿高光强度", style.topLight, 0.02f..3.4f) {
+                        ComposeGlassLabState.update(style.copy(topLight = it))
+                    }
+                    LabSlider("顶部宽度", "控制普通玻璃上沿光带宽度", style.topWidthDp, 0.2f..8f) {
+                        ComposeGlassLabState.update(style.copy(topWidthDp = it))
+                    }
+                    LabSlider("顶部流动", "控制上沿高光横向变化", style.topVariation, 0f..3f) {
+                        ComposeGlassLabState.update(style.copy(topVariation = it))
+                    }
+                    LabSlider("底部高光", "控制普通玻璃下沿亮部", style.bottomLight, 0.02f..3f) {
+                        ComposeGlassLabState.update(style.copy(bottomLight = it))
+                    }
+                    LabSlider("底部宽度", "控制普通玻璃下沿光带宽度", style.bottomWidthDp, 0.2f..8f) {
+                        ComposeGlassLabState.update(style.copy(bottomWidthDp = it))
+                    }
+                    LabSlider("外缘光", "控制普通玻璃外缘描边亮度", style.outerRim, 0.02f..3.2f) {
+                        ComposeGlassLabState.update(style.copy(outerRim = it))
+                    }
+                    LabSlider("底部重量", "控制普通玻璃底部暗部压边", style.bottomMass, 0.02f..3f) {
+                        ComposeGlassLabState.update(style.copy(bottomMass = it))
+                    }
+                    LabSlider("侧边承光", "控制普通玻璃两侧轻微承光", style.sideLight, 0f..3f) {
+                        ComposeGlassLabState.update(style.copy(sideLight = it))
+                    }
+                    LabSlider("圆角缩放", "控制普通玻璃非 Shell 圆角缩放", style.radius, 18f..86f) {
+                        ComposeGlassLabState.update(style.copy(radius = it))
                     }
                 }
                 LabActionButton(
                     title = "恢复光动效默认值",
-                    subtitle = "胶囊更重 · 回弹更黏 · 速度 1x",
+                    subtitle = "同时恢复动效、胶囊细调和普通玻璃材质",
                     state = state,
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = ComposeGlassLabState::resetMotion,
+                    onClick = ComposeGlassLabState::resetAll,
                 )
             }
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
@@ -250,13 +341,21 @@ private fun legacyOpenGlLabStyle(): GlassBorderStyle = GlassBorderStyle(
     ringWidthDp = 8.295f,
     edgePullDp = -199.078f,
     edgeBrightness = 1.083f,
-    openGlVisibility = 19.954f,
-    openGlMaxAlpha = 1f,
-    openGlPullScale = -5.53f,
-    openGlCompressionScale = -10f,
-    openGlCornerScale = 54.378f,
-    openGlDarkScale = -2.21f,
-    openGlSampleRadiusScale = 66.359f
+    edgeTint = 0.287f,
+    cornerBoost = 0.15f,
+    openGlVisibility = 11.6f,
+    openGlMaxAlpha = 0.665f,
+    fillAlpha = 0.047f,
+    edgeWhiteAlpha = 0.152f,
+    edgeCyanAlpha = 0.285f,
+    edgeMagentaAlpha = 0.285f,
+    edgeYellowAlpha = 0.135f,
+    edgeBlueAlpha = 0.405f,
+    outerStrokeAlpha = 0.225f,
+    topHighlightAlpha = 0.381f,
+    bottomShadowAlpha = 0.283f,
+    refraction = 1.38f,
+    chromaShift = 2.2f
 )
 
 @Composable
