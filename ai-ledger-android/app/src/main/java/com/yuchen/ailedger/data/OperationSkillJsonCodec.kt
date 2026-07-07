@@ -65,38 +65,43 @@ object OperationSkillJsonCodec {
         put("learnedAtMillis", learnedAtMillis)
     }
 
-    private fun JSONObject.toSkill(): LearnedVisualSkill = LearnedVisualSkill(
-        schemaVersion = optString("schemaVersion", LearnedVisualSkill.SCHEMA_VERSION),
-        workflowId = getString("workflowId"),
-        name = optString("name"),
-        description = optString("description"),
-        triggerExamples = optJSONArray("triggerExamples").toStringList(),
-        inputs = buildList {
-            val array = optJSONArray("inputs") ?: return@buildList
-            for (index in 0 until array.length()) {
-                val item = array.optJSONObject(index) ?: continue
-                val key = item.optString("key").trim()
-                val label = item.optString("label").trim()
-                if (key.isBlank() || label.isBlank()) continue
-                add(
-                    VisualSkillInput(
-                        key = key,
-                        label = label,
-                        description = item.optString("description"),
-                        required = item.optBoolean("required", true),
-                        sensitive = item.optBoolean("sensitive", false),
-                    ),
-                )
-            }
-        },
-        operatingPrinciples = optJSONArray("operatingPrinciples").toStringList(),
-        routeSteps = optJSONArray("routeSteps").toRouteStepList(),
-        successCriteria = optJSONArray("successCriteria").toStringList(),
-        safetyRules = optJSONArray("safetyRules").toStringList(),
-        cloudSummary = optString("cloudSummary"),
-        confidence = optDouble("confidence", 0.0).toFloat().coerceIn(0f, 1f),
-        learnedAtMillis = optLong("learnedAtMillis"),
-    )
+    private fun JSONObject.toSkill(): LearnedVisualSkill {
+        val routeSteps = optJSONArray("routeSteps").toRouteStepList()
+        val routeSummaries = routeSteps.routeCheckpointSummaries()
+        val principles = optJSONArray("operatingPrinciples").toStringList()
+        return LearnedVisualSkill(
+            schemaVersion = optString("schemaVersion", LearnedVisualSkill.SCHEMA_VERSION),
+            workflowId = getString("workflowId"),
+            name = optString("name"),
+            description = optString("description"),
+            triggerExamples = optJSONArray("triggerExamples").toStringList(),
+            inputs = buildList {
+                val array = optJSONArray("inputs") ?: return@buildList
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val key = item.optString("key").trim()
+                    val label = item.optString("label").trim()
+                    if (key.isBlank() || label.isBlank()) continue
+                    add(
+                        VisualSkillInput(
+                            key = key,
+                            label = label,
+                            description = item.optString("description"),
+                            required = item.optBoolean("required", true),
+                            sensitive = item.optBoolean("sensitive", false),
+                        ),
+                    )
+                }
+            },
+            operatingPrinciples = (routeSummaries + principles).distinct(),
+            routeSteps = routeSteps,
+            successCriteria = optJSONArray("successCriteria").toStringList(),
+            safetyRules = optJSONArray("safetyRules").toStringList(),
+            cloudSummary = optString("cloudSummary").withRouteSummary(routeSummaries),
+            confidence = optDouble("confidence", 0.0).toFloat().coerceIn(0f, 1f),
+            learnedAtMillis = optLong("learnedAtMillis"),
+        )
+    }
 
     private fun JSONArray?.toRouteStepList(): List<VisualSkillRouteStep> = buildList {
         val array = this@toRouteStepList ?: return@buildList
@@ -123,6 +128,23 @@ object OperationSkillJsonCodec {
             )
         }
     }.sortedBy(VisualSkillRouteStep::order)
+
+    private fun List<VisualSkillRouteStep>.routeCheckpointSummaries(): List<String> = take(4).mapIndexed { index, step ->
+        val anchor = step.effectiveAnchors.firstOrNull().orEmpty()
+        val evidence = step.effectiveEvidence.firstOrNull().orEmpty()
+        buildString {
+            append("路线检查点：").append(index + 1).append(". ").append(step.instruction)
+            if (anchor.isNotBlank()) append("；锚点：").append(anchor)
+            if (evidence.isNotBlank()) append("；证据：").append(evidence)
+        }.take(320)
+    }
+
+    private fun String.withRouteSummary(routeSummaries: List<String>): String {
+        val clean = trim()
+        if (routeSummaries.isEmpty()) return clean
+        val routeText = "演示路线：" + routeSummaries.joinToString("；") { it.removePrefix("路线检查点：") }
+        return listOf(clean, routeText).filter(String::isNotBlank).joinToString("\n").take(1_000)
+    }
 
     private fun JSONArray?.toStringList(): List<String> = buildList {
         val array = this@toStringList ?: return@buildList
