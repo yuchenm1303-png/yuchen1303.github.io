@@ -21,6 +21,10 @@ data class ComposeGlassMotionStyle(
     val rebound: Float = 0.46f,
     val afterglow: Float = 0.96f,
     val speed: Float = 1f,
+    val tapImpulse: Float = 1.06f,
+    val releaseCohesion: Float = 1.10f,
+    val fieldContinuity: Float = 1.18f,
+    val sweepMomentum: Float = 0.92f,
 ) {
     internal fun normalized(): ComposeGlassMotionStyle = copy(
         master = master.coerceIn(0f, 8f),
@@ -31,6 +35,10 @@ data class ComposeGlassMotionStyle(
         rebound = rebound.coerceIn(0f, 8f),
         afterglow = afterglow.coerceIn(0f, 12f),
         speed = speed.coerceIn(0.08f, 8f),
+        tapImpulse = tapImpulse.coerceIn(0f, 8f),
+        releaseCohesion = releaseCohesion.coerceIn(0f, 8f),
+        fieldContinuity = fieldContinuity.coerceIn(0f, 8f),
+        sweepMomentum = sweepMomentum.coerceIn(0f, 8f),
     )
 }
 
