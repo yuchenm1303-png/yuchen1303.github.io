@@ -23,6 +23,45 @@ import com.yuchen.ailedger.model.AssistantUiState
 import java.util.Locale
 
 @Composable
+internal fun GlassLabFoldout(
+    title: String,
+    subtitle: String,
+    initiallyExpanded: Boolean,
+    state: AssistantUiState,
+    content: @Composable () -> Unit
+) {
+    val backgroundAlpha = if (initiallyExpanded) 0.060f else 0.042f
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = backgroundAlpha))
+            .padding(horizontal = 11.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                title,
+                color = Color.White.copy(alpha = 0.90f),
+                fontSize = 13.6.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                color = Color.White.copy(alpha = 0.45f),
+                fontSize = 10.2.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        content()
+    }
+}
+
+@Composable
 internal fun LabSlider(
     title: String,
     subtitle: String,
