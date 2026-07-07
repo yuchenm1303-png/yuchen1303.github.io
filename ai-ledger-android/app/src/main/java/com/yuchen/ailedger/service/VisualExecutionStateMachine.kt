@@ -75,8 +75,16 @@ class VisualExecutionStateMachine {
         transitionTo(VisualSurfaceState.Replanning)
     }
 
+    /**
+     * The visual loop is screenshot-authoritative. Before a target package is selected/verified,
+     * the very first planning turn must carry a clean screenshot so the cloud router can understand
+     * a "current page" task directly instead of asking the user which app to open from text only.
+     * After a work surface is verified, screenshots remain required for GUI Plus coordinate actions.
+     */
     fun requiresVisualObservation(): Boolean {
-        return surfaceState == VisualSurfaceState.WorkSurface && verifiedTargetPackage.isNotBlank()
+        return selectedTargetPackage.isBlank() ||
+            verifiedTargetPackage.isBlank() ||
+            (surfaceState == VisualSurfaceState.WorkSurface && verifiedTargetPackage.isNotBlank())
     }
 
     /**
