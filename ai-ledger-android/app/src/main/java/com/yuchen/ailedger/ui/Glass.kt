@@ -533,11 +533,12 @@ fun PressableGlass(
      * - 松手：current -> 0，只跑一段自然回落。
      *
      * pressProgress / lensProgress / sweepProgress 仍然对外保留，方便父级绘制链兼容；
-     * 但它们全部由同一条正向材料曲线连续派生，不再通过 contact / hold / impulse / release
-     * 多段目标制造“先停一下再继续跑”的手感。
+     * 几何只由同一条正向材料曲线连续派生，极短点击的可见反馈由独立光效闪烁承接，
+     * 不再通过 contact / hold / impulse / release 多段目标制造“先停一下再继续跑”的手感。
      */
     val pressScope = rememberCoroutineScope()
     val ordinaryMaterial = remember { Animatable(0f) }
+    val ordinaryTapFlash = remember { Animatable(0f) }
     var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
     var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
 
@@ -591,25 +592,34 @@ fun PressableGlass(
         0f
     }
     val positiveMaterial = materialValue.coerceAtLeast(0f)
+    val tapFlashValue = if (ordinaryPressEnabled) {
+        ordinaryTapFlash.value.coerceIn(0f, 1.40f)
+    } else {
+        0f
+    }
 
     /*
      * 跟手胶囊版普通玻璃材料曲线：
-     * - 几何形变仍然只看一条 positiveMaterial，不拆 contact / hold / impulse / release。
-     * - 胶囊体积、触点白胶、边缘亮线都从同一条曲线连续派生，只增强“软胶囊压入感”。
-     * - 松手时 ordinaryMaterial 直接回到 0；余辉跟随正值自然衰减，不反向驱动几何形变。
+     * - 几何形变只看 positiveMaterial，按下和松手都保持一段主动画。
+     * - 极短点击的可见反馈交给 ordinaryTapFlash；它只参与白胶光场、边缘亮线和扫光，
+     *   不参与 scale / translation / shadow，避免松手后按钮本体继续“补动画”。
+     * - 胶囊体积、触点白胶、边缘亮线从几何主曲线和光效保底曲线连续派生。
      */
     val pressCompression = composeMotionSmoothStep((positiveMaterial / 0.82f).coerceIn(0f, 1f))
-    val tapEnvelope = 0f
+    val flashEnvelope = composeMotionSmoothStep((tapFlashValue / 0.86f).coerceIn(0f, 1f))
+    val tapEnvelope = flashEnvelope
     val releaseEnvelope = 0f
-    val contactEnvelope = pressCompression
-    val glowEnvelope = (
-        contactEnvelope * (0.86f + touchLight.coerceIn(0f, 16f) * 0.014f) * capsuleLightGain +
-            positiveMaterial * (0.10f + afterglow.coerceIn(0f, 12f) * 0.008f)
-        ).coerceIn(0f, 1.68f)
-    val sweepEnvelope = (
-        contactEnvelope * (0.24f + sweep.coerceIn(0f, 16f) * 0.018f) +
-            positiveMaterial * (0.10f + sweepMomentum.coerceIn(0f, 4f) * 0.040f)
-        ).coerceIn(0f, 1.50f)
+    val contactEnvelope = maxOf(pressCompression, flashEnvelope * 0.46f)
+    val glowEnvelope = maxOf(
+        pressCompression * (0.86f + touchLight.coerceIn(0f, 16f) * 0.014f) * capsuleLightGain +
+            positiveMaterial * (0.10f + afterglow.coerceIn(0f, 12f) * 0.008f),
+        flashEnvelope * (0.92f + touchLight.coerceIn(0f, 16f) * 0.018f) * capsuleLightGain
+    ).coerceIn(0f, 1.78f)
+    val sweepEnvelope = maxOf(
+        pressCompression * (0.24f + sweep.coerceIn(0f, 16f) * 0.018f) +
+            positiveMaterial * (0.10f + sweepMomentum.coerceIn(0f, 4f) * 0.040f),
+        flashEnvelope * (0.44f + sweep.coerceIn(0f, 16f) * 0.016f + sweepMomentum.coerceIn(0f, 4f) * 0.044f)
+    ).coerceIn(0f, 1.56f)
 
     val pressValue = if (ordinaryPressEnabled) {
         (
@@ -636,8 +646,13 @@ fun PressableGlass(
     } else {
         0f
     }
-    val opticsPress = maxOf(positivePress, lensValue * 0.78f, glowEnvelope * 0.52f)
-    val pressedIntensity = baseIntensity * (1f + pressCompression * (0.046f + 0.140f * elasticity) * capsuleBodyGain + glowEnvelope * 0.014f)
+    val opticsPress = maxOf(positivePress, lensValue * 0.78f, glowEnvelope * 0.56f, tapFlashValue * 0.58f)
+    val pressedIntensity = baseIntensity * (
+        1f +
+            pressCompression * (0.046f + 0.140f * elasticity) * capsuleBodyGain +
+            glowEnvelope * 0.014f +
+            flashEnvelope * 0.010f
+    )
 
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
@@ -704,6 +719,7 @@ fun PressableGlass(
                     }
 
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    val downTimeNanos = System.nanoTime()
                     updatePressCenter(down.position)
 
                     pressScope.launch {
@@ -734,6 +750,20 @@ fun PressableGlass(
                         )
                     }
 
+                    pressScope.launch {
+                        ordinaryTapFlash.stop()
+                        val flashTarget = (
+                            0.78f +
+                                touchLight.coerceIn(0f, 16f) * 0.010f +
+                                tapImpulse.coerceIn(0f, 4f) * 0.026f
+                            ).coerceIn(0.70f, 1.02f)
+                        ordinaryTapFlash.snapTo(maxOf(ordinaryTapFlash.value, flashTarget))
+                        ordinaryTapFlash.animateTo(
+                            0f,
+                            tween(ordinaryDuration(220, 150, 320), easing = FastOutSlowInEasing)
+                        )
+                    }
+
                     var releasedInsideGesture = false
                     while (true) {
                         val event = awaitPointerEvent()
@@ -751,6 +781,9 @@ fun PressableGlass(
                         }
                     }
 
+                    val heldMs = ((System.nanoTime() - downTimeNanos) / 1_000_000L).coerceAtLeast(0L)
+                    val shortTap = releasedInsideGesture && heldMs < 90L
+
                     pressScope.launch {
                         ordinaryMaterial.stop()
 
@@ -765,6 +798,22 @@ fun PressableGlass(
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
+                    }
+
+                    if (shortTap) {
+                        pressScope.launch {
+                            ordinaryTapFlash.stop()
+                            val minimumFlash = (
+                                0.90f +
+                                    touchLight.coerceIn(0f, 16f) * 0.006f +
+                                    afterglow.coerceIn(0f, 12f) * 0.008f
+                                ).coerceIn(0.82f, 1.08f)
+                            ordinaryTapFlash.snapTo(maxOf(ordinaryTapFlash.value, minimumFlash))
+                            ordinaryTapFlash.animateTo(
+                                0f,
+                                tween(ordinaryDuration(240, 165, 360), easing = FastOutSlowInEasing)
+                            )
+                        }
                     }
 
                 }
