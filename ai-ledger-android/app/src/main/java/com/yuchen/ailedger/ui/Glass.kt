@@ -526,15 +526,15 @@ fun PressableGlass(
     val interaction = remember { MutableInteractionSource() }
 
     /*
-     * 普通 Compose 玻璃按钮新版源头动效。
+     * 普通 Compose 玻璃按钮跟手版源头动效。
      *
-     * 这里刻意删除旧的 ordinaryPress / ordinaryLens / ordinarySweep 三条独立动画。
-     * 现在只有 ordinaryMaterial 一个连续材料时间线：
-     * - 正值：手指压入、胶囊充能、触点光聚集
-     * - 负值：松手后的统一释放包络、回弹、余辉和扫光尾迹
+     * 这里只有 ordinaryMaterial 一条主材料曲线：
+     * - 按下：current -> pressedTarget，只跑一段自然展开。
+     * - 松手：current -> 0，只跑一段自然回落。
      *
      * pressProgress / lensProgress / sweepProgress 仍然对外保留，方便父级绘制链兼容；
-     * 但这三个值全部由同一个 ordinaryMaterial 派生，不再各自分段 animateTo。
+     * 但它们全部由同一条正向材料曲线连续派生，不再通过 contact / hold / impulse / release
+     * 多段目标制造“先停一下再继续跑”的手感。
      */
     val pressScope = rememberCoroutineScope()
     val ordinaryMaterial = remember { Animatable(0f) }
@@ -574,58 +574,58 @@ fun PressableGlass(
     }
 
     val materialValue = if (ordinaryPressEnabled) {
-        ordinaryMaterial.value.coerceIn(-1.20f, 1.80f)
+        ordinaryMaterial.value.coerceIn(0f, 1.28f)
     } else {
         0f
     }
     val positiveMaterial = materialValue.coerceAtLeast(0f)
-    val releaseMaterial = (-materialValue).coerceAtLeast(0f)
 
-    val pressCompression = composeMotionSmoothStep((positiveMaterial / 1.16f).coerceIn(0f, 1f))
-    val releaseEnvelope = composeMotionSmoothStep((releaseMaterial / 0.58f).coerceIn(0f, 1f))
-    val tapEnvelope = composeMotionSmoothStep(((positiveMaterial - 0.72f) / 0.58f).coerceIn(0f, 1f))
-    val contactEnvelope = composeMotionSmoothStep(((positiveMaterial + tapEnvelope * 0.34f) / 1.28f).coerceIn(0f, 1f))
-    val glowEnvelope = maxOf(
-        contactEnvelope * 0.66f,
-        tapEnvelope * (0.74f + tapImpulse.coerceIn(0f, 4f) * 0.020f),
-        releaseEnvelope * (0.76f + afterglow.coerceIn(0f, 12f) * 0.018f)
-    ).coerceIn(0f, 1.35f)
-    val sweepEnvelope = maxOf(
-        tapEnvelope * (0.58f + sweep.coerceIn(0f, 16f) * 0.020f),
-        releaseEnvelope * (0.72f + sweepMomentum.coerceIn(0f, 4f) * 0.060f),
-        contactEnvelope * 0.18f
-    ).coerceIn(0f, 1.55f)
+    /*
+     * 跟手版普通玻璃材料曲线：
+     * - 几何形变只看一条 positiveMaterial，不再拆 contact / hold / impulse / release 多段包络。
+     * - 光场、扫光和父级绘制也从同一条曲线连续派生，避免视觉上先停一下再继续跑。
+     * - 松手时 ordinaryMaterial 直接回到 0；余辉表现由正值回落过程自然衰减，不再反向驱动胶囊。
+     */
+    val pressCompression = composeMotionSmoothStep((positiveMaterial / 0.92f).coerceIn(0f, 1f))
+    val tapEnvelope = 0f
+    val releaseEnvelope = 0f
+    val contactEnvelope = pressCompression
+    val glowEnvelope = (
+        contactEnvelope * (0.72f + touchLight.coerceIn(0f, 16f) * 0.010f) +
+            positiveMaterial * (0.08f + afterglow.coerceIn(0f, 12f) * 0.006f)
+        ).coerceIn(0f, 1.30f)
+    val sweepEnvelope = (
+        contactEnvelope * (0.20f + sweep.coerceIn(0f, 16f) * 0.016f) +
+            positiveMaterial * (0.08f + sweepMomentum.coerceIn(0f, 4f) * 0.035f)
+        ).coerceIn(0f, 1.35f)
 
     val pressValue = if (ordinaryPressEnabled) {
         (
-            positiveMaterial * (0.74f + deformation.coerceIn(0f, 12f) * 0.020f) +
-                tapEnvelope * (0.18f + tapImpulse.coerceIn(0f, 4f) * 0.024f) -
-                releaseEnvelope * (0.12f + reboundControl.coerceIn(0f, 10f) * 0.018f)
-            ).coerceIn(-1.20f, 2.20f)
+            positiveMaterial *
+                (0.78f + deformation.coerceIn(0f, 12f) * 0.018f)
+            ).coerceIn(0f, 1.80f)
     } else {
         0f
     }
     val positivePress = pressValue.coerceAtLeast(0f)
-    val rebound = releaseEnvelope
+    val rebound = 0f
     val lensValue = if (ordinaryPressEnabled) {
         (
-            contactEnvelope * (0.46f + touchLight.coerceIn(0f, 16f) * 0.018f) +
-                tapEnvelope * (0.28f + tapImpulse.coerceIn(0f, 4f) * 0.036f) +
-                glowEnvelope * (0.34f + afterglow.coerceIn(0f, 12f) * 0.028f)
-            ).coerceIn(0f, 3.40f)
+            contactEnvelope * (0.46f + touchLight.coerceIn(0f, 16f) * 0.020f) +
+                glowEnvelope * (0.30f + afterglow.coerceIn(0f, 12f) * 0.018f)
+            ).coerceIn(0f, 2.80f)
     } else {
         0f
     }
     val sweepValue = if (ordinaryPressEnabled) {
         (
-            sweepEnvelope * (0.42f + sweep.coerceIn(0f, 16f) * 0.024f) +
-                releaseEnvelope * (0.22f + fieldContinuity.coerceIn(0f, 4f) * 0.052f)
-            ).coerceIn(0f, 3.60f)
+            sweepEnvelope * (0.44f + sweep.coerceIn(0f, 16f) * 0.020f)
+            ).coerceIn(0f, 2.80f)
     } else {
         0f
     }
-    val opticsPress = maxOf(positivePress, lensValue * 0.70f, glowEnvelope * 0.42f, rebound * 0.34f)
-    val pressedIntensity = baseIntensity * (1f + pressCompression * (0.036f + 0.120f * elasticity) + glowEnvelope * 0.010f)
+    val opticsPress = maxOf(positivePress, lensValue * 0.70f, glowEnvelope * 0.42f)
+    val pressedIntensity = baseIntensity * (1f + pressCompression * (0.034f + 0.105f * elasticity) + glowEnvelope * 0.010f)
 
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
@@ -692,32 +692,31 @@ fun PressableGlass(
                     }
 
                     val down = awaitFirstDown(requireUnconsumed = false)
-                    val downTimeNanos = System.nanoTime()
                     updatePressCenter(down.position)
 
                     pressScope.launch {
                         ordinaryMaterial.stop()
 
-                        val inheritedTail = (-ordinaryMaterial.value).coerceAtLeast(0f) *
-                            (0.18f + fieldContinuity.coerceIn(0f, 4f) * 0.030f)
-                        val startValue = maxOf(ordinaryMaterial.value, 0.075f, inheritedTail)
-                            .coerceIn(0f, 0.52f)
-                        ordinaryMaterial.snapTo(startValue)
+                        /*
+                         * 按下只跑一段主动画：current -> pressedTarget。
+                         * 不再拆成 contactTarget + holdTarget，也不再用短点击 impulse 继续推高几何形变。
+                         */
+                        if (ordinaryMaterial.value < 0f) {
+                            ordinaryMaterial.snapTo(0f)
+                        }
 
-                        val contactTarget = (0.34f + deformation * 0.016f + touchLight * 0.004f)
-                            .coerceIn(0.18f, 0.72f)
-                        val holdTarget = (0.78f + deformation * 0.040f + tapImpulse * 0.024f)
-                            .coerceIn(0.42f, 1.34f)
+                        val pressedTarget = (
+                            0.72f +
+                                deformation.coerceIn(0f, 12f) * 0.020f +
+                                touchLight.coerceIn(0f, 16f) * 0.004f +
+                                tapImpulse.coerceIn(0f, 4f) * 0.010f
+                            ).coerceIn(0.54f, 1.04f)
 
                         ordinaryMaterial.animateTo(
-                            contactTarget,
-                            tween(ordinaryDuration(74, 42, 260), easing = OrdinaryPressEasing)
-                        )
-                        ordinaryMaterial.animateTo(
-                            holdTarget,
+                            pressedTarget,
                             spring(
-                                dampingRatio = 0.82f,
-                                stiffness = Spring.StiffnessMediumLow
+                                dampingRatio = 0.88f,
+                                stiffness = Spring.StiffnessMedium
                             )
                         )
                     }
@@ -739,51 +738,22 @@ fun PressableGlass(
                         }
                     }
 
-                    val heldMs = ((System.nanoTime() - downTimeNanos) / 1_000_000L).coerceAtLeast(0L)
-                    val shortTap = releasedInsideGesture && heldMs < 180L
-
                     pressScope.launch {
                         ordinaryMaterial.stop()
 
-                        if (releasedInsideGesture && shortTap) {
-                            val currentPositive = ordinaryMaterial.value.coerceAtLeast(0f)
-                            val impulseTarget = (
-                                maxOf(currentPositive, 0.42f) +
-                                    0.24f +
-                                    tapImpulse.coerceIn(0f, 4f) * 0.050f +
-                                    deformation.coerceIn(0f, 12f) * 0.010f
-                                ).coerceIn(0.56f, 1.48f)
-                            ordinaryMaterial.animateTo(
-                                impulseTarget,
-                                tween(ordinaryDuration(92, 48, 260), easing = OrdinarySinkEasing)
-                            )
-                        }
-
-                        val releaseTarget = if (releasedInsideGesture) {
-                            (
-                                -0.24f -
-                                    reboundControl.coerceIn(0f, 10f) * 0.018f -
-                                    releaseCohesion.coerceIn(0f, 4f) * 0.028f
-                                ).coerceIn(-0.92f, -0.080f)
-                        } else {
-                            -0.10f
-                        }
-
-                        ordinaryMaterial.animateTo(
-                            releaseTarget,
-                            tween(
-                                ordinaryDuration(if (shortTap) 168 else 210, 92, 520),
-                                easing = OrdinaryReleaseEasing
-                            )
-                        )
+                        /*
+                         * 松手也只跑一段主动画：current -> 0。
+                         * 释放粘度只调阻尼，不再生成负向 releaseTarget 或正向 impulseTarget。
+                         */
                         ordinaryMaterial.animateTo(
                             0f,
                             spring(
-                                dampingRatio = (0.72f + fieldContinuity.coerceIn(0f, 4f) * 0.035f).coerceIn(0.72f, 0.90f),
-                                stiffness = if (shortTap) Spring.StiffnessMediumLow else Spring.StiffnessLow
+                                dampingRatio = (0.80f + releaseCohesion.coerceIn(0f, 4f) * 0.035f).coerceIn(0.80f, 0.92f),
+                                stiffness = Spring.StiffnessMediumLow
                             )
                         )
                     }
+
                 }
             }
             .onPlaced { coordinates.coordinates = it }
