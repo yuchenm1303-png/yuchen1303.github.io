@@ -24,8 +24,6 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onPlaced
 import com.yuchen.ailedger.model.RenderQuality
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * 普通 GlassPanel / PressableGlass 的页面级父绘制系统。
@@ -163,6 +161,7 @@ internal class VisibleOrdinaryGlassItem(
     var sampleOffset: Offset,
     var foldoutClipRect: Rect?
 ) {
+    val motion = OrdinaryGlassMotionSnapshot()
     val transform = OrdinaryGlassVisualTransform()
 }
 
@@ -208,7 +207,8 @@ class OrdinaryGlassSceneState(
         item.node = node
         item.rect = rect
         item.foldoutClipRect = foldoutClip
-        updateOrdinaryGlassVisualTransform(node = node, out = item.transform)
+        updateOrdinaryGlassMotionSnapshot(node = node, out = item.motion)
+        updateOrdinaryGlassVisualTransform(item = item, out = item.transform)
         val transformedBounds = ordinaryGlassTransformedBounds(
             transform = item.transform,
             rect = rect
@@ -520,18 +520,5 @@ private fun DrawScope.withLaterVisibleBoundsExcluded(
         }
         block()
     }
-
     drawFrom(itemIndex + 1)
-}
-
-private fun Rect.intersectionOrNull(other: Rect): Rect? {
-    val clippedLeft = max(left, other.left)
-    val clippedTop = max(top, other.top)
-    val clippedRight = min(right, other.right)
-    val clippedBottom = min(bottom, other.bottom)
-    return if (clippedRight > clippedLeft && clippedBottom > clippedTop) {
-        Rect(clippedLeft, clippedTop, clippedRight, clippedBottom)
-    } else {
-        null
-    }
 }
