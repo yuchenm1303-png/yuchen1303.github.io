@@ -62,20 +62,25 @@ internal fun updateOrdinaryGlassMotionSnapshot(
     val hold = ordinarySnapshotSmoothStep(holdPhase.coerceIn(0f, 1.84f) / 1.84f)
     val tap = ordinarySnapshotSmoothStep(tapPhase.coerceIn(0f, 1.74f) / 1.74f)
     val release = ordinarySnapshotSmoothStep(releasePhase.coerceIn(0f, 1.96f) / 1.96f)
+    val contactLead = ordinarySnapshotSmoothStep((positive * 3.20f + lens * 0.72f).coerceIn(0f, 1f)) *
+        (1f - release * 0.48f).coerceIn(0.52f, 1f)
+    val responsePress = maxOf(hold, contactLead * 0.20f)
+    val responseTap = maxOf(tap, contactLead * 0.10f)
     val releaseFade = (1f - release * 0.82f).coerceIn(0f, 1f)
     val light = maxOf(
-        hold * 0.66f,
-        tap * 0.82f,
+        responsePress * 0.66f,
+        responseTap * 0.82f,
+        contactLead * 0.36f,
         lens.coerceIn(0f, 1f) * 0.62f
     ).coerceIn(0f, 1f) * releaseFade
     val cleanSweep = maxOf(
-        tap * 0.68f,
+        responseTap * 0.68f,
         ordinarySnapshotSmoothStep((sweep * timeScale).coerceIn(0f, 1.18f) / 1.18f)
     ).coerceIn(0f, 1f) * releaseFade
 
     val master = ordinarySnapshotMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
-    out.pressPhase = hold
-    out.tapPhase = tap
+    out.pressPhase = responsePress
+    out.tapPhase = responseTap
     out.releasePhase = release
     out.lightPhase = light
     out.sweepPhase = cleanSweep
