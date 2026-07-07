@@ -71,7 +71,7 @@ fun GlassDebugFloatingPanel(
                 state,
             ) {
                 ComposeGlassMotionPreview(state)
-                Group("预设与导出", "快速切换 Compose 材质预设，并复制当前完整参数", state, initiallyExpanded = false) {
+                GlassLabFoldout("总开关与导出", "预设切换、总能量、一键复制完整参数", false, state) {
                     ComposeGlassGroupSample(state, "预设样本", "切换预设后长按这里确认材质", GlassRole.Card, 24, 58.dp)
                     Text(
                         "当前预设：${style.preset}",
@@ -87,6 +87,9 @@ fun GlassDebugFloatingPanel(
                         LabActionButton("Crystal", "亮边", state, Modifier.weight(1f)) { ComposeGlassLabState.usePreset(ComposeGlassPreset.Crystal) }
                         LabActionButton("Dense", "厚重", state, Modifier.weight(1f)) { ComposeGlassLabState.usePreset(ComposeGlassPreset.Dense) }
                         LabActionButton("Aurora", "柔彩", state, Modifier.weight(1f)) { ComposeGlassLabState.usePreset(ComposeGlassPreset.Aurora) }
+                    }
+                    LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量；0 为关闭，1 为默认", motion.master, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(master = it))
                     }
                     LabActionButton(
                         title = "一键导出当前 Compose 参数",
@@ -109,10 +112,7 @@ fun GlassDebugFloatingPanel(
                         )
                     }
                 }
-                LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量；0 为关闭，1 为默认", motion.master, 0f..3f) {
-                    ComposeGlassLabState.updateMotion(motion.copy(master = it))
-                }
-                Group("全局时间与连续场", "统一控制 press / lens / sweep 的连续动效场", state, initiallyExpanded = false) {
+                GlassLabFoldout("全局时间与连续场", "统一控制 press / lens / sweep 的连续动效场", false, state) {
                     ComposeGlassGroupSample(state, "连续场样本", "重点看按下到松手是否像一个整体", GlassRole.Flex, 999, 46.dp)
                     LabSlider("胶囊速度", "控制普通 Compose 玻璃按压胶囊、白光场、释放尾迹的整体速度", motion.speed, 0.08f..8f) {
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
@@ -133,7 +133,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(fieldContinuity = it))
                     }
                 }
-                Group("尺寸与形状映射", "解决小按钮动效不明显、长条按钮横向拉爆的问题", state, initiallyExpanded = false) {
+                GlassLabFoldout("尺寸与形状映射", "小按钮增强、长胶囊抑制、圆角和流带", false, state) {
                     ComposeGlassGroupSample(state, "小按钮样本", "专门观察 compactBoost 和长条抑制", GlassRole.Chip, 999, 38.dp)
                     LabSlider("小尺寸增强", "越高小按钮、小卡片越明显；大卡片基本不变", capsule.compactBoost, 0f..2.4f) {
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(compactBoost = it))
@@ -151,7 +151,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.update(style.copy(ribbon = it))
                     }
                 }
-                Group("点击胶囊核心", "真实 App 内短点击和按住时的像素级胶囊体积", state, initiallyExpanded = false) {
+                GlassLabFoldout("点击胶囊核心", "短点击、长按、下沉、拖尾和释放回落", false, state) {
                     ComposeGlassGroupSample(state, "点击样本", "短点和长按都用这里判断胶囊体积", GlassRole.Flex, 999, 44.dp)
                     LabSlider("基础像素形变", "真实像素膨胀基准，控制按压/长按的胶囊体积", capsule.basePx, 0.005f..0.085f) {
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(basePx = it))
@@ -175,7 +175,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(settle = it))
                     }
                 }
-                Group("白光光场与释放尾迹", "触点白光、连续扩散、松手余辉和色散入口", state, initiallyExpanded = false) {
+                GlassLabFoldout("白光光场与释放尾迹", "触点白光、扩散、余辉、扫光惯性和色散", false, state) {
                     ComposeGlassGroupSample(state, "白光样本", "观察触点光、扫光和尾迹消散", GlassRole.Card, 24, 60.dp)
                     LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
@@ -193,7 +193,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(prism = it))
                     }
                 }
-                Group("背景采样与雾面材质", "普通 Compose 玻璃的背景强度、模糊、暗化和乳白感", state, initiallyExpanded = false) {
+                GlassLabFoldout("背景采样与雾面材质", "背景透明、模糊、压暗、乳白和高光", false, state) {
                     ComposeGlassGroupSample(state, "雾面样本", "观察背景透出和乳白厚度", GlassRole.Card, 26, 62.dp)
                     LabSlider("背景透明", "普通玻璃采样背景的整体可见度", style.backdrop, 0.12f..1.55f) {
                         ComposeGlassLabState.update(style.copy(backdrop = it))
@@ -211,7 +211,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.update(style.copy(backdropHighlight = it))
                     }
                 }
-                Group("玻璃体积与暗部", "控制普通玻璃主体的厚度、吸收、内层过渡和底部重量", state, initiallyExpanded = false) {
+                GlassLabFoldout("玻璃体积与暗部", "主体厚度、吸收、内层过渡和底部重量", false, state) {
                     ComposeGlassGroupSample(state, "体积样本", "看主体厚度、底部暗部和内层过渡", GlassRole.Card, 28, 66.dp)
                     LabSlider("静默强度", "越高整体越收敛、越不刺眼", style.quiet, 0.25f..2.2f) {
                         ComposeGlassLabState.update(style.copy(quiet = it))
@@ -229,7 +229,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.update(style.copy(bottomMass = it))
                     }
                 }
-                Group("边缘、高光与轮廓", "顶部高光、底部亮线、外轮廓和侧向补光", state, initiallyExpanded = false) {
+                GlassLabFoldout("边缘、高光与轮廓", "顶部高光、底部亮线、外轮廓和侧向补光", false, state) {
                     ComposeGlassGroupSample(state, "边缘样本", "观察上沿高光、底线和外轮廓", GlassRole.Floating, 28, 58.dp)
                     LabSlider("顶部高光", "上沿白光强度，也是 edge 派生值", style.topLight, 0.02f..3.4f) {
                         ComposeGlassLabState.update(style.copy(topLight = it))
@@ -490,7 +490,7 @@ private fun OpenGlGlassLab(
             }
         }
     }
-    Group("旧样本参数", "只影响这一栏旧样本", state) {
+    GlassLabFoldout("旧样本参数", "只影响这一栏旧样本", false, state) {
         LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onStyleChange(style.copy(openGlVisibility = it)) }
         LabSlider("最大透明", "OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onStyleChange(style.copy(openGlMaxAlpha = it)) }
         LabSlider("旧边缘亮度", "旧 shader 的折射亮度", style.edgeBrightness, 0.20f..2.40f) { onStyleChange(style.copy(edgeBrightness = it)) }
