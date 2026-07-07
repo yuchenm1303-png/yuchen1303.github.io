@@ -1,6 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -26,12 +27,21 @@ import kotlin.math.sin
 @Composable
 internal fun WorkspaceTetrahedronTitleIcon(modifier: Modifier = Modifier) {
     var frameNanos by remember { mutableStateOf(0L) }
+    var active by remember { mutableStateOf(true) }
     val phaseOffset = remember { 0.137f }
     LaunchedEffect(Unit) {
         while (true) withFrameNanos { frameNanos = it }
     }
-    Canvas(modifier = modifier.size(width = 27.dp, height = 22.dp)) {
-        drawWorkspaceTetrahedron(frameNanos / 1_000_000_000f, phaseOffset)
+    Canvas(
+        modifier = modifier
+            .size(width = 27.dp, height = 22.dp)
+            .clickable { active = !active }
+    ) {
+        drawWorkspaceTetrahedron(
+            time = frameNanos / 1_000_000_000f,
+            phaseOffset = phaseOffset,
+            active = active
+        )
     }
 }
 
@@ -47,22 +57,46 @@ private val themeA = floatArrayOf(102f, 255f, 240f)
 private val themeB = floatArrayOf(93f, 132f, 255f)
 private val themeC = floatArrayOf(164f, 105f, 255f)
 
-private fun DrawScope.drawWorkspaceTetrahedron(time: Float, phaseOffset: Float) {
+private fun DrawScope.drawWorkspaceTetrahedron(time: Float, phaseOffset: Float, active: Boolean) {
     val points = projectTetra(time, phaseOffset)
     val edges = tetraEdges.indices.map { edgeOf(points, it) }
     val sorted = edges.sortedBy { it.midZ }
     val path = tetraPath.map { edgeOf(points, it) }
     val base = min(size.width, size.height) * 0.055f * 1.05f
-    val energy = 0.82f * 1.34f
+    val activeEnergy = 0.82f * 1.34f
+    val energy = if (active) activeEnergy else activeEnergy * 0.34f
     val center = Offset(points.map { it.x }.average().toFloat(), points.map { it.y }.average().toFloat())
-    drawCircle(Brush.radialGradient(listOf(themeColor(0.12f, 0.11f * energy), themeColor(0.65f, 0.05f * energy), rgba(90, 100, 255, 0f)), center, base * 6.5f), base * 6.5f, center, blendMode = BlendMode.Plus)
+    drawCircle(
+        brush = Brush.radialGradient(
+            listOf(
+                themeColor(0.12f, if (active) 0.11f * energy else 0.045f * energy),
+                themeColor(0.65f, if (active) 0.05f * energy else 0.018f * energy),
+                rgba(90, 100, 255, 0f)
+            ),
+            center,
+            base * if (active) 6.5f else 4.8f
+        ),
+        radius = base * if (active) 6.5f else 4.8f,
+        center = center,
+        blendMode = BlendMode.Plus
+    )
     sorted.forEach { edge ->
         val alpha = energy * (0.30f + 0.70f * edge.depth) * (1f - 0.58f * (1f - edge.depth))
         val width = base * (0.70f + 0.44f * edge.depth)
-        drawEdge(edge, width, alpha, base)
+        drawEdge(edge, width, alpha, base, active)
     }
-    drawHighlights(path, base, energy, time, phaseOffset)
-    points.sortedBy { it.z }.forEach { point -> drawVertex(point, base, energy, time, 0.48f + 0.52f * clamp01((point.z + 1.5f) / 3f)) }
+    if (active) {
+        drawHighlights(path, base, activeEnergy, time, phaseOffset)
+    }
+    points.sortedBy { it.z }.forEach { point ->
+        drawVertex(
+            point = point,
+            base = base,
+            alpha = if (active) activeEnergy else energy * 0.50f,
+            time = time,
+            front = 0.48f + 0.52f * clamp01((point.z + 1.5f) / 3f)
+        )
+    }
 }
 
 private fun DrawScope.projectTetra(time: Float, phaseOffset: Float): List<P2> {
@@ -92,13 +126,13 @@ private fun edgeOf(points: List<P2>, index: Int): Edge {
     return Edge(index, a, b, clamp01((midZ + 1.55f) / 3.1f), midZ)
 }
 
-private fun DrawScope.drawEdge(edge: Edge, width: Float, alpha: Float, base: Float) {
+private fun DrawScope.drawEdge(edge: Edge, width: Float, alpha: Float, base: Float, active: Boolean) {
     val start = Offset(edge.a.x, edge.a.y)
     val end = Offset(edge.b.x, edge.b.y)
-    val brush = Brush.linearGradient(listOf(themeColor(edge.index * 0.13f, 0.42f), rgba(239, 255, 255, 0.88f), themeColor(0.48f + edge.index * 0.11f, 0.52f)), start, end)
-    drawLine(brush, start, end, width * 2.65f + base * 0.35f, StrokeCap.Round, alpha = (alpha * 0.24f).coerceIn(0f, 1f), blendMode = BlendMode.Plus)
-    drawLine(brush, start, end, width * 1.08f, StrokeCap.Round, alpha = (alpha * 0.74f).coerceIn(0f, 1f), blendMode = BlendMode.Plus)
-    drawLine(rgba(236, 255, 255, alpha * 0.38f), start, end, width * 0.30f, StrokeCap.Round, blendMode = BlendMode.Plus)
+    val brush = Brush.linearGradient(listOf(themeColor(edge.index * 0.13f, if (active) 0.42f else 0.26f), rgba(239, 255, 255, if (active) 0.88f else 0.48f), themeColor(0.48f + edge.index * 0.11f, if (active) 0.52f else 0.28f)), start, end)
+    drawLine(brush, start, end, width * 2.65f + base * 0.35f, StrokeCap.Round, alpha = (alpha * if (active) 0.24f else 0.16f).coerceIn(0f, 1f), blendMode = BlendMode.Plus)
+    drawLine(brush, start, end, width * 1.08f, StrokeCap.Round, alpha = (alpha * if (active) 0.74f else 0.52f).coerceIn(0f, 1f), blendMode = BlendMode.Plus)
+    drawLine(rgba(236, 255, 255, alpha * if (active) 0.38f else 0.20f), start, end, width * 0.30f, StrokeCap.Round, blendMode = BlendMode.Plus)
 }
 
 private fun DrawScope.drawHighlights(path: List<Edge>, base: Float, energy: Float, time: Float, phaseOffset: Float) {
