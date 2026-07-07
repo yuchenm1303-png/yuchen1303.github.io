@@ -610,16 +610,26 @@ fun PressableGlass(
     val tapEnvelope = flashEnvelope
     val releaseEnvelope = 0f
     val contactEnvelope = maxOf(pressCompression, flashEnvelope * 0.46f)
-    val glowEnvelope = maxOf(
-        pressCompression * (0.86f + touchLight.coerceIn(0f, 16f) * 0.014f) * capsuleLightGain +
-            positiveMaterial * (0.10f + afterglow.coerceIn(0f, 12f) * 0.008f),
-        flashEnvelope * (0.92f + touchLight.coerceIn(0f, 16f) * 0.018f) * capsuleLightGain
-    ).coerceIn(0f, 1.78f)
-    val sweepEnvelope = maxOf(
-        pressCompression * (0.24f + sweep.coerceIn(0f, 16f) * 0.018f) +
-            positiveMaterial * (0.10f + sweepMomentum.coerceIn(0f, 4f) * 0.040f),
-        flashEnvelope * (0.44f + sweep.coerceIn(0f, 16f) * 0.016f + sweepMomentum.coerceIn(0f, 4f) * 0.044f)
-    ).coerceIn(0f, 1.56f)
+    val pressGlowEnvelope = (
+        pressCompression * (0.74f + touchLight.coerceIn(0f, 16f) * 0.010f) * capsuleLightGain +
+            positiveMaterial * (0.070f + afterglow.coerceIn(0f, 12f) * 0.005f)
+        ).coerceIn(0f, 1.28f)
+    val flashGlowEnvelope = (
+        flashEnvelope * (0.58f + touchLight.coerceIn(0f, 16f) * 0.010f) * capsuleLightGain
+        ).coerceIn(0f, 1.18f)
+    val glowEnvelope = (
+        pressGlowEnvelope + flashGlowEnvelope * (1f - pressGlowEnvelope * 0.34f)
+        ).coerceIn(0f, 1.52f)
+    val pressSweepEnvelope = (
+        pressCompression * (0.20f + sweep.coerceIn(0f, 16f) * 0.014f) +
+            positiveMaterial * (0.070f + sweepMomentum.coerceIn(0f, 4f) * 0.030f)
+        ).coerceIn(0f, 1.04f)
+    val flashSweepEnvelope = (
+        flashEnvelope * (0.30f + sweep.coerceIn(0f, 16f) * 0.011f + sweepMomentum.coerceIn(0f, 4f) * 0.032f)
+        ).coerceIn(0f, 0.92f)
+    val sweepEnvelope = (
+        pressSweepEnvelope + flashSweepEnvelope * (1f - pressSweepEnvelope * 0.30f)
+        ).coerceIn(0f, 1.26f)
 
     val pressValue = if (ordinaryPressEnabled) {
         (
@@ -781,9 +791,6 @@ fun PressableGlass(
                         }
                     }
 
-                    val heldMs = ((System.nanoTime() - downTimeNanos) / 1_000_000L).coerceAtLeast(0L)
-                    val shortTap = releasedInsideGesture && heldMs < 90L
-
                     pressScope.launch {
                         ordinaryMaterial.stop()
 
@@ -798,22 +805,6 @@ fun PressableGlass(
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
-                    }
-
-                    if (shortTap) {
-                        pressScope.launch {
-                            ordinaryTapFlash.stop()
-                            val minimumFlash = (
-                                0.90f +
-                                    touchLight.coerceIn(0f, 16f) * 0.006f +
-                                    afterglow.coerceIn(0f, 12f) * 0.008f
-                                ).coerceIn(0.82f, 1.08f)
-                            ordinaryTapFlash.snapTo(maxOf(ordinaryTapFlash.value, minimumFlash))
-                            ordinaryTapFlash.animateTo(
-                                0f,
-                                tween(ordinaryDuration(240, 165, 360), easing = FastOutSlowInEasing)
-                            )
-                        }
                     }
 
                 }
@@ -841,13 +832,12 @@ fun PressableGlass(
                         pressCompression * (0.040f + 0.008f * grow) * endCapDamp * capsuleXGain -
                         rebound * (0.006f + 0.0015f * bounce) * endCapDamp
                     scaleY = 1f -
-                        pressCompression * (0.010f + 0.0035f * grow) * capsuleYGain +
-                        glowEnvelope * 0.0035f -
+                        pressCompression * (0.010f + 0.0035f * grow) * capsuleYGain -
                         rebound * (0.004f + 0.0015f * bounce)
                     translationY =
                         pressCompression * (0.44f + 0.15f * grow) * capsuleSinkGain -
                             rebound * (0.12f + 0.050f * bounce)
-                    shadowElevation = pressCompression * (0.74f + 0.12f * grow) + glowEnvelope * 0.24f
+                    shadowElevation = pressCompression * (0.74f + 0.12f * grow)
                 }
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
