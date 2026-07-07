@@ -62,21 +62,22 @@ internal fun updateOrdinaryGlassVisualTransform(
     val tapCarry = (delayedTap * (1f - hold * 0.16f)).coerceIn(0f, 1.26f)
     val sticky = (motion.lightPhase * 0.021f + motion.sweepPhase * 0.015f + tapCarry * tuning.sticky).coerceIn(0f, 0.12f)
     val body = (hold * 0.72f + tapPop * 1.06f + tapCarry * tuning.tapCarry).coerceIn(0f, 1.76f)
-    val settleBody = settle * (1f - tapCarry * 0.60f).coerceIn(0.18f, 1f)
-    val reboundSoft = (0.13f + motion.rebound * 0.012f).coerceIn(0.09f, 0.30f)
+    val settleEase = ordinaryVisualSmoothStep(settle).coerceIn(0f, 1f)
+    val settleBody = (settleEase * 0.58f) * (1f - tapCarry * 0.72f).coerceIn(0.12f, 1f)
+    val reboundSoft = (0.072f + motion.rebound * 0.0065f).coerceIn(0.055f, 0.150f)
 
     val basePx = minSide * sizeBoost * (tuning.basePx + 0.0058f * motion.grow + sticky * 0.38f)
     val tapPx = minSide * sizeBoost * tapPop * (tuning.tapPx + 0.0074f * motion.grow)
-    val settlePx = minSide * sizeBoost * settleBody * reboundSoft * (0.013f + 0.0024f * motion.rebound)
+    val settlePx = minSide * sizeBoost * settleBody * reboundSoft * (0.0085f + 0.0012f * motion.rebound)
     val growPx = basePx * body + tapPx
     val xPx = growPx * (1f - elongated * tuning.elongatedX)
     val yPx = growPx * (1f + elongated * tuning.elongatedY)
-    val xBackPx = settlePx * (1f - elongated * 0.44f)
-    val yBackPx = settlePx * (1f + elongated * 0.16f)
+    val xBackPx = settlePx * (1f - elongated * 0.36f)
+    val yBackPx = settlePx * (1f + elongated * 0.10f)
 
     out.scaleX = 1f + (xPx - xBackPx) / w
     out.scaleY = 1f + (yPx - yBackPx) / h
-    out.translationY = (basePx * body * 0.36f + tapPx * tuning.sink + settlePx * tuning.settle) * viscosity
+    out.translationY = (basePx * body * 0.34f + tapPx * tuning.sink + settlePx * tuning.settle * 0.34f) * viscosity
     out.originX = motion.pressCenter.x.coerceIn(0f, 1f)
     out.originY = motion.pressCenter.y.coerceIn(0f, 1f)
 }
