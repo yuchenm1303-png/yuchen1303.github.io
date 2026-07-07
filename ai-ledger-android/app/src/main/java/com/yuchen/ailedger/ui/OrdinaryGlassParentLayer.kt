@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onPlaced
+import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 
 /**
@@ -528,6 +529,14 @@ private fun DrawScope.withLaterVisibleBoundsExcluded(
     drawFrom(itemIndex + 1)
 }
 
+private fun composeMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
+    val clean = value.coerceAtLeast(0f)
+    if (clean <= 1f) return clean
+    val span = (uiMax - 1f).coerceAtLeast(0.001f)
+    val t = ((clean - 1f) / span).coerceIn(0f, 1f)
+    return 1f + t * (effectiveMax - 1f)
+}
+
 private fun ordinaryParentPressureSmoothStep(value: Float): Float {
     val x = value.coerceIn(0f, 1f)
     return x * x * (3f - 2f * x)
@@ -597,7 +606,8 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
     val coreAlpha = (0.050f * fieldEnergy).coerceIn(0f, 0.10f)
     val waveAlpha = (0.085f * waveEnergy * (0.62f + phaseTail * 0.38f)).coerceIn(0f, 0.16f)
     val tailAlpha = (0.040f * fieldEnergy * (0.70f + afterUnit * 0.30f)).coerceIn(0f, 0.09f)
-    val cornerRadius = CornerRadius(node.radius.toFloat(), node.radius.toFloat())
+    val radiusPx = node.radius.dp.toPx()
+    val cornerRadius = CornerRadius(radiusPx, radiusPx)
 
     drawRoundRect(
         brush = Brush.radialGradient(
@@ -617,10 +627,8 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
 
     val rimInset = (minSide * 0.006f).coerceIn(0.40f, 1.20f)
     val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-    val rimCorner = CornerRadius(
-        (node.radius.toFloat() - rimInset).coerceAtLeast(0f),
-        (node.radius.toFloat() - rimInset).coerceAtLeast(0f)
-    )
+    val rimRadius = (radiusPx - rimInset).coerceAtLeast(0f)
+    val rimCorner = CornerRadius(rimRadius, rimRadius)
     val edgeStroke = (0.60f + minSide * 0.010f * active + 0.22f * sweepUnit).coerceIn(0.55f, 3.20f)
     val edgeEnergy = (fieldEnergy * 0.82f + waveEnergy * 0.54f).coerceIn(0f, 1.26f)
 
