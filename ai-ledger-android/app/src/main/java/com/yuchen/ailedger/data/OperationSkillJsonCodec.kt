@@ -3,6 +3,7 @@ package com.yuchen.ailedger.data
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
 import com.yuchen.ailedger.model.VisualSkillInput
+import com.yuchen.ailedger.model.VisualSkillRouteStep
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -39,6 +40,17 @@ object OperationSkillJsonCodec {
             }
         })
         put("operatingPrinciples", JSONArray(operatingPrinciples))
+        put("routeSteps", JSONArray().apply {
+            routeSteps.forEach { step ->
+                put(JSONObject().apply {
+                    put("order", step.order)
+                    put("instruction", step.instruction)
+                    put("visualAnchor", step.visualAnchor)
+                    put("expectedEvidence", step.expectedEvidence)
+                    put("fallback", step.fallback)
+                })
+            }
+        })
         put("successCriteria", JSONArray(successCriteria))
         put("safetyRules", JSONArray(safetyRules))
         put("cloudSummary", cloudSummary)
@@ -71,12 +83,31 @@ object OperationSkillJsonCodec {
             }
         },
         operatingPrinciples = optJSONArray("operatingPrinciples").toStringList(),
+        routeSteps = optJSONArray("routeSteps").toRouteStepList(),
         successCriteria = optJSONArray("successCriteria").toStringList(),
         safetyRules = optJSONArray("safetyRules").toStringList(),
         cloudSummary = optString("cloudSummary"),
         confidence = optDouble("confidence", 0.0).toFloat().coerceIn(0f, 1f),
         learnedAtMillis = optLong("learnedAtMillis"),
     )
+
+    private fun JSONArray?.toRouteStepList(): List<VisualSkillRouteStep> = buildList {
+        val array = this@toRouteStepList ?: return@buildList
+        for (index in 0 until array.length()) {
+            val item = array.optJSONObject(index) ?: continue
+            val instruction = item.optString("instruction").trim()
+            if (instruction.isBlank()) continue
+            add(
+                VisualSkillRouteStep(
+                    order = item.optInt("order", index + 1).coerceAtLeast(1),
+                    instruction = instruction,
+                    visualAnchor = item.optString("visualAnchor").trim(),
+                    expectedEvidence = item.optString("expectedEvidence").trim(),
+                    fallback = item.optString("fallback").trim(),
+                ),
+            )
+        }
+    }.sortedBy(VisualSkillRouteStep::order)
 
     private fun JSONArray?.toStringList(): List<String> = buildList {
         val array = this@toStringList ?: return@buildList
