@@ -45,7 +45,6 @@ fun GlassDebugFloatingPanel(
     val border = state.glassBorderStyle
     val motion = ComposeGlassLabState.motionStyle
     val capsule = ComposeGlassLabState.capsuleTuning
-    val style = ComposeGlassLabState.style
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -73,7 +72,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
                     }
                 }
-                Group("胶囊源头", "Glass.kt 源头状态机派生的按压、冲量和释放包络", state, initiallyExpanded = true) {
+                Group("胶囊源头", "源头状态机派生的按压、冲量和释放包络", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview()
                     LabSlider("按压形变", "控制胶囊膨胀、下沉和压入幅度", motion.deformation, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
@@ -91,7 +90,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(fieldContinuity = it))
                     }
                 }
-                Group("App内胶囊细调", "直接调真实 App 内的尺寸函数和父级胶囊形变", state, initiallyExpanded = true) {
+                Group("胶囊尺寸细调", "只调父级胶囊形变，不碰静态玻璃材质", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview()
                     LabSlider("小尺寸增强", "越高小按钮、小卡片越明显；大卡片基本不变", capsule.compactBoost, 0f..2.4f) {
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(compactBoost = it))
@@ -142,78 +141,15 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(prism = it))
                     }
                 }
-                Group("背景采样", "普通 Compose 玻璃背景透明、模糊和底层乳化", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview()
-                    LabSlider("背景采样", "控制普通玻璃背景采样透明度", style.backdrop, 0.12f..1.55f) {
-                        ComposeGlassLabState.update(style.copy(backdrop = it))
-                    }
-                    LabSlider("背景模糊", "控制普通玻璃背景模糊缩放", style.backdropBlur, 0.35f..2.2f) {
-                        ComposeGlassLabState.update(style.copy(backdropBlur = it))
-                    }
-                    LabSlider("背景压暗", "保留字段，方便排查背景暗化参数", style.backdropDim, 0f..2f) {
-                        ComposeGlassLabState.update(style.copy(backdropDim = it))
-                    }
-                    LabSlider("背景乳化", "保留字段，方便排查玻璃乳白底层", style.backdropMilk, 0f..2f) {
-                        ComposeGlassLabState.update(style.copy(backdropMilk = it))
-                    }
-                    LabSlider("背景高光", "保留字段，方便排查背景高光注入", style.backdropHighlight, 0f..2f) {
-                        ComposeGlassLabState.update(style.copy(backdropHighlight = it))
-                    }
-                }
-                Group("静态玻璃材质", "普通 Compose 玻璃底材、边缘、雾面和暗部质量", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview()
-                    LabSlider("安静吸收", "控制玻璃内部暗部与安静度", style.quiet, 0.2f..2.2f) {
-                        ComposeGlassLabState.update(style.copy(quiet = it))
-                    }
-                    LabSlider("主体吸收", "保留字段，方便排查主体吸收参数", style.bodyAbsorption, 0f..2f) {
-                        ComposeGlassLabState.update(style.copy(bodyAbsorption = it))
-                    }
-                    LabSlider("下部质量", "保留字段，方便排查下部厚重感参数", style.lowerBodyMass, 0f..2f) {
-                        ComposeGlassLabState.update(style.copy(lowerBodyMass = it))
-                    }
-                    LabSlider("内部过渡", "控制/保留普通玻璃内缘过渡强度", style.innerTransition, 0f..2.8f) {
-                        ComposeGlassLabState.update(style.copy(innerTransition = it))
-                    }
-                    LabSlider("外缘光", "控制普通玻璃外缘描边亮度", style.outerRim, 0.02f..3.2f) {
-                        ComposeGlassLabState.update(style.copy(outerRim = it))
-                    }
-                    LabSlider("底部重量", "控制普通玻璃底部暗部压边", style.bottomMass, 0.02f..3f) {
-                        ComposeGlassLabState.update(style.copy(bottomMass = it))
-                    }
-                    LabSlider("侧边承光", "控制普通玻璃两侧轻微承光", style.sideLight, 0f..3f) {
-                        ComposeGlassLabState.update(style.copy(sideLight = it))
-                    }
-                    LabSlider("圆角缩放", "控制普通玻璃非 Shell 圆角缩放", style.radius, 18f..86f) {
-                        ComposeGlassLabState.update(style.copy(radius = it))
-                    }
-                    LabSlider("光带保留", "保留字段，方便排查 ribbon 参数", style.ribbon, 0f..2f) {
-                        ComposeGlassLabState.update(style.copy(ribbon = it))
-                    }
-                }
-                Group("边缘高光", "普通 Compose 玻璃上下沿光带和横向流动", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview()
-                    LabSlider("顶部高光", "控制普通玻璃上沿高光强度", style.topLight, 0.02f..3.4f) {
-                        ComposeGlassLabState.update(style.copy(topLight = it))
-                    }
-                    LabSlider("顶部宽度", "控制普通玻璃上沿光带宽度", style.topWidthDp, 0.2f..8f) {
-                        ComposeGlassLabState.update(style.copy(topWidthDp = it))
-                    }
-                    LabSlider("顶部流动", "控制上沿高光横向变化", style.topVariation, 0f..3f) {
-                        ComposeGlassLabState.update(style.copy(topVariation = it))
-                    }
-                    LabSlider("底部高光", "控制普通玻璃下沿亮部", style.bottomLight, 0.02f..3f) {
-                        ComposeGlassLabState.update(style.copy(bottomLight = it))
-                    }
-                    LabSlider("底部宽度", "控制普通玻璃下沿光带宽度", style.bottomWidthDp, 0.2f..8f) {
-                        ComposeGlassLabState.update(style.copy(bottomWidthDp = it))
-                    }
-                }
                 LabActionButton(
                     title = "恢复光动效默认值",
-                    subtitle = "同时恢复动效、胶囊细调和普通玻璃材质",
+                    subtitle = "只恢复光动效和胶囊细调参数",
                     state = state,
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = ComposeGlassLabState::resetAll,
+                    onClick = {
+                        ComposeGlassLabState.resetMotion()
+                        ComposeGlassLabState.resetCapsuleTuning()
+                    },
                 )
             }
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
@@ -280,7 +216,7 @@ private fun ComposeGlassMotionPreview() {
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Text("按住卡片", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-                Text("实时预览全局参数", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("实时预览光动效参数", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -379,9 +315,7 @@ private fun legacyOpenGlLabStyle(): GlassBorderStyle = GlassBorderStyle(
     edgeBlueAlpha = 0.405f,
     outerStrokeAlpha = 0.225f,
     topHighlightAlpha = 0.381f,
-    bottomShadowAlpha = 0.283f,
-    refraction = 1.38f,
-    chromaShift = 2.2f
+    bottomShadowAlpha = 0.283f
 )
 
 @Composable
