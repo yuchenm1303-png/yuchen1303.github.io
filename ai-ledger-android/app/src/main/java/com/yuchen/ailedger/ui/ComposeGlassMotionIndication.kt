@@ -35,9 +35,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
-private val UnifiedPressEasing = CubicBezierEasing(0.12f, 0f, 0.08f, 1f)
-private val UnifiedSinkEasing = CubicBezierEasing(0.10f, 0f, 0.08f, 1f)
-private val UnifiedReleaseEasing = CubicBezierEasing(0.14f, 0f, 0.12f, 1f)
+private val UnifiedPressEasing = CubicBezierEasing(0.08f, 0f, 0.04f, 1f)
+private val UnifiedSinkEasing = CubicBezierEasing(0.12f, 0f, 0.08f, 1f)
+private val UnifiedReleaseEasing = CubicBezierEasing(0.10f, 0f, 0.08f, 1f)
 
 /**
  * 普通 Compose 点击光动效。
@@ -114,6 +114,15 @@ private class ComposeGlassMotionNode(
     private val enabled: Boolean
         get() = shape != null && motionIntensity > 0.02f && style.master > 0.02f
 
+    private fun timed(baseMs: Int, minMs: Int, maxMs: Int): Int {
+        val speed = style.speed.coerceIn(0.08f, 8f)
+        val scale = when {
+            speed <= 1f -> (1.08f / speed.coerceAtLeast(0.08f)).coerceIn(1.08f, 4.80f)
+            else -> (1.08f / speed).coerceIn(0.32f, 1.08f)
+        }
+        return (baseMs * scale).roundToInt().coerceIn(minMs, maxMs)
+    }
+
     override fun onAttach() {
         if (!enabled) return
         coroutineScope.launch {
@@ -148,26 +157,37 @@ private class ComposeGlassMotionNode(
         lensJob?.cancel()
         sweepJob?.cancel()
 
+        val tapImpulse = style.tapImpulse.coerceIn(0f, 3f)
+        val deformation = style.deformation.coerceIn(0f, 3f)
+        val inheritedGlow = style.fieldContinuity.coerceIn(0f, 3f)
+        val contactTarget = (0.52f + deformation * 0.055f + tapImpulse * 0.018f).coerceIn(0.42f, 0.76f)
+        val holdTarget = (0.74f + deformation * 0.045f + tapImpulse * 0.018f).coerceIn(0.58f, 0.92f)
+
         pressJob = coroutineScope.launch {
             press.stop()
-            if (press.value < 0.22f) press.snapTo(0.22f)
-            press.animateTo(0.92f, tween(132, easing = UnifiedPressEasing))
-            press.animateTo(1.10f, tween(210, easing = UnifiedSinkEasing))
+            if (press.value < contactTarget * 0.68f) press.snapTo(contactTarget * 0.68f)
+            press.animateTo(contactTarget, tween(timed(46, 28, 96), easing = UnifiedPressEasing))
             press.animateTo(
-                0.94f,
-                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
+                holdTarget,
+                spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
             )
         }
         lensJob = coroutineScope.launch {
             lens.stop()
-            if (lens.value < 0.18f) lens.snapTo(0.18f)
-            lens.animateTo(0.78f, tween(150, easing = UnifiedPressEasing))
-            lens.animateTo(1.04f, tween(330, easing = FastOutSlowInEasing))
+            if (lens.value < 0.30f) lens.snapTo(0.30f)
+            lens.animateTo(
+                (0.68f + style.touchLight.coerceIn(0f, 3f) * 0.055f).coerceIn(0.54f, 0.92f),
+                tween(timed(82, 42, 180), easing = UnifiedPressEasing),
+            )
         }
         sweepJob = coroutineScope.launch {
             sweep.stop()
-            sweep.snapTo(0f)
-            sweep.animateTo(1.18f, tween(520, easing = FastOutSlowInEasing))
+            val carry = (sweep.value * (0.18f + inheritedGlow * 0.08f)).coerceIn(0f, 0.42f)
+            sweep.snapTo(carry)
+            sweep.animateTo(
+                (0.82f + style.sweepMomentum.coerceIn(0f, 3f) * 0.050f).coerceIn(0.62f, 1.02f),
+                tween(timed(260, 128, 420), easing = FastOutSlowInEasing),
+            )
         }
     }
 
@@ -178,41 +198,41 @@ private class ComposeGlassMotionNode(
 
         val reboundScale = style.rebound.coerceIn(0f, 1.5f)
         val afterglowScale = style.afterglow.coerceIn(0f, 1.5f)
+        val cohesion = style.releaseCohesion.coerceIn(0f, 1.5f)
         pressJob = coroutineScope.launch {
             press.stop()
             press.animateTo(
-                -0.145f * reboundScale,
-                tween(130, easing = UnifiedReleaseEasing),
-            )
-            press.animateTo(
-                0.060f * reboundScale,
-                spring(dampingRatio = 0.50f, stiffness = Spring.StiffnessMediumLow),
+                -0.052f * reboundScale,
+                tween(timed(74, 42, 150), easing = UnifiedReleaseEasing),
             )
             press.animateTo(
                 0f,
-                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessLow),
+                spring(
+                    dampingRatio = (0.76f + cohesion * 0.05f).coerceIn(0.76f, 0.88f),
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
             )
         }
         lensJob = coroutineScope.launch {
             lens.stop()
             lens.animateTo(
-                0.42f * afterglowScale.coerceAtMost(1.2f),
-                tween(180, easing = UnifiedReleaseEasing),
+                (0.18f + 0.18f * afterglowScale).coerceIn(0.16f, 0.38f),
+                tween(timed(96, 56, 190), easing = UnifiedReleaseEasing),
             )
             lens.animateTo(
                 0f,
-                tween((320f + 220f * afterglowScale).roundToInt(), easing = FastOutSlowInEasing),
+                tween(timed((190f + 105f * afterglowScale).roundToInt(), 120, 360), easing = FastOutSlowInEasing),
             )
         }
         sweepJob = coroutineScope.launch {
             sweep.stop()
             sweep.animateTo(
-                0.18f * afterglowScale.coerceAtMost(1.2f),
-                tween(260, easing = UnifiedReleaseEasing),
+                (0.10f + 0.10f * afterglowScale).coerceIn(0.08f, 0.24f),
+                tween(timed(118, 68, 220), easing = UnifiedReleaseEasing),
             )
             sweep.animateTo(
                 0f,
-                tween((280f + 180f * afterglowScale).roundToInt(), easing = FastOutSlowInEasing),
+                tween(timed((180f + 95f * afterglowScale).roundToInt(), 110, 340), easing = FastOutSlowInEasing),
             )
         }
     }
@@ -259,14 +279,14 @@ private class ComposeGlassMotionNode(
 
         // 所有普通 Compose 玻璃都采用“边界内形变”。不再向布局区域外膨胀，避免被
         // LazyColumn、页面 viewport 或父级圆角裁剪。光效、本体和内容仍共享同一矩阵。
-        val horizontalCompression = compression * (0.006f + 0.012f * elasticity)
-        val verticalCompression = compression * (0.012f + 0.058f * elasticity)
-        val reboundCompression = rebound * 0.006f * elasticity
-        val scaleX = (1f - horizontalCompression - reboundCompression).coerceIn(0.92f, 1f)
-        val scaleY = (1f - verticalCompression - reboundCompression * 0.72f).coerceIn(0.88f, 1f)
+        val horizontalCompression = compression * (0.005f + 0.009f * elasticity)
+        val verticalCompression = compression * (0.010f + 0.044f * elasticity)
+        val reboundCompression = rebound * 0.004f * elasticity
+        val scaleX = (1f - horizontalCompression - reboundCompression).coerceIn(0.94f, 1f)
+        val scaleY = (1f - verticalCompression - reboundCompression * 0.64f).coerceIn(0.90f, 1f)
 
-        val desiredTranslationY = compression * (0.48f + 3.10f * elasticity) -
-            rebound * 0.92f * elasticity
+        val desiredTranslationY = compression * (0.38f + 2.42f * elasticity) -
+            rebound * 0.58f * elasticity
         val availableTop = center.y * (1f - scaleY)
         val availableBottom = (h - center.y) * (1f - scaleY)
         val translationY = desiredTranslationY.coerceIn(-availableTop, availableBottom)
@@ -320,13 +340,13 @@ private fun ContentDrawScope.drawComposeGlassMotionUnderlay(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.092f * p * touch),
-                    Color(0xFF9DFFF2).copy(alpha = 0.040f * p * touch),
-                    Color(0xFFFF9BE9).copy(alpha = 0.018f * p * prism),
+                    Color.White.copy(alpha = 0.082f * p * touch),
+                    Color(0xFF9DFFF2).copy(alpha = 0.036f * p * touch),
+                    Color(0xFFFF9BE9).copy(alpha = 0.014f * p * prism),
                     Color.Transparent,
                 ),
                 center = center,
-                radius = maxSide * (0.50f + 0.26f * p),
+                radius = maxSide * (0.44f + 0.22f * p),
             ),
             size = Size(w, h),
             blendMode = BlendMode.Screen,
@@ -334,10 +354,10 @@ private fun ContentDrawScope.drawComposeGlassMotionUnderlay(
         drawRect(
             brush = Brush.linearGradient(
                 colors = listOf(
-                    Color(0xFFFF7AD9).copy(alpha = 0.082f * p * prism * sweepStrength),
-                    Color(0xFFFFD166).copy(alpha = 0.052f * p * prism * sweepStrength),
-                    Color(0xFF7CFFEA).copy(alpha = 0.096f * p * prism * sweepStrength),
-                    Color(0xFF8EA2FF).copy(alpha = 0.072f * p * prism * sweepStrength),
+                    Color(0xFFFF7AD9).copy(alpha = 0.060f * p * prism * sweepStrength),
+                    Color(0xFFFFD166).copy(alpha = 0.040f * p * prism * sweepStrength),
+                    Color(0xFF7CFFEA).copy(alpha = 0.072f * p * prism * sweepStrength),
+                    Color(0xFF8EA2FF).copy(alpha = 0.052f * p * prism * sweepStrength),
                     Color.Transparent,
                 ),
                 start = Offset(w * (sweepX - 0.46f), h * -0.10f),
@@ -350,11 +370,11 @@ private fun ContentDrawScope.drawComposeGlassMotionUnderlay(
             brush = Brush.radialGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFF04112A).copy(alpha = 0.016f * p),
-                    Color(0xFF00030A).copy(alpha = 0.062f * p),
+                    Color(0xFF04112A).copy(alpha = 0.012f * p),
+                    Color(0xFF00030A).copy(alpha = 0.046f * p),
                 ),
                 center = center,
-                radius = maxSide * (0.76f + 0.20f * p),
+                radius = maxSide * (0.74f + 0.18f * p),
             ),
             size = Size(w, h),
             blendMode = BlendMode.Multiply,
@@ -385,13 +405,13 @@ private fun ContentDrawScope.drawComposeGlassMotionOverlay(
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.152f * p * touch),
-                    Color(0xFF9DFFF1).copy(alpha = 0.068f * p * touch),
-                    Color(0xFFFF8FE7).copy(alpha = 0.032f * p * prism),
+                    Color.White.copy(alpha = 0.136f * p * touch),
+                    Color(0xFF9DFFF1).copy(alpha = 0.058f * p * touch),
+                    Color(0xFFFF8FE7).copy(alpha = 0.024f * p * prism),
                     Color.Transparent,
                 ),
                 center = center,
-                radius = maxSide * (0.32f + 0.12f * p),
+                radius = maxSide * (0.28f + 0.10f * p),
             ),
             size = Size(w, h),
             blendMode = BlendMode.Screen,
@@ -401,31 +421,31 @@ private fun ContentDrawScope.drawComposeGlassMotionOverlay(
             brush = Brush.linearGradient(
                 colors = listOf(
                     Color.Transparent,
-                    Color(0xFFFF72D2).copy(alpha = 0.23f * p * prism * sweepStrength),
-                    Color(0xFFFFF0A8).copy(alpha = 0.21f * p * prism * sweepStrength),
-                    Color(0xFF76FFF1).copy(alpha = 0.25f * p * prism * sweepStrength),
-                    Color(0xFF9AA8FF).copy(alpha = 0.18f * p * prism * sweepStrength),
+                    Color(0xFFFF72D2).copy(alpha = 0.18f * p * prism * sweepStrength),
+                    Color(0xFFFFF0A8).copy(alpha = 0.17f * p * prism * sweepStrength),
+                    Color(0xFF76FFF1).copy(alpha = 0.20f * p * prism * sweepStrength),
+                    Color(0xFF9AA8FF).copy(alpha = 0.14f * p * prism * sweepStrength),
                     Color.Transparent,
                 ),
                 start = Offset(w * (sweepX - 0.24f), 0f),
                 end = Offset(w * (sweepX + 0.30f), h * 0.98f),
             ),
-            style = Stroke(0.56.dp.toPx() + 0.92.dp.toPx() * p),
+            style = Stroke(0.48.dp.toPx() + 0.76.dp.toPx() * p),
             blendMode = BlendMode.Plus,
         )
         drawPath(
             path = outlinePath,
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.060f * p * touch),
-                    Color(0xFFE9FFFF).copy(alpha = 0.028f * p * touch),
+                    Color.White.copy(alpha = 0.052f * p * touch),
+                    Color(0xFFE9FFFF).copy(alpha = 0.024f * p * touch),
                     Color.Transparent,
-                    Color(0xFF000819).copy(alpha = 0.050f * p),
+                    Color(0xFF000819).copy(alpha = 0.040f * p),
                 ),
                 startY = 0f,
                 endY = h,
             ),
-            style = Stroke(0.42.dp.toPx() + 0.62.dp.toPx() * p),
+            style = Stroke(0.36.dp.toPx() + 0.54.dp.toPx() * p),
             blendMode = BlendMode.Screen,
         )
     }
