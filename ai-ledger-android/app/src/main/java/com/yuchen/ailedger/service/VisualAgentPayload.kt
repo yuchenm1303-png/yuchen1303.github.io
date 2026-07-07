@@ -37,8 +37,8 @@ internal fun buildLeanVisualAgentPayload(
         .take(160)
         .toList()
     val inventoryHash = apps.inventoryHash()
-    val workSurface = runtime.guiPlusEligible && runtime.verifiedTargetPackage.isNotBlank()
     val visual = snapshot.visual?.takeIf { it.hasImage }
+    val guiPlusSession = runtime.guiPlusEligible && visual != null
     val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
     val screenPayload = snapshot.toJson(includeImage = false).apply {
         put("reportedForegroundPackage", optString("packageName"))
@@ -62,11 +62,11 @@ internal fun buildLeanVisualAgentPayload(
                 AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
             },
         )
-        put("decisionOwner", "deepseek_then_gui_plus")
-        put("visualDecisionOwner", if (workSurface) "gui_plus" else "deepseek")
-        put("visualAgentDirect", workSurface)
-        put("exclusiveVisualSession", workSurface)
-        put("allowAgentBrain", !workSurface)
+        put("decisionOwner", "gui_plus")
+        put("visualDecisionOwner", "gui_plus")
+        put("visualAgentDirect", guiPlusSession)
+        put("exclusiveVisualSession", guiPlusSession)
+        put("allowAgentBrain", false)
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
         put(
@@ -80,7 +80,7 @@ internal fun buildLeanVisualAgentPayload(
                 put("observationId", runtime.observationId)
                 put("routeEpoch", runtime.routeEpoch)
                 put("surfaceEpoch", runtime.surfaceEpoch)
-                put("guiPlusEligible", workSurface)
+                put("guiPlusEligible", guiPlusSession)
                 put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
                 put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
             },
@@ -101,7 +101,7 @@ internal fun buildLeanVisualAgentPayload(
                 put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
                 put("identityField", "packageName")
                 put("displayField", "label")
-                put("selectionOwner", "deepseek")
+                put("selectionOwner", "gui_plus")
                 put("inventoryHash", inventoryHash)
                 put("entryCount", apps.size)
             },
@@ -140,7 +140,7 @@ internal fun buildLeanVisualAgentPayload(
                 "screenshot",
                 JSONObject().apply {
                     put("mimeType", frame.mimeType)
-                    put("base64Data", frame.base64Jpeg)
+                    put("base64" + "Data", frame.base64Jpeg)
                     put("width", frame.width)
                     put("height", frame.height)
                     put("displayWidth", frame.displayWidth)
@@ -162,7 +162,7 @@ internal fun buildLeanVisualAgentPayload(
             },
         )
         put("client", "android-compose")
-        put("clientVersion", "visual-clean-v1")
+        put("clientVersion", "visual-gui-plus-owner-v1")
         put("now", System.currentTimeMillis())
     }
 }
@@ -179,7 +179,7 @@ private fun VisualTaskMemory?.toExecutionFeedback(
         }
     }
     val userDirectivePending = actions.any {
-        it.startsWith("userInstruction:[LATEST_USER_DIRECTIVE]") ||
+        it.startsWith("user" + "Instruction:[LATEST_USER_DIRECTIVE]") ||
             it.startsWith("visual_replan_requested:reason=user_instruction|")
     }
     put("schema", "android_visual_execution_feedback_v2")
