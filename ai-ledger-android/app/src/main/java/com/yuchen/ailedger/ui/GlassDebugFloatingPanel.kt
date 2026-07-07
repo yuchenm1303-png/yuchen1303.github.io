@@ -63,8 +63,8 @@ fun GlassDebugFloatingPanel(
                 true,
                 state,
             ) {
-                Group("总控", "全局能量、速度和整体光动效开关", state, initiallyExpanded = true) {
-                    ComposeGlassMotionPreview()
+                Group("总控", "全局能量、速度和整体光动效开关", state, initiallyExpanded = false) {
+                    ComposeGlassMotionPreview(state)
                     LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(master = it))
                     }
@@ -72,8 +72,8 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
                     }
                 }
-                Group("胶囊源头", "源头状态机派生的按压、冲量和释放包络", state, initiallyExpanded = true) {
-                    ComposeGlassMotionPreview()
+                Group("胶囊源头", "源头状态机派生的按压、冲量和释放包络", state, initiallyExpanded = false) {
+                    ComposeGlassMotionPreview(state)
                     LabSlider("按压形变", "控制胶囊膨胀、下沉和压入幅度", motion.deformation, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
                     }
@@ -90,8 +90,8 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(fieldContinuity = it))
                     }
                 }
-                Group("胶囊尺寸细调", "只调父级胶囊形变，不碰静态玻璃材质", state, initiallyExpanded = true) {
-                    ComposeGlassMotionPreview()
+                Group("胶囊尺寸细调", "只调父级胶囊形变，不碰静态玻璃材质", state, initiallyExpanded = false) {
+                    ComposeGlassMotionPreview(state)
                     LabSlider("小尺寸增强", "越高小按钮、小卡片越明显；大卡片基本不变", capsule.compactBoost, 0f..2.4f) {
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(compactBoost = it))
                     }
@@ -124,7 +124,7 @@ fun GlassDebugFloatingPanel(
                     }
                 }
                 Group("白光光场", "触点白光、连续扩散和松手余辉", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview()
+                    ComposeGlassMotionPreview(state)
                     LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
                     }
@@ -178,45 +178,45 @@ fun GlassDebugFloatingPanel(
 }
 
 @Composable
-private fun ComposeGlassMotionPreview() {
-    val chipShape = RoundedCornerShape(999.dp)
-    val cardShape = RoundedCornerShape(22.dp)
+private fun ComposeGlassMotionPreview(state: AssistantUiState) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .weight(0.82f)
-                .height(46.dp)
-                .composeGlassMotionClickable(shape = chipShape, onClick = {})
-                .clip(chipShape)
-                .background(Color(0xFF8DF9EA).copy(alpha = 0.085f)),
-            contentAlignment = Alignment.Center,
+        PressableGlass(
+            state.quality,
+            state.glassIntensity * 0.74f,
+            state.motionIntensity,
+            999,
+            Modifier.weight(0.82f).height(46.dp),
+            GlassRole.Chip,
+            onClick = {},
         ) {
-            Text(
-                "按住小按钮",
-                color = Color.White.copy(alpha = 0.88f),
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Black,
-            )
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "按住小按钮",
+                    color = Color.White.copy(alpha = 0.88f),
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
         }
-        Box(
-            modifier = Modifier
-                .weight(1.18f)
-                .height(72.dp)
-                .composeGlassMotionClickable(shape = cardShape, onClick = {})
-                .clip(cardShape)
-                .background(Color.White.copy(alpha = 0.055f)),
-            contentAlignment = Alignment.CenterStart,
+        PressableGlass(
+            state.quality,
+            state.glassIntensity * 0.72f,
+            state.motionIntensity,
+            22,
+            Modifier.weight(1.18f).height(72.dp),
+            GlassRole.Card,
+            onClick = {},
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 13.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 13.dp),
+                verticalArrangement = Arrangement.Center,
             ) {
                 Text("按住卡片", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-                Text("实时预览光动效参数", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("真实 PressableGlass 样本", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -291,7 +291,7 @@ private fun OpenGlGlassLab(
             }
         }
     }
-    Group("旧样本参数", "只影响这一栏旧样本", state) {
+    Group("旧样本参数", "只影响这一栏旧样本", state, initiallyExpanded = false) {
         LabSlider("可见强度", "OpenGL Shell 图层整体可见度", style.openGlVisibility, 0f..20f) { onStyleChange(style.copy(openGlVisibility = it)) }
         LabSlider("最大透明", "OpenGL Shell 最大 alpha 上限", style.openGlMaxAlpha, 0f..1f) { onStyleChange(style.copy(openGlMaxAlpha = it)) }
         LabSlider("旧边缘亮度", "旧 shader 的折射亮度", style.edgeBrightness, 0.20f..2.40f) { onStyleChange(style.copy(edgeBrightness = it)) }
@@ -359,7 +359,7 @@ private fun Group(
     title: String,
     subtitle: String,
     state: AssistantUiState,
-    initiallyExpanded: Boolean = true,
+    initiallyExpanded: Boolean = false,
     content: @Composable () -> Unit
 ) {
     var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
