@@ -112,8 +112,8 @@ fun GlassDebugFloatingPanel(
                 LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量；0 为关闭，1 为默认", motion.master, 0f..3f) {
                     ComposeGlassLabState.updateMotion(motion.copy(master = it))
                 }
-                Group("全局时间与按压源", "控制 PressableGlass 三条状态源的总速度、形变和回弹", state, initiallyExpanded = false) {
-                    ComposeGlassGroupSample(state, "时间样本", "先调速度，再调形变和释放", GlassRole.Flex, 999, 46.dp)
+                Group("全局时间与连续场", "统一控制 press / lens / sweep 的连续动效场", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "连续场样本", "重点看按下到松手是否像一个整体", GlassRole.Flex, 999, 46.dp)
                     LabSlider("胶囊速度", "控制普通 Compose 玻璃按压胶囊、白光场、释放尾迹的整体速度", motion.speed, 0.08f..8f) {
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
                     }
@@ -122,6 +122,15 @@ fun GlassDebugFloatingPanel(
                     }
                     LabSlider("释放粘度", "越高回弹和反向回落越明显；过高会有橡皮感", motion.rebound, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
+                    }
+                    LabSlider("点击冲量", "短点击向连续场注入的瞬时能量，不再只靠松手后补动画", motion.tapImpulse, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(tapImpulse = it))
+                    }
+                    LabSlider("释放锁相", "形变、白光和扫光在松手后保持同一释放包络的程度", motion.releaseCohesion, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(releaseCohesion = it))
+                    }
+                    LabSlider("场连续性", "越高越保留上一帧尾场，减少光效和形变硬切", motion.fieldContinuity, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(fieldContinuity = it))
                     }
                 }
                 Group("尺寸与形状映射", "解决小按钮动效不明显、长条按钮横向拉爆的问题", state, initiallyExpanded = false) {
@@ -176,6 +185,9 @@ fun GlassDebugFloatingPanel(
                     }
                     LabSlider("松手余辉", "控制透镜亮度和光场在松手后的消散时间", motion.afterglow, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
+                    }
+                    LabSlider("扫光惯性", "扫光相位在连续场中的保留程度，越高越像光在玻璃里滑过去", motion.sweepMomentum, 0f..3f) {
+                        ComposeGlassLabState.updateMotion(motion.copy(sweepMomentum = it))
                     }
                     LabSlider("棱彩色散", "当前普通玻璃 normalized 后保持白光为主，此项保留为未来色散入口", motion.prism, 0f..1.5f) {
                         ComposeGlassLabState.updateMotion(motion.copy(prism = it))
@@ -369,8 +381,8 @@ private fun ComposeGlassMotionPreview(state: AssistantUiState) {
                 Text("真实卡片样本", color = Color.White.copy(alpha = 0.92f), fontSize = 13.5.sp, fontWeight = FontWeight.Black)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Metric("速度", ComposeGlassLabState.motionStyle.speed, Modifier.weight(1f))
-                    Metric("点击", ComposeGlassLabState.capsuleTuning.tapPx, Modifier.weight(1f))
-                    Metric("余辉", ComposeGlassLabState.motionStyle.afterglow, Modifier.weight(1f))
+                    Metric("冲量", ComposeGlassLabState.motionStyle.tapImpulse, Modifier.weight(1f))
+                    Metric("连续", ComposeGlassLabState.motionStyle.fieldContinuity, Modifier.weight(1f))
                 }
             }
         }
@@ -404,7 +416,7 @@ private fun ComposeGlassGroupSample(
                 Text(subtitle, color = Color.White.copy(alpha = 0.46f), fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Metric("速", ComposeGlassLabState.motionStyle.speed, Modifier.weight(0.38f))
-            Metric("光", ComposeGlassLabState.motionStyle.touchLight, Modifier.weight(0.38f))
+            Metric("连", ComposeGlassLabState.motionStyle.fieldContinuity, Modifier.weight(0.38f))
         }
     }
 }
@@ -512,8 +524,12 @@ private fun composeGlassLabExportText(
     appendGlassValue("speed", motion.speed)
     appendGlassValue("deformation", motion.deformation)
     appendGlassValue("rebound", motion.rebound)
+    appendGlassValue("tapImpulse", motion.tapImpulse)
+    appendGlassValue("releaseCohesion", motion.releaseCohesion)
+    appendGlassValue("fieldContinuity", motion.fieldContinuity)
     appendGlassValue("touchLight", motion.touchLight)
     appendGlassValue("sweep", motion.sweep)
+    appendGlassValue("sweepMomentum", motion.sweepMomentum)
     appendGlassValue("afterglow", motion.afterglow)
     appendGlassValue("prism", motion.prism)
     appendLine()
