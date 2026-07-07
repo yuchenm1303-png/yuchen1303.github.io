@@ -13,18 +13,18 @@ enum class ComposeGlassPreset {
 }
 
 data class ComposeGlassMotionStyle(
-    val master: Float = 1f,
-    val deformation: Float = 0.88f,
-    val touchLight: Float = 1f,
+    val master: Float = 1.04f,
+    val deformation: Float = 0.70f,
+    val touchLight: Float = 0.92f,
     val prism: Float = 0f,
-    val sweep: Float = 0.90f,
-    val rebound: Float = 0.46f,
-    val afterglow: Float = 0.96f,
-    val speed: Float = 1f,
-    val tapImpulse: Float = 1f,
-    val releaseCohesion: Float = 1f,
-    val fieldContinuity: Float = 1f,
-    val sweepMomentum: Float = 1f,
+    val sweep: Float = 0.56f,
+    val rebound: Float = 0.20f,
+    val afterglow: Float = 0.52f,
+    val speed: Float = 2.35f,
+    val tapImpulse: Float = 0.18f,
+    val releaseCohesion: Float = 0.26f,
+    val fieldContinuity: Float = 0.52f,
+    val sweepMomentum: Float = 0.42f,
 ) {
     internal fun normalized(): ComposeGlassMotionStyle = copy(
         master = master.coerceIn(0f, 8f),
@@ -43,16 +43,16 @@ data class ComposeGlassMotionStyle(
 }
 
 data class OrdinaryGlassCapsuleTuning(
-    val compactBoost: Float = 1.16f,
-    val elongatedX: Float = 0.52f,
-    val elongatedY: Float = 0.20f,
-    val basePx: Float = 0.026f,
-    val tapPx: Float = 0.034f,
-    val tapPop: Float = 1.45f,
-    val tapCarry: Float = 0.30f,
-    val sticky: Float = 0.030f,
-    val sink: Float = 0.70f,
-    val settle: Float = 0.34f,
+    val compactBoost: Float = 1.08f,
+    val elongatedX: Float = 0.62f,
+    val elongatedY: Float = 0.12f,
+    val basePx: Float = 0.018f,
+    val tapPx: Float = 0.014f,
+    val tapPop: Float = 0.72f,
+    val tapCarry: Float = 0.10f,
+    val sticky: Float = 0.010f,
+    val sink: Float = 0.38f,
+    val settle: Float = 0.18f,
 ) {
     internal fun normalized(): OrdinaryGlassCapsuleTuning = copy(
         compactBoost = compactBoost.coerceIn(0f, 2.40f),
