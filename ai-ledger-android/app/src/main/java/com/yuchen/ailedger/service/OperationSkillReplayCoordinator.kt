@@ -5,6 +5,7 @@ import com.yuchen.ailedger.AgentAccessibilityGuideActivity
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.LearnedVisualSkill
 import com.yuchen.ailedger.model.LearnedWorkflowDraft
+import com.yuchen.ailedger.model.VisualSkillRouteStep
 import com.yuchen.ailedger.model.WorkflowDraftStatus
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
@@ -103,7 +104,7 @@ object OperationSkillReplayCoordinator {
             val goal = buildVisualGoal(draft, skill, inputValues, targetPackage)
             mutableState.value = mutableState.value.copy(
                 phase = SkillReplayPhase.Running,
-                message = "视觉智能正在通过标准目标应用验证流程运行 Skill。",
+                message = "视觉智能正在优先沿演示路线运行 Skill。",
             )
             val result = AgentOrchestrator(
                 aiWorkerClient = AiWorkerClient(),
@@ -183,11 +184,15 @@ object OperationSkillReplayCoordinator {
         appendLine("目标应用包：$targetPackage")
         appendLine("允许应用包：${draft.appScope.normalizedPackages.joinToString()}")
         appendLine()
-        appendLine("执行要求：")
-        appendLine("- 必须先通过 open_app 打开并验证目标应用包 $targetPackage，让视觉循环完成目标工作面绑定；不要把外部已打开页面当作已验证工作面。")
-        appendLine("- 用户原始教学目标优先级最高；云端整理说明只作为补充，不得把任务简化成仅打开应用。")
+        appendLine("硬性执行要求：")
+        appendLine("- 必须先通过 open_app 打开并验证目标应用包 $targetPackage，让视觉循环完成目标工作面绑定。")
+        appendLine("- 完成目标时必须优先遵循用户演示路线；禁止把 Skill 当作一次全新自由探索任务。")
+        appendLine("- 不得使用固定坐标、Resource ID、无障碍节点或录制坐标复现路线；路线约束只作为语义锚点和顺序约束。")
+        appendLine("- 只有在当前页面确实找不到演示路线中的视觉锚点，或界面版本阻断该路线时，才允许使用兜底改道。")
         appendLine("- 如果目标是进入某个具体页面，例如设置页、详情页或功能页，必须继续观察并操作到该页面，不能在应用首页提前结束。")
-        appendLine("- 只有同时满足用户原始教学目标和下方成功标准，才允许调用 finish。")
+        appendLine("- 只有同时满足用户原始教学目标、演示路线意图和成功标准，才允许调用 finish。")
+        appendLine()
+        appendRouteContract(skill)
         appendLine()
         appendLine("本次输入：")
         if (skill.inputs.isEmpty()) {
@@ -211,14 +216,31 @@ object OperationSkillReplayCoordinator {
         (skill.safetyRules + listOf(
             "只允许在上述应用范围内完成目标；桌面、键盘和必要系统过渡只用于进入或退出授权应用。",
             "视觉截图是唯一界面理解权威，不得使用 Resource ID、无障碍节点或录制坐标复现路线。",
-            "根据当前屏幕重新规划，不要求与演示路径完全相同。",
+            "根据当前屏幕重新规划，但默认沿演示路线语义骨架前进，不自由寻找完全不同入口。",
             "密码、验证码、支付确认、删除及不可逆操作必须暂停并交给用户确认或亲自完成。",
             "无法可靠判断时请求用户帮助，不得自由探索无关页面。",
         )).distinct().forEach { appendLine("- $it") }
         appendLine()
-        appendLine("现在请按标准视觉循环执行：先打开并验证目标应用包，再观察当前屏幕并完成目标。每次动作后重新观察和验证，只有满足用户原始教学目标与成功标准才能结束。")
+        appendLine("现在请按标准视觉循环执行：先打开并验证目标应用包，再按照演示路线骨架观察当前屏幕并完成目标。每次动作后重新观察和验证，只有满足用户原始教学目标、演示路线意图与成功标准才能结束。")
     }.take(MAX_GOAL_CHARS)
 
+    private fun StringBuilder.appendRouteContract(skill: LearnedVisualSkill) {
+        val routeSteps = skill.routeSteps.sortedBy(VisualSkillRouteStep::order)
+        if (routeSteps.isNotEmpty()) {
+            appendLine("演示路线骨架（必须优先按顺序遵循）：")
+            routeSteps.forEachIndexed { index, step ->
+                appendLine("${index + 1}. ${step.instruction}")
+                if (step.visualAnchor.isNotBlank()) appendLine("   视觉锚点：${step.visualAnchor}")
+                if (step.expectedEvidence.isNotBlank()) appendLine("   完成证据：${step.expectedEvidence}")
+                if (step.fallback.isNotBlank()) appendLine("   兜底改道：${step.fallback}")
+            }
+        } else {
+            appendLine("演示路线骨架（旧版 Skill，无 routeSteps 字段）：")
+            appendLine("- 这个 Skill 是旧版格式，没有独立路线骨架。请把下面 operatingPrinciples 当作用户演示路线的顺序约束，而不是普通建议。")
+            appendLine("- 如果 operatingPrinciples 提到头像、个人中心、设置入口等演示锚点，必须先尝试这些锚点；不要直接改走底部导航、搜索或其他自由探索入口，除非该锚点在当前页面确实不存在。")
+        }
+    }
+
     private const val MAX_REPLAY_STEPS = 30
-    private const val MAX_GOAL_CHARS = 8_000
+    private const val MAX_GOAL_CHARS = 10_000
 }
