@@ -55,11 +55,15 @@ internal fun updateOrdinaryGlassVisualTransform(
     val sizeBoost = (roleBoost * compactBoost * (0.82f + elasticity * 0.36f)).coerceIn(0.60f, 3.05f)
     val viscosity = (1.46f - motion.speed * 0.050f).coerceIn(0.84f, 1.46f)
 
-    val body = (motion.pressPhase * 1.04f + motion.tapPhase * tuning.tapCarry * 0.22f).coerceIn(0f, 1.76f)
-    val tapPop = (motion.tapPhase * 0.96f).coerceIn(0f, 1f)
-    val settleBody = motion.settlePhase * (1f - motion.tapPhase * 0.60f).coerceIn(0.18f, 1f)
+    val hold = motion.pressPhase
+    val delayedTap = motion.tapPhase
+    val settle = motion.settlePhase
+    val tapPop = ordinaryVisualSmoothStep((delayedTap * tuning.tapPop).coerceIn(0f, 1f))
+    val tapCarry = (delayedTap * (1f - hold * 0.16f)).coerceIn(0f, 1.26f)
+    val sticky = (motion.lightPhase * 0.021f + motion.sweepPhase * 0.015f + tapCarry * tuning.sticky).coerceIn(0f, 0.12f)
+    val body = (hold * 0.72f + tapPop * 1.06f + tapCarry * tuning.tapCarry).coerceIn(0f, 1.76f)
+    val settleBody = settle * (1f - tapCarry * 0.60f).coerceIn(0.18f, 1f)
     val reboundSoft = (0.13f + motion.rebound * 0.012f).coerceIn(0.09f, 0.30f)
-    val sticky = (motion.lightPhase * 0.021f + motion.sweepPhase * 0.015f).coerceIn(0f, 0.12f)
 
     val basePx = minSide * sizeBoost * (tuning.basePx + 0.0058f * motion.grow + sticky * 0.38f)
     val tapPx = minSide * sizeBoost * tapPop * (tuning.tapPx + 0.0074f * motion.grow)
@@ -93,4 +97,9 @@ internal fun ordinaryGlassTransformedBounds(
         right = left + rect.width * transform.scaleX,
         bottom = top + rect.height * transform.scaleY
     )
+}
+
+private fun ordinaryVisualSmoothStep(value: Float): Float {
+    val x = value.coerceIn(0f, 1f)
+    return x * x * (3f - 2f * x)
 }
