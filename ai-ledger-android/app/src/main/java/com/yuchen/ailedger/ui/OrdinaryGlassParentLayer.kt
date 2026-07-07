@@ -565,10 +565,10 @@ private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinar
         node.pressCenter.y.coerceIn(0f, 1f)
     )
     val tapCenter = Offset(
-        rect.left + centerNorm.x * w,
-        rect.top + centerNorm.y * h
+        centerNorm.x * w,
+        centerNorm.y * h
     )
-    val visualCenter = Offset(rect.left + w * 0.50f, rect.top + h * 0.48f)
+    val visualCenter = Offset(w * 0.50f, h * 0.48f)
 
     val phaseFromSweep = ordinaryParentPressureSmoothStep((sweep / 3.10f).coerceIn(0f, 1f))
     val phaseFromLens = ordinaryParentPressureSmoothStep((lens / 3.35f).coerceIn(0f, 1f))
