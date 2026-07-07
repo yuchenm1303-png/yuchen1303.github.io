@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
+import com.yuchen.ailedger.service.AgentWorkspaceModeController
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -30,7 +32,7 @@ import kotlin.math.sin
 @Composable
 internal fun WorkspaceTetrahedronTitleIcon(modifier: Modifier = Modifier) {
     var frameNanos by remember { mutableStateOf(0L) }
-    var active by remember { mutableStateOf(true) }
+    val active by AgentWorkspaceModeController.enabled.collectAsState()
     val activeLevel by animateFloatAsState(
         targetValue = if (active) 1f else 0f,
         animationSpec = tween(durationMillis = 520, easing = FastOutSlowInEasing),
@@ -43,7 +45,7 @@ internal fun WorkspaceTetrahedronTitleIcon(modifier: Modifier = Modifier) {
     Canvas(
         modifier = modifier
             .size(width = 32.dp, height = 26.dp)
-            .clickable { active = !active }
+            .clickable { AgentWorkspaceModeController.toggle() }
     ) {
         drawWorkspaceTetrahedron(
             time = frameNanos / 1_000_000_000f,
