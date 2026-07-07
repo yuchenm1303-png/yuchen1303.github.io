@@ -573,37 +573,49 @@ fun PressableGlass(
         0f
     }
 
+    val capsule = ComposeGlassLabState.capsuleTuning.normalized()
+    val capsuleAspect = pressSize.width.coerceAtLeast(1f) / pressSize.height.coerceAtLeast(1f)
+    val capsuleCompact = ((190f - minOf(pressSize.width, pressSize.height)) / 150f).coerceIn(0f, 1f)
+    val capsuleElongated = ((capsuleAspect - 1.55f) / 3.20f).coerceIn(0f, 1f)
+    val capsuleCompactGain = (1f + capsuleCompact * (capsule.compactBoost - 1f) * 0.72f).coerceIn(0.88f, 1.48f)
+    val capsuleXGain = (capsuleCompactGain * (1f - capsuleElongated * capsule.elongatedX * 0.34f)).coerceIn(0.72f, 1.52f)
+    val capsuleYGain = (1f + capsuleElongated * capsule.elongatedY * 0.72f).coerceIn(0.88f, 1.36f)
+    val capsuleBodyGain = (1f + capsule.basePx * 10.5f + capsule.tapPx * 6.5f + capsule.tapPop * 0.055f).coerceIn(0.88f, 1.62f)
+    val capsuleLightGain = (1f + capsule.tapPx * 5.0f + capsule.sticky * 7.5f + capsule.tapCarry * 0.10f).coerceIn(0.88f, 1.72f)
+    val capsuleSinkGain = (0.78f + capsule.sink * 0.58f).coerceIn(0.72f, 1.46f)
+    val capsuleSettleDamp = (1f - capsule.settle * 0.10f).coerceIn(0.88f, 1f)
+
     val materialValue = if (ordinaryPressEnabled) {
-        ordinaryMaterial.value.coerceIn(0f, 1.28f)
+        ordinaryMaterial.value.coerceIn(0f, 1.40f)
     } else {
         0f
     }
     val positiveMaterial = materialValue.coerceAtLeast(0f)
 
     /*
-     * 跟手版普通玻璃材料曲线：
-     * - 几何形变只看一条 positiveMaterial，不再拆 contact / hold / impulse / release 多段包络。
-     * - 光场、扫光和父级绘制也从同一条曲线连续派生，避免视觉上先停一下再继续跑。
-     * - 松手时 ordinaryMaterial 直接回到 0；余辉表现由正值回落过程自然衰减，不再反向驱动胶囊。
+     * 跟手胶囊版普通玻璃材料曲线：
+     * - 几何形变仍然只看一条 positiveMaterial，不拆 contact / hold / impulse / release。
+     * - 胶囊体积、触点白胶、边缘亮线都从同一条曲线连续派生，只增强“软胶囊压入感”。
+     * - 松手时 ordinaryMaterial 直接回到 0；余辉跟随正值自然衰减，不反向驱动几何形变。
      */
-    val pressCompression = composeMotionSmoothStep((positiveMaterial / 0.92f).coerceIn(0f, 1f))
+    val pressCompression = composeMotionSmoothStep((positiveMaterial / 0.82f).coerceIn(0f, 1f))
     val tapEnvelope = 0f
     val releaseEnvelope = 0f
     val contactEnvelope = pressCompression
     val glowEnvelope = (
-        contactEnvelope * (0.72f + touchLight.coerceIn(0f, 16f) * 0.010f) +
-            positiveMaterial * (0.08f + afterglow.coerceIn(0f, 12f) * 0.006f)
-        ).coerceIn(0f, 1.30f)
+        contactEnvelope * (0.86f + touchLight.coerceIn(0f, 16f) * 0.014f) * capsuleLightGain +
+            positiveMaterial * (0.10f + afterglow.coerceIn(0f, 12f) * 0.008f)
+        ).coerceIn(0f, 1.68f)
     val sweepEnvelope = (
-        contactEnvelope * (0.20f + sweep.coerceIn(0f, 16f) * 0.016f) +
-            positiveMaterial * (0.08f + sweepMomentum.coerceIn(0f, 4f) * 0.035f)
-        ).coerceIn(0f, 1.35f)
+        contactEnvelope * (0.24f + sweep.coerceIn(0f, 16f) * 0.018f) +
+            positiveMaterial * (0.10f + sweepMomentum.coerceIn(0f, 4f) * 0.040f)
+        ).coerceIn(0f, 1.50f)
 
     val pressValue = if (ordinaryPressEnabled) {
         (
             positiveMaterial *
-                (0.78f + deformation.coerceIn(0f, 12f) * 0.018f)
-            ).coerceIn(0f, 1.80f)
+                (0.92f + deformation.coerceIn(0f, 12f) * 0.022f) * capsuleBodyGain
+            ).coerceIn(0f, 2.18f)
     } else {
         0f
     }
@@ -611,21 +623,21 @@ fun PressableGlass(
     val rebound = 0f
     val lensValue = if (ordinaryPressEnabled) {
         (
-            contactEnvelope * (0.46f + touchLight.coerceIn(0f, 16f) * 0.020f) +
-                glowEnvelope * (0.30f + afterglow.coerceIn(0f, 12f) * 0.018f)
-            ).coerceIn(0f, 2.80f)
+            contactEnvelope * (0.60f + touchLight.coerceIn(0f, 16f) * 0.024f) * capsuleLightGain +
+                glowEnvelope * (0.34f + afterglow.coerceIn(0f, 12f) * 0.020f)
+            ).coerceIn(0f, 3.35f)
     } else {
         0f
     }
     val sweepValue = if (ordinaryPressEnabled) {
         (
-            sweepEnvelope * (0.44f + sweep.coerceIn(0f, 16f) * 0.020f)
-            ).coerceIn(0f, 2.80f)
+            sweepEnvelope * (0.48f + sweep.coerceIn(0f, 16f) * 0.022f)
+            ).coerceIn(0f, 3.10f)
     } else {
         0f
     }
-    val opticsPress = maxOf(positivePress, lensValue * 0.70f, glowEnvelope * 0.42f)
-    val pressedIntensity = baseIntensity * (1f + pressCompression * (0.034f + 0.105f * elasticity) + glowEnvelope * 0.010f)
+    val opticsPress = maxOf(positivePress, lensValue * 0.78f, glowEnvelope * 0.52f)
+    val pressedIntensity = baseIntensity * (1f + pressCompression * (0.046f + 0.140f * elasticity) * capsuleBodyGain + glowEnvelope * 0.014f)
 
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
     val breathe = rememberGlassBreath(quality, motionIntensity)
@@ -706,16 +718,17 @@ fun PressableGlass(
                         }
 
                         val pressedTarget = (
-                            0.72f +
-                                deformation.coerceIn(0f, 12f) * 0.020f +
-                                touchLight.coerceIn(0f, 16f) * 0.004f +
+                            0.78f +
+                                deformation.coerceIn(0f, 12f) * 0.023f +
+                                touchLight.coerceIn(0f, 16f) * 0.005f +
                                 tapImpulse.coerceIn(0f, 4f) * 0.010f
-                            ).coerceIn(0.54f, 1.04f)
+                            ).let { it * (0.94f + (capsuleBodyGain - 1f) * 0.44f) }
+                            .coerceIn(0.62f, 1.16f)
 
                         ordinaryMaterial.animateTo(
                             pressedTarget,
                             spring(
-                                dampingRatio = 0.88f,
+                                dampingRatio = 0.90f,
                                 stiffness = Spring.StiffnessMedium
                             )
                         )
@@ -748,7 +761,7 @@ fun PressableGlass(
                         ordinaryMaterial.animateTo(
                             0f,
                             spring(
-                                dampingRatio = (0.80f + releaseCohesion.coerceIn(0f, 4f) * 0.035f).coerceIn(0.80f, 0.92f),
+                                dampingRatio = ((0.78f + releaseCohesion.coerceIn(0f, 4f) * 0.030f) * capsuleSettleDamp).coerceIn(0.76f, 0.92f),
                                 stiffness = Spring.StiffnessMediumLow
                             )
                         )
@@ -760,10 +773,10 @@ fun PressableGlass(
             .graphicsLayer {
                 transformOrigin = TransformOrigin(pressCenter.x, pressCenter.y)
                 if (parentOwnsOrdinaryGlass) {
-                    scaleX = 1f
-                    scaleY = 1f
-                    translationY = 0f
-                    shadowElevation = 0f
+                    scaleX = 1f + pressCompression * 0.020f * capsuleXGain
+                    scaleY = 1f - pressCompression * 0.0055f * capsuleYGain
+                    translationY = pressCompression * 0.52f * capsuleSinkGain
+                    shadowElevation = pressCompression * 0.30f
                 } else {
                     val grow = deformation.coerceIn(0f, 12f)
                     val bounce = reboundControl.coerceIn(0f, 10f)
@@ -776,18 +789,16 @@ fun PressableGlass(
                         GlassRole.Shell -> 0f
                     }
                     scaleX = 1f +
-                        pressCompression * (0.028f + 0.006f * grow) * endCapDamp +
-                        tapEnvelope * 0.008f -
-                        rebound * (0.008f + 0.002f * bounce) * endCapDamp
-                    scaleY = 1f +
-                        pressCompression * (0.022f + 0.005f * grow) +
-                        tapEnvelope * 0.006f -
-                        rebound * (0.007f + 0.002f * bounce)
+                        pressCompression * (0.040f + 0.008f * grow) * endCapDamp * capsuleXGain -
+                        rebound * (0.006f + 0.0015f * bounce) * endCapDamp
+                    scaleY = 1f -
+                        pressCompression * (0.010f + 0.0035f * grow) * capsuleYGain +
+                        glowEnvelope * 0.0035f -
+                        rebound * (0.004f + 0.0015f * bounce)
                     translationY =
-                        pressCompression * (0.30f + 0.12f * grow) +
-                            tapEnvelope * (0.12f + 0.08f * elasticity) -
-                            rebound * (0.18f + 0.075f * bounce)
-                    shadowElevation = pressCompression * (0.62f + 0.10f * grow) + glowEnvelope * 0.18f
+                        pressCompression * (0.44f + 0.15f * grow) * capsuleSinkGain -
+                            rebound * (0.12f + 0.050f * bounce)
+                    shadowElevation = pressCompression * (0.74f + 0.12f * grow) + glowEnvelope * 0.24f
                 }
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -1017,11 +1028,13 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
     val elasticityBoost = elasticity.coerceIn(0.08f, 1f)
 
-    val pressShape = composeMotionSmoothStep((dynamicPress + lensValue * 0.60f).coerceIn(0f, 3.4f) / 3.4f)
-    val lightPower = (touchLight * (0.42f + lensValue * 0.72f + afterValue * 0.18f) * elasticityBoost).coerceIn(0f, 72f)
-    val prismPower = (prism * (0.24f + dynamicPress * 0.34f + sweepValue * 0.46f) * elasticityBoost).coerceIn(0f, 72f)
-    val sweepPower = (sweepGain * (0.16f + sweepValue * 0.92f) * elasticityBoost).coerceIn(0f, 72f)
-    val afterPower = (afterglow * (afterValue * 0.85f + lensValue * 0.22f) * elasticityBoost).coerceIn(0f, 54f)
+    val capsule = ComposeGlassLabState.capsuleTuning.normalized()
+    val capsuleLight = (1f + capsule.tapPx * 5.2f + capsule.sticky * 8.0f + capsule.basePx * 4.0f).coerceIn(0.92f, 1.82f)
+    val pressShape = composeMotionSmoothStep((dynamicPress + lensValue * 0.82f).coerceIn(0f, 3.2f) / 3.2f)
+    val lightPower = (touchLight * (0.54f + lensValue * 0.82f + afterValue * 0.20f) * elasticityBoost * capsuleLight).coerceIn(0f, 86f)
+    val prismPower = (prism * (0.24f + dynamicPress * 0.36f + sweepValue * 0.46f) * elasticityBoost).coerceIn(0f, 72f)
+    val sweepPower = (sweepGain * (0.18f + sweepValue * 0.94f) * elasticityBoost).coerceIn(0f, 78f)
+    val afterPower = (afterglow * (afterValue * 0.80f + lensValue * 0.28f) * elasticityBoost * capsuleLight).coerceIn(0f, 62f)
     val sweepPhase = (sweepValue / 3.60f).coerceIn(0f, 1.30f)
     val sweepX = -0.46f + sweepPhase * 1.92f
     val rimInset = 0.42.dp.toPx()
@@ -1030,13 +1043,13 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     drawRoundRect(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = (0.070f * lightPower).coerceIn(0f, 1f)),
-                Color(0xFFE8FFFF).copy(alpha = (0.044f * lightPower).coerceIn(0f, 1f)),
-                Color(0xFF89FFF3).copy(alpha = (0.018f * lightPower).coerceIn(0f, 1f)),
+                Color.White.copy(alpha = (0.086f * lightPower).coerceIn(0f, 1f)),
+                Color(0xFFE8FFFF).copy(alpha = (0.054f * lightPower).coerceIn(0f, 1f)),
+                Color(0xFF89FFF3).copy(alpha = (0.022f * lightPower).coerceIn(0f, 1f)),
                 Color.Transparent
             ),
             center = center,
-            radius = maxSide * (0.26f + 0.030f * lightPower.coerceIn(0f, 18f) + 0.30f * pressShape)
+            radius = maxSide * (0.22f + 0.026f * lightPower.coerceIn(0f, 20f) + 0.34f * pressShape)
         ),
         size = Size(w, h),
         cornerRadius = cornerRadius,
@@ -1046,7 +1059,7 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     drawRoundRect(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color.White.copy(alpha = (0.030f * lightPower).coerceIn(0f, 0.72f)),
+                Color.White.copy(alpha = (0.040f * lightPower).coerceIn(0f, 0.82f)),
                 Color.Transparent
             ),
             center = center,
@@ -1073,7 +1086,7 @@ private fun Modifier.ordinaryPressSurfaceOptics(
             topLeft = Offset(rimInset, rimInset),
             size = rimSize,
             cornerRadius = cornerRadius,
-            style = Stroke((0.60.dp.toPx() + 0.16.dp.toPx() * sweepPower.coerceIn(0f, 24f)).coerceAtMost(9.0.dp.toPx())),
+            style = Stroke((0.78.dp.toPx() + 0.20.dp.toPx() * sweepPower.coerceIn(0f, 24f)).coerceAtMost(9.5.dp.toPx())),
             blendMode = BlendMode.Plus
         )
     }
