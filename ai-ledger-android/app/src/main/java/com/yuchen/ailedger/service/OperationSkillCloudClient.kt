@@ -89,13 +89,14 @@ class OperationSkillCloudClient(
         帧时间线：
         ${frames.joinToString("\n") { frame -> frame.timelineLine() }}
 
-        请理解整次示范的目的和用户方法，生成可泛化但必须尊重演示路线的视觉 Skill。Skill 运行时会由云端视觉智能重新观察当前屏幕并决定下一步，因此：
+        请理解整次示范的目的和用户方法，生成可泛化但尊重演示路线的视觉 Skill。Skill 运行时会由云端视觉智能重新观察当前屏幕并决定下一步，因此：
         1. 不得输出固定坐标、Resource ID、无障碍节点、选择器、页面指纹或机械点击脚本。
-        2. 不要逐帧复述，也不要把演示过度抽象成“自己探索到目标”。必须额外提炼 routeSteps：按演示顺序写出语义路线骨架、视觉锚点、每步完成证据和可接受兜底。
-        3. routeSteps 只能描述语义动作和视觉锚点，例如“在 QQ 主消息页点击左上角头像进入个人中心”“在个人中心底部点击设置入口”，不能写具体坐标或节点 ID。
-        4. 运行时应优先沿 routeSteps 走；只有当前页面确实缺少该视觉锚点或路线被界面版本阻断，才允许使用 fallback 改道。
-        5. 无法从图片确认的内容必须保持抽象，不得编造应用内部结构。
-        6. 密码、验证码、支付确认、删除和不可逆操作必须交给用户或再次确认。
+        2. 不要逐帧复述，也不要把演示过度抽象成“自己探索到目标”。必须提炼 routeSteps：按演示顺序写出路线检查点。
+        3. 每个 routeStep 要包含开始页面状态、视觉锚点、推荐语义动作、完成证据、不建议的改道动作、兜底策略和是否可跳过。
+        4. routeSteps 只能描述语义动作和视觉锚点，例如“在 QQ 主消息页点击左上角头像进入个人中心”“在个人中心底部点击设置入口”，不能写具体坐标或节点 ID。
+        5. 运行时应优先沿 routeSteps 走；只有当前页面确实缺少该视觉锚点或路线被界面版本阻断，才允许使用 fallbackPolicy。
+        6. 无法从图片确认的内容必须保持抽象，不得编造应用内部结构。
+        7. 密码、验证码、支付确认、删除和不可逆操作必须交给用户或再次确认。
 
         只返回一个合法 JSON 对象，不要 Markdown，不要解释，结构严格为：
         {
@@ -107,7 +108,20 @@ class OperationSkillCloudClient(
           ],
           "operatingPrinciples": ["抽象方法和必要条件"],
           "routeSteps": [
-            {"order":1,"instruction":"演示路线中的语义动作","visualAnchor":"应寻找的视觉锚点","expectedEvidence":"完成此步后的视觉证据","fallback":"锚点缺失时允许的最小改道"}
+            {
+              "order":1,
+              "instruction":"演示路线中的语义动作",
+              "startState":"执行这一步前通常应看到的页面状态",
+              "visualAnchor":"兼容旧字段：最主要视觉锚点",
+              "visualAnchors":["应寻找的视觉锚点"],
+              "preferredAction":"围绕视觉锚点执行的推荐动作",
+              "expectedEvidence":"兼容旧字段：完成此步后的主要证据",
+              "expectedEvidenceList":["完成此步后的视觉证据"],
+              "discouragedActions":["看似可行但偏离演示路线的动作"],
+              "fallback":"兼容旧字段：最小兜底",
+              "fallbackPolicy":"锚点缺失或界面版本阻断时允许的最小改道",
+              "skippable":false
+            }
           ],
           "successCriteria": ["视觉上可以确认的完成结果"],
           "safetyRules": ["必须遵守的风险边界"],
@@ -248,6 +262,7 @@ class OperationSkillCloudClient(
         for (index in 0 until array.length().coerceAtMost(MAX_ROUTE_STEPS)) {
             val item = array.optJSONObject(index) ?: continue
             val instruction = item.optString("instruction").trim().take(MAX_DESCRIPTION_LENGTH)
+                .ifBlank { item.optString("preferredAction").trim().take(MAX_DESCRIPTION_LENGTH) }
             if (instruction.isBlank()) continue
             add(
                 VisualSkillRouteStep(
@@ -256,6 +271,13 @@ class OperationSkillCloudClient(
                     visualAnchor = item.optString("visualAnchor").trim().take(MAX_DESCRIPTION_LENGTH),
                     expectedEvidence = item.optString("expectedEvidence").trim().take(MAX_DESCRIPTION_LENGTH),
                     fallback = item.optString("fallback").trim().take(MAX_DESCRIPTION_LENGTH),
+                    startState = item.optString("startState").trim().take(MAX_DESCRIPTION_LENGTH),
+                    visualAnchors = item.optJSONArray("visualAnchors").toStringList(MAX_LIST_ITEMS),
+                    preferredAction = item.optString("preferredAction").trim().take(MAX_DESCRIPTION_LENGTH),
+                    expectedEvidenceList = item.optJSONArray("expectedEvidenceList").toStringList(MAX_LIST_ITEMS),
+                    discouragedActions = item.optJSONArray("discouragedActions").toStringList(MAX_LIST_ITEMS),
+                    fallbackPolicy = item.optString("fallbackPolicy").trim().take(MAX_DESCRIPTION_LENGTH),
+                    skippable = item.optBoolean("skippable", false),
                 ),
             )
         }
