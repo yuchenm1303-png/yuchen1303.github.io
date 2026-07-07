@@ -1,5 +1,7 @@
 package com.yuchen.ailedger.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.yuchen.ailedger.model.AssistantUiState
 import java.util.Locale
 
 @Composable
@@ -69,6 +72,80 @@ internal fun LabSlider(
             onValueChange = onValueChange,
             valueRange = range,
             modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+internal fun Group(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    initiallyExpanded: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val backgroundAlpha = if (initiallyExpanded) 0.055f else 0.038f
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = backgroundAlpha))
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                title,
+                color = Color.White.copy(alpha = 0.88f),
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                color = Color.White.copy(alpha = 0.42f),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+internal fun LabActionButton(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White.copy(alpha = 0.070f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            title,
+            color = Color.White.copy(alpha = 0.90f),
+            fontSize = 11.8.sp,
+            fontWeight = FontWeight.Black,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            subtitle,
+            color = Color.White.copy(alpha = 0.42f),
+            fontSize = 9.5.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
