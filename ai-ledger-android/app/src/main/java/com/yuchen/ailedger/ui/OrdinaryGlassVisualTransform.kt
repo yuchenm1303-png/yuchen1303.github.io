@@ -41,13 +41,13 @@ internal fun updateOrdinaryGlassVisualTransform(
     val releasePress = (-node.pressProgress).coerceAtLeast(0f)
     val lens = node.lensProgress.coerceAtLeast(0f)
     val sweep = node.sweepProgress.coerceAtLeast(0f)
-    val pressPhase = (positivePress * 0.42f + lens * 0.36f + sweep * 0.22f) * timeScale
-    val clickCarryPhase = (lens * 0.58f + sweep * 0.42f) * timeScale
-    val releasePhase = (releasePress * 0.38f + lens * 0.36f + sweep * 0.26f) * timeScale
-    val pressCore = ordinaryVisualSmoothStep(pressPhase.coerceIn(0f, 2.60f) / 2.60f)
-    val clickCarry = ordinaryVisualSmoothStep(clickCarryPhase.coerceIn(0f, 2.20f) / 2.20f)
-    val release = ordinaryVisualSmoothStep(releasePhase.coerceIn(0f, 2.40f) / 2.40f)
-    val compression = (1f - (1f - pressCore) * (1f - clickCarry * 0.78f)).coerceIn(0f, 1.12f)
+    val pressPhase = (positivePress * 0.34f + lens * 0.40f + sweep * 0.26f) * timeScale
+    val clickCarryPhase = (lens * 0.66f + sweep * 0.50f + positivePress * 0.18f) * timeScale
+    val releasePhase = (releasePress * 0.30f + lens * 0.42f + sweep * 0.34f) * timeScale
+    val pressCore = ordinaryVisualSmoothStep(pressPhase.coerceIn(0f, 2.55f) / 2.55f)
+    val clickCarry = ordinaryVisualSmoothStep(clickCarryPhase.coerceIn(0f, 2.05f) / 2.05f)
+    val release = ordinaryVisualSmoothStep(releasePhase.coerceIn(0f, 2.50f) / 2.50f)
+    val compression = (1f - (1f - pressCore) * (1f - clickCarry * 1.10f)).coerceIn(0f, 1.28f)
     if (compression == 0f && release == 0f) {
         out.setIdentity()
         return
@@ -60,33 +60,44 @@ internal fun updateOrdinaryGlassVisualTransform(
         .coerceIn(0f, 10f)
     val elasticity = node.elasticity.coerceIn(0.16f, 1f)
     val roleBalance = when (node.role) {
-        GlassRole.Chip -> 1.62f
-        GlassRole.Flex -> 1.42f
-        GlassRole.Floating -> 1.16f
-        GlassRole.Card -> 0.82f
-        GlassRole.Nav -> 0.74f
+        GlassRole.Chip -> 2.46f
+        GlassRole.Flex -> 2.18f
+        GlassRole.Floating -> 1.34f
+        GlassRole.Card -> 0.78f
+        GlassRole.Nav -> 0.66f
         GlassRole.Shell -> 0f
     }
-    val compactBalance = (0.72f + elasticity * 0.72f).coerceIn(0.78f, 1.44f)
-    val sizeBalance = (roleBalance * compactBalance).coerceIn(0.58f, 2.18f)
-    val translationBalance = sizeBalance.coerceIn(0.72f, 1.64f)
-    val viscosity = (1.38f - speed * 0.050f).coerceIn(0.76f, 1.38f)
-    val tapBridge = (clickCarry * (1f - pressCore * 0.36f)).coerceIn(0f, 0.84f)
-    val stickyHold = (lens * 0.020f + sweep * 0.012f + tapBridge * 0.014f)
-        .coerceIn(0f, 0.070f)
-    val reboundSoftener = (0.18f + reboundControl * 0.018f).coerceIn(0.12f, 0.40f)
-    val releaseSettling = release * (1f - tapBridge * 0.68f).coerceIn(0.24f, 1f)
-    val visualCompression = (compression + tapBridge * 0.10f).coerceIn(0f, 1.16f)
+    val compactBalance = (0.46f + elasticity * 2.04f).coerceIn(0.72f, 2.50f)
+    val sizeBalance = (roleBalance * compactBalance).coerceIn(0.42f, 3.20f)
+    val translationBalance = sizeBalance.coerceIn(0.82f, 2.18f)
+    val viscosity = (1.44f - speed * 0.050f).coerceIn(0.82f, 1.44f)
+    val tapBridge = (clickCarry * (1f - pressCore * 0.24f)).coerceIn(0f, 1.22f)
+    val tapPop = ordinaryVisualSmoothStep((tapBridge * 1.18f).coerceIn(0f, 1f))
+    val stickyHold = (lens * 0.026f + sweep * 0.016f + tapBridge * 0.030f)
+        .coerceIn(0f, 0.120f)
+    val reboundSoftener = (0.15f + reboundControl * 0.014f).coerceIn(0.10f, 0.32f)
+    val releaseSettling = release * (1f - tapBridge * 0.76f).coerceIn(0.12f, 1f)
+    val visualCompression = (compression + tapBridge * 0.34f + tapPop * 0.22f).coerceIn(0f, 1.55f)
 
-    val pressScaleX = visualCompression * sizeBalance * (0.034f + 0.0075f * grow + stickyHold)
-    val pressScaleY = visualCompression * sizeBalance * (0.024f + 0.0058f * grow + stickyHold * 0.54f)
-    val releaseScaleX = releaseSettling * sizeBalance * reboundSoftener * (0.0048f + 0.0016f * reboundControl)
-    val releaseScaleY = releaseSettling * sizeBalance * reboundSoftener * (0.0032f + 0.0011f * reboundControl)
+    val horizontalDamp = when (node.role) {
+        GlassRole.Card, GlassRole.Nav -> 0.62f
+        GlassRole.Floating -> 0.78f
+        else -> 1.00f
+    }
+    val verticalGain = when (node.role) {
+        GlassRole.Card, GlassRole.Nav -> 1.72f
+        GlassRole.Floating -> 1.36f
+        else -> 1.18f
+    }
+    val pressScaleX = visualCompression * sizeBalance * horizontalDamp * (0.014f + 0.0038f * grow + stickyHold * 0.34f)
+    val pressScaleY = visualCompression * sizeBalance * verticalGain * (0.044f + 0.0105f * grow + stickyHold * 0.90f)
+    val releaseScaleX = releaseSettling * sizeBalance * horizontalDamp * reboundSoftener * (0.0032f + 0.0011f * reboundControl)
+    val releaseScaleY = releaseSettling * sizeBalance * verticalGain * reboundSoftener * (0.0058f + 0.0018f * reboundControl)
     out.scaleX = 1f + pressScaleX - releaseScaleX
     out.scaleY = 1f + pressScaleY - releaseScaleY
-    out.translationY = visualCompression * viscosity * translationBalance * (0.96f + 0.22f * grow) +
-        release * viscosity * translationBalance * (0.22f + 0.020f * reboundControl) +
-        tapBridge * viscosity * translationBalance * 0.18f
+    out.translationY = visualCompression * viscosity * translationBalance * (1.12f + 0.28f * grow) +
+        release * viscosity * translationBalance * (0.30f + 0.022f * reboundControl) +
+        tapBridge * viscosity * translationBalance * (0.34f + 0.040f * grow)
     out.originX = node.pressCenter.x.coerceIn(0f, 1f)
     out.originY = node.pressCenter.y.coerceIn(0f, 1f)
 }
