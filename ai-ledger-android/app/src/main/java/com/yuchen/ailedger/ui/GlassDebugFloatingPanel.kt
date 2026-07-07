@@ -63,7 +63,6 @@ fun GlassDebugFloatingPanel(
                 true,
                 state,
             ) {
-                ComposeGlassMotionPreview()
                 Group("总控", "全局能量、速度和整体光动效开关", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview()
                     LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量", motion.master, 0f..3f) {
