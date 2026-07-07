@@ -1,4 +1,3 @@
-// AI_LEDGER_SOURCE_SEGMENT_1_BEGIN
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedVisibility
@@ -15,7 +14,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,7 +59,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.Layout
@@ -510,9 +507,7 @@ private fun ChatPanelV2(
     val activeMessageIds = remember(messages) { messages.map { it.id }.toSet() }
     LaunchedEffect(activeMessageIds) {
         bubbleLayerState.removeMissing(activeMessageIds)
-// AI_LEDGER_SOURCE_SEGMENT_1_END
 
-// AI_LEDGER_SOURCE_SEGMENT_2_BEGIN
         if (revealedMessageIds.any { it !in activeMessageIds }) {
             revealedMessageIds = revealedMessageIds.intersect(activeMessageIds)
         }
@@ -963,14 +958,11 @@ private fun StreamingAssistantContentV2(
     val revealHead = smoothState?.revealHead ?: displayText.length.toFloat()
     val useFullRichStreaming = remember(targetText) { shouldUseFullRichStreamingV2(targetText) }
     val progressLabel = rememberCloudProgressLabelV2(message.id, hasLiveText)
-    val agentProgress = remember(displayText, targetText) {
-        parseAgentProgressStatusV2(displayText.ifBlank { targetText })
-    }
-
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (agentProgress != null) {
-            AgentProgressLoadingV2(
-                state = agentProgress,
+    val agentProgressState = remember(displayText) { parseAgentProgressStateV2(displayText) }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (agentProgressState != null) {
+            AgentProgressPanelV2(
+                state = agentProgressState,
                 motionClock = motionClock,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1022,394 +1014,331 @@ private fun StreamingAssistantContentV2(
 }
 
 @Immutable
-private data class AgentProgressStatusUiV2(
-    val current: AgentProgressLineUiV2,
-    val history: List<AgentProgressLineUiV2>
+private data class AgentProgressPanelStateV2(
+    val title: String,
+    val steps: List<AgentProgressStepV2>
 )
 
 @Immutable
-private data class AgentProgressLineUiV2(
-    val title: String,
-    val meta: String?,
+private data class AgentProgressStepV2(
+    val id: String,
+    val primary: String,
     val toolName: String?,
-    val kind: AgentProgressKindV2
+    val kind: AgentProgressStepKindV2,
+    val active: Boolean
 )
 
-private enum class AgentProgressKindV2 {
-    Workspace,
-    Thinking,
+private enum class AgentProgressStepKindV2 {
+    Neutral,
     Tool,
-    Waiting,
-    Result,
-    Finishing,
-    Complete,
-    Other
+    Success
+}
+
+private fun parseAgentProgressStateV2(text: String): AgentProgressPanelStateV2? {
+    val rawLines = text
+        .replace("\r", "")
+        .lines()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    if (rawLines.isEmpty()) return null
+    val looksLikeAgentFlow = rawLines.first().contains("AI 正在工作") || rawLines.first().contains("正在思考") ||
+        rawLines.any { line ->
+            line.contains("工作空间") ||
+                line.contains("分析下一步") ||
+                line.contains("等待手机端执行") ||
+                line.contains("返回结果") ||
+                line.contains("内部工具") ||
+                Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+").containsMatchIn(line)
+        }
+    if (!looksLikeAgentFlow) return null
+
+    val steps = rawLines
+        .dropWhile { it.contains("AI 正在工作") || it == "正在思考" || it == "正在思考…" }
+        .mapIndexedNotNull { index, line -> parseAgentProgressStepV2(index, line) }
+    if (steps.isEmpty()) return null
+    val lastIndex = steps.lastIndex
+    return AgentProgressPanelStateV2(
+        title = "正在思考",
+        steps = steps.mapIndexed { index, step -> step.copy(active = index == lastIndex) }
+    )
+}
+
+private fun parseAgentProgressStepV2(index: Int, line: String): AgentProgressStepV2? {
+    val clean = line.trim()
+        .removePrefix("•")
+        .removePrefix("·")
+        .trim()
+    if (clean.isBlank()) return null
+    val toolName = extractAgentToolNameV2(clean)
+    val primary = when {
+        "    " in clean -> clean.substringBefore("    ").trim()
+        toolName != null && clean.contains("正在") -> clean.substringBefore(toolName).trim().ifBlank { clean }
+        toolName != null && clean.contains("·") -> clean.substringBefore("·").trim()
+        else -> clean
+    }
+    val kind = when {
+        clean.contains("返回结果") || clean.contains("已收到") || clean.contains("已完成") -> AgentProgressStepKindV2.Success
+        toolName != null -> AgentProgressStepKindV2.Tool
+        else -> AgentProgressStepKindV2.Neutral
+    }
+    val displayPrimary = primary.removeSuffix("· 内部工具").trim().ifBlank { clean }
+    return AgentProgressStepV2(
+        id = "agent-progress-$index-${displayPrimary.hashCode()}-${toolName.orEmpty().hashCode()}",
+        primary = displayPrimary,
+        toolName = toolName,
+        kind = kind,
+        active = false
+    )
+}
+
+private fun extractAgentToolNameV2(text: String): String? {
+    val direct = Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+").find(text)?.value
+    if (!direct.isNullOrBlank()) return direct
+    val queryTool = Regex("(?:查询|调用|读取|创建|调整|搜索)\\s+([A-Za-z][A-Za-z0-9_-]{1,})")
+        .find(text)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.trim()
+    return queryTool?.takeIf { it.isNotBlank() }
 }
 
 @Composable
-private fun AgentProgressLoadingV2(
-    state: AgentProgressStatusUiV2,
+private fun AgentProgressPanelV2(
+    state: AgentProgressPanelStateV2,
     motionClock: AssistantHomeMotionClock,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             SweepingProgressTextV2(
-                text = "AI 正在工作",
-                fontSize = 16.sp,
-                lineHeight = 21.sp,
-                fontWeight = FontWeight.Black,
+                text = state.title,
+                fontSize = 14.sp,
+                lineHeight = 19.sp,
+                fontWeight = FontWeight.ExtraBold,
                 motionClock = motionClock
             )
-            ThinkingDotsV2(size = 6, color = Color.White.copy(alpha = 0.66f), motionClock = motionClock)
+            ThinkingDotsV2(size = 5, color = Color.White.copy(alpha = 0.64f), motionClock = motionClock)
         }
-
-        state.history.takeLast(3).forEach { item ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                AgentProgressStatusGlyphV2(
-                    kind = item.kind,
-                    motionClock = motionClock,
-                    modifier = Modifier.size(10.dp)
-                )
-                Text(
-                    text = item.title,
-                    color = Color.White.copy(alpha = 0.42f),
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                item.toolName?.let { toolName ->
-                    AgentToolGlyphV2(
-                        toolName = toolName,
-                        motionClock = motionClock,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-            }
-        }
-
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            AgentProgressStatusGlyphV2(
-                kind = state.current.kind,
-                motionClock = motionClock,
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .size(12.dp)
-            )
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+            state.steps.forEachIndexed { index, step ->
+                AgentProgressStepRowV2(
+                    step = step,
+                    motionClock = motionClock,
+                    delayMs = index * 42L,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    SweepingProgressTextV2(
-                        text = state.current.title,
-                        fontSize = 13.sp,
-                        lineHeight = 17.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        motionClock = motionClock
-                    )
-                    ThinkingDotsV2(size = 3, color = Color.White.copy(alpha = 0.46f), motionClock = motionClock)
-                }
-                state.current.meta?.takeIf { it.isNotBlank() }?.let { meta ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = meta,
-                            color = Color(0xFF8DF9EA).copy(alpha = 0.66f),
-                            fontSize = 9.sp,
-                            lineHeight = 12.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .weight(1f, fill = false)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(Color(0xFF8DF9EA).copy(alpha = 0.08f))
-                                .padding(horizontal = 7.dp, vertical = 2.dp)
-                        )
-                        state.current.toolName?.let { toolName ->
-                            AgentToolGlyphV2(
-                                toolName = toolName,
-                                motionClock = motionClock,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun AgentProgressStatusGlyphV2(
-    kind: AgentProgressKindV2,
+private fun AgentProgressStepRowV2(
+    step: AgentProgressStepV2,
     motionClock: AssistantHomeMotionClock,
+    delayMs: Long,
     modifier: Modifier = Modifier
 ) {
-    val pulse = 0.62f + FastOutSlowInEasing.transform(motionClock.pingPong(1360L)) * 0.38f
-    val color = when (kind) {
-        AgentProgressKindV2.Tool -> Color(0xFF8DF9EA)
-        AgentProgressKindV2.Waiting -> Color(0xFF6AE4FF)
-        AgentProgressKindV2.Result, AgentProgressKindV2.Complete -> Color(0xFF34D399)
-        AgentProgressKindV2.Finishing -> Color(0xFFB6F7FF)
-        AgentProgressKindV2.Workspace, AgentProgressKindV2.Thinking, AgentProgressKindV2.Other -> Color.White
+    var visible by remember(step.id) { mutableStateOf(false) }
+    LaunchedEffect(step.id) {
+        if (delayMs > 0L) delay(delayMs)
+        visible = true
     }
-    Canvas(modifier = modifier) {
-        val side = minOf(size.width, size.height)
-        val center = Offset(size.width / 2f, size.height / 2f)
-        val stroke = (side * 0.16f).coerceAtLeast(1.2f)
-        when (kind) {
-            AgentProgressKindV2.Result, AgentProgressKindV2.Complete -> {
-                drawLine(
-                    color = color.copy(alpha = 0.86f),
-                    start = Offset(side * 0.22f, side * 0.54f),
-                    end = Offset(side * 0.42f, side * 0.72f),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round
-                )
-                drawLine(
-                    color = color.copy(alpha = 0.86f),
-                    start = Offset(side * 0.42f, side * 0.72f),
-                    end = Offset(side * 0.80f, side * 0.26f),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round
-                )
-            }
-            AgentProgressKindV2.Waiting -> {
-                repeat(3) { index ->
-                    drawCircle(
-                        color = color.copy(alpha = 0.22f + pulse * (0.28f + index * 0.06f)),
-                        radius = side * (0.10f + index * 0.018f),
-                        center = Offset(side * (0.24f + index * 0.26f), side * 0.50f)
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(180)) +
+            slideInVertically(tween(240, easing = FastOutSlowInEasing)) { it / 3 } +
+            scaleIn(initialScale = 0.92f, animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)),
+        exit = fadeOut(tween(120))
+    ) {
+        val pillAlpha by animateFloatAsState(
+            targetValue = if (step.active) 0.18f else 0.10f,
+            animationSpec = tween(220),
+            label = "agent-progress-pill-alpha"
+        )
+        val verticalPadding by animateDpAsState(
+            targetValue = if (step.active) 9.dp else 8.dp,
+            animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+            label = "agent-progress-pill-padding"
+        )
+        Row(
+            modifier = modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(Color.White.copy(alpha = pillAlpha))
+                .padding(horizontal = 10.dp, vertical = verticalPadding),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AgentProgressMarkerV2(step = step, motionClock = motionClock)
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(if (step.toolName != null) 4.dp else 0.dp)
+            ) {
+                if (step.active) {
+                    SweepingProgressTextV2(
+                        text = step.primary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        motionClock = motionClock
+                    )
+                } else {
+                    Text(
+                        text = step.primary,
+                        color = Color.White.copy(alpha = 0.80f),
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                step.toolName?.let { toolName ->
+                    AgentToolChipV2(
+                        toolName = toolName,
+                        active = step.active,
+                        motionClock = motionClock
                     )
                 }
             }
-            else -> {
-                drawCircle(
-                    color = color.copy(alpha = 0.16f + pulse * 0.24f),
-                    radius = side * 0.48f,
-                    center = center
-                )
-                drawCircle(
-                    color = color.copy(alpha = 0.62f + pulse * 0.26f),
-                    radius = side * 0.22f,
-                    center = center
+            if (step.active) {
+                ThinkingDotsV2(size = 4, color = Color.White.copy(alpha = 0.60f), motionClock = motionClock)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentProgressMarkerV2(
+    step: AgentProgressStepV2,
+    motionClock: AssistantHomeMotionClock
+) {
+    when (step.kind) {
+        AgentProgressStepKindV2.Success -> {
+            val pulse = if (step.active) 0.88f + motionClock.pingPong(920L) * 0.18f else 1f
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        scaleX = pulse
+                        scaleY = pulse
+                    }
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color(0xFF53E2B2).copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "✓",
+                    color = Color(0xFF53E2B2),
+                    fontSize = 15.sp,
+                    lineHeight = 16.sp,
+                    fontWeight = FontWeight.Black
                 )
             }
         }
+        AgentProgressStepKindV2.Tool -> {
+            AgentToolGlyphV2(active = step.active, motionClock = motionClock)
+        }
+        AgentProgressStepKindV2.Neutral -> {
+            val pulse = if (step.active) 0.92f + motionClock.pingPong(980L) * 0.14f else 1f
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        scaleX = pulse
+                        scaleY = pulse
+                    }
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = if (step.active) 0.17f else 0.12f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(if (step.active) 10.dp else 8.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(Color.White.copy(alpha = if (step.active) 0.88f else 0.70f))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AgentToolChipV2(
+    toolName: String,
+    active: Boolean,
+    motionClock: AssistantHomeMotionClock
+) {
+    val alpha = if (active) 0.17f else 0.11f
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xFF8DF9EA).copy(alpha = alpha))
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        AgentToolGlyphV2(active = active, motionClock = motionClock, compact = true)
+        Text(
+            text = toolName,
+            color = Color(0xFFBDFBF3).copy(alpha = if (active) 0.90f else 0.76f),
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
 @Composable
 private fun AgentToolGlyphV2(
-    toolName: String,
+    active: Boolean,
     motionClock: AssistantHomeMotionClock,
-    modifier: Modifier = Modifier
+    compact: Boolean = false
 ) {
-    val pulse = 0.62f + FastOutSlowInEasing.transform(motionClock.pingPong(1680L)) * 0.38f
-    val tool = remember(toolName) { toolName.lowercase() }
+    val shellSize = if (compact) 14.dp else 24.dp
+    val pulse = if (active) 0.92f + motionClock.pingPong(980L) * 0.12f else 1f
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(7.dp))
-            .background(Color(0xFF8DF9EA).copy(alpha = 0.10f + pulse * 0.04f)),
+        modifier = Modifier
+            .size(shellSize)
+            .graphicsLayer {
+                scaleX = pulse
+                scaleY = pulse
+            }
+            .clip(RoundedCornerShape(if (compact) 5.dp else 8.dp))
+            .background(Color(0xFF8DF9EA).copy(alpha = if (active) 0.24f else 0.16f)),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.size(14.dp)) {
-            val side = minOf(size.width, size.height)
-            val stroke = (side * 0.105f).coerceAtLeast(1.25f)
-            val color = Color(0xFF8DF9EA).copy(alpha = 0.70f + pulse * 0.24f)
-
-            fun line(x1: Float, y1: Float, x2: Float, y2: Float, alpha: Float = 1f) {
-                drawLine(
-                    color = color.copy(alpha = color.alpha * alpha),
-                    start = Offset(side * x1, side * y1),
-                    end = Offset(side * x2, side * y2),
-                    strokeWidth = stroke,
-                    cap = StrokeCap.Round
-                )
-            }
-
-            fun dot(x: Float, y: Float, radius: Float = 0.075f, alpha: Float = 1f) {
-                drawCircle(
-                    color = color.copy(alpha = color.alpha * alpha),
-                    radius = side * radius,
-                    center = Offset(side * x, side * y)
-                )
-            }
-
-            when {
-                tool.startsWith("plan_") -> {
-                    line(0.24f, 0.28f, 0.76f, 0.28f)
-                    line(0.24f, 0.42f, 0.76f, 0.42f, 0.82f)
-                    line(0.24f, 0.28f, 0.24f, 0.76f)
-                    line(0.76f, 0.28f, 0.76f, 0.76f)
-                    line(0.24f, 0.76f, 0.76f, 0.76f)
-                    dot(0.38f, 0.58f, 0.045f, 0.82f)
-                    dot(0.58f, 0.58f, 0.045f, 0.82f)
-                    dot(0.36f, 0.18f, 0.046f)
-                    dot(0.64f, 0.18f, 0.046f)
-                }
-                tool.startsWith("computer_") -> {
-                    line(0.20f, 0.26f, 0.80f, 0.26f)
-                    line(0.20f, 0.26f, 0.20f, 0.62f)
-                    line(0.80f, 0.26f, 0.80f, 0.62f)
-                    line(0.20f, 0.62f, 0.80f, 0.62f)
-                    line(0.50f, 0.62f, 0.50f, 0.78f, 0.78f)
-                    line(0.36f, 0.80f, 0.64f, 0.80f, 0.78f)
-                }
-                tool.startsWith("device_") -> {
-                    line(0.26f, 0.30f, 0.74f, 0.30f, 0.72f)
-                    line(0.26f, 0.50f, 0.74f, 0.50f, 0.72f)
-                    line(0.26f, 0.70f, 0.74f, 0.70f, 0.72f)
-                    dot(0.40f, 0.30f, 0.068f)
-                    dot(0.62f, 0.50f, 0.068f)
-                    dot(0.48f, 0.70f, 0.068f)
-                }
-                tool.startsWith("ledger_") -> {
-                    line(0.28f, 0.24f, 0.72f, 0.24f)
-                    line(0.28f, 0.24f, 0.28f, 0.78f)
-                    line(0.72f, 0.24f, 0.72f, 0.78f)
-                    line(0.28f, 0.78f, 0.72f, 0.78f)
-                    line(0.40f, 0.40f, 0.62f, 0.40f, 0.72f)
-                    line(0.40f, 0.56f, 0.62f, 0.56f, 0.72f)
-                }
-                tool.startsWith("memory_") -> {
-                    dot(0.28f, 0.34f, 0.068f)
-                    dot(0.70f, 0.30f, 0.068f)
-                    dot(0.50f, 0.72f, 0.068f)
-                    line(0.32f, 0.36f, 0.66f, 0.32f, 0.68f)
-                    line(0.68f, 0.34f, 0.52f, 0.68f, 0.68f)
-                    line(0.30f, 0.38f, 0.48f, 0.68f, 0.68f)
-                }
-                tool.contains("search") || tool.contains("weather") || tool.contains("stock") -> {
-                    drawCircle(
-                        color = color.copy(alpha = color.alpha * 0.82f),
-                        radius = side * 0.20f,
-                        center = Offset(side * 0.43f, side * 0.42f),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
-                    )
-                    line(0.58f, 0.58f, 0.78f, 0.78f)
-                }
-                else -> {
-                    dot(0.28f, 0.34f, 0.062f)
-                    dot(0.72f, 0.34f, 0.062f)
-                    dot(0.50f, 0.72f, 0.062f)
-                    line(0.32f, 0.36f, 0.50f, 0.68f, 0.78f)
-                    line(0.68f, 0.36f, 0.50f, 0.68f, 0.78f)
-                    line(0.34f, 0.34f, 0.66f, 0.34f, 0.58f)
-                }
-            }
-        }
-    }
-}
-
-private fun parseAgentProgressStatusV2(text: String): AgentProgressStatusUiV2? {
-    val lines = text.lines()
-        .map { it.trim() }
-        .filter { it.isNotBlank() }
-    if (lines.none { it.contains("AI 正在工作") }) return null
-
-    val progressLines = lines
-        .filterNot { it == "AI 正在工作…" || it == "AI 正在工作..." || it == "AI 正在工作" }
-        .distinct()
-        .mapNotNull { parseAgentProgressLineV2(it) }
-
-    val fallback = AgentProgressLineUiV2(
-        title = "正在分析下一步",
-        meta = null,
-        toolName = null,
-        kind = AgentProgressKindV2.Thinking
-    )
-    val current = progressLines.lastOrNull() ?: fallback
-    return AgentProgressStatusUiV2(
-        current = current,
-        history = progressLines.dropLast(1)
-    )
-}
-
-private fun parseAgentProgressLineV2(line: String): AgentProgressLineUiV2? {
-    val clean = line.trim().ifBlank { return null }
-    val toolName = Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+").find(clean)?.value
-    val splitIndex = clean.indexOf("    ")
-
-    if (toolName != null) {
-        val title = if (splitIndex >= 0) {
-            clean.substring(0, splitIndex).trim()
-        } else {
-            readableAgentToolTitleV2(toolName)
-        }.ifBlank { readableAgentToolTitleV2(toolName) }
-        val meta = clean.substringAfter("    ", "$toolName · 内部工具")
-            .trim()
-            .takeIf { it.isNotBlank() && it != title }
-            ?: "$toolName · 内部工具"
-        return AgentProgressLineUiV2(
-            title = title,
-            meta = meta,
-            toolName = toolName,
-            kind = AgentProgressKindV2.Tool
+        Box(
+            modifier = Modifier
+                .size(if (compact) 7.dp else 12.dp)
+                .clip(RoundedCornerShape(if (compact) 2.5.dp else 4.dp))
+                .background(Color(0xFFBFFEF7).copy(alpha = if (active) 0.96f else 0.82f))
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = if (compact) 2.dp else 3.dp, end = if (compact) 2.dp else 3.dp)
+                .size(if (compact) 3.dp else 4.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color.White.copy(alpha = if (active) 0.92f else 0.70f))
         )
     }
-
-    val kind = when {
-        clean.contains("进入工作空间") -> AgentProgressKindV2.Workspace
-        clean.contains("分析下一步") -> AgentProgressKindV2.Thinking
-        clean.contains("等待") || clean.contains("手机端执行") -> AgentProgressKindV2.Waiting
-        clean.contains("收到") || clean.contains("结果") -> AgentProgressKindV2.Result
-        clean.contains("整理") || clean.contains("最终回复") -> AgentProgressKindV2.Finishing
-        clean.contains("完成") -> AgentProgressKindV2.Complete
-        else -> AgentProgressKindV2.Other
-    }
-    return AgentProgressLineUiV2(
-        title = clean,
-        meta = null,
-        toolName = null,
-        kind = kind
-    )
-}
-
-private fun readableAgentToolTitleV2(toolName: String): String = when {
-    toolName.startsWith("plan_list") -> "读取计划"
-    toolName.startsWith("plan_create") -> "创建计划"
-    toolName.startsWith("plan_update") -> "调整计划"
-    toolName.startsWith("plan_toggle") -> "切换计划"
-    toolName.startsWith("computer_observe") -> "观察屏幕"
-    toolName.startsWith("computer_run") -> "视觉执行"
-    toolName.startsWith("device_control") -> "设备控制"
-    toolName.startsWith("ledger_") -> "账本工具"
-    toolName.startsWith("memory_") -> "记忆工具"
-    toolName.contains("search") -> "联网搜索"
-    else -> "内部工具"
 }
 
 @Immutable
 private data class FluidStreamingTextVisualStateV2(
-
     val text: String,
     val revealHead: Float,
     val finished: Boolean
@@ -1662,8 +1591,8 @@ private fun rememberCloudProgressLabelV2(messageId: String, hasLiveText: Boolean
         "正在接收"
     } else {
         when (stage) {
-            0 -> "正在连接云端"
-            1 -> "云端处理中"
+            0 -> "正在思考"
+            1 -> "继续处理中"
             else -> "正在整理回复"
         }
     }
@@ -1879,9 +1808,7 @@ private fun MessageBadgeV2(message: ChatMessage) {
         badgeColorV2(message)
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-// AI_LEDGER_SOURCE_SEGMENT_3_END
 
-// AI_LEDGER_SOURCE_SEGMENT_4_BEGIN
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
         Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -2332,4 +2259,3 @@ private fun modelSignalV2(message: ChatMessage): String {
         .joinToString(" ")
         .lowercase()
 }
-// AI_LEDGER_SOURCE_SEGMENT_4_END
