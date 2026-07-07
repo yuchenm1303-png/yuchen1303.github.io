@@ -5,7 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Slider
@@ -60,7 +62,7 @@ internal fun Group(
     initiallyExpanded: Boolean = true,
     content: @Composable () -> Unit
 ) {
-    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    var expanded by rememberSaveable(title) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -72,7 +74,55 @@ internal fun Group(
         LabFoldHeader(title, subtitle, expanded) { expanded = !expanded }
         if (expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                LabGlassSample(state)
                 content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabGlassSample(state: AssistantUiState) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        PressableGlass(
+            state.quality,
+            state.glassIntensity * 0.76f,
+            state.motionIntensity,
+            999,
+            Modifier
+                .weight(0.86f)
+                .height(42.dp),
+            GlassRole.Chip,
+            onClick = {}
+        ) {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("小样本", color = Color.White.copy(alpha = 0.88f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+            }
+        }
+        PressableGlass(
+            state.quality,
+            state.glassIntensity * 0.82f,
+            state.motionIntensity,
+            22,
+            Modifier
+                .weight(1.14f)
+                .height(58.dp),
+            GlassRole.Flex,
+            onClick = {}
+        ) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("卡片样本", color = Color.White.copy(alpha = 0.90f), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                Text("按住测试当前参数", color = Color.White.copy(alpha = 0.42f), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
