@@ -194,8 +194,9 @@ private fun InsetGlassSliderControl(
     val semanticRange = remember(start, end) { start..end }
     val currentOnValueChange by rememberUpdatedState(onValueChange)
     val currentExternalValue by rememberUpdatedState(clampedValue)
-    val batchState = LocalInsetGlassSliderBatchState.current
-    val progressBatchState = LocalInsetGlassSliderProgressBatchState.current
+    val parentDrawEnabled = OrdinaryGlassParentDrawController.globalEnabled
+    val batchState = if (parentDrawEnabled) LocalInsetGlassSliderBatchState.current else null
+    val progressBatchState = if (parentDrawEnabled) LocalInsetGlassSliderProgressBatchState.current else null
     val batchSlotKey = remember { Any() }
     val frameDispatcher = remember { SliderFrameValueDispatcher() }
     val coroutineScope = rememberCoroutineScope()
