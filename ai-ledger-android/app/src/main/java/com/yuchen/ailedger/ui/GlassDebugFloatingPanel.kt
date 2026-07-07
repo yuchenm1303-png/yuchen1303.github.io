@@ -44,7 +44,6 @@ fun GlassDebugFloatingPanel(
     val params = state.backdropParams
     val border = state.glassBorderStyle
     val motion = ComposeGlassLabState.motionStyle
-    val capsule = ComposeGlassLabState.capsuleTuning
     var legacyBorder by remember { mutableStateOf(legacyOpenGlLabStyle()) }
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -78,38 +77,6 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
                     }
                 }
-                Group("App内胶囊细调", "直接调真实 App 内的尺寸函数和短点击胶囊权重", state, initiallyExpanded = true) {
-                    LabSlider("小尺寸增强", "越高小按钮、小卡片越明显；大卡片基本不变", capsule.compactBoost, 0f..2.4f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(compactBoost = it))
-                    }
-                    LabSlider("长条横向抑制", "越高长按钮越不左右拉爆；方形按钮几乎不受影响", capsule.elongatedX, 0f..0.9f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(elongatedX = it))
-                    }
-                    LabSlider("长条纵向补偿", "越高长按钮上下胶囊感越明显；过高会显得竖向弹", capsule.elongatedY, 0f..0.6f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(elongatedY = it))
-                    }
-                    LabSlider("基础像素形变", "真实像素膨胀基准，控制按压/长按的胶囊体积", capsule.basePx, 0.005f..0.085f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(basePx = it))
-                    }
-                    LabSlider("短点击冲量", "点一下时额外鼓起的胶囊体积，优先调这个找点击手感", capsule.tapPx, 0f..0.12f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapPx = it))
-                    }
-                    LabSlider("点击峰值", "短点击 tap 相位的峰值放大，越高越像弹起的胶囊", capsule.tapPop, 0.2f..2.8f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapPop = it))
-                    }
-                    LabSlider("点击拖尾", "短点击松手后继续托住胶囊的黏滞尾巴", capsule.tapCarry, 0f..1.4f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapCarry = it))
-                    }
-                    LabSlider("黏滞白胶", "跟随 lens/sweep 的额外粘性，过高会糊", capsule.sticky, 0f..0.08f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(sticky = it))
-                    }
-                    LabSlider("下沉重量", "点击和按压的向下沉入量，控制手指压下的重量感", capsule.sink, 0f..1.8f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(sink = it))
-                    }
-                    LabSlider("释放回落", "释放阶段反向回落的可见程度，过高会抖", capsule.settle, 0f..1f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(settle = it))
-                    }
-                }
                 Group("白光光场", "触点白光、连续扩散和松手余辉", state, initiallyExpanded = false) {
                     LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
@@ -126,13 +93,10 @@ fun GlassDebugFloatingPanel(
                 }
                 LabActionButton(
                     title = "恢复光动效默认值",
-                    subtitle = "同时恢复胶囊细调参数",
+                    subtitle = "胶囊更重 · 回弹更黏 · 速度 1x",
                     state = state,
                     modifier = Modifier.fillMaxWidth(),
-                    onClick = {
-                        ComposeGlassLabState.resetMotion()
-                        ComposeGlassLabState.resetCapsuleTuning()
-                    },
+                    onClick = ComposeGlassLabState::resetMotion,
                 )
             }
             GlassLabFoldout("OpenGL", "旧 Shell 样本 / 保留原实现，不随新版替换", false, state) {
@@ -296,15 +260,149 @@ private fun legacyOpenGlLabStyle(): GlassBorderStyle = GlassBorderStyle(
 )
 
 @Composable
-private fun Metric(label: String, value: Float, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Color.White.copy(alpha = 0.055f))
-            .padding(horizontal = 9.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(label, color = Color.White.copy(alpha = 0.48f), fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-        Text(((value * 100f).roundToInt() / 100f).toString(), color = Color.White.copy(alpha = 0.92f), fontSize = 12.sp, fontWeight = FontWeight.Black)
+private fun GlassLabFoldout(
+    title: String,
+    subtitle: String,
+    initiallyExpanded: Boolean,
+    state: AssistantUiState,
+    content: @Composable () -> Unit
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
+        PressableGlass(
+            state.quality,
+            state.glassIntensity * if (expanded) 0.94f else 0.76f,
+            state.motionIntensity,
+            24,
+            Modifier.fillMaxWidth().height(58.dp),
+            GlassRole.Flex,
+            onClick = { expanded = !expanded }
+        ) {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
+                    Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 18.sp, fontWeight = FontWeight.Black, maxLines = 1)
+                    Text(subtitle, color = Color.White.copy(alpha = 0.44f), fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Text(if (expanded) "收起 ︿" else "展开 ﹀", color = Color.White.copy(alpha = 0.62f), fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+        GlassFoldoutAnimatedContent(
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+            }
+        }
     }
 }
+
+@Composable
+private fun Group(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    initiallyExpanded: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    var expanded by rememberSaveable(title) { mutableStateOf(initiallyExpanded) }
+    val groupShape = RoundedCornerShape(20.dp)
+    val actionShape = RoundedCornerShape(999.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(groupShape)
+            .background(Color.White.copy(alpha = 0.045f))
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Color.White.copy(alpha = 0.86f), fontSize = 14.sp, fontWeight = FontWeight.Black)
+                Text(subtitle, color = Color.White.copy(alpha = 0.42f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Text(
+                if (expanded) "收起" else "展开",
+                color = Color.White.copy(alpha = 0.54f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier
+                    .composeGlassMotionClickable(shape = actionShape) { expanded = !expanded }
+                    .clip(actionShape)
+                    .background(Color.White.copy(alpha = 0.060f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
+        GlassFoldoutAnimatedContent(
+            expanded = expanded,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            InsetGlassSliderBatchGroup(Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) { content() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabSlider(
+    title: String,
+    subtitle: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
+    InsetGlassParameterSlider(
+        title = title,
+        description = subtitle,
+        value = value,
+        valueRange = range,
+        onValueChange = onValueChange,
+        valueText = value.formatLabValue()
+    )
+}
+
+@Composable
+private fun LabActionButton(
+    title: String,
+    subtitle: String,
+    state: AssistantUiState,
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    PressableGlass(
+        state.quality,
+        state.glassIntensity * 0.72f,
+        state.motionIntensity,
+        22,
+        modifier.height(54.dp),
+        GlassRole.Chip,
+        onClick = onClick
+    ) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(title, color = Color.White.copy(alpha = 0.86f), fontSize = 14.sp, fontWeight = FontWeight.Black, maxLines = 1)
+            Text(subtitle, color = Color.White.copy(alpha = 0.44f), fontSize = 10.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun Metric(label: String, value: Float, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(Color.White.copy(alpha = 0.060f))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(label, color = Color.White.copy(alpha = 0.46f), fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(value.formatLabValue(), color = Color.White.copy(alpha = 0.86f), fontSize = 13.sp, fontWeight = FontWeight.Black, maxLines = 1)
+    }
+}
+
+private fun Float.formatLabValue(): String = ((this * 100f).roundToInt() / 100f).toString()
