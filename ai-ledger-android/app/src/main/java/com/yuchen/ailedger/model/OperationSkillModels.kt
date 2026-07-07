@@ -8,6 +8,7 @@ data class LearnedVisualSkill(
     val triggerExamples: List<String> = emptyList(),
     val inputs: List<VisualSkillInput> = emptyList(),
     val operatingPrinciples: List<String> = emptyList(),
+    val routeSteps: List<VisualSkillRouteStep> = emptyList(),
     val successCriteria: List<String> = emptyList(),
     val safetyRules: List<String> = emptyList(),
     val cloudSummary: String = "",
@@ -15,9 +16,18 @@ data class LearnedVisualSkill(
     val learnedAtMillis: Long,
 ) {
     companion object {
-        const val SCHEMA_VERSION = "ai_ledger_visual_skill_v1"
+        const val SCHEMA_VERSION = "ai_ledger_visual_skill_v2"
+        const val LEGACY_SCHEMA_VERSION = "ai_ledger_visual_skill_v1"
     }
 }
+
+data class VisualSkillRouteStep(
+    val order: Int,
+    val instruction: String,
+    val visualAnchor: String = "",
+    val expectedEvidence: String = "",
+    val fallback: String = "",
+)
 
 data class VisualSkillInput(
     val key: String,
