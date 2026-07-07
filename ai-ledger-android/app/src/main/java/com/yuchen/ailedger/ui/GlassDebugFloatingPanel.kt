@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.model.AssistantUiState
@@ -70,7 +71,8 @@ fun GlassDebugFloatingPanel(
                 state,
             ) {
                 ComposeGlassMotionPreview(state)
-                Group("预设与导出", "快速切换 Compose 材质预设，并复制当前完整参数", state, initiallyExpanded = true) {
+                Group("预设与导出", "快速切换 Compose 材质预设，并复制当前完整参数", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "预设样本", "切换预设后长按这里确认材质", GlassRole.Card, 24, 58.dp)
                     Text(
                         "当前预设：${style.preset}",
                         color = Color.White.copy(alpha = 0.62f),
@@ -110,7 +112,8 @@ fun GlassDebugFloatingPanel(
                 LabSlider("总光动效", "全局控制普通 Compose 点击光动效能量；0 为关闭，1 为默认", motion.master, 0f..3f) {
                     ComposeGlassLabState.updateMotion(motion.copy(master = it))
                 }
-                Group("全局时间与按压源", "控制 PressableGlass 三条状态源的总速度、形变和回弹", state, initiallyExpanded = true) {
+                Group("全局时间与按压源", "控制 PressableGlass 三条状态源的总速度、形变和回弹", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "时间样本", "先调速度，再调形变和释放", GlassRole.Flex, 999, 46.dp)
                     LabSlider("胶囊速度", "控制普通 Compose 玻璃按压胶囊、白光场、释放尾迹的整体速度", motion.speed, 0.08f..8f) {
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
                     }
@@ -121,7 +124,8 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
                     }
                 }
-                Group("尺寸与形状映射", "解决小按钮动效不明显、长条按钮横向拉爆的问题", state, initiallyExpanded = true) {
+                Group("尺寸与形状映射", "解决小按钮动效不明显、长条按钮横向拉爆的问题", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "小按钮样本", "专门观察 compactBoost 和长条抑制", GlassRole.Chip, 999, 38.dp)
                     LabSlider("小尺寸增强", "越高小按钮、小卡片越明显；大卡片基本不变", capsule.compactBoost, 0f..2.4f) {
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(compactBoost = it))
                     }
@@ -138,7 +142,8 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.update(style.copy(ribbon = it))
                     }
                 }
-                Group("点击胶囊核心", "真实 App 内短点击和按住时的像素级胶囊体积", state, initiallyExpanded = true) {
+                Group("点击胶囊核心", "真实 App 内短点击和按住时的像素级胶囊体积", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "点击样本", "短点和长按都用这里判断胶囊体积", GlassRole.Flex, 999, 44.dp)
                     LabSlider("基础像素形变", "真实像素膨胀基准，控制按压/长按的胶囊体积", capsule.basePx, 0.005f..0.085f) {
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(basePx = it))
                     }
@@ -161,7 +166,8 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateCapsuleTuning(capsule.copy(settle = it))
                     }
                 }
-                Group("白光光场与释放尾迹", "触点白光、连续扩散、松手余辉和色散入口", state, initiallyExpanded = true) {
+                Group("白光光场与释放尾迹", "触点白光、连续扩散、松手余辉和色散入口", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "白光样本", "观察触点光、扫光和尾迹消散", GlassRole.Card, 24, 60.dp)
                     LabSlider("触点白光", "控制触点附近的连续体积白光与青白捕光", motion.touchLight, 0f..3f) {
                         ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
                     }
@@ -176,6 +182,7 @@ fun GlassDebugFloatingPanel(
                     }
                 }
                 Group("背景采样与雾面材质", "普通 Compose 玻璃的背景强度、模糊、暗化和乳白感", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "雾面样本", "观察背景透出和乳白厚度", GlassRole.Card, 26, 62.dp)
                     LabSlider("背景透明", "普通玻璃采样背景的整体可见度", style.backdrop, 0.12f..1.55f) {
                         ComposeGlassLabState.update(style.copy(backdrop = it))
                     }
@@ -193,6 +200,7 @@ fun GlassDebugFloatingPanel(
                     }
                 }
                 Group("玻璃体积与暗部", "控制普通玻璃主体的厚度、吸收、内层过渡和底部重量", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "体积样本", "看主体厚度、底部暗部和内层过渡", GlassRole.Card, 28, 66.dp)
                     LabSlider("静默强度", "越高整体越收敛、越不刺眼", style.quiet, 0.25f..2.2f) {
                         ComposeGlassLabState.update(style.copy(quiet = it))
                     }
@@ -210,6 +218,7 @@ fun GlassDebugFloatingPanel(
                     }
                 }
                 Group("边缘、高光与轮廓", "顶部高光、底部亮线、外轮廓和侧向补光", state, initiallyExpanded = false) {
+                    ComposeGlassGroupSample(state, "边缘样本", "观察上沿高光、底线和外轮廓", GlassRole.Floating, 28, 58.dp)
                     LabSlider("顶部高光", "上沿白光强度，也是 edge 派生值", style.topLight, 0.02f..3.4f) {
                         ComposeGlassLabState.update(style.copy(topLight = it))
                     }
@@ -364,6 +373,38 @@ private fun ComposeGlassMotionPreview(state: AssistantUiState) {
                     Metric("余辉", ComposeGlassLabState.motionStyle.afterglow, Modifier.weight(1f))
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ComposeGlassGroupSample(
+    state: AssistantUiState,
+    title: String,
+    subtitle: String,
+    role: GlassRole,
+    radius: Int,
+    height: Dp,
+) {
+    PressableGlass(
+        quality = state.quality,
+        glassIntensity = state.glassIntensity,
+        motionIntensity = state.motionIntensity,
+        radius = radius,
+        role = role,
+        modifier = Modifier.fillMaxWidth().height(height),
+    ) {
+        Row(
+            Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 12.5.sp, fontWeight = FontWeight.Black)
+                Text(subtitle, color = Color.White.copy(alpha = 0.46f), fontSize = 9.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Metric("速", ComposeGlassLabState.motionStyle.speed, Modifier.weight(0.38f))
+            Metric("光", ComposeGlassLabState.motionStyle.touchLight, Modifier.weight(0.38f))
         }
     }
 }
