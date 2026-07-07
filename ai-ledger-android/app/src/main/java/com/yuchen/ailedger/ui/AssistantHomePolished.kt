@@ -600,7 +600,6 @@ private fun ChatPanelV2(
             )
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("对话", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                     Spacer(Modifier.weight(1f))
                     ClearChatButtonV2(
                         enabled = sourceMessages.isNotEmpty(),
