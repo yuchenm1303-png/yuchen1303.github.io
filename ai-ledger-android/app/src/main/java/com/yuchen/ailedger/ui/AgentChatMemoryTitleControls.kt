@@ -20,7 +20,7 @@ internal fun AgentChatMemoryTitleControls(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .height(26.dp)
-            .offset(x = (-22).dp, y = 3.dp),
+            .offset(x = (-34).dp, y = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
