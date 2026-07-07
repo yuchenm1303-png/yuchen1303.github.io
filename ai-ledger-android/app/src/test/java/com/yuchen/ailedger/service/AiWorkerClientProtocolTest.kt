@@ -7,6 +7,7 @@ import com.yuchen.ailedger.model.MessageRole
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class AiWorkerClientProtocolTest {
@@ -17,6 +18,12 @@ class AiWorkerClientProtocolTest {
             clientId = "android-install-test",
         ),
     )
+
+    @Before
+    fun resetAgentModes() {
+        AgentRuntimeController.setEnabled(false)
+        AgentWorkspaceModeController.setEnabled(false)
+    }
 
     @Test
     fun imagePayloadContainsOneBase64CopyOnly() {
