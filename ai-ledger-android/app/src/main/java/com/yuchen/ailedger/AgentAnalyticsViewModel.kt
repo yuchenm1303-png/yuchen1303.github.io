@@ -177,8 +177,9 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
                     if (firstLoad) {
                         if (!activeOwner.isGuest) {
                             startCloudSync(activeOwner, local)
-                        } else if (skillInventoryRequested) {
-                            loadGuestSkillInventory(activeOwner.storageKey)
+                        }
+                        if (skillInventoryRequested) {
+                            loadSkillInventory(activeOwner.storageKey)
                         }
                         firstLoad = false
                     }
@@ -198,6 +199,10 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
             if (!pageVisible || owner.value.storageKey != activeOwner.storageKey || !refreshed.loaded) return@launch
             localSnapshot.value = refreshed
             startCloudSync(activeOwner, refreshed)
+            if (skillInventoryRequested) {
+                skillLoadedOwnerKey = null
+                loadSkillInventory(activeOwner.storageKey)
+            }
         }
     }
 
@@ -337,11 +342,11 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
     fun ensureSkillInventoryLoaded() {
         skillInventoryRequested = true
         val activeOwner = owner.value
-        if (!pageVisible || !activeOwner.isGuest || skillLoadedOwnerKey == activeOwner.storageKey) return
-        loadGuestSkillInventory(activeOwner.storageKey)
+        if (!pageVisible || skillLoadedOwnerKey == activeOwner.storageKey) return
+        loadSkillInventory(activeOwner.storageKey)
     }
 
-    private fun loadGuestSkillInventory(ownerKey: String) {
+    private fun loadSkillInventory(ownerKey: String) {
         skillLoadedOwnerKey = ownerKey
         viewModelScope.launch {
             val inventory = try {
@@ -355,8 +360,7 @@ class AgentAnalyticsViewModel(application: Application) : AndroidViewModel(appli
             }
             if (
                 pageVisible &&
-                owner.value.storageKey == ownerKey &&
-                owner.value.isGuest
+                owner.value.storageKey == ownerKey
             ) {
                 mutableSkillInventory.value = inventory
             }
