@@ -42,6 +42,8 @@ private val ComposeSizeNormBoostRange = 0f..16f
 private val ComposeSizeNormMinOpticsRange = 0f..8f
 private val ComposeSizeNormLensRange = 0.05f..12f
 private val ComposeSizeNormDampRange = 0f..2f
+private val ComposeSizeNormLargeSuppressionRange = 0f..16f
+private val ComposeSizeNormBodyCapRange = 0.10f..2.40f
 
 @Composable
 fun GlassDebugFloatingPanel(
@@ -116,10 +118,16 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
                     }
                 }
-                Group("尺寸归一化", "只整理小组件尺寸补偿参数；其他光效参数保持原来的栏目", state, initiallyExpanded = true) {
+                Group("尺寸归一化", "小组件增强 + 大组件抑制；专门解决尺寸差导致的动效失衡", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
                     LabSlider("小组件补偿", "增强 Chip / Floating / 小圆按钮的可感知形变和光效", sizeTuning.pressSmallBoost, ComposeSizeNormBoostRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressSmallBoost = it))
+                    }
+                    LabSlider("大组件抑制", "压低大 Card / 大面积面板的 body 形变，数值越高晃动越少", sizeTuning.largeComponentSuppressionValue(), ComposeSizeNormLargeSuppressionRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.withLargeComponentSuppression(it))
+                    }
+                    LabSlider("大组件形变上限", "限制归一化后 body 的最高输出；调低后大卡片会更稳", sizeTuning.bodyMax, ComposeSizeNormBodyCapRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyMax = it))
                     }
                     LabSlider("长条补偿", "增强全宽低高度卡片的点击光和边缘扫光", sizeTuning.pressRowBoost, ComposeSizeNormBoostRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressRowBoost = it))
@@ -355,6 +363,8 @@ private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: 
           },
           "ordinaryGlassSizeNormalization": {
             "smallBoost": ${size.pressSmallBoost.exportValue()},
+            "largeSuppression": ${size.largeComponentSuppressionValue().exportValue()},
+            "largeBodyMax": ${size.bodyMax.exportValue()},
             "rowBoost": ${size.pressRowBoost.exportValue()},
             "minOptics": ${size.pressMinOptics.exportValue()},
             "bodyGain": ${size.pressBodyGain.exportValue()},
@@ -365,6 +375,22 @@ private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: 
           }
         }
     """.trimIndent()
+}
+
+private fun OrdinaryGlassSizeAdaptiveTuning.largeComponentSuppressionValue(): Float {
+    val keep = ((bodyHeightMin.coerceIn(0.025f, 2f) + bodyAreaMin.coerceIn(0.025f, 2f)) * 0.5f).coerceAtLeast(0.025f)
+    return (((0.43f / keep) - 1f) * 1.55f).coerceIn(0f, 16f)
+}
+
+private fun OrdinaryGlassSizeAdaptiveTuning.withLargeComponentSuppression(value: Float): OrdinaryGlassSizeAdaptiveTuning {
+    val suppression = value.coerceIn(0f, 16f)
+    val heightKeep = (0.42f / (1f + suppression * 0.56f)).coerceIn(0.025f, 2f)
+    val areaKeep = (0.44f / (1f + suppression * 0.62f)).coerceIn(0.025f, 2f)
+    return copy(
+        bodyHeightMin = heightKeep,
+        bodyAreaMin = areaKeep,
+        largeDamp = suppression.coerceIn(0f, 24f),
+    )
 }
 
 private fun Float.formatLabValue(): String {
