@@ -30,7 +30,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
@@ -99,9 +98,6 @@ internal fun AnchoredQuickPanel(
     val pressScope = rememberCoroutineScope()
     val outsideInteraction = remember { MutableInteractionSource() }
     var rootBounds by remember { mutableStateOf(Rect.Zero) }
-    val quietSurfaceBrush = remember(glassIntensity, quality, motionIntensity) {
-        anchoredQuickPanelQuietSurfaceBrush(glassIntensity)
-    }
 
     LaunchedEffect(visible) {
         if (!visible) {
@@ -276,8 +272,6 @@ internal fun AnchoredQuickPanel(
                     spotColor = Color(0xFF8DFFF4).copy(alpha = 0.08f),
                 )
                 .clip(panelShape)
-                .background(quietSurfaceBrush)
-                .background(surfaceColor)
                 .pointerInput(visible, panelShape) {
                     if (!visible) return@pointerInput
                     awaitEachGesture {
@@ -301,26 +295,33 @@ internal fun AnchoredQuickPanel(
                     }
                 },
         ) {
-            content(
-                AnchoredQuickPanelLayout(
-                    compact = compact,
-                    placement = placement,
-                    tailHeight = tailHeight,
-                )
-            )
+            GlassSceneScope(group = GlassSceneGroup.Unassigned) {
+                PressableGlass(
+                    quality = quality,
+                    glassIntensity = glassIntensity,
+                    motionIntensity = 0f,
+                    radius = cornerRadius.value.roundToInt(),
+                    modifier = Modifier.fillMaxSize(),
+                    role = GlassRole.Floating,
+                    onClick = {},
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(surfaceColor),
+                    ) {
+                        content(
+                            AnchoredQuickPanelLayout(
+                                compact = compact,
+                                placement = placement,
+                                tailHeight = tailHeight,
+                            )
+                        )
+                    }
+                }
+            }
         }
     }
-}
-
-private fun anchoredQuickPanelQuietSurfaceBrush(glassIntensity: Float): Brush {
-    val alpha = glassIntensity.coerceIn(0.72f, 1.18f)
-    return Brush.verticalGradient(
-        colors = listOf(
-            Color(0xFF173454).copy(alpha = 0.60f * alpha),
-            Color(0xFF102744).copy(alpha = 0.52f * alpha),
-            Color(0xFF0B1C36).copy(alpha = 0.58f * alpha),
-        ),
-    )
 }
 
 private class AnchoredQuickPanelShape(
