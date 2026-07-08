@@ -142,31 +142,17 @@ internal fun AnchoredQuickPanel(
         val anchorIsValid = anchorBounds.width > 1f &&
             anchorBounds.height > 1f &&
             rootBounds.width > 1f
-        val localAnchorTop = if (anchorIsValid) {
-            anchorBounds.top - rootBounds.top
-        } else {
-            constraints.maxHeight * 0.34f
-        }
-        val localAnchorBottom = if (anchorIsValid) {
-            anchorBounds.bottom - rootBounds.top
-        } else {
-            constraints.maxHeight * 0.39f
-        }
+        val localAnchorTop = if (anchorIsValid) anchorBounds.top - rootBounds.top else constraints.maxHeight * 0.34f
+        val localAnchorBottom = if (anchorIsValid) anchorBounds.bottom - rootBounds.top else constraints.maxHeight * 0.39f
         val localAnchorCenterX = if (anchorIsValid) {
             ((anchorBounds.left + anchorBounds.right) * 0.5f - rootBounds.left).roundToInt()
         } else {
             (constraints.maxWidth * 0.78f).roundToInt()
         }
 
-        val availableAbovePx = (
-            localAnchorTop.roundToInt() - gapPx - safePx
-        ).coerceAtLeast(1)
-        val availableBelowPx = (
-            constraints.maxHeight - localAnchorBottom.roundToInt() - gapPx - safePx
-        ).coerceAtLeast(1)
+        val availableAbovePx = (localAnchorTop.roundToInt() - gapPx - safePx).coerceAtLeast(1)
+        val availableBelowPx = (constraints.maxHeight - localAnchorBottom.roundToInt() - gapPx - safePx).coerceAtLeast(1)
 
-        // 向上面板属于聊天标题区的固定交互语义：只允许压缩，不允许翻到聊天内容下方。
-        // 向下面板仍保留空间自适应，用于登录表单在键盘弹出时翻到锚点上方。
         val placement = if (preferredPlacement == AnchoredQuickPanelPlacement.Above) {
             AnchoredQuickPanelPlacement.Above
         } else {
@@ -203,41 +189,22 @@ internal fun AnchoredQuickPanel(
                     (constraints.maxHeight - panelHeightPx - safePx).coerceAtLeast(safePx),
                 )
         }
-        val tailFraction = (
-            (localAnchorCenterX - panelX).toFloat() / panelWidthPx.coerceAtLeast(1)
-        ).coerceIn(0.16f, 0.84f)
-        val panelShape = remember(
-            panelWidthPx,
-            panelHeightPx,
-            tailFraction,
-            placement,
-            cornerRadius,
-            tailHeight,
-            tailHalfWidth,
-        ) {
-            AnchoredQuickPanelShape(
-                cornerRadius = cornerRadius,
-                tailHeight = tailHeight,
-                tailHalfWidth = tailHalfWidth,
-                tailCenterFraction = tailFraction,
-                placement = placement,
-            )
+        val tailFraction = ((localAnchorCenterX - panelX).toFloat() / panelWidthPx.coerceAtLeast(1)).coerceIn(0.16f, 0.84f)
+        val panelShape = remember(panelWidthPx, panelHeightPx, tailFraction, placement, cornerRadius, tailHeight, tailHalfWidth) {
+            AnchoredQuickPanelShape(cornerRadius, tailHeight, tailHalfWidth, tailFraction, placement)
         }
 
         if (visible) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .clickable(
-                        interactionSource = outsideInteraction,
-                        indication = null,
-                        onClick = onDismiss,
-                    ),
+                    .clickable(interactionSource = outsideInteraction, indication = null, onClick = onDismiss),
             )
         }
 
         val renderedX = if (visible) panelX else -panelWidthPx - safePx
         val renderedY = if (visible) panelY else -panelHeightPx - safePx
+        val shellGlassIntensity = if (surfaceColor.alpha >= 0.72f) 0.25f else glassIntensity
 
         Box(
             modifier = Modifier
@@ -259,10 +226,7 @@ internal fun AnchoredQuickPanel(
                     } else {
                         0f
                     }
-                    transformOrigin = TransformOrigin(
-                        pivotFractionX = tailFraction,
-                        pivotFractionY = if (placement == AnchoredQuickPanelPlacement.Above) 1f else 0f,
-                    )
+                    transformOrigin = TransformOrigin(tailFraction, if (placement == AnchoredQuickPanelPlacement.Above) 1f else 0f)
                 }
                 .shadow(
                     elevation = 10.dp,
@@ -298,25 +262,15 @@ internal fun AnchoredQuickPanel(
             GlassSceneScope(group = GlassSceneGroup.Unassigned) {
                 PressableGlass(
                     quality = quality,
-                    glassIntensity = glassIntensity,
+                    glassIntensity = shellGlassIntensity,
                     motionIntensity = 0f,
                     radius = cornerRadius.value.roundToInt(),
                     modifier = Modifier.fillMaxSize(),
                     role = GlassRole.Floating,
                     onClick = {},
                 ) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(surfaceColor),
-                    ) {
-                        content(
-                            AnchoredQuickPanelLayout(
-                                compact = compact,
-                                placement = placement,
-                                tailHeight = tailHeight,
-                            )
-                        )
+                    Box(Modifier.fillMaxSize().background(surfaceColor)) {
+                        content(AnchoredQuickPanelLayout(compact = compact, placement = placement, tailHeight = tailHeight))
                     }
                 }
             }
@@ -331,19 +285,11 @@ private class AnchoredQuickPanelShape(
     private val tailCenterFraction: Float,
     private val placement: AnchoredQuickPanelPlacement,
 ) : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: LayoutDirection,
-        density: Density,
-    ): Outline {
-        val radius = with(density) { cornerRadius.toPx() }
-            .coerceAtMost(minOf(size.width, size.height) * 0.30f)
-        val tailH = with(density) { tailHeight.toPx() }
-            .coerceIn(0f, size.height * 0.22f)
-        val halfTail = with(density) { tailHalfWidth.toPx() }
-            .coerceAtMost(size.width * 0.16f)
-        val tailCenter = (size.width * tailCenterFraction.coerceIn(0.16f, 0.84f))
-            .coerceIn(radius + halfTail, size.width - radius - halfTail)
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        val radius = with(density) { cornerRadius.toPx() }.coerceAtMost(minOf(size.width, size.height) * 0.30f)
+        val tailH = with(density) { tailHeight.toPx() }.coerceIn(0f, size.height * 0.22f)
+        val halfTail = with(density) { tailHalfWidth.toPx() }.coerceAtMost(size.width * 0.16f)
+        val tailCenter = (size.width * tailCenterFraction.coerceIn(0.16f, 0.84f)).coerceIn(radius + halfTail, size.width - radius - halfTail)
 
         val path = if (placement == AnchoredQuickPanelPlacement.Above) {
             val bodyBottom = (size.height - tailH).coerceAtLeast(radius * 2f)
@@ -354,22 +300,8 @@ private class AnchoredQuickPanelShape(
                 lineTo(size.width, bodyBottom - radius)
                 quadraticBezierTo(size.width, bodyBottom, size.width - radius, bodyBottom)
                 lineTo(tailCenter + halfTail, bodyBottom)
-                cubicTo(
-                    tailCenter + halfTail * 0.56f,
-                    bodyBottom + tailH * 0.08f,
-                    tailCenter + halfTail * 0.28f,
-                    bodyBottom + tailH * 0.72f,
-                    tailCenter,
-                    size.height,
-                )
-                cubicTo(
-                    tailCenter - halfTail * 0.28f,
-                    bodyBottom + tailH * 0.72f,
-                    tailCenter - halfTail * 0.56f,
-                    bodyBottom + tailH * 0.08f,
-                    tailCenter - halfTail,
-                    bodyBottom,
-                )
+                cubicTo(tailCenter + halfTail * 0.56f, bodyBottom + tailH * 0.08f, tailCenter + halfTail * 0.28f, bodyBottom + tailH * 0.72f, tailCenter, size.height)
+                cubicTo(tailCenter - halfTail * 0.28f, bodyBottom + tailH * 0.72f, tailCenter - halfTail * 0.56f, bodyBottom + tailH * 0.08f, tailCenter - halfTail, bodyBottom)
                 lineTo(radius, bodyBottom)
                 quadraticBezierTo(0f, bodyBottom, 0f, bodyBottom - radius)
                 lineTo(0f, radius)
@@ -381,22 +313,8 @@ private class AnchoredQuickPanelShape(
             Path().apply {
                 moveTo(radius, bodyTop)
                 lineTo(tailCenter - halfTail, bodyTop)
-                cubicTo(
-                    tailCenter - halfTail * 0.56f,
-                    bodyTop - tailH * 0.08f,
-                    tailCenter - halfTail * 0.28f,
-                    bodyTop - tailH * 0.72f,
-                    tailCenter,
-                    0f,
-                )
-                cubicTo(
-                    tailCenter + halfTail * 0.28f,
-                    bodyTop - tailH * 0.72f,
-                    tailCenter + halfTail * 0.56f,
-                    bodyTop - tailH * 0.08f,
-                    tailCenter + halfTail,
-                    bodyTop,
-                )
+                cubicTo(tailCenter - halfTail * 0.56f, bodyTop - tailH * 0.08f, tailCenter - halfTail * 0.28f, bodyTop - tailH * 0.72f, tailCenter, 0f)
+                cubicTo(tailCenter + halfTail * 0.28f, bodyTop - tailH * 0.72f, tailCenter + halfTail * 0.56f, bodyTop - tailH * 0.08f, tailCenter + halfTail, bodyTop)
                 lineTo(size.width - radius, bodyTop)
                 quadraticBezierTo(size.width, bodyTop, size.width, bodyTop + radius)
                 lineTo(size.width, size.height - radius)
