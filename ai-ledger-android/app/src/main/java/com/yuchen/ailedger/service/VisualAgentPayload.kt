@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val VISUAL_INTERACTION_PROTOCOL = "gui_plus_dialogue_v2_bound_turns"
+private const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
 
 /** The single visual request payload implementation. No legacy payload or cleanup pass exists. */
 internal fun buildLeanVisualAgentPayload(
@@ -38,7 +39,12 @@ internal fun buildLeanVisualAgentPayload(
         .toList()
     val inventoryHash = apps.inventoryHash()
     val visual = snapshot.visual?.takeIf { it.hasImage }
-    val guiPlusSession = runtime.guiPlusEligible && visual != null
+    val currentPackage = snapshot.packageName.trim().ifBlank { snapshot.currentApp.trim() }
+    val controllerHandoffActive = visual != null &&
+        currentPackage.isAssistantHostPackage() &&
+        runtime.selectedTargetPackage.isBlank() &&
+        runtime.verifiedTargetPackage.isBlank()
+    val guiPlusSession = (runtime.guiPlusEligible && visual != null) || controllerHandoffActive
     val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
     val screenPayload = snapshot.toJson(includeImage = false).apply {
         put("reportedForegroundPackage", optString("packageName"))
@@ -69,6 +75,33 @@ internal fun buildLeanVisualAgentPayload(
         put("allowAgentBrain", false)
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
+        put(
+            "visualOwnership",
+            JSONObject().apply {
+                put("schema", "android_gui_plus_exclusive_ownership_v3")
+                put("owner", "gui_plus")
+                put("exclusive", guiPlusSession)
+                put("entryRouterReleased", true)
+                put("allowAgentBrain", false)
+                put("allowRoutePlanner", false)
+                put("allowSemanticJudge", false)
+                put("targetAppSelectionOwner", "gui_plus")
+                put("androidRole", "mechanical_executor_and_verifier")
+            },
+        )
+        put("surfaceRole", if (controllerHandoffActive) "controller" else "work_surface")
+        put("controllerHandoffActive", controllerHandoffActive)
+        put(
+            "controllerHandoff",
+            JSONObject().apply {
+                put("schema", "android_gui_plus_controller_handoff_v1")
+                put("role", if (controllerHandoffActive) "controller" else "none")
+                put("controllerHandoffActive", controllerHandoffActive)
+                put("isAssistantHost", currentPackage.isAssistantHostPackage())
+                put("isFirstVisualTurn", controllerHandoffActive)
+                put("policy", "assistant_host_is_control_console_not_task_surface")
+            },
+        )
         put(
             "runtimeExecutionContext",
             JSONObject().apply {
@@ -112,6 +145,15 @@ internal fun buildLeanVisualAgentPayload(
                 put("schema", "android_visual_device_context_v2")
                 put("currentPackage", snapshot.packageName)
                 put("deviceId", deviceId.trim().take(120))
+                put(
+                    "surfaceContext",
+                    JSONObject().apply {
+                        put("role", if (controllerHandoffActive) "controller" else "work_surface")
+                        put("controllerHandoffActive", controllerHandoffActive)
+                        put("isAssistantHost", currentPackage.isAssistantHostPackage())
+                        put("isFirstVisualTurn", controllerHandoffActive)
+                    },
+                )
             },
         )
         put("appContext", JSONArray().apply { apps.forEach { put(it.toPayloadJson()) } })
@@ -162,7 +204,7 @@ internal fun buildLeanVisualAgentPayload(
             },
         )
         put("client", "android-compose")
-        put("clientVersion", "visual-gui-plus-owner-v1")
+        put("clientVersion", "visual-gui-plus-owner-v2")
         put("now", System.currentTimeMillis())
     }
 }
@@ -291,3 +333,10 @@ private fun String.isRemovedLocalControlLine(): Boolean =
         startsWith("visual_task_memory:") ||
         startsWith("visual_execution_ledger:") ||
         startsWith("visual_runtime_context:")
+
+private fun String.isAssistantHostPackage(): Boolean {
+    val normalized = trim().lowercase()
+    return normalized == ASSISTANT_HOST_PACKAGE ||
+        normalized.contains("ailedger") ||
+        normalized.contains("aiassistant")
+}
