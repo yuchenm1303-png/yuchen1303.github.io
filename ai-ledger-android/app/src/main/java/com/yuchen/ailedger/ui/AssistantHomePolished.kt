@@ -97,8 +97,23 @@ import kotlin.math.sin
 
 private const val CHAT_TAIL_ANCHOR_KEY = "assistant-chat-tail-anchor"
 private const val CHAT_TAIL_FOLLOW_EPSILON_PX = 0.75f
-private const val CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX = 128f
-private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX = 220f
+private const val CHAT_TAIL_FOLLOW_LIVE_STIFFNESS = 104f
+private const val CHAT_TAIL_FOLLOW_LIVE_DAMPING = 18.5f
+private const val CHAT_TAIL_FOLLOW_SETTLE_STIFFNESS = 138f
+private const val CHAT_TAIL_FOLLOW_SETTLE_DAMPING = 21.0f
+private const val CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX = 4600f
+private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX = 6200f
+private const val CHAT_TAIL_FOLLOW_MIN_DELTA_PX = 0.16f
+
+private class ChatTailFollowRuntimeV2 {
+    var lastFrameNanos: Long = 0L
+    var velocityPxPerSecond: Float = 0f
+
+    fun reset() {
+        lastFrameNanos = 0L
+        velocityPxPerSecond = 0f
+    }
+}
 
 @Immutable
 private data class ChatPanelUiState(
@@ -581,6 +596,8 @@ private fun ChatPanelV2(
         pendingStreamMotion ||
         pendingRevealMotion
 
+    val tailFollowRuntime = remember { ChatTailFollowRuntimeV2() }
+
     LaunchedEffect(lastMessageId, lastMessageStatus, lastMessageIndex, state.isSending) {
         if (messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
         listState.settleChatTailV2(
@@ -590,12 +607,15 @@ private fun ChatPanelV2(
     }
 
     LaunchedEffect(lastMessageId, tailAnchorIndex, liveTailFollowActive) {
+        tailFollowRuntime.reset()
         if (!liveTailFollowActive || messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
         while (true) {
-            withFrameNanos { }
+            val frameNanos = withFrameNanos { it }
             listState.followChatTailFrameV2(
                 tailIndex = tailAnchorIndex,
-                live = true
+                live = true,
+                runtime = tailFollowRuntime,
+                frameNanos = frameNanos
             )
         }
     }
@@ -686,17 +706,24 @@ private suspend fun LazyListState.settleChatTailV2(
     live: Boolean
 ) {
     if (tailIndex < 0) return
+    val runtime = ChatTailFollowRuntimeV2()
     withFrameNanos { }
     if (layoutInfo.totalItemsCount <= tailIndex) return
 
     if (!live && !isChatTailVisiblyDockedV2(tailIndex)) {
         animateScrollToItem(tailIndex)
+        runtime.reset()
     }
 
-    val settleFrames = if (live) 12 else 8
+    val settleFrames = if (live) 18 else 10
     repeat(settleFrames) {
-        withFrameNanos { }
-        followChatTailFrameV2(tailIndex = tailIndex, live = live)
+        val frameNanos = withFrameNanos { it }
+        followChatTailFrameV2(
+            tailIndex = tailIndex,
+            live = live,
+            runtime = runtime,
+            frameNanos = frameNanos
+        )
     }
 }
 
@@ -709,39 +736,66 @@ private fun LazyListState.isChatTailVisiblyDockedV2(tailIndex: Int): Boolean {
 
 private suspend fun LazyListState.followChatTailFrameV2(
     tailIndex: Int,
-    live: Boolean
+    live: Boolean,
+    runtime: ChatTailFollowRuntimeV2,
+    frameNanos: Long
 ): Boolean {
     if (tailIndex < 0 || layoutInfo.totalItemsCount <= tailIndex) return false
     val info = layoutInfo
     val visibleItems = info.visibleItemsInfo
     if (visibleItems.isEmpty()) return false
 
+    val dt = if (runtime.lastFrameNanos == 0L) {
+        1f / 60f
+    } else {
+        ((frameNanos - runtime.lastFrameNanos) / 1_000_000_000f).coerceIn(0.006f, 0.040f)
+    }
+    runtime.lastFrameNanos = frameNanos
+
     val tail = visibleItems.firstOrNull { it.index == tailIndex }
-    if (tail == null) {
+    val gap = if (tail == null) {
         val lastVisible = visibleItems.last()
-        if (lastVisible.index < tailIndex) {
-            val maxStep = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX
-            val spareViewport = (info.viewportEndOffset - (lastVisible.offset + lastVisible.size)).coerceAtLeast(0)
-            val step = (maxStep - spareViewport.toFloat() * 0.10f).coerceIn(24f, maxStep)
-            scrollBy(step)
-            return true
+        when {
+            lastVisible.index < tailIndex -> {
+                val hiddenItems = (tailIndex - lastVisible.index).coerceAtLeast(1)
+                val spareViewport = (info.viewportEndOffset - (lastVisible.offset + lastVisible.size)).coerceAtLeast(0)
+                (hiddenItems * 72f - spareViewport * 0.18f).coerceAtLeast(36f)
+            }
+            lastVisible.index > tailIndex -> {
+                animateScrollToItem(tailIndex)
+                runtime.reset()
+                return true
+            }
+            else -> 0f
         }
-        if (lastVisible.index > tailIndex) {
-            animateScrollToItem(tailIndex)
-            return true
-        }
+    } else {
+        (tail.offset + tail.size - info.viewportEndOffset).toFloat()
+    }
+
+    if (gap <= CHAT_TAIL_FOLLOW_EPSILON_PX) {
+        runtime.velocityPxPerSecond *= 0.62f
+        if (kotlin.math.abs(runtime.velocityPxPerSecond) < 6f) runtime.velocityPxPerSecond = 0f
         return false
     }
 
-    val tailBottom = tail.offset + tail.size
-    val gap = (tailBottom - info.viewportEndOffset).toFloat()
-    if (gap <= CHAT_TAIL_FOLLOW_EPSILON_PX) return false
+    val stiffness = if (live) CHAT_TAIL_FOLLOW_LIVE_STIFFNESS else CHAT_TAIL_FOLLOW_SETTLE_STIFFNESS
+    val damping = if (live) CHAT_TAIL_FOLLOW_LIVE_DAMPING else CHAT_TAIL_FOLLOW_SETTLE_DAMPING
+    val maxVelocity = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX
+    val acceleration = gap * stiffness - runtime.velocityPxPerSecond * damping
+    runtime.velocityPxPerSecond = (runtime.velocityPxPerSecond + acceleration * dt)
+        .coerceIn(-maxVelocity, maxVelocity)
 
-    val pull = if (live) 0.24f else 0.32f
-    val maxStep = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX
-    val minStep = if (live) 0.85f else 1.25f
-    val step = (gap * pull).coerceIn(minStep, maxStep)
-    scrollBy(step)
+    val springDelta = runtime.velocityPxPerSecond.coerceAtLeast(0f) * dt
+    val softMinimum = when {
+        gap <= 2.0f -> 0f
+        live -> CHAT_TAIL_FOLLOW_MIN_DELTA_PX
+        else -> CHAT_TAIL_FOLLOW_MIN_DELTA_PX * 1.35f
+    }
+    val delta = springDelta
+        .coerceAtLeast(softMinimum)
+        .coerceAtMost(gap)
+
+    scrollBy(delta)
     return true
 }
 
@@ -959,7 +1013,12 @@ private fun MessageBubbleV2(
             Column(
             modifier = Modifier
                 .padding(horizontal = 14.dp, vertical = 10.dp)
-                .animateContentSize(animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)),
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = if (sending || revealActive || streamRevealShouldAnimate) 0.94f else 0.86f,
+                        stiffness = if (sending || revealActive || streamRevealShouldAnimate) Spring.StiffnessLow else Spring.StiffnessMediumLow
+                    )
+                ),
             verticalArrangement = Arrangement.spacedBy(7.dp)
         ) {
             if (sending) {
@@ -1759,21 +1818,50 @@ private fun rememberCloudProgressLabelV2(messageId: String, hasLiveText: Boolean
 
 @Composable
 private fun rememberRevealTextStateV2(messageId: String, text: String, enabled: Boolean): Pair<String, Boolean> {
-    var visibleCount by remember(messageId, text) { mutableStateOf(if (enabled) 0 else text.length) }
+    var visibleHead by remember(messageId, text) { mutableStateOf(if (enabled) 0f else text.length.toFloat()) }
     LaunchedEffect(messageId, text, enabled) {
         if (!enabled) {
-            visibleCount = text.length
+            visibleHead = text.length.toFloat()
             return@LaunchedEffect
         }
-        visibleCount = 0
-        delay(120)
-        while (visibleCount < text.length) {
-            visibleCount = nextRevealBoundaryV2(text, visibleCount)
-            delay(revealDelayV2(text.length, visibleCount))
+        visibleHead = 0f
+        delay(80)
+        var lastFrameNanos = 0L
+        while (visibleHead < text.length - 0.01f) {
+            val frameNanos = withFrameNanos { it }
+            val dt = if (lastFrameNanos == 0L) {
+                1f / 60f
+            } else {
+                ((frameNanos - lastFrameNanos) / 1_000_000_000f).coerceIn(0.006f, 0.048f)
+            }
+            lastFrameNanos = frameNanos
+
+            val remaining = text.length - visibleHead
+            val speed = revealCharsPerSecondV2(text.length, remaining)
+            val pauseFactor = fluidPauseFactorV2(text, visibleHead)
+            visibleHead = minOf(text.length.toFloat(), visibleHead + speed * pauseFactor * dt)
+            if (text.length - visibleHead < 0.40f) visibleHead = text.length.toFloat()
         }
     }
-    val safeCount = visibleCount.coerceIn(0, text.length)
+    val safeCount = safeStreamingEndV2(text, visibleHead.toInt().coerceIn(0, text.length))
     return text.take(safeCount) to (safeCount >= text.length)
+}
+
+private fun revealCharsPerSecondV2(total: Int, remaining: Float): Float {
+    val base = when {
+        total >= 1800 -> 920f
+        total >= 1100 -> 780f
+        total >= 620 -> 640f
+        total >= 260 -> 520f
+        else -> 410f
+    }
+    val catchUp = when {
+        remaining >= 900f -> 1.22f
+        remaining >= 420f -> 1.12f
+        remaining <= 48f -> 0.78f
+        else -> 1f
+    }
+    return base * catchUp
 }
 
 private fun nextRevealBoundaryV2(text: String, current: Int): Int {
