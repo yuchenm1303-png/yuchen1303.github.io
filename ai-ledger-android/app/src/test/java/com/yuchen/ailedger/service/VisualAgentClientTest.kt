@@ -175,7 +175,7 @@ class VisualAgentClientTest {
 
         assertFalse(payload.has("routeRefreshRequested"))
         assertFalse(payload.has("invalidateCachedAgentBrainRoute"))
-        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertEquals("deepseek", payload.getString("visualDecisionOwner"))
         assertTrue(payload.getJSONObject("executionFeedback").getBoolean("replanRequested"))
         assertTrue(payload.getJSONObject("executionFeedback").getBoolean("structuralRegression"))
     }

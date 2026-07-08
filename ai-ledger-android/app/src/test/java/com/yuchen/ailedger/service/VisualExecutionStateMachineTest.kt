@@ -8,16 +8,6 @@ import org.junit.Test
 
 class VisualExecutionStateMachineTest {
     @Test
-    fun initialPlanningRequiresVisualObservation() {
-        val machine = VisualExecutionStateMachine()
-
-        assertEquals(VisualSurfaceState.Planning, machine.surfaceState)
-        assertEquals("", machine.selectedTargetPackage)
-        assertEquals("", machine.verifiedTargetPackage)
-        assertTrue(machine.requiresVisualObservation())
-    }
-
-    @Test
     fun exactPackageSampleCannotCompleteLaunchImplicitly() {
         val machine = VisualExecutionStateMachine()
 
@@ -27,12 +17,10 @@ class VisualExecutionStateMachineTest {
         assertEquals(VisualSurfaceState.Launching, machine.surfaceState)
         assertEquals("com.example.target", machine.selectedTargetPackage)
         assertEquals("", machine.verifiedTargetPackage)
-        assertEquals(1L, machine.surfaceEpoch)
         assertEquals(0L, machine.routeEpoch)
+        assertEquals(1L, machine.surfaceEpoch)
         assertFalse(machine.isVerifiedWorkSurface("com.example.target"))
-        // Launching is not verified yet, but the visual loop is screenshot-authoritative now:
-        // the first planning/handoff turn must carry a clean screenshot so GUI Plus can see.
-        assertTrue(machine.requiresVisualObservation())
+        assertFalse(machine.requiresVisualObservation())
     }
 
     @Test
@@ -109,7 +97,6 @@ class VisualExecutionStateMachineTest {
         assertEquals(VisualSurfaceState.Replanning, machine.surfaceState)
         assertEquals("", machine.verifiedTargetPackage)
         assertFalse(machine.isVerifiedWorkSurface("com.example.target"))
-        assertTrue(machine.requiresVisualObservation())
     }
 
     @Test
@@ -133,7 +120,6 @@ class VisualExecutionStateMachineTest {
         assertEquals(1L, machine.routeEpoch)
         assertFalse(machine.requiresForeignConfirmation("com.example.other"))
         assertFalse(machine.isVerifiedWorkSurface("com.example.target"))
-        assertTrue(machine.requiresVisualObservation())
     }
 
     @Test
