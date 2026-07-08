@@ -74,7 +74,7 @@ fun GlassDebugFloatingPanel(
                 true,
                 state,
             ) {
-                Group("8830 动画曲线", "只保留当前新光效真正消费的动画参数；范围放大方便压测", state, initiallyExpanded = true) {
+                Group("8830 动画曲线", "包含短按保底时间轴；解决快速点击一帧内被 release 吞掉的问题", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
                     LabSlider("总强度 master", "普通 Compose 光动效总能量，0 关闭，越高越夸张", motion.master, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(master = it))
@@ -87,6 +87,18 @@ fun GlassDebugFloatingPanel(
                     }
                     LabSlider("释放回弹 rebound", "控制松手时的反向回弹幅度", motion.rebound, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
+                    }
+                    LabSlider("短按爆发 tapImpulse", "极短点击时强制补一段可见的本体鼓起峰值", motion.tapImpulse, ComposeMotionEnergyRange) {
+                        ComposeGlassLabState.updateMotion(motion.copy(tapImpulse = it))
+                    }
+                    LabSlider("释放衔接 releaseCohesion", "防止 release 过快切断按下动画，越高越连贯", motion.releaseCohesion, ComposeMotionEnergyRange) {
+                        ComposeGlassLabState.updateMotion(motion.copy(releaseCohesion = it))
+                    }
+                    LabSlider("短按余辉 fieldContinuity", "极短点击后保留一小段白光余辉，避免点完没动静", motion.fieldContinuity, ComposeMotionLightRange) {
+                        ComposeGlassLabState.updateMotion(motion.copy(fieldContinuity = it))
+                    }
+                    LabSlider("扫光惯性 sweepMomentum", "松手后边缘 sweep 的惯性保留", motion.sweepMomentum, ComposeMotionLightRange) {
+                        ComposeGlassLabState.updateMotion(motion.copy(sweepMomentum = it))
                     }
                 }
                 Group("8830 白光与扫光", "触点径向 bloom、彩色棱镜和边缘 sweep；不再显示旧压力场参数", state, initiallyExpanded = true) {
@@ -332,6 +344,10 @@ private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: 
             "speed": ${motion.speed.exportValue()},
             "deformation": ${motion.deformation.exportValue()},
             "rebound": ${motion.rebound.exportValue()},
+            "tapImpulse": ${motion.tapImpulse.exportValue()},
+            "releaseCohesion": ${motion.releaseCohesion.exportValue()},
+            "fieldContinuity": ${motion.fieldContinuity.exportValue()},
+            "sweepMomentum": ${motion.sweepMomentum.exportValue()},
             "touchLight": ${motion.touchLight.exportValue()},
             "prism": ${motion.prism.exportValue()},
             "sweep": ${motion.sweep.exportValue()},
