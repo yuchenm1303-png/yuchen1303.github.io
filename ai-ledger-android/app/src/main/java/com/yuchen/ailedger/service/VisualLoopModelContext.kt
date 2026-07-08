@@ -85,9 +85,9 @@ internal object VisualLoopModelContext {
         val target = text.ifBlank { button }
         return when (action) {
             "open" -> "Open ${target.ifBlank { "app" }}"
-            "click" -> "Click ${target.ifBlank { coordinateText(args) ?: "visible target" }}"
-            "long_press" -> "Long press ${target.ifBlank { coordinateText(args) ?: "visible target" }}"
-            "swipe", "scroll" -> "Swipe ${swipeText(args) ?: target.ifBlank { "on screen" }}"
+            "click" -> "Click ${target.ifBlank { "visible target" }}"
+            "long_press" -> "Long press ${target.ifBlank { "visible target" }}"
+            "swipe", "scroll" -> "Swipe ${target.ifBlank { "on screen" }}"
             "type" -> "Type text"
             "system_button" -> "Press ${button.ifBlank { "system button" }}"
             "wait" -> "Wait"
@@ -95,19 +95,6 @@ internal object VisualLoopModelContext {
             "terminate" -> "Terminate with ${args.optString("status").ifBlank { "status" }}"
             else -> action.replace('_', ' ')
         }.trim().takeIf(String::isNotBlank)
-    }
-
-    private fun coordinateText(args: JSONObject): String? {
-        val coordinate = args.optJSONArray("coordinate") ?: return null
-        if (coordinate.length() < 2) return null
-        return "(${coordinate.optDouble(0)}, ${coordinate.optDouble(1)})"
-    }
-
-    private fun swipeText(args: JSONObject): String? {
-        val from = args.optJSONArray("coordinate")
-        val to = args.optJSONArray("coordinate2")
-        if (from == null || to == null || from.length() < 2 || to.length() < 2) return null
-        return "(${from.optDouble(0)}, ${from.optDouble(1)}) to (${to.optDouble(0)}, ${to.optDouble(1)})"
     }
 
     private fun compactResultSuffix(result: String): String {
