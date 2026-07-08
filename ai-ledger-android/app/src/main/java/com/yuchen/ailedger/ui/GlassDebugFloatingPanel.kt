@@ -37,14 +37,14 @@ import kotlin.math.roundToInt
 private val ComposeMotionEnergyRange = 0f..12f
 private val ComposeMotionLightRange = 0f..24f
 private val ComposeMotionSpeedRange = 0.05f..8f
-private val ComposeSizeBoostRange = 0f..24f
-private val ComposeLargeDampRange = 0f..4f
+private val ComposeSizeBoostRange = 0f..96f
+private val ComposeLargeDampRange = 0f..16f
 private val ComposeSmallThresholdRange = 32f..520f
 private val ComposeLargeThresholdRange = 120f..2400f
 private val ComposeWideAspectStartRange = 1f..5.5f
 private val ComposeWideAspectEndRange = 1.2f..14f
 private val ComposeVisualPxRange = 0.2f..96f
-private val ComposeLightBoostRange = 0f..24f
+private val ComposeLightBoostRange = 0f..96f
 
 @Composable
 fun GlassDebugFloatingPanel(
@@ -109,10 +109,10 @@ fun GlassDebugFloatingPanel(
                 }
                 Group("尺寸归一化", "按短边、面积、宽高比分开建模：小件增强、大件压制、宽卡横向压制", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
-                    LabSlider("小玻璃增强", "增强 Chip/Floating 等小组件的可感知形变和光效", sizeTuning.smallBoost, ComposeSizeBoostRange) {
+                    LabSlider("小玻璃增强", "强射程增强 Chip/Floating 等小组件的可感知形变和光效", sizeTuning.smallBoost, ComposeSizeBoostRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallBoost = it))
                     }
-                    LabSlider("大玻璃压制", "压低大 Card/Flex 的整体形变和大面积 bloom", sizeTuning.largeDamp, ComposeLargeDampRange) {
+                    LabSlider("大玻璃压制", "强射程压低大 Card/Flex 的整体形变和大面积 bloom", sizeTuning.largeDamp, ComposeLargeDampRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(largeDamp = it))
                     }
                     LabSlider("小件阈值 px", "短边低于这个值时逐渐进入小件增强，不再只有一个分界", sizeTuning.smallThresholdPx, ComposeSmallThresholdRange) {
@@ -130,7 +130,7 @@ fun GlassDebugFloatingPanel(
                     LabSlider("目标形变 px", "以像素为单位的视觉鼓起目标，代替固定 scale 百分比", sizeTuning.visualPx, ComposeVisualPxRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(visualPx = it))
                     }
-                    LabSlider("光效补偿", "整体补偿尺寸归一化后的白光强度", sizeTuning.lightBoost, ComposeLightBoostRange) {
+                    LabSlider("光效补偿", "强射程补偿尺寸归一化后的白光强度", sizeTuning.lightBoost, ComposeLightBoostRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(lightBoost = it))
                     }
                 }
