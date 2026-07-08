@@ -16,20 +16,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.onPlaced
-import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 
 /**
@@ -41,8 +34,8 @@ import com.yuchen.ailedger.model.RenderQuality
  * 3. 绘制页面业务内容；
  * 4. 仅为活跃按压节点绘制内容上方光学层。
  *
- * 按压 Overlay 会排除后序玻璃的可见区域，保持 Compose 子级原有 z-order。
- * Shadow 不再建立 registry 或空绘制层，直接回退子级绘制。
+ * 按压光效使用 8830b4c 版普通 Compose 玻璃的 press / lens / sweep 公式，
+ * 但仍然由当前父级单卡 Host 统一绘制，不回退到子级 drawWithContent。
  */
 enum class OrdinaryGlassRenderMode {
     Shadow,
@@ -94,9 +87,7 @@ class OrdinaryGlassRenderNode(
         if (this.backdropAlpha != backdropAlpha) this.backdropAlpha = backdropAlpha
         if (this.edgeStrength != edgeStrength) this.edgeStrength = edgeStrength
         if (this.pressable != pressable) this.pressable = pressable
-        if (this.foldoutClipRegistry !== foldoutClipRegistry) {
-            this.foldoutClipRegistry = foldoutClipRegistry
-        }
+        if (this.foldoutClipRegistry !== foldoutClipRegistry) this.foldoutClipRegistry = foldoutClipRegistry
     }
 
     fun updateMotion(
@@ -216,13 +207,9 @@ class OrdinaryGlassSceneState(
         item.foldoutClipRect = foldoutClip
         updateOrdinaryGlassMotionSnapshot(node = node, out = item.motion)
         updateOrdinaryGlassVisualTransform(item = item, out = item.transform)
-        val transformedBounds = ordinaryGlassTransformedBounds(
-            transform = item.transform,
-            rect = rect
-        )
+        val transformedBounds = ordinaryGlassTransformedBounds(transform = item.transform, rect = rect)
         val visibilityClip = foldoutClip ?: viewport
         item.transformedBounds = transformedBounds.intersectionOrNull(visibilityClip) ?: return
-
         item.sampleOffset = if (resolveSampleOffset) {
             node.coordinates.offsetRelativeTo(backdropOrigin)
         } else {
@@ -240,9 +227,7 @@ class OrdinaryGlassSceneState(
         }
     }
 
-    internal fun forEachVisibleIndexed(
-        block: (Int, VisibleOrdinaryGlassItem) -> Unit
-    ) {
+    internal fun forEachVisibleIndexed(block: (Int, VisibleOrdinaryGlassItem) -> Unit) {
         var index = 0
         while (index < visibleCount) {
             block(index, visiblePool[index])
@@ -254,8 +239,7 @@ class OrdinaryGlassSceneState(
 
     internal fun visibleItemCount(): Int = visibleCount
 
-    internal fun transformedBoundsAt(index: Int): Rect =
-        visiblePool[index].transformedBounds
+    internal fun transformedBoundsAt(index: Int): Rect = visiblePool[index].transformedBounds
 }
 
 val LocalOrdinaryGlassSceneState = staticCompositionLocalOf<OrdinaryGlassSceneState?> { null }
@@ -278,7 +262,7 @@ internal fun BindOrdinaryGlassRenderNode(
 
 /**
  * GlassPanel / PressableGlass 的唯一普通玻璃上报入口。
- * Shell、Fallback 与 Shadow 都在这里硬排除，并且不会创建任何节点或绘制缓存。
+ * Shell、Fallback 与 Shadow 都在这里硬排除，并且不会创建任何 OpenGL 节点。
  */
 @Composable
 internal fun ReportOrdinaryGlassNode(
@@ -415,7 +399,7 @@ fun OrdinaryGlassSceneHost(
                                         itemIndex = index,
                                         itemBounds = item.transformedBounds
                                     ) {
-                                        drawOrdinaryParentPressureFieldOptics(item = item)
+                                        drawOrdinaryParentWhitePressOptics(item = item)
                                     }
                                 }
                             }
@@ -528,131 +512,4 @@ private fun DrawScope.withLaterVisibleBoundsExcluded(
         block()
     }
     drawFrom(itemIndex + 1)
-}
-
-private fun composeMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
-    val clean = value.coerceAtLeast(0f)
-    if (clean <= 1f) return clean
-    val span = (uiMax - 1f).coerceAtLeast(0.001f)
-    val t = ((clean - 1f) / span).coerceIn(0f, 1f)
-    return 1f + t * (effectiveMax - 1f)
-}
-
-private fun ordinaryParentPressureSmoothStep(value: Float): Float {
-    val x = value.coerceIn(0f, 1f)
-    return x * x * (3f - 2f * x)
-}
-
-private fun DrawScope.drawOrdinaryParentPressureFieldOptics(item: VisibleOrdinaryGlassItem) {
-    val node = item.node
-    if (!node.pressable || node.role == GlassRole.Shell) return
-
-    val rect = item.transformedBounds
-    val w = rect.width.coerceAtLeast(1f)
-    val h = rect.height.coerceAtLeast(1f)
-    if (w <= 1f || h <= 1f) return
-
-    val positivePress = node.pressProgress.coerceAtLeast(0f)
-    val lens = node.lensProgress.coerceAtLeast(0f)
-    val sweep = node.sweepProgress.coerceAtLeast(0f)
-    val rawActive = maxOf(positivePress * 0.54f, lens * 0.72f, sweep * 0.52f)
-    val active = ordinaryParentPressureSmoothStep((rawActive / 0.82f).coerceIn(0f, 1f))
-    if (active <= 0.001f) return
-
-    val maxSide = maxOf(w, h)
-    val minSide = minOf(w, h).coerceAtLeast(1f)
-    val centerNorm = Offset(
-        node.pressCenter.x.coerceIn(0f, 1f),
-        node.pressCenter.y.coerceIn(0f, 1f)
-    )
-    val tapCenter = Offset(
-        centerNorm.x * w,
-        centerNorm.y * h
-    )
-    val visualCenter = Offset(w * 0.50f, h * 0.50f)
-
-    val phaseFromSweep = ordinaryParentPressureSmoothStep((sweep / 3.10f).coerceIn(0f, 1f))
-    val phaseFromLens = ordinaryParentPressureSmoothStep((lens / 3.35f).coerceIn(0f, 1f))
-    val phase = maxOf(phaseFromSweep, phaseFromLens * 0.64f, active * 0.36f).coerceIn(0f, 1f)
-    val optics = ComposeGlassLabState.pressureOpticsTuning.normalized()
-    val drift = (optics.fieldFollow * (0.24f + phase * 0.42f) + node.elasticity.coerceIn(0f, 1f) * 0.016f)
-        .coerceIn(0f, 0.58f)
-    val fieldCenter = Offset(
-        tapCenter.x + (visualCenter.x - tapCenter.x) * drift,
-        tapCenter.y + (visualCenter.y - tapCenter.y) * drift * 0.72f
-    )
-
-    val motion = ComposeGlassLabState.motionStyle.normalized()
-    val master = composeMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
-    val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
-    val sweepGain = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
-    val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
-    val capsule = ComposeGlassLabState.capsuleTuning.normalized()
-    val capsuleLight = (1f + capsule.tapPx * 4.8f + capsule.sticky * 7.2f + capsule.basePx * 3.6f)
-        .coerceIn(0.92f, 1.74f)
-
-    val fieldKnob = optics.fieldIntensity.coerceIn(0f, 12f)
-    val spreadKnob = optics.fieldSpread.coerceIn(0f, 8f)
-    val softnessKnob = optics.fieldSoftness.coerceIn(0f, 8f)
-    val uniformity = (optics.fieldUniformity / 8f).coerceIn(0f, 1f)
-    val edgeKnob = optics.edgeIntensity.coerceIn(0f, 12f)
-    val edgeSoftness = (optics.edgeSoftness / 8f).coerceIn(0f, 1f)
-    val edgeBloomKnob = optics.edgeBloom.coerceIn(0f, 8f)
-    val elasticityBoost = node.elasticity.coerceIn(0.08f, 1f)
-    val fieldEnergy = (active * capsuleLight * elasticityBoost).coerceIn(0f, 1.40f)
-    val softCarry = ordinaryParentPressureSmoothStep(((phase + active) * 0.50f).coerceIn(0f, 1f))
-
-    val lightScale = (0.32f + fieldKnob * 0.82f + touchLight / 34f + afterglow / 42f).coerceIn(0f, 18f)
-    val fieldRadius = (maxSide * (1.42f + spreadKnob * 0.48f + softnessKnob * 0.34f + phase * 0.42f + fieldEnergy * 0.20f))
-        .coerceAtLeast(maxSide * (1.85f + softnessKnob * 0.22f))
-
-    val baseAlpha = (0.055f * fieldEnergy * lightScale).coerceIn(0f, 1.18f)
-    val coreAlpha = (baseAlpha * (0.52f - uniformity * 0.30f)).coerceIn(0f, 0.82f)
-    val mistAlpha = (baseAlpha * (0.92f + uniformity * 0.36f)).coerceIn(0f, 1.00f)
-    val carryAlpha = (baseAlpha * (0.70f + softCarry * 0.22f + uniformity * 0.28f)).coerceIn(0f, 0.92f)
-    val radiusPx = node.radius.dp.toPx()
-    val cornerRadius = CornerRadius(radiusPx, radiusPx)
-
-    translate(left = rect.left, top = rect.top) {
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                0.00f to Color.White.copy(alpha = coreAlpha),
-                0.46f to Color(0xFFF8FCFF).copy(alpha = mistAlpha),
-                0.88f to Color(0xFFEFFFFF).copy(alpha = carryAlpha),
-                1.00f to Color.Transparent,
-                center = fieldCenter,
-                radius = fieldRadius
-            ),
-            topLeft = Offset.Zero,
-            size = Size(w, h),
-            cornerRadius = cornerRadius,
-            blendMode = BlendMode.Screen
-        )
-
-        val rimInset = (minSide * 0.006f).coerceIn(0.40f, 1.20f)
-        val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-        val rimRadius = (radiusPx - rimInset).coerceAtLeast(0f)
-        val rimCorner = CornerRadius(rimRadius, rimRadius)
-        val edgeScale = (0.28f + edgeKnob * 0.72f + touchLight / 58f + sweepGain / 72f + afterglow / 72f).coerceIn(0f, 16f)
-        val edgeStroke = (0.62f + optics.edgeWidth * 0.42f + minSide * 0.006f * active).coerceIn(0.58f, 6.40f)
-        val edgeEnergy = (fieldEnergy * 0.86f + active * 0.24f).coerceIn(0f, 1.52f)
-        val edgeAlpha = (0.052f * edgeEnergy * edgeScale).coerceIn(0f, 1.00f)
-        val edgeBloom = (0.026f * edgeEnergy * (edgeBloomKnob * 0.64f + lightScale * 0.22f)).coerceIn(0f, 0.62f)
-
-        drawRoundRect(
-            brush = Brush.radialGradient(
-                0.00f to Color.White.copy(alpha = edgeBloom * (0.42f + edgeSoftness * 0.30f)),
-                0.58f to Color(0xFFF8FFFF).copy(alpha = edgeAlpha),
-                0.92f to Color(0xFFE6FFFF).copy(alpha = edgeAlpha * (0.36f + edgeSoftness * 0.34f)),
-                1.00f to Color.Transparent,
-                center = fieldCenter,
-                radius = fieldRadius * (1.10f + edgeSoftness * 0.36f)
-            ),
-            topLeft = Offset(rimInset, rimInset),
-            size = rimSize,
-            cornerRadius = rimCorner,
-            style = Stroke(edgeStroke),
-            blendMode = BlendMode.Plus
-        )
-    }
 }
