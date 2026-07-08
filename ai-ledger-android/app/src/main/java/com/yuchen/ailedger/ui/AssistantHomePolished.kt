@@ -96,22 +96,20 @@ import kotlin.math.max
 import kotlin.math.sin
 
 private const val CHAT_TAIL_ANCHOR_KEY = "assistant-chat-tail-anchor"
-private const val CHAT_TAIL_FOLLOW_EPSILON_PX = 0.75f
-private const val CHAT_TAIL_FOLLOW_LIVE_STIFFNESS = 220f
-private const val CHAT_TAIL_FOLLOW_LIVE_DAMPING = 18.0f
-private const val CHAT_TAIL_FOLLOW_SETTLE_STIFFNESS = 260f
-private const val CHAT_TAIL_FOLLOW_SETTLE_DAMPING = 20.0f
-private const val CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX = 9800f
-private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX = 12000f
-private const val CHAT_TAIL_FOLLOW_MIN_DELTA_PX = 0.62f
+private const val CHAT_TAIL_FOLLOW_EPSILON_PX = 0.45f
+private const val CHAT_TAIL_FOLLOW_DIRECT_LOCK_MAX_PX = 48f
+private const val CHAT_TAIL_FOLLOW_NEAR_LOCK_MAX_PX = 168f
+private const val CHAT_TAIL_FOLLOW_LIVE_RATIO = 0.88f
+private const val CHAT_TAIL_FOLLOW_SETTLE_RATIO = 0.74f
+private const val CHAT_TAIL_FOLLOW_FRAME_MAX_PX = 360f
 
 private class ChatTailFollowRuntimeV2 {
     var lastFrameNanos: Long = 0L
-    var velocityPxPerSecond: Float = 0f
+    var hiddenTailFrames: Int = 0
 
     fun reset() {
         lastFrameNanos = 0L
-        velocityPxPerSecond = 0f
+        hiddenTailFrames = 0
     }
 }
 
@@ -745,66 +743,57 @@ private suspend fun LazyListState.followChatTailFrameV2(
     val visibleItems = info.visibleItemsInfo
     if (visibleItems.isEmpty()) return false
 
-    val dt = if (runtime.lastFrameNanos == 0L) {
-        1f / 60f
-    } else {
-        ((frameNanos - runtime.lastFrameNanos) / 1_000_000_000f).coerceIn(0.006f, 0.040f)
-    }
     runtime.lastFrameNanos = frameNanos
 
     val tail = visibleItems.firstOrNull { it.index == tailIndex }
     val gap = if (tail == null) {
+        runtime.hiddenTailFrames += 1
         val lastVisible = visibleItems.last()
         when {
+            lastVisible.index == tailIndex - 1 -> {
+                (lastVisible.offset + lastVisible.size - info.viewportEndOffset + 10f).coerceAtLeast(1f)
+            }
             lastVisible.index < tailIndex -> {
                 val hiddenItems = (tailIndex - lastVisible.index).coerceAtLeast(1)
-                val spareViewport = (info.viewportEndOffset - (lastVisible.offset + lastVisible.size)).coerceAtLeast(0)
-                (hiddenItems * 72f - spareViewport * 0.18f).coerceAtLeast(36f)
+                val contentBottom = lastVisible.offset + lastVisible.size
+                val visibleOverflow = (contentBottom - info.viewportEndOffset).coerceAtLeast(0).toFloat()
+                (visibleOverflow + hiddenItems * 96f).coerceAtLeast(36f)
             }
             lastVisible.index > tailIndex -> {
-                animateScrollToItem(tailIndex)
+                scrollToItem(tailIndex)
                 runtime.reset()
                 return true
             }
             else -> 0f
         }
     } else {
+        runtime.hiddenTailFrames = 0
         (tail.offset + tail.size - info.viewportEndOffset).toFloat()
     }
 
     if (gap <= CHAT_TAIL_FOLLOW_EPSILON_PX) {
-        runtime.velocityPxPerSecond *= 0.62f
-        if (kotlin.math.abs(runtime.velocityPxPerSecond) < 6f) runtime.velocityPxPerSecond = 0f
         return false
     }
 
-    val maxVelocity = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX
-    val stiffness = if (live) CHAT_TAIL_FOLLOW_LIVE_STIFFNESS else CHAT_TAIL_FOLLOW_SETTLE_STIFFNESS
-    val damping = if (live) CHAT_TAIL_FOLLOW_LIVE_DAMPING else CHAT_TAIL_FOLLOW_SETTLE_DAMPING
-    val ratio = when {
-        gap >= 180f -> if (live) 0.58f else 0.68f
-        gap >= 72f -> if (live) 0.48f else 0.58f
-        gap >= 20f -> if (live) 0.38f else 0.46f
-        else -> if (live) 0.30f else 0.36f
+    if (live && tail == null && gap > info.viewportSize.height * 1.35f && runtime.hiddenTailFrames > 2) {
+        scrollToItem(tailIndex)
+        runtime.reset()
+        return true
     }
-    val proportionalDelta = (gap * ratio).coerceAtLeast(CHAT_TAIL_FOLLOW_MIN_DELTA_PX).coerceAtMost(gap)
-    val acceleration = gap * stiffness - runtime.velocityPxPerSecond * damping
-    val predictedVelocity = (runtime.velocityPxPerSecond + acceleration * dt)
-        .coerceIn(0f, maxVelocity)
-    val predictedDelta = predictedVelocity * dt
-    val blend = if (live) 0.68f else 0.76f
-    val maxFrameDelta = (maxVelocity * dt).coerceAtLeast(CHAT_TAIL_FOLLOW_MIN_DELTA_PX)
-    val softMinimum = when {
-        gap <= 1.4f -> 0f
-        live -> CHAT_TAIL_FOLLOW_MIN_DELTA_PX
-        else -> CHAT_TAIL_FOLLOW_MIN_DELTA_PX * 1.35f
-    }
-    val delta = (predictedDelta + (proportionalDelta - predictedDelta) * blend)
-        .coerceAtLeast(softMinimum)
-        .coerceAtMost(maxFrameDelta)
-        .coerceAtMost(gap)
 
-    runtime.velocityPxPerSecond = if (dt > 0f) (delta / dt).coerceIn(0f, maxVelocity) else 0f
+    val delta = when {
+        live && tail != null && gap <= CHAT_TAIL_FOLLOW_DIRECT_LOCK_MAX_PX -> gap
+        live && gap <= CHAT_TAIL_FOLLOW_NEAR_LOCK_MAX_PX -> {
+            val nearLock = gap - 6f
+            maxOf(gap * 0.92f, nearLock).coerceAtLeast(1f)
+        }
+        live -> maxOf(gap * CHAT_TAIL_FOLLOW_LIVE_RATIO, 12f)
+        else -> maxOf(gap * CHAT_TAIL_FOLLOW_SETTLE_RATIO, 1f)
+    }
+        .coerceAtMost(gap)
+        .coerceAtMost(CHAT_TAIL_FOLLOW_FRAME_MAX_PX)
+
+    if (delta <= CHAT_TAIL_FOLLOW_EPSILON_PX) return false
     scrollBy(delta)
     return true
 }
