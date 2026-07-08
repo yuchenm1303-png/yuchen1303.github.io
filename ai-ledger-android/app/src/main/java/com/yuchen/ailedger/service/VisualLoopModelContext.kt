@@ -25,7 +25,9 @@ internal object VisualLoopModelContext {
         val actionLines = visualHistory
             .takeLast(MAX_MODEL_ACTIONS)
             .mapIndexedNotNull { index, item ->
-                val action = extractActionText(item.component2()) ?: return@mapIndexedNotNull null
+                val modelOutput = item.component2()
+                val action = extractActionText(modelOutput) ?: summarizeToolCall(modelOutput)
+                    ?: return@mapIndexedNotNull null
                 val result = compactResultSuffix(item.executionResult)
                 "Step ${index + 1}: ${action.take(MAX_ACTION_TEXT_CHARS)}$result"
             }
@@ -67,6 +69,45 @@ internal object VisualLoopModelContext {
             ?.removePrefix("Action:")
             ?.trim()
         return firstLine?.takeIf(String::isNotBlank)
+    }
+
+    private fun summarizeToolCall(output: String): String? {
+        val json = TOOL_CALL_JSON.find(output)?.groupValues?.getOrNull(1)?.trim()
+            ?: RAW_TOOL_JSON.find(output)?.value?.trim()
+            ?: return null
+        val root = runCatching { JSONObject(json) }.getOrNull() ?: return null
+        val args = root.optJSONObject("arguments")
+            ?: root.optJSONObject("args")
+            ?: root
+        val action = args.optString("action").trim().lowercase().takeIf(String::isNotBlank) ?: return null
+        val text = args.optString("text").trim()
+        val button = args.optString("button").trim()
+        val target = text.ifBlank { button }
+        return when (action) {
+            "open" -> "Open ${target.ifBlank { "app" }}"
+            "click" -> "Click ${target.ifBlank { coordinateText(args) ?: "visible target" }}"
+            "long_press" -> "Long press ${target.ifBlank { coordinateText(args) ?: "visible target" }}"
+            "swipe", "scroll" -> "Swipe ${swipeText(args) ?: target.ifBlank { "on screen" }}"
+            "type" -> "Type text"
+            "system_button" -> "Press ${button.ifBlank { "system button" }}"
+            "wait" -> "Wait"
+            "interact" -> "Ask user: ${text.take(80)}"
+            "terminate" -> "Terminate with ${args.optString("status").ifBlank { "status" }}"
+            else -> action.replace('_', ' ')
+        }.trim().takeIf(String::isNotBlank)
+    }
+
+    private fun coordinateText(args: JSONObject): String? {
+        val coordinate = args.optJSONArray("coordinate") ?: return null
+        if (coordinate.length() < 2) return null
+        return "(${coordinate.optDouble(0)}, ${coordinate.optDouble(1)})"
+    }
+
+    private fun swipeText(args: JSONObject): String? {
+        val from = args.optJSONArray("coordinate")
+        val to = args.optJSONArray("coordinate2")
+        if (from == null || to == null || from.length() < 2 || to.length() < 2) return null
+        return "(${from.optDouble(0)}, ${from.optDouble(1)}) to (${to.optDouble(0)}, ${to.optDouble(1)})"
     }
 
     private fun compactResultSuffix(result: String): String {
@@ -118,5 +159,11 @@ internal object VisualLoopModelContext {
     )
     private val THINK_BLOCK = Regex(
         pattern = "(?is)<think>.*?</think>",
+    )
+    private val TOOL_CALL_JSON = Regex(
+        pattern = "(?is)<tool_call>\\s*(\\{.*?})\\s*</tool_call>",
+    )
+    private val RAW_TOOL_JSON = Regex(
+        pattern = "(?is)\\{\\s*\"name\"\\s*:\\s*\"mobile_use\".*}",
     )
 }
