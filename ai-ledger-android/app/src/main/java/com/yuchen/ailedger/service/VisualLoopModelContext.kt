@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import kotlin.math.abs
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -113,8 +114,8 @@ internal object VisualLoopModelContext {
         val rawX = array.optDouble(0, Double.NaN)
         val rawY = array.optDouble(1, Double.NaN)
         if (!rawX.isFinite() || !rawY.isFinite()) return null
-        val x = if (kotlin.math.abs(rawX) > 1.0) rawX / 1000.0 else rawX
-        val y = if (kotlin.math.abs(rawY) > 1.0) rawY / 1000.0 else rawY
+        val x = if (abs(rawX) > 1.0) rawX / 1000.0 else rawX
+        val y = if (abs(rawY) > 1.0) rawY / 1000.0 else rawY
         return Point(x.coerceIn(0.0, 1.0), y.coerceIn(0.0, 1.0))
     }
 
@@ -138,7 +139,7 @@ internal object VisualLoopModelContext {
         val to = normalizedPoint(args.optJSONArray("coordinate2")) ?: return null
         val dx = to.x - from.x
         val dy = to.y - from.y
-        return if (kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+        return if (abs(dx) > abs(dy)) {
             if (dx > 0) "right" else "left"
         } else {
             if (dy > 0) "down" else "up"
