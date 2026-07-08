@@ -32,52 +32,14 @@ internal fun updateOrdinaryGlassVisualTransform(
         return
     }
 
-    val measured = node.coordinates.coordinates?.size
-    val w = measured?.width?.coerceAtLeast(1)?.toFloat() ?: 1f
-    val h = measured?.height?.coerceAtLeast(1)?.toFloat() ?: 1f
-    val minSide = minOf(w, h).coerceAtLeast(1f)
-    val maxSide = maxOf(w, h).coerceAtLeast(1f)
-    val aspect = (maxSide / minSide).coerceAtLeast(1f)
-    val elongated = ((aspect - 1f) / 3.2f).coerceIn(0f, 1f)
-    val compactness = ((156f - minSide) / 108f).coerceIn(0f, 1f)
-    val tuning = ComposeGlassLabState.capsuleTuning.normalized()
+    val p = ordinaryVisualSmoothStep(node.pressProgress.coerceAtLeast(0f).coerceIn(0f, 1.72f) / 1.72f)
+    val r = ordinaryVisualSmoothStep((-node.pressProgress).coerceAtLeast(0f).coerceIn(0f, 1.40f) / 1.40f)
+    val grow = motion.grow.coerceIn(0f, 10f)
+    val bounce = motion.rebound.coerceIn(0f, 8f)
 
-    val elasticity = node.elasticity.coerceIn(0.16f, 1f)
-    val roleBoost = when (node.role) {
-        GlassRole.Chip -> 1.56f
-        GlassRole.Flex -> 1.42f
-        GlassRole.Floating -> 1.10f
-        GlassRole.Card -> 0.90f
-        GlassRole.Nav -> 0.84f
-        GlassRole.Shell -> 0f
-    }
-    val compactBoost = (1f + compactness * tuning.compactBoost).coerceIn(1f, 2.40f)
-    val sizeBoost = (roleBoost * compactBoost * (0.82f + elasticity * 0.36f)).coerceIn(0.60f, 3.05f)
-    val viscosity = (1.46f - motion.speed * 0.050f).coerceIn(0.84f, 1.46f)
-
-    val hold = motion.pressPhase
-    val delayedTap = motion.tapPhase
-    val settle = motion.settlePhase
-    val tapPop = ordinaryVisualSmoothStep((delayedTap * tuning.tapPop).coerceIn(0f, 1f))
-    val tapCarry = (delayedTap * (1f - hold * 0.16f)).coerceIn(0f, 1.26f)
-    val sticky = (motion.lightPhase * 0.021f + motion.sweepPhase * 0.015f + tapCarry * tuning.sticky).coerceIn(0f, 0.12f)
-    val body = (hold * 0.72f + tapPop * 1.06f + tapCarry * tuning.tapCarry).coerceIn(0f, 1.76f)
-    val settleEase = ordinaryVisualSmoothStep(settle).coerceIn(0f, 1f)
-    val settleBody = (settleEase * 0.58f) * (1f - tapCarry * 0.72f).coerceIn(0.12f, 1f)
-    val reboundSoft = (0.072f + motion.rebound * 0.0065f).coerceIn(0.055f, 0.150f)
-
-    val basePx = minSide * sizeBoost * (tuning.basePx + 0.0058f * motion.grow + sticky * 0.38f)
-    val tapPx = minSide * sizeBoost * tapPop * (tuning.tapPx + 0.0074f * motion.grow)
-    val settlePx = minSide * sizeBoost * settleBody * reboundSoft * (0.0085f + 0.0012f * motion.rebound)
-    val growPx = basePx * body + tapPx
-    val xPx = growPx * (1f - elongated * tuning.elongatedX)
-    val yPx = growPx * (1f + elongated * tuning.elongatedY)
-    val xBackPx = settlePx * (1f - elongated * 0.36f)
-    val yBackPx = settlePx * (1f + elongated * 0.10f)
-
-    out.scaleX = 1f + (xPx - xBackPx) / w
-    out.scaleY = 1f + (yPx - yBackPx) / h
-    out.translationY = (basePx * body * 0.34f + tapPx * tuning.sink + settlePx * tuning.settle * 0.34f) * viscosity
+    out.scaleX = 1f + p * (0.050f + 0.013f * grow) - r * (0.012f + 0.005f * bounce)
+    out.scaleY = 1f + p * (0.038f + 0.010f * grow) - r * (0.010f + 0.004f * bounce)
+    out.translationY = p * (0.28f + 0.16f * grow) - r * (0.22f + 0.10f * bounce)
     out.originX = motion.pressCenter.x.coerceIn(0f, 1f)
     out.originY = motion.pressCenter.y.coerceIn(0f, 1f)
 }
