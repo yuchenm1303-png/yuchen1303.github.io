@@ -24,12 +24,14 @@ internal object VisualTaskBootstrapper {
             ForegroundPackageProbe(DeviceShellBridge(context)).probe()
         }
         val foregroundPackage = foreground.packageName.trim()
-        if (foregroundPackage != hostPackage) {
+        val hostOrUnresolved = foregroundPackage == hostPackage ||
+            VisualSurfacePackagePolicy.isUnresolvedPackage(foregroundPackage)
+        if (!hostOrUnresolved) {
             return VisualTaskBootstrapResult.Skipped(
                 reason = "foreground_not_host",
                 foregroundPackage = foregroundPackage,
                 foregroundSource = foreground.source.wireValue,
-            )
+            ).also(::recordBootstrap)
         }
 
         if (isStopped()) return VisualTaskBootstrapResult.Skipped("task_stopped")
