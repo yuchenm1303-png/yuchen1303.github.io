@@ -118,8 +118,9 @@ internal fun StockNativeGlassPanel(
 }
 
 /**
- * 股票雾面小卡只上报几何；背景裁切统一由 StockFrostBatchHost 父级绘制。
- * 未处于股票批绘制场景时自动回退原 FrostInfoGlassPanel，视觉参数保持一致。
+ * 股票雾面小卡的可见底板必须绘制在自身层级，不能只依赖父级批绘制。
+ * 父级 StockFrostBatchHost 位于页面根部，会先于大玻璃 drawContent 执行；
+ * 如果小卡只在父级批绘制里画，进入大玻璃容器后会被大玻璃盖住，看起来像“卡片跑到下面”。
  */
 @Composable
 internal fun StockNativeFrostCard(
@@ -129,7 +130,19 @@ internal fun StockNativeFrostCard(
     contentPadding: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
-    Box(modifier = modifier) {
+    val shape = RoundedCornerShape(radius)
+    val localFill = Brush.verticalGradient(
+        colors = listOf(
+            Color.White.copy(alpha = (frostAlpha * 1.18f).coerceIn(0.070f, 0.145f)),
+            Color(0xFF203478).copy(alpha = 0.16f),
+            Color(0xFF080E2A).copy(alpha = 0.12f)
+        )
+    )
+    Box(
+        modifier = modifier
+            .background(localFill, shape)
+            .border(1.dp, Color.White.copy(alpha = 0.082f), shape)
+    ) {
         StockFrostBatchSurface(
             radius = radius,
             backdropAlpha = 1f,
