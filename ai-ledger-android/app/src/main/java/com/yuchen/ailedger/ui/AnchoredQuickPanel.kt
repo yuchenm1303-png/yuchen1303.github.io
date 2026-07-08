@@ -142,8 +142,16 @@ internal fun AnchoredQuickPanel(
         val anchorIsValid = anchorBounds.width > 1f &&
             anchorBounds.height > 1f &&
             rootBounds.width > 1f
-        val localAnchorTop = if (anchorIsValid) anchorBounds.top - rootBounds.top else constraints.maxHeight * 0.34f
-        val localAnchorBottom = if (anchorIsValid) anchorBounds.bottom - rootBounds.top else constraints.maxHeight * 0.39f
+        val localAnchorTop = if (anchorIsValid) {
+            anchorBounds.top - rootBounds.top
+        } else {
+            constraints.maxHeight * 0.34f
+        }
+        val localAnchorBottom = if (anchorIsValid) {
+            anchorBounds.bottom - rootBounds.top
+        } else {
+            constraints.maxHeight * 0.39f
+        }
         val localAnchorCenterX = if (anchorIsValid) {
             ((anchorBounds.left + anchorBounds.right) * 0.5f - rootBounds.left).roundToInt()
         } else {
@@ -204,7 +212,8 @@ internal fun AnchoredQuickPanel(
 
         val renderedX = if (visible) panelX else -panelWidthPx - safePx
         val renderedY = if (visible) panelY else -panelHeightPx - safePx
-        val shellGlassIntensity = if (surfaceColor.alpha >= 0.72f) 0.25f else glassIntensity
+        val useSharedGlassShell = surfaceColor.alpha < 0.72f
+        val layout = AnchoredQuickPanelLayout(compact = compact, placement = placement, tailHeight = tailHeight)
 
         Box(
             modifier = Modifier
@@ -259,19 +268,25 @@ internal fun AnchoredQuickPanel(
                     }
                 },
         ) {
-            GlassSceneScope(group = GlassSceneGroup.Unassigned) {
-                PressableGlass(
-                    quality = quality,
-                    glassIntensity = shellGlassIntensity,
-                    motionIntensity = 0f,
-                    radius = cornerRadius.value.roundToInt(),
-                    modifier = Modifier.fillMaxSize(),
-                    role = GlassRole.Floating,
-                    onClick = {},
-                ) {
-                    Box(Modifier.fillMaxSize().background(surfaceColor)) {
-                        content(AnchoredQuickPanelLayout(compact = compact, placement = placement, tailHeight = tailHeight))
+            if (useSharedGlassShell) {
+                GlassSceneScope(group = GlassSceneGroup.Unassigned) {
+                    PressableGlass(
+                        quality = quality,
+                        glassIntensity = glassIntensity,
+                        motionIntensity = 0f,
+                        radius = cornerRadius.value.roundToInt(),
+                        modifier = Modifier.fillMaxSize(),
+                        role = GlassRole.Floating,
+                        onClick = {},
+                    ) {
+                        Box(Modifier.fillMaxSize().background(surfaceColor)) {
+                            content(layout)
+                        }
                     }
+                }
+            } else {
+                Box(Modifier.fillMaxSize().background(surfaceColor)) {
+                    content(layout)
                 }
             }
         }
