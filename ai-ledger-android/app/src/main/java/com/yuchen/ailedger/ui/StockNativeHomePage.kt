@@ -28,8 +28,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -38,7 +36,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.StockMarketUiState
@@ -51,7 +48,6 @@ import com.yuchen.ailedger.model.StockNativeRankingType
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockSectorSnapshot
 import java.util.Locale
-import kotlin.math.roundToInt
 
 private val NativeHomeActions = listOf("自选", "热榜", "板块", "资金", "异动", "热点", "研报", "预警")
 
@@ -83,11 +79,11 @@ internal fun StockNativeHomeScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 122.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        contentPadding = PaddingValues(top = 14.dp, bottom = 116.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 StockNativePageHeader(
                     label = "市场总览 · A股",
                     onBack = onBack,
@@ -133,12 +129,12 @@ internal fun StockNativeHomeScreen(
             StockNativeGlassPanel(
                 modifier = Modifier.fillMaxWidth(),
                 radius = 30.dp,
-                contentPadding = 14.dp
+                contentPadding = 15.dp
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     NativeStockSearchBar(marketUi.query, marketUi.loading, onQueryChange, onSearch)
                     StockDivider()
-                    StockSectionTitle("主要指数", "点击进入指数详情 · 横向滑动查看更多")
+                    StockSectionTitle("主要指数", "点击进入指数详情 · 左右滑动查看更多")
                     NativeIndexRow(marketUi, onOpenIndex)
                     StockDivider()
                     StockSectionTitle("市场宽度", "涨跌结构、赚钱效应与市场热度")
@@ -151,9 +147,9 @@ internal fun StockNativeHomeScreen(
             StockNativeGlassPanel(
                 modifier = Modifier.fillMaxWidth(),
                 radius = 30.dp,
-                contentPadding = 14.dp
+                contentPadding = 15.dp
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     StockSectionTitle("市场数据", "实时榜单、板块、资金与个股热点")
                     NativeHomeActionGrid(selectedAction, onSelectAction)
                     StockDivider()
@@ -218,9 +214,9 @@ internal fun StockNativeHomeScreen(
             StockNativeGlassPanel(
                 modifier = Modifier.fillMaxWidth(),
                 radius = 30.dp,
-                contentPadding = 14.dp
+                contentPadding = 15.dp
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(13.dp)) {
                     StockSectionTitle("数据覆盖状态", "真实可用与暂不可用模块分开显示")
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         NativeStatusMetric("指数", marketUi.marketHome.indices.isNotEmpty(), Modifier.weight(1f))
@@ -236,13 +232,11 @@ internal fun StockNativeHomeScreen(
                         lineHeight = 16.sp
                     )
                     StockDivider()
-                    NativeInteractiveGlassCard(
-                        modifier = Modifier.fillMaxWidth(),
+                    StockNativeFrostCard(
+                        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant),
                         radius = 19.dp,
-                        intensity = 0.84f,
-                        role = GlassRole.Card,
-                        contentPadding = 13.dp,
-                        onClick = onOpenAssistant
+                        frostAlpha = 0.076f,
+                        contentPadding = 13.dp
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text(
@@ -274,18 +268,15 @@ private fun NativeStockSearchBar(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit
 ) {
-    val searchFocusRequester = remember { FocusRequester() }
     Row(
-        Modifier.fillMaxWidth().height(52.dp),
+        Modifier.fillMaxWidth().height(56.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        NativeInteractiveGlassCard(
+        StockNativeFrostCard(
             modifier = Modifier.weight(1f).fillMaxHeight(),
             radius = 20.dp,
-            intensity = 0.88f,
-            role = GlassRole.Flex,
-            contentPadding = 13.dp,
-            onClick = { searchFocusRequester.requestFocus() }
+            frostAlpha = 0.084f,
+            contentPadding = 14.dp
         ) {
             Row(
                 Modifier.fillMaxSize(),
@@ -296,7 +287,7 @@ private fun NativeStockSearchBar(
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    modifier = Modifier.weight(1f).focusRequester(searchFocusRequester),
+                    modifier = Modifier.weight(1f),
                     singleLine = true,
                     textStyle = TextStyle(
                         color = Color.White,
@@ -327,46 +318,9 @@ private fun NativeStockSearchBar(
         StockNativePill(
             text = if (loading) "连接中" else "搜索",
             active = true,
-            modifier = Modifier.width(82.dp).fillMaxHeight(),
+            modifier = Modifier.width(88.dp).fillMaxHeight(),
             fontSize = 13,
             onClick = onSearch
-        )
-    }
-}
-
-@Composable
-private fun NativeInteractiveGlassCard(
-    modifier: Modifier = Modifier,
-    radius: Dp,
-    intensity: Float = 0.82f,
-    role: GlassRole = GlassRole.Card,
-    contentPadding: Dp = 0.dp,
-    onClick: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    val state = LocalStockNativeGlassState.current
-    val radiusValue = radius.value.roundToInt().coerceAtLeast(1)
-    if (state != null) {
-        PressableGlass(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * intensity,
-            motionIntensity = state.motionIntensity,
-            radius = radiusValue,
-            modifier = modifier,
-            role = role,
-            onClick = onClick
-        ) {
-            Box(Modifier.fillMaxSize().padding(contentPadding)) {
-                content()
-            }
-        }
-    } else {
-        StockNativeFrostCard(
-            modifier = modifier.clickable(onClick = onClick),
-            radius = radius,
-            frostAlpha = 0.074f,
-            contentPadding = contentPadding,
-            content = content
         )
     }
 }
@@ -378,42 +332,47 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
             ui.marketLoading,
             ui.requestMessage,
             "指数数据暂不可用",
-            Modifier.height(88.dp)
+            Modifier.height(106.dp)
         )
         return
     }
     LazyRow(
-        modifier = Modifier.fillMaxWidth().height(88.dp),
+        modifier = Modifier.fillMaxWidth().height(108.dp),
         contentPadding = PaddingValues(horizontal = 1.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         items(ui.marketHome.indices, key = { it.name }) { item ->
             val tone = if (item.isRising) StockRise else StockFall
-            val code = indexCode(item)
-            val cardContent: @Composable () -> Unit = {
+            StockNativeFrostCard(
+                modifier = Modifier
+                    .width(148.dp)
+                    .height(104.dp)
+                    .clickable { indexCode(item)?.let(onOpenIndex) },
+                radius = 21.dp,
+                frostAlpha = 0.084f,
+                contentPadding = 13.dp
+            ) {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             item.name,
                             color = Color.White.copy(alpha = 0.70f),
-                            fontSize = 9.sp,
+                            fontSize = 10.sp,
                             fontWeight = FontWeight.Black,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            modifier = Modifier.weight(1f)
                         )
                         Text(
                             if (item.isRising) "↑" else "↓",
                             color = tone,
-                            fontSize = 10.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Black
                         )
                     }
                     Text(
                         item.value,
                         color = Color.White,
-                        fontSize = 17.sp,
-                        lineHeight = 20.sp,
+                        fontSize = 20.sp,
+                        lineHeight = 23.sp,
                         fontWeight = FontWeight.Black,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -421,31 +380,10 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
                     Text(
                         item.changePercent,
                         color = tone,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black
                     )
                 }
-            }
-            if (code != null) {
-                NativeInteractiveGlassCard(
-                    modifier = Modifier.width(118.dp).height(84.dp),
-                    radius = 19.dp,
-                    intensity = 0.82f,
-                    role = GlassRole.Card,
-                    contentPadding = 11.dp,
-                    onClick = { onOpenIndex(code) },
-                    content = cardContent
-                )
-            } else {
-                StockNativeFrostCard(
-                    modifier = Modifier.width(118.dp).height(84.dp),
-                    radius = 19.dp,
-                    frostAlpha = 0.084f,
-                    contentPadding = 11.dp,
-                    content = cardContent
-                )
             }
         }
     }
@@ -455,74 +393,66 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
 private fun NativeBreadthSection(ui: StockMarketUiState) {
     val breadth = ui.marketHome.marketBreadth
     val sentiment = ui.marketHome.sentiment
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            NativeCompactMetricTile("上涨", stockCount(breadth.upCount), StockRise, Modifier.weight(1f), true)
-            NativeCompactMetricTile("下跌", stockCount(breadth.downCount), StockFall, Modifier.weight(1f), true)
-            NativeCompactMetricTile("涨停", stockCount(breadth.limitUpCount), StockRise, Modifier.weight(1f), true)
-            NativeCompactMetricTile("跌停", stockCount(breadth.limitDownCount), StockFall, Modifier.weight(1f), true)
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StockMetricTile("上涨", stockCount(breadth.upCount), StockRise, Modifier.weight(1f), true)
+            StockMetricTile("下跌", stockCount(breadth.downCount), StockFall, Modifier.weight(1f), true)
+            StockMetricTile("涨停", stockCount(breadth.limitUpCount), StockRise, Modifier.weight(1f), true)
+            StockMetricTile("跌停", stockCount(breadth.limitDownCount), StockFall, Modifier.weight(1f), true)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            NativeCompactMetricTile("红盘率", stockPercent(breadth.redRate), Color.White, Modifier.weight(1f))
-            NativeCompactMetricTile("赚钱效应", stockPercent(breadth.moneyMakingEffect), StockAqua, Modifier.weight(1f))
-            NativeCompactMetricTile(
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StockMetricTile("红盘率", stockPercent(breadth.redRate), Color.White, Modifier.weight(1f))
+            StockMetricTile("赚钱效应", stockPercent(breadth.moneyMakingEffect), StockAqua, Modifier.weight(1f))
+            StockMetricTile(
                 "情绪温度",
                 sentiment.temperature?.let { String.format(Locale.US, "%.0f", it) } ?: "--",
                 StockAqua,
                 Modifier.weight(1f)
             )
-            NativeCompactMetricTile("成交额", breadth.marketAmount, Color.White, Modifier.weight(1f))
         }
-    }
-}
-
-@Composable
-private fun NativeCompactMetricTile(
-    label: String,
-    value: String,
-    tone: Color,
-    modifier: Modifier = Modifier,
-    prominent: Boolean = false
-) {
-    StockNativeFrostCard(
-        modifier = modifier.height(if (prominent) 52.dp else 50.dp),
-        radius = 16.dp,
-        frostAlpha = if (prominent) 0.082f else 0.070f,
-        contentPadding = 8.dp
-    ) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center) {
-            Text(
-                label,
-                color = Color.White.copy(alpha = 0.42f),
-                fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                value.ifBlank { "--" },
-                color = tone,
-                fontSize = if (prominent) 15.sp else 13.sp,
-                lineHeight = if (prominent) 18.sp else 16.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+        StockNativeFrostCard(
+            modifier = Modifier.fillMaxWidth().height(66.dp),
+            radius = 19.dp,
+            frostAlpha = 0.076f,
+            contentPadding = 14.dp
+        ) {
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        "全市场成交额",
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        "沪深京实时汇总",
+                        color = Color.White.copy(alpha = 0.40f),
+                        fontSize = 9.sp
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    breadth.marketAmount,
+                    color = Color.White,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
         }
     }
 }
 
 @Composable
 private fun NativeHomeActionGrid(selected: String, onSelect: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         NativeHomeActions.chunked(4).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 row.forEach { action ->
                     StockNativePill(
                         action,
                         action == selected,
-                        Modifier.weight(1f).height(40.dp),
-                        fontSize = 12
+                        Modifier.weight(1f).height(48.dp),
+                        fontSize = 13
                     ) { onSelect(action) }
                 }
             }
@@ -540,7 +470,7 @@ private fun NativeRankingOverview(
     onOpenStock: (String) -> Unit
 ) {
     StockSectionTitle(title, subtitle, "${types.size} 个入口")
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         types.forEach { type ->
             val board = boards.firstOrNull { boardMatches(type, it.title) }
             NativeRankingEntry(type, board?.items?.firstOrNull(), onOpenRanking, onOpenStock)
@@ -555,16 +485,18 @@ private fun NativeRankingEntry(
     onOpenRanking: (StockNativeRankingType) -> Unit,
     onOpenStock: (String) -> Unit
 ) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        NativeInteractiveGlassCard(
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            radius = 18.dp,
-            intensity = 0.80f,
-            role = GlassRole.Flex,
-            onClick = { onOpenRanking(type) }
-        ) {
+    StockNativeFrostCard(
+        modifier = Modifier.fillMaxWidth(),
+        radius = 19.dp,
+        frostAlpha = 0.074f
+    ) {
+        Column(Modifier.fillMaxWidth()) {
             Row(
-                Modifier.fillMaxSize().padding(horizontal = 13.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .clickable { onOpenRanking(type) }
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
@@ -572,9 +504,7 @@ private fun NativeRankingEntry(
                         type.title,
                         color = Color.White.copy(alpha = 0.94f),
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        fontWeight = FontWeight.Black
                     )
                     Text(
                         type.subtitle,
@@ -591,17 +521,14 @@ private fun NativeRankingEntry(
                     fontWeight = FontWeight.Black
                 )
             }
-        }
-        if (top != null) {
-            NativeInteractiveGlassCard(
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-                radius = 17.dp,
-                intensity = 0.74f,
-                role = GlassRole.Card,
-                onClick = { onOpenStock(top.code) }
-            ) {
+            if (top != null) {
+                StockDivider()
                 Row(
-                    Modifier.fillMaxSize().padding(horizontal = 13.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .clickable { onOpenStock(top.code) }
+                        .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -609,7 +536,7 @@ private fun NativeRankingEntry(
                         color = StockAqua,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Black,
-                        modifier = Modifier.width(26.dp),
+                        modifier = Modifier.width(28.dp),
                         textAlign = TextAlign.Center
                     )
                     Column(Modifier.weight(1f)) {
@@ -618,23 +545,19 @@ private fun NativeRankingEntry(
                             color = Color.White,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Black,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 1
                         )
                         Text(
                             "${top.code} · ${top.value}",
                             color = Color.White.copy(alpha = 0.40f),
-                            fontSize = 9.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 9.sp
                         )
                     }
                     Text(
                         top.changePercent,
                         color = if (top.isRising) StockRise else StockFall,
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                        maxLines = 1
+                        fontWeight = FontWeight.Black
                     )
                 }
             }
@@ -658,7 +581,7 @@ private fun NativeSectorOverview(
         "行业与概念分开呈现，点击任意板块进入详情",
         "${sectors.size.takeIf { it > 0 } ?: "--"} 个板块"
     )
-    Row(Modifier.fillMaxWidth().height(42.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth().height(48.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         StockNativePill(
             "行业板块",
             sectorType == "industry",
@@ -679,13 +602,14 @@ private fun NativeSectorOverview(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             sectors.take(10).forEach { sector ->
-                NativeInteractiveGlassCard(
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                StockNativeFrostCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(62.dp)
+                        .clickable { onOpenSector(sector.sectorCode) },
                     radius = 18.dp,
-                    intensity = 0.76f,
-                    role = GlassRole.Card,
-                    contentPadding = 11.dp,
-                    onClick = { onOpenSector(sector.sectorCode) }
+                    frostAlpha = 0.068f,
+                    contentPadding = 12.dp
                 ) {
                     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -694,8 +618,7 @@ private fun NativeSectorOverview(
                                 color = Color.White.copy(alpha = 0.94f),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Black,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                maxLines = 1
                             )
                             Text(
                                 "${if (sectorType == "concept") "概念" else "行业"} · 涨 ${sector.upCount ?: "--"} · 跌 ${sector.downCount ?: "--"}${sector.leaderName.takeIf { it.isNotBlank() }?.let { " · 领涨 $it" } ?: ""}",
@@ -711,8 +634,7 @@ private fun NativeSectorOverview(
                             fontSize = 10.sp,
                             modifier = Modifier.width(76.dp),
                             textAlign = TextAlign.End,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            maxLines = 1
                         )
                         Text(
                             sector.changePercent,
@@ -720,9 +642,7 @@ private fun NativeSectorOverview(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Black,
                             modifier = Modifier.width(66.dp),
-                            textAlign = TextAlign.End,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            textAlign = TextAlign.End
                         )
                     }
                 }
@@ -742,13 +662,14 @@ private fun NativeHotPreview(
         "东方财富个股人气榜 · 约10分钟更新",
         "${ui.hotSnapshot.items.size.takeIf { it > 0 } ?: "--"} 只"
     )
-    NativeInteractiveGlassCard(
-        modifier = Modifier.fillMaxWidth().height(54.dp),
-        radius = 18.dp,
-        intensity = 0.84f,
-        role = GlassRole.Flex,
-        contentPadding = 12.dp,
-        onClick = { onOpenHot(StockNativeHotType.Popularity) }
+    StockNativeFrostCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(58.dp)
+            .clickable { onOpenHot(StockNativeHotType.Popularity) },
+        radius = 19.dp,
+        frostAlpha = 0.088f,
+        contentPadding = 13.dp
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -761,9 +682,7 @@ private fun NativeHotPreview(
                 Text(
                     "股票软件内部热度，不是普通新闻热搜",
                     color = Color.White.copy(alpha = 0.42f),
-                    fontSize = 9.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    fontSize = 9.sp
                 )
             }
             Text("进入热点榜 ›", color = StockAqua, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -774,13 +693,14 @@ private fun NativeHotPreview(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ui.hotSnapshot.items.take(6).forEach { item ->
-                NativeInteractiveGlassCard(
-                    modifier = Modifier.fillMaxWidth().height(58.dp),
+                StockNativeFrostCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .clickable { onOpenStock(item.code, false) },
                     radius = 17.dp,
-                    intensity = 0.72f,
-                    role = GlassRole.Card,
-                    contentPadding = 10.dp,
-                    onClick = { onOpenStock(item.code, false) }
+                    frostAlpha = 0.062f,
+                    contentPadding = 10.dp
                 ) {
                     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -796,16 +716,12 @@ private fun NativeHotPreview(
                                 item.name,
                                 color = Color.White.copy(alpha = 0.94f),
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Black
                             )
                             Text(
                                 listOf(item.code, item.industry).filter { it.isNotBlank() }.joinToString(" · "),
                                 color = Color.White.copy(alpha = 0.40f),
-                                fontSize = 9.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontSize = 9.sp
                             )
                         }
                         Text(
@@ -813,9 +729,7 @@ private fun NativeHotPreview(
                             color = Color.White.copy(alpha = 0.82f),
                             fontSize = 10.sp,
                             modifier = Modifier.width(62.dp),
-                            textAlign = TextAlign.End,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            textAlign = TextAlign.End
                         )
                         Column(Modifier.width(68.dp), horizontalAlignment = Alignment.End) {
                             Text(
@@ -828,9 +742,7 @@ private fun NativeHotPreview(
                                 item.changePercent,
                                 color = stockTone(item.changePercent),
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Black
                             )
                         }
                     }
@@ -885,20 +797,18 @@ private fun NativeWatchlistContent(
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         watchlist.forEach { item ->
-            Row(
-                modifier = Modifier.fillMaxWidth().height(60.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp)
+            StockNativeFrostCard(
+                modifier = Modifier.fillMaxWidth().height(62.dp),
+                radius = 18.dp,
+                frostAlpha = 0.068f
             ) {
-                NativeInteractiveGlassCard(
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                    radius = 18.dp,
-                    intensity = 0.76f,
-                    role = GlassRole.Card,
-                    onClick = { onOpenStock(item.code, false) }
-                ) {
+                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                     Row(
-                        Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .clickable { onOpenStock(item.code, false) }
+                            .padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -908,28 +818,24 @@ private fun NativeWatchlistContent(
                                 item.name,
                                 color = Color.White.copy(alpha = 0.94f),
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Black
                             )
                             Text(
                                 "${item.code} · ${item.market.ifBlank { "A股" }}",
                                 color = Color.White.copy(alpha = 0.40f),
-                                fontSize = 9.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontSize = 9.sp
                             )
                         }
                         Text("›", color = StockAqua.copy(alpha = 0.62f), fontSize = 18.sp)
                     }
+                    StockNativePill(
+                        text = "×",
+                        active = false,
+                        modifier = Modifier.size(36.dp).padding(end = 4.dp),
+                        fontSize = 14,
+                        onClick = { onRemoveWatch(item.code) }
+                    )
                 }
-                StockNativePill(
-                    text = "×",
-                    active = false,
-                    modifier = Modifier.width(42.dp).fillMaxHeight(),
-                    fontSize = 14,
-                    onClick = { onRemoveWatch(item.code) }
-                )
             }
         }
     }
@@ -938,7 +844,7 @@ private fun NativeWatchlistContent(
 @Composable
 private fun NativeStatusMetric(label: String, available: Boolean, modifier: Modifier) {
     StockNativeFrostCard(
-        modifier = modifier.height(56.dp),
+        modifier = modifier.height(58.dp),
         radius = 16.dp,
         frostAlpha = 0.064f,
         contentPadding = 9.dp
@@ -948,17 +854,13 @@ private fun NativeStatusMetric(label: String, available: Boolean, modifier: Modi
                 label,
                 color = Color.White.copy(alpha = 0.42f),
                 fontSize = 9.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                fontWeight = FontWeight.Bold
             )
             Text(
                 if (available) "实时" else "不可用",
                 color = if (available) StockAqua else Color.White.copy(alpha = 0.46f),
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Black,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                fontWeight = FontWeight.Black
             )
         }
     }
