@@ -92,6 +92,22 @@ data class OrdinaryGlassPressureOpticsTuning(
     )
 }
 
+data class OrdinaryGlassSizeAdaptiveTuning(
+    val smallBoost: Float = 1.75f,
+    val largeDamp: Float = 0.62f,
+    val pivotPx: Float = 180f,
+    val visualPx: Float = 5.40f,
+    val lightBoost: Float = 1.08f,
+) {
+    internal fun normalized(): OrdinaryGlassSizeAdaptiveTuning = copy(
+        smallBoost = smallBoost.coerceIn(0f, 8f),
+        largeDamp = largeDamp.coerceIn(0f, 1.6f),
+        pivotPx = pivotPx.coerceIn(48f, 720f),
+        visualPx = visualPx.coerceIn(0.4f, 32f),
+        lightBoost = lightBoost.coerceIn(0f, 8f),
+    )
+}
+
 data class ComposeGlassStyle(
     val preset: ComposeGlassPreset,
     val backdrop: Float,
@@ -142,6 +158,9 @@ object ComposeGlassLabState {
     var pressureOpticsTuning by mutableStateOf(defaultOrdinaryGlassPressureOpticsTuning())
         private set
 
+    var sizeAdaptiveTuning by mutableStateOf(defaultOrdinaryGlassSizeAdaptiveTuning())
+        private set
+
     fun update(next: ComposeGlassStyle) {
         style = next
     }
@@ -156,6 +175,10 @@ object ComposeGlassLabState {
 
     fun updatePressureOpticsTuning(next: OrdinaryGlassPressureOpticsTuning) {
         pressureOpticsTuning = next.normalized()
+    }
+
+    fun updateSizeAdaptiveTuning(next: OrdinaryGlassSizeAdaptiveTuning) {
+        sizeAdaptiveTuning = next.normalized()
     }
 
     fun usePreset(preset: ComposeGlassPreset) {
@@ -178,11 +201,16 @@ object ComposeGlassLabState {
         pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
     }
 
+    fun resetSizeAdaptiveTuning() {
+        sizeAdaptiveTuning = defaultOrdinaryGlassSizeAdaptiveTuning()
+    }
+
     fun resetAll() {
         style = defaultComposeGlassStyle()
         motionStyle = defaultComposeGlassMotionStyle()
         capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
         pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
+        sizeAdaptiveTuning = defaultOrdinaryGlassSizeAdaptiveTuning()
     }
 }
 
@@ -191,6 +219,8 @@ private fun defaultComposeGlassMotionStyle(): ComposeGlassMotionStyle = ComposeG
 private fun defaultOrdinaryGlassCapsuleTuning(): OrdinaryGlassCapsuleTuning = OrdinaryGlassCapsuleTuning()
 
 private fun defaultOrdinaryGlassPressureOpticsTuning(): OrdinaryGlassPressureOpticsTuning = OrdinaryGlassPressureOpticsTuning()
+
+private fun defaultOrdinaryGlassSizeAdaptiveTuning(): OrdinaryGlassSizeAdaptiveTuning = OrdinaryGlassSizeAdaptiveTuning()
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
     ComposeGlassPreset.Clear -> ComposeGlassStyle(
