@@ -113,7 +113,7 @@ internal object VisualLoopModelContext {
         if (array == null || array.length() < 2) return null
         val rawX = array.optDouble(0, Double.NaN)
         val rawY = array.optDouble(1, Double.NaN)
-        if (!rawX.isFinite() || !rawY.isFinite()) return null
+        if (rawX.isNaN() || rawY.isNaN() || rawX.isInfinite() || rawY.isInfinite()) return null
         val x = if (abs(rawX) > 1.0) rawX / 1000.0 else rawX
         val y = if (abs(rawY) > 1.0) rawY / 1000.0 else rawY
         return Point(x.coerceIn(0.0, 1.0), y.coerceIn(0.0, 1.0))
