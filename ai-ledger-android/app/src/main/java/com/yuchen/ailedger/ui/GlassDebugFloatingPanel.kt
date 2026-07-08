@@ -37,6 +37,11 @@ import kotlin.math.roundToInt
 private val ComposeMotionEnergyRange = 0f..12f
 private val ComposeMotionLightRange = 0f..24f
 private val ComposeMotionSpeedRange = 0.05f..8f
+private val ComposeSizeBoostRange = 0f..5f
+private val ComposeLargeDampRange = 0f..1.2f
+private val ComposePivotRange = 60f..520f
+private val ComposeVisualPxRange = 0.5f..18f
+private val ComposeLightBoostRange = 0f..4f
 
 @Composable
 fun GlassDebugFloatingPanel(
@@ -50,6 +55,7 @@ fun GlassDebugFloatingPanel(
     val params = state.backdropParams
     val border = state.glassBorderStyle
     val motion = ComposeGlassLabState.motionStyle
+    val sizeTuning = ComposeGlassLabState.sizeAdaptiveTuning
     val clipboard = LocalClipboardManager.current
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -98,20 +104,41 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
                     }
                 }
+                Group("尺寸归一化", "解决小玻璃不明显、大玻璃过夸张：按实际像素反推 scale", state, initiallyExpanded = true) {
+                    ComposeGlassMotionPreview(state)
+                    LabSlider("小玻璃增强", "增强 Chip/Floating 等小组件的可感知形变和光效", sizeTuning.smallBoost, ComposeSizeBoostRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallBoost = it))
+                    }
+                    LabSlider("大玻璃压制", "压低大 Card/Flex 的整体形变和大面积 bloom", sizeTuning.largeDamp, ComposeLargeDampRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(largeDamp = it))
+                    }
+                    LabSlider("尺寸分界 px", "小/大玻璃过渡分界，越大则更多组件走小玻璃增强", sizeTuning.pivotPx, ComposePivotRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pivotPx = it))
+                    }
+                    LabSlider("目标形变 px", "以像素为单位的视觉鼓起目标，代替固定 scale 百分比", sizeTuning.visualPx, ComposeVisualPxRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(visualPx = it))
+                    }
+                    LabSlider("光效补偿", "整体补偿尺寸归一化后的白光强度", sizeTuning.lightBoost, ComposeLightBoostRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(lightBoost = it))
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
                     LabActionButton(
                         title = "复制参数 JSON",
-                        subtitle = "只导出新光效有效参数",
+                        subtitle = "导出新光效与尺寸归一化参数",
                         state = state,
                         modifier = Modifier.weight(1f),
-                        onClick = { clipboard.setText(AnnotatedString(composeGlassMotionExportJson(motion))) },
+                        onClick = { clipboard.setText(AnnotatedString(composeGlassMotionExportJson(motion, sizeTuning))) },
                     )
                     LabActionButton(
                         title = "恢复 8830 默认",
                         subtitle = "恢复新光效基准值",
                         state = state,
                         modifier = Modifier.weight(1f),
-                        onClick = { ComposeGlassLabState.resetMotion() },
+                        onClick = {
+                            ComposeGlassLabState.resetMotion()
+                            ComposeGlassLabState.resetSizeAdaptiveTuning()
+                        },
                     )
                 }
             }
@@ -287,7 +314,7 @@ private fun LabActionButton(title: String, subtitle: String, state: AssistantUiS
     }
 }
 
-private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle): String {
+private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: OrdinaryGlassSizeAdaptiveTuning): String {
     fun Float.exportValue(): String = ((this * 1000f).roundToInt() / 1000f).toString()
     return """
         {
@@ -300,6 +327,13 @@ private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle): Strin
             "prism": ${motion.prism.exportValue()},
             "sweep": ${motion.sweep.exportValue()},
             "afterglow": ${motion.afterglow.exportValue()}
+          },
+          "ordinaryGlassSizeAdaptiveTuning": {
+            "smallBoost": ${size.smallBoost.exportValue()},
+            "largeDamp": ${size.largeDamp.exportValue()},
+            "pivotPx": ${size.pivotPx.exportValue()},
+            "visualPx": ${size.visualPx.exportValue()},
+            "lightBoost": ${size.lightBoost.exportValue()}
           }
         }
     """.trimIndent()
