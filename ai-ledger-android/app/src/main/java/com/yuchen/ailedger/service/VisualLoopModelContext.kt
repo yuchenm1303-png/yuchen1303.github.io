@@ -87,7 +87,7 @@ internal object VisualLoopModelContext {
             "long_press" -> if (target.isNotBlank()) "Long press $target" else "Long press visible target"
             "swipe", "scroll" -> if (target.isNotBlank()) "Swipe $target" else "Swipe on screen"
             "type" -> "Type text"
-            "system_button" -> "Press ${button.ifBlank { "system button" }}"
+            "system_button" -> "Press ${if (button.isNotBlank()) button else "system button"}"
             "wait" -> "Wait"
             "interact" -> "Ask user: ${text.take(80)}"
             "terminate" -> "Terminate with ${args.optString("status").ifBlank { "status" }}"
