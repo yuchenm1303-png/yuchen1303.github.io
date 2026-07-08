@@ -17,7 +17,7 @@ data class ComposeGlassMotionStyle(
     val deformation: Float = 0.253f,
     val touchLight: Float = 1f,
     val prism: Float = 0.68f,
-    val sweep: Float = 24f,
+    val sweep: Float = 0.3f,
     val rebound: Float = 0.90f,
     val afterglow: Float = 0.86f,
     val speed: Float = 0.171f,
