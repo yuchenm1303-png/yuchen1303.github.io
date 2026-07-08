@@ -11,6 +11,7 @@ internal object VisualLoopMemorySupport {
     private const val RUNTIME_PREFIX = "visual_runtime_context:v2|"
     private const val LEGACY_RUNTIME_PREFIX = "visual_runtime_context:v1|"
     private const val LEDGER_PREFIX = "visual_execution_ledger:v5|"
+    private const val MAX_HISTORY_RESULT_CHARS = 420
     private val legacyLedgerPrefixes = listOf(
         "visual_execution_ledger:v4|",
         "visual_execution_ledger:v3|",
@@ -21,6 +22,19 @@ internal object VisualLoopMemorySupport {
         "visual_reasoning_context:v3|",
         "visual_reasoning_context:v4|",
         "visual_replan_requested:reason=adaptive_reasoning_depth|",
+    )
+    private val modelUsefulResultPrefixes = listOf(
+        "visual_execution_observed:",
+        "visual_action_stale:",
+        "visual_action_rejected:",
+        "visual_action_retry:",
+        "visual_local_retry:",
+        "open_app_package_verified:",
+        "open_app_package_verification_pending:",
+        "open_app_package_verification_failed:",
+        "open_app_redundant_verified_target_skipped:",
+        "finish_candidate_rejected:",
+        "finish_permit_rejected:",
     )
 
     fun replaceRuntimeLine(actions: MutableList<String>, runtime: VisualAgentRuntimeContext) {
@@ -105,14 +119,37 @@ internal object VisualLoopMemorySupport {
 
     fun updateLastHistory(history: MutableList<VisualAgentHistoryItem>, result: String) {
         if (history.isEmpty()) return
-        history[history.lastIndex] = history.last().copy(executionResult = result.take(240))
+        val compactResult = compactModelVisibleResult(result)
+        history[history.lastIndex] = history.last().copy(executionResult = compactResult)
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "visual_history_update",
             details = JSONObject().apply {
                 put("historySize", history.size)
                 put("executionResult", result.take(1_200))
+                put("modelVisibleExecutionResult", compactResult)
             },
         )
+    }
+
+    private fun compactModelVisibleResult(result: String): String {
+        val parts = result.split(';')
+            .map(String::trim)
+            .filter(String::isNotBlank)
+        if (parts.isEmpty()) return ""
+        val useful = parts.lastOrNull { part ->
+            modelUsefulResultPrefixes.any(part::startsWith)
+        }
+        val summary = parts.firstOrNull { part ->
+            part.contains("executionAccepted=") ||
+                part.contains(":ok:") ||
+                part.contains(":retry:") ||
+                part.contains(":failed:")
+        }
+        return listOfNotNull(useful, summary)
+            .distinct()
+            .joinToString(";")
+            .ifBlank { parts.last() }
+            .take(MAX_HISTORY_RESULT_CHARS)
     }
 
     fun rememberTurn(
@@ -124,7 +161,7 @@ internal object VisualLoopMemorySupport {
         val visual = snapshot.visual ?: return
         val output = plan.rawModelOutput.ifBlank { plan.step.reason.orEmpty() }
         if (output.isBlank()) return
-        history += VisualAgentHistoryItem(visual, output, result)
+        history += VisualAgentHistoryItem(visual, output, compactModelVisibleResult(result))
         while (history.size > VisualLoopSupport.RECOVERY_HISTORY_ITEMS) history.removeAt(0)
 
         val step = plan.step
@@ -161,6 +198,7 @@ internal object VisualLoopMemorySupport {
                 put("committedTaskContract", plan.taskContract?.toJson() ?: JSONObject.NULL)
                 put("stopConditions", JSONArray(plan.stopConditions.toList()))
                 put("executionResult", result.take(1_200))
+                put("modelVisibleExecutionResult", history.last().executionResult)
                 put("historySizeAfterAppend", history.size)
             },
         )
