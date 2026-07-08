@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -14,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -68,7 +70,7 @@ class OrdinaryGlassRenderNode(
         internal set
 
     internal val parentDrawCache = OrdinaryGlassParentDrawCache()
-    internal var parentOpticsTail: Float = 0f
+    internal var parentOpticsTail by mutableFloatStateOf(0f)
         private set
     private var parentOpticsTailFrameNanos: Long = 0L
 
@@ -209,6 +211,19 @@ class OrdinaryGlassSceneState(
     private val visiblePool = ArrayList<VisibleOrdinaryGlassItem>()
     private var visibleCount = 0
     private var activePressCount = 0
+
+    var opticsFrameNanos by mutableLongStateOf(0L)
+        private set
+    var wantsOpticsFrames by mutableStateOf(false)
+        private set
+
+    internal fun updateOpticsFrame(frameNanos: Long) {
+        opticsFrameNanos = frameNanos
+    }
+
+    internal fun setOpticsFramesWanted(wanted: Boolean) {
+        if (wantsOpticsFrames != wanted) wantsOpticsFrames = wanted
+    }
 
     internal fun beginVisiblePass() {
         visibleCount = 0
@@ -396,6 +411,16 @@ fun OrdinaryGlassSceneHost(
         onDispose { sceneState.registry.clear() }
     }
 
+    if (sceneState.wantsOpticsFrames) {
+        LaunchedEffect(sceneState, sceneState.wantsOpticsFrames) {
+            while (sceneState.wantsOpticsFrames) {
+                withFrameNanos { frameNanos ->
+                    sceneState.updateOpticsFrame(frameNanos)
+                }
+            }
+        }
+    }
+
     CompositionLocalProvider(
         LocalGlassSceneContext provides context,
         LocalOrdinaryGlassSceneState provides sceneState,
@@ -406,12 +431,13 @@ fun OrdinaryGlassSceneHost(
                 .onPlaced { sceneState.coordinates.coordinates = it }
                 .drawWithContent {
                     backdropTicker?.frameNanos
+                    val opticsFrameNanos = sceneState.opticsFrameNanos
                     collectVisibleOrdinaryGlassItems(
                         sceneState = sceneState,
                         viewportSize = size,
                         backdropOrigin = backdropOrigin,
                         resolveSampleOffset = backdrop != null && backdropSpec != null,
-                        frameNanos = System.nanoTime()
+                        frameNanos = if (opticsFrameNanos > 0L) opticsFrameNanos else System.nanoTime()
                     )
 
                     sceneState.forEachVisible { item ->
@@ -443,6 +469,7 @@ fun OrdinaryGlassSceneHost(
                             }
                         }
                     }
+                    sceneState.setOpticsFramesWanted(sceneState.hasVisibleActivePress())
                 }
         ) {
             content()
