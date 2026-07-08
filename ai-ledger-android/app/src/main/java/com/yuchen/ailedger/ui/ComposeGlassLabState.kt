@@ -152,13 +152,13 @@ object ComposeGlassLabState {
     var motionStyle by mutableStateOf(defaultComposeGlassMotionStyle())
         private set
 
-    var capsuleTuning by mutableStateOf(defaultOrdinaryGlassCapsuleTuning())
-        private set
-
-    var pressureOpticsTuning by mutableStateOf(defaultOrdinaryGlassPressureOpticsTuning())
-        private set
-
     var sizeAdaptiveTuning by mutableStateOf(defaultOrdinaryGlassSizeAdaptiveTuning())
+        private set
+
+    var capsuleTuning by mutableStateOf(singleCardCapsuleTuningFor(sizeAdaptiveTuning))
+        private set
+
+    var pressureOpticsTuning by mutableStateOf(singleCardPressureOpticsFor(sizeAdaptiveTuning))
         private set
 
     fun update(next: ComposeGlassStyle) {
@@ -178,7 +178,20 @@ object ComposeGlassLabState {
     }
 
     fun updateSizeAdaptiveTuning(next: OrdinaryGlassSizeAdaptiveTuning) {
-        sizeAdaptiveTuning = next.normalized()
+        val normalized = next.normalized()
+        sizeAdaptiveTuning = normalized
+        applySizeAdaptiveTuningToSingleCard(normalized)
+    }
+
+    private fun applySizeAdaptiveTuningToSingleCard(size: OrdinaryGlassSizeAdaptiveTuning) {
+        /*
+         * 单卡绘制路径不再依赖 ParentDraw。PressableGlass 已经在本卡片内按 size 计算
+         * capsuleCompact / capsuleElongated，并在 ordinaryPressSurfaceOptics 内按 DrawScope.size
+         * 计算光场半径；这里把“尺寸归一化”滑杆转换成 PressableGlass 真正读取的
+         * capsuleTuning / pressureOpticsTuning，使小卡增强、大卡压制直接作用到单卡链路。
+         */
+        capsuleTuning = singleCardCapsuleTuningFor(size)
+        pressureOpticsTuning = singleCardPressureOpticsFor(size)
     }
 
     fun usePreset(preset: ComposeGlassPreset) {
@@ -194,23 +207,26 @@ object ComposeGlassLabState {
     }
 
     fun resetCapsuleTuning() {
-        capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
+        capsuleTuning = singleCardCapsuleTuningFor(sizeAdaptiveTuning)
     }
 
     fun resetPressureOpticsTuning() {
-        pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
+        pressureOpticsTuning = singleCardPressureOpticsFor(sizeAdaptiveTuning)
     }
 
     fun resetSizeAdaptiveTuning() {
-        sizeAdaptiveTuning = defaultOrdinaryGlassSizeAdaptiveTuning()
+        val defaults = defaultOrdinaryGlassSizeAdaptiveTuning()
+        sizeAdaptiveTuning = defaults
+        applySizeAdaptiveTuningToSingleCard(defaults)
     }
 
     fun resetAll() {
         style = defaultComposeGlassStyle()
         motionStyle = defaultComposeGlassMotionStyle()
-        capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
-        pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
-        sizeAdaptiveTuning = defaultOrdinaryGlassSizeAdaptiveTuning()
+        val defaults = defaultOrdinaryGlassSizeAdaptiveTuning()
+        sizeAdaptiveTuning = defaults
+        capsuleTuning = singleCardCapsuleTuningFor(defaults)
+        pressureOpticsTuning = singleCardPressureOpticsFor(defaults)
     }
 }
 
@@ -221,6 +237,46 @@ private fun defaultOrdinaryGlassCapsuleTuning(): OrdinaryGlassCapsuleTuning = Or
 private fun defaultOrdinaryGlassPressureOpticsTuning(): OrdinaryGlassPressureOpticsTuning = OrdinaryGlassPressureOpticsTuning()
 
 private fun defaultOrdinaryGlassSizeAdaptiveTuning(): OrdinaryGlassSizeAdaptiveTuning = OrdinaryGlassSizeAdaptiveTuning()
+
+private fun singleCardCapsuleTuningFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassCapsuleTuning {
+    val normalized = size.normalized()
+    val small = normalized.smallBoost.coerceIn(0f, 8f)
+    val large = normalized.largeDamp.coerceIn(0f, 1.6f)
+    val visual = normalized.visualPx.coerceIn(0.4f, 32f)
+    val light = normalized.lightBoost.coerceIn(0f, 8f)
+    return defaultOrdinaryGlassCapsuleTuning().copy(
+        compactBoost = (1.0f + small * 0.86f).coerceIn(0.20f, 8.40f),
+        elongatedX = (large * 1.62f).coerceIn(0f, 4.80f),
+        elongatedY = (0.10f + small * 0.08f).coerceIn(0.02f, 2.20f),
+        basePx = (0.016f + visual * 0.0066f).coerceIn(0.006f, 0.32f),
+        tapPx = (0.045f + visual * 0.0138f).coerceIn(0.018f, 0.62f),
+        tapPop = (0.86f + visual * 0.064f).coerceIn(0.30f, 6.40f),
+        tapCarry = (0.22f + small * 0.105f + light * 0.035f).coerceIn(0.06f, 2.20f),
+        sticky = (0.018f + light * 0.026f).coerceIn(0.004f, 0.48f),
+        sink = (0.058f + visual * 0.014f).coerceIn(0.02f, 1.20f),
+        settle = (0.18f + large * 0.42f).coerceIn(0.08f, 1.20f),
+    ).normalized()
+}
+
+private fun singleCardPressureOpticsFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassPressureOpticsTuning {
+    val normalized = size.normalized()
+    val small = normalized.smallBoost.coerceIn(0f, 8f)
+    val large = normalized.largeDamp.coerceIn(0f, 1.6f)
+    val visual = normalized.visualPx.coerceIn(0.4f, 32f)
+    val light = normalized.lightBoost.coerceIn(0f, 8f)
+    val pivotScale = (normalized.pivotPx / 180f).coerceIn(0.35f, 4.00f)
+    return defaultOrdinaryGlassPressureOpticsTuning().copy(
+        fieldIntensity = (4.2f + light * 8.8f + small * 0.72f).coerceIn(0f, 96f),
+        fieldSpread = (3.2f + visual * 0.34f + pivotScale * 0.80f - large * 1.20f).coerceIn(0f, 42f),
+        fieldSoftness = (3.8f + visual * 0.30f + large * 2.10f).coerceIn(0f, 48f),
+        fieldUniformity = (3.2f + large * 2.40f).coerceIn(0f, 40f),
+        fieldFollow = (0.10f + small * 0.018f).coerceIn(0f, 1.20f),
+        edgeIntensity = (4.0f + light * 6.6f + small * 0.58f).coerceIn(0f, 96f),
+        edgeWidth = (1.4f + visual * 0.20f + small * 0.20f - large * 0.34f).coerceIn(0f, 24f),
+        edgeSoftness = (3.6f + large * 2.40f).coerceIn(0f, 48f),
+        edgeBloom = (3.8f + light * 4.2f + visual * 0.10f).coerceIn(0f, 80f),
+    ).normalized()
+}
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
     ComposeGlassPreset.Clear -> ComposeGlassStyle(
