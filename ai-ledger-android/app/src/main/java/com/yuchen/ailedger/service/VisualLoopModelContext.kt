@@ -27,7 +27,7 @@ internal object VisualLoopModelContext {
             .takeLast(MAX_MODEL_ACTIONS)
             .mapIndexedNotNull { index, item ->
                 val modelOutput = item.component2()
-                val action = extractActionText(modelOutput) ?: summarizeToolCall(modelOutput)
+                val action = summarizeToolCall(modelOutput) ?: extractActionText(modelOutput)
                     ?: return@mapIndexedNotNull null
                 val result = compactOutcomeSuffix(item.executionResult)
                 "Step ${index + 1}: ${action.take(MAX_ACTION_TEXT_CHARS)}$result"
@@ -41,7 +41,7 @@ internal object VisualLoopModelContext {
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "model_visible_previous_actions",
             details = JSONObject().apply {
-                put("source", "official_loop_clean_history_with_action_outcomes")
+                put("source", "official_loop_objective_tool_history_with_action_outcomes")
                 put("historyItems", visualHistory.size)
                 put("internalRecentActions", internalRecentActions.size)
                 put("interactionActions", interactionActions.size)
@@ -58,7 +58,11 @@ internal object VisualLoopModelContext {
         ACTION_LINE.find(clean)?.groupValues?.getOrNull(1)?.trim()?.takeIf(String::isNotBlank)?.let {
             return it
         }
-        val withoutThink = clean.replace(THINK_BLOCK, "").trim()
+        val withoutThink = clean
+            .replace(THINK_BLOCK, "")
+            .replace(THINK_TAG, "")
+            .substringBefore("<tool_call")
+            .trim()
         val firstLine = withoutThink
             .lineSequence()
             .map(String::trim)
@@ -239,6 +243,9 @@ internal object VisualLoopModelContext {
     )
     private val THINK_BLOCK = Regex(
         pattern = "(?is)<think>.*?</think>",
+    )
+    private val THINK_TAG = Regex(
+        pattern = "(?is)</?think>",
     )
     private val BARE_COORDINATE_COMMAND = Regex(
         pattern = "(?i)^(click|tap|long_press)\\s+\\d+(?:\\.\\d+)?\\s+\\d+(?:\\.\\d+)?$",
