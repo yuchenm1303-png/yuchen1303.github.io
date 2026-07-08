@@ -34,14 +34,9 @@ import com.yuchen.ailedger.model.BackdropDebugParams
 import com.yuchen.ailedger.model.GlassBorderStyle
 import kotlin.math.roundToInt
 
-private val MotionHugeRange = 0f..120f
-private val MotionLightHugeRange = 0f..160f
-private val MotionSpeedHugeRange = 0.02f..40f
-private val CapsulePxHugeRange = 0f..1.2f
-private val CapsuleWideHugeRange = 0f..24f
-private val CapsulePopHugeRange = 0.05f..40f
-private val OpticsHugeRange = 0f..160f
-private val EdgeWidthHugeRange = 0f..80f
+private val ComposeMotionEnergyRange = 0f..12f
+private val ComposeMotionLightRange = 0f..24f
+private val ComposeMotionSpeedRange = 0.05f..8f
 
 @Composable
 fun GlassDebugFloatingPanel(
@@ -55,8 +50,6 @@ fun GlassDebugFloatingPanel(
     val params = state.backdropParams
     val border = state.glassBorderStyle
     val motion = ComposeGlassLabState.motionStyle
-    val capsule = ComposeGlassLabState.capsuleTuning
-    val optics = ComposeGlassLabState.pressureOpticsTuning
     val clipboard = LocalClipboardManager.current
     val parentDrawEnabled = GlassFoldoutParentDrawGate.displayedEnabled
 
@@ -70,137 +63,55 @@ fun GlassDebugFloatingPanel(
                 onEnabledChange = GlassFoldoutParentDrawGate::setUserEnabled
             )
             GlassLabFoldout(
-                "Compose白光胶囊动效",
-                "真实玻璃本体动画、白光余辉、胶囊形变调试",
+                "Compose光动效效果",
+                "8830 版按压鼓起 / 触点 bloom / 边缘 sweep / 释放余辉",
                 true,
                 state,
             ) {
-                Group("总控", "全局能量、速度、余辉收尾；上限已拉大用于极端调试", state, initiallyExpanded = false) {
+                Group("8830 动画曲线", "只保留当前新光效真正消费的动画参数；范围放大方便压测", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
-                    LabSlider("总光动效", "全局控制普通 Compose 点击光效与胶囊能量", motion.master, MotionHugeRange) {
+                    LabSlider("总强度 master", "普通 Compose 光动效总能量，0 关闭，越高越夸张", motion.master, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(master = it))
                     }
-                    LabSlider("胶囊速度", "控制按下、扫光、余辉退场速度；越高越快", motion.speed, MotionSpeedHugeRange) {
+                    LabSlider("速度 speed", "控制按下、扫光、余辉退场速度；越高越快", motion.speed, ComposeMotionSpeedRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
                     }
-                    LabSlider("余辉收尾", "控制松手后白光淡出时长和连续性，专门修复啪一下断层", motion.afterglow, MotionLightHugeRange) {
-                        ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
-                    }
-                }
-                Group("胶囊本体", "真实 PressableGlass 本体同向鼓起，不是外面套壳", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview(state)
-                    LabSlider("按压形变", "控制胶囊整体鼓起体积，越高越明显", motion.deformation, MotionHugeRange) {
+                    LabSlider("本体形变 deformation", "控制玻璃本体鼓起和按压体积", motion.deformation, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
                     }
-                    LabSlider("短点击冲量", "点一下时瞬间鼓起和白光起跳能量", motion.tapImpulse, MotionHugeRange) {
-                        ComposeGlassLabState.updateMotion(motion.copy(tapImpulse = it))
-                    }
-                    LabSlider("释放回弹", "控制松手后的轻微反向回弹", motion.rebound, MotionHugeRange) {
+                    LabSlider("释放回弹 rebound", "控制松手时的反向回弹幅度", motion.rebound, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
                     }
-                    LabSlider("释放凝聚", "控制回落阻尼，越高越黏、越不散", motion.releaseCohesion, MotionHugeRange) {
-                        ComposeGlassLabState.updateMotion(motion.copy(releaseCohesion = it))
-                    }
-                    LabSlider("光场连续", "控制白光从按下到松手的衔接强度", motion.fieldContinuity, MotionHugeRange) {
-                        ComposeGlassLabState.updateMotion(motion.copy(fieldContinuity = it))
-                    }
-                    LabSlider("扫光惯性", "控制边缘扫光在松手后的保留和滑走", motion.sweepMomentum, MotionHugeRange) {
-                        ComposeGlassLabState.updateMotion(motion.copy(sweepMomentum = it))
-                    }
                 }
-                Group("白光与扫光", "主白光 bloom、边缘轻 sweep，不走高饱和彩虹", state, initiallyExpanded = false) {
+                Group("8830 白光与扫光", "触点径向 bloom、彩色棱镜和边缘 sweep；不再显示旧压力场参数", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
-                    LabSlider("白光镜头", "控制触点白光和中心大 bloom 的亮度", motion.touchLight, MotionLightHugeRange) {
+                    LabSlider("触点白光 touchLight", "控制按下中心 bloom 和 lens 的亮度", motion.touchLight, ComposeMotionLightRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
                     }
-                    LabSlider("边缘扫光", "控制边缘粉白、暖白、青白轻扫强度", motion.sweep, MotionLightHugeRange) {
+                    LabSlider("棱镜色散 prism", "控制粉、暖黄、青色的轻微色散；0 为纯白光", motion.prism, ComposeMotionLightRange) {
+                        ComposeGlassLabState.updateMotion(motion.copy(prism = it))
+                    }
+                    LabSlider("边缘扫光 sweep", "控制边缘 sweep 推进和描边光强", motion.sweep, ComposeMotionLightRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(sweep = it))
                     }
-                }
-                Group("胶囊尺寸细调", "强化胶囊感：长条纵向鼓起、小按钮体积、点击尾巴", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview(state)
-                    LabSlider("小尺寸增强", "小按钮、小卡片胶囊体积增强", capsule.compactBoost, 0f..12f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(compactBoost = it))
-                    }
-                    LabSlider("长条横向抑制", "越高越抑制长条左右拉爆；新版默认接近 0", capsule.elongatedX, 0f..8f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(elongatedX = it))
-                    }
-                    LabSlider("长条纵向补偿", "越高长胶囊上下鼓起越强", capsule.elongatedY, 0f..8f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(elongatedY = it))
-                    }
-                    LabSlider("基础像素形变", "真实像素膨胀基准，控制长按体积", capsule.basePx, CapsulePxHugeRange) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(basePx = it))
-                    }
-                    LabSlider("短点击像素", "点一下额外鼓起体积，优先调这个找胶囊感", capsule.tapPx, CapsulePxHugeRange) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapPx = it))
-                    }
-                    LabSlider("点击峰值", "短点击峰值放大，越高越像软胶囊弹起", capsule.tapPop, CapsulePopHugeRange) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapPop = it))
-                    }
-                    LabSlider("点击拖尾", "短点击松手后托住胶囊和白光的尾巴", capsule.tapCarry, CapsuleWideHugeRange) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(tapCarry = it))
-                    }
-                    LabSlider("黏滞白胶", "给胶囊源头增加白胶黏性，过高会拖慢", capsule.sticky, 0f..4f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(sticky = it))
-                    }
-                    LabSlider("下沉重量", "按下时向下沉入量，过高会显重", capsule.sink, CapsuleWideHugeRange) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(sink = it))
-                    }
-                    LabSlider("释放回落", "释放阶段的回落和收束强度", capsule.settle, 0f..12f) {
-                        ComposeGlassLabState.updateCapsuleTuning(capsule.copy(settle = it))
-                    }
-                }
-                Group("白光光场", "大半径、低梯度、缓慢退场的乳白压力场", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview(state)
-                    LabSlider("光场强度", "整片白光亮度，上限极大用于过曝边界测试", optics.fieldIntensity, OpticsHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(fieldIntensity = it))
-                    }
-                    LabSlider("铺开范围", "白光半径和铺开面积", optics.fieldSpread, OpticsHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(fieldSpread = it))
-                    }
-                    LabSlider("揉开柔度", "渐变柔度，越高越没有硬圆心", optics.fieldSoftness, OpticsHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(fieldSoftness = it))
-                    }
-                    LabSlider("形状消隐", "削弱中心硬斑，让白光更像整片雾", optics.fieldUniformity, OpticsHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(fieldUniformity = it))
-                    }
-                    LabSlider("触点跟随", "光场中心跟随手指程度，过高会看到圆心移动", optics.fieldFollow, 0f..8f) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(fieldFollow = it))
-                    }
-                }
-                Group("边缘白光", "边缘细 sweep、边缘 bloom 和柔化宽度", state, initiallyExpanded = false) {
-                    ComposeGlassMotionPreview(state)
-                    LabSlider("边缘强度", "边缘高光总亮度", optics.edgeIntensity, OpticsHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(edgeIntensity = it))
-                    }
-                    LabSlider("边缘宽度", "边缘白光 stroke 宽度", optics.edgeWidth, EdgeWidthHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(edgeWidth = it))
-                    }
-                    LabSlider("边缘柔化", "边缘高光柔化程度", optics.edgeSoftness, OpticsHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(edgeSoftness = it))
-                    }
-                    LabSlider("边缘泛光", "边缘附近白色 bloom，配合收尾看是否断层", optics.edgeBloom, OpticsHugeRange) {
-                        ComposeGlassLabState.updatePressureOpticsTuning(optics.copy(edgeBloom = it))
+                    LabSlider("释放余辉 afterglow", "控制松手后白光和边缘扫光的保留时间", motion.afterglow, ComposeMotionLightRange) {
+                        ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
                     LabActionButton(
                         title = "复制参数 JSON",
-                        subtitle = "导出白光胶囊完整参数",
+                        subtitle = "只导出新光效有效参数",
                         state = state,
                         modifier = Modifier.weight(1f),
-                        onClick = { clipboard.setText(AnnotatedString(composeGlassMotionExportJson(motion, capsule, optics))) },
+                        onClick = { clipboard.setText(AnnotatedString(composeGlassMotionExportJson(motion))) },
                     )
                     LabActionButton(
-                        title = "恢复默认值",
-                        subtitle = "恢复新版白光胶囊默认值",
+                        title = "恢复 8830 默认",
+                        subtitle = "恢复新光效基准值",
                         state = state,
                         modifier = Modifier.weight(1f),
-                        onClick = {
-                            ComposeGlassLabState.resetMotion()
-                            ComposeGlassLabState.resetCapsuleTuning()
-                            ComposeGlassLabState.resetPressureOpticsTuning()
-                        },
+                        onClick = { ComposeGlassLabState.resetMotion() },
                     )
                 }
             }
@@ -257,7 +168,7 @@ private fun ComposeGlassMotionPreview(state: AssistantUiState) {
         ) {
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalArrangement = Arrangement.Center) {
                 Text("按住卡片", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-                Text("真实 PressableGlass 样本", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("8830 光动效样本", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -376,46 +287,19 @@ private fun LabActionButton(title: String, subtitle: String, state: AssistantUiS
     }
 }
 
-private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, capsule: OrdinaryGlassCapsuleTuning, optics: OrdinaryGlassPressureOpticsTuning): String {
+private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle): String {
     fun Float.exportValue(): String = ((this * 1000f).roundToInt() / 1000f).toString()
     return """
         {
-          "composeGlassMotionStyle": {
+          "composeGlassMotionStyle8830": {
             "master": ${motion.master.exportValue()},
+            "speed": ${motion.speed.exportValue()},
             "deformation": ${motion.deformation.exportValue()},
+            "rebound": ${motion.rebound.exportValue()},
             "touchLight": ${motion.touchLight.exportValue()},
             "prism": ${motion.prism.exportValue()},
             "sweep": ${motion.sweep.exportValue()},
-            "rebound": ${motion.rebound.exportValue()},
-            "afterglow": ${motion.afterglow.exportValue()},
-            "speed": ${motion.speed.exportValue()},
-            "tapImpulse": ${motion.tapImpulse.exportValue()},
-            "releaseCohesion": ${motion.releaseCohesion.exportValue()},
-            "fieldContinuity": ${motion.fieldContinuity.exportValue()},
-            "sweepMomentum": ${motion.sweepMomentum.exportValue()}
-          },
-          "ordinaryGlassCapsuleTuning": {
-            "compactBoost": ${capsule.compactBoost.exportValue()},
-            "elongatedX": ${capsule.elongatedX.exportValue()},
-            "elongatedY": ${capsule.elongatedY.exportValue()},
-            "basePx": ${capsule.basePx.exportValue()},
-            "tapPx": ${capsule.tapPx.exportValue()},
-            "tapPop": ${capsule.tapPop.exportValue()},
-            "tapCarry": ${capsule.tapCarry.exportValue()},
-            "sticky": ${capsule.sticky.exportValue()},
-            "sink": ${capsule.sink.exportValue()},
-            "settle": ${capsule.settle.exportValue()}
-          },
-          "ordinaryGlassPressureOpticsTuning": {
-            "fieldIntensity": ${optics.fieldIntensity.exportValue()},
-            "fieldSpread": ${optics.fieldSpread.exportValue()},
-            "fieldSoftness": ${optics.fieldSoftness.exportValue()},
-            "fieldUniformity": ${optics.fieldUniformity.exportValue()},
-            "fieldFollow": ${optics.fieldFollow.exportValue()},
-            "edgeIntensity": ${optics.edgeIntensity.exportValue()},
-            "edgeWidth": ${optics.edgeWidth.exportValue()},
-            "edgeSoftness": ${optics.edgeSoftness.exportValue()},
-            "edgeBloom": ${optics.edgeBloom.exportValue()}
+            "afterglow": ${motion.afterglow.exportValue()}
           }
         }
     """.trimIndent()
