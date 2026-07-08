@@ -6,19 +6,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
 /**
- * 普通 Compose 玻璃父级绘制的全 App 开关。
+ * 普通 Compose 玻璃父级绘制的全 App 验证开关。
  *
- * ParentDraw 是当前普通 Compose 玻璃的目标架构：
- * - Card / Chip / Floating / Nav / Flex 统一上报到页面 Host；
- * - Shell / OpenGL / 聊天气泡 / Frost / Inset 仍由各自入口硬排除；
- * - Fallback 场景保留 Shadow，避免无场景边界时误接管。
+ * 这个开关只能用于验证父级批量绘制，不作为默认动效架构：
+ * ParentDraw 会把玻璃本体、内容 graphicsLayer 与光效层拆到不同绘制链，
+ * 容易造成按压时光效和玻璃本体脱离。
  *
- * 之前默认 false 会让尺寸归一化、父级余辉和单卡光效只在局部调试开关打开时生效，
- * 造成实验室参数看起来“完全没变化”。现在默认启用目标架构。
+ * 普通 Compose 按压动效的默认路径必须保持子级单卡绘制：
+ * PressableGlass 自己持有 material / lens / sweep / afterglow 动画，
+ * 同一个组件内完成玻璃本体形变、静态材质和光效覆盖。
  */
 @Stable
 object OrdinaryGlassParentDrawController {
-    var globalEnabled by mutableStateOf(true)
+    var globalEnabled by mutableStateOf(false)
 
     fun renderModeFor(group: GlassSceneGroup): OrdinaryGlassRenderMode =
         if (globalEnabled && group.owner != GlassSceneOwner.Fallback) {
