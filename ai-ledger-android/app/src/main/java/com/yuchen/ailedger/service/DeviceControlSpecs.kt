@@ -31,6 +31,8 @@ internal val DeviceControlEnvelopeKeys: Set<String> = setOf(
     "expectedEvidence",
     "failureEvidence",
     "successEvidence",
+    "wrongEvidence",
+    "negativeEvidence",
     "evidence",
     "observationId",
     "expectedActionObservationId",
@@ -46,11 +48,6 @@ internal val DeviceControlEnvelopeKeys: Set<String> = setOf(
     "controllerHandoffActive",
     "internalDeviceToolHandoffBlocked",
     "openAppIsVisualEntryAction",
-    "executionPermitKind",
-    "executionPermitActionHash",
-    "executionPermitActionExecutionEligible",
-    "executionPermitReason",
-    "executionPermitPolicy",
     "completionCandidate",
     "completionCandidateId",
     "completionCandidateSessionId",
@@ -61,9 +58,28 @@ internal val DeviceControlEnvelopeKeys: Set<String> = setOf(
     "actionIntent",
     "progressContract",
     "semanticIntent",
-    "__androidVisualSurfaceMode",
-    "__androidVisualAuthority",
-    "__androidSecondaryVerifierRequired",
+)
+
+private val DeviceControlSemanticMetadataKeys: Set<String> = setOf(
+    "purpose",
+    "subgoal",
+    "actionPurpose",
+    "milestoneId",
+    "milestone",
+    "currentMilestoneId",
+    "confidence",
+    "hypothesisId",
+    "hypothesis",
+    "intentId",
+    "exploratory",
+    "reversible",
+    "semanticStatus",
+    "expected",
+    "successEvidence",
+    "expectedEvidence",
+    "failureEvidence",
+    "wrongEvidence",
+    "negativeEvidence",
 )
 
 enum class DeviceControlPermission {
@@ -139,8 +155,8 @@ data class DeviceControlValidation(
  * Pure Android execution contract for cloud-selected device controls.
  *
  * GUI Plus may provide visual-entry device actions such as open_app. Android accepts canonical
- * tool + args only, rejects executable unknown fields, and strips protocol-only metadata before
- * schema, permission, package and risk-boundary checks.
+ * executable args only. Execution permits, visual trace data and semantic diagnostics are stripped
+ * before schema validation, so metadata can never make a correct action non-canonical.
  */
 object DeviceControlSpecs {
     private val packageArgs = setOf("packageName")
@@ -347,10 +363,7 @@ object DeviceControlSpecs {
             ?: return DeviceControlValidation.invalid("unsupported_device_tool:${step.type}")
         val args = step.toolArgs ?: JSONObject()
 
-        // Some cloud plan envelopes are parsed into CloudAgentStep before the dedicated router runs.
-        // Remove protocol-only metadata in-place at the shared execution gate. This never infers or
-        // converts an argument; all unknown executable fields remain and are still rejected below.
-        DeviceControlEnvelopeKeys.forEach { args.remove(it) }
+        stripProtocolOnlyArgs(args)
 
         val unknownArgs = args.keys().asSequence().filterNot { it in spec.allowedArgNames }.toList()
         if (unknownArgs.isNotEmpty()) {
@@ -413,6 +426,23 @@ object DeviceControlSpecs {
 
     fun isSafePackageName(packageName: String): Boolean =
         packageName.matches(Regex("""[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+"""))
+
+    private fun stripProtocolOnlyArgs(args: JSONObject) {
+        val keys = args.keys().asSequence().toList()
+        keys.forEach { key ->
+            if (isProtocolOnlyArg(key)) args.remove(key)
+        }
+    }
+
+    private fun isProtocolOnlyArg(key: String): Boolean {
+        return key in DeviceControlEnvelopeKeys ||
+            key in DeviceControlSemanticMetadataKeys ||
+            key.startsWith("executionPermit") ||
+            key.startsWith("completionPermit") ||
+            key.startsWith("__android") ||
+            key.endsWith("ObservationId") ||
+            key.endsWith("SessionId")
+    }
 
     private fun privilegedAppSpec(
         stepType: String,
