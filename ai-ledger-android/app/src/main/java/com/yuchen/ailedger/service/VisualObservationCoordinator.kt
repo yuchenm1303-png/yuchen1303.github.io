@@ -369,7 +369,12 @@ class VisualObservationCoordinator(
             sleep(timing.openAppVerifyPollMs)
         }
 
-        if (!isStopped() && lastSnapshot?.packageName == expectedPackage && stableSamples > 0) {
+        if (
+            !isStopped() &&
+            lastSnapshot?.packageName == expectedPackage &&
+            stableSamples > 0 &&
+            lastEvidenceStrength == VisualPackageEvidenceStrength.Direct
+        ) {
             val finalVisualResolution = captureResolvedObservation(
                 forceVisual = true,
                 expectedPackage = expectedPackage,
