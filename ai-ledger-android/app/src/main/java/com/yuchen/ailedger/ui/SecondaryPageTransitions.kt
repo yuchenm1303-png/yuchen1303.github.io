@@ -23,10 +23,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.clipRect
 import kotlin.math.roundToInt
 import kotlinx.coroutines.yield
+
+private const val SECONDARY_HORIZONTAL_UNBOUNDED_CLIP_PX = 1_000_000f
 
 /**
  * 二级页面统一轻量转场。
@@ -71,7 +74,7 @@ internal fun <T> SecondaryPageTransition(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { clip = true },
+                .clipSecondaryPageVertically(),
         ) {
             content(page)
         }
@@ -95,7 +98,9 @@ internal fun SecondaryRouteEntrance(
 
     AnimatedVisibility(
         visible = visible,
-        modifier = modifier,
+        modifier = modifier
+            .fillMaxSize()
+            .clipSecondaryPageVertically(),
         enter = if (motion <= 0.05f) {
             fadeIn(tween(durationMillis = 70))
         } else {
@@ -119,7 +124,20 @@ internal fun SecondaryRouteEntrance(
             slideOutVertically(tween(durationMillis = 118)) { height -> -height.coerceAtMost(18) } +
             scaleOut(targetScale = 0.986f, animationSpec = tween(durationMillis = 118)),
     ) {
-        content()
+        Box(Modifier.fillMaxSize()) {
+            content()
+        }
+    }
+}
+
+private fun Modifier.clipSecondaryPageVertically(): Modifier = drawWithContent {
+    clipRect(
+        left = -SECONDARY_HORIZONTAL_UNBOUNDED_CLIP_PX,
+        top = 0f,
+        right = SECONDARY_HORIZONTAL_UNBOUNDED_CLIP_PX,
+        bottom = size.height,
+    ) {
+        this@drawWithContent.drawContent()
     }
 }
 
