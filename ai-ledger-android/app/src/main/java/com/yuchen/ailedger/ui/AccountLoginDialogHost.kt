@@ -78,7 +78,7 @@ internal fun AccountLoginDialogHost(
         cornerRadius = 25.dp,
         tailHeight = 12.dp,
         tailHalfWidth = 15.dp,
-        surfaceColor = Color(0xFF06122E).copy(alpha = 0.82f),
+        surfaceColor = Color(0xFF06122E).copy(alpha = 0.98f),
     ) { layout ->
         AnchoredLoginContent(
             compact = layout.compact,
@@ -132,11 +132,7 @@ private fun AnchoredLoginContent(
         verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
         Text(
-            text = if (mode == AnchoredLoginMode.Login) {
-                "登录 AI Ledger"
-            } else {
-                "创建 AI Ledger 账号"
-            },
+            text = if (mode == AnchoredLoginMode.Login) "登录 AI Ledger" else "创建 AI Ledger 账号",
             color = Color.White.copy(alpha = 0.97f),
             fontSize = if (compact) 16.sp else 18.sp,
             lineHeight = if (compact) 19.sp else 22.sp,
@@ -419,8 +415,7 @@ private fun LoginPrimaryAction(
             )
             .border(
                 0.8.dp,
-                if (enabled) Color(0xFFB9FFF6).copy(alpha = 0.17f)
-                else Color.White.copy(alpha = 0.07f),
+                if (enabled) Color(0xFFB9FFF6).copy(alpha = 0.17f) else Color.White.copy(alpha = 0.07f),
                 shape,
             )
             .clickable(
