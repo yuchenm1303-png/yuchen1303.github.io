@@ -31,7 +31,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -98,8 +97,8 @@ import kotlin.math.sin
 
 private const val CHAT_TAIL_ANCHOR_KEY = "assistant-chat-tail-anchor"
 private const val CHAT_TAIL_FOLLOW_EPSILON_PX = 0.75f
-private const val CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX = 360f
-private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX = 520f
+private const val CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX = 128f
+private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX = 220f
 
 @Immutable
 private data class ChatPanelUiState(
@@ -690,20 +689,22 @@ private suspend fun LazyListState.settleChatTailV2(
     withFrameNanos { }
     if (layoutInfo.totalItemsCount <= tailIndex) return
 
-    val tailVisible = layoutInfo.visibleItemsInfo.any { it.index == tailIndex }
-    if (!tailVisible) {
-        if (live) {
-            scrollToItem(tailIndex)
-        } else {
-            animateScrollToItem(tailIndex)
-        }
+    if (!live && !isChatTailVisiblyDockedV2(tailIndex)) {
+        animateScrollToItem(tailIndex)
     }
 
-    val settleFrames = if (live) 4 else 10
+    val settleFrames = if (live) 12 else 8
     repeat(settleFrames) {
         withFrameNanos { }
         followChatTailFrameV2(tailIndex = tailIndex, live = live)
     }
+}
+
+private fun LazyListState.isChatTailVisiblyDockedV2(tailIndex: Int): Boolean {
+    if (tailIndex < 0 || layoutInfo.totalItemsCount <= tailIndex) return false
+    val info = layoutInfo
+    val tail = info.visibleItemsInfo.firstOrNull { it.index == tailIndex } ?: return false
+    return tail.offset + tail.size <= info.viewportEndOffset + CHAT_TAIL_FOLLOW_EPSILON_PX
 }
 
 private suspend fun LazyListState.followChatTailFrameV2(
@@ -712,23 +713,34 @@ private suspend fun LazyListState.followChatTailFrameV2(
 ): Boolean {
     if (tailIndex < 0 || layoutInfo.totalItemsCount <= tailIndex) return false
     val info = layoutInfo
-    val tail = info.visibleItemsInfo.firstOrNull { it.index == tailIndex }
+    val visibleItems = info.visibleItemsInfo
+    if (visibleItems.isEmpty()) return false
+
+    val tail = visibleItems.firstOrNull { it.index == tailIndex }
     if (tail == null) {
-        if (live) {
-            scrollToItem(tailIndex)
-        } else {
-            animateScrollToItem(tailIndex)
+        val lastVisible = visibleItems.last()
+        if (lastVisible.index < tailIndex) {
+            val maxStep = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX
+            val spareViewport = (info.viewportEndOffset - (lastVisible.offset + lastVisible.size)).coerceAtLeast(0)
+            val step = (maxStep - spareViewport.toFloat() * 0.10f).coerceIn(24f, maxStep)
+            scrollBy(step)
+            return true
         }
-        return true
+        if (lastVisible.index > tailIndex) {
+            animateScrollToItem(tailIndex)
+            return true
+        }
+        return false
     }
 
     val tailBottom = tail.offset + tail.size
-    val gap = tailBottom - info.viewportEndOffset
+    val gap = (tailBottom - info.viewportEndOffset).toFloat()
     if (gap <= CHAT_TAIL_FOLLOW_EPSILON_PX) return false
 
-    val pull = if (live) 0.42f else 0.30f
+    val pull = if (live) 0.24f else 0.32f
     val maxStep = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX
-    val step = (gap * pull).coerceIn(1f, maxStep)
+    val minStep = if (live) 0.85f else 1.25f
+    val step = (gap * pull).coerceIn(minStep, maxStep)
     scrollBy(step)
     return true
 }
