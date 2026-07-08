@@ -13,14 +13,14 @@ enum class ComposeGlassPreset {
 }
 
 data class ComposeGlassMotionStyle(
-    val master: Float = 1f,
-    val deformation: Float = 0.92f,
+    val master: Float = 5.813f,
+    val deformation: Float = 0.253f,
     val touchLight: Float = 1f,
     val prism: Float = 0.68f,
-    val sweep: Float = 0.90f,
+    val sweep: Float = 24f,
     val rebound: Float = 0.90f,
     val afterglow: Float = 0.86f,
-    val speed: Float = 1.12f,
+    val speed: Float = 0.171f,
     val tapImpulse: Float = 0f,
     val releaseCohesion: Float = 0f,
     val fieldContinuity: Float = 0f,
@@ -78,11 +78,11 @@ data class OrdinaryGlassCapsuleTuning(
     val settle: Float = 0.30f,
 ) {
     internal fun normalized(): OrdinaryGlassCapsuleTuning = copy(
-        compactBoost = compactBoost.coerceIn(0f, 12f),
-        elongatedX = elongatedX.coerceIn(0f, 8f),
-        elongatedY = elongatedY.coerceIn(0f, 8f),
-        basePx = basePx.coerceIn(0.001f, 1.20f),
-        tapPx = tapPx.coerceIn(0f, 1.20f),
+        compactBoost = compactBoost.coerceIn(0f, 24f),
+        elongatedX = elongatedX.coerceIn(0f, 14f),
+        elongatedY = elongatedY.coerceIn(0f, 10f),
+        basePx = basePx.coerceIn(0.001f, 1.40f),
+        tapPx = tapPx.coerceIn(0f, 1.60f),
         tapPop = tapPop.coerceIn(0.05f, 40f),
         tapCarry = tapCarry.coerceIn(0f, 24f),
         sticky = sticky.coerceIn(0f, 4f),
@@ -103,31 +103,31 @@ data class OrdinaryGlassPressureOpticsTuning(
     val edgeBloom: Float = 5.70f,
 ) {
     internal fun normalized(): OrdinaryGlassPressureOpticsTuning = copy(
-        fieldIntensity = fieldIntensity.coerceIn(0f, 160f),
-        fieldSpread = fieldSpread.coerceIn(0f, 160f),
-        fieldSoftness = fieldSoftness.coerceIn(0f, 160f),
+        fieldIntensity = fieldIntensity.coerceIn(0f, 240f),
+        fieldSpread = fieldSpread.coerceIn(0f, 240f),
+        fieldSoftness = fieldSoftness.coerceIn(0f, 240f),
         fieldUniformity = fieldUniformity.coerceIn(0f, 160f),
-        fieldFollow = fieldFollow.coerceIn(0f, 8f),
-        edgeIntensity = edgeIntensity.coerceIn(0f, 160f),
-        edgeWidth = edgeWidth.coerceIn(0f, 80f),
-        edgeSoftness = edgeSoftness.coerceIn(0f, 160f),
-        edgeBloom = edgeBloom.coerceIn(0f, 160f),
+        fieldFollow = fieldFollow.coerceIn(0f, 12f),
+        edgeIntensity = edgeIntensity.coerceIn(0f, 240f),
+        edgeWidth = edgeWidth.coerceIn(0f, 120f),
+        edgeSoftness = edgeSoftness.coerceIn(0f, 240f),
+        edgeBloom = edgeBloom.coerceIn(0f, 240f),
     )
 }
 
 data class OrdinaryGlassSizeAdaptiveTuning(
-    val smallBoost: Float = 1.75f,
-    val largeDamp: Float = 0.62f,
-    val pivotPx: Float = 180f,
-    val visualPx: Float = 5.40f,
+    val smallBoost: Float = 5.0f,
+    val largeDamp: Float = 1.2f,
+    val pivotPx: Float = 520f,
+    val visualPx: Float = 18.0f,
     val lightBoost: Float = 1.08f,
 ) {
     internal fun normalized(): OrdinaryGlassSizeAdaptiveTuning = copy(
-        smallBoost = smallBoost.coerceIn(0f, 8f),
-        largeDamp = largeDamp.coerceIn(0f, 1.6f),
-        pivotPx = pivotPx.coerceIn(48f, 720f),
-        visualPx = visualPx.coerceIn(0.4f, 32f),
-        lightBoost = lightBoost.coerceIn(0f, 8f),
+        smallBoost = smallBoost.coerceIn(0f, 24f),
+        largeDamp = largeDamp.coerceIn(0f, 4f),
+        pivotPx = pivotPx.coerceIn(32f, 2000f),
+        visualPx = visualPx.coerceIn(0.2f, 96f),
+        lightBoost = lightBoost.coerceIn(0f, 24f),
     )
 }
 
@@ -207,12 +207,6 @@ object ComposeGlassLabState {
     }
 
     private fun applySizeAdaptiveTuningToSingleCard(size: OrdinaryGlassSizeAdaptiveTuning) {
-        /*
-         * 单卡绘制路径不再依赖 ParentDraw。PressableGlass 已经在本卡片内按 size 计算
-         * capsuleCompact / capsuleElongated，并在 ordinaryPressSurfaceOptics 内按 DrawScope.size
-         * 计算光场半径；这里把“尺寸归一化”滑杆转换成 PressableGlass 真正读取的
-         * capsuleTuning / pressureOpticsTuning，使小卡增强、大卡压制直接作用到单卡链路。
-         */
         capsuleTuning = singleCardCapsuleTuningFor(size)
         pressureOpticsTuning = singleCardPressureOpticsFor(size)
     }
@@ -263,41 +257,41 @@ private fun defaultOrdinaryGlassSizeAdaptiveTuning(): OrdinaryGlassSizeAdaptiveT
 
 private fun singleCardCapsuleTuningFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassCapsuleTuning {
     val normalized = size.normalized()
-    val small = normalized.smallBoost.coerceIn(0f, 8f)
-    val large = normalized.largeDamp.coerceIn(0f, 1.6f)
-    val visual = normalized.visualPx.coerceIn(0.4f, 32f)
-    val light = normalized.lightBoost.coerceIn(0f, 8f)
+    val small = normalized.smallBoost.coerceIn(0f, 24f)
+    val large = normalized.largeDamp.coerceIn(0f, 4f)
+    val visual = normalized.visualPx.coerceIn(0.2f, 96f)
+    val light = normalized.lightBoost.coerceIn(0f, 24f)
     return defaultOrdinaryGlassCapsuleTuning().copy(
-        compactBoost = (1.0f + small * 0.86f).coerceIn(0.20f, 8.40f),
-        elongatedX = (large * 1.62f).coerceIn(0f, 4.80f),
-        elongatedY = (0.10f + small * 0.08f).coerceIn(0.02f, 2.20f),
-        basePx = (0.016f + visual * 0.0066f).coerceIn(0.006f, 0.32f),
-        tapPx = (0.045f + visual * 0.0138f).coerceIn(0.018f, 0.62f),
-        tapPop = (0.86f + visual * 0.064f).coerceIn(0.30f, 6.40f),
-        tapCarry = (0.22f + small * 0.105f + light * 0.035f).coerceIn(0.06f, 2.20f),
-        sticky = (0.018f + light * 0.026f).coerceIn(0.004f, 0.48f),
-        sink = (0.058f + visual * 0.014f).coerceIn(0.02f, 1.20f),
-        settle = (0.18f + large * 0.42f).coerceIn(0.08f, 1.20f),
+        compactBoost = (1.0f + small * 0.62f).coerceIn(0.20f, 18.00f),
+        elongatedX = (large * 1.80f).coerceIn(0f, 10.00f),
+        elongatedY = (0.10f + small * 0.040f).coerceIn(0.02f, 4.00f),
+        basePx = (0.016f + visual * 0.0045f).coerceIn(0.006f, 0.80f),
+        tapPx = (0.045f + visual * 0.0068f).coerceIn(0.018f, 1.20f),
+        tapPop = (0.86f + visual * 0.045f).coerceIn(0.30f, 10.00f),
+        tapCarry = (0.22f + small * 0.075f + light * 0.028f).coerceIn(0.06f, 4.00f),
+        sticky = (0.018f + light * 0.018f).coerceIn(0.004f, 0.80f),
+        sink = (0.058f + visual * 0.009f).coerceIn(0.02f, 2.00f),
+        settle = (0.18f + large * 0.38f).coerceIn(0.08f, 2.40f),
     ).normalized()
 }
 
 private fun singleCardPressureOpticsFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassPressureOpticsTuning {
     val normalized = size.normalized()
-    val small = normalized.smallBoost.coerceIn(0f, 8f)
-    val large = normalized.largeDamp.coerceIn(0f, 1.6f)
-    val visual = normalized.visualPx.coerceIn(0.4f, 32f)
-    val light = normalized.lightBoost.coerceIn(0f, 8f)
-    val pivotScale = (normalized.pivotPx / 180f).coerceIn(0.35f, 4.00f)
+    val small = normalized.smallBoost.coerceIn(0f, 24f)
+    val large = normalized.largeDamp.coerceIn(0f, 4f)
+    val visual = normalized.visualPx.coerceIn(0.2f, 96f)
+    val light = normalized.lightBoost.coerceIn(0f, 24f)
+    val pivotScale = (normalized.pivotPx / 180f).coerceIn(0.18f, 12.00f)
     return defaultOrdinaryGlassPressureOpticsTuning().copy(
-        fieldIntensity = (4.2f + light * 8.8f + small * 0.72f).coerceIn(0f, 96f),
-        fieldSpread = (3.2f + visual * 0.34f + pivotScale * 0.80f - large * 1.20f).coerceIn(0f, 42f),
-        fieldSoftness = (3.8f + visual * 0.30f + large * 2.10f).coerceIn(0f, 48f),
-        fieldUniformity = (3.2f + large * 2.40f).coerceIn(0f, 40f),
-        fieldFollow = (0.10f + small * 0.018f).coerceIn(0f, 1.20f),
-        edgeIntensity = (4.0f + light * 6.6f + small * 0.58f).coerceIn(0f, 96f),
-        edgeWidth = (1.4f + visual * 0.20f + small * 0.20f - large * 0.34f).coerceIn(0f, 24f),
-        edgeSoftness = (3.6f + large * 2.40f).coerceIn(0f, 48f),
-        edgeBloom = (3.8f + light * 4.2f + visual * 0.10f).coerceIn(0f, 80f),
+        fieldIntensity = (4.2f + light * 8.8f + small * 0.72f).coerceIn(0f, 180f),
+        fieldSpread = (3.2f + visual * 0.34f + pivotScale * 0.80f - large * 1.20f).coerceIn(0f, 120f),
+        fieldSoftness = (3.8f + visual * 0.30f + large * 2.10f).coerceIn(0f, 120f),
+        fieldUniformity = (3.2f + large * 2.40f).coerceIn(0f, 80f),
+        fieldFollow = (0.10f + small * 0.018f).coerceIn(0f, 2.40f),
+        edgeIntensity = (4.0f + light * 6.6f + small * 0.58f).coerceIn(0f, 180f),
+        edgeWidth = (1.4f + visual * 0.20f + small * 0.20f - large * 0.34f).coerceIn(0f, 48f),
+        edgeSoftness = (3.6f + large * 2.40f).coerceIn(0f, 96f),
+        edgeBloom = (3.8f + light * 4.2f + visual * 0.10f).coerceIn(0f, 160f),
     ).normalized()
 }
 
