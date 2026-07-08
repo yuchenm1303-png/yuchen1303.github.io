@@ -64,6 +64,7 @@ internal object VisualLoopModelContext {
             .firstOrNull { line ->
                 line.isNotBlank() &&
                     !line.startsWith("<tool_call", ignoreCase = true) &&
+                    !line.startsWith("</tool_call", ignoreCase = true) &&
                     !line.startsWith("{\"name\"", ignoreCase = true)
             }
             ?.removePrefix("Action:")
