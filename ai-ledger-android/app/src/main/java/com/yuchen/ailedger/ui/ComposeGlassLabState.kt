@@ -18,13 +18,13 @@ data class ComposeGlassMotionStyle(
     val touchLight: Float = 24.0f,
     val prism: Float = 24.0f,
     val sweep: Float = 24.0f,
-    val rebound: Float = 6.535f,
+    val rebound: Float = 7.571f,
     val afterglow: Float = 0.815f,
     val speed: Float = 0.171f,
-    val tapImpulse: Float = 0f,
-    val releaseCohesion: Float = 0f,
-    val fieldContinuity: Float = 0f,
-    val sweepMomentum: Float = 0f,
+    val tapImpulse: Float = 12.0f,
+    val releaseCohesion: Float = 12.0f,
+    val fieldContinuity: Float = 2.285f,
+    val sweepMomentum: Float = 4.466f,
 ) {
     internal fun normalized(): ComposeGlassMotionStyle = copy(
         master = normalizedMotionControl(master, rawMax = 12f, internalMax = 1.50f),
