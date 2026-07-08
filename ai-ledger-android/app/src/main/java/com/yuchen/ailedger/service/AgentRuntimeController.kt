@@ -15,6 +15,8 @@ private const val OVERLAY_CAPTURE_RESTORE_GRACE_MS = 96L
 private const val MODEL_OUTPUT_LOG_CHARS = 240
 private const val MAX_MODEL_OUTPUT_LOG_LINES = 14
 
+private const val DUPLICATE_GENERIC_USER_HELP_REPLY = "[本地已拦截重复空泛确认；请不要再次询问用户，重新输出一个可执行 mobile_use 动作。]"
+
 data class AgentPendingConfirmation(
     val id: Long = System.currentTimeMillis(),
     val title: String = "需要确认",
@@ -51,7 +53,7 @@ data class AgentOverlayProgress(
 )
 
 object AgentRuntimeController {
-    // 首页 Agent 开关只代表强制 GUI/视觉智能体；普通聊天内部设备工具不受它控制。
+    // 首页 Agent 开关只代表强制 GUI/视觉智能体；普通聊天的手机工具由云端 Final Chat Model 原生工具调用触发。
     private val mutableEnabled = MutableStateFlow(false)
     val enabled: StateFlow<Boolean> = mutableEnabled.asStateFlow()
 
@@ -68,6 +70,9 @@ object AgentRuntimeController {
     private val userInputLock = Any()
     private var pendingUserInputId: Long = 0L
     private var pendingUserInputDeferred: CompletableDeferred<String?>? = null
+    private var pendingUserInputSignature: String = ""
+    private var lastAnsweredUserInputTaskId: Long = 0L
+    private var lastAnsweredUserInputSignature: String = ""
 
     private val overlayCaptureLock = Any()
     private val overlayCaptureRestoreHandler = Handler(Looper.getMainLooper())
@@ -115,6 +120,7 @@ object AgentRuntimeController {
             userTakeoverPaused = false
             completePendingConfirmation(false)
             completePendingUserInput(null)
+            resetUserInputLoopGuards()
             // 关闭总开关属于紧急清理边界；正常任务结束只由 Runner 的 finally 释放会话。
             AiAgentAccessibilityService.endTaskSession()
             resetCleanVisualCapture()
@@ -202,6 +208,7 @@ object AgentRuntimeController {
             manualStopGeneration += 1L
             completePendingConfirmation(false)
             completePendingUserInput(null)
+            resetUserInputLoopGuards()
             userTakeoverPaused = false
             resetCleanVisualCapture()
             val taskId = taskIdSequence.incrementAndGet()
@@ -285,6 +292,7 @@ object AgentRuntimeController {
             manualStopGeneration += 1L
             completePendingConfirmation(false)
             completePendingUserInput(null)
+            resetUserInputLoopGuards()
             userTakeoverPaused = false
             resetCleanVisualCapture()
 
@@ -456,11 +464,18 @@ object AgentRuntimeController {
             negativeText = negativeText ?: "取消任务",
             sensitive = sensitive,
         )
+        val signature = userInputSignature(goal, step, request.title, request.message)
+        if (isDuplicateGenericUserHelp(step, request.message, signature)) {
+            resumeFromUserTakeover("已拦截重复空泛确认，交回 GUI Plus 重新规划。")
+            noteDiagnostic("重复空泛 need_user_help 已转为重新规划反馈")
+            return DUPLICATE_GENERIC_USER_HELP_REPLY
+        }
         val deferred = CompletableDeferred<String?>()
         synchronized(userInputLock) {
             pendingUserInputDeferred?.complete(null)
             pendingUserInputId = request.id
             pendingUserInputDeferred = deferred
+            pendingUserInputSignature = signature
             val current = mutableProgress.value
             publishProgress(
                 current.copy(
@@ -525,9 +540,15 @@ object AgentRuntimeController {
         if (clean.isBlank()) return
         val deferred = synchronized(userInputLock) {
             val currentDeferred = pendingUserInputDeferred ?: return
+            val current = mutableProgress.value
+            val signature = pendingUserInputSignature
+            if (signature.isNotBlank()) {
+                lastAnsweredUserInputTaskId = current.taskId
+                lastAnsweredUserInputSignature = signature
+            }
             pendingUserInputDeferred = null
             pendingUserInputId = 0L
-            val current = mutableProgress.value
+            pendingUserInputSignature = ""
             publishProgress(
                 current.copy(
                     running = true,
@@ -549,6 +570,7 @@ object AgentRuntimeController {
             val current = pendingUserInputDeferred ?: return
             pendingUserInputDeferred = null
             pendingUserInputId = 0L
+            pendingUserInputSignature = ""
             current
         }
         deferred.complete(null)
@@ -570,6 +592,7 @@ object AgentRuntimeController {
             val current = pendingUserInputDeferred ?: return
             pendingUserInputDeferred = null
             pendingUserInputId = 0L
+            pendingUserInputSignature = ""
             current
         }
         deferred.complete(value)
@@ -590,9 +613,62 @@ object AgentRuntimeController {
             if (pendingUserInputId == id && pendingUserInputDeferred === deferred) {
                 pendingUserInputDeferred = null
                 pendingUserInputId = 0L
+                pendingUserInputSignature = ""
                 publishProgress(mutableProgress.value.copy(pendingUserInput = null, updatedAt = System.currentTimeMillis()))
             }
         }
+    }
+
+    private fun resetUserInputLoopGuards() {
+        synchronized(userInputLock) {
+            pendingUserInputSignature = ""
+            lastAnsweredUserInputTaskId = 0L
+            lastAnsweredUserInputSignature = ""
+        }
+    }
+
+    private fun isDuplicateGenericUserHelp(
+        step: CloudAgentStep,
+        message: String,
+        signature: String,
+    ): Boolean {
+        if (step.type != "need_user_help") return false
+        if (!isGenericExecutionConfirmation(message)) return false
+        if (signature.isBlank()) return false
+        return lastAnsweredUserInputTaskId == currentTaskId() &&
+            lastAnsweredUserInputSignature == signature
+    }
+
+    private fun isGenericExecutionConfirmation(message: String): Boolean {
+        val normalized = normalizeUserInputSignatureText(message)
+        return normalized == "请明确执行该操作" ||
+            normalized == "请确认执行该操作" ||
+            normalized == "请确认执行" ||
+            normalized == "确认执行" ||
+            normalized.contains("请明确执行该操作") ||
+            normalized.contains("请确认执行该操作")
+    }
+
+    private fun userInputSignature(
+        goal: String,
+        step: CloudAgentStep,
+        title: String,
+        message: String,
+    ): String = listOf(
+        step.type,
+        normalizeUserInputSignatureText(goal).take(80),
+        normalizeUserInputSignatureText(title).take(40),
+        normalizeUserInputSignatureText(message).take(120),
+    ).joinToString("|")
+
+    private fun normalizeUserInputSignatureText(value: String): String {
+        return value
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .replace(Regex("\\s+"), "")
+            .trim()
+            .lowercase()
+            .take(200)
     }
 
     private fun publishProgress(next: AgentOverlayProgress) {
