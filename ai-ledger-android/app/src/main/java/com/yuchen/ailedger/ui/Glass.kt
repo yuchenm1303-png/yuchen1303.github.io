@@ -153,6 +153,7 @@ private data class OrdinaryGlassPressProfile(
 private fun ordinaryGlassPressProfile(role: GlassRole, size: Size): OrdinaryGlassPressProfile {
     if (role == GlassRole.Shell) return OrdinaryGlassPressProfile.Disabled
 
+    val tuning = ComposeGlassLabState.sizeAdaptiveTuning.normalized()
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val shortSide = minOf(w, h)
@@ -160,16 +161,20 @@ private fun ordinaryGlassPressProfile(role: GlassRole, size: Size): OrdinaryGlas
     val areaSide = sqrt(w * h)
     val aspect = longSide / shortSide.coerceAtLeast(1f)
 
-    // 不能再只看 maxSide。全宽但低高度的设置项，视觉上仍然是小型可点击组件。
-    val smallByHeight = glassInvSmoothStep(((h - 48f) / 150f).coerceIn(0f, 1f))
-    val smallByShortSide = glassInvSmoothStep(((shortSide - 52f) / 170f).coerceIn(0f, 1f))
-    val smallByArea = glassInvSmoothStep(((areaSide - 104f) / 310f).coerceIn(0f, 1f))
-    val smallness = (smallByHeight * 0.56f + smallByShortSide * 0.24f + smallByArea * 0.20f)
-        .coerceIn(0f, 1f)
+    // Height is the primary small-component signal, then short side, then equivalent area side.
+    // This prevents full-width but low-height settings rows from being treated as huge panels.
+    val smallByHeight = glassInvSmoothStep(((h - tuning.smallHeightStartPx) / tuning.smallHeightRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val smallByShortSide = glassInvSmoothStep(((shortSide - tuning.smallShortSideStartPx) / tuning.smallShortSideRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val smallByArea = glassInvSmoothStep(((areaSide - tuning.smallAreaStartPx) / tuning.smallAreaRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val smallWeight = (tuning.smallHeightWeight + tuning.smallShortSideWeight + tuning.smallAreaWeight).coerceAtLeast(0.001f)
+    val smallness = (
+        smallByHeight * tuning.smallHeightWeight +
+  smallByShortSide * tuning.smallShortSideWeight +
+  smallByArea * tuning.smallAreaWeight
+        ).div(smallWeight).coerceIn(0f, 1f)
 
-    // 横向长条：身体要稳，光学反馈要补偿，否则设置页条目会显得没有点击反馈。
-    val compactHeight = glassInvSmoothStep(((h - 76f) / 132f).coerceIn(0f, 1f))
-    val rowness = (glassSmoothStep(((aspect - 2.10f) / 4.30f).coerceIn(0f, 1f)) * compactHeight)
+    val compactHeight = glassInvSmoothStep(((h - tuning.compactHeightStartPx) / tuning.compactHeightRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val rowness = (glassSmoothStep(((aspect - tuning.rowAspectStart) / tuning.rowAspectRange.coerceAtLeast(0.05f)).coerceIn(0f, 1f)) * compactHeight)
         .coerceIn(0f, 1f)
 
     val roleBody = when (role) {
@@ -189,32 +194,34 @@ private fun ordinaryGlassPressProfile(role: GlassRole, size: Size): OrdinaryGlas
         GlassRole.Shell -> 0f
     }
 
-    val heightBodyDamp = ((270f - h) / 220f).coerceIn(0.42f, 1.08f)
-    val areaBodyDamp = ((520f - areaSide) / 460f).coerceIn(0.44f, 1.04f)
-    val body = (
-        roleBody *
-            heightBodyDamp *
-            areaBodyDamp *
-            (1f + smallness * 0.48f) *
-            (1f - rowness * 0.22f)
-        ).coerceIn(0.10f, 1.58f)
+    val heightBodyDamp = ((tuning.bodyHeightPivotPx - h) / tuning.bodyHeightRangePx.coerceAtLeast(1f))
+        .coerceIn(tuning.bodyHeightMin.coerceIn(0f, 2f), 1.50f)
+    val areaBodyDamp = ((tuning.bodyAreaPivotPx - areaSide) / tuning.bodyAreaRangePx.coerceAtLeast(1f))
+        .coerceIn(tuning.bodyAreaMin.coerceIn(0f, 2f), 1.50f)
+    val bodyRaw = roleBody *
+        heightBodyDamp *
+        areaBodyDamp *
+        (1f + smallness * tuning.pressSmallBoost) *
+        (1f - rowness * tuning.rowBodyDamp) *
+        tuning.pressBodyGain
+    val body = bodyRaw.coerceIn(tuning.bodyMin, tuning.bodyMax)
 
-    val optics = (
-        roleOptics *
-            (0.78f + smallness * 0.58f + rowness * 0.82f) *
-            (0.92f + body * 0.18f)
-        ).coerceIn(0.32f, 2.80f)
+    val opticsRaw = roleOptics *
+        (0.70f + smallness * tuning.pressSmallBoost * 0.42f + rowness * tuning.pressRowBoost * 0.58f) *
+        (0.90f + body * 0.20f) *
+        tuning.pressOpticsGain
+    val optics = maxOf(tuning.pressMinOptics, opticsRaw).coerceIn(tuning.opticsMin, tuning.opticsMax)
 
-    val rim = (
-        roleOptics *
-            (0.74f + smallness * 0.34f + rowness * 0.92f)
-        ).coerceIn(0.24f, 2.60f)
+    val rimRaw = roleOptics *
+        (0.70f + smallness * tuning.pressSmallBoost * 0.22f + rowness * tuning.pressRowBoost * 0.74f) *
+        tuning.pressRimGain
+    val rim = rimRaw.coerceIn(tuning.rimMin, tuning.rimMax)
 
     val lens = (
         1.00f +
-            smallness * 0.20f -
-            rowness * 0.16f
-        ).coerceIn(0.72f, 1.28f)
+  smallness * 0.20f -
+  rowness * 0.12f
+        ).times(tuning.pressLensGain).coerceIn(0.05f, 12.00f)
 
     return OrdinaryGlassPressProfile(
         body = body,

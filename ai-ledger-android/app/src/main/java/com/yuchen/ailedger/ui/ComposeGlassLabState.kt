@@ -116,6 +116,51 @@ data class OrdinaryGlassPressureOpticsTuning(
 }
 
 data class OrdinaryGlassSizeAdaptiveTuning(
+    // New Compose ordinary-glass press normalization controls.
+    val pressBodyGain: Float = 1.00f,
+    val pressOpticsGain: Float = 1.35f,
+    val pressLensGain: Float = 1.00f,
+    val pressRimGain: Float = 1.00f,
+    val pressIntensityGain: Float = 1.00f,
+    val pressShadowGain: Float = 1.00f,
+    val pressReboundGain: Float = 1.00f,
+    val pressSmallBoost: Float = 1.65f,
+    val pressRowBoost: Float = 1.35f,
+    val pressMinOptics: Float = 0.34f,
+
+    // Small-component classifier. Height is the primary signal, then short side and area side.
+    val smallHeightStartPx: Float = 48f,
+    val smallHeightRangePx: Float = 150f,
+    val smallShortSideStartPx: Float = 52f,
+    val smallShortSideRangePx: Float = 170f,
+    val smallAreaStartPx: Float = 104f,
+    val smallAreaRangePx: Float = 310f,
+    val smallHeightWeight: Float = 0.56f,
+    val smallShortSideWeight: Float = 0.24f,
+    val smallAreaWeight: Float = 0.20f,
+
+    // Full-width low-height row classifier.
+    val rowAspectStart: Float = 2.10f,
+    val rowAspectRange: Float = 4.30f,
+    val compactHeightStartPx: Float = 76f,
+    val compactHeightRangePx: Float = 132f,
+    val rowBodyDamp: Float = 0.22f,
+
+    // Body damping and clamp ranges.
+    val bodyHeightPivotPx: Float = 270f,
+    val bodyHeightRangePx: Float = 220f,
+    val bodyHeightMin: Float = 0.42f,
+    val bodyAreaPivotPx: Float = 520f,
+    val bodyAreaRangePx: Float = 460f,
+    val bodyAreaMin: Float = 0.44f,
+    val bodyMin: Float = 0.10f,
+    val bodyMax: Float = 1.58f,
+    val opticsMin: Float = 0.32f,
+    val opticsMax: Float = 2.80f,
+    val rimMin: Float = 0.24f,
+    val rimMax: Float = 2.60f,
+
+    // Legacy fields retained for source compatibility with older callers and stored JSON.
     val smallBoost: Float = 24.0f,
     val largeDamp: Float = 4.0f,
     val pivotPx: Float = 520f,
@@ -127,20 +172,62 @@ data class OrdinaryGlassSizeAdaptiveTuning(
     val wideAspectEnd: Float = 4.80f,
 ) {
     internal fun normalized(): OrdinaryGlassSizeAdaptiveTuning {
-        val small = smallThresholdPx.coerceIn(32f, 520f)
-        val large = largeThresholdPx.coerceIn((small + 16f).coerceAtMost(2000f), 2400f)
-        val wideStart = wideAspectStart.coerceIn(1.00f, 5.50f)
-        val wideEnd = wideAspectEnd.coerceIn((wideStart + 0.20f).coerceAtMost(12f), 14f)
+        val bodyMinClean = bodyMin.coerceIn(0f, 16f)
+        val bodyMaxClean = bodyMax.coerceIn((bodyMinClean + 0.01f).coerceAtMost(16f), 24f)
+        val opticsMinClean = opticsMin.coerceIn(0f, 16f)
+        val opticsMaxClean = opticsMax.coerceIn((opticsMinClean + 0.01f).coerceAtMost(16f), 32f)
+        val rimMinClean = rimMin.coerceIn(0f, 16f)
+        val rimMaxClean = rimMax.coerceIn((rimMinClean + 0.01f).coerceAtMost(16f), 32f)
+        val oldSmall = smallThresholdPx.coerceIn(0f, 2400f)
+        val oldLarge = largeThresholdPx.coerceIn((oldSmall + 16f).coerceAtMost(2400f), 4800f)
+        val oldWideStart = wideAspectStart.coerceIn(0.2f, 12f)
+        val oldWideEnd = wideAspectEnd.coerceIn((oldWideStart + 0.05f).coerceAtMost(12f), 24f)
         return copy(
-            smallBoost = smallBoost.coerceIn(0f, 96f),
-            largeDamp = largeDamp.coerceIn(0f, 16f),
-            pivotPx = pivotPx.coerceIn(32f, 2000f),
-            visualPx = visualPx.coerceIn(0.2f, 96f),
-            lightBoost = lightBoost.coerceIn(0f, 96f),
-            smallThresholdPx = small,
-            largeThresholdPx = large,
-            wideAspectStart = wideStart,
-            wideAspectEnd = wideEnd,
+  pressBodyGain = pressBodyGain.coerceIn(0f, 24f),
+  pressOpticsGain = pressOpticsGain.coerceIn(0f, 24f),
+  pressLensGain = pressLensGain.coerceIn(0.05f, 12f),
+  pressRimGain = pressRimGain.coerceIn(0f, 24f),
+  pressIntensityGain = pressIntensityGain.coerceIn(0f, 24f),
+  pressShadowGain = pressShadowGain.coerceIn(0f, 24f),
+  pressReboundGain = pressReboundGain.coerceIn(0f, 24f),
+  pressSmallBoost = pressSmallBoost.coerceIn(0f, 16f),
+  pressRowBoost = pressRowBoost.coerceIn(0f, 16f),
+  pressMinOptics = pressMinOptics.coerceIn(0f, 8f),
+  smallHeightStartPx = smallHeightStartPx.coerceIn(0f, 1200f),
+  smallHeightRangePx = smallHeightRangePx.coerceIn(1f, 1200f),
+  smallShortSideStartPx = smallShortSideStartPx.coerceIn(0f, 1200f),
+  smallShortSideRangePx = smallShortSideRangePx.coerceIn(1f, 1200f),
+  smallAreaStartPx = smallAreaStartPx.coerceIn(0f, 1600f),
+  smallAreaRangePx = smallAreaRangePx.coerceIn(1f, 1600f),
+  smallHeightWeight = smallHeightWeight.coerceIn(0f, 8f),
+  smallShortSideWeight = smallShortSideWeight.coerceIn(0f, 8f),
+  smallAreaWeight = smallAreaWeight.coerceIn(0f, 8f),
+  rowAspectStart = rowAspectStart.coerceIn(0.2f, 12f),
+  rowAspectRange = rowAspectRange.coerceIn(0.05f, 24f),
+  compactHeightStartPx = compactHeightStartPx.coerceIn(0f, 1200f),
+  compactHeightRangePx = compactHeightRangePx.coerceIn(1f, 1200f),
+  rowBodyDamp = rowBodyDamp.coerceIn(0f, 2f),
+  bodyHeightPivotPx = bodyHeightPivotPx.coerceIn(0f, 2400f),
+  bodyHeightRangePx = bodyHeightRangePx.coerceIn(1f, 2400f),
+  bodyHeightMin = bodyHeightMin.coerceIn(0f, 2f),
+  bodyAreaPivotPx = bodyAreaPivotPx.coerceIn(0f, 3200f),
+  bodyAreaRangePx = bodyAreaRangePx.coerceIn(1f, 3200f),
+  bodyAreaMin = bodyAreaMin.coerceIn(0f, 2f),
+  bodyMin = bodyMinClean,
+  bodyMax = bodyMaxClean,
+  opticsMin = opticsMinClean,
+  opticsMax = opticsMaxClean,
+  rimMin = rimMinClean,
+  rimMax = rimMaxClean,
+  smallBoost = smallBoost.coerceIn(0f, 96f),
+  largeDamp = largeDamp.coerceIn(0f, 16f),
+  pivotPx = pivotPx.coerceIn(0f, 4800f),
+  visualPx = visualPx.coerceIn(0.2f, 240f),
+  lightBoost = lightBoost.coerceIn(0f, 240f),
+  smallThresholdPx = oldSmall,
+  largeThresholdPx = oldLarge,
+  wideAspectStart = oldWideStart,
+  wideAspectEnd = oldWideEnd,
         )
     }
 }
@@ -271,48 +358,32 @@ private fun defaultOrdinaryGlassSizeAdaptiveTuning(): OrdinaryGlassSizeAdaptiveT
 
 private fun singleCardCapsuleTuningFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassCapsuleTuning {
     val normalized = size.normalized()
-    val small = normalized.smallBoost.coerceIn(0f, 96f)
-    val large = normalized.largeDamp.coerceIn(0f, 16f)
-    val visual = normalized.visualPx.coerceIn(0.2f, 96f)
-    val light = normalized.lightBoost.coerceIn(0f, 96f)
-    val smallBand = ((normalized.smallThresholdPx - 96f) / 240f).coerceIn(0f, 1.60f)
-    val largeBand = ((normalized.largeThresholdPx - normalized.smallThresholdPx) / 760f).coerceIn(0.02f, 2.40f)
-    val wideBand = ((normalized.wideAspectEnd - normalized.wideAspectStart) / 4.20f).coerceIn(0.18f, 2.80f)
-    val wideStartBias = ((1.80f - normalized.wideAspectStart) / 0.80f).coerceIn(-0.40f, 1.00f)
     return defaultOrdinaryGlassCapsuleTuning().copy(
-        compactBoost = (1.0f + small * (0.36f + smallBand * 0.16f)).coerceIn(0.20f, 58.00f),
-        elongatedX = (large * (1.12f + wideBand * 0.22f + wideStartBias * 0.18f)).coerceIn(0f, 30.00f),
-        elongatedY = (0.08f + small * 0.030f + wideBand * 0.035f).coerceIn(0.02f, 8.00f),
-        basePx = (0.012f + visual * 0.0048f * (0.88f + smallBand * 0.14f)).coerceIn(0.006f, 1.40f),
-        tapPx = (0.038f + visual * 0.0078f * (0.90f + smallBand * 0.16f)).coerceIn(0.018f, 2.40f),
-        tapPop = (0.78f + visual * 0.047f * (1.02f + smallBand * 0.18f)).coerceIn(0.30f, 18.00f),
-        tapCarry = (0.20f + small * 0.070f + light * 0.032f).coerceIn(0.06f, 10.00f),
-        sticky = (0.014f + light * 0.018f + smallBand * 0.022f).coerceIn(0.004f, 2.00f),
-        sink = (0.050f + visual * 0.0092f * (0.92f + largeBand * 0.10f)).coerceIn(0.02f, 4.00f),
-        settle = (0.16f + large * 0.32f + largeBand * 0.10f).coerceIn(0.08f, 5.60f),
+        compactBoost = (1.0f + normalized.pressSmallBoost * 0.55f).coerceIn(0.20f, 96.00f),
+        elongatedX = (normalized.pressRowBoost * 1.25f).coerceIn(0f, 64.00f),
+        elongatedY = (0.08f + normalized.pressSmallBoost * 0.050f + normalized.pressRowBoost * 0.030f).coerceIn(0.01f, 32.00f),
+        basePx = (0.012f + normalized.pressBodyGain * 0.010f).coerceIn(0.001f, 4.80f),
+        tapPx = (0.035f + normalized.pressBodyGain * 0.018f + normalized.pressSmallBoost * 0.009f).coerceIn(0f, 6.40f),
+        tapPop = (0.80f + normalized.pressReboundGain * 0.55f).coerceIn(0.05f, 120.00f),
+        tapCarry = (0.18f + normalized.pressOpticsGain * 0.18f + normalized.pressRowBoost * 0.04f).coerceIn(0f, 96.00f),
+        sticky = (0.012f + normalized.pressMinOptics * 0.060f + normalized.pressIntensityGain * 0.006f).coerceIn(0f, 16.00f),
+        sink = (0.050f + normalized.pressShadowGain * 0.18f).coerceIn(0f, 96.00f),
+        settle = (0.16f + normalized.pressReboundGain * 0.34f).coerceIn(0f, 48.00f),
     ).normalized()
 }
 
 private fun singleCardPressureOpticsFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassPressureOpticsTuning {
     val normalized = size.normalized()
-    val small = normalized.smallBoost.coerceIn(0f, 96f)
-    val large = normalized.largeDamp.coerceIn(0f, 16f)
-    val visual = normalized.visualPx.coerceIn(0.2f, 96f)
-    val light = normalized.lightBoost.coerceIn(0f, 96f)
-    val smallBand = ((normalized.smallThresholdPx - 96f) / 240f).coerceIn(0f, 1.60f)
-    val largeBand = ((normalized.largeThresholdPx - normalized.smallThresholdPx) / 760f).coerceIn(0.02f, 2.40f)
-    val wideBand = ((normalized.wideAspectEnd - normalized.wideAspectStart) / 4.20f).coerceIn(0.18f, 2.80f)
-    val pivotScale = (normalized.largeThresholdPx / 520f).coerceIn(0.18f, 5.00f)
     return defaultOrdinaryGlassPressureOpticsTuning().copy(
-        fieldIntensity = (4.0f + light * 7.4f + small * (0.58f + smallBand * 0.16f)).coerceIn(0f, 480f),
-        fieldSpread = (2.8f + visual * 0.34f + pivotScale * 0.72f - large * 0.78f + largeBand * 0.34f).coerceIn(0f, 240f),
-        fieldSoftness = (3.6f + visual * 0.31f + large * 1.58f + largeBand * 0.52f).coerceIn(0f, 240f),
-        fieldUniformity = (3.0f + large * 1.90f + wideBand * 0.50f).coerceIn(0f, 180f),
-        fieldFollow = (0.08f + small * 0.016f + smallBand * 0.024f).coerceIn(0f, 6.00f),
-        edgeIntensity = (3.8f + light * 5.8f + small * 0.52f).coerceIn(0f, 480f),
-        edgeWidth = (1.1f + visual * 0.20f + small * 0.18f - large * 0.18f - wideBand * 0.10f).coerceIn(0f, 120f),
-        edgeSoftness = (3.4f + large * 1.92f + wideBand * 0.84f).coerceIn(0f, 180f),
-        edgeBloom = (3.4f + light * 3.6f + visual * 0.10f + smallBand * 0.42f).coerceIn(0f, 360f),
+        fieldIntensity = (4.0f + normalized.pressOpticsGain * 10.0f + normalized.pressMinOptics * 24.0f + normalized.pressIntensityGain * 2.0f).coerceIn(0f, 960f),
+        fieldSpread = (3.0f + normalized.pressLensGain * 10.0f + normalized.pressRowBoost * 2.0f).coerceIn(0f, 720f),
+        fieldSoftness = (4.0f + normalized.pressLensGain * 8.0f + normalized.pressRowBoost * 4.0f).coerceIn(0f, 720f),
+        fieldUniformity = (3.0f + normalized.pressRowBoost * 6.0f + normalized.rowBodyDamp * 12.0f).coerceIn(0f, 480f),
+        fieldFollow = (0.08f + normalized.pressSmallBoost * 0.050f + normalized.pressRowBoost * 0.035f).coerceIn(0f, 48f),
+        edgeIntensity = (3.8f + normalized.pressRimGain * 10.0f + normalized.pressRowBoost * 4.0f).coerceIn(0f, 960f),
+        edgeWidth = (1.1f + normalized.pressRimGain * 2.0f + normalized.pressSmallBoost * 0.35f).coerceIn(0f, 360f),
+        edgeSoftness = (3.4f + normalized.pressLensGain * 5.0f + normalized.pressRowBoost * 4.0f).coerceIn(0f, 720f),
+        edgeBloom = (3.4f + normalized.pressOpticsGain * 4.0f + normalized.pressRowBoost * 4.0f + normalized.pressMinOptics * 10.0f).coerceIn(0f, 720f),
     ).normalized()
 }
 
