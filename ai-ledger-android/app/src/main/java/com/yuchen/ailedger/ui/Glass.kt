@@ -52,6 +52,7 @@ import com.yuchen.ailedger.ui.gl.NewOpenGLGlassCardLayer
 import com.yuchen.ailedger.ui.gl.OpenGLGlassDynamicState
 import kotlin.math.roundToInt
 import kotlin.random.Random
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 
 enum class GlassRole {
@@ -539,7 +540,7 @@ fun PressableGlass(
     val pressScope = rememberCoroutineScope()
     val ordinaryMaterial = remember { Animatable(0f) }
     val ordinaryTapFlash = remember { Animatable(0f) }
-    val ordinaryLightPhase = remember { Animatable(1f) }
+    val ordinaryLightPhase = remember { Animatable(0f) }
     var pressCenter by remember { mutableStateOf(Offset(0.50f, 0.50f)) }
     var pressSize by remember { mutableStateOf(Size(1f, 1f)) }
 
@@ -587,87 +588,57 @@ fun PressableGlass(
     val capsuleSinkGain = (0.78f + capsule.sink * 0.58f).coerceIn(0.72f, 1.46f)
     val capsuleSettleDamp = (1f - capsule.settle * 0.10f).coerceIn(0.88f, 1f)
 
+    /*
+     * 白光胶囊版单独绘制动效：
+     * - ordinaryMaterial 驱动真实玻璃本体的同向轻微鼓起与松手回弹。
+     * - ordinaryTapFlash 驱动触点白光 lens，不参与几何，短点击也能即时亮起。
+     * - ordinaryLightPhase 驱动边缘 sweep 与余辉，只做光场扫动，不制造旧式横向拉伸。
+     */
     val materialValue = if (ordinaryPressEnabled) {
-        ordinaryMaterial.value.coerceIn(0f, 1.40f)
+        ordinaryMaterial.value.coerceIn(-1.40f, 1.72f)
     } else {
         0f
     }
     val positiveMaterial = materialValue.coerceAtLeast(0f)
-    val tapFlashValue = if (ordinaryPressEnabled) {
-        ordinaryTapFlash.value.coerceIn(0f, 1.40f)
+    val rebound = composeMotionSmoothStep((-materialValue / 1.40f).coerceIn(0f, 1f))
+    val lensPulse = if (ordinaryPressEnabled) {
+        ordinaryTapFlash.value.coerceIn(0f, 2.15f)
     } else {
         0f
     }
-    val lightPhaseValue = if (ordinaryPressEnabled) {
-        ordinaryLightPhase.value.coerceIn(0f, 1f)
-    } else {
-        1f
-    }
-
-    /*
-     * 跟手胶囊版普通玻璃材料曲线：
-     * - 几何形变只看 positiveMaterial，按下和松手都保持一段主动画。
-     * - 极短点击的可见反馈交给 ordinaryTapFlash；它只参与连续压力光场，
-     *   不参与 scale / translation / shadow，避免松手后按钮本体继续“补动画”。
-     * - ordinaryLightPhase 控制光场从触点揉开到整颗胶囊，边缘高光与内部白场同源。
-     */
-    val pressCompression = composeMotionSmoothStep((positiveMaterial / 0.82f).coerceIn(0f, 1f))
-    val flashEnvelope = composeMotionSmoothStep((tapFlashValue / 0.86f).coerceIn(0f, 1f))
-    val tapEnvelope = flashEnvelope
-    val releaseEnvelope = 0f
-    val contactEnvelope = maxOf(pressCompression, flashEnvelope * 0.46f)
-    val pressGlowEnvelope = (
-        pressCompression * (0.74f + touchLight.coerceIn(0f, 16f) * 0.010f) * capsuleLightGain +
-            positiveMaterial * (0.070f + afterglow.coerceIn(0f, 12f) * 0.005f)
-        ).coerceIn(0f, 1.28f)
-    val flashGlowEnvelope = (
-        flashEnvelope * (0.58f + touchLight.coerceIn(0f, 16f) * 0.010f) * capsuleLightGain
-        ).coerceIn(0f, 1.18f)
-    val glowEnvelope = (
-        pressGlowEnvelope + flashGlowEnvelope * (1f - pressGlowEnvelope * 0.34f)
-        ).coerceIn(0f, 1.52f)
-    val pressSweepEnvelope = (
-        pressCompression * (0.20f + sweep.coerceIn(0f, 16f) * 0.014f) +
-            positiveMaterial * (0.070f + sweepMomentum.coerceIn(0f, 4f) * 0.030f)
-        ).coerceIn(0f, 1.04f)
-    val flashSweepEnvelope = (
-        flashEnvelope * (0.30f + sweep.coerceIn(0f, 16f) * 0.011f + sweepMomentum.coerceIn(0f, 4f) * 0.032f)
-        ).coerceIn(0f, 0.92f)
-    val sweepEnvelope = (
-        pressSweepEnvelope + flashSweepEnvelope * (1f - pressSweepEnvelope * 0.30f)
-        ).coerceIn(0f, 1.26f)
-
-    val pressValue = if (ordinaryPressEnabled) {
-        (
-            positiveMaterial *
-                (0.92f + deformation.coerceIn(0f, 12f) * 0.022f) * capsuleBodyGain
-            ).coerceIn(0f, 2.18f)
+    val sweepPulse = if (ordinaryPressEnabled) {
+        ordinaryLightPhase.value.coerceIn(0f, 2.20f)
     } else {
         0f
     }
+
+    val pressCompression = composeMotionSmoothStep((positiveMaterial / 1.72f).coerceIn(0f, 1f))
+    val lensEnvelope = composeMotionSmoothStep((lensPulse / 2.15f).coerceIn(0f, 1f))
+    val sweepEnvelope = composeMotionSmoothStep((sweepPulse / 2.20f).coerceIn(0f, 1f))
+    val pressShape = composeMotionSmoothStep(((positiveMaterial + lensPulse * 0.62f) / 2.65f).coerceIn(0f, 1f))
+    val afterglowEnvelope = maxOf(lensEnvelope * 0.58f, sweepEnvelope * 0.44f)
+
+    val pressValue = if (ordinaryPressEnabled) materialValue else 0f
     val positivePress = pressValue.coerceAtLeast(0f)
-    val rebound = 0f
-    val lensValue = if (ordinaryPressEnabled) {
-        (
-            contactEnvelope * (0.60f + touchLight.coerceIn(0f, 16f) * 0.024f) * capsuleLightGain +
-                glowEnvelope * (0.34f + afterglow.coerceIn(0f, 12f) * 0.020f)
-            ).coerceIn(0f, 3.35f)
-    } else {
-        0f
-    }
-    val sweepValue = if (ordinaryPressEnabled) {
-        (
-            sweepEnvelope * (0.48f + sweep.coerceIn(0f, 16f) * 0.022f)
-            ).coerceIn(0f, 3.10f)
-    } else {
-        0f
-    }
-    val opticsPress = maxOf(positivePress, lensValue * 0.78f, glowEnvelope * 0.56f, tapFlashValue * 0.58f)
+    val lensValue = if (ordinaryPressEnabled) lensPulse else 0f
+    val sweepValue = if (ordinaryPressEnabled) sweepPulse else 0f
+    val glowEnvelope = (
+        pressShape * (0.42f + touchLight.coerceIn(0f, 16f) * 0.012f) * capsuleLightGain +
+            lensEnvelope * (0.48f + touchLight.coerceIn(0f, 16f) * 0.010f) * capsuleLightGain +
+            afterglowEnvelope * (0.10f + afterglow.coerceIn(0f, 12f) * 0.008f)
+        ).coerceIn(0f, 1.72f)
+    val opticsPress = maxOf(
+        positivePress,
+        lensValue * 0.82f,
+        sweepValue * 0.52f,
+        glowEnvelope * 0.68f,
+        rebound * 0.20f
+    )
     val pressedIntensity = baseIntensity * (
         1f +
-            pressCompression * (0.046f + 0.140f * elasticity) * capsuleBodyGain +
-            glowEnvelope * 0.014f +
-            flashEnvelope * 0.010f
+            pressShape * (0.034f + 0.078f * elasticity) * capsuleBodyGain +
+            lensEnvelope * 0.018f +
+            sweepEnvelope * 0.008f
     )
 
     val shimmer = rememberGlassShimmer(quality, motionIntensity)
@@ -738,54 +709,61 @@ fun PressableGlass(
                     val downTimeNanos = System.nanoTime()
                     updatePressCenter(down.position)
 
-                    pressScope.launch {
+                    pressScope.launch(start = CoroutineStart.UNDISPATCHED) {
                         ordinaryMaterial.stop()
-
-                        /*
-                         * 按下只跑一段主动画：current -> pressedTarget。
-                         * 不再拆成 contactTarget + holdTarget，也不再用短点击 impulse 继续推高几何形变。
-                         */
                         if (ordinaryMaterial.value < 0f) {
                             ordinaryMaterial.snapTo(0f)
                         }
 
-                        val pressedTarget = (
-                            0.78f +
-                                deformation.coerceIn(0f, 12f) * 0.023f +
-                                touchLight.coerceIn(0f, 16f) * 0.005f +
-                                tapImpulse.coerceIn(0f, 4f) * 0.010f
-                            ).let { it * (0.94f + (capsuleBodyGain - 1f) * 0.44f) }
-                            .coerceIn(0.62f, 1.16f)
+                        val instantPress = (0.24f + deformation.coerceIn(0f, 12f) * 0.030f)
+                            .coerceIn(0.20f, 0.58f)
+                        val burstTarget = (
+                            0.54f +
+                                deformation.coerceIn(0f, 12f) * 0.150f +
+                                tapImpulse.coerceIn(0f, 4f) * 0.030f
+                            ).let { it * (0.92f + (capsuleBodyGain - 1f) * 0.34f) }
+                            .coerceIn(0.24f, 1.72f)
+                        val holdTarget = (
+                            0.42f +
+                                deformation.coerceIn(0f, 12f) * 0.085f +
+                                touchLight.coerceIn(0f, 16f) * 0.006f
+                            ).let { it * (0.92f + (capsuleBodyGain - 1f) * 0.26f) }
+                            .coerceIn(0.18f, 1.18f)
 
+                        ordinaryMaterial.snapTo(maxOf(ordinaryMaterial.value, instantPress))
                         ordinaryMaterial.animateTo(
-                            pressedTarget,
-                            spring(
-                                dampingRatio = 0.90f,
-                                stiffness = Spring.StiffnessMedium
-                            )
+                            burstTarget,
+                            tween(ordinaryDuration(46, 32, 90), easing = FastOutSlowInEasing)
+                        )
+                        ordinaryMaterial.animateTo(
+                            holdTarget,
+                            spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMedium)
                         )
                     }
 
-                    pressScope.launch {
+                    pressScope.launch(start = CoroutineStart.UNDISPATCHED) {
                         ordinaryTapFlash.stop()
-                        val flashTarget = (
-                            0.78f +
-                                touchLight.coerceIn(0f, 16f) * 0.010f +
-                                tapImpulse.coerceIn(0f, 4f) * 0.026f
-                            ).coerceIn(0.70f, 1.02f)
-                        ordinaryTapFlash.snapTo(maxOf(ordinaryTapFlash.value, flashTarget))
+                        val instantLens = (0.34f + touchLight.coerceIn(0f, 16f) * 0.035f)
+                            .coerceIn(0.24f, 0.92f)
+                        val lensTarget = (0.58f + touchLight.coerceIn(0f, 16f) * 0.130f)
+                            .coerceIn(0.24f, 2.15f)
+                        ordinaryTapFlash.snapTo(maxOf(ordinaryTapFlash.value, instantLens))
                         ordinaryTapFlash.animateTo(
-                            0f,
-                            tween(ordinaryDuration(240, 170, 340), easing = FastOutSlowInEasing)
+                            lensTarget,
+                            tween(ordinaryDuration(58, 36, 110), easing = FastOutSlowInEasing)
                         )
                     }
 
-                    pressScope.launch {
+                    pressScope.launch(start = CoroutineStart.UNDISPATCHED) {
                         ordinaryLightPhase.stop()
-                        ordinaryLightPhase.snapTo(0f)
+                        val instantSweep = (0.10f + sweep.coerceIn(0f, 16f) * 0.012f)
+                            .coerceIn(0.05f, 0.32f)
+                        val sweepTarget = (0.66f + sweep.coerceIn(0f, 16f) * 0.100f)
+                            .coerceIn(0.20f, 2.20f)
+                        ordinaryLightPhase.snapTo(maxOf(ordinaryLightPhase.value, instantSweep))
                         ordinaryLightPhase.animateTo(
-                            1f,
-                            tween(ordinaryDuration(360, 220, 560), easing = FastOutSlowInEasing)
+                            sweepTarget,
+                            tween(ordinaryDuration(210, 130, 420), easing = FastOutSlowInEasing)
                         )
                     }
 
@@ -808,16 +786,57 @@ fun PressableGlass(
 
                     pressScope.launch {
                         ordinaryMaterial.stop()
-
-                        /*
-                         * 松手也只跑一段主动画：current -> 0。
-                         * 释放粘度只调阻尼，不再生成负向 releaseTarget 或正向 impulseTarget。
-                         */
+                        val reboundTarget = (-0.12f - reboundControl.coerceIn(0f, 10f) * 0.028f)
+                            .coerceIn(-1.40f, -0.025f)
+                        ordinaryMaterial.animateTo(
+                            reboundTarget,
+                            tween(ordinaryDuration(88, 56, 160), easing = FastOutSlowInEasing)
+                        )
+                        ordinaryMaterial.animateTo(
+                            0.040f,
+                            spring(dampingRatio = 0.48f, stiffness = Spring.StiffnessMediumLow)
+                        )
                         ordinaryMaterial.animateTo(
                             0f,
                             spring(
-                                dampingRatio = ((0.78f + releaseCohesion.coerceIn(0f, 4f) * 0.030f) * capsuleSettleDamp).coerceIn(0.76f, 0.92f),
-                                stiffness = Spring.StiffnessMediumLow
+                                dampingRatio = ((0.70f + releaseCohesion.coerceIn(0f, 4f) * 0.026f) * capsuleSettleDamp).coerceIn(0.64f, 0.90f),
+                                stiffness = Spring.StiffnessLow
+                            )
+                        )
+                    }
+
+                    pressScope.launch {
+                        ordinaryTapFlash.stop()
+                        ordinaryTapFlash.animateTo(
+                            (0.16f + afterglow.coerceIn(0f, 12f) * 0.060f).coerceIn(0.01f, 1.45f),
+                            tween(
+                                ordinaryDuration((170 + afterglow.coerceIn(0f, 12f) * 22f).roundToInt(), 170, 700),
+                                easing = FastOutSlowInEasing
+                            )
+                        )
+                        ordinaryTapFlash.animateTo(
+                            0f,
+                            tween(
+                                ordinaryDuration((240 + afterglow.coerceIn(0f, 12f) * 30f).roundToInt(), 240, 900),
+                                easing = FastOutSlowInEasing
+                            )
+                        )
+                    }
+
+                    pressScope.launch {
+                        ordinaryLightPhase.stop()
+                        ordinaryLightPhase.animateTo(
+                            (0.08f + afterglow.coerceIn(0f, 12f) * 0.035f).coerceIn(0f, 0.88f),
+                            tween(
+                                ordinaryDuration((180 + afterglow.coerceIn(0f, 12f) * 22f).roundToInt(), 180, 680),
+                                easing = FastOutSlowInEasing
+                            )
+                        )
+                        ordinaryLightPhase.animateTo(
+                            0f,
+                            tween(
+                                ordinaryDuration((220 + afterglow.coerceIn(0f, 12f) * 28f).roundToInt(), 220, 780),
+                                easing = FastOutSlowInEasing
                             )
                         )
                     }
@@ -844,15 +863,15 @@ fun PressableGlass(
                         GlassRole.Shell -> 0f
                     }
                     scaleX = 1f +
-                        pressCompression * (0.040f + 0.008f * grow) * endCapDamp * capsuleXGain -
-                        rebound * (0.006f + 0.0015f * bounce) * endCapDamp
-                    scaleY = 1f -
-                        pressCompression * (0.010f + 0.0035f * grow) * capsuleYGain -
-                        rebound * (0.004f + 0.0015f * bounce)
+                        pressCompression * (0.026f + 0.0065f * grow) * endCapDamp * capsuleXGain -
+                        rebound * (0.008f + 0.0030f * bounce) * endCapDamp
+                    scaleY = 1f +
+                        pressCompression * (0.018f + 0.0048f * grow) * endCapDamp * capsuleYGain -
+                        rebound * (0.006f + 0.0020f * bounce) * endCapDamp
                     translationY =
-                        pressCompression * (0.44f + 0.15f * grow) * capsuleSinkGain -
-                            rebound * (0.12f + 0.050f * bounce)
-                    shadowElevation = pressCompression * (0.74f + 0.12f * grow)
+                        pressCompression * (0.28f + 0.12f * grow) * capsuleSinkGain -
+                            rebound * (0.16f + 0.060f * bounce)
+                    shadowElevation = pressCompression * (0.60f + 0.10f * grow)
                 }
             }
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
@@ -885,7 +904,7 @@ fun PressableGlass(
         }
         content()
         if (!parentOwnsOrdinaryGlass && ordinaryPressEnabled && opticsPress > 0.001f) {
-            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, sweepValue, effectiveRadius, pressCenter, role, elasticity, lightPhaseValue))
+            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(positivePress, lensValue, sweepValue, effectiveRadius, pressCenter, role, elasticity))
         }
     }
 }
@@ -1041,128 +1060,117 @@ private fun LegacyPressableGlass(
         }
         content()
         if (!parentOwnsOrdinaryGlass && ordinaryPressEnabled && opticsPress > 0.001f) {
-            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, sweepValue, effectiveRadius, pressCenter, role, elasticity))
+            Box(Modifier.matchParentSize().ordinaryPressSurfaceOptics(opticsPress, lensValue, sweepValue, effectiveRadius, pressCenter, role, elasticity))
         }
     }
 }
 
 private fun Modifier.ordinaryPressSurfaceOptics(
     press: Float,
+    lens: Float,
     sweep: Float,
     radius: Int,
     pressCenter: Offset,
     role: GlassRole,
-    elasticity: Float,
-    fieldPhase: Float = 1f
+    elasticity: Float
 ): Modifier = drawWithContent {
     drawContent()
-
     if (role == GlassRole.Shell) return@drawWithContent
 
-    val dynamicPress = press.coerceAtLeast(0f)
+    val pressValue = press.coerceAtLeast(0f)
+    val lensValue = lens.coerceAtLeast(0f)
     val sweepValue = sweep.coerceAtLeast(0f)
-    val rawActive = maxOf(dynamicPress * 0.58f, sweepValue * 0.36f)
-    val active = composeMotionSmoothStep((rawActive / 0.78f).coerceIn(0f, 1f))
+    val active = maxOf(pressValue, lensValue, sweepValue)
     if (active <= 0.001f) return@drawWithContent
 
     val w = size.width.coerceAtLeast(1f)
     val h = size.height.coerceAtLeast(1f)
     val maxSide = maxOf(w, h)
     val minSide = minOf(w, h).coerceAtLeast(1f)
-    val optics = ComposeGlassLabState.pressureOpticsTuning.normalized()
-    val phase = composeMotionSmoothStep(fieldPhase.coerceIn(0f, 1f))
-    val uniformity = (optics.fieldUniformity / 8f).coerceIn(0f, 1f)
-    val softness = (optics.fieldSoftness / 8f).coerceIn(0f, 1f)
-    val edgeSoftness = (optics.edgeSoftness / 8f).coerceIn(0f, 1f)
-
-    val tapCenter = Offset(
+    val center = Offset(
         pressCenter.x.coerceIn(0f, 1f) * w,
         pressCenter.y.coerceIn(0f, 1f) * h
     )
-    val visualCenter = Offset(w * 0.50f, h * 0.50f)
-    val drift = (
-        optics.fieldFollow.coerceIn(0f, 1f) * (0.18f + phase * 0.36f) +
-            elasticity.coerceIn(0f, 1f) * 0.014f
-        ).coerceIn(0f, 0.54f)
-    val fieldCenter = Offset(
-        tapCenter.x + (visualCenter.x - tapCenter.x) * drift,
-        tapCenter.y + (visualCenter.y - tapCenter.y) * drift * 0.72f
-    )
-    val cornerRadius = CornerRadius(radius.dp.toPx(), radius.dp.toPx())
+    val radiusPx = minOf(radius.dp.toPx(), w * 0.5f, h * 0.5f)
+    val cornerRadius = CornerRadius(radiusPx, radiusPx)
+    val rimInset = 0.50.dp.toPx().coerceAtMost(minSide * 0.08f)
+    val rimRadius = (radiusPx - rimInset).coerceAtLeast(0f)
+    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
+    val rimCorner = CornerRadius(rimRadius, rimRadius)
 
     val motion = ComposeGlassLabState.motionStyle.normalized()
     val master = composeMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 8f)
     val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 16f) * master
     val sweepGain = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 16f) * master
     val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 12f) * master
-    val elasticityBoost = elasticity.coerceIn(0.08f, 1f)
-
     val capsule = ComposeGlassLabState.capsuleTuning.normalized()
+    val optics = ComposeGlassLabState.pressureOpticsTuning.normalized()
+
+    val pressShape = composeMotionSmoothStep(((pressValue + lensValue * 0.62f) / 2.65f).coerceIn(0f, 1f))
+    val lensShape = composeMotionSmoothStep((lensValue / 2.15f).coerceIn(0f, 1f))
+    val sweepShape = composeMotionSmoothStep((sweepValue / 2.20f).coerceIn(0f, 1f))
+    val lightPower = (touchLight * (0.30f + lensValue * 0.62f) * (0.82f + optics.fieldIntensity * 0.060f)).coerceIn(0f, 48f)
+    val sweepPower = (sweepGain * sweepValue * (0.72f + optics.edgeIntensity * 0.040f)).coerceIn(0f, 34f)
+    val afterPower = (afterglow * (0.18f + maxOf(lensShape, sweepShape) * 0.34f)).coerceIn(0f, 18f)
+    val chromaPower = (0.20f + sweepShape * 0.48f + pressShape * 0.18f).coerceIn(0f, 1f)
     val capsuleLight = (1f + capsule.tapPx * 4.8f + capsule.sticky * 7.2f + capsule.basePx * 3.6f).coerceIn(0.92f, 1.74f)
-    val fieldKnob = optics.fieldIntensity.coerceIn(0f, 12f)
-    val spreadKnob = optics.fieldSpread.coerceIn(0f, 8f)
-    val softnessKnob = optics.fieldSoftness.coerceIn(0f, 8f)
-    val edgeKnob = optics.edgeIntensity.coerceIn(0f, 12f)
-    val edgeWidthKnob = optics.edgeWidth.coerceIn(0f, 8f)
-    val edgeBloomKnob = optics.edgeBloom.coerceIn(0f, 8f)
-
-    val fieldEnergy = (active * capsuleLight * elasticityBoost).coerceIn(0f, 1.42f)
-    val softCarry = composeMotionSmoothStep(((phase + active) * 0.50f).coerceIn(0f, 1f))
-    val lightScale = (0.34f + fieldKnob * 0.86f + touchLight / 40f + afterglow / 54f).coerceIn(0f, 18f)
-
-    /*
-     * 独立绘制路径的雾化压力光场：
-     * - 不再画可识别的中心亮斑 / 中段波峰 / 圆形波纹；
-     * - 光场半径远大于组件尺寸，组件内部只采样低梯度核心区域；
-     * - fieldUniformity 越高，中心差异越小，越接近整片揉开的乳白玻璃光。
-     */
-    val fieldRadius = (maxSide * (1.55f + spreadKnob * 0.50f + softnessKnob * 0.36f + phase * 0.34f + fieldEnergy * 0.18f))
-        .coerceAtLeast(maxSide * (2.05f + softnessKnob * 0.24f))
-    val baseAlpha = (0.054f * fieldEnergy * lightScale).coerceIn(0f, 1.18f)
-    val coreAlpha = (baseAlpha * (0.48f - uniformity * 0.32f)).coerceIn(0f, 0.78f)
-    val mistAlpha = (baseAlpha * (0.94f + uniformity * 0.38f + softness * 0.16f)).coerceIn(0f, 1.00f)
-    val carryAlpha = (baseAlpha * (0.72f + softCarry * 0.20f + uniformity * 0.30f)).coerceIn(0f, 0.92f)
+    val elasticityLift = elasticity.coerceIn(0.08f, 1f)
+    val fieldEnergy = (maxOf(pressShape, lensShape * 0.92f, sweepShape * 0.50f) * capsuleLight * elasticityLift).coerceIn(0f, 1.42f)
+    val sweepPhase = (sweepValue / 2.20f).coerceIn(0f, 1.20f)
+    val sweepX = -0.42f + sweepPhase * 1.84f
+    val minBloomRadius = 112.dp.toPx() * (0.76f + pressShape * 0.28f)
+    val softBloomRadius = maxOf(
+        maxSide * (
+            0.30f +
+                optics.fieldSpread.coerceIn(0f, 8f) * 0.035f +
+                optics.fieldSoftness.coerceIn(0f, 8f) * 0.026f +
+                lightPower.coerceIn(0f, 18f) * 0.026f +
+                pressShape * 0.22f +
+                afterPower * 0.010f
+            ),
+        minBloomRadius
+    )
 
     drawRoundRect(
         brush = Brush.radialGradient(
-            0.00f to Color.White.copy(alpha = coreAlpha),
-            0.46f to Color(0xFFF8FCFF).copy(alpha = mistAlpha),
-            0.88f to Color(0xFFEFFFFF).copy(alpha = carryAlpha),
+            0.00f to Color(0xFFFFF7FC).copy(alpha = (0.050f * lightPower + 0.040f * fieldEnergy).coerceIn(0f, 0.86f)),
+            0.24f to Color.White.copy(alpha = (0.034f * lightPower + 0.020f * afterPower).coerceIn(0f, 0.56f)),
+            0.48f to Color(0xFFE9FFFB).copy(alpha = (0.026f * lightPower + 0.024f * sweepPower).coerceIn(0f, 0.42f)),
+            0.72f to Color(0xFFFFE8D2).copy(alpha = (0.012f * lightPower + 0.014f * chromaPower * sweepPower).coerceIn(0f, 0.26f)),
             1.00f to Color.Transparent,
-            center = fieldCenter,
-            radius = fieldRadius
+            center = center,
+            radius = softBloomRadius
         ),
         size = Size(w, h),
         cornerRadius = cornerRadius,
         blendMode = BlendMode.Screen
     )
 
-    val rimInset = 0.46.dp.toPx()
-    val rimSize = Size((w - rimInset * 2f).coerceAtLeast(1f), (h - rimInset * 2f).coerceAtLeast(1f))
-    val rimRadius = (radius.dp.toPx() - rimInset).coerceAtLeast(0f)
-    val rimCorner = CornerRadius(rimRadius, rimRadius)
-    val edgeScale = (0.30f + edgeKnob * 0.74f + touchLight / 62f + sweepGain / 74f + afterglow / 76f).coerceIn(0f, 16f)
-    val edgeStroke = (0.62.dp.toPx() + edgeWidthKnob * 0.42.dp.toPx() + minSide * 0.006f * active)
-        .coerceIn(0.58.dp.toPx(), 6.40.dp.toPx())
-    val edgeEnergy = (fieldEnergy * 0.86f + active * 0.24f).coerceIn(0f, 1.52f)
-    val edgeAlpha = (0.052f * edgeEnergy * edgeScale).coerceIn(0f, 1.00f)
-    val edgeBloom = (0.026f * edgeEnergy * (edgeBloomKnob * 0.64f + lightScale * 0.22f)).coerceIn(0f, 0.62f)
-
-    drawRoundRect(
-        brush = Brush.radialGradient(
-            0.00f to Color.White.copy(alpha = edgeBloom * (0.42f + edgeSoftness * 0.30f)),
-            0.58f to Color(0xFFF8FFFF).copy(alpha = edgeAlpha),
-            0.92f to Color(0xFFE6FFFF).copy(alpha = edgeAlpha * (0.36f + edgeSoftness * 0.34f)),
-            1.00f to Color.Transparent,
-            center = fieldCenter,
-            radius = fieldRadius * (1.10f + edgeSoftness * 0.36f)
-        ),
-        topLeft = Offset(rimInset, rimInset),
-        size = rimSize,
-        cornerRadius = rimCorner,
-        style = Stroke(edgeStroke),
-        blendMode = BlendMode.Plus
-    )
+    val edgeActive = maxOf(sweepPower / 34f, lensShape * 0.52f, pressShape * 0.34f).coerceIn(0f, 1f)
+    if (edgeActive > 0.001f) {
+        val edgeStroke = (
+            0.58.dp.toPx() +
+                0.10.dp.toPx() * sweepPower.coerceIn(0f, 16f) +
+                optics.edgeWidth.coerceIn(0f, 8f) * 0.10.dp.toPx()
+            ).coerceIn(0.56.dp.toPx(), 4.8.dp.toPx())
+        drawRoundRect(
+            brush = Brush.linearGradient(
+                0.00f to Color.Transparent,
+                0.26f to Color(0xFFFFF4FB).copy(alpha = (0.018f * lightPower + 0.034f * edgeActive).coerceIn(0f, 0.42f)),
+                0.44f to Color(0xFFFFE8BC).copy(alpha = (0.020f * lightPower + 0.020f * sweepPower).coerceIn(0f, 0.50f)),
+                0.64f to Color(0xFFE9FFFB).copy(alpha = (0.026f * lightPower + 0.024f * sweepPower).coerceIn(0f, 0.52f)),
+                0.82f to Color(0xFFBDEBFF).copy(alpha = (0.010f * sweepPower * chromaPower).coerceIn(0f, 0.20f)),
+                1.00f to Color.Transparent,
+                start = Offset(w * (sweepX - 0.34f), h * -0.06f),
+                end = Offset(w * (sweepX + 0.40f), h * 1.06f)
+            ),
+            topLeft = Offset(rimInset, rimInset),
+            size = rimSize,
+            cornerRadius = rimCorner,
+            style = Stroke(edgeStroke),
+            blendMode = BlendMode.Screen
+        )
+    }
 }
 
 private fun rememberGlassShimmer(quality: RenderQuality, motionIntensity: Float): Float = if (quality.enableMotion && motionIntensity > 0.02f) 0.20f else 0.16f
