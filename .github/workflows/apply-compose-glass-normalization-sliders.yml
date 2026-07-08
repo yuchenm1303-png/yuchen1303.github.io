@@ -1,0 +1,543 @@
+name: Apply Compose Glass Normalization Sliders
+
+on:
+  push:
+    branches:
+      - dev-update-1
+    paths:
+      - ai-ledger-android/app/.compose-glass-normalization-sliders-trigger.txt
+      - .github/workflows/apply-compose-glass-normalization-sliders.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev-update-1
+          fetch-depth: 0
+      - name: Patch Compose glass normalization controls
+        run: |
+          python3 <<'PY'
+          import re
+          from pathlib import Path
+
+          ui = Path('ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui')
+          state_path = ui / 'ComposeGlassLabState.kt'
+          panel_path = ui / 'GlassDebugFloatingPanel.kt'
+          glass_path = ui / 'Glass.kt'
+          trigger_path = Path('ai-ledger-android/app/.compose-glass-normalization-sliders-trigger.txt')
+
+          def replace_required(text: str, pattern: str, repl: str, label: str) -> str:
+              new, count = re.subn(pattern, repl, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'{label} replacement count={count}')
+              return new
+
+          state = state_path.read_text(encoding='utf-8')
+          panel = panel_path.read_text(encoding='utf-8')
+          glass = glass_path.read_text(encoding='utf-8')
+
+          new_size_class = '''data class OrdinaryGlassSizeAdaptiveTuning(
+    // New Compose ordinary-glass press normalization controls.
+    val pressBodyGain: Float = 1.00f,
+    val pressOpticsGain: Float = 1.35f,
+    val pressLensGain: Float = 1.00f,
+    val pressRimGain: Float = 1.00f,
+    val pressIntensityGain: Float = 1.00f,
+    val pressShadowGain: Float = 1.00f,
+    val pressReboundGain: Float = 1.00f,
+    val pressSmallBoost: Float = 1.65f,
+    val pressRowBoost: Float = 1.35f,
+    val pressMinOptics: Float = 0.34f,
+
+    // Small-component classifier. Height is the primary signal, then short side and area side.
+    val smallHeightStartPx: Float = 48f,
+    val smallHeightRangePx: Float = 150f,
+    val smallShortSideStartPx: Float = 52f,
+    val smallShortSideRangePx: Float = 170f,
+    val smallAreaStartPx: Float = 104f,
+    val smallAreaRangePx: Float = 310f,
+    val smallHeightWeight: Float = 0.56f,
+    val smallShortSideWeight: Float = 0.24f,
+    val smallAreaWeight: Float = 0.20f,
+
+    // Full-width low-height row classifier.
+    val rowAspectStart: Float = 2.10f,
+    val rowAspectRange: Float = 4.30f,
+    val compactHeightStartPx: Float = 76f,
+    val compactHeightRangePx: Float = 132f,
+    val rowBodyDamp: Float = 0.22f,
+
+    // Body damping and clamp ranges.
+    val bodyHeightPivotPx: Float = 270f,
+    val bodyHeightRangePx: Float = 220f,
+    val bodyHeightMin: Float = 0.42f,
+    val bodyAreaPivotPx: Float = 520f,
+    val bodyAreaRangePx: Float = 460f,
+    val bodyAreaMin: Float = 0.44f,
+    val bodyMin: Float = 0.10f,
+    val bodyMax: Float = 1.58f,
+    val opticsMin: Float = 0.32f,
+    val opticsMax: Float = 2.80f,
+    val rimMin: Float = 0.24f,
+    val rimMax: Float = 2.60f,
+
+    // Legacy fields retained for source compatibility with older callers and stored JSON.
+    val smallBoost: Float = 24.0f,
+    val largeDamp: Float = 4.0f,
+    val pivotPx: Float = 520f,
+    val visualPx: Float = 18.0f,
+    val lightBoost: Float = 24.0f,
+    val smallThresholdPx: Float = 520f,
+    val largeThresholdPx: Float = 536f,
+    val wideAspectStart: Float = 1.55f,
+    val wideAspectEnd: Float = 4.80f,
+) {
+    internal fun normalized(): OrdinaryGlassSizeAdaptiveTuning {
+        val bodyMinClean = bodyMin.coerceIn(0f, 16f)
+        val bodyMaxClean = bodyMax.coerceIn((bodyMinClean + 0.01f).coerceAtMost(16f), 24f)
+        val opticsMinClean = opticsMin.coerceIn(0f, 16f)
+        val opticsMaxClean = opticsMax.coerceIn((opticsMinClean + 0.01f).coerceAtMost(16f), 32f)
+        val rimMinClean = rimMin.coerceIn(0f, 16f)
+        val rimMaxClean = rimMax.coerceIn((rimMinClean + 0.01f).coerceAtMost(16f), 32f)
+        val oldSmall = smallThresholdPx.coerceIn(0f, 2400f)
+        val oldLarge = largeThresholdPx.coerceIn((oldSmall + 16f).coerceAtMost(2400f), 4800f)
+        val oldWideStart = wideAspectStart.coerceIn(0.2f, 12f)
+        val oldWideEnd = wideAspectEnd.coerceIn((oldWideStart + 0.05f).coerceAtMost(12f), 24f)
+        return copy(
+            pressBodyGain = pressBodyGain.coerceIn(0f, 24f),
+            pressOpticsGain = pressOpticsGain.coerceIn(0f, 24f),
+            pressLensGain = pressLensGain.coerceIn(0.05f, 12f),
+            pressRimGain = pressRimGain.coerceIn(0f, 24f),
+            pressIntensityGain = pressIntensityGain.coerceIn(0f, 24f),
+            pressShadowGain = pressShadowGain.coerceIn(0f, 24f),
+            pressReboundGain = pressReboundGain.coerceIn(0f, 24f),
+            pressSmallBoost = pressSmallBoost.coerceIn(0f, 16f),
+            pressRowBoost = pressRowBoost.coerceIn(0f, 16f),
+            pressMinOptics = pressMinOptics.coerceIn(0f, 8f),
+            smallHeightStartPx = smallHeightStartPx.coerceIn(0f, 1200f),
+            smallHeightRangePx = smallHeightRangePx.coerceIn(1f, 1200f),
+            smallShortSideStartPx = smallShortSideStartPx.coerceIn(0f, 1200f),
+            smallShortSideRangePx = smallShortSideRangePx.coerceIn(1f, 1200f),
+            smallAreaStartPx = smallAreaStartPx.coerceIn(0f, 1600f),
+            smallAreaRangePx = smallAreaRangePx.coerceIn(1f, 1600f),
+            smallHeightWeight = smallHeightWeight.coerceIn(0f, 8f),
+            smallShortSideWeight = smallShortSideWeight.coerceIn(0f, 8f),
+            smallAreaWeight = smallAreaWeight.coerceIn(0f, 8f),
+            rowAspectStart = rowAspectStart.coerceIn(0.2f, 12f),
+            rowAspectRange = rowAspectRange.coerceIn(0.05f, 24f),
+            compactHeightStartPx = compactHeightStartPx.coerceIn(0f, 1200f),
+            compactHeightRangePx = compactHeightRangePx.coerceIn(1f, 1200f),
+            rowBodyDamp = rowBodyDamp.coerceIn(0f, 2f),
+            bodyHeightPivotPx = bodyHeightPivotPx.coerceIn(0f, 2400f),
+            bodyHeightRangePx = bodyHeightRangePx.coerceIn(1f, 2400f),
+            bodyHeightMin = bodyHeightMin.coerceIn(0f, 2f),
+            bodyAreaPivotPx = bodyAreaPivotPx.coerceIn(0f, 3200f),
+            bodyAreaRangePx = bodyAreaRangePx.coerceIn(1f, 3200f),
+            bodyAreaMin = bodyAreaMin.coerceIn(0f, 2f),
+            bodyMin = bodyMinClean,
+            bodyMax = bodyMaxClean,
+            opticsMin = opticsMinClean,
+            opticsMax = opticsMaxClean,
+            rimMin = rimMinClean,
+            rimMax = rimMaxClean,
+            smallBoost = smallBoost.coerceIn(0f, 96f),
+            largeDamp = largeDamp.coerceIn(0f, 16f),
+            pivotPx = pivotPx.coerceIn(0f, 4800f),
+            visualPx = visualPx.coerceIn(0.2f, 240f),
+            lightBoost = lightBoost.coerceIn(0f, 240f),
+            smallThresholdPx = oldSmall,
+            largeThresholdPx = oldLarge,
+            wideAspectStart = oldWideStart,
+            wideAspectEnd = oldWideEnd,
+        )
+    }
+}'''
+
+          state = replace_required(
+              state,
+              r'data class OrdinaryGlassSizeAdaptiveTuning\([\s\S]*?\n\}\n\ndata class ComposeGlassStyle',
+              new_size_class + '\n\ndata class ComposeGlassStyle',
+              'OrdinaryGlassSizeAdaptiveTuning',
+          )
+
+          new_capsule = '''private fun singleCardCapsuleTuningFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassCapsuleTuning {
+    val normalized = size.normalized()
+    return defaultOrdinaryGlassCapsuleTuning().copy(
+        compactBoost = (1.0f + normalized.pressSmallBoost * 0.55f).coerceIn(0.20f, 96.00f),
+        elongatedX = (normalized.pressRowBoost * 1.25f).coerceIn(0f, 64.00f),
+        elongatedY = (0.08f + normalized.pressSmallBoost * 0.050f + normalized.pressRowBoost * 0.030f).coerceIn(0.01f, 32.00f),
+        basePx = (0.012f + normalized.pressBodyGain * 0.010f).coerceIn(0.001f, 4.80f),
+        tapPx = (0.035f + normalized.pressBodyGain * 0.018f + normalized.pressSmallBoost * 0.009f).coerceIn(0f, 6.40f),
+        tapPop = (0.80f + normalized.pressReboundGain * 0.55f).coerceIn(0.05f, 120.00f),
+        tapCarry = (0.18f + normalized.pressOpticsGain * 0.18f + normalized.pressRowBoost * 0.04f).coerceIn(0f, 96.00f),
+        sticky = (0.012f + normalized.pressMinOptics * 0.060f + normalized.pressIntensityGain * 0.006f).coerceIn(0f, 16.00f),
+        sink = (0.050f + normalized.pressShadowGain * 0.18f).coerceIn(0f, 96.00f),
+        settle = (0.16f + normalized.pressReboundGain * 0.34f).coerceIn(0f, 48.00f),
+    ).normalized()
+}'''
+
+          state = replace_required(
+              state,
+              r'private fun singleCardCapsuleTuningFor\(size: OrdinaryGlassSizeAdaptiveTuning\): OrdinaryGlassCapsuleTuning \{[\s\S]*?\n\}\n\nprivate fun singleCardPressureOpticsFor',
+              new_capsule + '\n\nprivate fun singleCardPressureOpticsFor',
+              'singleCardCapsuleTuningFor',
+          )
+
+          new_pressure = '''private fun singleCardPressureOpticsFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassPressureOpticsTuning {
+    val normalized = size.normalized()
+    return defaultOrdinaryGlassPressureOpticsTuning().copy(
+        fieldIntensity = (4.0f + normalized.pressOpticsGain * 10.0f + normalized.pressMinOptics * 24.0f + normalized.pressIntensityGain * 2.0f).coerceIn(0f, 960f),
+        fieldSpread = (3.0f + normalized.pressLensGain * 10.0f + normalized.pressRowBoost * 2.0f).coerceIn(0f, 720f),
+        fieldSoftness = (4.0f + normalized.pressLensGain * 8.0f + normalized.pressRowBoost * 4.0f).coerceIn(0f, 720f),
+        fieldUniformity = (3.0f + normalized.pressRowBoost * 6.0f + normalized.rowBodyDamp * 12.0f).coerceIn(0f, 480f),
+        fieldFollow = (0.08f + normalized.pressSmallBoost * 0.050f + normalized.pressRowBoost * 0.035f).coerceIn(0f, 48f),
+        edgeIntensity = (3.8f + normalized.pressRimGain * 10.0f + normalized.pressRowBoost * 4.0f).coerceIn(0f, 960f),
+        edgeWidth = (1.1f + normalized.pressRimGain * 2.0f + normalized.pressSmallBoost * 0.35f).coerceIn(0f, 360f),
+        edgeSoftness = (3.4f + normalized.pressLensGain * 5.0f + normalized.pressRowBoost * 4.0f).coerceIn(0f, 720f),
+        edgeBloom = (3.4f + normalized.pressOpticsGain * 4.0f + normalized.pressRowBoost * 4.0f + normalized.pressMinOptics * 10.0f).coerceIn(0f, 720f),
+    ).normalized()
+}'''
+
+          state = replace_required(
+              state,
+              r'private fun singleCardPressureOpticsFor\(size: OrdinaryGlassSizeAdaptiveTuning\): OrdinaryGlassPressureOpticsTuning \{[\s\S]*?\n\}\n\nprivate fun defaultComposeGlassStyle',
+              new_pressure + '\n\nprivate fun defaultComposeGlassStyle',
+              'singleCardPressureOpticsFor',
+          )
+
+          new_constants = '''private val ComposeMotionEnergyRange = 0f..12f
+private val ComposeMotionLightRange = 0f..24f
+private val ComposeMotionSpeedRange = 0.05f..8f
+private val ComposePressGainHugeRange = 0f..24f
+private val ComposePressLensHugeRange = 0.05f..12f
+private val ComposePressBoostHugeRange = 0f..16f
+private val ComposePressMinOpticsHugeRange = 0f..8f
+private val ComposePressPxHugeRange = 0f..1200f
+private val ComposePressAreaPxHugeRange = 0f..1600f
+private val ComposePressPivotHugeRange = 0f..3200f
+private val ComposePressWeightHugeRange = 0f..8f
+private val ComposePressAspectHugeRange = 0.2f..12f
+private val ComposePressAspectRangeHugeRange = 0.05f..24f
+private val ComposePressDampRange = 0f..2f
+private val ComposePressClampHugeRange = 0f..16f
+private val ComposePressClampMaxHugeRange = 0f..32f
+'''
+
+          panel = replace_required(
+              panel,
+              r'private val ComposeMotionEnergyRange[\s\S]*?private val ComposeLightBoostRange = [^\n]+\n',
+              new_constants,
+              'Compose glass lab ranges',
+          )
+
+          new_size_groups = '''                Group("新版归一化｜核心增益", "直接控制 ordinaryGlassPressProfile：形变、光效、透镜、边缘和保底点击光", state, initiallyExpanded = true) {
+                    ComposeGlassMotionPreview(state)
+                    LabSlider("按压形变 bodyGain", "直接乘到 body；0 关闭形变，24 用于极限压测", sizeTuning.pressBodyGain, ComposePressGainHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressBodyGain = it))
+                    }
+                    LabSlider("点击光效 opticsGain", "直接乘到 optics；用于放大小组件和长条点击光", sizeTuning.pressOpticsGain, ComposePressGainHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressOpticsGain = it))
+                    }
+                    LabSlider("透镜半径 lensGain", "直接控制触点 lens 半径倍率", sizeTuning.pressLensGain, ComposePressLensHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressLensGain = it))
+                    }
+                    LabSlider("边缘扫光 rimGain", "直接控制 rim/sweep 边缘光强", sizeTuning.pressRimGain, ComposePressGainHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressRimGain = it))
+                    }
+                    LabSlider("玻璃增亮 intensityGain", "联动压力场亮度和余辉能量，范围很大方便找上限", sizeTuning.pressIntensityGain, ComposePressGainHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressIntensityGain = it))
+                    }
+                    LabSlider("阴影下沉 shadowGain", "联动下沉、阴影和 capsule sink", sizeTuning.pressShadowGain, ComposePressGainHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressShadowGain = it))
+                    }
+                    LabSlider("释放回弹 reboundGain", "联动松手反弹和 settle", sizeTuning.pressReboundGain, ComposePressGainHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressReboundGain = it))
+                    }
+                    LabSlider("小组件补偿 smallBoost", "只补偿短边/高度较小的组件", sizeTuning.pressSmallBoost, ComposePressBoostHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressSmallBoost = it))
+                    }
+                    LabSlider("长条补偿 rowBoost", "只补偿全宽低高度 row 的点击光和边缘扫光", sizeTuning.pressRowBoost, ComposePressBoostHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressRowBoost = it))
+                    }
+                    LabSlider("最低点击光 minOptics", "所有普通 Compose 组件的点击光保底", sizeTuning.pressMinOptics, ComposePressMinOpticsHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressMinOptics = it))
+                    }
+                }
+                Group("新版归一化｜小组件判定", "高度、短边、面积三路混合；权重也开放，方便判断问题到底在哪一路", state, initiallyExpanded = true) {
+                    LabSlider("小件高度起点 px", "h 超过该值后开始逐渐退出小组件补偿", sizeTuning.smallHeightStartPx, ComposePressPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallHeightStartPx = it))
+                    }
+                    LabSlider("小件高度过渡 px", "高度归一化过渡区间，越大越平滑", sizeTuning.smallHeightRangePx, ComposePressPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallHeightRangePx = it))
+                    }
+                    LabSlider("小件短边起点 px", "shortSide 超过该值后开始退出小组件补偿", sizeTuning.smallShortSideStartPx, ComposePressPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallShortSideStartPx = it))
+                    }
+                    LabSlider("小件短边过渡 px", "短边归一化过渡区间", sizeTuning.smallShortSideRangePx, ComposePressPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallShortSideRangePx = it))
+                    }
+                    LabSlider("小件面积起点 px", "sqrt(width*height) 超过该值后开始退出补偿", sizeTuning.smallAreaStartPx, ComposePressAreaPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallAreaStartPx = it))
+                    }
+                    LabSlider("小件面积过渡 px", "面积等效边长的过渡区间", sizeTuning.smallAreaRangePx, ComposePressAreaPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallAreaRangePx = it))
+                    }
+                    LabSlider("高度权重", "smallness 中高度通道权重", sizeTuning.smallHeightWeight, ComposePressWeightHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallHeightWeight = it))
+                    }
+                    LabSlider("短边权重", "smallness 中短边通道权重", sizeTuning.smallShortSideWeight, ComposePressWeightHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallShortSideWeight = it))
+                    }
+                    LabSlider("面积权重", "smallness 中面积通道权重", sizeTuning.smallAreaWeight, ComposePressWeightHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallAreaWeight = it))
+                    }
+                }
+                Group("新版归一化｜长条与身体阻尼", "专门解决全宽低高度设置项：身体稳、光效强、半径不被宽度摊薄", state, initiallyExpanded = false) {
+                    LabSlider("长条宽高比起点", "aspect 超过该值开始进入 rowness", sizeTuning.rowAspectStart, ComposePressAspectHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(rowAspectStart = it))
+                    }
+                    LabSlider("长条宽高比过渡", "rowness 的宽高比过渡区间", sizeTuning.rowAspectRange, ComposePressAspectRangeHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(rowAspectRange = it))
+                    }
+                    LabSlider("紧凑高度起点 px", "高度低于该值时更像设置项 row", sizeTuning.compactHeightStartPx, ComposePressPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(compactHeightStartPx = it))
+                    }
+                    LabSlider("紧凑高度过渡 px", "紧凑高度的过渡区间", sizeTuning.compactHeightRangePx, ComposePressPxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(compactHeightRangePx = it))
+                    }
+                    LabSlider("长条身体压制", "rowness 对 body 的压制，0 不压制，2 极限压制", sizeTuning.rowBodyDamp, ComposePressDampRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(rowBodyDamp = it))
+                    }
+                    LabSlider("body 高度 pivot px", "高度阻尼中心，越高越容易保留形变", sizeTuning.bodyHeightPivotPx, ComposePressPivotHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyHeightPivotPx = it))
+                    }
+                    LabSlider("body 高度 range px", "高度阻尼过渡区间", sizeTuning.bodyHeightRangePx, ComposePressPivotHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyHeightRangePx = it))
+                    }
+                    LabSlider("body 高度最小值", "高度阻尼最低保留比例", sizeTuning.bodyHeightMin, ComposePressDampRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyHeightMin = it))
+                    }
+                    LabSlider("body 面积 pivot px", "面积等效边长阻尼中心", sizeTuning.bodyAreaPivotPx, ComposePressPivotHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyAreaPivotPx = it))
+                    }
+                    LabSlider("body 面积 range px", "面积等效边长阻尼过渡区间", sizeTuning.bodyAreaRangePx, ComposePressPivotHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyAreaRangePx = it))
+                    }
+                    LabSlider("body 面积最小值", "面积阻尼最低保留比例", sizeTuning.bodyAreaMin, ComposePressDampRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyAreaMin = it))
+                    }
+                    LabSlider("body 输出下限", "ordinaryGlassPressProfile.body 最低值", sizeTuning.bodyMin, ComposePressClampHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyMin = it))
+                    }
+                    LabSlider("body 输出上限", "ordinaryGlassPressProfile.body 最高值", sizeTuning.bodyMax, ComposePressClampMaxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(bodyMax = it))
+                    }
+                    LabSlider("optics 输出下限", "ordinaryGlassPressProfile.optics 最低值", sizeTuning.opticsMin, ComposePressClampHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(opticsMin = it))
+                    }
+                    LabSlider("optics 输出上限", "ordinaryGlassPressProfile.optics 最高值", sizeTuning.opticsMax, ComposePressClampMaxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(opticsMax = it))
+                    }
+                    LabSlider("rim 输出下限", "ordinaryGlassPressProfile.rim 最低值", sizeTuning.rimMin, ComposePressClampHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(rimMin = it))
+                    }
+                    LabSlider("rim 输出上限", "ordinaryGlassPressProfile.rim 最高值", sizeTuning.rimMax, ComposePressClampMaxHugeRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(rimMax = it))
+                    }
+                }'''
+
+          panel = replace_required(
+              panel,
+              r'                Group\("尺寸归一化"[\s\S]*?\n                \}\n                Row\(horizontalArrangement',
+              new_size_groups + '\n                Row(horizontalArrangement',
+              'size normalization slider group',
+          )
+
+          new_export = '''private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: OrdinaryGlassSizeAdaptiveTuning): String {
+    fun Float.exportValue(): String = ((this * 1000f).roundToInt() / 1000f).toString()
+    return """
+        {
+          "composeGlassMotionStyle8830": {
+            "master": ${motion.master.exportValue()},
+            "speed": ${motion.speed.exportValue()},
+            "deformation": ${motion.deformation.exportValue()},
+            "rebound": ${motion.rebound.exportValue()},
+            "touchLight": ${motion.touchLight.exportValue()},
+            "prism": ${motion.prism.exportValue()},
+            "sweep": ${motion.sweep.exportValue()},
+            "afterglow": ${motion.afterglow.exportValue()}
+          },
+          "ordinaryGlassPressNormalization": {
+            "pressBodyGain": ${size.pressBodyGain.exportValue()},
+            "pressOpticsGain": ${size.pressOpticsGain.exportValue()},
+            "pressLensGain": ${size.pressLensGain.exportValue()},
+            "pressRimGain": ${size.pressRimGain.exportValue()},
+            "pressIntensityGain": ${size.pressIntensityGain.exportValue()},
+            "pressShadowGain": ${size.pressShadowGain.exportValue()},
+            "pressReboundGain": ${size.pressReboundGain.exportValue()},
+            "pressSmallBoost": ${size.pressSmallBoost.exportValue()},
+            "pressRowBoost": ${size.pressRowBoost.exportValue()},
+            "pressMinOptics": ${size.pressMinOptics.exportValue()},
+            "smallHeightStartPx": ${size.smallHeightStartPx.exportValue()},
+            "smallHeightRangePx": ${size.smallHeightRangePx.exportValue()},
+            "smallShortSideStartPx": ${size.smallShortSideStartPx.exportValue()},
+            "smallShortSideRangePx": ${size.smallShortSideRangePx.exportValue()},
+            "smallAreaStartPx": ${size.smallAreaStartPx.exportValue()},
+            "smallAreaRangePx": ${size.smallAreaRangePx.exportValue()},
+            "smallHeightWeight": ${size.smallHeightWeight.exportValue()},
+            "smallShortSideWeight": ${size.smallShortSideWeight.exportValue()},
+            "smallAreaWeight": ${size.smallAreaWeight.exportValue()},
+            "rowAspectStart": ${size.rowAspectStart.exportValue()},
+            "rowAspectRange": ${size.rowAspectRange.exportValue()},
+            "compactHeightStartPx": ${size.compactHeightStartPx.exportValue()},
+            "compactHeightRangePx": ${size.compactHeightRangePx.exportValue()},
+            "rowBodyDamp": ${size.rowBodyDamp.exportValue()},
+            "bodyHeightPivotPx": ${size.bodyHeightPivotPx.exportValue()},
+            "bodyHeightRangePx": ${size.bodyHeightRangePx.exportValue()},
+            "bodyHeightMin": ${size.bodyHeightMin.exportValue()},
+            "bodyAreaPivotPx": ${size.bodyAreaPivotPx.exportValue()},
+            "bodyAreaRangePx": ${size.bodyAreaRangePx.exportValue()},
+            "bodyAreaMin": ${size.bodyAreaMin.exportValue()},
+            "bodyMin": ${size.bodyMin.exportValue()},
+            "bodyMax": ${size.bodyMax.exportValue()},
+            "opticsMin": ${size.opticsMin.exportValue()},
+            "opticsMax": ${size.opticsMax.exportValue()},
+            "rimMin": ${size.rimMin.exportValue()},
+            "rimMax": ${size.rimMax.exportValue()}
+          }
+        }
+    """.trimIndent()
+}'''
+
+          panel = replace_required(
+              panel,
+              r'private fun composeGlassMotionExportJson\(motion: ComposeGlassMotionStyle, size: OrdinaryGlassSizeAdaptiveTuning\): String \{[\s\S]*?\n\}',
+              new_export,
+              'composeGlassMotionExportJson',
+          )
+
+          new_profile = '''private fun ordinaryGlassPressProfile(role: GlassRole, size: Size): OrdinaryGlassPressProfile {
+    if (role == GlassRole.Shell) return OrdinaryGlassPressProfile.Disabled
+
+    val tuning = ComposeGlassLabState.sizeAdaptiveTuning.normalized()
+    val w = size.width.coerceAtLeast(1f)
+    val h = size.height.coerceAtLeast(1f)
+    val shortSide = minOf(w, h)
+    val longSide = maxOf(w, h)
+    val areaSide = sqrt(w * h)
+    val aspect = longSide / shortSide.coerceAtLeast(1f)
+
+    // Height is the primary small-component signal, then short side, then equivalent area side.
+    // This prevents full-width but low-height settings rows from being treated as huge panels.
+    val smallByHeight = glassInvSmoothStep(((h - tuning.smallHeightStartPx) / tuning.smallHeightRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val smallByShortSide = glassInvSmoothStep(((shortSide - tuning.smallShortSideStartPx) / tuning.smallShortSideRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val smallByArea = glassInvSmoothStep(((areaSide - tuning.smallAreaStartPx) / tuning.smallAreaRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val smallWeight = (tuning.smallHeightWeight + tuning.smallShortSideWeight + tuning.smallAreaWeight).coerceAtLeast(0.001f)
+    val smallness = (
+        smallByHeight * tuning.smallHeightWeight +
+            smallByShortSide * tuning.smallShortSideWeight +
+            smallByArea * tuning.smallAreaWeight
+        ).div(smallWeight).coerceIn(0f, 1f)
+
+    val compactHeight = glassInvSmoothStep(((h - tuning.compactHeightStartPx) / tuning.compactHeightRangePx.coerceAtLeast(1f)).coerceIn(0f, 1f))
+    val rowness = (glassSmoothStep(((aspect - tuning.rowAspectStart) / tuning.rowAspectRange.coerceAtLeast(0.05f)).coerceIn(0f, 1f)) * compactHeight)
+        .coerceIn(0f, 1f)
+
+    val roleBody = when (role) {
+        GlassRole.Chip -> 1.10f
+        GlassRole.Floating -> 1.00f
+        GlassRole.Flex -> 0.92f
+        GlassRole.Card -> 0.72f
+        GlassRole.Nav -> 0.58f
+        GlassRole.Shell -> 0f
+    }
+    val roleOptics = when (role) {
+        GlassRole.Chip -> 1.18f
+        GlassRole.Floating -> 1.12f
+        GlassRole.Flex -> 1.04f
+        GlassRole.Card -> 0.94f
+        GlassRole.Nav -> 0.86f
+        GlassRole.Shell -> 0f
+    }
+
+    val heightBodyDamp = ((tuning.bodyHeightPivotPx - h) / tuning.bodyHeightRangePx.coerceAtLeast(1f))
+        .coerceIn(tuning.bodyHeightMin.coerceIn(0f, 2f), 1.50f)
+    val areaBodyDamp = ((tuning.bodyAreaPivotPx - areaSide) / tuning.bodyAreaRangePx.coerceAtLeast(1f))
+        .coerceIn(tuning.bodyAreaMin.coerceIn(0f, 2f), 1.50f)
+    val bodyRaw = roleBody *
+        heightBodyDamp *
+        areaBodyDamp *
+        (1f + smallness * tuning.pressSmallBoost) *
+        (1f - rowness * tuning.rowBodyDamp) *
+        tuning.pressBodyGain
+    val body = bodyRaw.coerceIn(tuning.bodyMin, tuning.bodyMax)
+
+    val opticsRaw = roleOptics *
+        (0.70f + smallness * tuning.pressSmallBoost * 0.42f + rowness * tuning.pressRowBoost * 0.58f) *
+        (0.90f + body * 0.20f) *
+        tuning.pressOpticsGain
+    val optics = maxOf(tuning.pressMinOptics, opticsRaw).coerceIn(tuning.opticsMin, tuning.opticsMax)
+
+    val rimRaw = roleOptics *
+        (0.70f + smallness * tuning.pressSmallBoost * 0.22f + rowness * tuning.pressRowBoost * 0.74f) *
+        tuning.pressRimGain
+    val rim = rimRaw.coerceIn(tuning.rimMin, tuning.rimMax)
+
+    val lens = (
+        1.00f +
+            smallness * 0.20f -
+            rowness * 0.12f
+        ).times(tuning.pressLensGain).coerceIn(0.05f, 12.00f)
+
+    return OrdinaryGlassPressProfile(
+        body = body,
+        optics = optics,
+        rim = rim,
+        lens = lens,
+        smallness = smallness,
+        rowness = rowness
+    )
+}'''
+
+          glass = replace_required(
+              glass,
+              r'private fun ordinaryGlassPressProfile\(role: GlassRole, size: Size\): OrdinaryGlassPressProfile \{[\s\S]*?\n\}\n\nprivate fun ordinaryGlassElasticity',
+              new_profile + '\n\nprivate fun ordinaryGlassElasticity',
+              'ordinaryGlassPressProfile',
+          )
+
+          for label, text, expected in [
+              ('state', state, 'pressBodyGain'),
+              ('panel', panel, '新版归一化｜核心增益'),
+              ('glass', glass, 'ComposeGlassLabState.sizeAdaptiveTuning.normalized()'),
+          ]:
+              if expected not in text:
+                  raise SystemExit(f'{label} missing expected marker {expected}')
+
+          state_path.write_text(state, encoding='utf-8')
+          panel_path.write_text(panel, encoding='utf-8')
+          glass_path.write_text(glass, encoding='utf-8')
+          trigger_path.unlink(missing_ok=True)
+          PY
+      - name: Commit patched files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/ComposeGlassLabState.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/GlassDebugFloatingPanel.kt \
+            ai-ledger-android/app/src/main/java/com/yuchen/ailedger/ui/Glass.kt \
+            ai-ledger-android/app/.compose-glass-normalization-sliders-trigger.txt
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "No source changes to commit."
+            exit 0
+          fi
+          git commit -m "Update Compose glass normalization sliders"
+          git push origin dev-update-1
