@@ -124,7 +124,7 @@ internal object VisualLoopMemorySupport {
         val visual = snapshot.visual ?: return
         val output = plan.rawModelOutput.ifBlank { plan.step.reason.orEmpty() }
         if (output.isBlank()) return
-        history += VisualAgentHistoryItem(visual.copy(base64Jpeg = ""), output, result)
+        history += VisualAgentHistoryItem(visual, output, result)
         while (history.size > VisualLoopSupport.RECOVERY_HISTORY_ITEMS) history.removeAt(0)
 
         val step = plan.step
