@@ -155,12 +155,7 @@ object ComposeGlassLabState {
     }
 
     fun updatePressureOpticsTuning(next: OrdinaryGlassPressureOpticsTuning) {
-        val normalized = next.normalized()
-        pressureOpticsTuning = normalized
-        motionStyle = pressureOpticsToIndependentMotionBridge(
-            current = motionStyle,
-            optics = normalized
-        ).normalized()
+        pressureOpticsTuning = next.normalized()
     }
 
     fun usePreset(preset: ComposeGlassPreset) {
@@ -172,10 +167,7 @@ object ComposeGlassLabState {
     }
 
     fun resetMotion() {
-        motionStyle = pressureOpticsToIndependentMotionBridge(
-            current = defaultComposeGlassMotionStyle(),
-            optics = pressureOpticsTuning
-        ).normalized()
+        motionStyle = defaultComposeGlassMotionStyle()
     }
 
     fun resetCapsuleTuning() {
@@ -183,57 +175,15 @@ object ComposeGlassLabState {
     }
 
     fun resetPressureOpticsTuning() {
-        val defaults = defaultOrdinaryGlassPressureOpticsTuning()
-        pressureOpticsTuning = defaults
-        motionStyle = pressureOpticsToIndependentMotionBridge(
-            current = motionStyle,
-            optics = defaults
-        ).normalized()
+        pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
     }
 
     fun resetAll() {
-        val defaultOptics = defaultOrdinaryGlassPressureOpticsTuning()
         style = defaultComposeGlassStyle()
-        pressureOpticsTuning = defaultOptics
-        motionStyle = pressureOpticsToIndependentMotionBridge(
-            current = defaultComposeGlassMotionStyle(),
-            optics = defaultOptics
-        ).normalized()
+        motionStyle = defaultComposeGlassMotionStyle()
         capsuleTuning = defaultOrdinaryGlassCapsuleTuning()
+        pressureOpticsTuning = defaultOrdinaryGlassPressureOpticsTuning()
     }
-}
-
-/**
- * ParentDraw 关闭后，普通玻璃实际走 Glass.kt 的独立绘制路径。
- * 这条路径仍然读取旧 motionStyle 字段，因此这里把新版“雾化光场 / 边缘投影”参数
- * 桥接到独立绘制会真正读取的 touchLight、sweep、afterglow 等源头，避免调试面板滑块无反应。
- */
-private fun pressureOpticsToIndependentMotionBridge(
-    current: ComposeGlassMotionStyle,
-    optics: OrdinaryGlassPressureOpticsTuning
-): ComposeGlassMotionStyle {
-    val normalized = optics.normalized()
-    val uniformity = (normalized.fieldUniformity / 8f).coerceIn(0f, 1f)
-    val follow = normalized.fieldFollow.coerceIn(0f, 1f)
-    val fieldEnergy = normalized.fieldIntensity.coerceIn(0f, 12f)
-    val fieldSpread = normalized.fieldSpread.coerceIn(0f, 8f)
-    val fieldSoftness = normalized.fieldSoftness.coerceIn(0f, 8f)
-    val edgeEnergy = normalized.edgeIntensity.coerceIn(0f, 12f)
-    val edgeWidth = normalized.edgeWidth.coerceIn(0f, 8f)
-    val edgeSoftness = normalized.edgeSoftness.coerceIn(0f, 8f)
-    val edgeBloom = normalized.edgeBloom.coerceIn(0f, 8f)
-
-    val shapeSuppression = 1f - uniformity * 0.38f
-    return current.copy(
-        touchLight = (1.00f + fieldEnergy * 1.12f + edgeBloom * 0.20f).coerceIn(0f, 16f),
-        afterglow = (0.72f + fieldSoftness * 1.05f + fieldSpread * 0.28f + edgeBloom * 0.34f).coerceIn(0f, 12f),
-        sweep = ((fieldSpread * 0.68f + edgeEnergy * 0.46f + edgeWidth * 0.30f) * shapeSuppression)
-            .coerceIn(0f, 16f),
-        fieldContinuity = (fieldSoftness * 0.70f + normalized.fieldUniformity * 0.46f + follow * 0.60f)
-            .coerceIn(0f, 8f),
-        sweepMomentum = (fieldSpread * 0.48f + edgeSoftness * 0.50f + edgeWidth * 0.24f + follow * 0.80f)
-            .coerceIn(0f, 8f),
-    )
 }
 
 private fun defaultComposeGlassMotionStyle(): ComposeGlassMotionStyle = ComposeGlassMotionStyle()
