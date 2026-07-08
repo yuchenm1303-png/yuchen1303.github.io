@@ -14,11 +14,11 @@ enum class ComposeGlassPreset {
 
 data class ComposeGlassMotionStyle(
     val master: Float = 5.813f,
-    val deformation: Float = 0.253f,
+    val deformation: Float = 0.995f,
     val touchLight: Float = 1f,
     val prism: Float = 0.68f,
-    val sweep: Float = 0.3f,
-    val rebound: Float = 0.90f,
+    val sweep: Float = 14.734f,
+    val rebound: Float = 2.793f,
     val afterglow: Float = 0.86f,
     val speed: Float = 0.171f,
     val tapImpulse: Float = 0f,
