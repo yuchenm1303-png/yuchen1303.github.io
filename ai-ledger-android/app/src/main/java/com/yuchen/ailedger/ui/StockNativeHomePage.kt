@@ -28,6 +28,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
@@ -272,15 +274,18 @@ private fun NativeStockSearchBar(
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit
 ) {
+    val searchFocusRequester = remember { FocusRequester() }
     Row(
         Modifier.fillMaxWidth().height(52.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        StockNativeFrostCard(
+        NativeInteractiveGlassCard(
             modifier = Modifier.weight(1f).fillMaxHeight(),
             radius = 20.dp,
-            frostAlpha = 0.084f,
-            contentPadding = 13.dp
+            intensity = 0.88f,
+            role = GlassRole.Flex,
+            contentPadding = 13.dp,
+            onClick = { searchFocusRequester.requestFocus() }
         ) {
             Row(
                 Modifier.fillMaxSize(),
@@ -291,7 +296,7 @@ private fun NativeStockSearchBar(
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).focusRequester(searchFocusRequester),
                     singleLine = true,
                     textStyle = TextStyle(
                         color = Color.White,
