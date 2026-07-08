@@ -48,7 +48,7 @@ class VisualLoopRunner(
         VisualLoopSupport.appendRecent(session.recentActions, session.deviceProfile.toPromptLine())
         VisualLoopSupport.appendRecent(
             session.recentActions,
-            "cloud_routing:v6|mainBrain=deepseek|visualOwner=gui_plus|localSemanticDecision=false|completionPermitRequired=true|completionAck=true",
+            "gui_plus_visual_ownership:v3|owner=gui_plus|agentBrain=false|localSemanticDecision=false|openAppVisualEntry=true|completionPermitRequired=true|completionAck=true",
         )
         VisualLoopSupport.appendRecent(
             session.recentActions,
@@ -252,13 +252,18 @@ class VisualLoopRunner(
         plan: CloudAgentPlan,
     ): VisualLoopDecision {
         val step = plan.step
-        if (VisualLoopSupport.requiresAccessibility(step) &&
+        if (step.type != "open_app" &&
+            VisualLoopSupport.requiresAccessibility(step) &&
             (!turn.observation.enabled || !turn.observation.serviceConnected)
         ) return fatal(session, "The Android accessibility service is not connected.")
 
         handleRedundantVerifiedOpenApp(session, turn, plan)?.let { return it }
 
-        val validation = VisualActionValidator.validate(step, turn.snapshot, turn.runtime)
+        val validation = if (step.type == "open_app") {
+            VisualActionValidation(ok = true)
+        } else {
+            VisualActionValidator.validate(step, turn.snapshot, turn.runtime)
+        }
         if (!validation.ok) return rejectPlan(session, turn, plan, validation)
         if (step.type == "finish") return handleFinish(session, turn, plan)
         session.clearCompletionCandidate()
@@ -719,7 +724,7 @@ class VisualLoopRunner(
         if (requestedPackage.isBlank()) {
             return PreparedVisualStep(
                 false,
-                "open_app requires a packageName selected by DeepSeek.",
+                "open_app requires a packageName resolved from GUI Plus mobile_use open.",
                 replanRequired = true,
             )
         }
