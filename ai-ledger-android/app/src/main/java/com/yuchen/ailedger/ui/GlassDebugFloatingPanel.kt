@@ -39,7 +39,10 @@ private val ComposeMotionLightRange = 0f..24f
 private val ComposeMotionSpeedRange = 0.05f..8f
 private val ComposeSizeBoostRange = 0f..24f
 private val ComposeLargeDampRange = 0f..4f
-private val ComposePivotRange = 32f..2000f
+private val ComposeSmallThresholdRange = 32f..520f
+private val ComposeLargeThresholdRange = 120f..2400f
+private val ComposeWideAspectStartRange = 1f..5.5f
+private val ComposeWideAspectEndRange = 1.2f..14f
 private val ComposeVisualPxRange = 0.2f..96f
 private val ComposeLightBoostRange = 0f..24f
 
@@ -104,7 +107,7 @@ fun GlassDebugFloatingPanel(
                         ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
                     }
                 }
-                Group("尺寸归一化", "解决小玻璃不明显、大玻璃过夸张：按实际像素反推 scale", state, initiallyExpanded = true) {
+                Group("尺寸归一化", "按短边、面积、宽高比分开建模：小件增强、大件压制、宽卡横向压制", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
                     LabSlider("小玻璃增强", "增强 Chip/Floating 等小组件的可感知形变和光效", sizeTuning.smallBoost, ComposeSizeBoostRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallBoost = it))
@@ -112,8 +115,17 @@ fun GlassDebugFloatingPanel(
                     LabSlider("大玻璃压制", "压低大 Card/Flex 的整体形变和大面积 bloom", sizeTuning.largeDamp, ComposeLargeDampRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(largeDamp = it))
                     }
-                    LabSlider("尺寸分界 px", "小/大玻璃过渡分界，越大则更多组件走小玻璃增强", sizeTuning.pivotPx, ComposePivotRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pivotPx = it))
+                    LabSlider("小件阈值 px", "短边低于这个值时逐渐进入小件增强，不再只有一个分界", sizeTuning.smallThresholdPx, ComposeSmallThresholdRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(smallThresholdPx = it))
+                    }
+                    LabSlider("大件阈值 px", "面积等效边长超过这个值时逐渐进入大件压制", sizeTuning.largeThresholdPx, ComposeLargeThresholdRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(largeThresholdPx = it))
+                    }
+                    LabSlider("宽卡起始比例", "宽高比超过这个值时开始横向压制", sizeTuning.wideAspectStart, ComposeWideAspectStartRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(wideAspectStart = it))
+                    }
+                    LabSlider("宽卡完全比例", "宽高比超过这个值时宽卡压制达到最大", sizeTuning.wideAspectEnd, ComposeWideAspectEndRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(wideAspectEnd = it))
                     }
                     LabSlider("目标形变 px", "以像素为单位的视觉鼓起目标，代替固定 scale 百分比", sizeTuning.visualPx, ComposeVisualPxRange) {
                         ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(visualPx = it))
@@ -331,6 +343,10 @@ private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: 
           "ordinaryGlassSizeAdaptiveTuning": {
             "smallBoost": ${size.smallBoost.exportValue()},
             "largeDamp": ${size.largeDamp.exportValue()},
+            "smallThresholdPx": ${size.smallThresholdPx.exportValue()},
+            "largeThresholdPx": ${size.largeThresholdPx.exportValue()},
+            "wideAspectStart": ${size.wideAspectStart.exportValue()},
+            "wideAspectEnd": ${size.wideAspectEnd.exportValue()},
             "pivotPx": ${size.pivotPx.exportValue()},
             "visualPx": ${size.visualPx.exportValue()},
             "lightBoost": ${size.lightBoost.exportValue()}
