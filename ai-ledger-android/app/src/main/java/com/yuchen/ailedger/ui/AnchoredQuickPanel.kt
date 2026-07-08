@@ -214,6 +214,7 @@ internal fun AnchoredQuickPanel(
         val renderedY = if (visible) panelY else -panelHeightPx - safePx
         val useSharedGlassShell = surfaceColor.alpha < 0.72f
         val layout = AnchoredQuickPanelLayout(compact = compact, placement = placement, tailHeight = tailHeight)
+        val shellRadius = cornerRadius.value.roundToInt()
 
         Box(
             modifier = Modifier
@@ -274,7 +275,7 @@ internal fun AnchoredQuickPanel(
                         quality = quality,
                         glassIntensity = glassIntensity,
                         motionIntensity = 0f,
-                        radius = cornerRadius.value.roundToInt(),
+                        radius = shellRadius,
                         modifier = Modifier.fillMaxSize(),
                         role = GlassRole.Floating,
                         onClick = {},
@@ -285,8 +286,22 @@ internal fun AnchoredQuickPanel(
                     }
                 }
             } else {
-                Box(Modifier.fillMaxSize().background(surfaceColor)) {
-                    content(layout)
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .glassSkin(
+                            quality = quality,
+                            radius = shellRadius,
+                            shimmer = 0.16f,
+                            breathe = 0.34f,
+                            glassIntensity = glassIntensity,
+                            role = GlassRole.Floating,
+                            includeShadow = false,
+                        )
+                ) {
+                    Box(Modifier.fillMaxSize().background(surfaceColor)) {
+                        content(layout)
+                    }
                 }
             }
         }
