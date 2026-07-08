@@ -25,7 +25,7 @@ internal object VisualLoopModelContext {
         val actionLines = visualHistory
             .takeLast(MAX_MODEL_ACTIONS)
             .mapIndexedNotNull { index, item ->
-                val action = extractActionText(item.output) ?: return@mapIndexedNotNull null
+                val action = extractActionText(item.component2()) ?: return@mapIndexedNotNull null
                 val result = compactResultSuffix(item.executionResult)
                 "Step ${index + 1}: ${action.take(MAX_ACTION_TEXT_CHARS)}$result"
             }
