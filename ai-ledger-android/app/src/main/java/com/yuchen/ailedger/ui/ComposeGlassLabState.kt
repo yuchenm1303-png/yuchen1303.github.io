@@ -13,13 +13,13 @@ enum class ComposeGlassPreset {
 }
 
 data class ComposeGlassMotionStyle(
-    val master: Float = 5.813f,
-    val deformation: Float = 0.995f,
-    val touchLight: Float = 1f,
-    val prism: Float = 0.68f,
+    val master: Float = 5.82f,
+    val deformation: Float = 1.214f,
+    val touchLight: Float = 1.532f,
+    val prism: Float = 19.114f,
     val sweep: Float = 14.734f,
-    val rebound: Float = 2.793f,
-    val afterglow: Float = 0.86f,
+    val rebound: Float = 6.535f,
+    val afterglow: Float = 1.645f,
     val speed: Float = 0.171f,
     val tapImpulse: Float = 0f,
     val releaseCohesion: Float = 0f,
@@ -78,16 +78,16 @@ data class OrdinaryGlassCapsuleTuning(
     val settle: Float = 0.30f,
 ) {
     internal fun normalized(): OrdinaryGlassCapsuleTuning = copy(
-        compactBoost = compactBoost.coerceIn(0f, 24f),
-        elongatedX = elongatedX.coerceIn(0f, 14f),
-        elongatedY = elongatedY.coerceIn(0f, 10f),
-        basePx = basePx.coerceIn(0.001f, 1.40f),
-        tapPx = tapPx.coerceIn(0f, 1.60f),
-        tapPop = tapPop.coerceIn(0.05f, 40f),
-        tapCarry = tapCarry.coerceIn(0f, 24f),
-        sticky = sticky.coerceIn(0f, 4f),
-        sink = sink.coerceIn(0f, 24f),
-        settle = settle.coerceIn(0f, 12f),
+        compactBoost = compactBoost.coerceIn(0f, 64f),
+        elongatedX = elongatedX.coerceIn(0f, 32f),
+        elongatedY = elongatedY.coerceIn(0f, 16f),
+        basePx = basePx.coerceIn(0.001f, 2.40f),
+        tapPx = tapPx.coerceIn(0f, 3.20f),
+        tapPop = tapPop.coerceIn(0.05f, 80f),
+        tapCarry = tapCarry.coerceIn(0f, 48f),
+        sticky = sticky.coerceIn(0f, 8f),
+        sink = sink.coerceIn(0f, 48f),
+        settle = settle.coerceIn(0f, 24f),
     )
 }
 
@@ -103,26 +103,26 @@ data class OrdinaryGlassPressureOpticsTuning(
     val edgeBloom: Float = 5.70f,
 ) {
     internal fun normalized(): OrdinaryGlassPressureOpticsTuning = copy(
-        fieldIntensity = fieldIntensity.coerceIn(0f, 240f),
-        fieldSpread = fieldSpread.coerceIn(0f, 240f),
-        fieldSoftness = fieldSoftness.coerceIn(0f, 240f),
-        fieldUniformity = fieldUniformity.coerceIn(0f, 160f),
-        fieldFollow = fieldFollow.coerceIn(0f, 12f),
-        edgeIntensity = edgeIntensity.coerceIn(0f, 240f),
-        edgeWidth = edgeWidth.coerceIn(0f, 120f),
-        edgeSoftness = edgeSoftness.coerceIn(0f, 240f),
-        edgeBloom = edgeBloom.coerceIn(0f, 240f),
+        fieldIntensity = fieldIntensity.coerceIn(0f, 640f),
+        fieldSpread = fieldSpread.coerceIn(0f, 480f),
+        fieldSoftness = fieldSoftness.coerceIn(0f, 480f),
+        fieldUniformity = fieldUniformity.coerceIn(0f, 320f),
+        fieldFollow = fieldFollow.coerceIn(0f, 24f),
+        edgeIntensity = edgeIntensity.coerceIn(0f, 640f),
+        edgeWidth = edgeWidth.coerceIn(0f, 240f),
+        edgeSoftness = edgeSoftness.coerceIn(0f, 480f),
+        edgeBloom = edgeBloom.coerceIn(0f, 480f),
     )
 }
 
 data class OrdinaryGlassSizeAdaptiveTuning(
-    val smallBoost: Float = 5.0f,
-    val largeDamp: Float = 1.2f,
+    val smallBoost: Float = 24.0f,
+    val largeDamp: Float = 4.0f,
     val pivotPx: Float = 520f,
     val visualPx: Float = 18.0f,
-    val lightBoost: Float = 1.08f,
-    val smallThresholdPx: Float = 156f,
-    val largeThresholdPx: Float = 520f,
+    val lightBoost: Float = 24.0f,
+    val smallThresholdPx: Float = 520f,
+    val largeThresholdPx: Float = 536f,
     val wideAspectStart: Float = 1.55f,
     val wideAspectEnd: Float = 4.80f,
 ) {
@@ -132,11 +132,11 @@ data class OrdinaryGlassSizeAdaptiveTuning(
         val wideStart = wideAspectStart.coerceIn(1.00f, 5.50f)
         val wideEnd = wideAspectEnd.coerceIn((wideStart + 0.20f).coerceAtMost(12f), 14f)
         return copy(
-            smallBoost = smallBoost.coerceIn(0f, 24f),
-            largeDamp = largeDamp.coerceIn(0f, 4f),
+            smallBoost = smallBoost.coerceIn(0f, 96f),
+            largeDamp = largeDamp.coerceIn(0f, 16f),
             pivotPx = pivotPx.coerceIn(32f, 2000f),
             visualPx = visualPx.coerceIn(0.2f, 96f),
-            lightBoost = lightBoost.coerceIn(0f, 24f),
+            lightBoost = lightBoost.coerceIn(0f, 96f),
             smallThresholdPx = small,
             largeThresholdPx = large,
             wideAspectStart = wideStart,
@@ -271,48 +271,48 @@ private fun defaultOrdinaryGlassSizeAdaptiveTuning(): OrdinaryGlassSizeAdaptiveT
 
 private fun singleCardCapsuleTuningFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassCapsuleTuning {
     val normalized = size.normalized()
-    val small = normalized.smallBoost.coerceIn(0f, 24f)
-    val large = normalized.largeDamp.coerceIn(0f, 4f)
+    val small = normalized.smallBoost.coerceIn(0f, 96f)
+    val large = normalized.largeDamp.coerceIn(0f, 16f)
     val visual = normalized.visualPx.coerceIn(0.2f, 96f)
-    val light = normalized.lightBoost.coerceIn(0f, 24f)
+    val light = normalized.lightBoost.coerceIn(0f, 96f)
     val smallBand = ((normalized.smallThresholdPx - 96f) / 240f).coerceIn(0f, 1.60f)
-    val largeBand = ((normalized.largeThresholdPx - normalized.smallThresholdPx) / 760f).coerceIn(0.18f, 2.40f)
+    val largeBand = ((normalized.largeThresholdPx - normalized.smallThresholdPx) / 760f).coerceIn(0.02f, 2.40f)
     val wideBand = ((normalized.wideAspectEnd - normalized.wideAspectStart) / 4.20f).coerceIn(0.18f, 2.80f)
     val wideStartBias = ((1.80f - normalized.wideAspectStart) / 0.80f).coerceIn(-0.40f, 1.00f)
     return defaultOrdinaryGlassCapsuleTuning().copy(
-        compactBoost = (1.0f + small * (0.36f + smallBand * 0.16f)).coerceIn(0.20f, 18.00f),
-        elongatedX = (large * (1.12f + wideBand * 0.22f + wideStartBias * 0.18f)).coerceIn(0f, 10.00f),
-        elongatedY = (0.08f + small * 0.026f + wideBand * 0.030f).coerceIn(0.02f, 4.00f),
-        basePx = (0.012f + visual * 0.0042f * (0.88f + smallBand * 0.10f)).coerceIn(0.006f, 0.80f),
-        tapPx = (0.038f + visual * 0.0064f * (0.90f + smallBand * 0.12f)).coerceIn(0.018f, 1.20f),
-        tapPop = (0.78f + visual * 0.041f * (1.02f + smallBand * 0.12f)).coerceIn(0.30f, 10.00f),
-        tapCarry = (0.20f + small * 0.070f + light * 0.026f).coerceIn(0.06f, 4.00f),
-        sticky = (0.014f + light * 0.017f + smallBand * 0.018f).coerceIn(0.004f, 0.80f),
-        sink = (0.050f + visual * 0.0086f * (0.92f + largeBand * 0.06f)).coerceIn(0.02f, 2.00f),
-        settle = (0.16f + large * 0.32f + largeBand * 0.08f).coerceIn(0.08f, 2.40f),
+        compactBoost = (1.0f + small * (0.36f + smallBand * 0.16f)).coerceIn(0.20f, 58.00f),
+        elongatedX = (large * (1.12f + wideBand * 0.22f + wideStartBias * 0.18f)).coerceIn(0f, 30.00f),
+        elongatedY = (0.08f + small * 0.030f + wideBand * 0.035f).coerceIn(0.02f, 8.00f),
+        basePx = (0.012f + visual * 0.0048f * (0.88f + smallBand * 0.14f)).coerceIn(0.006f, 1.40f),
+        tapPx = (0.038f + visual * 0.0078f * (0.90f + smallBand * 0.16f)).coerceIn(0.018f, 2.40f),
+        tapPop = (0.78f + visual * 0.047f * (1.02f + smallBand * 0.18f)).coerceIn(0.30f, 18.00f),
+        tapCarry = (0.20f + small * 0.070f + light * 0.032f).coerceIn(0.06f, 10.00f),
+        sticky = (0.014f + light * 0.018f + smallBand * 0.022f).coerceIn(0.004f, 2.00f),
+        sink = (0.050f + visual * 0.0092f * (0.92f + largeBand * 0.10f)).coerceIn(0.02f, 4.00f),
+        settle = (0.16f + large * 0.32f + largeBand * 0.10f).coerceIn(0.08f, 5.60f),
     ).normalized()
 }
 
 private fun singleCardPressureOpticsFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassPressureOpticsTuning {
     val normalized = size.normalized()
-    val small = normalized.smallBoost.coerceIn(0f, 24f)
-    val large = normalized.largeDamp.coerceIn(0f, 4f)
+    val small = normalized.smallBoost.coerceIn(0f, 96f)
+    val large = normalized.largeDamp.coerceIn(0f, 16f)
     val visual = normalized.visualPx.coerceIn(0.2f, 96f)
-    val light = normalized.lightBoost.coerceIn(0f, 24f)
+    val light = normalized.lightBoost.coerceIn(0f, 96f)
     val smallBand = ((normalized.smallThresholdPx - 96f) / 240f).coerceIn(0f, 1.60f)
-    val largeBand = ((normalized.largeThresholdPx - normalized.smallThresholdPx) / 760f).coerceIn(0.18f, 2.40f)
+    val largeBand = ((normalized.largeThresholdPx - normalized.smallThresholdPx) / 760f).coerceIn(0.02f, 2.40f)
     val wideBand = ((normalized.wideAspectEnd - normalized.wideAspectStart) / 4.20f).coerceIn(0.18f, 2.80f)
     val pivotScale = (normalized.largeThresholdPx / 520f).coerceIn(0.18f, 5.00f)
     return defaultOrdinaryGlassPressureOpticsTuning().copy(
-        fieldIntensity = (4.0f + light * 8.2f + small * (0.58f + smallBand * 0.12f)).coerceIn(0f, 180f),
-        fieldSpread = (2.8f + visual * 0.30f + pivotScale * 0.72f - large * 0.95f + largeBand * 0.34f).coerceIn(0f, 120f),
-        fieldSoftness = (3.6f + visual * 0.27f + large * 1.86f + largeBand * 0.46f).coerceIn(0f, 120f),
-        fieldUniformity = (3.0f + large * 2.16f + wideBand * 0.40f).coerceIn(0f, 80f),
-        fieldFollow = (0.08f + small * 0.015f + smallBand * 0.020f).coerceIn(0f, 2.40f),
-        edgeIntensity = (3.8f + light * 6.0f + small * 0.48f).coerceIn(0f, 180f),
-        edgeWidth = (1.1f + visual * 0.18f + small * 0.16f - large * 0.28f - wideBand * 0.10f).coerceIn(0f, 48f),
-        edgeSoftness = (3.4f + large * 2.16f + wideBand * 0.72f).coerceIn(0f, 96f),
-        edgeBloom = (3.4f + light * 3.8f + visual * 0.090f + smallBand * 0.30f).coerceIn(0f, 160f),
+        fieldIntensity = (4.0f + light * 7.4f + small * (0.58f + smallBand * 0.16f)).coerceIn(0f, 480f),
+        fieldSpread = (2.8f + visual * 0.34f + pivotScale * 0.72f - large * 0.78f + largeBand * 0.34f).coerceIn(0f, 240f),
+        fieldSoftness = (3.6f + visual * 0.31f + large * 1.58f + largeBand * 0.52f).coerceIn(0f, 240f),
+        fieldUniformity = (3.0f + large * 1.90f + wideBand * 0.50f).coerceIn(0f, 180f),
+        fieldFollow = (0.08f + small * 0.016f + smallBand * 0.024f).coerceIn(0f, 6.00f),
+        edgeIntensity = (3.8f + light * 5.8f + small * 0.52f).coerceIn(0f, 480f),
+        edgeWidth = (1.1f + visual * 0.20f + small * 0.18f - large * 0.18f - wideBand * 0.10f).coerceIn(0f, 120f),
+        edgeSoftness = (3.4f + large * 1.92f + wideBand * 0.84f).coerceIn(0f, 180f),
+        edgeBloom = (3.4f + light * 3.6f + visual * 0.10f + smallBand * 0.42f).coerceIn(0f, 360f),
     ).normalized()
 }
 
