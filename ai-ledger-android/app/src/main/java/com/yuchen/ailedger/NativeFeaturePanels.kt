@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -29,9 +30,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -49,6 +55,19 @@ private data class NativeDetailInfo(
     val subtitle: String,
     val rows: List<Pair<String, String>>,
 )
+
+private val NativePageScrollBoundaryConnection = object : NestedScrollConnection {
+    override fun onPostScroll(
+        consumed: Offset,
+        available: Offset,
+        source: NestedScrollSource,
+    ): Offset = available
+
+    override suspend fun onPostFling(
+        consumed: Velocity,
+        available: Velocity,
+    ): Velocity = available
+}
 
 @Composable
 fun NativeToolsPanel(
@@ -217,6 +236,7 @@ private fun NativePageSurface(
     headerAction: (@Composable () -> Unit)? = null,
     content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
+    val listState = rememberLazyListState()
     Surface(
         modifier = modifier
             .fillMaxSize()
@@ -268,7 +288,10 @@ private fun NativePageSurface(
             Spacer(modifier = Modifier.height(14.dp))
 
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(NativePageScrollBoundaryConnection),
+                state = listState,
                 contentPadding = PaddingValues(bottom = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 content = content,
@@ -434,7 +457,7 @@ private fun NativeSliderRow(title: String, subtitle: String, value: Float, onCha
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         color = Color.White.copy(alpha = 0.085f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.13f)),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.13f),
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, fontWeight = FontWeight.Black)
