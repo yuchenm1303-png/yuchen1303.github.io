@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -94,7 +96,10 @@ import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.sin
 
-private const val CHAT_AUTO_SCROLL_END_OFFSET_PX = 1_000_000
+private const val CHAT_TAIL_ANCHOR_KEY = "assistant-chat-tail-anchor"
+private const val CHAT_TAIL_FOLLOW_EPSILON_PX = 0.75f
+private const val CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX = 360f
+private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX = 520f
 
 @Immutable
 private data class ChatPanelUiState(
@@ -571,28 +576,28 @@ private fun ChatPanelV2(
     )
     SideEffect { PerformanceRuntimeMetrics.recordAssistantComposition() }
 
-    val lastMessageAutoScrollSignature = remember(lastMessage) {
-        lastMessage?.autoScrollSignatureV2()
+    val tailAnchorIndex = messages.size
+    val liveTailFollowActive = state.isSending ||
+        lastMessageStatus == MessageStatus.Sending ||
+        pendingStreamMotion ||
+        pendingRevealMotion
+
+    LaunchedEffect(lastMessageId, lastMessageStatus, lastMessageIndex, state.isSending) {
+        if (messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
+        listState.settleChatTailV2(
+            tailIndex = tailAnchorIndex,
+            live = state.isSending || lastMessageStatus == MessageStatus.Sending
+        )
     }
 
-    LaunchedEffect(
-        lastMessageId,
-        lastMessageStatus,
-        lastMessageAutoScrollSignature,
-        lastMessageIndex,
-        state.isSending
-    ) {
-        if (messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
-
-        val followLiveTail = state.isSending || lastMessageStatus == MessageStatus.Sending
-        withFrameNanos { }
-
-        if (followLiveTail) {
-            listState.scrollToItem(lastMessageIndex, CHAT_AUTO_SCROLL_END_OFFSET_PX)
+    LaunchedEffect(lastMessageId, tailAnchorIndex, liveTailFollowActive) {
+        if (!liveTailFollowActive || messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
+        while (true) {
             withFrameNanos { }
-            listState.scrollToItem(lastMessageIndex, CHAT_AUTO_SCROLL_END_OFFSET_PX)
-        } else {
-            listState.animateScrollToItem(lastMessageIndex, CHAT_AUTO_SCROLL_END_OFFSET_PX)
+            listState.followChatTailFrameV2(
+                tailIndex = tailAnchorIndex,
+                live = true
+            )
         }
     }
 
@@ -667,11 +672,65 @@ private fun ChatPanelV2(
                                 onRetryMessage = onRetryMessage
                             )
                         }
+                        item(key = CHAT_TAIL_ANCHOR_KEY) {
+                            Spacer(Modifier.fillMaxWidth().height(1.dp))
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private suspend fun LazyListState.settleChatTailV2(
+    tailIndex: Int,
+    live: Boolean
+) {
+    if (tailIndex < 0) return
+    withFrameNanos { }
+    if (layoutInfo.totalItemsCount <= tailIndex) return
+
+    val tailVisible = layoutInfo.visibleItemsInfo.any { it.index == tailIndex }
+    if (!tailVisible) {
+        if (live) {
+            scrollToItem(tailIndex)
+        } else {
+            animateScrollToItem(tailIndex)
+        }
+    }
+
+    val settleFrames = if (live) 4 else 10
+    repeat(settleFrames) {
+        withFrameNanos { }
+        followChatTailFrameV2(tailIndex = tailIndex, live = live)
+    }
+}
+
+private suspend fun LazyListState.followChatTailFrameV2(
+    tailIndex: Int,
+    live: Boolean
+): Boolean {
+    if (tailIndex < 0 || layoutInfo.totalItemsCount <= tailIndex) return false
+    val info = layoutInfo
+    val tail = info.visibleItemsInfo.firstOrNull { it.index == tailIndex }
+    if (tail == null) {
+        if (live) {
+            scrollToItem(tailIndex)
+        } else {
+            animateScrollToItem(tailIndex)
+        }
+        return true
+    }
+
+    val tailBottom = tail.offset + tail.size
+    val gap = tailBottom - info.viewportEndOffset
+    if (gap <= CHAT_TAIL_FOLLOW_EPSILON_PX) return false
+
+    val pull = if (live) 0.42f else 0.30f
+    val maxStep = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_STEP_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_STEP_PX
+    val step = (gap * pull).coerceIn(1f, maxStep)
+    scrollBy(step)
+    return true
 }
 
 @Composable
@@ -2269,33 +2328,6 @@ private fun PulseDotV2(active: Boolean, color: Color, motionClock: AssistantHome
     }
     val pulse = 0.76f + FastOutSlowInEasing.transform(motionClock.pingPong(860L)) * 0.46f
     Box(Modifier.size(8.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.96f }.clip(RoundedCornerShape(999.dp)).background(color))
-}
-
-private fun ChatMessage.autoScrollSignatureV2(): String {
-    val data = structuredData
-    return buildString {
-        append(id).append('|')
-        append(status.name).append('|')
-        append(text.length).append('|')
-        append(text.takeLast(160)).append('|')
-        append(errorText.orEmpty().length).append('|')
-        append(errorText.orEmpty().takeLast(80)).append('|')
-        append(webSources.size).append('|')
-        append(attachments.size).append('|')
-        if (data != null) {
-            append(data.type).append('|')
-            append(data.title).append('|')
-            append(data.subtitle.orEmpty()).append('|')
-            append(data.timestamp.orEmpty()).append('|')
-            append(data.metrics.size).append('|')
-            data.metrics.take(8).forEach { metric ->
-                append(metric.label).append('=')
-                append(metric.value).append(metric.unit.orEmpty()).append(';')
-            }
-            append(data.rawText.orEmpty().length).append('|')
-            append(data.rawText.orEmpty().takeLast(120))
-        }
-    }
 }
 
 private fun messageText(message: ChatMessage): String = when (message.status) {
