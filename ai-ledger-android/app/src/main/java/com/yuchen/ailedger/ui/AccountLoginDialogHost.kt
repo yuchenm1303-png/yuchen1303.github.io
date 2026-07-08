@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -63,29 +64,31 @@ internal fun AccountLoginDialogHost(
     state: AssistantUiState,
     onDismiss: () -> Unit,
 ) {
-    AnchoredQuickPanel(
-        visible = visible,
-        anchorBounds = anchorBounds,
-        desiredWidth = LoginQuickPanelWidth,
-        desiredHeight = LoginQuickPanelHeight,
-        minHeight = LoginQuickPanelMinHeight,
-        preferredPlacement = AnchoredQuickPanelPlacement.Below,
-        horizontalBias = 0.82f,
-        quality = state.quality,
-        glassIntensity = (state.glassIntensity * 1.04f).coerceIn(0.86f, 1.22f),
-        motionIntensity = state.motionIntensity,
-        onDismiss = onDismiss,
-        cornerRadius = 25.dp,
-        tailHeight = 12.dp,
-        tailHalfWidth = 15.dp,
-        surfaceColor = Color(0xFF06122E).copy(alpha = 0.98f),
-    ) { layout ->
-        AnchoredLoginContent(
-            compact = layout.compact,
-            placement = layout.placement,
-            tailHeight = layout.tailHeight,
+    CompositionLocalProvider(LocalOrdinaryGlassRenderMode provides OrdinaryGlassRenderMode.ParentDraw) {
+        AnchoredQuickPanel(
+            visible = visible,
+            anchorBounds = anchorBounds,
+            desiredWidth = LoginQuickPanelWidth,
+            desiredHeight = LoginQuickPanelHeight,
+            minHeight = LoginQuickPanelMinHeight,
+            preferredPlacement = AnchoredQuickPanelPlacement.Below,
+            horizontalBias = 0.82f,
+            quality = state.quality,
+            glassIntensity = (state.glassIntensity * 1.04f).coerceIn(0.86f, 1.22f),
+            motionIntensity = state.motionIntensity,
             onDismiss = onDismiss,
-        )
+            cornerRadius = 25.dp,
+            tailHeight = 12.dp,
+            tailHalfWidth = 15.dp,
+            surfaceColor = Color(0xFF06122E).copy(alpha = 0.82f),
+        ) { layout ->
+            AnchoredLoginContent(
+                compact = layout.compact,
+                placement = layout.placement,
+                tailHeight = layout.tailHeight,
+                onDismiss = onDismiss,
+            )
+        }
     }
 }
 
