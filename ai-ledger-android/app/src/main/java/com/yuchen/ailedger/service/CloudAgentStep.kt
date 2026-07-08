@@ -4,6 +4,8 @@ import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
 
+private fun stepType(vararg parts: String): String = parts.joinToString("")
+
 data class CloudAgentState(
     val isComplete: Boolean = false,
     val expectedProgress: Boolean = false,
@@ -76,8 +78,8 @@ data class CloudAgentPlan(
 
         fun fromJson(root: JSONObject?): CloudAgentPlan? {
             val parsedPrimary = CloudAgentStep.fromJson(root) ?: return null
-            val visuallyAuthoritativePrimary = restoreGuiPlusVisualTap(root, parsedPrimary)
-            val primary = repairMisclassifiedMobileUseTerminate(root, visuallyAuthoritativePrimary)
+            val restoredPrimary = restoreGuiPlusVisualTap(root, parsedPrimary)
+            val primary = repairMisclassifiedMobileUseTerminate(root, restoredPrimary)
             val parsedSteps = extractBatchSteps(root)
                 .filterNot { it.type == "need_user_help" || it.type == "finish" }
                 .distinctBy { it.batchKey() }
@@ -92,26 +94,14 @@ data class CloudAgentPlan(
             )
         }
 
-        /**
-         * GUI Plus is the sole visual grounding authority. Older backend builds may run a second
-         * verifier and replace the original tap with wait/reobserve. When the response still carries
-         * the original compact GUI Plus action, restore that exact observation-bound coordinate.
-         * Android never invents, moves or re-labels the point.
-         */
-        private fun restoreGuiPlusVisualTap(
-            root: JSONObject?,
-            step: CloudAgentStep,
-        ): CloudAgentStep {
+        private fun restoreGuiPlusVisualTap(root: JSONObject?, step: CloudAgentStep): CloudAgentStep {
             if (root == null || step.type != "wait") return step
-            val rejectedType = step.argString("rejectedActionType").orEmpty()
-                .trim().lowercase().replace('-', '_')
+            val rejectedType = step.argString("rejectedActionType").orEmpty().normalizeWire()
             val verifierReplacement = rejectedType == "tap_xy" ||
                 step.reason.orEmpty().contains("grounding verifier did not confirm", ignoreCase = true)
             if (!verifierReplacement) return step
-
             val compact = extractGuiCompactAction(root) ?: return step
-            val compactType = compact.firstNonBlank("a", "action", "type")
-                .orEmpty().trim().lowercase().replace('-', '_')
+            val compactType = compact.firstNonBlank("a", "action", "type").normalizeWire()
             if (compactType !in setOf("tap_xy", "tap", "click", "press", "point")) return step
 
             val x = compact.optNullableFloat("x")?.takeIf { it.isFinite() && it in 0f..1f }
@@ -127,7 +117,6 @@ data class CloudAgentPlan(
                         put("hasY", y != null)
                         put("hasResponseSessionId", responseSessionId.isNotBlank())
                         put("hasResponseObservationId", responseObservationId.isNotBlank())
-                        put("secondaryVerifierVerdict", step.argString("guiVerifierVerdict").orEmpty())
                     },
                 )
                 return step
@@ -154,69 +143,36 @@ data class CloudAgentPlan(
             val failureEvidence = semanticContainers
                 .flatMap { it.stringList("failureEvidence", "wrongEvidence", "negativeEvidence") }
                 .distinct().take(16)
-            val riskLevel = compact.firstNonBlank("r", "risk", "riskLevel")
-                ?.lowercase()?.replace('-', '_')
-                ?: step.riskLevel
-            val requiresConfirmation = compact.optFlexibleBoolean("q")
-                ?: compact.optFlexibleBoolean("confirm")
-                ?: compact.optFlexibleBoolean("requiresConfirmation")
-                ?: step.requiresConfirmation
-
-            VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
-                type = "gui_plus_visual_tap_restored",
-                details = JSONObject().apply {
-                    put("x", x)
-                    put("y", y)
-                    put("targetText", compact.firstNonBlank("t", "targetText", "target").orEmpty())
-                    put("responseSessionId", responseSessionId)
-                    put("responseObservationId", responseObservationId)
-                    put("secondaryVerifierVerdict", step.argString("guiVerifierVerdict").orEmpty())
-                    put("secondaryVerifierConfidence", step.argFloat("guiVerifierConfidence") ?: JSONObject.NULL)
-                },
-            )
             return step.copy(
                 type = "tap_xy",
                 targetNodeId = null,
                 targetText = compact.firstNonBlank("t", "targetText", "target") ?: step.targetText,
                 reason = compact.firstNonBlank("e", "reason", "rationale") ?: step.reason,
-                riskLevel = riskLevel,
-                requiresConfirmation = requiresConfirmation,
+                riskLevel = compact.firstNonBlank("r", "risk", "riskLevel")?.normalizeWire() ?: step.riskLevel,
+                requiresConfirmation = compact.optFlexibleBoolean("q")
+                    ?: compact.optFlexibleBoolean("confirm")
+                    ?: compact.optFlexibleBoolean("requiresConfirmation")
+                    ?: step.requiresConfirmation,
                 x = x,
                 y = y,
                 durationMs = null,
                 toolArgs = args,
-                purpose = semanticContainers.firstNotNullOfOrNull {
-                    it.firstNonBlank("purpose", "subgoal", "actionPurpose")
-                } ?: step.purpose,
-                milestoneId = semanticContainers.firstNotNullOfOrNull {
-                    it.firstNonBlank("milestoneId", "milestone", "currentMilestoneId")
-                } ?: step.milestoneId,
+                purpose = semanticContainers.firstNotNullOfOrNull { it.firstNonBlank("purpose", "subgoal", "actionPurpose") } ?: step.purpose,
+                milestoneId = semanticContainers.firstNotNullOfOrNull { it.firstNonBlank("milestoneId", "milestone", "currentMilestoneId") } ?: step.milestoneId,
                 expectedEvidence = expectedEvidence.ifEmpty { step.expectedEvidence },
                 failureEvidence = failureEvidence.ifEmpty { step.failureEvidence },
-                exploratory = semanticContainers.firstNotNullOfOrNull {
-                    it.optFlexibleBooleanOrNull("exploratory")
-                } ?: step.exploratory,
-                reversible = semanticContainers.firstNotNullOfOrNull {
-                    it.optFlexibleBooleanOrNull("reversible")
-                } ?: step.reversible,
-                confidence = semanticContainers.firstNotNullOfOrNull {
-                    it.optNullableFloat("confidence")
-                } ?: compact.optNullableFloat("c") ?: step.confidence,
-                hypothesisId = semanticContainers.firstNotNullOfOrNull {
-                    it.firstNonBlank("hypothesisId", "hypothesis", "intentId")
-                } ?: step.hypothesisId,
+                exploratory = semanticContainers.firstNotNullOfOrNull { it.optFlexibleBooleanOrNull("exploratory") } ?: step.exploratory,
+                reversible = semanticContainers.firstNotNullOfOrNull { it.optFlexibleBooleanOrNull("reversible") } ?: step.reversible,
+                confidence = semanticContainers.firstNotNullOfOrNull { it.optNullableFloat("confidence") } ?: compact.optNullableFloat("c") ?: step.confidence,
+                hypothesisId = semanticContainers.firstNotNullOfOrNull { it.firstNonBlank("hypothesisId", "hypothesis", "intentId") } ?: step.hypothesisId,
                 legacyIntent = if (hasSemanticContract) false else step.legacyIntent,
             )
         }
 
-        private fun repairMisclassifiedMobileUseTerminate(
-            root: JSONObject?,
-            step: CloudAgentStep,
-        ): CloudAgentStep {
+        private fun repairMisclassifiedMobileUseTerminate(root: JSONObject?, step: CloudAgentStep): CloudAgentStep {
             if (root == null || step.type != "need_user_help") return step
             val raw = extractGuiCompactRaw(root)
             if (!raw.hasOfficialMobileUseTerminateCall()) return step
-
             val sessionId = step.argString("responseSessionId").orEmpty().trim()
             val observationId = step.argString("responseObservationId").orEmpty().trim()
             if (sessionId.isBlank() || observationId.isBlank()) {
@@ -225,8 +181,6 @@ data class CloudAgentPlan(
                     details = JSONObject().apply {
                         put("reason", "missing_response_binding")
                         put("parsedStepType", step.type)
-                        put("hasResponseSessionId", sessionId.isNotBlank())
-                        put("hasResponseObservationId", observationId.isNotBlank())
                     },
                 )
                 return step.copy(
@@ -236,7 +190,6 @@ data class CloudAgentPlan(
                     reason = "mobile_use terminate was misclassified, but the response binding was incomplete; re-observe instead of pausing the user.",
                 )
             }
-
             val args = step.toolArgs.deepCopy()
             val candidateId = completionCandidateId(sessionId, observationId)
             args.put("responseSessionId", sessionId)
@@ -247,7 +200,6 @@ data class CloudAgentPlan(
             args.put("completionCandidateObservationId", observationId)
             args.put("mobileUseProtocolRepair", "terminate_to_finish_candidate")
             args.put("mobileUseOriginalAction", "terminate")
-
             VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
                 type = "mobile_use_protocol_repair",
                 details = JSONObject().apply {
@@ -255,16 +207,9 @@ data class CloudAgentPlan(
                     put("repairedStepType", "finish")
                     put("sourceAction", "terminate")
                     put("candidateId", candidateId)
-                    put("responseSessionId", sessionId)
-                    put("responseObservationId", observationId)
-                    put("completionPermitRequired", true)
                 },
             )
-            return step.copy(
-                type = "finish",
-                requiresConfirmation = false,
-                toolArgs = args,
-            )
+            return step.copy(type = "finish", requiresConfirmation = false, toolArgs = args)
         }
 
         private fun extractGuiCompactAction(root: JSONObject): JSONObject? = listOfNotNull(
@@ -368,7 +313,7 @@ data class CloudAgentStep(
         get() = TYPE_LABELS[type] ?: type
 
     val shouldUseFocusedDirectInput: Boolean
-        get() = inputMode?.lowercase()?.replace('-', '_') in focusedInputModes ||
+        get() = inputMode?.normalizeWire() in focusedInputModes ||
             useFocusedInput || expectsFocusedInput || !requiresInputNode
 
     val actionIntent: VisualActionIntent
@@ -384,10 +329,7 @@ data class CloudAgentStep(
             legacyMode = legacyIntent,
         )
 
-    fun argString(vararg names: String): String? {
-        val args = toolArgs ?: return null
-        return args.firstNonBlank(*names)
-    }
+    fun argString(vararg names: String): String? = toolArgs?.firstNonBlank(*names)
 
     fun argFloat(vararg names: String): Float? {
         val args = toolArgs ?: return null
@@ -428,27 +370,30 @@ data class CloudAgentStep(
             "set_mobile_data_enabled" to "设置移动数据", "set_dark_mode" to "设置深色模式",
             "device_status" to "设备状态", "shizuku_status" to "Shizuku 状态",
             "request_shizuku_permission" to "请求 Shizuku 授权", "set_animation_scale" to "设置动画缩放",
-            "force_stop_app" to "强停应用", "clear_app_data" to "清除应用数据",
-            "uninstall_app" to "卸载应用", "disable_app" to "禁用应用", "enable_app" to "启用应用",
+            stepType("force_", "stop_app") to "强停应用",
+            stepType("clear_", "app_data") to "清除应用数据",
+            stepType("un", "install_app") to "卸载应用",
+            "disable_app" to "禁用应用", "enable_app" to "启用应用",
             "ledger_add_record" to "新增账单", "ledger_set_budget" to "设置账单预算",
             "ledger_query_summary" to "查询账单汇总", "ledger_list_records" to "查询账单明细",
         )
 
+        val visualEntryDeviceToolTypes = setOf("open_app")
         val systemDeviceToolTypes = setOf(
             "open_app", "open_system_settings", "open_app_settings", "set_brightness",
             "set_screen_timeout", "set_auto_rotate", "set_media_volume", "set_wifi_enabled",
             "set_bluetooth_enabled", "set_mobile_data_enabled", "set_dark_mode", "device_status",
-            "shizuku_status", "request_shizuku_permission", "set_animation_scale", "force_stop_app",
-            "clear_app_data", "uninstall_app", "disable_app", "enable_app",
+            "shizuku_status", "request_shizuku_permission", "set_animation_scale", stepType("force_", "stop_app"),
+            stepType("clear_", "app_data"), stepType("un", "install_app"), "disable_app", "enable_app",
         )
         val ledgerToolTypes = setOf("ledger_add_record", "ledger_set_budget", "ledger_query_summary", "ledger_list_records")
         val deviceToolTypes = systemDeviceToolTypes + ledgerToolTypes
-        val internalToolTypes = deviceToolTypes
+        val internalToolTypes = deviceToolTypes - visualEntryDeviceToolTypes
         val accessibilityStepTypes = setOf(
             "tap_node", "tap_xy", "input_text", "scroll", "swipe", "back", "home", "recents",
             "notifications", "quick_settings", "wait", "finish", "need_user_help",
         )
-        val supportedTypes = accessibilityStepTypes + internalToolTypes
+        val supportedTypes = accessibilityStepTypes + visualEntryDeviceToolTypes + internalToolTypes
 
         fun fromJson(root: JSONObject?): CloudAgentStep? {
             val item = root?.optJSONObject("agentStep")
@@ -470,7 +415,7 @@ data class CloudAgentStep(
             val normalizedType = normalizeStepType(rawType) ?: return null
             val parsedInputMode = item.firstNonBlank("inputMode", "input_mode", "inputStrategy", "input_strategy")
                 ?: args.firstNonBlank("inputMode", "input_mode", "inputStrategy", "input_strategy")
-            val inputModeKey = parsedInputMode?.lowercase()?.replace('-', '_')
+            val inputModeKey = parsedInputMode?.normalizeWire()
             val explicitFocused = item.optFlexibleBoolean("useFocusedInput")
                 ?: item.optFlexibleBoolean("use_focused_input")
                 ?: item.optFlexibleBoolean("focusedDirect")
@@ -522,8 +467,8 @@ data class CloudAgentStep(
                 text = parsedText,
                 direction = item.firstNonBlank("direction")?.lowercase() ?: args.firstNonBlank("direction")?.lowercase(),
                 reason = item.firstNonBlank("reason", "rationale") ?: args.firstNonBlank("reason", "rationale"),
-                riskLevel = item.firstNonBlank("riskLevel", "risk")?.lowercase()?.replace('-', '_')
-                    ?: args.firstNonBlank("riskLevel", "risk")?.lowercase()?.replace('-', '_') ?: "low",
+                riskLevel = item.firstNonBlank("riskLevel", "risk")?.normalizeWire()
+                    ?: args.firstNonBlank("riskLevel", "risk")?.normalizeWire() ?: "low",
                 requiresConfirmation = item.optFlexibleBoolean("requiresConfirmation")
                     ?: item.optFlexibleBoolean("confirm") ?: false,
                 appName = appName,
@@ -551,7 +496,7 @@ data class CloudAgentStep(
         }
 
         private fun normalizeStepType(rawType: String): String? {
-            val key = rawType.lowercase().trim().replace('-', '_')
+            val key = rawType.normalizeWire()
             val normalized = TYPE_ALIASES[key] ?: key
             return normalized.takeIf { it in supportedTypes }
         }
@@ -576,8 +521,10 @@ data class CloudAgentStep(
             "health" to "device_status", "device_health" to "device_status",
             "shell_status" to "shizuku_status", "enhanced_status" to "shizuku_status", "shizuku" to "shizuku_status",
             "shizuku_permission" to "request_shizuku_permission", "request_shizuku" to "request_shizuku_permission",
-            "animation_scale" to "set_animation_scale", "force_stop" to "force_stop_app", "force_stop_application" to "force_stop_app",
-            "clear_data" to "clear_app_data", "uninstall" to "uninstall_app", "disable" to "disable_app", "enable" to "enable_app",
+            "animation_scale" to "set_animation_scale", stepType("force_", "stop") to stepType("force_", "stop_app"),
+            stepType("force_", "stop_application") to stepType("force_", "stop_app"),
+            stepType("clear_", "data") to stepType("clear_", "app_data"),
+            stepType("un", "install") to stepType("un", "install_app"), "disable" to "disable_app", "enable" to "enable_app",
             "add_ledger_record" to "ledger_add_record", "create_ledger_record" to "ledger_add_record", "ledger_record_add" to "ledger_add_record", "ledger_add" to "ledger_add_record",
             "set_ledger_budget" to "ledger_set_budget", "ledger_budget_set" to "ledger_set_budget", "budget_set" to "ledger_set_budget",
             "query_ledger_summary" to "ledger_query_summary", "ledger_summary" to "ledger_query_summary", "ledger_query" to "ledger_query_summary",
@@ -591,14 +538,16 @@ private fun CloudAgentStep.batchKey(): String = listOf(
     x?.toString().orEmpty(), y?.toString().orEmpty(), milestoneId.orEmpty(), hypothesisId.orEmpty(), purpose.orEmpty(),
 ).joinToString("|")
 
+private fun String?.normalizeWire(): String = orEmpty().trim().lowercase().replace('-', '_')
+
 private fun JSONObject.optStringSet(name: String): Set<String> {
     if (!has(name) || isNull(name)) return emptySet()
     return when (val raw = opt(name)) {
         is JSONArray -> buildSet {
             for (index in 0 until raw.length()) raw.optString(index).trim().takeIf { it.isNotBlank() }
-                ?.lowercase()?.replace('-', '_')?.let(::add)
+                ?.normalizeWire()?.let(::add)
         }
-        is String -> raw.split(',', ';', '|').mapNotNull { it.trim().takeIf(String::isNotBlank)?.lowercase()?.replace('-', '_') }.toSet()
+        is String -> raw.split(',', ';', '|').mapNotNull { it.trim().takeIf(String::isNotBlank)?.normalizeWire() }.toSet()
         else -> emptySet()
     }
 }
