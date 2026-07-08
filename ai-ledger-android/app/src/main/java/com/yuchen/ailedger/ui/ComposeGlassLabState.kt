@@ -27,19 +27,42 @@ data class ComposeGlassMotionStyle(
     val sweepMomentum: Float = 0f,
 ) {
     internal fun normalized(): ComposeGlassMotionStyle = copy(
-        master = master.coerceIn(0f, 120f),
-        deformation = deformation.coerceIn(0f, 120f),
-        touchLight = touchLight.coerceIn(0f, 160f),
-        prism = prism.coerceIn(0f, 160f),
-        sweep = sweep.coerceIn(0f, 160f),
-        rebound = rebound.coerceIn(0f, 120f),
-        afterglow = afterglow.coerceIn(0f, 160f),
+        master = normalizedMotionControl(master, rawMax = 12f, internalMax = 1.50f),
+        deformation = normalizedMotionControl(deformation, rawMax = 12f, internalMax = 1.50f),
+        touchLight = normalizedMotionControl(touchLight, rawMax = 24f, internalMax = 1.06f),
+        prism = normalizedMotionControl(prism, rawMax = 24f, internalMax = 1.42f),
+        sweep = normalizedMotionControl(sweep, rawMax = 24f, internalMax = 1.32f),
+        rebound = normalizedMotionControl(rebound, rawMax = 12f, internalMax = 1.50f),
+        afterglow = normalizedMotionControl(afterglow, rawMax = 24f, internalMax = 1.36f),
         speed = speed.coerceIn(0.02f, 40f),
-        tapImpulse = tapImpulse.coerceIn(0f, 120f),
-        releaseCohesion = releaseCohesion.coerceIn(0f, 120f),
-        fieldContinuity = fieldContinuity.coerceIn(0f, 120f),
-        sweepMomentum = sweepMomentum.coerceIn(0f, 120f),
+        tapImpulse = normalizedMotionControl(tapImpulse, rawMax = 12f, internalMax = 1.20f),
+        releaseCohesion = normalizedMotionControl(releaseCohesion, rawMax = 12f, internalMax = 1.20f),
+        fieldContinuity = normalizedMotionControl(fieldContinuity, rawMax = 24f, internalMax = 1.20f),
+        sweepMomentum = normalizedMotionControl(sweepMomentum, rawMax = 24f, internalMax = 1.20f),
     )
+
+    internal fun storageClamped(): ComposeGlassMotionStyle = copy(
+        master = master.coerceIn(0f, 12f),
+        deformation = deformation.coerceIn(0f, 12f),
+        touchLight = touchLight.coerceIn(0f, 24f),
+        prism = prism.coerceIn(0f, 24f),
+        sweep = sweep.coerceIn(0f, 24f),
+        rebound = rebound.coerceIn(0f, 12f),
+        afterglow = afterglow.coerceIn(0f, 24f),
+        speed = speed.coerceIn(0.05f, 8f),
+        tapImpulse = tapImpulse.coerceIn(0f, 12f),
+        releaseCohesion = releaseCohesion.coerceIn(0f, 12f),
+        fieldContinuity = fieldContinuity.coerceIn(0f, 24f),
+        sweepMomentum = sweepMomentum.coerceIn(0f, 24f),
+    )
+}
+
+private fun normalizedMotionControl(value: Float, rawMax: Float, internalMax: Float): Float {
+    val clean = value.coerceIn(0f, rawMax)
+    if (clean <= 1f) return clean
+    val span = (rawMax - 1f).coerceAtLeast(0.001f)
+    val t = ((clean - 1f) / span).coerceIn(0f, 1f)
+    return 1f + t * (internalMax - 1f)
 }
 
 data class OrdinaryGlassCapsuleTuning(
@@ -166,7 +189,7 @@ object ComposeGlassLabState {
     }
 
     fun updateMotion(next: ComposeGlassMotionStyle) {
-        motionStyle = next.normalized()
+        motionStyle = next.storageClamped()
     }
 
     fun updateCapsuleTuning(next: OrdinaryGlassCapsuleTuning) {
