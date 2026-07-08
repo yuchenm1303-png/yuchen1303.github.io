@@ -72,9 +72,7 @@ internal object VisualLoopModelContext {
     }
 
     private fun summarizeToolCall(output: String): String? {
-        val json = TOOL_CALL_JSON.find(output)?.groupValues?.getOrNull(1)?.trim()
-            ?: RAW_TOOL_JSON.find(output)?.value?.trim()
-            ?: return null
+        val json = extractToolCallJson(output) ?: return null
         val root = runCatching { JSONObject(json) }.getOrNull() ?: return null
         val args = root.optJSONObject("arguments")
             ?: root.optJSONObject("args")
@@ -95,6 +93,16 @@ internal object VisualLoopModelContext {
             "terminate" -> "Terminate with ${args.optString("status").ifBlank { "status" }}"
             else -> action.replace('_', ' ')
         }.trim().takeIf(String::isNotBlank)
+    }
+
+    private fun extractToolCallJson(output: String): String? {
+        val raw = output.trim()
+        if (raw.isBlank()) return null
+        val start = raw.indexOf('{')
+        val end = raw.lastIndexOf('}')
+        if (start < 0 || end <= start) return null
+        val json = raw.substring(start, end + 1).trim()
+        return json.takeIf { it.contains("\"mobile_use\"") || it.contains("\"action\"") }
     }
 
     private fun compactResultSuffix(result: String): String {
@@ -146,11 +154,5 @@ internal object VisualLoopModelContext {
     )
     private val THINK_BLOCK = Regex(
         pattern = "(?is)<think>.*?</think>",
-    )
-    private val TOOL_CALL_JSON = Regex(
-        pattern = "(?is)<tool_call>\\s*(\\{.*?})\\s*</tool_call>",
-    )
-    private val RAW_TOOL_JSON = Regex(
-        pattern = "(?is)\\{\\s*\"name\"\\s*:\\s*\"mobile_use\"[\\s\\S]*}",
     )
 }
