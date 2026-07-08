@@ -6,12 +6,13 @@ import androidx.compose.ui.unit.dp
 import com.yuchen.ailedger.model.RenderQuality
 
 /**
- * Exact-arity overload for ordinary Compose glass panels that are used as compact controls.
+ * Exact-arity overload for ordinary Compose glass panels that are explicitly used as compact
+ * input controls.
  *
- * The composer input pill calls GlassPanel with this six-argument form. The original GlassPanel
- * remains the source of truth for Shell/OpenGL and for advanced callers using viewportTopInset or
- * intensity. Non-Shell panels routed here reuse PressableGlass so they get the same 8830 press,
- * bloom, sweep and release afterglow chain as other ordinary Compose controls.
+ * This intentionally does not make every ordinary GlassPanel pressable: popover panels, memory
+ * cards and large information panels should keep a quiet static glass surface. Only capsule-like
+ * control glass with a very large radius, such as the bottom composer input pill, is routed through
+ * PressableGlass to receive the 8830 press/bloom/sweep chain.
  */
 @Composable
 fun GlassPanel(
@@ -23,7 +24,8 @@ fun GlassPanel(
     role: GlassRole = GlassRole.Card,
     content: @Composable () -> Unit
 ) {
-    if (role == GlassRole.Shell) {
+    val shouldUsePressableInputGlass = role != GlassRole.Shell && radius >= 900
+    if (!shouldUsePressableInputGlass) {
         GlassPanel(
             quality = quality,
             glassIntensity = glassIntensity,
