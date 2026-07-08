@@ -97,13 +97,13 @@ import kotlin.math.sin
 
 private const val CHAT_TAIL_ANCHOR_KEY = "assistant-chat-tail-anchor"
 private const val CHAT_TAIL_FOLLOW_EPSILON_PX = 0.75f
-private const val CHAT_TAIL_FOLLOW_LIVE_STIFFNESS = 104f
-private const val CHAT_TAIL_FOLLOW_LIVE_DAMPING = 18.5f
-private const val CHAT_TAIL_FOLLOW_SETTLE_STIFFNESS = 138f
-private const val CHAT_TAIL_FOLLOW_SETTLE_DAMPING = 21.0f
-private const val CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX = 4600f
-private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX = 6200f
-private const val CHAT_TAIL_FOLLOW_MIN_DELTA_PX = 0.16f
+private const val CHAT_TAIL_FOLLOW_LIVE_STIFFNESS = 220f
+private const val CHAT_TAIL_FOLLOW_LIVE_DAMPING = 18.0f
+private const val CHAT_TAIL_FOLLOW_SETTLE_STIFFNESS = 260f
+private const val CHAT_TAIL_FOLLOW_SETTLE_DAMPING = 20.0f
+private const val CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX = 9800f
+private const val CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX = 12000f
+private const val CHAT_TAIL_FOLLOW_MIN_DELTA_PX = 0.62f
 
 private class ChatTailFollowRuntimeV2 {
     var lastFrameNanos: Long = 0L
@@ -715,7 +715,7 @@ private suspend fun LazyListState.settleChatTailV2(
         runtime.reset()
     }
 
-    val settleFrames = if (live) 18 else 10
+    val settleFrames = if (live) 10 else 7
     repeat(settleFrames) {
         val frameNanos = withFrameNanos { it }
         followChatTailFrameV2(
@@ -778,23 +778,33 @@ private suspend fun LazyListState.followChatTailFrameV2(
         return false
     }
 
+    val maxVelocity = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX
     val stiffness = if (live) CHAT_TAIL_FOLLOW_LIVE_STIFFNESS else CHAT_TAIL_FOLLOW_SETTLE_STIFFNESS
     val damping = if (live) CHAT_TAIL_FOLLOW_LIVE_DAMPING else CHAT_TAIL_FOLLOW_SETTLE_DAMPING
-    val maxVelocity = if (live) CHAT_TAIL_FOLLOW_LIVE_MAX_VELOCITY_PX else CHAT_TAIL_FOLLOW_SETTLE_MAX_VELOCITY_PX
+    val ratio = when {
+        gap >= 180f -> if (live) 0.58f else 0.68f
+        gap >= 72f -> if (live) 0.48f else 0.58f
+        gap >= 20f -> if (live) 0.38f else 0.46f
+        else -> if (live) 0.30f else 0.36f
+    }
+    val proportionalDelta = (gap * ratio).coerceAtLeast(CHAT_TAIL_FOLLOW_MIN_DELTA_PX).coerceAtMost(gap)
     val acceleration = gap * stiffness - runtime.velocityPxPerSecond * damping
-    runtime.velocityPxPerSecond = (runtime.velocityPxPerSecond + acceleration * dt)
-        .coerceIn(-maxVelocity, maxVelocity)
-
-    val springDelta = runtime.velocityPxPerSecond.coerceAtLeast(0f) * dt
+    val predictedVelocity = (runtime.velocityPxPerSecond + acceleration * dt)
+        .coerceIn(0f, maxVelocity)
+    val predictedDelta = predictedVelocity * dt
+    val blend = if (live) 0.68f else 0.76f
+    val maxFrameDelta = (maxVelocity * dt).coerceAtLeast(CHAT_TAIL_FOLLOW_MIN_DELTA_PX)
     val softMinimum = when {
-        gap <= 2.0f -> 0f
+        gap <= 1.4f -> 0f
         live -> CHAT_TAIL_FOLLOW_MIN_DELTA_PX
         else -> CHAT_TAIL_FOLLOW_MIN_DELTA_PX * 1.35f
     }
-    val delta = springDelta
+    val delta = (predictedDelta + (proportionalDelta - predictedDelta) * blend)
         .coerceAtLeast(softMinimum)
+        .coerceAtMost(maxFrameDelta)
         .coerceAtMost(gap)
 
+    runtime.velocityPxPerSecond = if (dt > 0f) (delta / dt).coerceIn(0f, maxVelocity) else 0f
     scrollBy(delta)
     return true
 }
@@ -1015,8 +1025,8 @@ private fun MessageBubbleV2(
                 .padding(horizontal = 14.dp, vertical = 10.dp)
                 .animateContentSize(
                     animationSpec = spring(
-                        dampingRatio = if (sending || revealActive || streamRevealShouldAnimate) 0.94f else 0.86f,
-                        stiffness = if (sending || revealActive || streamRevealShouldAnimate) Spring.StiffnessLow else Spring.StiffnessMediumLow
+                        dampingRatio = if (sending || revealActive || streamRevealShouldAnimate) 0.88f else 0.86f,
+                        stiffness = Spring.StiffnessMediumLow
                     )
                 ),
             verticalArrangement = Arrangement.spacedBy(7.dp)
@@ -1646,11 +1656,11 @@ private fun rememberFluidStreamingTextStateV2(
 }
 
 private fun fluidRevealCharsPerSecondV2(backlog: Float): Float = when {
-    backlog >= 220f -> 190f
-    backlog >= 120f -> 150f
-    backlog >= 56f -> 118f
-    backlog >= 20f -> 92f
-    else -> 68f
+    backlog >= 220f -> 430f
+    backlog >= 120f -> 350f
+    backlog >= 56f -> 280f
+    backlog >= 20f -> 220f
+    else -> 170f
 }
 
 private fun fluidPauseFactorV2(text: String, revealHead: Float): Float {
@@ -1849,16 +1859,16 @@ private fun rememberRevealTextStateV2(messageId: String, text: String, enabled: 
 
 private fun revealCharsPerSecondV2(total: Int, remaining: Float): Float {
     val base = when {
-        total >= 1800 -> 920f
-        total >= 1100 -> 780f
-        total >= 620 -> 640f
-        total >= 260 -> 520f
-        else -> 410f
+        total >= 1800 -> 2600f
+        total >= 1100 -> 2200f
+        total >= 620 -> 1850f
+        total >= 260 -> 1450f
+        else -> 1050f
     }
     val catchUp = when {
-        remaining >= 900f -> 1.22f
-        remaining >= 420f -> 1.12f
-        remaining <= 48f -> 0.78f
+        remaining >= 900f -> 1.20f
+        remaining >= 420f -> 1.10f
+        remaining <= 48f -> 0.92f
         else -> 1f
     }
     return base * catchUp
