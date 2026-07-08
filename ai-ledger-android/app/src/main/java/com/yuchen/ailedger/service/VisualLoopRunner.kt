@@ -48,7 +48,7 @@ class VisualLoopRunner(
         VisualLoopSupport.appendRecent(session.recentActions, session.deviceProfile.toPromptLine())
         VisualLoopSupport.appendRecent(
             session.recentActions,
-            "gui_plus_visual_ownership:v3|owner=gui_plus|agentBrain=false|localSemanticDecision=false|openAppVisualEntry=true|completionPermitRequired=true|completionAck=true",
+            "cloud_routing:v6|mainBrain=deepseek|visualOwner=gui_plus|localSemanticDecision=false|completionPermitRequired=true|completionAck=true",
         )
         VisualLoopSupport.appendRecent(
             session.recentActions,
@@ -184,16 +184,14 @@ class VisualLoopRunner(
         }
         val requestApps = appContextForTurn(session, turn.runtime)
         session.state.modelTurns += 1
-        val modelVisiblePreviousActions = VisualLoopModelContext.previousActions(
-            visualHistory = session.visualHistory.takeLast(historyLimit),
-            interactionActions = session.interactionActions,
-            internalRecentActions = session.recentActions,
-        )
         val plan = try {
             aiWorkerClient.requestVisualAgentStepCancellable(
                 goal = session.state.goal,
                 snapshot = turn.snapshot,
-                recentActions = modelVisiblePreviousActions,
+                recentActions = VisualLoopSupport.requestActions(
+                    session.recentActions,
+                    session.interactionActions,
+                ),
                 visualHistory = session.visualHistory.takeLast(historyLimit),
                 appContext = requestApps,
                 deviceId = clientDeviceId,
@@ -254,18 +252,13 @@ class VisualLoopRunner(
         plan: CloudAgentPlan,
     ): VisualLoopDecision {
         val step = plan.step
-        if (step.type != "open_app" &&
-            VisualLoopSupport.requiresAccessibility(step) &&
+        if (VisualLoopSupport.requiresAccessibility(step) &&
             (!turn.observation.enabled || !turn.observation.serviceConnected)
         ) return fatal(session, "The Android accessibility service is not connected.")
 
         handleRedundantVerifiedOpenApp(session, turn, plan)?.let { return it }
 
-        val validation = if (step.type == "open_app") {
-            VisualActionValidation(ok = true)
-        } else {
-            VisualActionValidator.validate(step, turn.snapshot, turn.runtime)
-        }
+        val validation = VisualActionValidator.validate(step, turn.snapshot, turn.runtime)
         if (!validation.ok) return rejectPlan(session, turn, plan, validation)
         if (step.type == "finish") return handleFinish(session, turn, plan)
         session.clearCompletionCandidate()
@@ -726,7 +719,7 @@ class VisualLoopRunner(
         if (requestedPackage.isBlank()) {
             return PreparedVisualStep(
                 false,
-                "open_app requires a packageName resolved from GUI Plus mobile_use open.",
+                "open_app requires a packageName selected by DeepSeek.",
                 replanRequired = true,
             )
         }
@@ -884,25 +877,18 @@ class VisualLoopRunner(
         session.clearCompletionCandidate()
         session.semantic.resetAfterUserTakeover()
         if (canContinue) {
-            VisualLoopSupport.appendRecent(
-                session.recentActions,
-                "user_takeover_completed:reason=$reason|private=${reply == VisualLoopSupport.PRIVATE_COMPLETION_TOKEN}|replanRequired=true",
-            )
-        } else {
-            AgentRuntimeController.finishTask(session.runtimeTaskId, AgentTaskOutcome.Cancelled("用户停止了视觉任务。"))
+            VisualLoopSupport.appendRecent(session.recentActions, "userTakeover=resumed:$reason")
         }
         return canContinue
     }
 
     private fun finishForLoopExit(session: VisualTaskSession): AgentTaskRunResult {
         val message = when {
-            session.stopped() -> "Visual task stopped."
-            session.state.completed -> "Visual task completed."
-            session.state.executedActions >= session.maxSteps -> "Reached the maximum number of visual steps."
-            session.state.modelTurns >= session.modelTurnBudget -> "Reached the maximum number of visual model turns."
-            else -> "Visual loop ended before completion."
+            session.state.executedActions >= session.maxSteps -> "Visual loop reached action budget."
+            session.state.modelTurns >= session.modelTurnBudget -> "Visual loop reached planning budget."
+            else -> "Visual loop stopped."
         }
-        if (!session.state.completed) {
+        if (!session.stopped()) {
             val outcome = if (
                 session.state.executedActions >= session.maxSteps ||
                 session.state.modelTurns >= session.modelTurnBudget

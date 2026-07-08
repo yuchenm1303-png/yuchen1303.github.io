@@ -59,8 +59,8 @@ class VisualExecutionSessionState(
     }
 
     /**
-     * The visual loop is screenshot-authoritative. A full clean screenshot is requested before the
-     * cloud route has a package binding so GUI Plus can understand the current page directly.
+     * Launching and replanning use the lightweight package/node probe first. A full screenshot is
+     * requested only after the exact target package has been verified as the work surface.
      */
     fun requiresVisualObservation(): Boolean {
         return stateMachine.requiresVisualObservation()
@@ -75,8 +75,7 @@ class VisualExecutionSessionState(
     }
 
     fun isVerifiedWorkSurface(snapshot: AgentScreenSnapshot): Boolean {
-        return stateMachine.isVerifiedWorkSurface(snapshot.packageName) ||
-            isScreenshotBoundVisualSurface(snapshot)
+        return stateMachine.isVerifiedWorkSurface(snapshot.packageName)
     }
 
     fun runtimeContext(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext {
@@ -94,20 +93,8 @@ class VisualExecutionSessionState(
             observationId = observationId,
             routeEpoch = stateMachine.routeEpoch,
             surfaceEpoch = stateMachine.surfaceEpoch,
-            guiPlusEligible = isVerifiedWorkSurface(snapshot),
+            guiPlusEligible = stateMachine.isVerifiedWorkSurface(snapshot.packageName),
         )
-    }
-
-    /**
-     * Global visual tasks may start from any current screen. Before DeepSeek has selected an app,
-     * the clean screenshot itself is the only legitimate work surface for low-risk GUI Plus actions.
-     * This does not mutate the state machine into WorkSurface and does not replace the stricter
-     * package binding used after an explicit open_app handoff.
-     */
-    private fun isScreenshotBoundVisualSurface(snapshot: AgentScreenSnapshot): Boolean {
-        return stateMachine.selectedTargetPackage.isBlank() &&
-            stateMachine.verifiedTargetPackage.isBlank() &&
-            snapshot.visual?.hasImage == true
     }
 
     companion object {

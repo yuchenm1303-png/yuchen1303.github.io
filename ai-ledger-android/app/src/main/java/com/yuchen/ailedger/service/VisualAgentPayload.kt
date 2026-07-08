@@ -5,8 +5,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val VISUAL_INTERACTION_PROTOCOL = "gui_plus_dialogue_v2_bound_turns"
-private const val ASSISTANT_HOST_PACKAGE = "com.yuchen.ailedger"
-private val GUI_PLUS_VISUAL_ENTRY_DEVICE_ACTIONS = listOf("open_app")
 
 /** The single visual request payload implementation. No legacy payload or cleanup pass exists. */
 internal fun buildLeanVisualAgentPayload(
@@ -39,16 +37,11 @@ internal fun buildLeanVisualAgentPayload(
         .take(160)
         .toList()
     val inventoryHash = apps.inventoryHash()
+    val workSurface = runtime.guiPlusEligible && runtime.verifiedTargetPackage.isNotBlank()
     val visual = snapshot.visual?.takeIf { it.hasImage }
-    val currentPackage = snapshot.packageName.trim().ifBlank { snapshot.currentApp.trim() }
-    val controllerHandoffActive = visual != null &&
-        currentPackage.isAssistantHostPackage() &&
-        runtime.selectedTargetPackage.isBlank() &&
-        runtime.verifiedTargetPackage.isBlank()
-    val guiPlusSession = (runtime.guiPlusEligible && visual != null) || controllerHandoffActive
     val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
     val screenPayload = snapshot.toJson(includeImage = false).apply {
-        put("reportedForegroundPackage", reportedPackage)
+        put("reportedForegroundPackage", optString("packageName"))
     }
 
     return JSONObject().apply {
@@ -69,47 +62,17 @@ internal fun buildLeanVisualAgentPayload(
                 AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
             },
         )
-        put("decisionOwner", "gui_plus")
-        put("visualDecisionOwner", "gui_plus")
-        put("visualAgentDirect", guiPlusSession)
-        put("exclusiveVisualSession", guiPlusSession)
-        put("allowAgentBrain", false)
+        put("decisionOwner", "deepseek_then_gui_plus")
+        put("visualDecisionOwner", if (workSurface) "gui_plus" else "deepseek")
+        put("visualAgentDirect", workSurface)
+        put("exclusiveVisualSession", workSurface)
+        put("allowAgentBrain", !workSurface)
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
         put(
-            "visualOwnership",
-            JSONObject().apply {
-                put("schema", "android_gui_plus_exclusive_ownership_v4")
-                put("owner", "gui_plus")
-                put("exclusive", guiPlusSession)
-                put("entryRouterReleased", true)
-                put("allowAgentBrain", false)
-                put("allowRoutePlanner", false)
-                put("allowSemanticJudge", false)
-                put("targetAppSelectionOwner", "gui_plus")
-                put("androidRole", "mechanical_executor_and_verifier")
-                put("internalDeviceToolHandoffBlocked", false)
-                put("openAppIsVisualEntryAction", true)
-            },
-        )
-        put("surfaceRole", if (controllerHandoffActive) "controller" else "work_surface")
-        put("controllerHandoffActive", controllerHandoffActive)
-        put(
-            "controllerHandoff",
-            JSONObject().apply {
-                put("schema", "android_gui_plus_controller_handoff_v2")
-                put("role", if (controllerHandoffActive) "controller" else "none")
-                put("controllerHandoffActive", controllerHandoffActive)
-                put("isAssistantHost", currentPackage.isAssistantHostPackage())
-                put("isFirstVisualTurn", controllerHandoffActive)
-                put("policy", "assistant_host_is_control_console_not_task_surface")
-                put("guiPlusMustOpenExternalTargetDirectly", controllerHandoffActive)
-            },
-        )
-        put(
             "runtimeExecutionContext",
             JSONObject().apply {
-                put("schema", "android_visual_execution_runtime_v3")
+                put("schema", "android_visual_execution_runtime_v2")
                 put("surfaceState", runtime.surfaceState.wireValue)
                 put("selectedTargetPackage", runtime.selectedTargetPackage)
                 put("verifiedTargetPackage", runtime.verifiedTargetPackage)
@@ -117,11 +80,9 @@ internal fun buildLeanVisualAgentPayload(
                 put("observationId", runtime.observationId)
                 put("routeEpoch", runtime.routeEpoch)
                 put("surfaceEpoch", runtime.surfaceEpoch)
-                put("guiPlusEligible", guiPlusSession)
+                put("guiPlusEligible", workSurface)
                 put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
                 put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
-                put("internalDeviceToolHandoffBlocked", false)
-                put("visualEntryDeviceActions", JSONArray(GUI_PLUS_VISUAL_ENTRY_DEVICE_ACTIONS))
             },
         )
         put("observationId", runtime.observationId)
@@ -136,11 +97,11 @@ internal fun buildLeanVisualAgentPayload(
         put(
             "appCatalog",
             JSONObject().apply {
-                put("schema", "android_visual_app_catalog_v6_canonical")
+                put("schema", "android_visual_app_catalog_v5_canonical")
                 put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
                 put("identityField", "packageName")
                 put("displayField", "label")
-                put("selectionOwner", "gui_plus")
+                put("selectionOwner", "deepseek")
                 put("inventoryHash", inventoryHash)
                 put("entryCount", apps.size)
             },
@@ -148,20 +109,9 @@ internal fun buildLeanVisualAgentPayload(
         put(
             "deviceContext",
             JSONObject().apply {
-                put("schema", "android_visual_device_context_v3")
+                put("schema", "android_visual_device_context_v2")
                 put("currentPackage", snapshot.packageName)
                 put("deviceId", deviceId.trim().take(120))
-                put("visualEntryDeviceActions", JSONArray(GUI_PLUS_VISUAL_ENTRY_DEVICE_ACTIONS))
-                put("internalDeviceToolHandoffBlocked", false)
-                put(
-                    "surfaceContext",
-                    JSONObject().apply {
-                        put("role", if (controllerHandoffActive) "controller" else "work_surface")
-                        put("controllerHandoffActive", controllerHandoffActive)
-                        put("isAssistantHost", currentPackage.isAssistantHostPackage())
-                        put("isFirstVisualTurn", controllerHandoffActive)
-                    },
-                )
             },
         )
         put("appContext", JSONArray().apply { apps.forEach { put(it.toPayloadJson()) } })
@@ -180,8 +130,7 @@ internal fun buildLeanVisualAgentPayload(
         )
         put("coordinateProtocol", VisualAgentProtocol.coordinateProtocol)
         put("supportedAgentSteps", JSONArray(VisualAgentProtocol.supportedStepTypes.toList()))
-        put("supportedDeviceTools", JSONArray(GUI_PLUS_VISUAL_ENTRY_DEVICE_ACTIONS))
-        put("supportedVisualEntryDeviceActions", JSONArray(GUI_PLUS_VISUAL_ENTRY_DEVICE_ACTIONS))
+        put("supportedDeviceTools", JSONArray(CloudAgentStep.deviceToolTypes.toList()))
         put("supportsAgentStepBatch", false)
         put("actionBatchMax", 1)
         put("hasScreenshot", visual != null)
@@ -191,7 +140,7 @@ internal fun buildLeanVisualAgentPayload(
                 "screenshot",
                 JSONObject().apply {
                     put("mimeType", frame.mimeType)
-                    put("base64" + "Data", frame.base64Jpeg)
+                    put("base64Data", frame.base64Jpeg)
                     put("width", frame.width)
                     put("height", frame.height)
                     put("displayWidth", frame.displayWidth)
@@ -213,7 +162,7 @@ internal fun buildLeanVisualAgentPayload(
             },
         )
         put("client", "android-compose")
-        put("clientVersion", "visual-gui-plus-owner-v3")
+        put("clientVersion", "visual-clean-v1")
         put("now", System.currentTimeMillis())
     }
 }
@@ -230,10 +179,10 @@ private fun VisualTaskMemory?.toExecutionFeedback(
         }
     }
     val userDirectivePending = actions.any {
-        it.startsWith("user" + "Instruction:[LATEST_USER_DIRECTIVE]") ||
+        it.startsWith("userInstruction:[LATEST_USER_DIRECTIVE]") ||
             it.startsWith("visual_replan_requested:reason=user_instruction|")
     }
-    put("schema", "android_visual_execution_feedback_v3")
+    put("schema", "android_visual_execution_feedback_v2")
     put("lastResultOk", lastResult ?: JSONObject.NULL)
     put("latestEvent", actions.lastOrNull().orEmpty())
     put("status", this@toExecutionFeedback?.progressStatus ?: "unknown")
@@ -256,7 +205,7 @@ private fun VisualTaskMemory?.toExecutionFeedback(
 }
 
 private fun VisualTaskMemory.toExecutionLedgerJson(): JSONObject = JSONObject().apply {
-    put("schema", "visual_task_memory_v7_execution_ledger")
+    put("schema", "visual_task_memory_v6_execution_ledger")
     put("originalGoal", originalGoal)
     put("currentMilestoneId", currentMilestoneId)
     put("completedMilestoneIds", JSONArray(completedMilestoneIds))
@@ -337,17 +286,8 @@ private fun List<String>.toInteractionHistory(): JSONArray = JSONArray().apply {
 }
 
 private fun String.isRemovedLocalControlLine(): Boolean =
-    startsWith("cloud_routing:") ||
-        contains("mainBrain=deepseek") ||
-        startsWith("visual_reasoning_context:") ||
+    startsWith("visual_reasoning_context:") ||
         startsWith("visual_replan_requested:reason=adaptive_reasoning_depth|") ||
         startsWith("visual_task_memory:") ||
         startsWith("visual_execution_ledger:") ||
         startsWith("visual_runtime_context:")
-
-private fun String.isAssistantHostPackage(): Boolean {
-    val normalized = trim().lowercase()
-    return normalized == ASSISTANT_HOST_PACKAGE ||
-        normalized.contains("ailedger") ||
-        normalized.contains("aiassistant")
-}
