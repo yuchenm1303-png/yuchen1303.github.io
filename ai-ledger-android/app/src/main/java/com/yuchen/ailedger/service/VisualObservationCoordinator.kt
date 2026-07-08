@@ -369,6 +369,34 @@ class VisualObservationCoordinator(
             sleep(timing.openAppVerifyPollMs)
         }
 
+        if (!isStopped() && lastSnapshot?.packageName == expectedPackage && stableSamples > 0) {
+            val finalVisualResolution = captureResolvedObservation(
+                forceVisual = true,
+                expectedPackage = expectedPackage,
+                settleMs = timing.fullVisualSettleMs,
+            )
+            val finalVisualObservation = finalVisualResolution.observation
+            val finalVisualSnapshot = finalVisualObservation.toAgentScreenSnapshot()
+            if (
+                finalVisualResolution.countsTowardStableTarget &&
+                finalVisualSnapshot.packageName == expectedPackage &&
+                finalVisualSnapshot.visual?.hasImage == true
+            ) {
+                return reportPackageVerification(
+                    expectedPackage = expectedPackage,
+                    result = VisualTargetPackageVerification(
+                        verified = true,
+                        stableSamples = requiredSamples,
+                        lastSnapshot = finalVisualSnapshot,
+                        lastObservation = finalVisualObservation,
+                    ),
+                    reason = VisualTargetPackageVerificationReason.StableTargetWithVisualFrame,
+                )
+            }
+            lastSnapshot = finalVisualSnapshot
+            lastEvidenceStrength = finalVisualResolution.evidenceStrength
+        }
+
         val reason = when {
             isStopped() -> VisualTargetPackageVerificationReason.TaskStopped
             stableSamples >= requiredSamples && lastSnapshot?.packageName == expectedPackage ->
