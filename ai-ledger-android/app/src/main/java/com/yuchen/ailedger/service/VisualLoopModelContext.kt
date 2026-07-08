@@ -82,10 +82,10 @@ internal object VisualLoopModelContext {
         val button = args.optString("button").trim()
         val target = text.ifBlank { button }
         return when (action) {
-            "open" -> "Open ${target.ifBlank { "app" }}"
-            "click" -> "Click ${target.ifBlank { "visible target" }}"
-            "long_press" -> "Long press ${target.ifBlank { "visible target" }}"
-            "swipe", "scroll" -> "Swipe ${target.ifBlank { "on screen" }}"
+            "open" -> target.takeIf(String::isNotBlank)?.let { "Open $it" } ?: "Open app"
+            "click" -> target.takeIf(String::isNotBlank)?.let { "Click $it" } ?: "Click visible target"
+            "long_press" -> target.takeIf(String::isNotBlank)?.let { "Long press $it" } ?: "Long press visible target"
+            "swipe", "scroll" -> target.takeIf(String::isNotBlank)?.let { "Swipe $it" } ?: "Swipe on screen"
             "type" -> "Type text"
             "system_button" -> "Press ${button.ifBlank { "system button" }}"
             "wait" -> "Wait"
