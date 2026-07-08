@@ -35,8 +35,35 @@ internal val DeviceControlEnvelopeKeys: Set<String> = setOf(
     "observationId",
     "expectedActionObservationId",
     "actionObservationId",
+    "responseObservationId",
+    "responseSessionId",
+    "guiSessionId",
+    "visualProtocolVersion",
+    "visualDecisionOwner",
+    "visualOwnership",
+    "visualCoordinateAuthority",
+    "surfaceRole",
+    "controllerHandoffActive",
+    "internalDeviceToolHandoffBlocked",
+    "openAppIsVisualEntryAction",
+    "executionPermitKind",
+    "executionPermitActionHash",
+    "executionPermitActionExecutionEligible",
+    "executionPermitReason",
+    "executionPermitPolicy",
+    "completionCandidate",
+    "completionCandidateId",
+    "completionCandidateSessionId",
+    "completionCandidateObservationId",
+    "mobileUseProtocolRepair",
+    "mobileUseOriginalAction",
     "appName",
+    "actionIntent",
+    "progressContract",
+    "semanticIntent",
     "__androidVisualSurfaceMode",
+    "__androidVisualAuthority",
+    "__androidSecondaryVerifierRequired",
 )
 
 enum class DeviceControlPermission {
@@ -109,10 +136,11 @@ data class DeviceControlValidation(
 }
 
 /**
- * Pure Android execution contract for cloud-selected internal controls.
+ * Pure Android execution contract for cloud-selected device controls.
  *
- * DeepSeek is the only semantic planner. Android accepts canonical tool + args only, rejects
- * aliases and unknown fields, and performs schema, permission, package and risk-boundary checks.
+ * GUI Plus may provide visual-entry device actions such as open_app. Android accepts canonical
+ * tool + args only, rejects executable unknown fields, and strips protocol-only metadata before
+ * schema, permission, package and risk-boundary checks.
  */
 object DeviceControlSpecs {
     private val packageArgs = setOf("packageName")
