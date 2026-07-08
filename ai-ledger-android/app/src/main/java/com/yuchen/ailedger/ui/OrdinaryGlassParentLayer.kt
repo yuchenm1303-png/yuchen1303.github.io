@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onPlaced
 import com.yuchen.ailedger.model.RenderQuality
+import kotlin.math.exp
 
 /**
  * 普通 GlassPanel / PressableGlass 的页面级父绘制系统。
@@ -67,6 +68,9 @@ class OrdinaryGlassRenderNode(
         internal set
 
     internal val parentDrawCache = OrdinaryGlassParentDrawCache()
+    internal var parentOpticsTail: Float = 0f
+        private set
+    private var parentOpticsTailFrameNanos: Long = 0L
 
     internal fun updateStatic(
         sceneGroup: GlassSceneGroup,
@@ -108,10 +112,41 @@ class OrdinaryGlassRenderNode(
         if (this.pressCenter != pressCenter) this.pressCenter = pressCenter
     }
 
+    internal fun updateParentOpticsTail(frameNanos: Long) {
+        if (!pressable || role == GlassRole.Shell) {
+            parentOpticsTail = 0f
+            parentOpticsTailFrameNanos = frameNanos
+            return
+        }
+        val currentEnergy = maxOf(
+            pressProgress.coerceAtLeast(0f) * 0.48f,
+            lensProgress.coerceAtLeast(0f),
+            sweepProgress.coerceAtLeast(0f) * 0.68f,
+        ).coerceIn(0f, 2.40f)
+        if (currentEnergy >= parentOpticsTail) {
+            parentOpticsTail = currentEnergy
+            parentOpticsTailFrameNanos = frameNanos
+            return
+        }
+        if (parentOpticsTailFrameNanos <= 0L) {
+            parentOpticsTailFrameNanos = frameNanos
+            parentOpticsTail = currentEnergy
+            return
+        }
+        val dtSeconds = ((frameNanos - parentOpticsTailFrameNanos).coerceAtLeast(0L) / 1_000_000_000f)
+            .coerceIn(0f, 0.10f)
+        parentOpticsTailFrameNanos = frameNanos
+        val afterglow = ComposeGlassLabState.motionStyle.normalized().afterglow.coerceIn(0f, 24f)
+        val halfLife = (0.18f + afterglow * 0.042f).coerceIn(0.18f, 1.20f)
+        val decay = exp((-0.6931472f * dtSeconds / halfLife).toDouble()).toFloat()
+        parentOpticsTail = maxOf(currentEnergy, parentOpticsTail * decay)
+        if (parentOpticsTail < 0.001f) parentOpticsTail = 0f
+    }
+
     internal fun hasActivePressOptics(): Boolean {
         if (!pressable || role == GlassRole.Shell) return false
         return pressProgress > 0.001f || pressProgress < -0.001f ||
-            lensProgress > 0.001f || sweepProgress > 0.001f
+            lensProgress > 0.001f || sweepProgress > 0.001f || parentOpticsTail > 0.001f
     }
 }
 
@@ -186,7 +221,8 @@ class OrdinaryGlassSceneState(
         viewport: Rect,
         foldoutClip: Rect?,
         backdropOrigin: BackdropCoordinateSource?,
-        resolveSampleOffset: Boolean
+        resolveSampleOffset: Boolean,
+        frameNanos: Long
     ) {
         val item = if (visibleCount < visiblePool.size) {
             visiblePool[visibleCount]
@@ -205,6 +241,7 @@ class OrdinaryGlassSceneState(
         item.node = node
         item.rect = rect
         item.foldoutClipRect = foldoutClip
+        node.updateParentOpticsTail(frameNanos)
         updateOrdinaryGlassMotionSnapshot(node = node, out = item.motion)
         updateOrdinaryGlassVisualTransform(item = item, out = item.transform)
         val transformedBounds = ordinaryGlassTransformedBounds(transform = item.transform, rect = rect)
@@ -373,7 +410,8 @@ fun OrdinaryGlassSceneHost(
                         sceneState = sceneState,
                         viewportSize = size,
                         backdropOrigin = backdropOrigin,
-                        resolveSampleOffset = backdrop != null && backdropSpec != null
+                        resolveSampleOffset = backdrop != null && backdropSpec != null,
+                        frameNanos = System.nanoTime()
                     )
 
                     sceneState.forEachVisible { item ->
@@ -416,7 +454,8 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
     sceneState: OrdinaryGlassSceneState,
     viewportSize: Size,
     backdropOrigin: BackdropCoordinateSource?,
-    resolveSampleOffset: Boolean
+    resolveSampleOffset: Boolean,
+    frameNanos: Long
 ) {
     sceneState.registry.version
     sceneState.coordinates.placementVersion
@@ -461,7 +500,8 @@ private fun DrawScope.collectVisibleOrdinaryGlassItems(
             viewport = viewport,
             foldoutClip = foldoutClip,
             backdropOrigin = backdropOrigin,
-            resolveSampleOffset = resolveSampleOffset
+            resolveSampleOffset = resolveSampleOffset,
+            frameNanos = frameNanos
         )
     }
 }
