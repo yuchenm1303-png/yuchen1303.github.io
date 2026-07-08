@@ -5,3 +5,4 @@ Build Compose Android APK verification
 2026-06-28 新旧 OpenGL 无损热路径收尾构建验证
 2026-07-06 回退错误 App 端工作空间改动并触发构建验证
 2026-07-08 恢复玻璃静态本体与 OpenGL 光效源码构建验证
+2026-07-08 Compose 玻璃归一化新滑块构建验证
