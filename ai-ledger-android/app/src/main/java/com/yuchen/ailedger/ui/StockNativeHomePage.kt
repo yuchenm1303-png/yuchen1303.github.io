@@ -36,6 +36,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuchen.ailedger.StockMarketUiState
@@ -48,6 +49,7 @@ import com.yuchen.ailedger.model.StockNativeRankingType
 import com.yuchen.ailedger.model.StockRankItem
 import com.yuchen.ailedger.model.StockSectorSnapshot
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val NativeHomeActions = listOf("自选", "热榜", "板块", "资金", "异动", "热点", "研报", "预警")
 
@@ -232,11 +234,13 @@ internal fun StockNativeHomeScreen(
                         lineHeight = 16.sp
                     )
                     StockDivider()
-                    StockNativeFrostCard(
-                        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant),
+                    NativeInteractiveGlassCard(
+                        modifier = Modifier.fillMaxWidth(),
                         radius = 19.dp,
-                        frostAlpha = 0.076f,
-                        contentPadding = 13.dp
+                        intensity = 0.84f,
+                        role = GlassRole.Card,
+                        contentPadding = 13.dp,
+                        onClick = onOpenAssistant
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text(
@@ -326,6 +330,43 @@ private fun NativeStockSearchBar(
 }
 
 @Composable
+private fun NativeInteractiveGlassCard(
+    modifier: Modifier = Modifier,
+    radius: Dp,
+    intensity: Float = 0.82f,
+    role: GlassRole = GlassRole.Card,
+    contentPadding: Dp = 0.dp,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    val state = LocalStockNativeGlassState.current
+    val radiusValue = radius.value.roundToInt().coerceAtLeast(1)
+    if (state != null) {
+        PressableGlass(
+            quality = state.quality,
+            glassIntensity = state.glassIntensity * intensity,
+            motionIntensity = state.motionIntensity,
+            radius = radiusValue,
+            modifier = modifier,
+            role = role,
+            onClick = onClick
+        ) {
+            Box(Modifier.fillMaxSize().padding(contentPadding)) {
+                content()
+            }
+        }
+    } else {
+        StockNativeFrostCard(
+            modifier = modifier.clickable(onClick = onClick),
+            radius = radius,
+            frostAlpha = 0.074f,
+            contentPadding = contentPadding,
+            content = content
+        )
+    }
+}
+
+@Composable
 private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit) {
     if (ui.marketHome.indices.isEmpty()) {
         StockLoadingOrError(
@@ -343,15 +384,8 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
     ) {
         items(ui.marketHome.indices, key = { it.name }) { item ->
             val tone = if (item.isRising) StockRise else StockFall
-            StockNativeFrostCard(
-                modifier = Modifier
-                    .width(118.dp)
-                    .height(84.dp)
-                    .clickable { indexCode(item)?.let(onOpenIndex) },
-                radius = 19.dp,
-                frostAlpha = 0.084f,
-                contentPadding = 11.dp
-            ) {
+            val code = indexCode(item)
+            val cardContent: @Composable () -> Unit = {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -388,6 +422,25 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+            if (code != null) {
+                NativeInteractiveGlassCard(
+                    modifier = Modifier.width(118.dp).height(84.dp),
+                    radius = 19.dp,
+                    intensity = 0.82f,
+                    role = GlassRole.Card,
+                    contentPadding = 11.dp,
+                    onClick = { onOpenIndex(code) },
+                    content = cardContent
+                )
+            } else {
+                StockNativeFrostCard(
+                    modifier = Modifier.width(118.dp).height(84.dp),
+                    radius = 19.dp,
+                    frostAlpha = 0.084f,
+                    contentPadding = 11.dp,
+                    content = cardContent
+                )
             }
         }
     }
@@ -497,18 +550,16 @@ private fun NativeRankingEntry(
     onOpenRanking: (StockNativeRankingType) -> Unit,
     onOpenStock: (String) -> Unit
 ) {
-    StockNativeFrostCard(
-        modifier = Modifier.fillMaxWidth(),
-        radius = 18.dp,
-        frostAlpha = 0.074f
-    ) {
-        Column(Modifier.fillMaxWidth()) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        NativeInteractiveGlassCard(
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+            radius = 18.dp,
+            intensity = 0.80f,
+            role = GlassRole.Flex,
+            onClick = { onOpenRanking(type) }
+        ) {
             Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .clickable { onOpenRanking(type) }
-                    .padding(horizontal = 13.dp),
+                Modifier.fillMaxSize().padding(horizontal = 13.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
@@ -535,14 +586,17 @@ private fun NativeRankingEntry(
                     fontWeight = FontWeight.Black
                 )
             }
-            if (top != null) {
-                StockDivider()
+        }
+        if (top != null) {
+            NativeInteractiveGlassCard(
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+                radius = 17.dp,
+                intensity = 0.74f,
+                role = GlassRole.Card,
+                onClick = { onOpenStock(top.code) }
+            ) {
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .clickable { onOpenStock(top.code) }
-                        .padding(horizontal = 13.dp),
+                    Modifier.fillMaxSize().padding(horizontal = 13.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -620,14 +674,13 @@ private fun NativeSectorOverview(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             sectors.take(10).forEach { sector ->
-                StockNativeFrostCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp)
-                        .clickable { onOpenSector(sector.sectorCode) },
+                NativeInteractiveGlassCard(
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
                     radius = 18.dp,
-                    frostAlpha = 0.068f,
-                    contentPadding = 11.dp
+                    intensity = 0.76f,
+                    role = GlassRole.Card,
+                    contentPadding = 11.dp,
+                    onClick = { onOpenSector(sector.sectorCode) }
                 ) {
                     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -684,14 +737,13 @@ private fun NativeHotPreview(
         "东方财富个股人气榜 · 约10分钟更新",
         "${ui.hotSnapshot.items.size.takeIf { it > 0 } ?: "--"} 只"
     )
-    StockNativeFrostCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(54.dp)
-            .clickable { onOpenHot(StockNativeHotType.Popularity) },
+    NativeInteractiveGlassCard(
+        modifier = Modifier.fillMaxWidth().height(54.dp),
         radius = 18.dp,
-        frostAlpha = 0.088f,
-        contentPadding = 12.dp
+        intensity = 0.84f,
+        role = GlassRole.Flex,
+        contentPadding = 12.dp,
+        onClick = { onOpenHot(StockNativeHotType.Popularity) }
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -717,14 +769,13 @@ private fun NativeHotPreview(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ui.hotSnapshot.items.take(6).forEach { item ->
-                StockNativeFrostCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(58.dp)
-                        .clickable { onOpenStock(item.code, false) },
+                NativeInteractiveGlassCard(
+                    modifier = Modifier.fillMaxWidth().height(58.dp),
                     radius = 17.dp,
-                    frostAlpha = 0.062f,
-                    contentPadding = 10.dp
+                    intensity = 0.72f,
+                    role = GlassRole.Card,
+                    contentPadding = 10.dp,
+                    onClick = { onOpenStock(item.code, false) }
                 ) {
                     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -829,18 +880,20 @@ private fun NativeWatchlistContent(
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         watchlist.forEach { item ->
-            StockNativeFrostCard(
+            Row(
                 modifier = Modifier.fillMaxWidth().height(60.dp),
-                radius = 18.dp,
-                frostAlpha = 0.068f
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                NativeInteractiveGlassCard(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    radius = 18.dp,
+                    intensity = 0.76f,
+                    role = GlassRole.Card,
+                    onClick = { onOpenStock(item.code, false) }
+                ) {
                     Row(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clickable { onOpenStock(item.code, false) }
-                            .padding(horizontal = 12.dp),
+                        Modifier.fillMaxSize().padding(horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -864,14 +917,14 @@ private fun NativeWatchlistContent(
                         }
                         Text("›", color = StockAqua.copy(alpha = 0.62f), fontSize = 18.sp)
                     }
-                    StockNativePill(
-                        text = "×",
-                        active = false,
-                        modifier = Modifier.size(36.dp).padding(end = 4.dp),
-                        fontSize = 14,
-                        onClick = { onRemoveWatch(item.code) }
-                    )
                 }
+                StockNativePill(
+                    text = "×",
+                    active = false,
+                    modifier = Modifier.width(42.dp).fillMaxHeight(),
+                    fontSize = 14,
+                    onClick = { onRemoveWatch(item.code) }
+                )
             }
         }
     }
