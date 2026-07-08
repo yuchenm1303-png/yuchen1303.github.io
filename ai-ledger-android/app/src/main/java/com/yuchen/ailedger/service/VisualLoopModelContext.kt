@@ -164,6 +164,6 @@ internal object VisualLoopModelContext {
         pattern = "(?is)<tool_call>\\s*(\\{.*?})\\s*</tool_call>",
     )
     private val RAW_TOOL_JSON = Regex(
-        pattern = "(?is)\\{\\s*\"name\"\\s*:\\s*\"mobile_use\".*}",
+        pattern = "(?is)\\{\\s*\"name\"\\s*:\\s*\"mobile_use\"[\\s\\S]*}",
     )
 }
