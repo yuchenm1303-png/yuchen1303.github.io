@@ -15,9 +15,8 @@ import kotlin.math.max
 /**
  * 8830b4c 版普通 Compose 玻璃光效的父级单卡绘制版本。
  *
- * 只消费 OrdinaryGlassRenderNode 上报的 press / lens / sweep 三条状态，不创建子级绘制层，
- * 不接触 Shell / OpenGL / registry 之外的任何结构。视觉公式按 8830 版 bridge 的
- * radial bloom + rim sweep 还原，只把坐标换算到当前 ParentDraw Host。
+ * 光效强度现在经过尺寸归一化：小玻璃增强触点 bloom 与 rim，大玻璃压低整体
+ * 半径、alpha 和边缘扫光，避免同一组 master 参数在大小玻璃之间失衡。
  */
 internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryGlassItem) {
     val node = item.node
@@ -33,13 +32,15 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
     val w = rect.width.coerceAtLeast(1f)
     val h = rect.height.coerceAtLeast(1f)
     val maxSide = max(w, h)
+    val minSide = minOf(w, h).coerceAtLeast(1f)
+    val profile = ordinaryGlassSizeAdaptiveProfile(w, h, node.role)
     val center = Offset(
         x = item.motion.pressCenter.x.coerceIn(0f, 1f) * w,
         y = item.motion.pressCenter.y.coerceIn(0f, 1f) * h,
     )
-    val radiusPx = node.radius.dp.toPx().coerceAtMost(minOf(w, h) * 0.5f)
+    val radiusPx = node.radius.dp.toPx().coerceAtMost(minSide * 0.5f)
     val cornerRadius = CornerRadius(radiusPx, radiusPx)
-    val rimInset = 0.50.dp.toPx().coerceAtMost(minOf(w, h) * 0.08f)
+    val rimInset = 0.50.dp.toPx().coerceAtMost(minSide * 0.08f)
     val rimRadius = (radiusPx - rimInset).coerceAtLeast(0f)
     val rimSize = Size(
         width = (w - rimInset * 2f).coerceAtLeast(1f),
@@ -48,16 +49,16 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
 
     val pressShape = ordinaryParent8830SmoothStep((pressValue + lensValue * 0.62f).coerceIn(0f, 2.65f) / 2.65f)
     val prismGain = item.motion.prism.takeIf { it > 0.001f } ?: 0.68f
-    val lightPower = (item.motion.touchLight * (0.34f + lensValue * 0.62f)).coerceIn(0f, 42f)
-    val chromaPower = (prismGain * (0.18f + pressValue * 0.24f + sweepValue * 0.30f)).coerceIn(0f, 28f)
-    val sweepPower = (item.motion.sweepGain * sweepValue).coerceIn(0f, 30f)
+    val lightPower = (item.motion.touchLight * profile.lightGain * (0.34f + lensValue * 0.62f)).coerceIn(0f, 42f)
+    val chromaPower = (prismGain * profile.sweepGain * (0.18f + pressValue * 0.24f + sweepValue * 0.30f)).coerceIn(0f, 28f)
+    val sweepPower = (item.motion.sweepGain * profile.sweepGain * sweepValue).coerceIn(0f, 30f)
     val sweepPhase = (sweepValue / 2.20f).coerceIn(0f, 1.20f)
     val sweepX = -0.42f + sweepPhase * 1.84f
-    val minBloomRadius = 112.dp.toPx() * (0.76f + pressShape * 0.28f)
-    val softBloomRadius = max(
-        maxSide * (0.28f + 0.030f * lightPower.coerceIn(0f, 14f) + 0.22f * pressShape),
-        minBloomRadius
-    )
+    val bloomBase = maxSide * (0.34f + 0.026f * lightPower.coerceIn(0f, 14f) + 0.22f * pressShape)
+    val smallContrastRadius = maxSide * (0.70f + profile.smallT * 0.18f + pressShape * 0.24f)
+    val largeMaxRadius = maxSide * (1.42f - profile.largeT * 0.34f)
+    val softBloomRadius = max(bloomBase * profile.bloomRadiusGain, smallContrastRadius)
+        .coerceAtMost(largeMaxRadius.coerceAtLeast(maxSide * 0.72f))
 
     val transform = item.transform
     withTransform({
@@ -86,6 +87,10 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
         )
 
         if (sweepPower > 0.001f || chromaPower > 0.001f) {
+            val edgeStroke = (
+                0.64.dp.toPx() +
+                    0.10.dp.toPx() * sweepPower.coerceIn(0f, 16f) * (1f + profile.smallT * 0.35f)
+                ).coerceAtMost((4.8.dp.toPx() * (1f - profile.largeT * 0.34f)).coerceAtLeast(0.72.dp.toPx()))
             drawRoundRect(
                 brush = Brush.linearGradient(
                     colors = listOf(
@@ -101,7 +106,7 @@ internal fun DrawScope.drawOrdinaryParentWhitePressOptics(item: VisibleOrdinaryG
                 topLeft = Offset(rimInset, rimInset),
                 size = rimSize,
                 cornerRadius = CornerRadius(rimRadius, rimRadius),
-                style = Stroke((0.64.dp.toPx() + 0.10.dp.toPx() * sweepPower.coerceIn(0f, 16f)).coerceAtMost(4.8.dp.toPx())),
+                style = Stroke(edgeStroke),
                 blendMode = BlendMode.Screen
             )
         }
