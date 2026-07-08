@@ -184,14 +184,16 @@ class VisualLoopRunner(
         }
         val requestApps = appContextForTurn(session, turn.runtime)
         session.state.modelTurns += 1
+        val modelVisiblePreviousActions = VisualLoopModelContext.previousActions(
+            visualHistory = session.visualHistory.takeLast(historyLimit),
+            interactionActions = session.interactionActions,
+            internalRecentActions = session.recentActions,
+        )
         val plan = try {
             aiWorkerClient.requestVisualAgentStepCancellable(
                 goal = session.state.goal,
                 snapshot = turn.snapshot,
-                recentActions = VisualLoopSupport.requestActions(
-                    session.recentActions,
-                    session.interactionActions,
-                ),
+                recentActions = modelVisiblePreviousActions,
                 visualHistory = session.visualHistory.takeLast(historyLimit),
                 appContext = requestApps,
                 deviceId = clientDeviceId,
@@ -882,18 +884,25 @@ class VisualLoopRunner(
         session.clearCompletionCandidate()
         session.semantic.resetAfterUserTakeover()
         if (canContinue) {
-            VisualLoopSupport.appendRecent(session.recentActions, "userTakeover=resumed:$reason")
+            VisualLoopSupport.appendRecent(
+                session.recentActions,
+                "user_takeover_completed:reason=$reason|private=${reply == VisualLoopSupport.PRIVATE_COMPLETION_TOKEN}|replanRequired=true",
+            )
+        } else {
+            AgentRuntimeController.finishTask(session.runtimeTaskId, AgentTaskOutcome.Cancelled("用户停止了视觉任务。"))
         }
         return canContinue
     }
 
     private fun finishForLoopExit(session: VisualTaskSession): AgentTaskRunResult {
         val message = when {
-            session.state.executedActions >= session.maxSteps -> "Visual loop reached action budget."
-            session.state.modelTurns >= session.modelTurnBudget -> "Visual loop reached planning budget."
-            else -> "Visual loop stopped."
+            session.stopped() -> "Visual task stopped."
+            session.state.completed -> "Visual task completed."
+            session.state.executedActions >= session.maxSteps -> "Reached the maximum number of visual steps."
+            session.state.modelTurns >= session.modelTurnBudget -> "Reached the maximum number of visual model turns."
+            else -> "Visual loop ended before completion."
         }
-        if (!session.stopped()) {
+        if (!session.state.completed) {
             val outcome = if (
                 session.state.executedActions >= session.maxSteps ||
                 session.state.modelTurns >= session.modelTurnBudget
