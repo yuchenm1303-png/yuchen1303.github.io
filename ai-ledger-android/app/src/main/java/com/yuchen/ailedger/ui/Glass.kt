@@ -1243,6 +1243,7 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     val master = composeMotionPower(value = motion.master, uiMax = 1.5f, effectiveMax = 18f)
     val touchLight = composeMotionPower(value = motion.touchLight, uiMax = 1.8f, effectiveMax = 56f) * master
     val sweepGain = composeMotionPower(value = motion.sweep, uiMax = 1.5f, effectiveMax = 56f) * master
+    val prismGain = composeMotionPower(value = motion.prism, uiMax = 1.8f, effectiveMax = 36f) * master
     val afterglow = composeMotionPower(value = motion.afterglow, uiMax = 1.5f, effectiveMax = 48f) * master
     val fieldContinuity = composeMotionPower(value = motion.fieldContinuity, uiMax = 1.6f, effectiveMax = 24f) * master
     val sweepMomentum = composeMotionPower(value = motion.sweepMomentum, uiMax = 1.6f, effectiveMax = 24f) * master
@@ -1254,7 +1255,11 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     val sweepShape = composeMotionSmoothStep((sweepValue / 2.80f).coerceIn(0f, 1f))
     val tailShape = composeMotionSmoothStep((tailValue / 2.40f).coerceIn(0f, 1f))
 
-    // 所有光效都挂在 releaseEnvelope 上，避免尾部稳定白雾在最后一帧突然消失。
+    /*
+     * 只回退彩虹光效：保留当前 Glass.kt 新增的 sizeProfile 归一化，
+     * 把色彩表现恢复到上一版更明显的 Liquid Prism。
+     * 所有白光和彩虹仍然挂在 releaseEnvelope / fadeEnvelope 上，避免尾端整团切断。
+     */
     val releaseEnvelope = maxOf(
         pressShape,
         lensShape,
@@ -1263,47 +1268,58 @@ private fun Modifier.ordinaryPressSurfaceOptics(
     ).coerceIn(0f, 1f)
     if (releaseEnvelope <= 0.00001f) return@drawWithContent
 
+    val fadeEnvelope = (releaseEnvelope * releaseEnvelope).coerceIn(0f, 1f)
     val continuityShape = maxOf(tailShape, lensShape * 0.42f, sweepShape * 0.36f)
     val lightCarrier = maxOf(pressShape * 0.58f, lensShape, tailShape * 0.86f)
     val sweepCarrier = maxOf(sweepShape, tailShape * (0.42f + sweepMomentum.coerceIn(0f, 24f) * 0.010f))
     val tailCarrier = tailShape * (0.68f + afterglow.coerceIn(0f, 48f) * 0.006f).coerceIn(0.68f, 0.96f)
+    val prismNorm = (prismGain / 36f).coerceIn(0f, 1f)
+    val prismEnvelope = (
+        prismNorm *
+            maxOf(lensShape * 0.74f, sweepShape, tailShape * 0.82f, pressShape * 0.38f) *
+            (0.62f + releaseEnvelope * 0.38f)
+        ).coerceIn(0f, 1f)
+    val causticEnvelope = (prismEnvelope * maxOf(tailShape, sweepShape * 0.62f, lensShape * 0.38f)).coerceIn(0f, 1f)
+
     val sizeLightBoost = (0.74f + sizeOptics * 0.42f + sizeSmallness * 0.20f + sizeRowness * 0.32f)
         .coerceIn(0.72f, 2.60f)
     val sizeSweepBoost = (0.78f + sizeRim * 0.34f + sizeRowness * 0.44f)
         .coerceIn(0.72f, 2.40f)
+
     val lightPower = (
         touchLight *
             lightCarrier *
-            (0.34f + lensShape * 0.56f + pressShape * 0.20f + tailCarrier * 0.30f) *
+            fadeEnvelope *
+            (0.36f + lensShape * 0.56f + pressShape * 0.20f + tailCarrier * 0.30f) *
             (0.82f + optics.fieldIntensity * 0.050f) *
             sizeLightBoost
         ).coerceIn(0f, 128f)
     val sweepPower = (
         sweepGain *
             sweepCarrier *
-            releaseEnvelope *
+            fadeEnvelope *
             (0.72f + optics.edgeIntensity * 0.035f) *
             sizeSweepBoost
         ).coerceIn(0f, 112f)
     val afterPower = (
         afterglow *
             tailCarrier *
+            fadeEnvelope *
             (0.18f + continuityShape * 0.40f) *
             (0.86f + sizeOptics * 0.18f) +
-            fieldContinuity * tailShape * tailShape * 0.36f
+            fieldContinuity * tailShape * tailShape * fadeEnvelope * 0.36f
         ).coerceIn(0f, 88f)
-    val chromaPower = (sweepShape * 0.48f + pressShape * 0.18f + tailShape * 0.14f).coerceIn(0f, 1f)
+
     val capsuleLight = (1f + capsule.tapPx * 4.8f + capsule.sticky * 7.2f + capsule.basePx * 3.6f).coerceIn(0.92f, 1.74f)
     val elasticityLift = maxOf(
         elasticity,
         0.14f + sizeSmallness * 0.24f + sizeRowness * 0.34f
     ).coerceIn(0.08f, 1.65f)
-    val fieldEnergy = (maxOf(pressShape, lensShape * 0.92f, sweepShape * 0.50f, tailShape * 0.78f) * capsuleLight * elasticityLift * releaseEnvelope).coerceIn(0f, 2.30f)
+    val fieldEnergy = (maxOf(pressShape, lensShape * 0.92f, sweepShape * 0.50f, tailShape * 0.78f) * capsuleLight * elasticityLift * fadeEnvelope).coerceIn(0f, 2.30f)
     val sweepPhase = ((sweepValue + tailShape * 0.46f) / 2.80f).coerceIn(0f, 1.20f)
     val sweepX = -0.42f + sweepPhase * 1.84f
     val radiusCarrier = maxOf(pressShape * 0.72f, lensShape * 0.60f, sweepShape * 0.32f, tailShape * 0.38f)
 
-    // 光斑半径以短边为主，长边只给少量参与。这样全宽低高度条目不会把点击光摊薄。
     val minBloomRadius = maxOf(
         minSide * (0.92f + radiusCarrier * 1.18f),
         42.dp.toPx() * (0.56f + radiusCarrier * 0.46f)
@@ -1321,17 +1337,22 @@ private fun Modifier.ordinaryPressSurfaceOptics(
             maxSide * (0.026f + sizeRowness * 0.052f)
     val maxBloomRadius = maxOf(
         minBloomRadius,
-        maxSide * (0.42f + sizeRowness * 0.24f + sizeSmallness * 0.10f)
+        maxSide * (0.56f + sizeRowness * 0.32f + sizeSmallness * 0.16f)
     )
     val softBloomRadius = maxOf(localBloomRadius, minBloomRadius).coerceAtMost(maxBloomRadius)
+    val prismBloomRadius = softBloomRadius * (0.86f + prismEnvelope * 0.36f)
+    val causticCenter = Offset(
+        (center.x + (pressCenter.x - 0.5f) * w * 0.20f + w * (sweepX - 0.50f) * 0.075f).coerceIn(0f, w),
+        (center.y + (pressCenter.y - 0.5f) * h * 0.16f - h * 0.035f).coerceIn(0f, h)
+    )
 
-    val radialEnvelope = releaseEnvelope * (0.72f + lensShape * 0.18f + tailShape * 0.10f).coerceIn(0f, 1f)
+    val pearlEnvelope = fadeEnvelope * (0.74f + lensShape * 0.18f + tailShape * 0.08f).coerceIn(0f, 1f)
     drawRoundRect(
         brush = Brush.radialGradient(
-            0.00f to Color(0xFFFFF7FC).copy(alpha = ((0.038f * lightPower + 0.034f * fieldEnergy + 0.010f * afterPower) * radialEnvelope).coerceIn(0f, 0.92f)),
-            0.22f to Color.White.copy(alpha = ((0.028f * lightPower + 0.026f * afterPower) * radialEnvelope).coerceIn(0f, 0.68f)),
-            0.50f to Color(0xFFE9FFFB).copy(alpha = ((0.020f * lightPower + 0.020f * sweepPower + 0.016f * afterPower) * radialEnvelope).coerceIn(0f, 0.52f)),
-            0.72f to Color(0xFFFFE8D2).copy(alpha = ((0.010f * lightPower + 0.014f * chromaPower * sweepPower) * radialEnvelope).coerceIn(0f, 0.30f)),
+            0.00f to Color(0xFFFFF9FF).copy(alpha = ((0.040f * lightPower + 0.034f * fieldEnergy + 0.008f * afterPower) * pearlEnvelope).coerceIn(0f, 0.92f)),
+            0.20f to Color.White.copy(alpha = ((0.030f * lightPower + 0.024f * afterPower) * pearlEnvelope).coerceIn(0f, 0.66f)),
+            0.42f to Color(0xFFF0FFFF).copy(alpha = ((0.020f * lightPower + 0.014f * sweepPower + 0.014f * afterPower) * pearlEnvelope).coerceIn(0f, 0.50f)),
+            0.68f to Color(0xFFFFF0E0).copy(alpha = ((0.008f * lightPower + 0.008f * sweepPower) * pearlEnvelope).coerceIn(0f, 0.22f)),
             1.00f to Color.Transparent,
             center = center,
             radius = softBloomRadius
@@ -1341,7 +1362,43 @@ private fun Modifier.ordinaryPressSurfaceOptics(
         blendMode = BlendMode.Screen
     )
 
-    val edgeActive = (maxOf(sweepPower / 96f, lensShape * 0.52f, pressShape * 0.34f, tailShape * 0.62f) * releaseEnvelope).coerceIn(0f, 1f)
+    if (prismEnvelope > 0.001f) {
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                0.00f to Color.Transparent,
+                0.18f to Color(0xFFFFF7FF).copy(alpha = (0.020f * prismEnvelope * lightPower).coerceIn(0f, 0.22f)),
+                0.34f to Color(0xFFFF6ADB).copy(alpha = (0.018f * prismEnvelope * lightPower + 0.010f * prismEnvelope * sweepPower).coerceIn(0f, 0.38f)),
+                0.50f to Color(0xFFFFE08A).copy(alpha = (0.014f * prismEnvelope * lightPower + 0.012f * prismEnvelope * sweepPower).coerceIn(0f, 0.34f)),
+                0.66f to Color(0xFF7CFFF2).copy(alpha = (0.017f * prismEnvelope * lightPower + 0.016f * prismEnvelope * sweepPower + 0.008f * afterPower * prismEnvelope).coerceIn(0f, 0.38f)),
+                0.82f to Color(0xFF8EA6FF).copy(alpha = (0.012f * prismEnvelope * sweepPower + 0.010f * afterPower * prismEnvelope).coerceIn(0f, 0.28f)),
+                1.00f to Color.Transparent,
+                center = center,
+                radius = prismBloomRadius
+            ),
+            size = Size(w, h),
+            cornerRadius = cornerRadius,
+            blendMode = BlendMode.Screen
+        )
+    }
+
+    if (causticEnvelope > 0.001f) {
+        drawRoundRect(
+            brush = Brush.radialGradient(
+                0.00f to Color.Transparent,
+                0.22f to Color(0xFFBFFFF8).copy(alpha = (0.034f * causticEnvelope * afterPower + 0.012f * causticEnvelope * sweepPower).coerceIn(0f, 0.26f)),
+                0.46f to Color(0xFFFF9BEA).copy(alpha = (0.022f * causticEnvelope * afterPower + 0.010f * causticEnvelope * lightPower).coerceIn(0f, 0.22f)),
+                0.70f to Color(0xFFFFE6A8).copy(alpha = (0.012f * causticEnvelope * sweepPower).coerceIn(0f, 0.17f)),
+                1.00f to Color.Transparent,
+                center = causticCenter,
+                radius = prismBloomRadius * 0.66f
+            ),
+            size = Size(w, h),
+            cornerRadius = cornerRadius,
+            blendMode = BlendMode.Screen
+        )
+    }
+
+    val edgeActive = (maxOf(sweepPower / 96f, lensShape * 0.50f, pressShape * 0.32f, tailShape * 0.58f, prismEnvelope * 0.44f) * releaseEnvelope).coerceIn(0f, 1f)
     if (edgeActive > 0.001f) {
         val edgeStroke = (
             0.56.dp.toPx() +
@@ -1350,16 +1407,18 @@ private fun Modifier.ordinaryPressSurfaceOptics(
                 sizeRowness * 0.34.dp.toPx() +
                 sizeSmallness * 0.14.dp.toPx()
             ).coerceIn(0.56.dp.toPx(), 5.4.dp.toPx())
+        val prismEdgeAlpha = (prismEnvelope * edgeActive).coerceIn(0f, 1f)
         drawRoundRect(
             brush = Brush.linearGradient(
                 0.00f to Color.Transparent,
-                0.24f to Color(0xFFFFF4FB).copy(alpha = ((0.016f * lightPower + 0.036f * edgeActive) * edgeActive).coerceIn(0f, 0.48f)),
-                0.44f to Color(0xFFFFE8BC).copy(alpha = ((0.018f * lightPower + 0.020f * sweepPower) * edgeActive).coerceIn(0f, 0.56f)),
-                0.64f to Color(0xFFE9FFFB).copy(alpha = ((0.024f * lightPower + 0.024f * sweepPower) * edgeActive).coerceIn(0f, 0.60f)),
-                0.82f to Color(0xFFBDEBFF).copy(alpha = (0.010f * sweepPower * chromaPower * edgeActive).coerceIn(0f, 0.24f)),
+                0.18f to Color(0xFFFF68D8).copy(alpha = ((0.016f * lightPower + 0.024f * sweepPower) * prismEdgeAlpha).coerceIn(0f, 0.50f)),
+                0.32f to Color(0xFFFFF8FF).copy(alpha = ((0.020f * lightPower + 0.030f * edgeActive) * edgeActive).coerceIn(0f, 0.50f)),
+                0.48f to Color(0xFFFFE08A).copy(alpha = ((0.014f * lightPower + 0.026f * sweepPower) * maxOf(edgeActive, prismEdgeAlpha)).coerceIn(0f, 0.54f)),
+                0.64f to Color(0xFF7CFFF2).copy(alpha = ((0.018f * lightPower + 0.030f * sweepPower) * maxOf(edgeActive, prismEdgeAlpha)).coerceIn(0f, 0.56f)),
+                0.80f to Color(0xFF8EA6FF).copy(alpha = (0.020f * sweepPower * prismEdgeAlpha).coerceIn(0f, 0.34f)),
                 1.00f to Color.Transparent,
-                start = Offset(w * (sweepX - 0.34f), h * -0.06f),
-                end = Offset(w * (sweepX + 0.40f), h * 1.06f)
+                start = Offset(w * (sweepX - 0.38f), h * -0.08f),
+                end = Offset(w * (sweepX + 0.44f), h * 1.08f)
             ),
             topLeft = Offset(rimInset, rimInset),
             size = rimSize,
@@ -1367,6 +1426,24 @@ private fun Modifier.ordinaryPressSurfaceOptics(
             style = Stroke(edgeStroke),
             blendMode = BlendMode.Screen
         )
+        if (prismEdgeAlpha > 0.001f) {
+            drawRoundRect(
+                brush = Brush.linearGradient(
+                    0.00f to Color.Transparent,
+                    0.30f to Color(0xFFFFF4FF).copy(alpha = (0.12f * prismEdgeAlpha).coerceIn(0f, 0.24f)),
+                    0.46f to Color(0xFFFF6ADB).copy(alpha = (0.11f * prismEdgeAlpha).coerceIn(0f, 0.24f)),
+                    0.62f to Color(0xFF7CFFF2).copy(alpha = (0.12f * prismEdgeAlpha).coerceIn(0f, 0.24f)),
+                    1.00f to Color.Transparent,
+                    start = Offset(w * (sweepX - 0.20f), h * 0.02f),
+                    end = Offset(w * (sweepX + 0.24f), h * 0.98f)
+                ),
+                topLeft = Offset(rimInset, rimInset),
+                size = rimSize,
+                cornerRadius = rimCorner,
+                style = Stroke((edgeStroke * 0.42f).coerceAtLeast(0.42.dp.toPx())),
+                blendMode = BlendMode.Screen
+            )
+        }
     }
 }
 
