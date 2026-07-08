@@ -78,7 +78,6 @@ internal object VisualLoopModelContext {
             lower.contains("rejected") ||
             lower.contains("stale") ||
             lower.contains("blocked") ||
-            lower.contains("failed") ||
             lower.contains("失败") ||
             lower.contains("拒绝") ||
             lower.contains("重试") ||
@@ -89,13 +88,14 @@ internal object VisualLoopModelContext {
 
     private fun compactInteractionLine(line: String): String? {
         val clean = line.trim()
-        return when {
+        val visible = when {
             clean.startsWith("userReply:") -> "User reply: " +
                 clean.substringAfter("userReply:").trim().take(MAX_ACTION_TEXT_CHARS)
             clean.startsWith("guiPlusQuestion:") -> "User help requested: " +
                 clean.substringAfter("guiPlusQuestion:").trim().take(MAX_ACTION_TEXT_CHARS)
-            else -> null
-        }.takeIf { it.substringAfter(':', "").trim().isNotBlank() }
+            else -> return null
+        }
+        return visible.takeIf { it.substringAfter(':', "").trim().isNotBlank() }
     }
 
     private fun isInternalRuntimeLine(line: String): Boolean {
