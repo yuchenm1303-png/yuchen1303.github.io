@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -317,6 +318,37 @@ internal fun StockFrostBatchHost(
                                 cornerRadius = CornerRadius(item.radiusPx, item.radiusPx)
                             )
                         }
+                    }
+
+                    drawCache.forEachResolved { item ->
+                        val radius = CornerRadius(item.radiusPx, item.radiusPx)
+                        drawRoundRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF2A357A).copy(alpha = 0.34f),
+                                    Color(0xFF101A45).copy(alpha = 0.24f),
+                                    Color(0xFF4A2F69).copy(alpha = 0.24f)
+                                ),
+                                startY = item.rect.top,
+                                endY = item.rect.bottom
+                            ),
+                            topLeft = item.rect.topLeft,
+                            size = item.rect.size,
+                            cornerRadius = radius
+                        )
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.085f),
+                            topLeft = item.rect.topLeft,
+                            size = item.rect.size,
+                            cornerRadius = radius,
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.035f),
+                            topLeft = item.rect.topLeft,
+                            size = item.rect.size.copy(height = item.rect.height * 0.42f),
+                            cornerRadius = radius
+                        )
                     }
 
                     drawCache.forEachFrostPath { alpha, path ->
