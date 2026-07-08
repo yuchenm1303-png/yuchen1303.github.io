@@ -94,6 +94,8 @@ import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.sin
 
+private const val CHAT_AUTO_SCROLL_END_OFFSET_PX = 1_000_000
+
 @Immutable
 private data class ChatPanelUiState(
     val messages: List<ChatMessage>,
@@ -569,12 +571,28 @@ private fun ChatPanelV2(
     )
     SideEffect { PerformanceRuntimeMetrics.recordAssistantComposition() }
 
-    LaunchedEffect(lastMessageId, state.isSending) {
-        if (messages.isEmpty()) return@LaunchedEffect
-        if (state.isSending || lastMessageStatus == MessageStatus.Sending) {
-            listState.scrollToItem(lastMessageIndex)
+    val lastMessageAutoScrollSignature = remember(lastMessage) {
+        lastMessage?.autoScrollSignatureV2()
+    }
+
+    LaunchedEffect(
+        lastMessageId,
+        lastMessageStatus,
+        lastMessageAutoScrollSignature,
+        lastMessageIndex,
+        state.isSending
+    ) {
+        if (messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
+
+        val followLiveTail = state.isSending || lastMessageStatus == MessageStatus.Sending
+        withFrameNanos { }
+
+        if (followLiveTail) {
+            listState.scrollToItem(lastMessageIndex, CHAT_AUTO_SCROLL_END_OFFSET_PX)
+            withFrameNanos { }
+            listState.scrollToItem(lastMessageIndex, CHAT_AUTO_SCROLL_END_OFFSET_PX)
         } else {
-            listState.animateScrollToItem(lastMessageIndex)
+            listState.animateScrollToItem(lastMessageIndex, CHAT_AUTO_SCROLL_END_OFFSET_PX)
         }
     }
 
@@ -2251,6 +2269,33 @@ private fun PulseDotV2(active: Boolean, color: Color, motionClock: AssistantHome
     }
     val pulse = 0.76f + FastOutSlowInEasing.transform(motionClock.pingPong(860L)) * 0.46f
     Box(Modifier.size(8.dp).graphicsLayer { scaleX = pulse; scaleY = pulse; alpha = 0.96f }.clip(RoundedCornerShape(999.dp)).background(color))
+}
+
+private fun ChatMessage.autoScrollSignatureV2(): String {
+    val data = structuredData
+    return buildString {
+        append(id).append('|')
+        append(status.name).append('|')
+        append(text.length).append('|')
+        append(text.takeLast(160)).append('|')
+        append(errorText.orEmpty().length).append('|')
+        append(errorText.orEmpty().takeLast(80)).append('|')
+        append(webSources.size).append('|')
+        append(attachments.size).append('|')
+        if (data != null) {
+            append(data.type).append('|')
+            append(data.title).append('|')
+            append(data.subtitle.orEmpty()).append('|')
+            append(data.timestamp.orEmpty()).append('|')
+            append(data.metrics.size).append('|')
+            data.metrics.take(8).forEach { metric ->
+                append(metric.label).append('=')
+                append(metric.value).append(metric.unit.orEmpty()).append(';')
+            }
+            append(data.rawText.orEmpty().length).append('|')
+            append(data.rawText.orEmpty().takeLast(120))
+        }
+    }
 }
 
 private fun messageText(message: ChatMessage): String = when (message.status) {
