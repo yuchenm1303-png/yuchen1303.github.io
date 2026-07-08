@@ -13,7 +13,7 @@ enum class ComposeGlassPreset {
 }
 
 data class ComposeGlassMotionStyle(
-    val master: Float = 8.069f,
+    val master: Float = 6.629f,
     val deformation: Float = 0.351f,
     val touchLight: Float = 24.0f,
     val prism: Float = 24.0f,
@@ -145,19 +145,19 @@ data class OrdinaryGlassSizeAdaptiveTuning(
 
     val bodyHeightPivotPx: Float = 270f,
     val bodyHeightRangePx: Float = 220f,
-    val bodyHeightMin: Float = 0.10f,
+    val bodyHeightMin: Float = 0.0457f,
     val bodyAreaPivotPx: Float = 520f,
     val bodyAreaRangePx: Float = 460f,
-    val bodyAreaMin: Float = 0.12f,
+    val bodyAreaMin: Float = 0.0437f,
     val bodyMin: Float = 0.10f,
-    val bodyMax: Float = 1.58f,
+    val bodyMax: Float = 0.11f,
     val opticsMin: Float = 0.32f,
     val opticsMax: Float = 2.80f,
     val rimMin: Float = 0.24f,
     val rimMax: Float = 2.60f,
 
     val smallBoost: Float = 24.0f,
-    val largeDamp: Float = 6.0f,
+    val largeDamp: Float = 14.615f,
     val pivotPx: Float = 520f,
     val visualPx: Float = 18.0f,
     val lightBoost: Float = 24.0f,
@@ -280,21 +280,10 @@ object ComposeGlassLabState {
     var pressureOpticsTuning by mutableStateOf(singleCardPressureOpticsFor(sizeAdaptiveTuning))
         private set
 
-    fun update(next: ComposeGlassStyle) {
-        style = next
-    }
-
-    fun updateMotion(next: ComposeGlassMotionStyle) {
-        motionStyle = next.storageClamped()
-    }
-
-    fun updateCapsuleTuning(next: OrdinaryGlassCapsuleTuning) {
-        capsuleTuning = next.normalized()
-    }
-
-    fun updatePressureOpticsTuning(next: OrdinaryGlassPressureOpticsTuning) {
-        pressureOpticsTuning = next.normalized()
-    }
+    fun update(next: ComposeGlassStyle) { style = next }
+    fun updateMotion(next: ComposeGlassMotionStyle) { motionStyle = next.storageClamped() }
+    fun updateCapsuleTuning(next: OrdinaryGlassCapsuleTuning) { capsuleTuning = next.normalized() }
+    fun updatePressureOpticsTuning(next: OrdinaryGlassPressureOpticsTuning) { pressureOpticsTuning = next.normalized() }
 
     fun updateSizeAdaptiveTuning(next: OrdinaryGlassSizeAdaptiveTuning) {
         val normalized = next.normalized()
@@ -307,32 +296,16 @@ object ComposeGlassLabState {
         pressureOpticsTuning = singleCardPressureOpticsFor(size)
     }
 
-    fun usePreset(preset: ComposeGlassPreset) {
-        style = defaultComposeGlassStyle(preset)
-    }
-
-    fun reset() {
-        style = defaultComposeGlassStyle(style.preset)
-    }
-
-    fun resetMotion() {
-        motionStyle = defaultComposeGlassMotionStyle()
-    }
-
-    fun resetCapsuleTuning() {
-        capsuleTuning = singleCardCapsuleTuningFor(sizeAdaptiveTuning)
-    }
-
-    fun resetPressureOpticsTuning() {
-        pressureOpticsTuning = singleCardPressureOpticsFor(sizeAdaptiveTuning)
-    }
-
+    fun usePreset(preset: ComposeGlassPreset) { style = defaultComposeGlassStyle(preset) }
+    fun reset() { style = defaultComposeGlassStyle(style.preset) }
+    fun resetMotion() { motionStyle = defaultComposeGlassMotionStyle() }
+    fun resetCapsuleTuning() { capsuleTuning = singleCardCapsuleTuningFor(sizeAdaptiveTuning) }
+    fun resetPressureOpticsTuning() { pressureOpticsTuning = singleCardPressureOpticsFor(sizeAdaptiveTuning) }
     fun resetSizeAdaptiveTuning() {
         val defaults = defaultOrdinaryGlassSizeAdaptiveTuning()
         sizeAdaptiveTuning = defaults
         applySizeAdaptiveTuningToSingleCard(defaults)
     }
-
     fun resetAll() {
         style = defaultComposeGlassStyle()
         motionStyle = defaultComposeGlassMotionStyle()
@@ -344,11 +317,8 @@ object ComposeGlassLabState {
 }
 
 private fun defaultComposeGlassMotionStyle(): ComposeGlassMotionStyle = ComposeGlassMotionStyle()
-
 private fun defaultOrdinaryGlassCapsuleTuning(): OrdinaryGlassCapsuleTuning = OrdinaryGlassCapsuleTuning()
-
 private fun defaultOrdinaryGlassPressureOpticsTuning(): OrdinaryGlassPressureOpticsTuning = OrdinaryGlassPressureOpticsTuning()
-
 private fun defaultOrdinaryGlassSizeAdaptiveTuning(): OrdinaryGlassSizeAdaptiveTuning = OrdinaryGlassSizeAdaptiveTuning()
 
 private fun singleCardCapsuleTuningFor(size: OrdinaryGlassSizeAdaptiveTuning): OrdinaryGlassCapsuleTuning {
@@ -383,28 +353,7 @@ private fun singleCardPressureOpticsFor(size: OrdinaryGlassSizeAdaptiveTuning): 
 }
 
 private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPreset.Frost): ComposeGlassStyle = when (preset) {
-    ComposeGlassPreset.Clear -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 1.08f,
-        backdropBlur = 0.74f,
-        backdropDim = 0.18f,
-        backdropMilk = 0.42f,
-        backdropHighlight = 0.55f,
-        quiet = 0.82f,
-        bodyAbsorption = 0.22f,
-        lowerBodyMass = 0.18f,
-        innerTransition = 0.10f,
-        topLight = 1.18f,
-        topWidthDp = 2.20f,
-        topVariation = 0.48f,
-        bottomLight = 0.48f,
-        bottomWidthDp = 1.80f,
-        outerRim = 0.48f,
-        bottomMass = 0.52f,
-        sideLight = 0.10f,
-        radius = 48f,
-        ribbon = 0.28f
-    )
+    ComposeGlassPreset.Clear -> ComposeGlassStyle(preset, 1.08f, 0.74f, 0.18f, 0.42f, 0.55f, 0.82f, 0.22f, 0.18f, 0.10f, 1.18f, 2.20f, 0.48f, 0.48f, 1.80f, 0.48f, 0.52f, 0.10f, 48f, 0.28f)
     ComposeGlassPreset.Frost -> ComposeGlassStyle(
         preset = preset,
         backdrop = ComposeGlassRuntimeDefaults.backdrop,
@@ -427,70 +376,7 @@ private fun defaultComposeGlassStyle(preset: ComposeGlassPreset = ComposeGlassPr
         radius = ComposeGlassRuntimeDefaults.radius,
         ribbon = ComposeGlassRuntimeDefaults.ribbon
     )
-    ComposeGlassPreset.Crystal -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 1.00f,
-        backdropBlur = 0.86f,
-        backdropDim = 0.22f,
-        backdropMilk = 0.62f,
-        backdropHighlight = 0.92f,
-        quiet = 0.90f,
-        bodyAbsorption = 0.28f,
-        lowerBodyMass = 0.20f,
-        innerTransition = 0.18f,
-        topLight = 1.62f,
-        topWidthDp = 1.40f,
-        topVariation = 0.82f,
-        bottomLight = 0.72f,
-        bottomWidthDp = 1.50f,
-        outerRim = 0.82f,
-        bottomMass = 0.52f,
-        sideLight = 0.08f,
-        radius = 48f,
-        ribbon = 0.18f
-    )
-    ComposeGlassPreset.Dense -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 0.78f,
-        backdropBlur = 1.18f,
-        backdropDim = 0.72f,
-        backdropMilk = 0.86f,
-        backdropHighlight = 0.36f,
-        quiet = 1.16f,
-        bodyAbsorption = 0.72f,
-        lowerBodyMass = 0.62f,
-        innerTransition = 0.36f,
-        topLight = 0.96f,
-        topWidthDp = 1.10f,
-        topVariation = 0.20f,
-        bottomLight = 0.50f,
-        bottomWidthDp = 1.40f,
-        outerRim = 0.36f,
-        bottomMass = 1.05f,
-        sideLight = 0.06f,
-        radius = 42f,
-        ribbon = 0.12f
-    )
-    ComposeGlassPreset.Aurora -> ComposeGlassStyle(
-        preset = preset,
-        backdrop = 0.94f,
-        backdropBlur = 1.02f,
-        backdropDim = 0.46f,
-        backdropMilk = 0.70f,
-        backdropHighlight = 0.82f,
-        quiet = 1.12f,
-        bodyAbsorption = 0.48f,
-        lowerBodyMass = 0.42f,
-        innerTransition = 0.26f,
-        topLight = 1.18f,
-        topWidthDp = 1.20f,
-        topVariation = 0.72f,
-        bottomLight = 0.62f,
-        bottomWidthDp = 1.60f,
-        outerRim = 0.58f,
-        bottomMass = 0.78f,
-        sideLight = 0.08f,
-        radius = 46f,
-        ribbon = 0.34f
-    )
+    ComposeGlassPreset.Crystal -> ComposeGlassStyle(preset, 1.00f, 0.86f, 0.22f, 0.62f, 0.92f, 0.90f, 0.28f, 0.20f, 0.18f, 1.62f, 1.40f, 0.82f, 0.72f, 1.50f, 0.82f, 0.52f, 0.08f, 48f, 0.18f)
+    ComposeGlassPreset.Dense -> ComposeGlassStyle(preset, 0.78f, 1.18f, 0.72f, 0.86f, 0.36f, 1.16f, 0.72f, 0.62f, 0.36f, 0.96f, 1.10f, 0.20f, 0.50f, 1.40f, 0.36f, 1.05f, 0.06f, 42f, 0.12f)
+    ComposeGlassPreset.Aurora -> ComposeGlassStyle(preset, 0.94f, 1.02f, 0.46f, 0.70f, 0.82f, 1.12f, 0.48f, 0.42f, 0.26f, 1.18f, 1.20f, 0.72f, 0.62f, 1.60f, 0.58f, 0.78f, 0.08f, 46f, 0.34f)
 }
