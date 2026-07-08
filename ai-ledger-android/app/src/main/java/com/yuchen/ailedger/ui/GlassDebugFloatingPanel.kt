@@ -37,10 +37,11 @@ import kotlin.math.roundToInt
 private val ComposeMotionEnergyRange = 0f..12f
 private val ComposeMotionLightRange = 0f..24f
 private val ComposeMotionSpeedRange = 0.05f..8f
-private val ComposePressGainRange = 0f..24f
-private val ComposePressBoostRange = 0f..16f
-private val ComposePressMinFeedbackRange = 0f..8f
-private val ComposePressLensRange = 0.05f..12f
+private val ComposeSizeNormGainRange = 0f..24f
+private val ComposeSizeNormBoostRange = 0f..16f
+private val ComposeSizeNormMinOpticsRange = 0f..8f
+private val ComposeSizeNormLensRange = 0.05f..12f
+private val ComposeSizeNormDampRange = 0f..2f
 
 @Composable
 fun GlassDebugFloatingPanel(
@@ -69,78 +70,71 @@ fun GlassDebugFloatingPanel(
             )
             GlassLabFoldout(
                 "Compose光动效效果",
-                "只保留可直接调效果的新版归一化参数",
+                "8830 版按压鼓起 / 触点 bloom / 边缘 sweep / 释放余辉",
                 true,
                 state,
             ) {
-                Group("基础动效", "先调总强度和速度，再调下面的小组件反馈", state, initiallyExpanded = true) {
+                Group("8830 动画曲线", "只保留当前新光效真正消费的动画参数；范围放大方便压测", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
-                    LabSlider("总强度", "普通 Compose 玻璃按压总能量；0 关闭，越高越夸张", motion.master, ComposeMotionEnergyRange) {
+                    LabSlider("总强度 master", "普通 Compose 光动效总能量，0 关闭，越高越夸张", motion.master, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(master = it))
                     }
-                    LabSlider("速度", "按下、扫光、余辉退场速度", motion.speed, ComposeMotionSpeedRange) {
+                    LabSlider("速度 speed", "控制按下、扫光、余辉退场速度；越高越快", motion.speed, ComposeMotionSpeedRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(speed = it))
                     }
-                    LabSlider("形变", "玻璃本体压缩、鼓起和下沉幅度", motion.deformation, ComposeMotionEnergyRange) {
+                    LabSlider("本体形变 deformation", "控制玻璃本体鼓起和按压体积", motion.deformation, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(deformation = it))
                     }
-                    LabSlider("回弹", "松手时的反向弹性", motion.rebound, ComposeMotionEnergyRange) {
+                    LabSlider("释放回弹 rebound", "控制松手时的反向回弹幅度", motion.rebound, ComposeMotionEnergyRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(rebound = it))
                     }
                 }
-                Group("小组件反馈", "发送、加号、Chip、Floating 等小按钮主要看这里", state, initiallyExpanded = true) {
+                Group("8830 白光与扫光", "触点径向 bloom、彩色棱镜和边缘 sweep；不再显示旧压力场参数", state, initiallyExpanded = true) {
                     ComposeGlassMotionPreview(state)
-                    LabSlider("小按钮灵敏度", "越高，小圆按钮和短 Chip 越容易有明显反馈", sizeTuning.pressSmallBoost, ComposePressBoostRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressSmallBoost = it))
-                    }
-                    LabSlider("最低点击反馈", "防止小按钮因为全局动效或尺寸归一化而按下没反应", sizeTuning.pressMinOptics, ComposePressMinFeedbackRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressMinOptics = it))
-                    }
-                    LabSlider("点击亮度", "触点白光、bloom 和按压增亮", sizeTuning.pressOpticsGain, ComposePressGainRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressOpticsGain = it))
-                    }
-                    LabSlider("光斑半径", "越高光斑越大；想更集中就调低", sizeTuning.pressLensGain, ComposePressLensRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressLensGain = it))
-                    }
-                    LabSlider("边缘扫光", "按压时边缘彩光和扫光强度", sizeTuning.pressRimGain, ComposePressGainRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressRimGain = it))
-                    }
-                }
-                Group("大卡片和长条", "用于设置页长条卡片；首页小按钮一般不用先调这里", state, initiallyExpanded = false) {
-                    LabSlider("长条反馈", "全宽低高度卡片的光效补偿", sizeTuning.pressRowBoost, ComposePressBoostRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressRowBoost = it))
-                    }
-                    LabSlider("本体形变增益", "所有普通 Compose 玻璃的身体缩放和下沉", sizeTuning.pressBodyGain, ComposePressGainRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressBodyGain = it))
-                    }
-                    LabSlider("玻璃整体增亮", "按压后玻璃本体透明度和亮度变化", sizeTuning.pressIntensityGain, ComposePressGainRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressIntensityGain = it))
-                    }
-                    LabSlider("阴影下沉", "按压时的下沉和阴影反馈", sizeTuning.pressShadowGain, ComposePressGainRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressShadowGain = it))
-                    }
-                    LabSlider("释放回弹", "尺寸归一化层的回弹倍率", sizeTuning.pressReboundGain, ComposePressGainRange) {
-                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressReboundGain = it))
-                    }
-                }
-                Group("白光和色散", "这是光效颜色层，不负责尺寸归一化", state, initiallyExpanded = false) {
-                    LabSlider("触点白光", "按下中心白光亮度", motion.touchLight, ComposeMotionLightRange) {
+                    LabSlider("触点白光 touchLight", "控制按下中心 bloom 和 lens 的亮度", motion.touchLight, ComposeMotionLightRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(touchLight = it))
                     }
-                    LabSlider("棱镜色散", "粉、暖黄、青色的彩色分离", motion.prism, ComposeMotionLightRange) {
+                    LabSlider("棱镜色散 prism", "控制粉、暖黄、青色的轻微色散；0 为纯白光", motion.prism, ComposeMotionLightRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(prism = it))
                     }
-                    LabSlider("边缘流光", "边缘 sweep 推进和描边光", motion.sweep, ComposeMotionLightRange) {
+                    LabSlider("边缘扫光 sweep", "控制边缘 sweep 推进和描边光强", motion.sweep, ComposeMotionLightRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(sweep = it))
                     }
-                    LabSlider("释放余辉", "松手后白光和边缘光保留时间", motion.afterglow, ComposeMotionLightRange) {
+                    LabSlider("释放余辉 afterglow", "控制松手后白光和边缘扫光的保留时间", motion.afterglow, ComposeMotionLightRange) {
                         ComposeGlassLabState.updateMotion(motion.copy(afterglow = it))
+                    }
+                }
+                Group("尺寸归一化", "只整理小组件尺寸补偿参数；其他光效参数保持原来的栏目", state, initiallyExpanded = true) {
+                    ComposeGlassMotionPreview(state)
+                    LabSlider("小组件补偿", "增强 Chip / Floating / 小圆按钮的可感知形变和光效", sizeTuning.pressSmallBoost, ComposeSizeNormBoostRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressSmallBoost = it))
+                    }
+                    LabSlider("长条补偿", "增强全宽低高度卡片的点击光和边缘扫光", sizeTuning.pressRowBoost, ComposeSizeNormBoostRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressRowBoost = it))
+                    }
+                    LabSlider("最低点击光", "给所有普通 Compose 玻璃一个按压反馈保底", sizeTuning.pressMinOptics, ComposeSizeNormMinOpticsRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressMinOptics = it))
+                    }
+                    LabSlider("归一化形变", "尺寸归一化后的 body 输出倍率，主要影响缩放和下沉", sizeTuning.pressBodyGain, ComposeSizeNormGainRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressBodyGain = it))
+                    }
+                    LabSlider("归一化光效", "尺寸归一化后的 optics 输出倍率，主要影响触点 bloom", sizeTuning.pressOpticsGain, ComposeSizeNormGainRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressOpticsGain = it))
+                    }
+                    LabSlider("归一化光斑", "尺寸归一化后的 lens 半径倍率；越低越集中，越高越扩散", sizeTuning.pressLensGain, ComposeSizeNormLensRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressLensGain = it))
+                    }
+                    LabSlider("归一化边缘光", "尺寸归一化后的 rim / sweep 输出倍率", sizeTuning.pressRimGain, ComposeSizeNormGainRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(pressRimGain = it))
+                    }
+                    LabSlider("长条身体压制", "row 组件只增强光效、不让整块乱弹；0 不压制，2 强压制", sizeTuning.rowBodyDamp, ComposeSizeNormDampRange) {
+                        ComposeGlassLabState.updateSizeAdaptiveTuning(sizeTuning.copy(rowBodyDamp = it))
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxWidth()) {
                     LabActionButton(
                         title = "复制参数 JSON",
-                        subtitle = "只导出当前可调主参数",
+                        subtitle = "导出新光效与尺寸归一化参数",
                         state = state,
                         modifier = Modifier.weight(1f),
                         onClick = { clipboard.setText(AnnotatedString(composeGlassMotionExportJson(motion, sizeTuning))) },
@@ -210,7 +204,7 @@ private fun ComposeGlassMotionPreview(state: AssistantUiState) {
         ) {
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 13.dp), verticalArrangement = Arrangement.Center) {
                 Text("按住卡片", color = Color.White.copy(alpha = 0.90f), fontSize = 13.sp, fontWeight = FontWeight.Black)
-                Text("光动效样本", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("8830 光动效样本", color = Color.White.copy(alpha = 0.44f), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -333,7 +327,7 @@ private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: 
     fun Float.exportValue(): String = ((this * 1000f).roundToInt() / 1000f).toString()
     return """
         {
-          "composeGlassMotion": {
+          "composeGlassMotionStyle8830": {
             "master": ${motion.master.exportValue()},
             "speed": ${motion.speed.exportValue()},
             "deformation": ${motion.deformation.exportValue()},
@@ -343,17 +337,15 @@ private fun composeGlassMotionExportJson(motion: ComposeGlassMotionStyle, size: 
             "sweep": ${motion.sweep.exportValue()},
             "afterglow": ${motion.afterglow.exportValue()}
           },
-          "composePressTuning": {
-            "smallButtonSensitivity": ${size.pressSmallBoost.exportValue()},
-            "minimumPressFeedback": ${size.pressMinOptics.exportValue()},
-            "pressLight": ${size.pressOpticsGain.exportValue()},
-            "lensRadius": ${size.pressLensGain.exportValue()},
-            "rimSweep": ${size.pressRimGain.exportValue()},
-            "rowFeedback": ${size.pressRowBoost.exportValue()},
-            "body": ${size.pressBodyGain.exportValue()},
-            "intensity": ${size.pressIntensityGain.exportValue()},
-            "shadow": ${size.pressShadowGain.exportValue()},
-            "rebound": ${size.pressReboundGain.exportValue()}
+          "ordinaryGlassSizeNormalization": {
+            "smallBoost": ${size.pressSmallBoost.exportValue()},
+            "rowBoost": ${size.pressRowBoost.exportValue()},
+            "minOptics": ${size.pressMinOptics.exportValue()},
+            "bodyGain": ${size.pressBodyGain.exportValue()},
+            "opticsGain": ${size.pressOpticsGain.exportValue()},
+            "lensGain": ${size.pressLensGain.exportValue()},
+            "rimGain": ${size.pressRimGain.exportValue()},
+            "rowBodyDamp": ${size.rowBodyDamp.exportValue()}
           }
         }
     """.trimIndent()
