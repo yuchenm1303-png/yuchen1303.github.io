@@ -1,7 +1,6 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.ui.geometry.Offset
-import kotlin.math.abs
 
 internal class OrdinaryGlassMotionSnapshot {
     var pressPhase: Float = 0f
@@ -57,15 +56,7 @@ internal fun updateOrdinaryGlassMotionSnapshot(
     val lens = node.lensProgress.coerceAtLeast(0f)
     val sweep = node.sweepProgress.coerceAtLeast(0f)
 
-    val masterValue = legacy8830Control(motion.master, currentDefault = 3.8f, legacyDefault = 1f, uiMax = 1.5f)
-    val deformationValue = legacy8830Control(motion.deformation, currentDefault = 0.86f, legacyDefault = 0.92f, uiMax = 1.5f)
-    val touchLightValue = legacy8830Control(motion.touchLight, currentDefault = 4.6f, legacyDefault = 1f, uiMax = 1.8f)
-    val prismValue = if (motion.prism <= 0.001f) 0.68f else legacy8830Control(motion.prism, currentDefault = 0.68f, legacyDefault = 0.68f, uiMax = 1.5f)
-    val sweepValue = legacy8830Control(motion.sweep, currentDefault = 4.2f, legacyDefault = 0.90f, uiMax = 1.5f)
-    val reboundValue = legacy8830Control(motion.rebound, currentDefault = 1.85f, legacyDefault = 0.90f, uiMax = 1.5f)
-    val afterglowValue = legacy8830Control(motion.afterglow, currentDefault = 5.4f, legacyDefault = 0.86f, uiMax = 1.5f)
-
-    val master = ordinarySnapshotMotionPower(value = masterValue, uiMax = 1.5f, effectiveMax = 7f)
+    val master = ordinarySnapshotMotionPower(value = motion.master, uiMax = 12f, effectiveMax = 7f)
     out.pressPhase = ordinarySnapshotSmoothStep(positive.coerceIn(0f, 1.72f) / 1.72f)
     out.tapPhase = ordinarySnapshotSmoothStep((positive + lens * 0.62f).coerceIn(0f, 2.65f) / 2.65f)
     out.releasePhase = ordinarySnapshotSmoothStep(negative.coerceIn(0f, 1.40f) / 1.40f)
@@ -73,26 +64,14 @@ internal fun updateOrdinaryGlassMotionSnapshot(
     out.sweepPhase = sweep.coerceIn(0f, 2.20f)
     out.settlePhase = out.releasePhase
     out.pressCenter = node.pressCenter
-    out.speed = legacy8830Control(motion.speed, currentDefault = 4.85f, legacyDefault = 1.12f, uiMax = 1.5f).coerceIn(0.08f, 8f)
+    out.speed = motion.speed.coerceIn(0.05f, 8f)
     out.master = master
-    out.grow = (ordinarySnapshotMotionPower(value = deformationValue, uiMax = 1.5f, effectiveMax = 7f) * master).coerceIn(0f, 10f)
-    out.rebound = (ordinarySnapshotMotionPower(value = reboundValue, uiMax = 1.5f, effectiveMax = 7f) * master).coerceIn(0f, 8f)
-    out.touchLight = (ordinarySnapshotMotionPower(value = touchLightValue, uiMax = 1.8f, effectiveMax = 13f) * master).coerceIn(0f, 42f)
-    out.prism = (ordinarySnapshotMotionPower(value = prismValue, uiMax = 1.5f, effectiveMax = 10f) * master).coerceIn(0f, 28f)
-    out.sweepGain = (ordinarySnapshotMotionPower(value = sweepValue, uiMax = 1.5f, effectiveMax = 10f) * master).coerceIn(0f, 30f)
-    out.afterglow = (ordinarySnapshotMotionPower(value = afterglowValue, uiMax = 1.5f, effectiveMax = 9f) * master).coerceIn(0f, 18f)
-}
-
-private fun legacy8830Control(
-    value: Float,
-    currentDefault: Float,
-    legacyDefault: Float,
-    uiMax: Float
-): Float {
-    if (value <= uiMax) return value
-    if (abs(value - currentDefault) < 0.0001f) return legacyDefault
-    val scaled = value / currentDefault.coerceAtLeast(0.001f) * legacyDefault
-    return scaled.coerceIn(0f, uiMax)
+    out.grow = (ordinarySnapshotMotionPower(value = motion.deformation, uiMax = 12f, effectiveMax = 7f) * master).coerceIn(0f, 10f)
+    out.rebound = (ordinarySnapshotMotionPower(value = motion.rebound, uiMax = 12f, effectiveMax = 7f) * master).coerceIn(0f, 8f)
+    out.touchLight = (ordinarySnapshotMotionPower(value = motion.touchLight, uiMax = 24f, effectiveMax = 13f) * master).coerceIn(0f, 42f)
+    out.prism = (ordinarySnapshotMotionPower(value = motion.prism, uiMax = 24f, effectiveMax = 10f) * master).coerceIn(0f, 28f)
+    out.sweepGain = (ordinarySnapshotMotionPower(value = motion.sweep, uiMax = 24f, effectiveMax = 10f) * master).coerceIn(0f, 30f)
+    out.afterglow = (ordinarySnapshotMotionPower(value = motion.afterglow, uiMax = 24f, effectiveMax = 9f) * master).coerceIn(0f, 18f)
 }
 
 private fun ordinarySnapshotMotionPower(value: Float, uiMax: Float, effectiveMax: Float): Float {
