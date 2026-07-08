@@ -457,7 +457,7 @@ private fun NativeSliderRow(title: String, subtitle: String, value: Float, onCha
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
         color = Color.White.copy(alpha = 0.085f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.13f),
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.13f)),
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
             Text(title, color = Color.White.copy(alpha = 0.92f), fontSize = 15.sp, fontWeight = FontWeight.Black)
