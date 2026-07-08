@@ -29,7 +29,7 @@ internal object VisualLoopModelContext {
                 val modelOutput = item.component2()
                 val action = extractActionText(modelOutput) ?: summarizeToolCall(modelOutput)
                     ?: return@mapIndexedNotNull null
-                val result = compactResultSuffix(item.executionResult)
+                val result = compactOutcomeSuffix(item.executionResult)
                 "Step ${index + 1}: ${action.take(MAX_ACTION_TEXT_CHARS)}$result"
             }
 
@@ -41,7 +41,7 @@ internal object VisualLoopModelContext {
         VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordDiagnosticEvent(
             type = "model_visible_previous_actions",
             details = JSONObject().apply {
-                put("source", "official_loop_clean_history")
+                put("source", "official_loop_clean_history_with_action_outcomes")
                 put("historyItems", visualHistory.size)
                 put("internalRecentActions", internalRecentActions.size)
                 put("interactionActions", interactionActions.size)
@@ -146,17 +146,26 @@ internal object VisualLoopModelContext {
         }
     }
 
-    private fun compactResultSuffix(result: String): String {
+    private fun compactOutcomeSuffix(result: String): String {
         val clean = result.trim()
         if (clean.isBlank()) return ""
         val lower = clean.lowercase()
         val message = when {
+            lower.contains("open_app_package_verified") ->
+                "app opened and verified"
+            lower.contains("open_app_package_verification_failed") ->
+                "app did not verify; choose another route"
+            lower.contains("open_app_package_verification_pending") ->
+                "app launch still settling; judge from current screenshot"
+            lower.contains("visual_execution_observed") ->
+                executionObservationOutcome(clean)
             lower.contains("executionaccepted=false") || lower.contains("gesturedispatched=false") ->
                 "not executed; choose a different action"
             lower.contains("visual_action_stale") || lower.contains("stale") ->
                 "screen changed before execution; re-plan from current screenshot"
-            lower.contains("rejected") || lower.contains("拒绝") || lower.contains("未通过") ->
-                "rejected; re-plan"
+            lower.contains("visual_action_rejected") || lower.contains("rejected") ||
+                lower.contains("拒绝") || lower.contains("未通过") ->
+                "rejected; choose a different visible action"
             lower.contains("blocked") ->
                 "blocked; choose a different route"
             lower.contains("failed") || lower.contains("失败") ->
@@ -165,7 +174,35 @@ internal object VisualLoopModelContext {
                 "retry required; choose a different action"
             else -> ""
         }
-        return if (message.isBlank()) "" else " | result: ${message.take(MAX_RESULT_TEXT_CHARS)}"
+        return if (message.isBlank()) "" else " -> ${message.take(MAX_RESULT_TEXT_CHARS)}"
+    }
+
+    private fun executionObservationOutcome(line: String): String {
+        val frameChanged = booleanField(line, "frameChanged")
+        val packageChanged = booleanField(line, "packageChanged")
+        val structuralRegression = booleanField(line, "structuralRegression")
+        return when {
+            structuralRegression == true ->
+                "target surface changed; re-plan from current screenshot"
+            packageChanged == true ->
+                "app/surface changed; judge only from current screenshot"
+            frameChanged == false ->
+                "no visible change; avoid repeating the same area"
+            frameChanged == true ->
+                "screen changed; judge progress from current screenshot"
+            else ->
+                "executed; fresh screenshot is authoritative"
+        }
+    }
+
+    private fun booleanField(line: String, key: String): Boolean? {
+        val pattern = Regex("(?:^|[|;:])" + Regex.escape(key) + "=([^|;:]+)", RegexOption.IGNORE_CASE)
+        val value = pattern.find(line)?.groupValues?.getOrNull(1)?.trim()?.lowercase() ?: return null
+        return when (value) {
+            "true", "1", "yes" -> true
+            "false", "0", "no" -> false
+            else -> null
+        }
     }
 
     private fun compactInteractionLine(line: String): String? {
