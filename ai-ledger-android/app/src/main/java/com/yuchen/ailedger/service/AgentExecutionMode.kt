@@ -1,13 +1,20 @@
 package com.yuchen.ailedger.service
 
 /**
- * Separates the homepage Agent switch from internal device control.
+ * Visual execution entry modes.
  *
- * VisualForce is the old homepage Agent switch meaning: force GUI/computer-use style planning.
- * Internal device tools are allowed to run from normal chat when the cloud brain returns a
- * structured device_tool step, so they must not be gated by this switch.
+ * VisualForce is the homepage Agent switch meaning: force GUI/computer-use style planning.
+ * ExplicitAgent is the cloud Final Chat Model selected computer_run_task path.
+ *
+ * NormalChatDeviceTool is kept only as a binary/source compatibility tombstone for old call sites.
+ * New normal-chat tool decisions must come from the cloud native tool loop and must not start a
+ * local semantic probe on Android.
  */
 enum class AgentExecutionMode {
+    @Deprecated(
+        message = "普通聊天本地设备探测已废弃；请由云端 Final Chat Model 原生工具调用触发手机工具。",
+        level = DeprecationLevel.WARNING,
+    )
     NormalChatDeviceTool,
     VisualForce,
     ExplicitAgent,
