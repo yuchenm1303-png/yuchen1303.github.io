@@ -37,11 +37,11 @@ import kotlin.math.roundToInt
 private val ComposeMotionEnergyRange = 0f..12f
 private val ComposeMotionLightRange = 0f..24f
 private val ComposeMotionSpeedRange = 0.05f..8f
-private val ComposeSizeBoostRange = 0f..5f
-private val ComposeLargeDampRange = 0f..1.2f
-private val ComposePivotRange = 60f..520f
-private val ComposeVisualPxRange = 0.5f..18f
-private val ComposeLightBoostRange = 0f..4f
+private val ComposeSizeBoostRange = 0f..24f
+private val ComposeLargeDampRange = 0f..4f
+private val ComposePivotRange = 32f..2000f
+private val ComposeVisualPxRange = 0.2f..96f
+private val ComposeLightBoostRange = 0f..24f
 
 @Composable
 fun GlassDebugFloatingPanel(
