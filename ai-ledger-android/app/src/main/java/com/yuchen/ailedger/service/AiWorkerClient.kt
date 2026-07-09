@@ -103,7 +103,7 @@ data class AiChatResponse(
 class AiWorkerClient(
     private val config: AiWorkerConfig = AiWorkerConfig(),
 ) {
-    val endpoint: String get() = config.endpoint
+    val endpoint: String get() = resolvedPrimaryEndpoint()
 
     private val resolvedClientId: String by lazy {
         config.clientId
@@ -160,7 +160,7 @@ class AiWorkerClient(
     ): AiChatResponse {
         val route = resolveModelRoute(messages, modelPreference)
         val endpoints = endpointPlan(route)
-        if (endpoints.isEmpty()) throw IOException("AI Worker endpoint 未配置")
+        if (endpoints.isEmpty()) throw IOException("云端 AI 流式请求失败，请检查网络或 Worker 配置。")
         val payload = buildPayload(messages, route, onlineEnabled).apply {
             put("stream", true)
             put("streaming", true)
@@ -386,8 +386,22 @@ class AiWorkerClient(
             .filter(String::isNotBlank)
             .distinct()
 
+    private fun resolvedPrimaryEndpoint(): String {
+        val configuredEndpoint = config.endpoint.trim().trimEnd('/')
+        val managedEndpoints = setOf(
+            DEFAULT_ENDPOINT.trim().trimEnd('/'),
+            ALIYUN_CN_ENDPOINT.trim().trimEnd('/'),
+        )
+        if (configuredEndpoint.isNotBlank() && configuredEndpoint !in managedEndpoints) {
+            return configuredEndpoint
+        }
+        return BackendEndpointStore.currentEndpointOrDefault(
+            configuredEndpoint.ifBlank { DEFAULT_ENDPOINT }
+        ).trim().trimEnd('/')
+    }
+
     private fun endpointPlan(route: AiWorkerModelRoute): List<String> {
-        val cn = config.endpoint.trim().trimEnd('/')
+        val cn = resolvedPrimaryEndpoint()
         val cf = (config.fallbackEndpoints.firstOrNull() ?: CLOUDFLARE_WORKER_ENDPOINT)
             .trim()
             .trimEnd('/')
@@ -442,8 +456,9 @@ class AiWorkerClient(
 
     companion object {
         val ALIYUN_CN_ENDPOINT: String = AI_WORKER_ALIYUN_CN_ENDPOINT
+        val TENCENT_SERVER_ENDPOINT: String = AI_WORKER_TENCENT_SERVER_ENDPOINT
         val CLOUDFLARE_WORKER_ENDPOINT: String = AI_WORKER_CLOUDFLARE_WORKER_ENDPOINT
-        val DEFAULT_ENDPOINT: String = ALIYUN_CN_ENDPOINT
+        val DEFAULT_ENDPOINT: String = TENCENT_SERVER_ENDPOINT
         val DEFAULT_FALLBACK_ENDPOINTS = listOf(CLOUDFLARE_WORKER_ENDPOINT)
     }
 }
