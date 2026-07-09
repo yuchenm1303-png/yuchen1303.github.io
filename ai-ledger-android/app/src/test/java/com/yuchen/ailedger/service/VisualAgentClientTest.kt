@@ -39,7 +39,8 @@ class VisualAgentClientTest {
         )
 
         assertEquals("visual_agent_step", payload.getString("action"))
-        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertEquals("gui_plus_exclusive", payload.getString("visualDecisionOwner"))
+        assertEquals("gui_plus_exclusive_visual", payload.getString("decisionOwner"))
         assertTrue(payload.getBoolean("visualAgentDirect"))
         assertTrue(payload.getBoolean("exclusiveVisualSession"))
         assertFalse(payload.getBoolean("allowAgentBrain"))
@@ -60,6 +61,7 @@ class VisualAgentClientTest {
         val app = payload.getJSONArray("appContext").getJSONObject(0)
         assertEquals("QQ", app.getString("label"))
         assertEquals("com.tencent.mobileqq", app.getString("packageName"))
+        assertEquals("gui_plus", payload.getJSONObject("appCatalog").getString("selectionOwner"))
         assertFalse(payload.getJSONObject("appCatalog").has("entries"))
         assertFalse(payload.getJSONObject("deviceContext").has("installedApps"))
         assertEquals(3, payload.getJSONArray("visualHistory").length())
@@ -175,7 +177,9 @@ class VisualAgentClientTest {
 
         assertFalse(payload.has("routeRefreshRequested"))
         assertFalse(payload.has("invalidateCachedAgentBrainRoute"))
-        assertEquals("deepseek", payload.getString("visualDecisionOwner"))
+        assertEquals("gui_plus_exclusive", payload.getString("visualDecisionOwner"))
+        assertTrue(payload.getBoolean("exclusiveVisualSession"))
+        assertFalse(payload.getBoolean("allowAgentBrain"))
         assertTrue(payload.getJSONObject("executionFeedback").getBoolean("replanRequested"))
         assertTrue(payload.getJSONObject("executionFeedback").getBoolean("structuralRegression"))
     }
@@ -199,6 +203,7 @@ class VisualAgentClientTest {
         )
 
         assertEquals(2, payload.getJSONArray("appContext").length())
+        assertEquals("gui_plus", payload.getJSONObject("appCatalog").getString("selectionOwner"))
         assertFalse(payload.getJSONObject("appCatalog").has("entries"))
         assertFalse(payload.getJSONObject("deviceContext").has("installedApps"))
         val serialized = payload.toString()
