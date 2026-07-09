@@ -74,7 +74,7 @@ class AgentTakeoverDialogueBridgeTest {
         assertFalse(payload.has("guiPlusReplanRequested"))
         assertFalse(payload.has("visualReplanRequested"))
         assertFalse(payload.has("routeRefreshRequested"))
-        assertEquals("gui_plus", payload.getString("visualDecisionOwner"))
+        assertEquals("gui_plus_exclusive", payload.getString("visualDecisionOwner"))
     }
 
     @Test
