@@ -39,9 +39,17 @@ internal fun buildLeanVisualAgentPayload(
     val inventoryHash = apps.inventoryHash()
     val workSurface = runtime.guiPlusEligible && runtime.verifiedTargetPackage.isNotBlank()
     val visual = snapshot.visual?.takeIf { it.hasImage }
+    val bootstrapFirstFrame = visual != null && !workSurface && runtime.surfaceState in setOf(
+        VisualSurfaceState.Planning,
+        VisualSurfaceState.Launching,
+        VisualSurfaceState.Replanning,
+    )
     val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
     val screenPayload = snapshot.toJson(includeImage = false).apply {
         put("reportedForegroundPackage", optString("packageName"))
+        put("bootstrapFirstFrame", bootstrapFirstFrame)
+        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
+        if (bootstrapFirstFrame) put("packageBindingMode", "final_model_bootstrap_first_frame")
     }
 
     return JSONObject().apply {
@@ -71,6 +79,21 @@ internal fun buildLeanVisualAgentPayload(
         put("allowSemanticJudge", false)
         put("computerUseOwner", "gui_plus")
         put(
+            "visualOwnership",
+            JSONObject().apply {
+                put("schema", "android_gui_plus_exclusive_ownership_v2")
+                put("owner", "gui_plus")
+                put("exclusive", true)
+                put("entryRouterReleased", true)
+                put("allowAgentBrain", false)
+                put("allowRoutePlanner", false)
+                put("allowSemanticJudge", false)
+            },
+        )
+        put("bootstrapFirstFrame", bootstrapFirstFrame)
+        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
+        put("surfaceRole", if (bootstrapFirstFrame) "entry_handoff" else "work_surface")
+        put(
             "runtimeExecutionContext",
             JSONObject().apply {
                 put("schema", "android_visual_execution_runtime_v2")
@@ -78,14 +101,20 @@ internal fun buildLeanVisualAgentPayload(
                 put("selectedTargetPackage", runtime.selectedTargetPackage)
                 put("verifiedTargetPackage", runtime.verifiedTargetPackage)
                 put("currentPackage", snapshot.packageName)
+                put("reportedForegroundPackage", reportedPackage)
+                put("effectiveWorkSurfacePackage", if (workSurface) runtime.verifiedTargetPackage else reportedPackage)
                 put("observationId", runtime.observationId)
                 put("routeEpoch", runtime.routeEpoch)
                 put("surfaceEpoch", runtime.surfaceEpoch)
                 put("guiPlusEligible", workSurface)
                 put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
                 put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
-                put("decisionOwner", "gui_plus_exclusive")
+                put("decisionOwner", "gui_plus")
                 put("allowAgentBrain", false)
+                put("bootstrapFirstFrame", bootstrapFirstFrame)
+                put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
+                put("surfaceRole", if (bootstrapFirstFrame) "entry_handoff" else "work_surface")
+                put("packageBindingMode", if (workSurface) "strict_android_verified" else "final_model_bootstrap_first_frame")
             },
         )
         put("observationId", runtime.observationId)
@@ -115,6 +144,14 @@ internal fun buildLeanVisualAgentPayload(
                 put("schema", "android_visual_device_context_v2")
                 put("currentPackage", snapshot.packageName)
                 put("deviceId", deviceId.trim().take(120))
+                put(
+                    "surfaceContext",
+                    JSONObject().apply {
+                        put("role", if (bootstrapFirstFrame) "entry_handoff" else "work_surface")
+                        put("bootstrapFirstFrame", bootstrapFirstFrame)
+                        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
+                    },
+                )
             },
         )
         put("appContext", JSONArray().apply { apps.forEach { put(it.toPayloadJson()) } })
@@ -165,7 +202,7 @@ internal fun buildLeanVisualAgentPayload(
             },
         )
         put("client", "android-compose")
-        put("clientVersion", "visual-gui-plus-exclusive-v1")
+        put("clientVersion", "visual-gui-plus-exclusive-v2-bootstrap-handoff")
         put("now", System.currentTimeMillis())
     }
 }
