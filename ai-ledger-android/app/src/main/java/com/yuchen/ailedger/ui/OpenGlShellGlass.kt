@@ -1,12 +1,8 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.yuchen.ailedger.model.RenderQuality
-import com.yuchen.ailedger.ui.gl.LocalOpenGLShellBatchState
 
 enum class OpenGlShellMood {
     Hero,
@@ -16,16 +12,11 @@ enum class OpenGlShellMood {
 }
 
 /**
- * Shared glass entry for surfaces that are deliberately promoted to Shell/OpenGL.
+ * 非聊天核心 Shell 的卡片统一入口。
  *
- * Shell identity follows page visibility instead of the heavy-effects throttle:
- * - active and fading pages keep the same Shell/OpenGL host until alpha reaches zero;
- * - hidden cached pages release OpenGL and fall back to a lightweight Card;
- * - diagnostics.openGlGlassOff still hard-disables Shell OpenGL;
- * - heavy-effects readiness only controls motion intensity, never Shell/Card identity.
- *
- * 当页面提供 [LocalOpenGLShellBatchState] 时，仍复用同一个入口、动态参数和点击行为，
- * 但底层 OpenGL 输出登记到父级共享宿主，由父级在同一帧内逐卡执行同一着色器。
+ * 这些功能页、股票页和设置页卡片不再提升为 OpenGL Shell，统一转为白色雾面玻璃。
+ * 真正的大玻璃容器仍由 GlassPanel(role = GlassRole.Shell) 的专用调用链负责，
+ * 聊天框 OpenGL Host / viewportTopInset 链路不经过这里。
  */
 @Composable
 fun OpenGlShellGlass(
@@ -39,69 +30,12 @@ fun OpenGlShellGlass(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    val pageVisible = LocalPageVisible.current
-    val heavyEffectsEnabled = LocalPageHeavyEffectsEnabled.current
-    val diagnostics = LocalPerformanceDiagnostics.current
-    val wantsOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
-    val useOpenGlShell = wantsOpenGlShell && pageVisible && !diagnostics.openGlGlassOff
-    val resolvedMotionIntensity = if (heavyEffectsEnabled) motionIntensity else 0f
-    val surfaceModifier = modifier
-    val batchState = LocalOpenGLShellBatchState.current
-
-    if (useOpenGlShell && batchState != null) {
-        OpenGlShellBatchItemSurface(
-            quality = quality,
-            glassIntensity = glassIntensity,
-            motionIntensity = resolvedMotionIntensity,
-            radius = radius,
-            modifier = surfaceModifier,
-            onClick = onClick,
-            content = content,
-        )
-        return
-    }
-
-    if (useOpenGlShell) {
-        val interaction = remember { MutableInteractionSource() }
-        val clickableModifier = if (onClick != null) {
-            Modifier.clickable(
-                interactionSource = interaction,
-                indication = null,
-                onClick = onClick
-            )
-        } else {
-            Modifier
-        }
-
-        GlassPanel(
-            quality = quality,
-            glassIntensity = glassIntensity,
-            motionIntensity = resolvedMotionIntensity,
-            radius = radius,
-            modifier = surfaceModifier.then(clickableModifier),
-            role = GlassRole.Shell,
-            content = content
-        )
-    } else if (onClick != null) {
-        PressableGlass(
-            quality = quality,
-            glassIntensity = glassIntensity,
-            motionIntensity = resolvedMotionIntensity,
-            radius = radius,
-            modifier = surfaceModifier,
-            role = GlassRole.Card,
-            onClick = onClick,
-            content = content
-        )
-    } else {
-        GlassPanel(
-            quality = quality,
-            glassIntensity = glassIntensity,
-            motionIntensity = resolvedMotionIntensity,
-            radius = radius,
-            modifier = surfaceModifier,
-            role = GlassRole.Card,
-            content = content
-        )
+    WhiteFrostGlassCard(
+        modifier = modifier,
+        radius = radius,
+        onClick = onClick,
+        frostAlpha = (0.115f + glassIntensity.coerceIn(0.70f, 1.30f) * 0.030f).coerceIn(0.12f, 0.18f),
+    ) {
+        content()
     }
 }
