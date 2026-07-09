@@ -14,7 +14,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
@@ -56,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -102,14 +102,20 @@ private const val CHAT_TAIL_FOLLOW_NEAR_LOCK_MAX_PX = 168f
 private const val CHAT_TAIL_FOLLOW_LIVE_RATIO = 0.88f
 private const val CHAT_TAIL_FOLLOW_SETTLE_RATIO = 0.74f
 private const val CHAT_TAIL_FOLLOW_FRAME_MAX_PX = 360f
+private const val CHAT_TAIL_FOLLOW_DOCKED_SETTLE_FRAMES = 3
+
+private val AGENT_TOOL_NAME_REGEX_V2 = Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+")
+private val AGENT_QUERY_TOOL_REGEX_V2 = Regex("(?:查询|调用|读取|创建|调整|搜索)\\s+([A-Za-z][A-Za-z0-9_-]{1,})")
 
 private class ChatTailFollowRuntimeV2 {
     var lastFrameNanos: Long = 0L
     var hiddenTailFrames: Int = 0
+    var dockedFrames: Int = 0
 
     fun reset() {
         lastFrameNanos = 0L
         hiddenTailFrames = 0
+        dockedFrames = 0
     }
 }
 
@@ -259,10 +265,11 @@ internal fun AssistantScreenV2(
         else -> OpenGLGlassSurfaceAnchor.Center
     }
 
+    val hasComposerAttachment = state.composerAttachments.isNotEmpty()
     val chatPanelState = remember(
         state.messages,
         state.isSending,
-        state.composerAttachments,
+        hasComposerAttachment,
         state.quality,
         state.glassIntensity,
         state.motionIntensity
@@ -270,7 +277,7 @@ internal fun AssistantScreenV2(
         ChatPanelUiState(
             messages = state.messages,
             isSending = state.isSending,
-            hasComposerAttachment = state.composerAttachments.isNotEmpty(),
+            hasComposerAttachment = hasComposerAttachment,
             quality = state.quality,
             glassIntensity = state.glassIntensity,
             motionIntensity = state.motionIntensity
@@ -562,6 +569,7 @@ private fun ChatPanelV2(
     val lastMessageId = lastMessage?.id
     val lastMessageStatus = lastMessage?.status
     val lastMessageIndex = messages.lastIndex
+    val lastMessageTextLength = lastMessage?.let { messageText(it).length } ?: 0
     val lastActionableMessage = remember(messages) {
         messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }
     }
@@ -604,17 +612,20 @@ private fun ChatPanelV2(
         )
     }
 
-    LaunchedEffect(lastMessageId, tailAnchorIndex, liveTailFollowActive) {
+    LaunchedEffect(lastMessageId, lastMessageTextLength, tailAnchorIndex, liveTailFollowActive) {
         tailFollowRuntime.reset()
         if (!liveTailFollowActive || messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
         while (true) {
             val frameNanos = withFrameNanos { it }
-            listState.followChatTailFrameV2(
+            val moved = listState.followChatTailFrameV2(
                 tailIndex = tailAnchorIndex,
                 live = true,
                 runtime = tailFollowRuntime,
                 frameNanos = frameNanos
             )
+            if (!moved && tailFollowRuntime.dockedFrames >= CHAT_TAIL_FOLLOW_DOCKED_SETTLE_FRAMES) {
+                break
+            }
         }
     }
 
@@ -772,8 +783,10 @@ private suspend fun LazyListState.followChatTailFrameV2(
     }
 
     if (gap <= CHAT_TAIL_FOLLOW_EPSILON_PX) {
+        runtime.dockedFrames += 1
         return false
     }
+    runtime.dockedFrames = 0
 
     if (live && tail == null && gap > info.viewportSize.height * 1.35f && runtime.hiddenTailFrames > 2) {
         scrollToItem(tailIndex)
@@ -815,6 +828,27 @@ private fun ChatBubbleMaterialLayerHost(
         motionIntensity = motionIntensity,
         modifier = modifier
     )
+}
+
+@Immutable
+private data class ChatBubbleVisualSnapshotV2(
+    val fromUser: Boolean,
+    val status: MessageStatus,
+    val appear: Float,
+    val phaseOffset: Float,
+    val speedFactor: Float,
+    val radiusDp: Int,
+    val thinkingSweepStrength: Float
+)
+
+private class ChatBubbleVisualDispatchStateV2 {
+    private var last: ChatBubbleVisualSnapshotV2? = null
+
+    fun shouldDispatch(next: ChatBubbleVisualSnapshotV2): Boolean {
+        if (last == next) return false
+        last = next
+        return true
+    }
 }
 
 private fun phaseOffsetForMessage(id: String): Float = ((id.hashCode() ushr 1) % 997) / 997f
@@ -973,18 +1007,30 @@ private fun MessageBubbleV2(
     val latestStreamRevealCompleted = rememberUpdatedState(streamRevealAlreadyCompleted)
     val latestOnStreamRevealCompleted = rememberUpdatedState(onStreamRevealCompleted)
 
+    val bubbleVisualDispatchState = remember(message.id) { ChatBubbleVisualDispatchStateV2() }
+    val bubbleVisualSnapshot = ChatBubbleVisualSnapshotV2(
+        fromUser = fromUser,
+        status = message.status,
+        appear = appear,
+        phaseOffset = phaseOffset,
+        speedFactor = speedFactor,
+        radiusDp = bubbleRadius,
+        thinkingSweepStrength = thinkingSweepStrength
+    )
     SideEffect {
         PerformanceRuntimeMetrics.recordMessageBubbleComposition()
-        bubbleLayerState.updateBubbleVisual(
-            id = message.id,
-            fromUser = fromUser,
-            status = message.status,
-            appear = appear,
-            phaseOffset = phaseOffset,
-            speedFactor = speedFactor,
-            radiusDp = bubbleRadius,
-            thinkingSweepStrength = thinkingSweepStrength
-        )
+        if (bubbleVisualDispatchState.shouldDispatch(bubbleVisualSnapshot)) {
+            bubbleLayerState.updateBubbleVisual(
+                id = message.id,
+                fromUser = fromUser,
+                status = message.status,
+                appear = appear,
+                phaseOffset = phaseOffset,
+                speedFactor = speedFactor,
+                radiusDp = bubbleRadius,
+                thinkingSweepStrength = thinkingSweepStrength
+            )
+        }
     }
     DisposableEffect(message.id) {
         onDispose {
@@ -1198,7 +1244,7 @@ private fun parseAgentProgressStateV2(text: String): AgentProgressPanelStateV2? 
                 line.contains("返回结果") ||
                 line.contains("已收到") ||
                 line.contains("内部工具") ||
-                Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+").containsMatchIn(line)
+                AGENT_TOOL_NAME_REGEX_V2.containsMatchIn(line)
         }
     if (!looksLikeAgentFlow) return null
 
@@ -1241,9 +1287,9 @@ private fun parseAgentProgressStepV2(index: Int, line: String): AgentProgressSte
 }
 
 private fun extractAgentToolNameV2(text: String): String? {
-    val direct = Regex("[a-z][a-z0-9]*(?:_[a-z0-9]+)+").find(text)?.value
+    val direct = AGENT_TOOL_NAME_REGEX_V2.find(text)?.value
     if (!direct.isNullOrBlank()) return direct
-    val queryTool = Regex("(?:查询|调用|读取|创建|调整|搜索)\\s+([A-Za-z][A-Za-z0-9_-]{1,})")
+    val queryTool = AGENT_QUERY_TOOL_REGEX_V2
         .find(text)
         ?.groupValues
         ?.getOrNull(1)
@@ -1369,9 +1415,10 @@ private fun AgentProgressCardSurfaceV2(
         label = "agent-progress-shell-alpha"
     )
     val sweepAlpha = if (active) 0.20f else 0.13f
-    val brush = remember(motionClock.phase(2280L), phaseOffset, active) {
+    val phase = motionClock.phase(2280L)
+    val brush = remember(phase, phaseOffset, active) {
         agentProgressCardSweepBrushV2(
-            phase = (motionClock.phase(2280L) + phaseOffset) % 1f,
+            phase = (phase + phaseOffset) % 1f,
             strong = active
         )
     }
@@ -1521,34 +1568,43 @@ private fun AgentToolGlyphV2(
             .background(Color.White.copy(alpha = bgAlpha)),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(Modifier.size(if (compact) 8.dp else 12.dp)) {
-            val w = size.width
-            val h = size.height
-            val topPath = Path().apply {
-                moveTo(w * 0.50f, h * 0.08f)
-                lineTo(w * 0.86f, h * 0.28f)
-                lineTo(w * 0.50f, h * 0.48f)
-                lineTo(w * 0.14f, h * 0.28f)
-                close()
-            }
-            val leftPath = Path().apply {
-                moveTo(w * 0.14f, h * 0.28f)
-                lineTo(w * 0.50f, h * 0.48f)
-                lineTo(w * 0.50f, h * 0.88f)
-                lineTo(w * 0.14f, h * 0.68f)
-                close()
-            }
-            val rightPath = Path().apply {
-                moveTo(w * 0.86f, h * 0.28f)
-                lineTo(w * 0.50f, h * 0.48f)
-                lineTo(w * 0.50f, h * 0.88f)
-                lineTo(w * 0.86f, h * 0.68f)
-                close()
-            }
-            drawPath(topPath, color = Color(0xFFFFD26A).copy(alpha = if (active) 0.98f else 0.86f))
-            drawPath(leftPath, color = Color(0xFFFF9FC7).copy(alpha = if (active) 0.96f else 0.82f))
-            drawPath(rightPath, color = Color(0xFF8EDCFF).copy(alpha = if (active) 0.96f else 0.82f))
-        }
+        Box(
+            Modifier
+                .size(if (compact) 8.dp else 12.dp)
+                .drawWithCache {
+                    val w = size.width
+                    val h = size.height
+                    val topPath = Path().apply {
+                        moveTo(w * 0.50f, h * 0.08f)
+                        lineTo(w * 0.86f, h * 0.28f)
+                        lineTo(w * 0.50f, h * 0.48f)
+                        lineTo(w * 0.14f, h * 0.28f)
+                        close()
+                    }
+                    val leftPath = Path().apply {
+                        moveTo(w * 0.14f, h * 0.28f)
+                        lineTo(w * 0.50f, h * 0.48f)
+                        lineTo(w * 0.50f, h * 0.88f)
+                        lineTo(w * 0.14f, h * 0.68f)
+                        close()
+                    }
+                    val rightPath = Path().apply {
+                        moveTo(w * 0.86f, h * 0.28f)
+                        lineTo(w * 0.50f, h * 0.48f)
+                        lineTo(w * 0.50f, h * 0.88f)
+                        lineTo(w * 0.86f, h * 0.68f)
+                        close()
+                    }
+                    val topColor = Color(0xFFFFD26A).copy(alpha = if (active) 0.98f else 0.86f)
+                    val leftColor = Color(0xFFFF9FC7).copy(alpha = if (active) 0.96f else 0.82f)
+                    val rightColor = Color(0xFF8EDCFF).copy(alpha = if (active) 0.96f else 0.82f)
+                    onDrawBehind {
+                        drawPath(topPath, color = topColor)
+                        drawPath(leftPath, color = leftColor)
+                        drawPath(rightPath, color = rightColor)
+                    }
+                }
+        )
     }
 }
 
@@ -1881,11 +1937,15 @@ private fun nextRevealBoundaryV2(text: String, current: Int): Int {
 }
 
 private fun findFirstRevealBreakV2(text: String, start: Int, end: Int): Int {
-    val breaks = setOf('。', '！', '？', '；', '.', '!', '?', ';', '，', ',')
     for (index in start until end) {
-        if (text[index] in breaks) return index + 1
+        if (isRevealBreakCharV2(text[index])) return index + 1
     }
     return -1
+}
+
+private fun isRevealBreakCharV2(char: Char): Boolean = when (char) {
+    '。', '！', '？', '；', '.', '!', '?', ';', '，', ',' -> true
+    else -> false
 }
 
 private fun revealDelayV2(total: Int, index: Int): Long = when {
