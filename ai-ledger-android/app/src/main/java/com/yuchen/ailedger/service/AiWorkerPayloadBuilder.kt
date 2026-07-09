@@ -84,6 +84,10 @@ internal object AiWorkerPayloadBuilder {
             put("agentWorkspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
             put("agentProgressStream", workspaceModeEnabled)
             put("workspaceProgressStream", workspaceModeEnabled)
+            put("visualDecisionOwner", "gui_plus_exclusive")
+            put("visualAgentBrainEnabled", false)
+            put("visualRouteMode", "gui_plus_exclusive")
+            put("computerUseOwner", "gui_plus")
 
             put("chatExpressionPreferences", JSONObject().apply {
                 put("schema", "ai_ledger_chat_expression_preferences_v1")
@@ -129,6 +133,10 @@ internal object AiWorkerPayloadBuilder {
                 put("clientToolResultProtocol", AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL)
                 put("workspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
                 put("workspaceModeEnabled", workspaceModeEnabled)
+                put("visualDecisionOwner", "gui_plus_exclusive")
+                put("visualAgentBrainEnabled", false)
+                put("visualRouteMode", "gui_plus_exclusive")
+                put("computerUseOwner", "gui_plus")
                 if (visualAgentModeEnabled) put("agentToolDomain", "visual_only")
             })
             put("clientCapabilities", JSONObject().apply {
@@ -140,6 +148,10 @@ internal object AiWorkerPayloadBuilder {
                 put("installedApps", installedApps.toInstalledAppsJson())
                 put("workspaceModeToggle", true)
                 put("workspaceModeEnabled", workspaceModeEnabled)
+                put("visualDecisionOwner", "gui_plus_exclusive")
+                put("visualAgentBrainEnabled", false)
+                put("visualRouteMode", "gui_plus_exclusive")
+                put("computerUseOwner", "gui_plus")
             })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
@@ -153,7 +165,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v3-workspace-toggle")
+            put("clientVersion", "compose-native-cloud-first-v3-gui-plus-exclusive-visual")
             put("now", System.currentTimeMillis())
         }
     }
@@ -176,6 +188,10 @@ internal object AiWorkerPayloadBuilder {
             put("agentWorkspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
             put("agentProgressStream", workspaceModeEnabled)
             put("workspaceProgressStream", workspaceModeEnabled)
+            put("visualDecisionOwner", "gui_plus_exclusive")
+            put("visualAgentBrainEnabled", false)
+            put("visualRouteMode", "gui_plus_exclusive")
+            put("computerUseOwner", "gui_plus")
             put("modelPreference", selectedModelId)
             put("requestedModelPreference", selectedModelId)
             put("resolvedFinalModel", selectedModelId)
@@ -183,7 +199,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v3-workspace-toggle")
+            put("clientVersion", "compose-native-cloud-first-v3-gui-plus-exclusive-visual")
         }
     }
 
