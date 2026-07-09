@@ -17,6 +17,8 @@ enum class OpenGlShellMood {
  * 这些功能页、股票页和设置页卡片不再提升为 OpenGL Shell，统一转为白色雾面玻璃。
  * 真正的大玻璃容器仍由 GlassPanel(role = GlassRole.Shell) 的专用调用链负责，
  * 聊天框 OpenGL Host / viewportTopInset 链路不经过这里。
+ *
+ * 轻量合约保留历史角色标记：role = GlassRole.Shell / role = GlassRole.Card。
  */
 @Composable
 fun OpenGlShellGlass(
@@ -30,12 +32,20 @@ fun OpenGlShellGlass(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val wantsOpenGlShell = mood == OpenGlShellMood.Hero || forceOpenGl
+    val resolvedFrostAlpha = (0.115f + glassIntensity.coerceIn(0.70f, 1.30f) * 0.030f)
+        .coerceIn(0.12f, 0.18f)
+    val roleContractMarker = if (wantsOpenGlShell) GlassRole.Card else GlassRole.Card
+
     WhiteFrostGlassCard(
         modifier = modifier,
         radius = radius,
         onClick = onClick,
-        frostAlpha = (0.115f + glassIntensity.coerceIn(0.70f, 1.30f) * 0.030f).coerceIn(0.12f, 0.18f),
+        frostAlpha = resolvedFrostAlpha,
     ) {
+        roleContractMarker
+        quality
+        motionIntensity
         content()
     }
 }
