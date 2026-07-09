@@ -27,7 +27,7 @@ class VisualExecutionSessionState(
         sessionBinding.reset()
         val firstFrameHandoff = VisualBootstrapFirstFrameState.consumeForceFirstVisualObservation()
         forceFirstVisualObservation = firstFrameHandoff
-        entryHandoffActive = firstFrameHandoff
+        entryHandoffActive = true
         val bootstrapTarget = VisualBootstrapFirstFrameState.consumeVerifiedTargetPackage()
         if (bootstrapTarget.isNotBlank()) {
             entryHandoffActive = false
@@ -68,20 +68,24 @@ class VisualExecutionSessionState(
     }
 
     fun markStructuralReplan() {
-        entryHandoffActive = false
+        entryHandoffActive = true
         stateMachine.markStructuralReplan()
     }
 
     /**
-     * The Final Model owns the first-frame bootstrap route. Android only consumes that structured
-     * route and requests exactly one mandatory fresh screenshot for GUI Plus handoff.
+     * Every GUI Plus planning turn must be backed by a fresh Android observation. The request is
+     * accepted by the backend only as either a strict verified work surface or a non-strict entry
+     * handoff surface; therefore Planning/Launching/Replanning must not fall back to node-only
+     * snapshots.
      */
     fun requiresVisualObservation(): Boolean {
         if (forceFirstVisualObservation) {
             forceFirstVisualObservation = false
             return true
         }
-        return stateMachine.requiresVisualObservation()
+        return stateMachine.requiresVisualObservation() ||
+            entryHandoffActive ||
+            stateMachine.surfaceState != VisualSurfaceState.WorkSurface
     }
 
     fun synchronizeWith(snapshot: AgentScreenSnapshot? = null) {
