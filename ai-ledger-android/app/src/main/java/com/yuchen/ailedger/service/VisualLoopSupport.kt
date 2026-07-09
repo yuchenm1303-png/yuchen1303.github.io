@@ -437,7 +437,9 @@ internal object VisualLoopSupport {
         "%.3f".format(java.util.Locale.US, value)
 
     fun appendRecent(actions: MutableList<String>, value: String) {
-        value.trim().take(MAX_RECENT_ACTION_CHARS).takeIf(String::isNotBlank)?.let(actions::add)
+        val line = value.trim().take(MAX_RECENT_ACTION_CHARS).takeIf(String::isNotBlank) ?: return
+        if (line.startsWith("cloud_routing:")) return
+        actions += line
         while (actions.size > MAX_RECENT_ACTIONS) actions.removeAt(0)
     }
 
