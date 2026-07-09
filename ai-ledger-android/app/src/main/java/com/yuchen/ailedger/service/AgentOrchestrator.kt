@@ -68,13 +68,13 @@ class AgentOrchestrator(
         val invocation = VisualTaskInvocationRuntime.begin(goal, cloudCall)
         var terminalReason = "visual_task_terminal"
         return try {
+            val bootstrapStopGeneration = AgentRuntimeController.currentManualStopGeneration()
             val bootstrapResult = if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall != null) {
                 withContext(Dispatchers.IO) {
                     VisualBootstrapRunner(applicationContext).prepareFirstFrame(
                         plan = VisualBootstrapPlan.fromClientToolCall(cloudCall),
                         isStopped = {
-                            AgentRuntimeController.currentManualStopGeneration() !=
-                                VisualTaskInvocationRuntime.currentStopGeneration()
+                            AgentRuntimeController.currentManualStopGeneration() != bootstrapStopGeneration
                         },
                     )
                 }
