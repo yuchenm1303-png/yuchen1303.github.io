@@ -62,13 +62,14 @@ internal fun buildLeanVisualAgentPayload(
                 AgentExecutionMode.NormalChatDeviceTool -> "normal_chat_device_tool"
             },
         )
-        put("decisionOwner", "deepseek_then_gui_plus")
-        put("visualDecisionOwner", if (workSurface) "gui_plus" else "deepseek")
-        put("visualAgentDirect", workSurface)
-        put("exclusiveVisualSession", workSurface)
-        put("allowAgentBrain", !workSurface)
+        put("decisionOwner", "gui_plus_exclusive_visual")
+        put("visualDecisionOwner", "gui_plus_exclusive")
+        put("visualAgentDirect", true)
+        put("exclusiveVisualSession", true)
+        put("allowAgentBrain", false)
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
+        put("computerUseOwner", "gui_plus")
         put(
             "runtimeExecutionContext",
             JSONObject().apply {
@@ -83,6 +84,8 @@ internal fun buildLeanVisualAgentPayload(
                 put("guiPlusEligible", workSurface)
                 put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
                 put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
+                put("decisionOwner", "gui_plus_exclusive")
+                put("allowAgentBrain", false)
             },
         )
         put("observationId", runtime.observationId)
@@ -97,11 +100,11 @@ internal fun buildLeanVisualAgentPayload(
         put(
             "appCatalog",
             JSONObject().apply {
-                put("schema", "android_visual_app_catalog_v5_canonical")
+                put("schema", "android_visual_app_catalog_v6_gui_plus_canonical")
                 put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
                 put("identityField", "packageName")
                 put("displayField", "label")
-                put("selectionOwner", "deepseek")
+                put("selectionOwner", "gui_plus")
                 put("inventoryHash", inventoryHash)
                 put("entryCount", apps.size)
             },
@@ -162,7 +165,7 @@ internal fun buildLeanVisualAgentPayload(
             },
         )
         put("client", "android-compose")
-        put("clientVersion", "visual-clean-v1")
+        put("clientVersion", "visual-gui-plus-exclusive-v1")
         put("now", System.currentTimeMillis())
     }
 }
