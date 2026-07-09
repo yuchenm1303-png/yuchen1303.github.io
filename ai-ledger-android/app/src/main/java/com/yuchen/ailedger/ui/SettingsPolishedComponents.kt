@@ -305,7 +305,7 @@ private fun BackendEndpointSettingRow(endpointValue: String) {
                     maxLines = 1,
                 )
                 Text(
-                    text = "当前：${backendState.label}",
+                    text = "当前：${backendState.label} · ${backendState.mode.description}",
                     color = Color.White.copy(alpha = 0.44f),
                     fontSize = 10.5.sp,
                     lineHeight = 14.sp,
@@ -356,6 +356,15 @@ private fun BackendEndpointSettingRow(endpointValue: String) {
                 }
             }
         }
+        Text(
+            text = "这里只切换请求地址；Qwen / DeepSeek 由对应后端文件自己决定。",
+            color = Color.White.copy(alpha = 0.34f),
+            fontSize = 9.8.sp,
+            lineHeight = 13.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
