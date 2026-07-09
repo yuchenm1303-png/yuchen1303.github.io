@@ -45,7 +45,10 @@ class VisualAgentClientTest {
         assertTrue(payload.getBoolean("exclusiveVisualSession"))
         assertFalse(payload.getBoolean("allowAgentBrain"))
         assertEquals(runtime.observationId, payload.getString("expectedActionObservationId"))
-        assertFalse(payload.has("agentMemory"))
+        assertTrue(payload.has("agentMemory"))
+        assertEquals("gui_plus", payload.getJSONObject("agentMemory").getString("visualDecisionOwner"))
+        assertEquals("gui_plus", payload.getJSONObject("agentMemory").getJSONObject("visualOwnership").getString("owner"))
+        assertEquals(runtime.observationId, payload.getJSONObject("agentMemory").getJSONObject("runtimeExecutionContext").getString("observationId"))
         assertTrue(payload.isNull("taskMemory"))
 
         val supported = payload.getJSONArray("supportedAgentSteps")
@@ -116,7 +119,8 @@ class VisualAgentClientTest {
         assertFalse(taskMemory.has("failedHypotheses"))
         assertFalse(taskMemory.has("blockedActions"))
         assertFalse(payload.has("lastToolResponse"))
-        assertFalse(payload.has("agentMemory"))
+        assertTrue(payload.has("agentMemory"))
+        assertEquals("orders", payload.getJSONObject("agentMemory").getJSONObject("taskMemory").getString("currentMilestoneId"))
         assertFalse(payload.has("taskContract"))
         assertEquals(4, payload.getJSONArray("visualHistory").length())
     }
@@ -133,6 +137,7 @@ class VisualAgentClientTest {
 
         assertFalse(payload.has("taskContract"))
         assertTrue(payload.isNull("taskMemory"))
+        assertTrue(payload.getJSONObject("agentMemory").isNull("taskMemory"))
         assertEquals(1, payload.getInt("actionBatchMax"))
     }
 
@@ -206,9 +211,8 @@ class VisualAgentClientTest {
         assertEquals("gui_plus", payload.getJSONObject("appCatalog").getString("selectionOwner"))
         assertFalse(payload.getJSONObject("appCatalog").has("entries"))
         assertFalse(payload.getJSONObject("deviceContext").has("installedApps"))
-        val serialized = payload.toString()
-        assertEquals(2, serialized.windowed("com.tencent.mobileqq".length).count { it == "com.tencent.mobileqq" })
-        assertEquals(2, serialized.windowed("com.hexin.plat.android".length).count { it == "com.hexin.plat.android" })
+        assertFalse(payload.getJSONObject("agentMemory").has("appContext"))
+        assertFalse(payload.getJSONObject("agentMemory").has("installedApps"))
     }
 
     @Test
