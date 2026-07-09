@@ -37,21 +37,75 @@ internal fun buildLeanVisualAgentPayload(
         .take(160)
         .toList()
     val inventoryHash = apps.inventoryHash()
-    val workSurface = runtime.guiPlusEligible && runtime.verifiedTargetPackage.isNotBlank()
     val visual = snapshot.visual?.takeIf { it.hasImage }
-    val bootstrapFirstFrame = visual != null && !workSurface && runtime.surfaceState in setOf(
-        VisualSurfaceState.Planning,
-        VisualSurfaceState.Launching,
-        VisualSurfaceState.Replanning,
-    )
     val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
-    val effectiveSurfacePackage = if (workSurface) runtime.verifiedTargetPackage else reportedPackage
+    val strictWorkSurface = runtime.surfaceState == VisualSurfaceState.WorkSurface &&
+        runtime.selectedTargetPackage.isNotBlank() &&
+        runtime.verifiedTargetPackage.isNotBlank() &&
+        runtime.selectedTargetPackage == runtime.verifiedTargetPackage &&
+        runtime.guiPlusEligible
+    val entryHandoffSurface = visual != null &&
+        !strictWorkSurface &&
+        reportedPackage.isNotBlank() &&
+        reportedPackage != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
+        runtime.surfaceState in setOf(
+            VisualSurfaceState.Planning,
+            VisualSurfaceState.Launching,
+            VisualSurfaceState.Replanning,
+        )
+    val effectiveSurfacePackage = if (strictWorkSurface) runtime.verifiedTargetPackage else reportedPackage
+    val packageBindingMode = if (strictWorkSurface) {
+        "strict_android_verified"
+    } else {
+        "final_model_bootstrap_first_frame"
+    }
+    val surfaceRole = if (entryHandoffSurface) "entry_handoff" else "work_surface"
+    val visualOwnership = JSONObject().apply {
+        put("schema", "android_gui_plus_exclusive_ownership_v2")
+        put("owner", "gui_plus")
+        put("exclusive", true)
+        put("entryRouterReleased", true)
+        put("allowAgentBrain", false)
+        put("allowRoutePlanner", false)
+        put("allowSemanticJudge", false)
+    }
+    val surfaceContext = JSONObject().apply {
+        put("role", surfaceRole)
+        put("bootstrapFirstFrame", entryHandoffSurface)
+        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("packageBindingMode", packageBindingMode)
+        put("hasFreshVisualFrame", visual != null)
+    }
+    val runtimePayload = JSONObject().apply {
+        put("schema", "android_visual_execution_runtime_v2")
+        put("surfaceState", runtime.surfaceState.wireValue)
+        put("selectedTargetPackage", runtime.selectedTargetPackage)
+        put("verifiedTargetPackage", runtime.verifiedTargetPackage)
+        put("currentPackage", snapshot.packageName)
+        put("reportedForegroundPackage", reportedPackage)
+        put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
+        put("observationId", runtime.observationId)
+        put("routeEpoch", runtime.routeEpoch)
+        put("surfaceEpoch", runtime.surfaceEpoch)
+        put("guiPlusEligible", strictWorkSurface || entryHandoffSurface)
+        put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
+        put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
+        put("decisionOwner", "gui_plus")
+        put("allowAgentBrain", false)
+        put("bootstrapFirstFrame", entryHandoffSurface)
+        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("surfaceRole", surfaceRole)
+        put("packageBindingMode", packageBindingMode)
+    }
+    val executionFeedback = taskMemory.toExecutionFeedback(runtime, actions)
+    val taskMemoryPayload = taskMemory?.toExecutionLedgerJson()
     val screenPayload = snapshot.toJson(includeImage = false).apply {
         put("reportedForegroundPackage", reportedPackage)
         put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
-        put("bootstrapFirstFrame", bootstrapFirstFrame)
-        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
-        put("packageBindingMode", if (workSurface) "strict_android_verified" else "final_model_bootstrap_first_frame")
+        put("bootstrapFirstFrame", entryHandoffSurface)
+        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("packageBindingMode", packageBindingMode)
+        put("confidence", JSONObject().apply { put("hasVisualImage", visual != null) })
     }
 
     return JSONObject().apply {
@@ -80,52 +134,35 @@ internal fun buildLeanVisualAgentPayload(
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
         put("computerUseOwner", "gui_plus")
-        put(
-            "visualOwnership",
-            JSONObject().apply {
-                put("schema", "android_gui_plus_exclusive_ownership_v2")
-                put("owner", "gui_plus")
-                put("exclusive", true)
-                put("entryRouterReleased", true)
-                put("allowAgentBrain", false)
-                put("allowRoutePlanner", false)
-                put("allowSemanticJudge", false)
-            },
-        )
-        put("bootstrapFirstFrame", bootstrapFirstFrame)
-        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
-        put("surfaceRole", if (bootstrapFirstFrame) "entry_handoff" else "work_surface")
-        put(
-            "runtimeExecutionContext",
-            JSONObject().apply {
-                put("schema", "android_visual_execution_runtime_v2")
-                put("surfaceState", runtime.surfaceState.wireValue)
-                put("selectedTargetPackage", runtime.selectedTargetPackage)
-                put("verifiedTargetPackage", runtime.verifiedTargetPackage)
-                put("currentPackage", snapshot.packageName)
-                put("reportedForegroundPackage", reportedPackage)
-                put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
-                put("observationId", runtime.observationId)
-                put("routeEpoch", runtime.routeEpoch)
-                put("surfaceEpoch", runtime.surfaceEpoch)
-                put("guiPlusEligible", workSurface)
-                put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
-                put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
-                put("decisionOwner", "gui_plus")
-                put("allowAgentBrain", false)
-                put("bootstrapFirstFrame", bootstrapFirstFrame)
-                put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
-                put("surfaceRole", if (bootstrapFirstFrame) "entry_handoff" else "work_surface")
-                put("packageBindingMode", if (workSurface) "strict_android_verified" else "final_model_bootstrap_first_frame")
-            },
-        )
+        put("visualOwnership", JSONObject(visualOwnership.toString()))
+        put("bootstrapFirstFrame", entryHandoffSurface)
+        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("surfaceRole", surfaceRole)
+        put("runtimeExecutionContext", JSONObject(runtimePayload.toString()))
         put("observationId", runtime.observationId)
         put("expectedActionObservationId", runtime.observationId)
         put("screenSnapshot", screenPayload)
         put("recentAgentActions", JSONArray(actions))
         put("interactionHistory", actions.toInteractionHistory())
-        put("executionFeedback", taskMemory.toExecutionFeedback(runtime, actions))
-        put("taskMemory", taskMemory?.toExecutionLedgerJson() ?: JSONObject.NULL)
+        put("executionFeedback", JSONObject(executionFeedback.toString()))
+        put("taskMemory", taskMemoryPayload?.let { JSONObject(it.toString()) } ?: JSONObject.NULL)
+        put(
+            "agentMemory",
+            JSONObject().apply {
+                put("schema", "android_visual_agent_v15_gui_plus_verified_loop")
+                put("decisionOwner", "gui_plus")
+                put("visualDecisionOwner", "gui_plus")
+                put("exclusiveVisualSession", true)
+                put("allowAgentBrain", false)
+                put("allowRoutePlanner", false)
+                put("allowSemanticJudge", false)
+                put("visualOwnership", JSONObject(visualOwnership.toString()))
+                put("runtimeExecutionContext", JSONObject(runtimePayload.toString()))
+                put("surfaceContext", JSONObject(surfaceContext.toString()))
+                put("executionFeedback", JSONObject(executionFeedback.toString()))
+                put("taskMemory", taskMemoryPayload?.let { JSONObject(it.toString()) } ?: JSONObject.NULL)
+            },
+        )
         put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
         put("appInventoryHash", inventoryHash)
         put(
@@ -148,15 +185,8 @@ internal fun buildLeanVisualAgentPayload(
                 put("reportedForegroundPackage", reportedPackage)
                 put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
                 put("deviceId", deviceId.trim().take(120))
-                put(
-                    "surfaceContext",
-                    JSONObject().apply {
-                        put("role", if (bootstrapFirstFrame) "entry_handoff" else "work_surface")
-                        put("bootstrapFirstFrame", bootstrapFirstFrame)
-                        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
-                        put("packageBindingMode", if (workSurface) "strict_android_verified" else "final_model_bootstrap_first_frame")
-                    },
-                )
+                put("runtimeExecutionContext", JSONObject(runtimePayload.toString()))
+                put("surfaceContext", JSONObject(surfaceContext.toString()))
             },
         )
         put("appContext", JSONArray().apply { apps.forEach { put(it.toPayloadJson()) } })
@@ -179,6 +209,7 @@ internal fun buildLeanVisualAgentPayload(
         put("supportsAgentStepBatch", false)
         put("actionBatchMax", 1)
         put("hasScreenshot", visual != null)
+        put("hasImage", visual != null)
         put("imageCount", if (visual != null) 1 else 0)
         visual?.let { frame ->
             put(
@@ -207,7 +238,7 @@ internal fun buildLeanVisualAgentPayload(
             },
         )
         put("client", "android-compose")
-        put("clientVersion", "visual-gui-plus-exclusive-v2-bootstrap-handoff")
+        put("clientVersion", "visual-gui-plus-exclusive-v3-surface-contract")
         put("now", System.currentTimeMillis())
     }
 }
