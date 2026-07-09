@@ -575,22 +575,22 @@ private fun PlanPressableGlass(
 
 @Composable
 internal fun PlanNativeGlassFrame(
-    state: AssistantUiState,
+    @Suppress("UNUSED_PARAMETER") state: AssistantUiState,
     radius: Int,
-    role: GlassRole,
+    @Suppress("UNUSED_PARAMETER") role: GlassRole,
     modifier: Modifier = Modifier,
     intensityScale: Float = 1f,
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(radius.dp)
+    val frostAlpha = (0.088f * intensityScale).coerceIn(0.052f, 0.145f)
     Box(modifier = modifier.clip(shape)) {
-        GlassPanel(
-            quality = state.quality,
-            glassIntensity = state.glassIntensity * intensityScale,
-            motionIntensity = state.motionIntensity,
-            radius = radius,
+        FrostInfoGlassPanel(
+            radius = radius.toFloat(),
+            backdropAlpha = 1f,
+            frostAlpha = frostAlpha,
+            dimAlpha = 0f,
             modifier = Modifier.matchParentSize(),
-            role = role,
         ) {}
         Box { content() }
     }
