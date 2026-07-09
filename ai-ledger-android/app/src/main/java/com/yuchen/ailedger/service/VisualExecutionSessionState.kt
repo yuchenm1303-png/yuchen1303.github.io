@@ -9,6 +9,7 @@ class VisualExecutionSessionState(
     private val stateMachine: VisualExecutionStateMachine = VisualExecutionStateMachine(),
 ) {
     private val sessionBinding = SessionVisualTargetBinding(targetBinding)
+    private var forceFirstVisualObservation: Boolean = false
 
     val surfaceState: VisualSurfaceState
         get() = stateMachine.surfaceState
@@ -23,6 +24,12 @@ class VisualExecutionSessionState(
 
     init {
         sessionBinding.reset()
+        forceFirstVisualObservation = VisualBootstrapFirstFrameState.consumeForceFirstVisualObservation()
+        val bootstrapTarget = VisualBootstrapFirstFrameState.consumeVerifiedTargetPackage()
+        if (bootstrapTarget.isNotBlank()) {
+            stateMachine.beginLaunch(bootstrapTarget)
+            stateMachine.markTargetVerified(bootstrapTarget)?.let(sessionBinding::bind)
+        }
     }
 
     fun beginLaunch(packageName: String) {
@@ -31,7 +38,7 @@ class VisualExecutionSessionState(
 
     /**
      * Grants WorkSurface only from the coordinator's complete verification proof: the exact
-     * DeepSeek-selected package, at least two stable samples and a final visual frame.
+     * GUI Plus-selected package, at least two stable samples and a final visual frame.
      */
     fun markTargetVerified(
         expectedPackage: String,
@@ -59,10 +66,14 @@ class VisualExecutionSessionState(
     }
 
     /**
-     * Launching and replanning use the lightweight package/node probe first. A full screenshot is
-     * requested only after the exact target package has been verified as the work surface.
+     * The Final Model owns the first-frame bootstrap route. Android only consumes that structured
+     * route and requests exactly one mandatory fresh screenshot for GUI Plus handoff.
      */
     fun requiresVisualObservation(): Boolean {
+        if (forceFirstVisualObservation) {
+            forceFirstVisualObservation = false
+            return true
+        }
         return stateMachine.requiresVisualObservation()
     }
 
