@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -286,18 +287,20 @@ internal fun AnchoredQuickPanel(
                     }
                 }
             } else {
-                GlassPanel(
-                    quality = quality,
-                    glassIntensity = glassIntensity,
-                    motionIntensity = 0f,
-                    radius = shellRadius,
-                    modifier = Modifier.fillMaxSize(),
-                    role = GlassRole.Floating,
-                    viewportTopInset = 0.dp,
-                    intensity = glassIntensity,
-                ) {
-                    Box(Modifier.fillMaxSize().background(surfaceColor)) {
-                        content(layout)
+                CompositionLocalProvider(LocalOrdinaryGlassRenderMode provides OrdinaryGlassRenderMode.Shadow) {
+                    GlassPanel(
+                        quality = quality,
+                        glassIntensity = glassIntensity,
+                        motionIntensity = 0f,
+                        radius = shellRadius,
+                        modifier = Modifier.fillMaxSize(),
+                        role = GlassRole.Floating,
+                        viewportTopInset = 0.dp,
+                        intensity = glassIntensity,
+                    ) {
+                        Box(Modifier.fillMaxSize().background(surfaceColor)) {
+                            content(layout)
+                        }
                     }
                 }
             }
