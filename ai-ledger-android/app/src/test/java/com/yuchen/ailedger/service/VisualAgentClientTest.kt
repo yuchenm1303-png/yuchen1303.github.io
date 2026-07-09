@@ -45,10 +45,12 @@ class VisualAgentClientTest {
         assertTrue(payload.getBoolean("exclusiveVisualSession"))
         assertFalse(payload.getBoolean("allowAgentBrain"))
         assertEquals(runtime.observationId, payload.getString("expectedActionObservationId"))
-        assertTrue(payload.has("agentMemory"))
-        assertEquals("gui_plus", payload.getJSONObject("agentMemory").getString("visualDecisionOwner"))
-        assertEquals("gui_plus", payload.getJSONObject("agentMemory").getJSONObject("visualOwnership").getString("owner"))
-        assertEquals(runtime.observationId, payload.getJSONObject("agentMemory").getJSONObject("runtimeExecutionContext").getString("observationId"))
+        assertFalse(payload.has("agentMemory"))
+        assertEquals("gui_plus", payload.getJSONObject("visualOwnership").getString("owner"))
+        assertEquals("gui_plus", payload.getJSONObject("runtimeExecutionContext").getString("decisionOwner"))
+        assertEquals(runtime.observationId, payload.getJSONObject("runtimeExecutionContext").getString("observationId"))
+        assertEquals("strict_android_verified", payload.getJSONObject("runtimeExecutionContext").getString("packageBindingMode"))
+        assertEquals("strict_android_verified", payload.getJSONObject("deviceContext").getJSONObject("surfaceContext").getString("packageBindingMode"))
         assertTrue(payload.isNull("taskMemory"))
 
         val supported = payload.getJSONArray("supportedAgentSteps")
@@ -119,8 +121,7 @@ class VisualAgentClientTest {
         assertFalse(taskMemory.has("failedHypotheses"))
         assertFalse(taskMemory.has("blockedActions"))
         assertFalse(payload.has("lastToolResponse"))
-        assertTrue(payload.has("agentMemory"))
-        assertEquals("orders", payload.getJSONObject("agentMemory").getJSONObject("taskMemory").getString("currentMilestoneId"))
+        assertFalse(payload.has("agentMemory"))
         assertFalse(payload.has("taskContract"))
         assertEquals(4, payload.getJSONArray("visualHistory").length())
     }
@@ -137,7 +138,7 @@ class VisualAgentClientTest {
 
         assertFalse(payload.has("taskContract"))
         assertTrue(payload.isNull("taskMemory"))
-        assertTrue(payload.getJSONObject("agentMemory").isNull("taskMemory"))
+        assertFalse(payload.has("agentMemory"))
         assertEquals(1, payload.getInt("actionBatchMax"))
     }
 
@@ -211,8 +212,7 @@ class VisualAgentClientTest {
         assertEquals("gui_plus", payload.getJSONObject("appCatalog").getString("selectionOwner"))
         assertFalse(payload.getJSONObject("appCatalog").has("entries"))
         assertFalse(payload.getJSONObject("deviceContext").has("installedApps"))
-        assertFalse(payload.getJSONObject("agentMemory").has("appContext"))
-        assertFalse(payload.getJSONObject("agentMemory").has("installedApps"))
+        assertFalse(payload.has("agentMemory"))
     }
 
     @Test
