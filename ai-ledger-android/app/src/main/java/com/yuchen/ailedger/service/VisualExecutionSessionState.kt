@@ -120,8 +120,7 @@ class VisualExecutionSessionState(
         val packageName = snapshot.packageName.trim()
         return entryHandoffActive &&
             packageName.isNotBlank() &&
-            packageName != ASSISTANT_HOST_PACKAGE &&
-            snapshot.visual?.hasImage == true
+            packageName != ASSISTANT_HOST_PACKAGE
     }
 
     companion object {
