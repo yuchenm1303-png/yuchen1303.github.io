@@ -249,18 +249,24 @@ internal object AssistantMemoryUsageBridge {
     }
 
     private fun bestMemoryEnvelope(data: JSONObject): JSONObject? {
-        return sequenceOf(
-            data,
-            data.optJSONObject("response"),
-            data.optJSONObject("final"),
-            data.optJSONObject("data"),
-            data.optJSONObject("result"),
-        )
-            .filterNotNull()
-            .map { envelope -> envelope to memoryMetadataScore(envelope) }
-            .filter { (_, score) -> score > 0 }
-            .maxByOrNull { (_, score) -> score }
-            ?.first
+        var bestEnvelope: JSONObject? = null
+        var bestScore = 0
+
+        fun consider(candidate: JSONObject?) {
+            if (candidate == null) return
+            val score = memoryMetadataScore(candidate)
+            if (score > bestScore) {
+                bestScore = score
+                bestEnvelope = candidate
+            }
+        }
+
+        consider(data)
+        consider(data.optJSONObject("response"))
+        consider(data.optJSONObject("final"))
+        consider(data.optJSONObject("data"))
+        consider(data.optJSONObject("result"))
+        return bestEnvelope
     }
 
     private fun memoryMetadataScore(data: JSONObject): Int {
