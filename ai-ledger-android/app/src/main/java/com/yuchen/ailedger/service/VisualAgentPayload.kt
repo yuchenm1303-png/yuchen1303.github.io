@@ -289,7 +289,8 @@ private fun List<String>.toInteractionHistory(): JSONArray = JSONArray().apply {
 }
 
 private fun String.isRemovedLocalControlLine(): Boolean =
-    startsWith("visual_reasoning_context:") ||
+    startsWith("cloud_routing:") ||
+        startsWith("visual_reasoning_context:") ||
         startsWith("visual_replan_requested:reason=adaptive_reasoning_depth|") ||
         startsWith("visual_task_memory:") ||
         startsWith("visual_execution_ledger:") ||
