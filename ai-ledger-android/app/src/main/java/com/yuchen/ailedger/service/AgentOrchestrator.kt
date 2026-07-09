@@ -68,6 +68,36 @@ class AgentOrchestrator(
         val invocation = VisualTaskInvocationRuntime.begin(goal, cloudCall)
         var terminalReason = "visual_task_terminal"
         return try {
+            val bootstrapResult = if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall != null) {
+                withContext(Dispatchers.IO) {
+                    VisualBootstrapRunner(applicationContext).prepareFirstFrame(
+                        plan = VisualBootstrapPlan.fromClientToolCall(cloudCall),
+                        isStopped = {
+                            AgentRuntimeController.currentManualStopGeneration() !=
+                                VisualTaskInvocationRuntime.currentStopGeneration()
+                        },
+                    )
+                }
+            } else {
+                VisualBootstrapFirstFrameState.clear()
+                null
+            }
+            if (bootstrapResult != null && !bootstrapResult.ok) {
+                val result = AgentTaskRunResult(
+                    completed = false,
+                    stoppedForConfirmation = false,
+                    message = bootstrapResult.message,
+                    logs = bootstrapResult.logs,
+                )
+                terminalReason = "visual_task_bootstrap_failed"
+                AgentRuntimeController.failTask(bootstrapResult.message)
+                return if (!result.isAccessibilityUnavailable()) {
+                    reportVisualResult(invocation, goal, modelPreference, result)
+                } else {
+                    result
+                }
+            }
+            bootstrapResult?.let { AgentRuntimeController.noteDiagnostic(it.message.take(120)) }
             val result = withContext(Dispatchers.IO) {
                 VisualLoopRunner(aiWorkerClient, applicationContext).run(
                     goal = goal,
@@ -91,6 +121,7 @@ class AgentOrchestrator(
             throw error
         } finally {
             VisualTaskInvocationRuntime.clear(invocation)
+            VisualBootstrapFirstFrameState.clear()
             if (executionMode == AgentExecutionMode.ExplicitAgent) {
                 VisualSessionCleanupDispatcher.enqueue(invocation, terminalReason)
             }
