@@ -39,7 +39,7 @@ class AiWorkerClientTest {
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-cloud-first-v3-workspace-toggle",
+            "compose-native-cloud-first-v3-gui-plus-exclusive-visual",
             payload.getString("clientVersion"),
         )
         assertEquals("cloud_final_model_v1", payload.getString("autoRouteAuthority"))
@@ -49,6 +49,10 @@ class AiWorkerClientTest {
         assertEquals("android_structured_tool_executor", protocol.getString("executionOwner"))
         assertEquals(AI_WORKER_CLIENT_TOOL_CALL_SCHEMA, protocol.getString("clientToolCallSchema"))
         assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
+        assertEquals("gui_plus_exclusive", payload.getString("visualDecisionOwner"))
+        assertFalse(payload.getBoolean("visualAgentBrainEnabled"))
+        assertEquals("gui_plus_exclusive", protocol.getString("visualRouteMode"))
+        assertEquals("gui_plus", capabilities.getString("computerUseOwner"))
         assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
         assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
         assertTrue(capabilities.getBoolean("workspaceModeToggle"))
@@ -85,6 +89,9 @@ class AiWorkerClientTest {
             assertEquals("cloud_workspace_agent", protocol.getString("decisionOwner"))
             assertEquals("workspace", protocol.getString("workspaceMode"))
             assertTrue(protocol.getBoolean("workspaceModeEnabled"))
+            assertEquals("gui_plus_exclusive", payload.getString("visualDecisionOwner"))
+            assertFalse(payload.getBoolean("visualAgentBrainEnabled"))
+            assertEquals("gui_plus_exclusive", protocol.getString("visualRouteMode"))
             assertTrue(capabilities.getBoolean("workspaceModeToggle"))
             assertTrue(capabilities.getBoolean("workspaceModeEnabled"))
             assertTrue(responseFormat.getBoolean("includeAgentProgress"))
@@ -105,6 +112,8 @@ class AiWorkerClientTest {
         assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
         assertEquals("classic", protocol.getString("workspaceMode"))
         assertFalse(protocol.getBoolean("workspaceModeEnabled"))
+        assertEquals("gui_plus_exclusive", protocol.getString("visualDecisionOwner"))
+        assertFalse(protocol.getBoolean("visualAgentBrainEnabled"))
         assertTrue(capabilities.getJSONArray("deviceTools").length() > 0)
         assertTrue(capabilities.getJSONArray("agentActions").length() > 0)
         assertTrue(payload.getJSONObject("responseFormat").getBoolean("includeClientToolCall"))
