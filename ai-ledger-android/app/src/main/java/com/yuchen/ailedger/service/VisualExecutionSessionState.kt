@@ -10,6 +10,7 @@ class VisualExecutionSessionState(
 ) {
     private val sessionBinding = SessionVisualTargetBinding(targetBinding)
     private var forceFirstVisualObservation: Boolean = false
+    private var entryHandoffActive: Boolean = false
 
     val surfaceState: VisualSurfaceState
         get() = stateMachine.surfaceState
@@ -24,15 +25,19 @@ class VisualExecutionSessionState(
 
     init {
         sessionBinding.reset()
-        forceFirstVisualObservation = VisualBootstrapFirstFrameState.consumeForceFirstVisualObservation()
+        val firstFrameHandoff = VisualBootstrapFirstFrameState.consumeForceFirstVisualObservation()
+        forceFirstVisualObservation = firstFrameHandoff
+        entryHandoffActive = firstFrameHandoff
         val bootstrapTarget = VisualBootstrapFirstFrameState.consumeVerifiedTargetPackage()
         if (bootstrapTarget.isNotBlank()) {
+            entryHandoffActive = false
             stateMachine.beginLaunch(bootstrapTarget)
             stateMachine.markTargetVerified(bootstrapTarget)?.let(sessionBinding::bind)
         }
     }
 
     fun beginLaunch(packageName: String) {
+        entryHandoffActive = false
         stateMachine.beginLaunch(packageName)?.let(sessionBinding::bind)
     }
 
@@ -57,11 +62,13 @@ class VisualExecutionSessionState(
             cleanExpected == stateMachine.selectedTargetPackage
         if (!proofValid) return false
         val verified = stateMachine.markTargetVerified(cleanExpected) ?: return false
+        entryHandoffActive = false
         sessionBinding.bind(verified)
         return true
     }
 
     fun markStructuralReplan() {
+        entryHandoffActive = false
         stateMachine.markStructuralReplan()
     }
 
@@ -86,7 +93,7 @@ class VisualExecutionSessionState(
     }
 
     fun isVerifiedWorkSurface(snapshot: AgentScreenSnapshot): Boolean {
-        return stateMachine.isVerifiedWorkSurface(snapshot.packageName)
+        return stateMachine.isVerifiedWorkSurface(snapshot.packageName) || isEntryHandoffSurface(snapshot)
     }
 
     fun runtimeContext(snapshot: AgentScreenSnapshot): VisualAgentRuntimeContext {
@@ -96,6 +103,7 @@ class VisualExecutionSessionState(
             routeEpoch = stateMachine.routeEpoch,
             surfaceEpoch = stateMachine.surfaceEpoch,
         )
+        val entryHandoffSurface = isEntryHandoffSurface(snapshot)
         return VisualAgentRuntimeContext(
             surfaceState = stateMachine.surfaceState,
             selectedTargetPackage = stateMachine.selectedTargetPackage,
@@ -104,8 +112,16 @@ class VisualExecutionSessionState(
             observationId = observationId,
             routeEpoch = stateMachine.routeEpoch,
             surfaceEpoch = stateMachine.surfaceEpoch,
-            guiPlusEligible = stateMachine.isVerifiedWorkSurface(snapshot.packageName),
+            guiPlusEligible = stateMachine.isVerifiedWorkSurface(snapshot.packageName) || entryHandoffSurface,
         )
+    }
+
+    private fun isEntryHandoffSurface(snapshot: AgentScreenSnapshot): Boolean {
+        val packageName = snapshot.packageName.trim()
+        return entryHandoffActive &&
+            packageName.isNotBlank() &&
+            packageName != ASSISTANT_HOST_PACKAGE &&
+            snapshot.visual?.hasImage == true
     }
 
     companion object {
