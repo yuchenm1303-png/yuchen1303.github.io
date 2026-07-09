@@ -45,11 +45,13 @@ internal fun buildLeanVisualAgentPayload(
         VisualSurfaceState.Replanning,
     )
     val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
+    val effectiveSurfacePackage = if (workSurface) runtime.verifiedTargetPackage else reportedPackage
     val screenPayload = snapshot.toJson(includeImage = false).apply {
-        put("reportedForegroundPackage", optString("packageName"))
+        put("reportedForegroundPackage", reportedPackage)
+        put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
         put("bootstrapFirstFrame", bootstrapFirstFrame)
         put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
-        if (bootstrapFirstFrame) put("packageBindingMode", "final_model_bootstrap_first_frame")
+        put("packageBindingMode", if (workSurface) "strict_android_verified" else "final_model_bootstrap_first_frame")
     }
 
     return JSONObject().apply {
@@ -102,7 +104,7 @@ internal fun buildLeanVisualAgentPayload(
                 put("verifiedTargetPackage", runtime.verifiedTargetPackage)
                 put("currentPackage", snapshot.packageName)
                 put("reportedForegroundPackage", reportedPackage)
-                put("effectiveWorkSurfacePackage", if (workSurface) runtime.verifiedTargetPackage else reportedPackage)
+                put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
                 put("observationId", runtime.observationId)
                 put("routeEpoch", runtime.routeEpoch)
                 put("surfaceEpoch", runtime.surfaceEpoch)
@@ -143,6 +145,8 @@ internal fun buildLeanVisualAgentPayload(
             JSONObject().apply {
                 put("schema", "android_visual_device_context_v2")
                 put("currentPackage", snapshot.packageName)
+                put("reportedForegroundPackage", reportedPackage)
+                put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
                 put("deviceId", deviceId.trim().take(120))
                 put(
                     "surfaceContext",
@@ -150,6 +154,7 @@ internal fun buildLeanVisualAgentPayload(
                         put("role", if (bootstrapFirstFrame) "entry_handoff" else "work_surface")
                         put("bootstrapFirstFrame", bootstrapFirstFrame)
                         put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
+                        put("packageBindingMode", if (workSurface) "strict_android_verified" else "final_model_bootstrap_first_frame")
                     },
                 )
             },
