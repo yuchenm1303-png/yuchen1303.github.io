@@ -146,23 +146,6 @@ internal fun buildLeanVisualAgentPayload(
         put("interactionHistory", actions.toInteractionHistory())
         put("executionFeedback", JSONObject(executionFeedback.toString()))
         put("taskMemory", taskMemoryPayload?.let { JSONObject(it.toString()) } ?: JSONObject.NULL)
-        put(
-            "agentMemory",
-            JSONObject().apply {
-                put("schema", "android_visual_agent_v15_gui_plus_verified_loop")
-                put("decisionOwner", "gui_plus")
-                put("visualDecisionOwner", "gui_plus")
-                put("exclusiveVisualSession", true)
-                put("allowAgentBrain", false)
-                put("allowRoutePlanner", false)
-                put("allowSemanticJudge", false)
-                put("visualOwnership", JSONObject(visualOwnership.toString()))
-                put("runtimeExecutionContext", JSONObject(runtimePayload.toString()))
-                put("surfaceContext", JSONObject(surfaceContext.toString()))
-                put("executionFeedback", JSONObject(executionFeedback.toString()))
-                put("taskMemory", taskMemoryPayload?.let { JSONObject(it.toString()) } ?: JSONObject.NULL)
-            },
-        )
         put("appIdentityProtocol", VisualAgentProtocol.appIdentityProtocol)
         put("appInventoryHash", inventoryHash)
         put(
