@@ -10,6 +10,7 @@ import com.yuchen.ailedger.data.AssistantCustomInstructionsRepository
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
 import com.yuchen.ailedger.data.AssistantMemoryMutationRuntime
 import com.yuchen.ailedger.data.AssistantMemoryRepository
+import com.yuchen.ailedger.data.StockHttpClient
 import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.data.UserProfileRepository
 import com.yuchen.ailedger.data.switchAccount
@@ -125,11 +126,13 @@ class AiLedgerApplication : Application() {
         val runtimePressure = level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
         if (appHiddenOrWorse || runtimePressure) {
             ChatAttachmentPayloadStore.trimMemory(aggressive = appHiddenOrWorse)
+            StockHttpClient.trimMemory(aggressive = appHiddenOrWorse)
         }
     }
 
     override fun onLowMemory() {
         ChatAttachmentPayloadStore.trimMemory(aggressive = true)
+        StockHttpClient.trimMemory(aggressive = true)
         super.onLowMemory()
     }
 
