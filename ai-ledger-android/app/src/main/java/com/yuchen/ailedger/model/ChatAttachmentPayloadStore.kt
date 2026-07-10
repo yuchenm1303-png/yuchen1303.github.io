@@ -24,6 +24,7 @@ data class ChatAttachmentPayloadRef internal constructor(
  */
 internal object ChatAttachmentPayloadStore {
     private const val MAX_MEMORY_CHARS = 32 * 1024 * 1024
+    private const val LOW_MEMORY_TARGET_CHARS = 8 * 1024 * 1024
     private const val MAX_DISK_BYTES = 128L * 1024L * 1024L
     private const val MAX_DISK_AGE_MS = 30L * 24L * 60L * 60L * 1_000L
     private const val CACHE_DIRECTORY_NAME = "chat_attachment_payloads"
@@ -86,6 +87,16 @@ internal object ChatAttachmentPayloadStore {
         }
     }
 
+    /**
+     * Releases only payloads that already have no pending disk write. The backing cache files remain
+     * available, so retry and resend behaviour is preserved after Android asks the process to trim.
+     */
+    fun trimMemory(aggressive: Boolean) {
+        synchronized(lock) {
+            trimMemoryToLocked(if (aggressive) 0 else LOW_MEMORY_TARGET_CHARS)
+        }
+    }
+
     private fun persistAsync(id: String, payload: String) {
         val target = payloadFile(id)
         if (target == null) {
@@ -124,9 +135,13 @@ internal object ChatAttachmentPayloadStore {
     }
 
     private fun trimMemoryLocked() {
-        if (memoryChars <= MAX_MEMORY_CHARS) return
+        trimMemoryToLocked(MAX_MEMORY_CHARS)
+    }
+
+    private fun trimMemoryToLocked(targetChars: Int) {
+        if (memoryChars <= targetChars) return
         val iterator = memoryPayloads.entries.iterator()
-        while (memoryChars > MAX_MEMORY_CHARS && iterator.hasNext()) {
+        while (memoryChars > targetChars && iterator.hasNext()) {
             val entry = iterator.next()
             if (entry.key in pendingWrites) continue
             memoryChars -= entry.value.length
