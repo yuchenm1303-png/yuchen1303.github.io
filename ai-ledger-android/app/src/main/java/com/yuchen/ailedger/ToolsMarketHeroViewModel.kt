@@ -89,6 +89,7 @@ internal object ToolsMarketHeroStore {
     private var screenVisible = false
     private var visibleRetryCount = 0
     private var lastAttemptEpochMs = 0L
+    private var trendRouteUnavailableUntilMs = 0L
 
     fun initialize(context: Context) {
         if (initialized) return
@@ -147,7 +148,10 @@ internal object ToolsMarketHeroStore {
         requestRefresh(force = force)
     }
 
-    private fun requestRefresh(force: Boolean) {
+    private fun requestRefresh(
+        force: Boolean,
+        missingOnly: Boolean = false,
+    ) {
         val context = appContext ?: return
         synchronized(lifecycleLock) {
             if (refreshJob?.isActive == true) return
@@ -166,7 +170,10 @@ internal object ToolsMarketHeroStore {
             lastAttemptEpochMs = now
             refreshJob = scope.launch {
                 try {
-                    runRefresh(context)
+                    runRefresh(
+                        context = context,
+                        refreshAll = force && !missingOnly,
+                    )
                 } finally {
                     finishRefresh()
                 }
@@ -174,8 +181,35 @@ internal object ToolsMarketHeroStore {
         }
     }
 
-    private suspend fun runRefresh(context: Context) {
-        val hadUsableData = state.value.indices.any { it.hasRealQuote || it.hasRealTrend }
+    private suspend fun runRefresh(
+        context: Context,
+        refreshAll: Boolean,
+    ) {
+        val startedAt = System.currentTimeMillis()
+        val initial = state.value
+        val initialByCode = initial.indices.associateBy(ToolsMarketIndexItem::code)
+        val recentSuccess = initial.lastSuccessfulRefreshMs > 0L &&
+            startedAt - initial.lastSuccessfulRefreshMs < REFRESH_TTL_MS
+        val quoteRefreshNeeded = refreshAll ||
+            !recentSuccess ||
+            initial.indices.any { !it.hasRealQuote }
+        val trendRouteUnavailable = startedAt < trendRouteUnavailableUntilMs
+        val trendSpecsToLoad = if (trendRouteUnavailable) {
+            emptyList()
+        } else {
+            TOOLS_MARKET_INDEX_SPECS.filter { spec ->
+                refreshAll || !recentSuccess || initialByCode[spec.code]?.hasRealTrend != true
+            }
+        }
+        val directBatchFallbackNeeded = trendRouteUnavailable && (
+            refreshAll ||
+                !recentSuccess ||
+                TOOLS_MARKET_INDEX_SPECS.any { spec ->
+                    initialByCode[spec.code]?.hasRealTrend != true
+                }
+            )
+
+        val hadUsableData = initial.indices.any { it.hasRealQuote || it.hasRealTrend }
         state.update {
             it.copy(
                 loading = !hadUsableData,
@@ -184,33 +218,37 @@ internal object ToolsMarketHeroStore {
         }
 
         val anyNetworkSuccess = AtomicBoolean(false)
+        val individualTrendSuccess = AtomicBoolean(false)
         val networkErrors = ConcurrentHashMap<String, Throwable>()
         val missingTrendRoutes = ConcurrentHashMap.newKeySet<String>()
 
         coroutineScope {
             val jobs = mutableListOf<Job>()
-            jobs += launch {
-                runCatching { loadQuotes() }
-                    .onSuccess { quotes ->
-                        if (quotes.isNotEmpty()) {
-                            anyNetworkSuccess.set(true)
-                            state.update { current ->
-                                current.copy(
-                                    indices = mergeQuoteItems(current.indices, quotes),
-                                    loading = false,
-                                    errorMessage = null
-                                )
+            if (quoteRefreshNeeded) {
+                jobs += launch {
+                    runCatching { loadQuotes() }
+                        .onSuccess { quotes ->
+                            if (quotes.isNotEmpty()) {
+                                anyNetworkSuccess.set(true)
+                                state.update { current ->
+                                    current.copy(
+                                        indices = mergeQuoteItems(current.indices, quotes),
+                                        loading = false,
+                                        errorMessage = null
+                                    )
+                                }
+                                schedulePersist(context)
                             }
-                            schedulePersist(context)
                         }
-                    }
-                    .onFailure { networkErrors["quotes"] = it }
+                        .onFailure { networkErrors["quotes"] = it }
+                }
             }
-            TOOLS_MARKET_INDEX_SPECS.forEach { spec ->
+            trendSpecsToLoad.forEach { spec ->
                 jobs += launch {
                     runCatching { loadTrend(spec) }
                         .onSuccess { trend ->
                             if (trend.hasRealTrend) {
+                                individualTrendSuccess.set(true)
                                 anyNetworkSuccess.set(true)
                                 state.update { current ->
                                     current.copy(
@@ -231,7 +269,19 @@ internal object ToolsMarketHeroStore {
             jobs.joinAll()
         }
 
-        if (missingTrendRoutes.size == TOOLS_MARKET_INDEX_SPECS.size) {
+        if (individualTrendSuccess.get()) {
+            trendRouteUnavailableUntilMs = 0L
+        }
+        val allAttemptedTrendRoutesUnavailable = trendSpecsToLoad.isNotEmpty() &&
+            missingTrendRoutes.size == trendSpecsToLoad.size
+        if (
+            trendSpecsToLoad.size == TOOLS_MARKET_INDEX_SPECS.size &&
+            allAttemptedTrendRoutesUnavailable
+        ) {
+            trendRouteUnavailableUntilMs = System.currentTimeMillis() + TREND_ROUTE_UNAVAILABLE_TTL_MS
+        }
+
+        if (directBatchFallbackNeeded || allAttemptedTrendRoutesUnavailable) {
             runCatching { loadBatchFallback() }
                 .onSuccess { items ->
                     if (items.isNotEmpty()) {
@@ -291,7 +341,7 @@ internal object ToolsMarketHeroStore {
             retryJob?.cancel()
             retryJob = scope.launch {
                 delay(retryDelayMs)
-                requestRefresh(force = true)
+                requestRefresh(force = true, missingOnly = true)
             }
         }
     }
@@ -583,6 +633,7 @@ internal object ToolsMarketHeroStore {
     private const val VISIBLE_REFRESH_SETTLE_MS = 360L
     private const val VISIBLE_RETRY_BASE_MS = 1_500L
     private const val PERSIST_DEBOUNCE_MS = 220L
+    private const val TREND_ROUTE_UNAVAILABLE_TTL_MS = 10L * 60L * 1_000L
     private const val MAX_VISIBLE_RETRIES = 3
     private const val MAX_SPARKLINE_POINTS = 72
 }
