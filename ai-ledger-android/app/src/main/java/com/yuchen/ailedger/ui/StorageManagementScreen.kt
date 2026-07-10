@@ -47,6 +47,7 @@ import com.yuchen.ailedger.service.StorageCandidateKind
 import com.yuchen.ailedger.service.StorageCandidateSource
 import com.yuchen.ailedger.service.StorageFileCandidate
 import com.yuchen.ailedger.service.StorageManagementRepository
+import com.yuchen.ailedger.service.StorageScanCancellationController
 import com.yuchen.ailedger.service.StorageScanSnapshot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -89,6 +90,7 @@ fun StorageManagementScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val repository = remember(context) { StorageManagementRepository(context.applicationContext) }
+    val scanCancellation = remember { StorageScanCancellationController() }
     val scope = rememberCoroutineScope()
     var refreshGeneration by remember { mutableIntStateOf(0) }
     var scanning by remember { mutableStateOf(true) }
@@ -152,6 +154,10 @@ fun StorageManagementScreen(
         }
     }
 
+    DisposableEffect(scanCancellation) {
+        onDispose { scanCancellation.cancel() }
+    }
+
     DisposableEffect(lifecycleOwner) {
         var firstResume = true
         val observer = LifecycleEventObserver { _, event ->
@@ -173,34 +179,50 @@ fun StorageManagementScreen(
     }
 
     LaunchedEffect(refreshGeneration) {
+        val scanToken = scanCancellation.begin()
         scanning = true
         scanError = null
         mediaAccess = currentMediaAccess(context)
-        val result = withContext(Dispatchers.IO) {
-            runCatching {
-                val overview = repository.loadOverview()
-                val usageGranted = repository.hasUsageAccess()
-                val appCaches = if (usageGranted) repository.loadAppCacheRanking() else emptyList()
-                val media = if (mediaAccess.anyAccess) repository.scanAccessibleMedia() else emptyList()
-                val folder = repository.scanSavedFolder()
-                StorageScanSnapshot(
-                    overview = overview,
-                    usageAccessGranted = usageGranted,
-                    appCaches = appCaches,
-                    mediaCandidates = media,
-                    folderScan = folder,
-                )
+        try {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    scanToken.throwIfCancelled()
+                    val overview = repository.loadOverview()
+                    val usageGranted = repository.hasUsageAccess()
+                    val appCaches = if (usageGranted) {
+                        repository.loadAppCacheRanking(cancellation = scanToken)
+                    } else {
+                        emptyList()
+                    }
+                    val media = if (mediaAccess.anyAccess) {
+                        repository.scanAccessibleMedia(cancellation = scanToken)
+                    } else {
+                        emptyList()
+                    }
+                    val folder = repository.scanSavedFolder(cancellation = scanToken)
+                    scanToken.throwIfCancelled()
+                    StorageScanSnapshot(
+                        overview = overview,
+                        usageAccessGranted = usageGranted,
+                        appCaches = appCaches,
+                        mediaCandidates = media,
+                        folderScan = folder,
+                    )
+                }
             }
+            scanToken.throwIfCancelled()
+            result.onSuccess { loaded ->
+                snapshot = loaded
+                val validIds = (loaded.mediaCandidates + loaded.folderScan?.candidates.orEmpty())
+                    .mapTo(hashSetOf()) { it.stableId }
+                selectedIds = selectedIds.intersect(validIds)
+            }.onFailure { error ->
+                scanError = error.message?.takeIf(String::isNotBlank) ?: "存储扫描失败"
+            }
+            scanning = false
+        } finally {
+            scanCancellation.complete(scanToken)
         }
-        result.onSuccess { loaded ->
-            snapshot = loaded
-            val validIds = (loaded.mediaCandidates + loaded.folderScan?.candidates.orEmpty())
-                .mapTo(hashSetOf()) { it.stableId }
-            selectedIds = selectedIds.intersect(validIds)
-        }.onFailure { error ->
-            scanError = error.message?.takeIf(String::isNotBlank) ?: "存储扫描失败"
-        }
-        scanning = false
     }
 
     val allCandidates by remember(snapshot) {
