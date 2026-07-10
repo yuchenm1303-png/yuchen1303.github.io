@@ -42,7 +42,7 @@ private class SecondaryRouteHistory<T>(
     private val stack = mutableListOf(initial)
     private var current = initial
     private var sequence = 0
-    private var currentFrame = SecondaryMotionFrame(
+    private var frame = SecondaryMotionFrame(
         value = initial,
         direction = initialDirection,
         type = initialType,
@@ -55,7 +55,7 @@ private class SecondaryRouteHistory<T>(
         explicitDirection: SecondaryMotionDirection?,
         type: SecondaryMotionType,
     ): SecondaryMotionFrame<T> {
-        if (target == current) return currentFrame
+        if (target == current) return frame
 
         val knownIndex = stack.indexOfLast { it == target }
         val resolvedDirection = explicitDirection ?: when {
@@ -68,29 +68,26 @@ private class SecondaryRouteHistory<T>(
             type == SecondaryMotionType.Replace -> {
                 if (stack.isEmpty()) stack.add(target) else stack[stack.lastIndex] = target
             }
-
             resolvedDirection == SecondaryMotionDirection.Backward && knownIndex >= 0 -> {
                 while (stack.lastIndex > knownIndex) stack.removeAt(stack.lastIndex)
             }
-
             resolvedDirection == SecondaryMotionDirection.Backward -> {
                 stack.clear()
                 stack.add(target)
             }
-
             else -> stack.add(target)
         }
 
         current = target
         sequence += 1
-        currentFrame = SecondaryMotionFrame(
+        frame = SecondaryMotionFrame(
             value = target,
             direction = resolvedDirection,
             type = type,
             sequence = sequence,
             animate = true,
         )
-        return currentFrame
+        return frame
     }
 }
 
@@ -107,11 +104,8 @@ private class SecondaryKeySequence(initial: Any?) {
 }
 
 /**
- * 二级页面统一轻量转场。
- *
- * 旧页面立即退出，避免半透明玻璃双层叠绘。新页面只做方向位移和透明度，不缩放整棵
- * 玻璃树，不绘制转场光效，也不触发 OpenGL、geometry registry 或 geometry sync。
- * 动画结束后主动移除整页 graphicsLayer，静止状态不保留额外合成层。
+ * Capsule 沿中心轴轻抬升；Push/Pop 只保留水平方向；Replace 与 Modal 保持居中纵向。
+ * 旧页立即退出，避免半透明玻璃双层叠绘。动画结束后移除整页 graphicsLayer。
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -135,11 +129,7 @@ internal fun <T> SecondaryPageTransition(
         )
     }
     val frame = remember(targetState, direction, motionType) {
-        history.resolve(
-            target = targetState,
-            explicitDirection = direction,
-            type = motionType,
-        )
+        history.resolve(targetState, direction, motionType)
     }
 
     AnimatedContent(
@@ -148,9 +138,9 @@ internal fun <T> SecondaryPageTransition(
         contentAlignment = contentAlignment,
         transitionSpec = {
             if (motion <= 0.05f) {
-                fadeIn(tween(durationMillis = 60)) togetherWith fadeOut(tween(durationMillis = 1))
+                fadeIn(tween(60)) togetherWith fadeOut(tween(1))
             } else {
-                fadeIn(tween(durationMillis = 1)) togetherWith fadeOut(tween(durationMillis = 1))
+                fadeIn(tween(1)) togetherWith fadeOut(tween(1))
             }
         },
         label = "secondary-page-transition",
@@ -168,9 +158,6 @@ internal fun <T> SecondaryPageTransition(
     }
 }
 
-/**
- * 独立二级路由首次进入。只播放新页面，不保留来源页面的玻璃绘制。
- */
 @Composable
 internal fun SecondaryRouteEntrance(
     motionIntensity: Float,
@@ -190,10 +177,6 @@ internal fun SecondaryRouteEntrance(
     )
 }
 
-/**
- * 已由外部持有页面实例的场景使用，例如预热后的计划编辑器。
- * key 改变时旧内容由调用方立即替换，本容器只负责新内容的轻量入场。
- */
 @Composable
 internal fun SecondaryMotionContainer(
     transitionKey: Any?,
@@ -206,7 +189,6 @@ internal fun SecondaryMotionContainer(
 ) {
     val tracker = remember { SecondaryKeySequence(transitionKey) }
     val sequence = remember(transitionKey) { tracker.resolve(transitionKey) }
-
     SecondaryMotionLayer(
         sequence = sequence,
         animate = animateInitial || sequence > 0,
@@ -235,18 +217,16 @@ private fun SecondaryMotionLayer(
     val density = LocalDensity.current
     val horizontalTravelPx = with(density) {
         when (motionType) {
-            SecondaryMotionType.Capsule -> 24.dp.toPx()
-            SecondaryMotionType.Push -> 20.dp.toPx()
-            SecondaryMotionType.Replace -> 10.dp.toPx()
-            SecondaryMotionType.Modal -> 0.dp.toPx()
+            SecondaryMotionType.Push -> 24.dp.toPx()
+            else -> 0.dp.toPx()
         }
     }
     val verticalTravelPx = with(density) {
         when (motionType) {
-            SecondaryMotionType.Capsule -> 9.dp.toPx()
-            SecondaryMotionType.Push -> 4.dp.toPx()
-            SecondaryMotionType.Replace -> 1.dp.toPx()
+            SecondaryMotionType.Capsule -> 6.dp.toPx()
+            SecondaryMotionType.Replace -> 4.dp.toPx()
             SecondaryMotionType.Modal -> 14.dp.toPx()
+            SecondaryMotionType.Push -> 0.dp.toPx()
         }
     }
 
@@ -256,30 +236,26 @@ private fun SecondaryMotionLayer(
             settled = true
             return@LaunchedEffect
         }
-
         settled = false
         withFrameNanos { }
         progress.animateTo(
             targetValue = 1f,
             animationSpec = when (motionType) {
                 SecondaryMotionType.Capsule -> spring(
-                    dampingRatio = 0.88f,
+                    dampingRatio = 0.78f,
+                    stiffness = Spring.StiffnessMediumLow,
+                )
+                SecondaryMotionType.Push -> spring(
+                    dampingRatio = 0.84f,
                     stiffness = Spring.StiffnessMedium,
                 )
-
-                SecondaryMotionType.Push -> spring(
+                SecondaryMotionType.Replace -> spring(
                     dampingRatio = 0.90f,
                     stiffness = Spring.StiffnessMedium,
                 )
-
-                SecondaryMotionType.Replace -> spring(
-                    dampingRatio = 0.94f,
-                    stiffness = Spring.StiffnessMedium,
-                )
-
                 SecondaryMotionType.Modal -> spring(
-                    dampingRatio = 0.86f,
-                    stiffness = Spring.StiffnessMedium,
+                    dampingRatio = 0.80f,
+                    stiffness = Spring.StiffnessMediumLow,
                 )
             },
         )
@@ -294,8 +270,8 @@ private fun SecondaryMotionLayer(
                 rawProgress = progress.value,
                 type = motionType,
                 direction = direction,
-                horizontalTravelPx = horizontalTravelPx,
-                verticalTravelPx = verticalTravelPx,
+                horizontalTravelPx = horizontalTravelPx * motion,
+                verticalTravelPx = verticalTravelPx * motion,
             )
             alpha = visual.alpha
             translationX = visual.translationX
