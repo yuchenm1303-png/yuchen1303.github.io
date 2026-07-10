@@ -267,7 +267,7 @@ private fun SecondaryMotionLayer(
 
                 SecondaryMotionType.Replace -> spring(
                     dampingRatio = 0.94f,
-                    stiffness = Spring.StiffnessMediumHigh,
+                    stiffness = Spring.StiffnessMedium,
                 )
 
                 SecondaryMotionType.Modal -> spring(
