@@ -32,71 +32,54 @@ internal fun StorageInlineFeatureSection(
     entries: List<StorageInlineFeatureEntry>,
 ) {
     if (entries.isEmpty()) return
-
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SecondaryStageReveal(
-            role = SecondaryStageRole.Header,
-            motionIntensity = state.motionIntensity,
-        ) {
-            Text(
-                "进阶工具",
-                color = Color.White.copy(alpha = 0.72f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-            )
-        }
-        entries.forEachIndexed { index, entry ->
-            SecondaryStageReveal(
-                role = if (index == 0) SecondaryStageRole.Primary else SecondaryStageRole.Supporting,
-                index = (index - 1).coerceAtLeast(0),
+        Text(
+            "进阶工具",
+            color = Color.White.copy(alpha = 0.72f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+        )
+        entries.forEach { entry ->
+            PressableGlass(
+                quality = state.quality,
+                glassIntensity = state.glassIntensity,
                 motionIntensity = state.motionIntensity,
-                modifier = Modifier.fillMaxWidth(),
+                radius = 22,
+                modifier = Modifier.fillMaxWidth().height(68.dp),
+                role = GlassRole.Card,
+                onClick = entry.onClick,
             ) {
-                PressableGlass(
-                    quality = state.quality,
-                    glassIntensity = state.glassIntensity,
-                    motionIntensity = state.motionIntensity,
-                    radius = 22,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(68.dp),
-                    role = GlassRole.Card,
-                    onClick = entry.onClick,
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 15.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart,
                     ) {
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(
-                                    entry.title,
-                                    color = Color.White.copy(alpha = 0.94f),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Black,
-                                )
-                                Text(
-                                    entry.subtitle,
-                                    color = Color.White.copy(alpha = 0.48f),
-                                    fontSize = 10.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                entry.title,
+                                color = Color.White.copy(alpha = 0.94f),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                            Text(
+                                entry.subtitle,
+                                color = Color.White.copy(alpha = 0.48f),
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
                         }
-                        Text(
-                            "进入 ›",
-                            color = entry.tone.copy(alpha = 0.92f),
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.Black,
-                        )
                     }
+                    Text(
+                        "进入 ›",
+                        color = entry.tone.copy(alpha = 0.92f),
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                    )
                 }
             }
         }

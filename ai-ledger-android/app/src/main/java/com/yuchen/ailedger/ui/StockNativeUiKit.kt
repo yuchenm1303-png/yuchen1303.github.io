@@ -82,9 +82,6 @@ internal fun compactCount(value: Int): String = when {
 /**
  * 股票大玻璃只负责布局和材质绘制，外层禁止 clip。
  * 玻璃自身已经按 radius 绘制圆角；再对父级 clip 会切掉边缘辉光、折射和阴影。
- *
- * 路由启用 StockNativeEntranceSequenceHost 后，只有首屏前三张大玻璃按组成顺序进入；
- * 内部指标小卡不单独启动动画，从而保留胶囊节奏并避免同帧合成拥塞。
  */
 @Composable
 internal fun StockNativeGlassPanel(
@@ -95,29 +92,27 @@ internal fun StockNativeGlassPanel(
 ) {
     val state = LocalStockNativeGlassState.current
     val radiusValue = radius.value.roundToInt().coerceAtLeast(1)
-    StockNativeMajorPanelEntrance(modifier = modifier) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            if (state != null) {
-                GlassPanel(
-                    quality = state.quality,
-                    glassIntensity = state.glassIntensity,
-                    motionIntensity = state.motionIntensity,
-                    radius = radiusValue,
-                    modifier = Modifier.matchParentSize(),
-                    role = GlassRole.Card
-                ) {}
-            } else {
-                FrostInfoGlassPanel(
-                    radius = radius.value,
-                    backdropAlpha = 1f,
-                    frostAlpha = 0.082f,
-                    dimAlpha = 0f,
-                    modifier = Modifier.matchParentSize()
-                ) {}
-            }
-            Box(Modifier.fillMaxWidth().padding(contentPadding)) {
-                content()
-            }
+    Box(modifier = modifier) {
+        if (state != null) {
+            GlassPanel(
+                quality = state.quality,
+                glassIntensity = state.glassIntensity,
+                motionIntensity = state.motionIntensity,
+                radius = radiusValue,
+                modifier = Modifier.matchParentSize(),
+                role = GlassRole.Card
+            ) {}
+        } else {
+            FrostInfoGlassPanel(
+                radius = radius.value,
+                backdropAlpha = 1f,
+                frostAlpha = 0.082f,
+                dimAlpha = 0f,
+                modifier = Modifier.matchParentSize()
+            ) {}
+        }
+        Box(Modifier.fillMaxWidth().padding(contentPadding)) {
+            content()
         }
     }
 }
@@ -155,40 +150,38 @@ internal fun StockNativePageHeader(
     onRefresh: (() -> Unit)? = null,
     loading: Boolean = false
 ) {
-    StockNativeHeaderEntrance {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(46.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(46.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        StockNativePill(
+            text = "‹",
+            active = false,
+            modifier = Modifier.size(44.dp),
+            fontSize = 27,
+            onClick = onBack
+        )
+        Text(
+            label,
+            color = Color.White.copy(alpha = 0.54f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Black,
+            modifier = Modifier.weight(1f),
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (onRefresh != null) {
             StockNativePill(
-                text = "‹",
+                text = if (loading) "…" else "⟳",
                 active = false,
                 modifier = Modifier.size(44.dp),
-                fontSize = 27,
-                onClick = onBack
+                fontSize = 19,
+                onClick = onRefresh
             )
-            Text(
-                label,
-                color = Color.White.copy(alpha = 0.54f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Black,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (onRefresh != null) {
-                StockNativePill(
-                    text = if (loading) "…" else "⟳",
-                    active = false,
-                    modifier = Modifier.size(44.dp),
-                    fontSize = 19,
-                    onClick = onRefresh
-                )
-            } else {
-                Spacer(Modifier.width(44.dp))
-            }
+        } else {
+            Spacer(Modifier.width(44.dp))
         }
     }
 }
