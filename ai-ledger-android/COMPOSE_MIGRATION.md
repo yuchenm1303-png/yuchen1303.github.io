@@ -59,6 +59,18 @@ app/.build-trigger.txt
 
 不得重新增加 Gradle 文本替换补丁、临时源码 patch 或 workflow 自动修改 Kotlin 源码的链路。
 
+以下历史 workflow 只允许手动运行，不得监听 `dev-update-1` 的普通推送：
+
+```text
+.github/workflows/build-android-apk.yml
+    → Legacy Capacitor Android APK (Manual)
+
+.github/workflows/build-compose-apk.yml
+    → Legacy Compose Prototype APK (Manual)
+```
+
+它们仅用于历史工程回退验证，不是当前 APK 的发布或验收链路。正式 Compose APK 的构建结果只能以 `Build Compose Android APK` 为准。
+
 ## 历史兼容区
 
 以下目录和文件来自早期 Capacitor / WebView 混合架构，目前不属于正式 Compose App 入口：
