@@ -71,6 +71,22 @@ private const val STREAM_FLUSH_INTERVAL_MS = 80L
 private const val VISUAL_ATTACHMENT_STATUS_PREFIX = "视觉附件 · "
 private const val CHAT_STICKER_STRUCTURED_TYPE = "chat_sticker_v1"
 
+private val NORMAL_CHAT_DEVICE_TOOL_PREFIXES = listOf(
+    "/agent",
+    "agent:",
+    "agent：",
+    "Agent:",
+    "Agent：",
+)
+private val REALTIME_ONLINE_INTENT_PATTERN = Regex(
+    pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)",
+    option = RegexOption.IGNORE_CASE,
+)
+private val NO_ONLINE_INTENT_PATTERN = Regex(
+    pattern = "(不用联网|不要联网|别联网|不需要联网|无需联网|不要搜索|别搜索|不用搜索|不要查网页|不用查网页)",
+    option = RegexOption.IGNORE_CASE,
+)
+
 class AssistantViewModel(
     application: Application,
     private val repository: AssistantRepository,
@@ -282,7 +298,7 @@ class AssistantViewModel(
     private fun shouldProbeNormalChatDeviceTool(goal: String, hasImageRequest: Boolean): Boolean {
         if (goal.isBlank() || hasImageRequest || AgentRuntimeController.isEnabled()) return false
         val clean = goal.trim()
-        return !listOf("/agent", "agent:", "agent：", "Agent:", "Agent：").any { prefix ->
+        return NORMAL_CHAT_DEVICE_TOOL_PREFIXES.none { prefix ->
             clean.startsWith(prefix, ignoreCase = true)
         }
     }
@@ -615,7 +631,7 @@ class AssistantViewModel(
         activeSendJob = viewModelScope.launch {
             val streamLock = Any()
             val streamBuffer = StringBuilder()
-            var lastFlushedText = ""
+            var lastFlushedLength = 0
             var lastFlushAt = System.currentTimeMillis()
             var streamClosed = false
 
@@ -626,7 +642,7 @@ class AssistantViewModel(
                     char == '）' || char == ')' || char == '】' || char == ']'
             }
 
-            fun nextStreamingFlushEnd(fullText: String, displayed: Int, force: Boolean, now: Long): Int {
+            fun nextStreamingFlushEnd(fullText: CharSequence, displayed: Int, force: Boolean, now: Long): Int {
                 if (force) return fullText.length
                 val available = fullText.length - displayed
                 if (available <= 0) return displayed
@@ -664,23 +680,22 @@ class AssistantViewModel(
                 val minEnd = minOf(fullText.length, displayed + minOf(available, minChunk))
                 val maxEnd = minOf(fullText.length, displayed + minOf(available, idealChunk))
                 for (index in minEnd - 1 until maxEnd) {
-                    if (index in fullText.indices && isStreamingBreakChar(fullText[index])) return index + 1
+                    if (index in 0 until fullText.length && isStreamingBreakChar(fullText[index])) return index + 1
                 }
                 if (available >= idealChunk || elapsed >= 190L) return maxEnd
                 return displayed
             }
 
             fun flushStreamingText(force: Boolean = false) {
-                val fullText = synchronized(streamLock) {
-                    if (streamBuffer.isEmpty()) return
-                    streamBuffer.toString()
-                }
                 val now = System.currentTimeMillis()
-                val nextEnd = nextStreamingFlushEnd(fullText, lastFlushedText.length, force, now)
-                if (nextEnd <= lastFlushedText.length) return
-                val nextText = fullText.substring(0, nextEnd)
-                if (nextText.isBlank() || nextText == lastFlushedText) return
-                lastFlushedText = nextText
+                val nextText = synchronized(streamLock) {
+                    if (streamBuffer.isEmpty()) return
+                    val nextEnd = nextStreamingFlushEnd(streamBuffer, lastFlushedLength, force, now)
+                    if (nextEnd <= lastFlushedLength) return
+                    streamBuffer.substring(0, nextEnd)
+                }
+                if (nextText.isBlank()) return
+                lastFlushedLength = nextText.length
                 lastFlushAt = now
                 if (activePendingMessageId == pendingMessage.id) {
                     replaceMessage(
@@ -1067,9 +1082,15 @@ class AssistantViewModel(
     }
 
     private fun replaceMessage(id: String, next: ChatMessage) {
-        val index = uiState.messages.indexOfFirst { it.id == id }
-        if (index < 0) return
-        val nextMessages = uiState.messages.toMutableList()
+        val messages = uiState.messages
+        val lastIndex = messages.lastIndex
+        val index = if (lastIndex >= 0 && messages[lastIndex].id == id) {
+            lastIndex
+        } else {
+            messages.indexOfFirst { it.id == id }
+        }
+        if (index < 0 || messages[index] == next) return
+        val nextMessages = ArrayList(messages)
         nextMessages[index] = next
         uiState = uiState.copy(messages = nextMessages)
     }
@@ -1105,18 +1126,11 @@ class AssistantViewModel(
         if (messages.any { it.hasImageAttachments }) return false
         val latestUserText = messages.lastOrNull { it.role == MessageRole.User }?.text?.trim().orEmpty()
         if (latestUserText.isBlank() || hasNoOnlineIntent(latestUserText)) return false
-        val realtimePattern = Regex(
-            pattern = "(今天|明天|现在|当前|实时|最新|新闻|热点|天气|气温|温度|下雨|降雨|降水|带伞|冷不冷|热不热|适合出门|汇率|兑换|美元|人民币|日元|欧元|英镑|港币|股价|股票|行情|美股|港股|A股|a股|纳斯达克|道琼斯|标普|查一下|查查|搜索|联网|网上|官网|价格|多少钱|比赛|赛程|排名|榜单)",
-            option = RegexOption.IGNORE_CASE
-        )
-        return realtimePattern.containsMatchIn(latestUserText)
+        return REALTIME_ONLINE_INTENT_PATTERN.containsMatchIn(latestUserText)
     }
 
     private fun hasNoOnlineIntent(text: String): Boolean {
-        return Regex(
-            pattern = "(不用联网|不要联网|别联网|不需要联网|无需联网|不要搜索|别搜索|不用搜索|不要查网页|不用查网页)",
-            option = RegexOption.IGNORE_CASE
-        ).containsMatchIn(text)
+        return NO_ONLINE_INTENT_PATTERN.containsMatchIn(text)
     }
 
     private fun decorateReply(response: AiChatResponse, onlineEnabled: Boolean): String {
