@@ -146,6 +146,21 @@ internal object StockHttpClient {
         }
     }
 
+    fun trimMemory(aggressive: Boolean) {
+        synchronized(recentLock) {
+            if (aggressive) {
+                recentBodies.clear()
+            } else {
+                val iterator = recentBodies.entries.iterator()
+                while (recentBodies.size > LOW_MEMORY_RECENT_RESPONSES && iterator.hasNext()) {
+                    iterator.next()
+                    iterator.remove()
+                }
+            }
+        }
+        if (aggressive) transportFailures.clear()
+    }
+
     private fun cancelLowerPriorityIndexRequests() {
         dispatcher.queuedCalls().forEach(::cancelIfLowerPriorityIndexRequest)
         dispatcher.runningCalls().forEach(::cancelIfLowerPriorityIndexRequest)
@@ -324,6 +339,7 @@ internal object StockHttpClient {
     private const val MAX_COLD_START_TIMEOUT_MS = 75_000
     private const val SHARED_WAIT_GRACE_MS = 250L
     private const val TRANSPORT_FAILURE_COOLDOWN_MS = 2_500L
+    private const val LOW_MEMORY_RECENT_RESPONSES = 12
     private const val MAX_RECENT_RESPONSES = 64
     private const val MAX_TRANSPORT_FAILURES = 96
 }
