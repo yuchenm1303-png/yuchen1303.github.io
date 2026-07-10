@@ -1018,6 +1018,7 @@ private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
     private val density = resources.displayMetrics.density.coerceAtLeast(1f)
     private val rect = RectF()
     private val highlightRect = RectF()
+    private val clipPath = Path()
     private val sheenMatrix = Matrix()
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -1131,7 +1132,9 @@ private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
             sheenMatrix.setTranslate(center, 0f)
             sheenPaint.shader?.setLocalMatrix(sheenMatrix)
             canvas.save()
-            canvas.clipRoundRect(rect, radius, radius)
+            clipPath.rewind()
+            clipPath.addRoundRect(rect, radius, radius, Path.Direction.CW)
+            canvas.clipPath(clipPath)
             canvas.drawRect(rect, sheenPaint)
             canvas.restore()
         }
