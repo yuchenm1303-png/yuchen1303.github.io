@@ -10,6 +10,9 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.LinkedHashMap
+import java.util.concurrent.CancellationException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
 
 private const val MEMORY_SETTINGS_REFRESH_MAX_SCOPES = 16
@@ -18,6 +21,16 @@ internal class AiWorkerHttpTransport(
     private val config: AiWorkerConfig,
     private val resolvedClientId: String,
 ) {
+    private val cancellationGeneration = AtomicLong(0L)
+    private val activeConnections = ConcurrentHashMap.newKeySet<HttpURLConnection>()
+
+    fun cancelActiveRequests() {
+        cancellationGeneration.incrementAndGet()
+        activeConnections.toList().forEach { connection ->
+            runCatching { connection.disconnect() }
+        }
+    }
+
     fun postChat(
         endpoint: String,
         payload: JSONObject,
@@ -25,6 +38,7 @@ internal class AiWorkerHttpTransport(
     ): AiChatResponse {
         AssistantMemoryUsageBridge.beginTransportAttempt()
         AssistantMemorySettingsRefreshCoordinator.decoratePayload(payload)
+        val requestGeneration = cancellationGeneration.get()
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
@@ -34,6 +48,7 @@ internal class AiWorkerHttpTransport(
             setRequestProperty("Accept", "application/json, text/plain")
             applyClientHeaders(this, stream = false)
         }
+        registerConnection(connection, requestGeneration)
         return try {
             val requestBytes = payload.toString().toByteArray(Charsets.UTF_8)
             AssistantMemoryUsageBridge.captureRequestBytes(requestBytes.size)
@@ -78,12 +93,16 @@ internal class AiWorkerHttpTransport(
                 AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
             }
         } catch (error: SocketTimeoutException) {
+            throwIfCancelled(requestGeneration, error)
             throw IOException(
                 "云端 AI 请求超时：${endpoint.substringAfter("://")}",
                 error,
             )
+        } catch (error: IOException) {
+            throwIfCancelled(requestGeneration, error)
+            throw error
         } finally {
-            connection.disconnect()
+            releaseConnection(connection)
         }
     }
 
@@ -95,6 +114,7 @@ internal class AiWorkerHttpTransport(
     ): AiChatResponse {
         AssistantMemoryUsageBridge.beginTransportAttempt()
         AssistantMemorySettingsRefreshCoordinator.decoratePayload(payload)
+        val requestGeneration = cancellationGeneration.get()
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = config.connectTimeoutMs
@@ -107,6 +127,7 @@ internal class AiWorkerHttpTransport(
             )
             applyClientHeaders(this, stream = true)
         }
+        registerConnection(connection, requestGeneration)
         val deltaCoalescer = StreamingDeltaCoalescer(onDelta = onDelta)
 
         return try {
@@ -245,15 +266,19 @@ internal class AiWorkerHttpTransport(
                 AssistantMemorySettingsRefreshCoordinator.acknowledgeSuccessfulPayload(payload)
             }
         } catch (error: SocketTimeoutException) {
+            throwIfCancelled(requestGeneration, error)
             throw IOException(
                 "云端 AI 流式请求超时：${endpoint.substringAfter("://")}",
                 error,
             )
+        } catch (error: IOException) {
+            throwIfCancelled(requestGeneration, error)
+            throw error
         } finally {
             // Preserve every received character even if the network closes or times out between
             // two coalescing thresholds. The existing ViewModel smoother remains the UI authority.
             deltaCoalescer.drain()
-            connection.disconnect()
+            releaseConnection(connection)
         }
     }
 
@@ -282,6 +307,25 @@ internal class AiWorkerHttpTransport(
             userAccessTokenProvider = config.userAccessTokenProvider,
             stream = stream,
         )
+    }
+
+    private fun registerConnection(connection: HttpURLConnection, requestGeneration: Long) {
+        activeConnections += connection
+        if (requestGeneration != cancellationGeneration.get()) {
+            activeConnections.remove(connection)
+            runCatching { connection.disconnect() }
+            throw CancellationException("AI request cancelled")
+        }
+    }
+
+    private fun releaseConnection(connection: HttpURLConnection) {
+        activeConnections.remove(connection)
+        runCatching { connection.disconnect() }
+    }
+
+    private fun throwIfCancelled(requestGeneration: Long, cause: Throwable): Nothing? {
+        if (requestGeneration == cancellationGeneration.get()) return null
+        throw CancellationException("AI request cancelled").also { it.initCause(cause) }
     }
 
     private fun applyClientHeaders(
