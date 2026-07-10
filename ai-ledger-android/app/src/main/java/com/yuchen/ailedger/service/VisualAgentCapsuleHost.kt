@@ -8,6 +8,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -66,6 +67,7 @@ internal class VisualAgentCapsuleHost(
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     private val density = service.resources.displayMetrics.density.coerceAtLeast(1f)
 
+    private var windowRoot: FrameLayout? = null
     private var rootView: CapsuleGlassLayout? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var layoutAnimator: ValueAnimator? = null
@@ -160,6 +162,10 @@ internal class VisualAgentCapsuleHost(
         val collapsedWidth = min(dp(COLLAPSED_WIDTH_DP), screenWidth - dp(20f))
         val collapsedHeight = dp(COLLAPSED_HEIGHT_DP)
 
+        val windowContainer = FrameLayout(service).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
         val root = CapsuleGlassLayout(service).apply {
             elevation = dp(18f).toFloat()
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
@@ -185,6 +191,10 @@ internal class VisualAgentCapsuleHost(
             content,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
+        windowContainer.addView(
+            root,
+            FrameLayout.LayoutParams(collapsedWidth, collapsedHeight, Gravity.TOP or Gravity.CENTER_HORIZONTAL),
+        )
 
         val params = WindowManager.LayoutParams(
             collapsedWidth,
@@ -208,8 +218,9 @@ internal class VisualAgentCapsuleHost(
             }
         }
 
-        return runCatching { wm.addView(root, params) }
+        return runCatching { wm.addView(windowContainer, params) }
             .onSuccess {
+                windowRoot = windowContainer
                 rootView = root
                 layoutParams = params
                 root.setExpansionProgress(0f)
@@ -645,6 +656,7 @@ internal class VisualAgentCapsuleHost(
 
     private fun applyExpandedLayout(animate: Boolean) {
         val params = layoutParams ?: return
+        val container = windowRoot ?: return
         val root = rootView ?: return
         val screenWidth = service.resources.displayMetrics.widthPixels
         val screenHeight = service.resources.displayMetrics.heightPixels
@@ -657,13 +669,17 @@ internal class VisualAgentCapsuleHost(
         val targetHeight = if (expanded) expandedHeight else collapsedHeight
 
         if (expanded) bodyView?.visibility = View.VISIBLE
+        val rootParams = root.layoutParams as? FrameLayout.LayoutParams ?: return
         val needsAnimation = animate && !hiddenForCapture &&
-            (params.width != targetWidth || params.height != targetHeight || lastAppliedExpanded != expanded)
+            (rootParams.width != targetWidth || rootParams.height != targetHeight || lastAppliedExpanded != expanded)
         if (!needsAnimation) {
             layoutAnimator?.cancel()
             params.width = targetWidth
             params.height = targetHeight
-            runCatching { windowManager?.updateViewLayout(root, params) }
+            rootParams.width = targetWidth
+            rootParams.height = targetHeight
+            root.layoutParams = rootParams
+            runCatching { windowManager?.updateViewLayout(container, params) }
             val progress = if (expanded) 1f else 0f
             root.setExpansionProgress(progress)
             chevronView?.setExpansionProgress(progress)
@@ -676,18 +692,23 @@ internal class VisualAgentCapsuleHost(
         }
 
         layoutAnimator?.cancel()
-        val startWidth = params.width
-        val startHeight = params.height
+        val startWidth = rootParams.width
+        val startHeight = rootParams.height
         val startExpansion = root.expansionProgress
         val endExpansion = if (expanded) 1f else 0f
+        if (expanded) {
+            params.width = targetWidth
+            params.height = targetHeight
+            runCatching { windowManager?.updateViewLayout(container, params) }
+        }
         layoutAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = if (expanded) EXPAND_DURATION_MS else COLLAPSE_DURATION_MS
             interpolator = if (expanded) EXPAND_INTERPOLATOR else COLLAPSE_INTERPOLATOR
             addUpdateListener { animator ->
                 val fraction = animator.animatedValue as Float
-                params.width = lerp(startWidth, targetWidth, fraction)
-                params.height = lerp(startHeight, targetHeight, fraction)
-                runCatching { windowManager?.updateViewLayout(root, params) }
+                rootParams.width = lerp(startWidth, targetWidth, fraction)
+                rootParams.height = lerp(startHeight, targetHeight, fraction)
+                root.layoutParams = rootParams
                 val expansion = lerp(startExpansion, endExpansion, fraction)
                 root.setExpansionProgress(expansion)
                 chevronView?.setExpansionProgress(expansion)
@@ -701,6 +722,11 @@ internal class VisualAgentCapsuleHost(
             }
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
+                    if (!expanded) {
+                        params.width = targetWidth
+                        params.height = targetHeight
+                        runCatching { windowManager?.updateViewLayout(container, params) }
+                    }
                     if (!expanded) bodyView?.visibility = View.INVISIBLE
                     lastAppliedExpanded = expanded
                     root.setHintEnabled(!expanded && !hiddenForCapture)
@@ -766,7 +792,7 @@ internal class VisualAgentCapsuleHost(
 
     private fun updateWindowFlags(hidden: Boolean, wantsInputFocus: Boolean) {
         val params = layoutParams ?: return
-        val root = rootView ?: return
+        val root = windowRoot ?: return
         val flags = capsuleWindowFlags(hidden, wantsInputFocus)
         if (params.flags == flags) return
         params.flags = flags
@@ -788,7 +814,8 @@ internal class VisualAgentCapsuleHost(
         hideKeyboardAndReleaseFocus()
         rootView?.stopAnimations()
         rootView?.animate()?.cancel()
-        rootView?.let { runCatching { windowManager?.removeView(it) } }
+        windowRoot?.let { runCatching { windowManager?.removeView(it) } }
+        windowRoot = null
         rootView = null
         layoutParams = null
         titleView = null
@@ -990,6 +1017,8 @@ internal class VisualAgentCapsuleHost(
 private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
     private val density = resources.displayMetrics.density.coerceAtLeast(1f)
     private val rect = RectF()
+    private val highlightRect = RectF()
+    private val sheenMatrix = Matrix()
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -997,6 +1026,9 @@ private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
     }
     private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var cachedShaderWidth = -1
+    private var cachedShaderHeight = -1
+    private var cachedSheenAccent = Color.TRANSPARENT
     private var accentColor = Color.rgb(92, 221, 255)
     private var hintAnimator: ValueAnimator? = null
     private var hintPosted = false
@@ -1037,6 +1069,7 @@ private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
     fun setAccentColor(color: Int) {
         if (accentColor == color) return
         accentColor = color
+        cachedSheenAccent = Color.TRANSPARENT
         invalidate()
     }
 
@@ -1079,35 +1112,15 @@ private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
         val expandedRadius = dp(24f)
         val radius = collapsedRadius + (expandedRadius - collapsedRadius) * expansionProgress
 
-        fillPaint.shader = LinearGradient(
-            0f,
-            0f,
-            width.toFloat(),
-            height.toFloat(),
-            intArrayOf(
-                Color.argb(240, 10, 19, 36),
-                Color.argb(232, 25, 39, 65),
-                Color.argb(241, 9, 16, 33),
-            ),
-            floatArrayOf(0f, 0.52f, 1f),
-            Shader.TileMode.CLAMP,
-        )
+        ensureCachedShaders()
         canvas.drawRoundRect(rect, radius, radius, fillPaint)
 
         borderPaint.color = withAlpha(accentColor, 94)
         canvas.drawRoundRect(rect, radius, radius, borderPaint)
 
-        highlightPaint.shader = LinearGradient(
-            0f,
-            0f,
-            width.toFloat(),
-            0f,
-            intArrayOf(Color.TRANSPARENT, Color.argb(94, 246, 252, 255), Color.TRANSPARENT),
-            floatArrayOf(0f, 0.46f, 1f),
-            Shader.TileMode.CLAMP,
-        )
+        highlightRect.set(dp(7f), dp(2f), width - dp(7f), dp(4.2f))
         canvas.drawRoundRect(
-            RectF(dp(7f), dp(2f), width - dp(7f), dp(4.2f)),
+            highlightRect,
             dp(2f),
             dp(2f),
             highlightPaint,
@@ -1115,23 +1128,57 @@ private class CapsuleGlassLayout(context: Context) : FrameLayout(context) {
 
         if (hintProgress >= 0f) {
             val center = (-0.25f + hintProgress * 1.5f) * width
+            sheenMatrix.setTranslate(center, 0f)
+            sheenPaint.shader?.setLocalMatrix(sheenMatrix)
+            canvas.save()
+            canvas.clipRoundRect(rect, radius, radius)
+            canvas.drawRect(rect, sheenPaint)
+            canvas.restore()
+        }
+        super.onDraw(canvas)
+    }
+
+    private fun ensureCachedShaders() {
+        if (cachedShaderWidth != width || cachedShaderHeight != height) {
+            cachedShaderWidth = width
+            cachedShaderHeight = height
+            fillPaint.shader = LinearGradient(
+                0f,
+                0f,
+                width.toFloat(),
+                height.toFloat(),
+                intArrayOf(
+                    Color.argb(240, 10, 19, 36),
+                    Color.argb(232, 25, 39, 65),
+                    Color.argb(241, 9, 16, 33),
+                ),
+                floatArrayOf(0f, 0.52f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            highlightPaint.shader = LinearGradient(
+                0f,
+                0f,
+                width.toFloat(),
+                0f,
+                intArrayOf(Color.TRANSPARENT, Color.argb(94, 246, 252, 255), Color.TRANSPARENT),
+                floatArrayOf(0f, 0.46f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            cachedSheenAccent = Color.TRANSPARENT
+        }
+        if (cachedSheenAccent != accentColor) {
+            cachedSheenAccent = accentColor
             val half = width * 0.2f
             sheenPaint.shader = LinearGradient(
-                center - half,
+                -half,
                 0f,
-                center + half,
+                half,
                 height.toFloat(),
                 intArrayOf(Color.TRANSPARENT, withAlpha(accentColor, 38), Color.TRANSPARENT),
                 floatArrayOf(0f, 0.5f, 1f),
                 Shader.TileMode.CLAMP,
             )
-            val clipPath = Path().apply { addRoundRect(rect, radius, radius, Path.Direction.CW) }
-            canvas.save()
-            canvas.clipPath(clipPath)
-            canvas.drawRect(rect, sheenPaint)
-            canvas.restore()
         }
-        super.onDraw(canvas)
     }
 
     private fun withAlpha(color: Int, alpha: Int): Int =

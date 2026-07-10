@@ -40,6 +40,17 @@
     opacity:0;
     visibility:hidden;
   }
+  .app.capture-safe .edge-aurora{
+    opacity:0;
+    visibility:hidden;
+  }
+  .app.capture-safe .edge-aurora-layer,
+  .app.capture-safe .cursor-aura,
+  .app.capture-safe .cursor-icon,
+  .app.capture-safe .click-wave,
+  .app.capture-safe .hud-top .pulse{
+    animation-play-state:paused !important;
+  }
 
   @property --edge-angle{
     syntax:"<angle>";
@@ -158,11 +169,11 @@
 
   .cursor-wrap{
     position:absolute;
-    left:var(--cursor-x);top:var(--cursor-y);
-    transform:translate(-9px,-8px);
+    left:0;top:0;
+    transform:translate3d(var(--cursor-x),var(--cursor-y),0) translate(-9px,-8px);
     width:82px;height:82px;
-    transition:left var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1),top var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1);
-    will-change:left,top;
+    transition:transform var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1);
+    will-change:transform;
     pointer-events:none;
   }
   .cursor-aura{
@@ -233,8 +244,8 @@
 
   .info-bubble{
     position:absolute;
-    left:var(--bubble-x);
-    top:var(--bubble-y);
+    left:0;
+    top:0;
     width:min(var(--info-bubble-width),calc(100vw - 24px));
     min-height:112px;
     padding:14px 15px 13px;
@@ -243,11 +254,10 @@
     border:1px solid rgba(102,217,255,.20);
     backdrop-filter:blur(18px);
     box-shadow:0 16px 45px rgba(0,0,0,.40),0 0 26px rgba(102,217,255,.07);
-    transform:scale(var(--info-bubble-scale));
+    transform:translate3d(var(--bubble-x),var(--bubble-y),0) scale(var(--info-bubble-scale));
     transform-origin:left top;
     transition:
-      left var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1),
-      top var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1),
+      transform var(--cursor-move-speed) cubic-bezier(.18,.78,.18,1),
       opacity .2s ease,
       filter .2s ease,
       box-shadow .24s ease;

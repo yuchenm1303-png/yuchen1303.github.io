@@ -232,8 +232,8 @@
     if(placementChanged){
       bubble.style.transition='none';
     }
-    bubble.style.left=`${best.left}px`;
-    bubble.style.top=`${best.top}px`;
+    root.style.setProperty('--bubble-x',`${best.left}px`);
+    root.style.setProperty('--bubble-y',`${best.top}px`);
     bubble.dataset.placement=best.name;
     if(placementChanged){
       void bubble.offsetWidth;

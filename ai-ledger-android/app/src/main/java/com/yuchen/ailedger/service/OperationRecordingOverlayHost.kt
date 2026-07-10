@@ -58,6 +58,7 @@ internal class OperationRecordingOverlayHost(
     private var cancelView: TextView? = null
     private var started = false
     private var hiddenForCapture = false
+    private var lastAppliedCaptureHidden: Boolean? = null
     private var latestState = OperationRecordingState()
     private var tickerJob: Job? = null
     private var lastNotificationKey = ""
@@ -216,6 +217,7 @@ internal class OperationRecordingOverlayHost(
                 rootView = root
                 layoutParams = params
                 root.alpha = if (hiddenForCapture) 0f else 1f
+                lastAppliedCaptureHidden = hiddenForCapture
             }
             .onFailure { error ->
                 AgentRuntimeController.noteDiagnostic(
@@ -263,6 +265,8 @@ internal class OperationRecordingOverlayHost(
     private fun applyCaptureVisibility(hidden: Boolean) {
         val root = rootView ?: return
         val params = layoutParams ?: return
+        if (lastAppliedCaptureHidden == hidden) return
+        lastAppliedCaptureHidden = hidden
         params.flags = windowFlags(hidden)
         params.alpha = if (hidden) 0f else 1f
         root.alpha = params.alpha
@@ -278,6 +282,7 @@ internal class OperationRecordingOverlayHost(
         metaView = null
         finishView = null
         cancelView = null
+        lastAppliedCaptureHidden = null
         lastNotificationKey = ""
     }
 

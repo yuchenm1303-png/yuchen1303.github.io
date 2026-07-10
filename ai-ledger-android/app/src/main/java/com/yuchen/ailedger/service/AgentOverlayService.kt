@@ -15,6 +15,7 @@ import android.text.InputFilter
 import android.text.InputType
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.Choreographer
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -912,16 +913,52 @@ class AgentOverlayService : Service() {
         private var startX = 0
         private var startY = 0
         private var dragging = false
+        private var pendingX = 0
+        private var pendingY = 0
+        private var framePosted = false
+        private var pendingView: View? = null
+        private val positionFrameCallback = Choreographer.FrameCallback {
+            framePosted = false
+            applyPendingPosition()
+        }
+
+        private fun schedulePosition(view: View, x: Int, y: Int) {
+            pendingView = view
+            pendingX = x
+            pendingY = y
+            if (framePosted) return
+            framePosted = true
+            Choreographer.getInstance().postFrameCallback(positionFrameCallback)
+        }
+
+        private fun applyPendingPosition() {
+            val view = pendingView ?: return
+            val params = layoutParams ?: return
+            params.x = pendingX
+            params.y = pendingY
+            runCatching { windowManager?.updateViewLayout(view, params) }
+        }
+
+        private fun flushPendingPosition() {
+            if (framePosted) {
+                Choreographer.getInstance().removeFrameCallback(positionFrameCallback)
+                framePosted = false
+            }
+            applyPendingPosition()
+        }
 
         override fun onTouch(view: View, event: MotionEvent): Boolean {
             val params = layoutParams ?: return false
-            val wm = windowManager ?: return false
+            windowManager ?: return false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downRawX = event.rawX
                     downRawY = event.rawY
                     startX = params.x
                     startY = params.y
+                    pendingView = view
+                    pendingX = startX
+                    pendingY = startY
                     dragging = false
                     view.animate().scaleX(0.988f).scaleY(0.988f).setDuration(90L).start()
                     return true
@@ -930,12 +967,11 @@ class AgentOverlayService : Service() {
                     val dx = event.rawX - downRawX
                     val dy = event.rawY - downRawY
                     if (abs(dx) > dp(4f) || abs(dy) > dp(4f)) dragging = true
-                    params.x = startX + dx.toInt()
-                    params.y = startY + dy.toInt()
-                    runCatching { wm.updateViewLayout(view, params) }
+                    schedulePosition(view, startX + dx.toInt(), startY + dy.toInt())
                     return true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    flushPendingPosition()
                     view.animate().scaleX(1f).scaleY(1f).setDuration(140L).setInterpolator(SOFT_OUT).start()
                     if (!dragging && abs(event.rawX - downRawX) < dp(8f) && abs(event.rawY - downRawY) < dp(8f)) {
                         if (latestProgress.pendingConfirmation == null && latestProgress.pendingUserInput == null && !awaitingAgentReply) {
@@ -947,7 +983,9 @@ class AgentOverlayService : Service() {
                         val screenWidth = resources.displayMetrics.widthPixels
                         val edge = dp(10f)
                         params.x = if (params.x + view.width / 2 < screenWidth / 2) edge else max(edge, screenWidth - view.width - edge)
-                        runCatching { wm.updateViewLayout(view, params) }
+                        pendingX = params.x
+                        pendingY = params.y
+                        applyPendingPosition()
                     }
                     return true
                 }
