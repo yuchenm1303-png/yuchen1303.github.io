@@ -8,62 +8,55 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.min
 import kotlinx.coroutines.delay
 
+/**
+ * 二级页面首屏内容的分批入场。
+ *
+ * 每组只做透明度和纵向位移，不缩放玻璃、不绘制 glint，也不会触发普通玻璃自己的
+ * 按压光效。最多错开前六组，避免长列表等待过久。
+ */
 @Composable
 internal fun SecondaryStaggeredReveal(
     index: Int,
     motionIntensity: Float,
     modifier: Modifier = Modifier,
-    tone: Color = Color.White,
     content: @Composable () -> Unit,
 ) {
     val motion = motionIntensity.coerceIn(0f, 1f)
     val progress = remember { Animatable(if (motion <= 0.05f) 1f else 0f) }
     val density = LocalDensity.current
-    val offsetPx = with(density) { 12.dp.toPx() }
+    val offsetPx = with(density) { 10.dp.toPx() }
 
     LaunchedEffect(motion) {
         if (motion <= 0.05f) {
             progress.snapTo(1f)
         } else {
             progress.snapTo(0f)
-            delay(min(index, 6) * 34L)
+            delay(min(index, 5) * 42L)
             progress.animateTo(
                 targetValue = 1f,
                 animationSpec = spring(
-                    dampingRatio = 0.84f,
-                    stiffness = Spring.StiffnessMediumLow,
+                    dampingRatio = 0.90f,
+                    stiffness = Spring.StiffnessMedium,
                 ),
             )
         }
     }
 
     Box(
-        modifier = modifier
-            .graphicsLayer {
-                val raw = progress.value
-                val p = secondaryMotionSmoothStep(raw.coerceIn(0f, 1f))
-                val pulse = secondaryMotionArc(p)
-                alpha = (raw.coerceIn(0f, 1f) * 1.80f).coerceIn(0f, 1f)
-                translationY = (1f - p) * offsetPx - pulse * offsetPx * 0.08f
-                scaleX = 0.986f + p * 0.014f + pulse * 0.004f
-                scaleY = 0.970f + p * 0.030f - pulse * 0.003f
-                transformOrigin = TransformOrigin(0.50f, 0.58f)
-                compositingStrategy = CompositingStrategy.ModulateAlpha
-            }
-            .secondaryItemGlint(
-                progress = { progress.value },
-                motionIntensity = motion,
-                tone = tone,
-            ),
+        modifier = modifier.graphicsLayer {
+            val raw = progress.value.coerceIn(0f, 1f)
+            val p = secondaryMotionSmoothStep(raw)
+            alpha = (raw * 1.72f).coerceIn(0f, 1f)
+            translationY = (1f - p) * offsetPx
+            compositingStrategy = CompositingStrategy.ModulateAlpha
+        },
     ) {
         content()
     }
