@@ -55,7 +55,7 @@ class AgentOrchestrator(
         }
         if (
             executionMode == AgentExecutionMode.ExplicitAgent &&
-            (cloudCall?.name != "computer_run_task" || cloudCall.id.isBlank())
+            (cloudCall?.name != "computer_run_task" || cloudCall?.id.isNullOrBlank())
         ) {
             val message = "云端视觉工具调用格式无效，已安全停止，未执行任何屏幕操作。"
             AgentRuntimeController.noteDiagnostic("visual_client_tool_call_invalid：工具名或调用编号无效。")
