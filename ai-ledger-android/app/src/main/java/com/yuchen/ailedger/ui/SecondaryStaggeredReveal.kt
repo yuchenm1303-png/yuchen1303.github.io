@@ -1,24 +1,20 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlin.math.min
-import kotlinx.coroutines.delay
 
 internal enum class SecondaryStageRole {
     Header,
@@ -28,21 +24,31 @@ internal enum class SecondaryStageRole {
     List,
 }
 
+/**
+ * 一张二级页面只持有一个时间轴。页面外壳和内部阶段共同读取它，避免每张玻璃各自创建
+ * Animatable、协程和弹簧计算。
+ */
+internal class SecondaryMotionTimelineState(initialProgress: Float) {
+    val progress = Animatable(initialProgress)
+    var settled by mutableStateOf(initialProgress >= 1f)
+}
+
+internal val LocalSecondaryMotionTimeline =
+    staticCompositionLocalOf<SecondaryMotionTimelineState?> { null }
+
 private data class SecondaryStageSpec(
-    val delayMillis: Long,
+    val startFraction: Float,
+    val durationFraction: Float,
     val offsetY: Float,
-    val initialScale: Float,
-    val dampingRatio: Float,
-    val stiffness: Float,
-    val transformOrigin: TransformOrigin,
+    val overshoot: Float,
 )
 
 /**
- * 二级页面内部的中心对称分阶段入场。
+ * 二级页面内部的共享时间轴分阶段入场。
  *
- * 顶部内容从正上方轻落，胶囊与卡片沿中心轴从正下方抬升；不再包含任何横向偏移，避免
- * 与整页转场叠加后形成右下角斜飞。动画直接读取弹簧原始进度，让落位后的极轻反向位移
- * 和统一缩放自然产生灵动感。静止后移除 graphicsLayer，不保留额外合成层。
+ * 不再对玻璃卡片缩放，也不再为每块卡片启动独立动画。标题从上方轻落，核心胶囊与主卡
+ * 沿中心轴抬升，并通过低幅度 Back-Out 在落位后产生极小回弹。首屏之外的 Supporting 与
+ * List 自动静态显示，避免重页面在同一帧建立过多合成层。
  */
 @Composable
 internal fun SecondaryStageReveal(
@@ -50,100 +56,77 @@ internal fun SecondaryStageReveal(
     index: Int = 0,
     motionIntensity: Float,
     modifier: Modifier = Modifier,
-    transitionKey: Any? = Unit,
+    @Suppress("UNUSED_PARAMETER") transitionKey: Any? = Unit,
     @Suppress("UNUSED_PARAMETER") direction: SecondaryMotionDirection = SecondaryMotionDirection.Forward,
     animate: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val timeline = LocalSecondaryMotionTimeline.current
     val motion = motionIntensity.coerceIn(0f, 1f)
     val density = LocalDensity.current
+    val stageAllowed = when (role) {
+        SecondaryStageRole.Header,
+        SecondaryStageRole.Capsule,
+        SecondaryStageRole.Primary -> true
+
+        SecondaryStageRole.Supporting -> index < 2
+        SecondaryStageRole.List -> index == 0
+    }
+    val shouldAnimate = animate && stageAllowed && motion > 0.05f && timeline != null && !timeline.settled
+
+    if (!shouldAnimate) {
+        Box(modifier = modifier) { content() }
+        return
+    }
+
     val spec = remember(role, index, density.density) {
+        val cappedIndex = min(index, 3)
         SecondaryStageSpec(
-            delayMillis = when (role) {
-                SecondaryStageRole.Header -> min(index, 2) * 12L
-                SecondaryStageRole.Capsule -> 30L + min(index, 3) * 18L
-                SecondaryStageRole.Primary -> 62L + min(index, 3) * 22L
-                SecondaryStageRole.Supporting -> 92L + min(index, 4) * 24L
-                SecondaryStageRole.List -> 112L + min(index, 2) * 20L
+            startFraction = when (role) {
+                SecondaryStageRole.Header -> cappedIndex * 0.025f
+                SecondaryStageRole.Capsule -> 0.075f + cappedIndex * 0.035f
+                SecondaryStageRole.Primary -> 0.165f + cappedIndex * 0.040f
+                SecondaryStageRole.Supporting -> 0.255f + cappedIndex * 0.050f
+                SecondaryStageRole.List -> 0.355f + cappedIndex * 0.040f
+            },
+            durationFraction = when (role) {
+                SecondaryStageRole.Header -> 0.46f
+                SecondaryStageRole.Capsule -> 0.62f
+                SecondaryStageRole.Primary -> 0.62f
+                SecondaryStageRole.Supporting -> 0.60f
+                SecondaryStageRole.List -> 0.54f
             },
             offsetY = with(density) {
                 when (role) {
-                    SecondaryStageRole.Header -> (-9).dp.toPx()
-                    SecondaryStageRole.Capsule -> 14.dp.toPx()
-                    SecondaryStageRole.Primary -> 12.dp.toPx()
-                    SecondaryStageRole.Supporting -> 9.dp.toPx()
-                    SecondaryStageRole.List -> 7.dp.toPx()
+                    SecondaryStageRole.Header -> (-7).dp.toPx()
+                    SecondaryStageRole.Capsule -> 13.dp.toPx()
+                    SecondaryStageRole.Primary -> 10.dp.toPx()
+                    SecondaryStageRole.Supporting -> 8.dp.toPx()
+                    SecondaryStageRole.List -> 6.dp.toPx()
                 }
             },
-            initialScale = when (role) {
-                SecondaryStageRole.Header -> 1f
-                SecondaryStageRole.Capsule -> 0.972f
-                SecondaryStageRole.Primary -> 0.981f
-                SecondaryStageRole.Supporting -> 0.988f
-                SecondaryStageRole.List -> 0.994f
+            overshoot = when (role) {
+                SecondaryStageRole.Header -> 0.22f
+                SecondaryStageRole.Capsule -> 0.56f
+                SecondaryStageRole.Primary -> 0.42f
+                SecondaryStageRole.Supporting -> 0.28f
+                SecondaryStageRole.List -> 0.16f
             },
-            dampingRatio = when (role) {
-                SecondaryStageRole.Header -> 0.86f
-                SecondaryStageRole.Capsule -> 0.74f
-                SecondaryStageRole.Primary -> 0.78f
-                SecondaryStageRole.Supporting -> 0.84f
-                SecondaryStageRole.List -> 0.90f
-            },
-            stiffness = when (role) {
-                SecondaryStageRole.Capsule,
-                SecondaryStageRole.Primary -> Spring.StiffnessMediumLow
-
-                else -> Spring.StiffnessMedium
-            },
-            transformOrigin = TransformOrigin(0.50f, 0.50f),
         )
     }
-    val shouldAnimate = animate && motion > 0.05f
-    val progress = remember(transitionKey, role, index) {
-        Animatable(if (shouldAnimate) 0f else 1f)
-    }
-    var settled by remember(transitionKey, role, index) {
-        mutableStateOf(!shouldAnimate)
-    }
 
-    LaunchedEffect(transitionKey, role, index, shouldAnimate, motion) {
-        if (!shouldAnimate) {
-            progress.snapTo(1f)
-            settled = true
-            return@LaunchedEffect
-        }
-        settled = false
-        progress.snapTo(0f)
-        delay(spec.delayMillis)
-        progress.animateTo(
-            targetValue = 1f,
-            animationSpec = spring(
-                dampingRatio = spec.dampingRatio,
-                stiffness = spec.stiffness,
-            ),
-        )
-        settled = true
-    }
+    Box(
+        modifier = modifier.graphicsLayer {
+            val global = timeline.progress.value.coerceIn(0f, 1f)
+            val local = ((global - spec.startFraction) / spec.durationFraction).coerceIn(0f, 1f)
+            val eased = secondaryMotionBackOut(local, spec.overshoot)
 
-    val entranceModifier = if (settled) {
-        Modifier
-    } else {
-        Modifier.graphicsLayer {
-            val raw = progress.value.coerceIn(0f, 1.10f)
-            val clamped = raw.coerceIn(0f, 1f)
-            val initialScale = 1f - (1f - spec.initialScale) * motion
-
-            alpha = secondaryMotionSmoothStep((clamped * 1.46f).coerceIn(0f, 1f))
+            alpha = secondaryMotionSmoothStep((local * 1.75f).coerceIn(0f, 1f))
             translationX = 0f
-            translationY = spec.offsetY * motion * (1f - raw)
-            scaleX = initialScale + (1f - initialScale) * raw
-            scaleY = initialScale + (1f - initialScale) * raw
-            transformOrigin = spec.transformOrigin
+            translationY = spec.offsetY * motion * (1f - eased)
             compositingStrategy = CompositingStrategy.ModulateAlpha
-        }
-    }
-
-    Box(modifier = modifier.then(entranceModifier)) {
+        },
+    ) {
         content()
     }
 }
