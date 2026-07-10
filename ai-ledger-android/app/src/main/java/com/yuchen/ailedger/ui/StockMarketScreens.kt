@@ -291,7 +291,6 @@ fun AStockMarketScreenV2(
                                 },
                                 onSelectTab = { tab ->
                                     StockHttpClient.cancelChartRequests()
-                                    StockHttpClient.cancelRealtimeRequests()
                                     marketViewModel.selectTab(tab)
                                 },
                                 onLoadCommunity = { reset ->
