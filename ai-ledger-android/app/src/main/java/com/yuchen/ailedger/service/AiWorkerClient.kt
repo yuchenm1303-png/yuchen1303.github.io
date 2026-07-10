@@ -9,6 +9,11 @@ import com.yuchen.ailedger.model.WebSource
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
@@ -156,10 +161,37 @@ class AiWorkerClient(
     }
 
     @Throws(IOException::class)
-    fun streamChat(
+    suspend fun streamChat(
         messages: List<ChatMessage>,
         modelPreference: ChatModel = ChatModel.Auto,
         onlineEnabled: Boolean = false,
+        onDelta: (String) -> Unit,
+    ): AiChatResponse = coroutineScope {
+        val completed = AtomicBoolean(false)
+        val cancellationWatcher = launch(Dispatchers.IO) {
+            try {
+                awaitCancellation()
+            } finally {
+                if (!completed.get()) transport.cancelActiveRequests()
+            }
+        }
+        try {
+            streamChatBlocking(
+                messages = messages,
+                modelPreference = modelPreference,
+                onlineEnabled = onlineEnabled,
+                onDelta = onDelta,
+            )
+        } finally {
+            completed.set(true)
+            cancellationWatcher.cancel()
+        }
+    }
+
+    private fun streamChatBlocking(
+        messages: List<ChatMessage>,
+        modelPreference: ChatModel,
+        onlineEnabled: Boolean,
         onDelta: (String) -> Unit,
     ): AiChatResponse {
         val route = resolveModelRoute(messages, modelPreference)
