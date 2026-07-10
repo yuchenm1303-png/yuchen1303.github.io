@@ -252,16 +252,80 @@ data class StructuredDataCard(
 )
 
 @Immutable
-data class ChatAttachment(
+class ChatAttachment(
     val id: String,
     val mimeType: String = "image/jpeg",
-    val base64Data: String,
+    base64Data: String,
     val fileName: String? = null,
     val width: Int? = null,
     val height: Int? = null,
     val sizeBytes: Int? = null,
     val previewUri: String? = null
-)
+) {
+    private val payloadRef = ChatAttachmentPayloadStore.register(id, base64Data)
+
+    val base64Data: String
+        get() = ChatAttachmentPayloadStore.resolve(payloadRef)
+
+    val hasPayload: Boolean
+        get() = ChatAttachmentPayloadStore.hasPayload(payloadRef)
+
+    fun copy(
+        id: String = this.id,
+        mimeType: String = this.mimeType,
+        base64Data: String = this.base64Data,
+        fileName: String? = this.fileName,
+        width: Int? = this.width,
+        height: Int? = this.height,
+        sizeBytes: Int? = this.sizeBytes,
+        previewUri: String? = this.previewUri,
+    ): ChatAttachment = ChatAttachment(
+        id = id,
+        mimeType = mimeType,
+        base64Data = base64Data,
+        fileName = fileName,
+        width = width,
+        height = height,
+        sizeBytes = sizeBytes,
+        previewUri = previewUri,
+    )
+
+    operator fun component1(): String = id
+    operator fun component2(): String = mimeType
+    operator fun component3(): String = base64Data
+    operator fun component4(): String? = fileName
+    operator fun component5(): Int? = width
+    operator fun component6(): Int? = height
+    operator fun component7(): Int? = sizeBytes
+    operator fun component8(): String? = previewUri
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is ChatAttachment) return false
+        return id == other.id &&
+            mimeType == other.mimeType &&
+            fileName == other.fileName &&
+            width == other.width &&
+            height == other.height &&
+            sizeBytes == other.sizeBytes &&
+            previewUri == other.previewUri
+    }
+
+    override fun hashCode(): Int {
+        var result = id.hashCode()
+        result = 31 * result + mimeType.hashCode()
+        result = 31 * result + (fileName?.hashCode() ?: 0)
+        result = 31 * result + (width ?: 0)
+        result = 31 * result + (height ?: 0)
+        result = 31 * result + (sizeBytes ?: 0)
+        result = 31 * result + (previewUri?.hashCode() ?: 0)
+        return result
+    }
+
+    override fun toString(): String {
+        return "ChatAttachment(id=$id, mimeType=$mimeType, fileName=$fileName, width=$width, height=$height, sizeBytes=$sizeBytes, previewUri=$previewUri, hasPayload=$hasPayload)"
+    }
+}
 
 enum class ComposerAttachmentStatus { Preparing, Ready, Uploading, Failed }
 
@@ -307,7 +371,7 @@ data class ChatMessage(
     val createdAt: Long = System.currentTimeMillis()
 ) {
     val hasImageAttachments: Boolean
-        get() = attachments.any { it.mimeType.startsWith("image/") && it.base64Data.isNotBlank() }
+        get() = attachments.any { it.mimeType.startsWith("image/") }
 }
 
 @Immutable
