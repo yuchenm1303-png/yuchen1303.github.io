@@ -75,7 +75,7 @@ import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.yield
 
-const val STOCK_MARKET_TOOL_TITLE = "股票行情"
+const val STOCK_MARKET_TOOL_TITLE = "市场行情"
 
 private val DashboardBlue = Color(0xFF8FB2FF)
 private val DashboardViolet = Color(0xFFB49BFF)
@@ -517,7 +517,7 @@ private fun StockMarketHeroEntry(
                     }
                 }
                 Text(
-                    "三大指数、真实分时、热榜、板块和资金流",
+                    "三大指数、分时、热榜、板块和资金流",
                     color = Color.White.copy(alpha = 0.56f),
                     fontSize = 13.sp,
                     lineHeight = 17.sp,
@@ -936,7 +936,7 @@ private fun StatisticsSummaryCard(
         ) {
             DashboardCardHeader(
                 symbol = "",
-                title = "智能体统计",
+                title = "数据统计",
                 tone = DashboardViolet,
                 art = DashboardArtIcon.Statistics,
             )
@@ -946,7 +946,7 @@ private fun StatisticsSummaryCard(
             ) {
                 Column(Modifier.weight(0.78f)) {
                     Text(
-                        "活动档案",
+                        "使用量",
                         color = Color.White.copy(alpha = 0.96f),
                         fontSize = 20.sp,
                         lineHeight = 24.sp,
@@ -960,7 +960,7 @@ private fun StatisticsSummaryCard(
                         maxLines = 1,
                     )
                     Text(
-                        "按需读取，不增加首页负载",
+                        "个人资料",
                         color = DashboardMint.copy(alpha = 0.74f),
                         fontSize = 8.5.sp,
                         fontWeight = FontWeight.Bold,
@@ -1194,7 +1194,7 @@ private fun OperationLearningSummaryCard(
                 verticalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Text(
-                    "操作学习",
+                    "Record & Replay",
                     color = Color.White.copy(alpha = 0.95f),
                     fontSize = 19.sp,
                     fontWeight = FontWeight.Black,
