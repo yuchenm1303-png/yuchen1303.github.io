@@ -6,7 +6,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -38,13 +41,6 @@ private data class SecondaryStageSpec(
     val transformOrigin: TransformOrigin,
 )
 
-/**
- * 二级页面内部的分阶段胶囊入场。
- *
- * 页面只需要标记 Header / Capsule / Primary / Supporting / List，不在业务页面里重复写
- * 延迟和弹簧参数。每个阶段独立进入，避免全部玻璃同帧启动。这里不绘制光效，也不
- * 触发 OpenGL 或 geometry sync；胶囊感只来自局部容器的横纵异步收束与一次克制回弹。
- */
 @Composable
 internal fun SecondaryStageReveal(
     role: SecondaryStageRole,
@@ -61,7 +57,7 @@ internal fun SecondaryStageReveal(
     val sign = if (direction == SecondaryMotionDirection.Forward) 1f else -1f
     val spec = remember(role, index, direction, density.density) {
         val delay = when (role) {
-            SecondaryStageRole.Header -> 0L + min(index, 2) * 18L
+            SecondaryStageRole.Header -> min(index, 2) * 18L
             SecondaryStageRole.Capsule -> 48L + min(index, 3) * 26L
             SecondaryStageRole.Primary -> 92L + min(index, 3) * 30L
             SecondaryStageRole.Supporting -> 136L + min(index, 4) * 34L
@@ -124,8 +120,7 @@ internal fun SecondaryStageReveal(
                 SecondaryStageRole.List -> 0.94f
             },
             stiffness = when (role) {
-                SecondaryStageRole.Capsule -> Spring.StiffnessMediumLow
-                SecondaryStageRole.Primary -> Spring.StiffnessMediumLow
+                SecondaryStageRole.Capsule, SecondaryStageRole.Primary -> Spring.StiffnessMediumLow
                 else -> Spring.StiffnessMedium
             },
             transformOrigin = TransformOrigin(originX, if (role == SecondaryStageRole.Capsule) 0.52f else 0.58f),
@@ -135,12 +130,17 @@ internal fun SecondaryStageReveal(
     val progress = remember(transitionKey, role, index) {
         Animatable(if (shouldAnimate) 0f else 1f)
     }
+    var settled by remember(transitionKey, role, index) {
+        mutableStateOf(!shouldAnimate)
+    }
 
     LaunchedEffect(transitionKey, role, index, shouldAnimate, motion) {
         if (!shouldAnimate) {
             progress.snapTo(1f)
+            settled = true
             return@LaunchedEffect
         }
+        settled = false
         progress.snapTo(0f)
         delay(spec.delayMillis)
         progress.animateTo(
@@ -150,36 +150,33 @@ internal fun SecondaryStageReveal(
                 stiffness = spec.stiffness,
             ),
         )
+        settled = true
     }
 
-    Box(
-        modifier = modifier.graphicsLayer {
+    val entranceModifier = if (settled) {
+        Modifier
+    } else {
+        Modifier.graphicsLayer {
             val raw = progress.value
             val clamped = raw.coerceIn(0f, 1f)
             val p = secondaryMotionSmoothStep(clamped)
             val pulse = secondaryMotionArc(p)
             val overshoot = (raw - 1f).coerceIn(0f, 0.08f)
-
-            alpha = (clamped * if (role == SecondaryStageRole.Header) 1.92f else 1.72f)
-                .coerceIn(0f, 1f)
+            alpha = (clamped * if (role == SecondaryStageRole.Header) 1.92f else 1.72f).coerceIn(0f, 1f)
             translationX = spec.offsetX * (1f - p) - spec.offsetX * pulse * 0.045f
             translationY = spec.offsetY * (1f - p) - spec.offsetY * pulse * 0.060f
-            scaleX = spec.initialScaleX + (1f - spec.initialScaleX) * p +
-                spec.pulseScaleX * pulse - overshoot * 0.012f
-            scaleY = spec.initialScaleY + (1f - spec.initialScaleY) * p +
-                spec.pulseScaleY * pulse + overshoot * 0.009f
+            scaleX = spec.initialScaleX + (1f - spec.initialScaleX) * p + spec.pulseScaleX * pulse - overshoot * 0.012f
+            scaleY = spec.initialScaleY + (1f - spec.initialScaleY) * p + spec.pulseScaleY * pulse + overshoot * 0.009f
             transformOrigin = spec.transformOrigin
             compositingStrategy = CompositingStrategy.ModulateAlpha
-        },
-    ) {
+        }
+    }
+
+    Box(modifier = modifier.then(entranceModifier)) {
         content()
     }
 }
 
-/**
- * 兼容原有按索引调用。新页面优先使用 [SecondaryStageReveal] 明确内容层级。
- * [tone] 仅为兼容旧调用保留，不参与任何绘制。
- */
 @Composable
 internal fun SecondaryStaggeredReveal(
     index: Int,
