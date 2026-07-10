@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -59,7 +58,6 @@ internal val StockSoft = Color.White.copy(alpha = 0.055f)
 internal val StockPillShape = RoundedCornerShape(999.dp)
 
 internal val LocalStockNativeGlassState = compositionLocalOf<AssistantUiState?> { null }
-private val LocalStockSurfaceDepth = compositionLocalOf { 0 }
 
 internal fun stockTone(value: String): Color =
     if (value.trim().startsWith("-")) StockFall else StockRise
@@ -93,7 +91,6 @@ internal fun StockNativeGlassPanel(
     content: @Composable () -> Unit
 ) {
     val state = LocalStockNativeGlassState.current
-    val parentDepth = LocalStockSurfaceDepth.current
     val radiusValue = radius.value.roundToInt().coerceAtLeast(1)
     Box(modifier = modifier) {
         if (state != null) {
@@ -115,20 +112,15 @@ internal fun StockNativeGlassPanel(
             ) {}
         }
         Box(Modifier.fillMaxWidth().padding(contentPadding)) {
-            CompositionLocalProvider(LocalStockSurfaceDepth provides parentDepth + 1) {
-                content()
-            }
+            content()
         }
     }
 }
 
 /**
- * 股票雾面小卡只上报几何；背景裁切统一由 StockFrostBatchHost 父级绘制。
- * 未处于股票批绘制场景时自动回退原 FrostInfoGlassPanel，视觉参数保持一致。
- *
- * 当小卡位于股票大玻璃内部时，额外绘制一层轻量色调承托和清晰边缘，避免父子玻璃
- * 同时透出亮色壁纸后失去层级。该层只使用 Compose background/border，不接入 OpenGL、
- * 不注册几何同步，也不会增加新的模糊采样。
+ * 股票小卡统一复用搜索按钮的普通 Compose Floating 玻璃材质。
+ * 信息卡本身不额外挂空点击事件，原有调用方的 clickable 仍是唯一交互入口。
+ * 该组件不调用 OpenGLGlassCardLayer、不进入 OpenGL registry，也不触发 geometry sync。
  */
 @Composable
 internal fun StockNativeFrostCard(
@@ -138,45 +130,31 @@ internal fun StockNativeFrostCard(
     contentPadding: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
-    val surfaceDepth = LocalStockSurfaceDepth.current
-    val nested = surfaceDepth > 0
-    val shape = RoundedCornerShape(radius)
-    val topAlpha = if (surfaceDepth > 1) 0.34f else 0.42f
-    val bottomAlpha = if (surfaceDepth > 1) 0.44f else 0.54f
-    val borderAlpha = if (surfaceDepth > 1) 0.105f else 0.14f
-
+    val state = LocalStockNativeGlassState.current
+    val radiusValue = radius.value.roundToInt().coerceAtLeast(1)
     Box(modifier = modifier) {
-        StockFrostBatchSurface(
-            radius = radius,
-            backdropAlpha = 1f,
-            frostAlpha = frostAlpha,
-            dimAlpha = 0f,
-            modifier = Modifier.matchParentSize()
-        )
-        if (nested) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color(0xFF173553).copy(alpha = topAlpha),
-                                Color(0xFF07162F).copy(alpha = bottomAlpha)
-                            )
-                        ),
-                        shape = shape
-                    )
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = borderAlpha),
-                        shape = shape
-                    )
-            )
+        if (state != null) {
+            val floatingIntensity = state.glassIntensity * 1.04f
+            GlassPanel(
+                quality = state.quality,
+                glassIntensity = floatingIntensity,
+                motionIntensity = state.motionIntensity,
+                radius = radiusValue,
+                modifier = Modifier.matchParentSize(),
+                role = GlassRole.Floating,
+                intensity = floatingIntensity
+            ) {}
+        } else {
+            FrostInfoGlassPanel(
+                radius = radius.value,
+                backdropAlpha = 1f,
+                frostAlpha = frostAlpha,
+                dimAlpha = 0f,
+                modifier = Modifier.matchParentSize()
+            ) {}
         }
         Box(Modifier.fillMaxWidth().padding(contentPadding)) {
-            CompositionLocalProvider(LocalStockSurfaceDepth provides surfaceDepth + 1) {
-                content()
-            }
+            content()
         }
     }
 }
