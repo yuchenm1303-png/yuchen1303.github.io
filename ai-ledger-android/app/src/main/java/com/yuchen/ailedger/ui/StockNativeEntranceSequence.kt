@@ -1,7 +1,7 @@
 package com.yuchen.ailedger.ui
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
@@ -77,7 +77,7 @@ internal fun StockNativeHeaderEntrance(
     SecondaryStageReveal(
         role = SecondaryStageRole.Header,
         motionIntensity = state.motionIntensity,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxWidth(),
         content = content,
     )
 }
