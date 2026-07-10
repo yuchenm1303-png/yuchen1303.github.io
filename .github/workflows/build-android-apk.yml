@@ -1,14 +1,10 @@
-name: Build Android APK
+name: Legacy Capacitor Android APK (Manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - dev-update-1
-    paths:
-      - 'ai-ledger/**'
-      - 'ai-ledger-android/**'
-      - '.github/workflows/build-android-apk.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build-android-apk:
