@@ -8,7 +8,9 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 
-private class StockNativeEntranceSequenceState {
+private class StockNativeEntranceSequenceState(
+    val direction: SecondaryMotionDirection,
+) {
     private var nextMajorPanelIndex: Int = 0
 
     fun claimMajorPanel(): Int {
@@ -28,9 +30,12 @@ private val LocalStockNativeEntranceSequence =
 @Composable
 internal fun StockNativeEntranceSequenceHost(
     routeKey: Any?,
+    direction: SecondaryMotionDirection,
     content: @Composable () -> Unit,
 ) {
-    val sequence = remember(routeKey) { StockNativeEntranceSequenceState() }
+    val sequence = remember(routeKey, direction) {
+        StockNativeEntranceSequenceState(direction = direction)
+    }
     CompositionLocalProvider(LocalStockNativeEntranceSequence provides sequence) {
         content()
     }
@@ -60,6 +65,7 @@ internal fun StockNativeMajorPanelEntrance(
         index = (index - 1).coerceAtLeast(0),
         motionIntensity = state.motionIntensity,
         modifier = modifier,
+        direction = sequence.direction,
         animate = index < 3,
         content = content,
     )
@@ -70,7 +76,8 @@ internal fun StockNativeHeaderEntrance(
     content: @Composable () -> Unit,
 ) {
     val state = LocalStockNativeGlassState.current
-    if (state == null || LocalStockNativeEntranceSequence.current == null) {
+    val sequence = LocalStockNativeEntranceSequence.current
+    if (state == null || sequence == null) {
         content()
         return
     }
@@ -78,6 +85,7 @@ internal fun StockNativeHeaderEntrance(
         role = SecondaryStageRole.Header,
         motionIntensity = state.motionIntensity,
         modifier = Modifier.fillMaxWidth(),
+        direction = sequence.direction,
         content = content,
     )
 }
