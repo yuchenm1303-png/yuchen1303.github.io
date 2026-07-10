@@ -77,50 +77,50 @@ internal fun SecondaryStageReveal(
             offsetX = with(density) {
                 when (role) {
                     SecondaryStageRole.Header -> 0.dp.toPx()
-                    SecondaryStageRole.Capsule -> 10.dp.toPx() * sign
-                    SecondaryStageRole.Primary -> 7.dp.toPx() * sign
-                    SecondaryStageRole.Supporting -> 4.dp.toPx() * sign
+                    SecondaryStageRole.Capsule -> 8.dp.toPx() * sign
+                    SecondaryStageRole.Primary -> 6.dp.toPx() * sign
+                    SecondaryStageRole.Supporting -> 3.dp.toPx() * sign
                     SecondaryStageRole.List -> 0.dp.toPx()
                 }
             },
             offsetY = with(density) {
                 when (role) {
-                    SecondaryStageRole.Header -> 8.dp.toPx()
-                    SecondaryStageRole.Capsule -> 14.dp.toPx()
-                    SecondaryStageRole.Primary -> 12.dp.toPx()
-                    SecondaryStageRole.Supporting -> 10.dp.toPx()
-                    SecondaryStageRole.List -> 8.dp.toPx()
+                    SecondaryStageRole.Header -> 7.dp.toPx()
+                    SecondaryStageRole.Capsule -> 12.dp.toPx()
+                    SecondaryStageRole.Primary -> 10.dp.toPx()
+                    SecondaryStageRole.Supporting -> 8.dp.toPx()
+                    SecondaryStageRole.List -> 7.dp.toPx()
                 }
             },
             initialScaleX = when (role) {
                 SecondaryStageRole.Header, SecondaryStageRole.List -> 1f
-                SecondaryStageRole.Capsule -> 0.982f
-                SecondaryStageRole.Primary -> 0.989f
-                SecondaryStageRole.Supporting -> 0.994f
+                SecondaryStageRole.Capsule -> 0.986f
+                SecondaryStageRole.Primary -> 0.992f
+                SecondaryStageRole.Supporting -> 0.996f
             },
             initialScaleY = when (role) {
                 SecondaryStageRole.Header, SecondaryStageRole.List -> 1f
-                SecondaryStageRole.Capsule -> 0.952f
-                SecondaryStageRole.Primary -> 0.974f
-                SecondaryStageRole.Supporting -> 0.984f
+                SecondaryStageRole.Capsule -> 0.968f
+                SecondaryStageRole.Primary -> 0.980f
+                SecondaryStageRole.Supporting -> 0.988f
             },
             pulseScaleX = when (role) {
-                SecondaryStageRole.Capsule -> 0.0055f
-                SecondaryStageRole.Primary -> 0.0028f
-                SecondaryStageRole.Supporting -> 0.0014f
+                SecondaryStageRole.Capsule -> 0.0038f
+                SecondaryStageRole.Primary -> 0.0020f
+                SecondaryStageRole.Supporting -> 0.0010f
                 else -> 0f
             },
             pulseScaleY = when (role) {
-                SecondaryStageRole.Capsule -> -0.0040f
-                SecondaryStageRole.Primary -> -0.0020f
-                SecondaryStageRole.Supporting -> -0.0010f
+                SecondaryStageRole.Capsule -> -0.0028f
+                SecondaryStageRole.Primary -> -0.0014f
+                SecondaryStageRole.Supporting -> -0.0007f
                 else -> 0f
             },
             dampingRatio = when (role) {
                 SecondaryStageRole.Header -> 0.94f
-                SecondaryStageRole.Capsule -> 0.78f
-                SecondaryStageRole.Primary -> 0.84f
-                SecondaryStageRole.Supporting -> 0.90f
+                SecondaryStageRole.Capsule -> 0.82f
+                SecondaryStageRole.Primary -> 0.86f
+                SecondaryStageRole.Supporting -> 0.91f
                 SecondaryStageRole.List -> 0.94f
             },
             stiffness = when (role) {
@@ -162,12 +162,12 @@ internal fun SecondaryStageReveal(
 
             alpha = (clamped * if (role == SecondaryStageRole.Header) 1.92f else 1.72f)
                 .coerceIn(0f, 1f)
-            translationX = spec.offsetX * (1f - p) - spec.offsetX * pulse * 0.055f
-            translationY = spec.offsetY * (1f - p) - spec.offsetY * pulse * 0.075f
+            translationX = spec.offsetX * (1f - p) - spec.offsetX * pulse * 0.045f
+            translationY = spec.offsetY * (1f - p) - spec.offsetY * pulse * 0.060f
             scaleX = spec.initialScaleX + (1f - spec.initialScaleX) * p +
-                spec.pulseScaleX * pulse - overshoot * 0.020f
+                spec.pulseScaleX * pulse - overshoot * 0.012f
             scaleY = spec.initialScaleY + (1f - spec.initialScaleY) * p +
-                spec.pulseScaleY * pulse + overshoot * 0.014f
+                spec.pulseScaleY * pulse + overshoot * 0.009f
             transformOrigin = spec.transformOrigin
             compositingStrategy = CompositingStrategy.ModulateAlpha
         },
