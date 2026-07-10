@@ -30,7 +30,7 @@ private val LocalStockNativeEntranceSequence =
 @Composable
 internal fun StockNativeEntranceSequenceHost(
     routeKey: Any?,
-    direction: SecondaryMotionDirection,
+    direction: SecondaryMotionDirection = SecondaryMotionDirection.Forward,
     content: @Composable () -> Unit,
 ) {
     val sequence = remember(routeKey, direction) {
