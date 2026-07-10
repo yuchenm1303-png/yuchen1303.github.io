@@ -2,11 +2,6 @@ package com.yuchen.ailedger.ui
 
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,14 +17,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.layout.SubcomposeLayoutState
 import androidx.compose.ui.layout.SubcomposeSlotReusePolicy
@@ -40,12 +31,7 @@ import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.PlanDraft
 import com.yuchen.ailedger.model.PlanTask
 import com.yuchen.ailedger.model.PlanTaskFilter
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-
-private val PlanFadeOutEasing = CubicBezierEasing(0.40f, 0.00f, 1.00f, 1.00f)
-private val PlanFadeInEasing = CubicBezierEasing(0.18f, 0.00f, 0.08f, 1.00f)
 
 private enum class PlanPageSlot {
     Home,
@@ -83,12 +69,10 @@ fun PlanCenterScreen(
 ) {
     val context = LocalContext.current
     val planState = viewModel.uiState
-    val transitionScope = rememberCoroutineScope()
     val homeListState = rememberLazyListState()
     val pageHostState = remember {
         SubcomposeLayoutState(SubcomposeSlotReusePolicy(maxSlotsToRetainForReuse = 3))
     }
-    val pageAlpha = remember { Animatable(1f) }
     val warmEditorDraft = remember { defaultPlanDraft("") }
     val warmEditorState = remember(
         state.quality,
@@ -99,12 +83,16 @@ fun PlanCenterScreen(
         arrayOfNulls<SubcomposeLayoutState.PrecomposedSlotHandle>(1)
     }
 
-    var transitionJob by remember { mutableStateOf<Job?>(null) }
-    var transitionRunning by remember { mutableStateOf(false) }
     var quickTitle by remember { mutableStateOf("") }
     var editorGeneration by remember { mutableIntStateOf(0) }
     var displayedDestination by remember {
         mutableStateOf<PlanCenterDestination>(PlanCenterDestination.Home)
+    }
+    var pageDirection by remember {
+        mutableStateOf(SecondaryMotionDirection.Forward)
+    }
+    var pageMotionType by remember {
+        mutableStateOf(SecondaryMotionType.Capsule)
     }
 
     LaunchedEffect(pageHostState) {
@@ -125,35 +113,19 @@ fun PlanCenterScreen(
     }
 
     fun navigateTo(target: PlanCenterDestination) {
-        if (target == displayedDestination || transitionRunning) return
-        val motionScale = state.motionIntensity.coerceIn(0f, 1f)
+        if (target == displayedDestination) return
 
-        transitionRunning = true
-        transitionJob = transitionScope.launch {
-            try {
-                pageAlpha.stop()
-
-                displayedDestination = target
-                if (motionScale <= 0.05f) {
-                    pageAlpha.snapTo(1f)
-                    return@launch
-                }
-
-                pageAlpha.snapTo(0f)
-                withFrameNanos { }
-                withFrameNanos { }
-
-                pageAlpha.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = 182,
-                        easing = PlanFadeInEasing,
-                    ),
-                )
-            } finally {
-                transitionRunning = false
-            }
+        pageDirection = if (target == PlanCenterDestination.Home) {
+            SecondaryMotionDirection.Backward
+        } else {
+            SecondaryMotionDirection.Forward
         }
+        pageMotionType = when (target) {
+            PlanCenterDestination.Home -> SecondaryMotionType.Push
+            is PlanCenterDestination.Editor -> SecondaryMotionType.Capsule
+            is PlanCenterDestination.Delete -> SecondaryMotionType.Modal
+        }
+        displayedDestination = target
     }
 
     fun openEditor(task: PlanTask? = null, template: PlanDraft? = null) {
@@ -172,7 +144,6 @@ fun PlanCenterScreen(
     }
 
     BackHandler {
-        if (transitionRunning) return@BackHandler
         if (displayedDestination == PlanCenterDestination.Home) {
             onBack()
         } else {
@@ -186,30 +157,27 @@ fun PlanCenterScreen(
     }
     DisposableEffect(pageHostState) {
         onDispose {
-            transitionJob?.cancel()
             warmHandleHolder[0]?.dispose()
             warmHandleHolder[0] = null
             onModalVisibilityChange(false)
         }
     }
 
-    val transitionBlocker = remember { MutableInteractionSource() }
-
-    SecondaryRouteEntrance(motionIntensity = state.motionIntensity) {
-        Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        val progress = pageAlpha.value
-                        alpha = progress
-                        translationY = (1f - progress) * 20.dp.toPx()
-                        val scale = secondaryPanelScale(progress)
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0.50f, 0.58f)
-                        compositingStrategy = CompositingStrategy.ModulateAlpha
-                    },
+    SecondaryRouteEntrance(
+        motionIntensity = state.motionIntensity,
+        motionType = SecondaryMotionType.Capsule,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds(),
+        ) {
+            SecondaryMotionContainer(
+                transitionKey = displayedDestination,
+                motionIntensity = state.motionIntensity,
+                motionType = pageMotionType,
+                direction = pageDirection,
+                modifier = Modifier.fillMaxSize(),
             ) {
                 PlanRetainedPageHost(
                     state = pageHostState,
@@ -279,18 +247,6 @@ fun PlanCenterScreen(
                         }
                     }
                 }
-            }
-
-            if (transitionRunning) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable(
-                            interactionSource = transitionBlocker,
-                            indication = null,
-                            onClick = {},
-                        ),
-                )
             }
         }
     }
