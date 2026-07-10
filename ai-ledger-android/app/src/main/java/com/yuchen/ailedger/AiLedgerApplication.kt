@@ -59,6 +59,7 @@ class AiLedgerApplication : Application() {
         applicationScope.launch {
             var previousAnalyticsProgress = AgentOverlayProgress()
             var previousOverlaySyncKey: OverlaySyncKey? = null
+            var previousObservationKey: ProgressObservationKey? = null
             var diagnosticsStore: VisualIntelligenceDiagnosticsStore? = null
 
             AgentRuntimeController.progress.collectLatest { progress ->
@@ -87,10 +88,16 @@ class AiLedgerApplication : Application() {
                         logs = (previous.logs + progress.logs).takeLast(24),
                     )
                 }
-                AgentAnalyticsRuntime.observeProgress(terminalAnalyticsProgress ?: progress)
+                val observationProgress = terminalAnalyticsProgress ?: progress
+                val observationKey = ProgressObservationKey.from(observationProgress)
+                val observationChanged = observationKey != previousObservationKey
+                if (observationChanged) {
+                    AgentAnalyticsRuntime.observeProgress(observationProgress)
+                    previousObservationKey = observationKey
+                }
                 previousAnalyticsProgress = progress
 
-                if (progress.taskId > 0L || progress.running) {
+                if (observationChanged && (progress.taskId > 0L || progress.running)) {
                     val store = diagnosticsStore
                         ?: VisualIntelligenceDiagnosticsStore.get(applicationContext).also {
                             diagnosticsStore = it
@@ -123,6 +130,36 @@ class AiLedgerApplication : Application() {
         val awaitingUserInput: Boolean,
         val userTakeoverPaused: Boolean,
     )
+
+    private data class ProgressObservationKey(
+        val taskId: Long,
+        val enabled: Boolean,
+        val running: Boolean,
+        val status: String,
+        val currentAction: String,
+        val lastResult: String,
+        val logCount: Int,
+        val lastLog: String,
+        val pendingConfirmationHash: Int,
+        val pendingUserInputHash: Int,
+        val userTakeoverPaused: Boolean,
+    ) {
+        companion object {
+            fun from(progress: AgentOverlayProgress): ProgressObservationKey = ProgressObservationKey(
+                taskId = progress.taskId,
+                enabled = progress.enabled,
+                running = progress.running,
+                status = progress.status,
+                currentAction = progress.currentAction,
+                lastResult = progress.lastResult,
+                logCount = progress.logs.size,
+                lastLog = progress.logs.lastOrNull().orEmpty(),
+                pendingConfirmationHash = progress.pendingConfirmation?.hashCode() ?: 0,
+                pendingUserInputHash = progress.pendingUserInput?.hashCode() ?: 0,
+                userTakeoverPaused = progress.userTakeoverPaused,
+            )
+        }
+    }
 
     companion object {
         @Volatile
