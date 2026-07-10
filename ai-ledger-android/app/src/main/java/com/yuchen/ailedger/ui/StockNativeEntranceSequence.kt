@@ -50,7 +50,7 @@ internal fun StockNativeMajorPanelEntrance(
     val sequence = LocalStockNativeEntranceSequence.current
     val index = remember(sequence) { sequence?.claimMajorPanel() ?: -1 }
 
-    if (state == null || sequence == null || index < 0) {
+    if (state == null || sequence == null || index < 0 || index >= 3) {
         Box(modifier = modifier, content = { content() })
         return
     }
@@ -66,7 +66,6 @@ internal fun StockNativeMajorPanelEntrance(
         motionIntensity = state.motionIntensity,
         modifier = modifier,
         direction = sequence.direction,
-        animate = index < 3,
         content = content,
     )
 }
