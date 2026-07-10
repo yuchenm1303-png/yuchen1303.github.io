@@ -107,7 +107,7 @@ internal object GuiPlusOpenAppProtocolRepair {
     }
 
     private val TOOL_CALL_PATTERN = Regex(
-        "<tool_call>\\s*(\\{.*?})\\s*</tool_call>",
+        "<tool_call>\\s*(.*?)\\s*</tool_call>",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL),
     )
     private const val UNSUPPORTED_OPEN_REASON = "Android client does not support GUI Plus action: open_app"
