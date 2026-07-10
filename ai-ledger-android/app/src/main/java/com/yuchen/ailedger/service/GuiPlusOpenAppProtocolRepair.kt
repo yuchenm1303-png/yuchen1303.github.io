@@ -18,10 +18,9 @@ internal object GuiPlusOpenAppProtocolRepair {
         if (step.type != "need_user_help") return plan
         if (!step.reason.orEmpty().contains(UNSUPPORTED_OPEN_REASON, ignoreCase = true)) return plan
 
-        val requestedLabel = extractRequestedOpenLabel(plan.rawModelOutput)
-            ?.takeIf(String::isNotBlank)
-            ?: step.targetText?.trim()?.takeIf(String::isNotBlank)
-            ?: return plan
+        // Never infer an app from the normalized fallback step. Repair requires the exact original
+        // GUI Plus tool call and a unique canonical catalog match.
+        val requestedLabel = extractRequestedOpenLabel(plan.rawModelOutput) ?: return plan
         val requestedKey = normalizeLabel(requestedLabel)
         val matches = appContext.asSequence()
             .filter { app ->
