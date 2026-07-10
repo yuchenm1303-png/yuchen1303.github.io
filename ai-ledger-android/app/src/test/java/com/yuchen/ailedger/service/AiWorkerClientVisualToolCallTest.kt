@@ -4,6 +4,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Before
 import org.junit.Test
 
@@ -88,6 +89,14 @@ class AiWorkerClientVisualToolCallTest {
         )
 
         assertNull(client.consumeVisualClientToolCall("打开 QQ 设置"))
+    }
+
+    @Test
+    fun ordinaryChatResponsePassesThroughUnchanged() {
+        val response = AiChatResponse(reply = "普通聊天回复", source = "cloud_ai")
+
+        assertSame(response, client.rememberVisualClientToolCall(response))
+        assertNull(client.consumeVisualClientToolCall("普通聊天回复"))
     }
 
     private fun testClient(id: String): AiWorkerClient = AiWorkerClient(
