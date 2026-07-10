@@ -209,6 +209,7 @@ private fun SecondaryMotionLayer(
     modifier: Modifier,
     content: @Composable () -> Unit,
 ) {
+    val parentTimeline = LocalSecondaryMotionTimeline.current
     val motion = motionIntensity.coerceIn(0f, 1f)
     val shouldAnimate = animate && motion > 0.05f
     val timeline = remember(sequence) {
@@ -270,8 +271,9 @@ private fun SecondaryMotionLayer(
         }
     }
     val clipModifier = if (timeline.settled) Modifier else Modifier.clipSecondaryPageVertically()
+    val stageTimeline = if (shouldAnimate) timeline else parentTimeline ?: timeline
 
-    CompositionLocalProvider(LocalSecondaryMotionTimeline provides timeline) {
+    CompositionLocalProvider(LocalSecondaryMotionTimeline provides stageTimeline) {
         Box(
             modifier = modifier
                 .then(clipModifier)
