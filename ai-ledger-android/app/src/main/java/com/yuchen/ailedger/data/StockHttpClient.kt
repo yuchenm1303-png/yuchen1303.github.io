@@ -120,8 +120,11 @@ internal object StockHttpClient {
                 .header("User-Agent", "AI-Ledger-Android/1.0")
                 .header("Accept", "application/json")
                 .header("Cache-Control", "no-cache")
-            if (!requestGroup.isNullOrBlank()) {
-                requestBuilder.tag(String::class.java, requestGroup)
+            val resolvedRequestGroup = requestGroup
+                ?.takeIf(String::isNotBlank)
+                ?: automaticRequestGroup(url)
+            if (resolvedRequestGroup != null) {
+                requestBuilder.tag(String::class.java, resolvedRequestGroup)
             }
             val request = requestBuilder.build()
             val call = client.newCall(request)
@@ -153,6 +156,24 @@ internal object StockHttpClient {
         } finally {
             inFlight.remove(url, owned)
         }
+    }
+
+    fun cancelRealtimeRequests() {
+        cancelGroup(REALTIME_REQUEST_GROUP)
+    }
+
+    fun cancelDetailRequests() {
+        cancelGroup(DETAIL_REQUEST_GROUP)
+    }
+
+    fun cancelChartRequests() {
+        cancelGroup(CHART_REQUEST_GROUP)
+    }
+
+    fun cancelInteractiveRequests() {
+        cancelRealtimeRequests()
+        cancelDetailRequests()
+        cancelChartRequests()
     }
 
     fun cancelGroup(requestGroup: String) {
@@ -235,6 +256,20 @@ internal object StockHttpClient {
                 initCause(error)
             }
         }
+    }
+
+    private fun automaticRequestGroup(url: String): String? = when {
+        "/api/stock/a-share/realtime" in url ||
+            "/api/stock/a-share/minute" in url ||
+            "/api/stock/a-share/quotes" in url ||
+            "/api/stock/crawl/a-share/minute" in url ||
+            "/api/stock/crawl/a-share/quotes" in url -> REALTIME_REQUEST_GROUP
+        "/api/stock/a-share/detail" in url ||
+            "/api/stock/crawl/a-share/detail" in url ||
+            "/api/stock/a-share/stock/full" in url -> DETAIL_REQUEST_GROUP
+        "/api/stock/a-share/kline" in url ||
+            "/api/stock/crawl/a-share/kline" in url -> CHART_REQUEST_GROUP
+        else -> null
     }
 
     private fun cancelLowerPriorityIndexRequests() {
@@ -407,6 +442,9 @@ internal object StockHttpClient {
         return ((System.nanoTime() - startedAtNs) / 1_000_000L).coerceAtLeast(0L)
     }
 
+    private const val REALTIME_REQUEST_GROUP = "stock-realtime"
+    private const val DETAIL_REQUEST_GROUP = "stock-detail"
+    private const val CHART_REQUEST_GROUP = "stock-chart"
     private const val INDEX_PRIORITY_QUOTES_ROUTE_TOKEN = "/api/stock/a-share/index/priority/quotes"
     private const val TOOLS_INDEX_ROUTE_TOKEN = "/api/stock/a-share/index/compact"
     private const val INDEX_COMPACT_BATCH_ROUTE_TOKEN = "/api/stock/a-share/index/compact/batch"
