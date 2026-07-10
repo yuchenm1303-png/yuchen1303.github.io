@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timezone
 from time import monotonic
 from typing import Any
+
+from fastapi import Query
+from fastapi.responses import Response
 
 import fast_stock_server as stock_server
 import discussion_server  # noqa: F401  注册个股讨论与评论路由
@@ -31,10 +35,14 @@ app = stock_server.app
 LOGGER = logging.getLogger("ai-ledger-stock-proxy.production")
 _PROCESS_STARTED_AT = monotonic()
 _PROCESS_STARTED_ISO = datetime.now(timezone.utc).isoformat()
-_SERVICE_VERSION = "0.9.11-full-breadth-tick-window"
+_SERVICE_VERSION = "0.9.12-single-encode-fast-slow"
 _HOT_TICK_INTERVAL_SECONDS = 0.9
 _HOT_TICK_MIN_AGE_SECONDS = 0.72
 _HOT_SYMBOL_TTL_SECONDS = 30.0
+_REALTIME_PATH = "/api/stock/a-share/realtime"
+_DETAIL_PATH = "/api/stock/a-share/detail"
+_CRAWL_DETAIL_PATH = "/api/stock/crawl/a-share/detail"
+_STOCK_FULL_PATH = "/api/stock/a-share/stock/full"
 _STAGE_PATHS = (
     "/api/stock/a-share/market/indices",
     "/api/stock/a-share/market/breadth",
@@ -204,7 +212,118 @@ async def _stop_hot_trade_tick_loop() -> None:
     _hot_tick_task = None
 
 
-_remove_get_routes({"/health"})
+def _json_response_once(payload: dict[str, Any], *, path_label: str | None = None) -> Response:
+    """最终出口只序列化一次；准确字节数放响应头，避免为统计重复遍历大 JSON。"""
+    body = dict(payload)
+    body.pop("payloadBytes", None)
+    content = json.dumps(
+        body,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    response = Response(content=content, media_type="application/json")
+    latency = int(body.get("totalLatencyMs") or 0)
+    response.headers["Server-Timing"] = f"stock;dur={latency}"
+    response.headers["X-AI-Ledger-Stock-Path"] = path_label or str(
+        body.get("provider") or "production-stock"
+    )
+    response.headers["X-AI-Ledger-Payload-Bytes"] = str(len(content))
+    return response
+
+
+def _unavailable_slow_module(name: str) -> dict[str, Any]:
+    return stock_server.legacy._module_payload(
+        status="unavailable",
+        source="production_fast_slow_gate",
+        source_url_type="no verified upstream; zero-network response",
+        warnings=[f"{name}: unavailable; upstream request skipped"],
+    )
+
+
+def _fast_empty_slow_payload(query: str) -> dict[str, Any]:
+    normalized = query.strip()
+    code = stock_server.detail._code_from_query(normalized) or normalized
+    return {
+        "status": "partial",
+        "provider": "production_zero_network_slow_path",
+        "source": "production_fast_slow_gate",
+        "sourceUrlType": "zero-network slow module capability response",
+        "query": normalized,
+        "code": code,
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "cacheAgeMs": 0,
+        "isDerived": False,
+        "warnings": [
+            "slow modules have no verified real source; upstream resolution and duplicate quote fetch skipped"
+        ],
+        "profile": _unavailable_slow_module("profile"),
+        "financialsSummary": _unavailable_slow_module("financials"),
+        "capitalSummary": _unavailable_slow_module("capital_stock"),
+        "popularity": _unavailable_slow_module("popularity"),
+        "announcements": _unavailable_slow_module("announcements"),
+        "news": _unavailable_slow_module("stock_news"),
+        "research": _unavailable_slow_module("research"),
+        "performanceForecast": _unavailable_slow_module("performance_forecast"),
+        "shareholders": _unavailable_slow_module("shareholders"),
+        "unlocks": _unavailable_slow_module("unlocks"),
+        "dividends": _unavailable_slow_module("dividends"),
+    }
+
+
+_remove_get_routes(
+    {
+        "/health",
+        _REALTIME_PATH,
+        _DETAIL_PATH,
+        _CRAWL_DETAIL_PATH,
+        _STOCK_FULL_PATH,
+    }
+)
+
+
+@app.get(_REALTIME_PATH, response_class=Response)
+async def a_share_realtime_production(
+    query: str = Query(...),
+    ndays: int = Query(1, ge=1, le=5),
+    force_auction: bool = Query(False, alias="forceAuction"),
+    since_minute_key: str = Query("", alias="sinceMinuteKey", max_length=64),
+    since_trade_key: str = Query("", alias="sinceTradeKey", max_length=128),
+    compact: bool = Query(True),
+) -> Response:
+    if ndays not in {1, 5}:
+        raise stock_server.detail.HTTPException(status_code=400, detail="ndays must be 1 or 5")
+    payload = await stock_server.fast_realtime_payload(
+        query,
+        ndays,
+        force_auction=force_auction,
+        since_minute_key=since_minute_key,
+        since_trade_key=since_trade_key,
+        compact=compact,
+    )
+    return _json_response_once(payload)
+
+
+@app.get(_DETAIL_PATH, response_class=Response)
+@app.get(_CRAWL_DETAIL_PATH, response_class=Response)
+async def a_share_detail_production(
+    query: str = Query(...),
+    mode: str = Query("lite"),
+    include_market: bool = Query(False, alias="includeMarket"),
+) -> Response:
+    started = monotonic()
+    payload = await stock_server.fast_detail_payload(query, mode, include_market)
+    payload["totalLatencyMs"] = int((monotonic() - started) * 1000)
+    payload.setdefault("updatedAt", datetime.now(timezone.utc).isoformat())
+    return _json_response_once(payload)
+
+
+@app.get(_STOCK_FULL_PATH, response_class=Response)
+def a_share_stock_full_production(query: str = Query(...)) -> Response:
+    return _json_response_once(
+        _fast_empty_slow_payload(query),
+        path_label="production_zero_network_slow_path",
+    )
 
 
 @app.get("/health")
@@ -248,6 +367,11 @@ def health() -> dict[str, Any]:
             "version": index_compact_server.INDEX_COMPACT_CACHE_VERSION,
             "batchCodes": list(index_compact_server.INDEX_COMPACT_BATCH_CODES),
             "startupWarmup": False,
+        },
+        "responsePipeline": {
+            "singleEncode": True,
+            "payloadBytesHeader": True,
+            "slowPathZeroNetwork": True,
         },
         "realtime": {
             **_safe_runtime_diagnostics(),
