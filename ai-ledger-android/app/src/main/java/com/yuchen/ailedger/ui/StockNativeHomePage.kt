@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -404,28 +403,81 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
 private fun NativeBreadthSection(ui: StockMarketUiState) {
     val breadth = ui.marketHome.marketBreadth
     val sentiment = ui.marketHome.sentiment
+    val glowPhase = rememberStockAmbientGlassPhase()
+
     Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StockMetricTile("上涨", stockCount(breadth.upCount), StockRise, Modifier.weight(1f), true)
-            StockMetricTile("下跌", stockCount(breadth.downCount), StockFall, Modifier.weight(1f), true)
-            StockMetricTile("涨停", stockCount(breadth.limitUpCount), StockRise, Modifier.weight(1f), true)
-            StockMetricTile("跌停", stockCount(breadth.limitDownCount), StockFall, Modifier.weight(1f), true)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            StockMetricTile("红盘率", stockPercent(breadth.redRate), Color.White, Modifier.weight(1f))
-            StockMetricTile("赚钱效应", stockPercent(breadth.moneyMakingEffect), StockAqua, Modifier.weight(1f))
-            StockMetricTile(
-                "情绪温度",
-                sentiment.temperature?.let { String.format(Locale.US, "%.0f", it) } ?: "--",
-                StockAqua,
-                Modifier.weight(1f)
+            StockNativeAmbientMetricTile(
+                label = "上涨",
+                value = stockCount(breadth.upCount),
+                tone = StockRise,
+                phase = glowPhase,
+                modifier = Modifier.weight(1f),
+                prominent = true,
+                phaseOffset = 0f
+            )
+            StockNativeAmbientMetricTile(
+                label = "下跌",
+                value = stockCount(breadth.downCount),
+                tone = StockFall,
+                phase = glowPhase,
+                modifier = Modifier.weight(1f),
+                prominent = true,
+                phaseOffset = -0.08f
+            )
+            StockNativeAmbientMetricTile(
+                label = "涨停",
+                value = stockCount(breadth.limitUpCount),
+                tone = StockRise,
+                phase = glowPhase,
+                modifier = Modifier.weight(1f),
+                prominent = true,
+                phaseOffset = -0.16f
+            )
+            StockNativeAmbientMetricTile(
+                label = "跌停",
+                value = stockCount(breadth.limitDownCount),
+                tone = StockFall,
+                phase = glowPhase,
+                modifier = Modifier.weight(1f),
+                prominent = true,
+                phaseOffset = -0.24f
             )
         }
-        StockNativeFrostCard(
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            StockNativeAmbientMetricTile(
+                label = "红盘率",
+                value = stockPercent(breadth.redRate),
+                tone = Color.White,
+                phase = glowPhase,
+                modifier = Modifier.weight(1f),
+                phaseOffset = -0.06f
+            )
+            StockNativeAmbientMetricTile(
+                label = "赚钱效应",
+                value = stockPercent(breadth.moneyMakingEffect),
+                tone = StockAqua,
+                phase = glowPhase,
+                modifier = Modifier.weight(1f),
+                phaseOffset = -0.16f
+            )
+            StockNativeAmbientMetricTile(
+                label = "情绪温度",
+                value = sentiment.temperature?.let { String.format(Locale.US, "%.0f", it) } ?: "--",
+                tone = StockAqua,
+                phase = glowPhase,
+                modifier = Modifier.weight(1f),
+                phaseOffset = -0.26f
+            )
+        }
+        StockNativeAmbientGlass(
+            phase = glowPhase,
             modifier = Modifier.fillMaxWidth().height(66.dp),
             radius = 19.dp,
             frostAlpha = 0.076f,
-            contentPadding = 14.dp
+            contentPadding = 14.dp,
+            phaseOffset = -0.12f,
+            glowStrength = 0.92f
         ) {
             Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -496,88 +548,84 @@ private fun NativeRankingEntry(
     onOpenRanking: (StockNativeRankingType) -> Unit,
     onOpenStock: (String) -> Unit
 ) {
-    StockNativeFrostCard(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        radius = 19.dp,
-        frostAlpha = 0.074f
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(Modifier.fillMaxWidth()) {
+        StockNativeActionGlass(
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            radius = 19.dp,
+            intensityScale = 1.02f,
+            role = GlassRole.Floating,
+            onClick = { onOpenRanking(type) }
+        ) {
+            Row(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        type.title,
+                        color = Color.White.copy(alpha = 0.94f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text(
+                        type.subtitle,
+                        color = Color.White.copy(alpha = 0.42f),
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    "进入榜单 ›",
+                    color = StockAqua.copy(alpha = 0.90f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black
+                )
+            }
+        }
+        if (top != null) {
             StockNativeActionGlass(
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 radius = 18.dp,
                 intensityScale = 0.98f,
-                role = GlassRole.Flex,
-                onClick = { onOpenRanking(type) }
+                role = GlassRole.Floating,
+                onClick = { onOpenStock(top.code) }
             ) {
                 Row(
                     Modifier.fillMaxSize().padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Text(
+                        "1",
+                        color = StockAqua,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.width(28.dp),
+                        textAlign = TextAlign.Center
+                    )
                     Column(Modifier.weight(1f)) {
                         Text(
-                            type.title,
-                            color = Color.White.copy(alpha = 0.94f),
+                            top.name,
+                            color = Color.White,
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.Black
+                            fontWeight = FontWeight.Black,
+                            maxLines = 1
                         )
                         Text(
-                            type.subtitle,
-                            color = Color.White.copy(alpha = 0.42f),
-                            fontSize = 9.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            "${top.code} · ${top.value}",
+                            color = Color.White.copy(alpha = 0.40f),
+                            fontSize = 9.sp
                         )
                     }
                     Text(
-                        "进入榜单 ›",
-                        color = StockAqua.copy(alpha = 0.90f),
-                        fontSize = 10.sp,
+                        top.changePercent,
+                        color = if (top.isRising) StockRise else StockFall,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Black
                     )
-                }
-            }
-            if (top != null) {
-                StockDivider()
-                StockNativeActionGlass(
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    radius = 17.dp,
-                    intensityScale = 0.96f,
-                    role = GlassRole.Flex,
-                    onClick = { onOpenStock(top.code) }
-                ) {
-                    Row(
-                        Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "1",
-                            color = StockAqua,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier.width(28.dp),
-                            textAlign = TextAlign.Center
-                        )
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                top.name,
-                                color = Color.White,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 1
-                            )
-                            Text(
-                                "${top.code} · ${top.value}",
-                                color = Color.White.copy(alpha = 0.40f),
-                                fontSize = 9.sp
-                            )
-                        }
-                        Text(
-                            top.changePercent,
-                            color = if (top.isRising) StockRise else StockFall,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                    }
                 }
             }
         }
@@ -810,49 +858,47 @@ private fun NativeWatchlistContent(
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         watchlist.forEach { item ->
-            StockNativeFrostCard(
+            Row(
                 modifier = Modifier.fillMaxWidth().height(62.dp),
-                radius = 18.dp,
-                frostAlpha = 0.068f
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                    StockNativeActionGlass(
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                        radius = 17.dp,
-                        intensityScale = 0.98f,
-                        role = GlassRole.Flex,
-                        onClick = { onOpenStock(item.code, false) }
+                StockNativeActionGlass(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    radius = 18.dp,
+                    intensityScale = 1.01f,
+                    role = GlassRole.Floating,
+                    onClick = { onOpenStock(item.code, false) }
+                ) {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            Modifier.fillMaxSize().padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text("★", color = StockYellow, fontSize = 15.sp)
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    item.name,
-                                    color = Color.White.copy(alpha = 0.94f),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Black
-                                )
-                                Text(
-                                    "${item.code} · ${item.market.ifBlank { "A股" }}",
-                                    color = Color.White.copy(alpha = 0.40f),
-                                    fontSize = 9.sp
-                                )
-                            }
-                            Text("›", color = StockAqua.copy(alpha = 0.62f), fontSize = 18.sp)
+                        Text("★", color = StockYellow, fontSize = 15.sp)
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                item.name,
+                                color = Color.White.copy(alpha = 0.94f),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                "${item.code} · ${item.market.ifBlank { "A股" }}",
+                                color = Color.White.copy(alpha = 0.40f),
+                                fontSize = 9.sp
+                            )
                         }
+                        Text("›", color = StockAqua.copy(alpha = 0.62f), fontSize = 18.sp)
                     }
-                    StockNativePill(
-                        text = "×",
-                        active = false,
-                        modifier = Modifier.size(36.dp).padding(end = 4.dp),
-                        fontSize = 14,
-                        onClick = { onRemoveWatch(item.code) }
-                    )
                 }
+                StockNativePill(
+                    text = "×",
+                    active = false,
+                    modifier = Modifier.width(42.dp).fillMaxHeight(),
+                    fontSize = 14,
+                    onClick = { onRemoveWatch(item.code) }
+                )
             }
         }
     }
