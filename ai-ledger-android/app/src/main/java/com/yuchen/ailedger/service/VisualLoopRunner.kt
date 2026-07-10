@@ -48,7 +48,7 @@ class VisualLoopRunner(
         VisualLoopSupport.appendRecent(session.recentActions, session.deviceProfile.toPromptLine())
         VisualLoopSupport.appendRecent(
             session.recentActions,
-            "cloud_routing:v6|mainBrain=deepseek|visualOwner=gui_plus|localSemanticDecision=false|completionPermitRequired=true|completionAck=true",
+            "cloud_routing:v7|visualOwner=gui_plus|continuousComputerUse=true|packageSemanticGate=false|completionPermitRequired=true|completionAck=true",
         )
         VisualLoopSupport.appendRecent(
             session.recentActions,
@@ -102,25 +102,27 @@ class VisualLoopRunner(
     private suspend fun captureTurn(session: VisualTaskSession): VisualTurn? {
         val initialObservation = session.prefetchedObservation?.also { session.prefetchedObservation = null }
             ?: observationCoordinator.captureTrustedObservation(
-                forceVisual = session.execution.requiresVisualObservation(),
-                expectedPackage = session.execution.selectedTargetPackage,
+                forceVisual = true,
+                expectedPackage = "",
             )
         var surface = stabilizeSurfaceObservation(session, initialObservation)
         var visualAttempts = 0
         while (
-            surface.runtime.guiPlusEligible &&
             surface.snapshot.visual?.hasImage != true &&
             visualAttempts < MAX_WORK_SURFACE_VISUAL_ATTEMPTS &&
             !session.stopped()
         ) {
             val visualObservation = observationCoordinator.captureTrustedObservation(
                 forceVisual = true,
-                expectedPackage = session.execution.selectedTargetPackage,
+                expectedPackage = "",
             )
             surface = stabilizeSurfaceObservation(session, visualObservation)
             visualAttempts += 1
         }
         if (session.stopped()) return null
+        if (surface.snapshot.visual?.hasImage != true) {
+            AgentRuntimeController.noteDiagnostic("当前截图不可用，视觉循环等待重新观察")
+        }
 
         session.state.currentPackage = surface.snapshot.currentApp
         VisualLoopMemorySupport.replaceRuntimeLine(session.recentActions, surface.runtime)
@@ -128,10 +130,8 @@ class VisualLoopRunner(
             session.recentActions,
             session.semantic.memorySnapshot(surface.snapshot),
         )
-        when {
-            surface.runtime.guiPlusEligible -> AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前子目标与页面证据")
-            surface.runtime.surfaceState == VisualSurfaceState.Launching ->
-                AgentRuntimeController.noteDiagnostic("正在确认目标应用前台状态")
+        if (surface.runtime.guiPlusEligible) {
+            AgentRuntimeController.noteDiagnostic("GUI Plus 正在分析当前截图")
         }
         return VisualTurn(surface.observation, surface.snapshot, surface.runtime)
     }
@@ -145,6 +145,8 @@ class VisualLoopRunner(
         var runtime = session.execution.runtimeContext(snapshot)
         var confirmationProbes = 0
 
+        // Only package-only legacy observations use the compatibility confirmation path. A screenshot
+        // is already a complete computer-use surface and must never incur foreign-package probes.
         while (
             session.execution.requiresForeignConfirmation(snapshot) &&
             confirmationProbes < MAX_FOREIGN_CONFIRMATION_PROBES &&
@@ -152,8 +154,8 @@ class VisualLoopRunner(
         ) {
             delay(FOREIGN_CONFIRMATION_DELAY_MS)
             observation = observationCoordinator.captureTrustedObservation(
-                forceVisual = false,
-                expectedPackage = session.execution.selectedTargetPackage,
+                forceVisual = true,
+                expectedPackage = "",
             )
             snapshot = observation.toAgentScreenSnapshot()
             runtime = session.execution.runtimeContext(snapshot)
@@ -164,12 +166,11 @@ class VisualLoopRunner(
 
     private fun appContextForTurn(
         session: VisualTaskSession,
-        runtime: VisualAgentRuntimeContext,
+        @Suppress("UNUSED_PARAMETER") runtime: VisualAgentRuntimeContext,
     ): List<VisualAgentAppContextItem> {
-        if (!session.fullAppCatalogUploaded || runtime.surfaceState != VisualSurfaceState.WorkSurface) {
-            return session.appContext
-        }
-        return session.appContext.filter { it.packageName == runtime.verifiedTargetPackage }.take(1)
+        // The catalog is tiny compared with the screenshot and keeps cross-app open actions exact.
+        // Sending it every turn avoids an extra Home/replan round trip when GUI Plus switches apps.
+        return session.appContext
     }
 
     private suspend fun requestPlan(
@@ -209,7 +210,7 @@ class VisualLoopRunner(
                     session.state.reobservations += 1
                     val recovered = observationCoordinator.captureTrustedObservation(
                         forceVisual = true,
-                        expectedPackage = session.execution.selectedTargetPackage,
+                        expectedPackage = "",
                     )
                     val recoveredSurface = stabilizeSurfaceObservation(session, recovered)
                     session.prefetchedObservation = recoveredSurface.observation
@@ -223,7 +224,7 @@ class VisualLoopRunner(
                             append("|httpStatus=").append(structured?.httpStatus ?: 0)
                             append("|retryable=true|currentPackage=")
                             append(recoveredSurface.snapshot.packageName.take(100))
-                            append("|workSurfaceRecovered=").append(recoveredSurface.runtime.guiPlusEligible)
+                            append("|visualSurfaceRecovered=").append(recoveredSurface.runtime.guiPlusEligible)
                             append("|observationId=").append(recoveredSurface.runtime.observationId)
                         },
                     )
@@ -240,7 +241,7 @@ class VisualLoopRunner(
             }
         }
         session.routeRetry.onSuccess()
-        if (requestApps.size == session.appContext.size) session.fullAppCatalogUploaded = true
+        session.fullAppCatalogUploaded = true
         AgentRuntimeController.noteModelOutput(plan.rawModelOutput)
         session.semantic.updateTaskContract(plan.taskContract, session.state.goal)
         return VisualPlanRequest.Ready(plan)
@@ -278,16 +279,7 @@ class VisualLoopRunner(
         val executable = prepared.step
         val blocked = session.semantic.blockedHypothesisReason(executable, turn.snapshot)
         if (blocked != null) {
-            val memory = session.semantic.memorySnapshot(turn.snapshot)
-            val feedback = buildString {
-                append("visual_local_retry:action=").append(VisualActionValidator.actionSignature(executable))
-                append(":count=").append(memory.failedHypotheses.size)
-                append("|semanticStatus=blocked_hypothesis")
-                append("|milestone=").append(memory.currentMilestoneId.take(80))
-                append("|explorationBudgetRemaining=").append(memory.remainingExplorationBudget)
-                append("|requiresStrategyChange=true|replanRequired=true")
-                append("|reason=").append(blocked.take(260))
-            }
+            val feedback = "visual_protocol_retry:action=${VisualActionValidator.actionSignature(executable)}|reason=${blocked.take(260)}"
             session.logs += AgentTaskStepLog(
                 session.logs.size + 1,
                 turn.snapshot.currentApp,
@@ -325,7 +317,7 @@ class VisualLoopRunner(
                 val summary = VisualLoopSupport.resultSummary(executable, session.state.lastAction, result)
                 VisualLoopSupport.appendRecent(session.recentActions, summary)
                 VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, summary)
-                handleOpenAppResult(session, executable, turn.snapshot, result, summary)
+                handleOpenAppResult(session, executable, result, summary)
                 return VisualLoopDecision.Continue
             }
         }
@@ -341,7 +333,7 @@ class VisualLoopRunner(
         if (!confirmed && !AgentSafetyPolicy.canAutoExecuteInCurrentStage(session.state.goal, executable)) {
             val continued = pauseForUserAndContinue(
                 session,
-                executable.reason ?: "Action is blocked by Android safety policy.",
+                executable.reason ?: "Action requires user participation.",
                 "safety_blocked",
                 executable,
             )
@@ -358,25 +350,20 @@ class VisualLoopRunner(
                 executionLease = AgentRuntimeController.acquireCleanVisualCaptureLease()
                 val freshObservation = observationCoordinator.captureTrustedObservation(
                     forceVisual = false,
-                    expectedPackage = session.execution.selectedTargetPackage,
+                    expectedPackage = "",
                     settleMs = 160L,
                 )
-                val freshSurface = stabilizeSurfaceObservation(session, freshObservation)
-                val fresh = freshSurface.snapshot
-                val verified = freshSurface.runtime.guiPlusEligible &&
-                    session.execution.isVerifiedWorkSurface(fresh)
+                val fresh = freshObservation.toAgentScreenSnapshot()
                 val freshness = VisualObservationProtocol.evaluateActionContextFreshness(
                     step = executable,
                     observedSnapshot = turn.snapshot,
                     currentSnapshot = fresh,
                 )
-                if (!verified || !freshness.fresh) {
-                    val failureClass = if (verified) "visual_local" else "structural_route"
-                    val reason = if (verified) freshness.reason else "target_surface_lost"
+                if (!freshness.fresh) {
                     val feedback = buildString {
                         append("visual_action_stale:type=").append(executable.type)
-                        append("|failureClass=").append(failureClass)
-                        append("|reason=").append(reason)
+                        append("|failureClass=visual_local")
+                        append("|reason=").append(freshness.reason)
                         append("|surfaceSimilarity=").append(freshness.surfaceSimilarity)
                         append("|replanRequired=true")
                     }
@@ -388,7 +375,10 @@ class VisualLoopRunner(
                     )
                     VisualLoopSupport.appendRecent(session.recentActions, feedback)
                     VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
-                    session.prefetchedObservation = freshSurface.observation
+                    session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
+                        forceVisual = true,
+                        expectedPackage = "",
+                    )
                     session.state.reobservations += 1
                     return VisualLoopDecision.Continue
                 }
@@ -405,7 +395,7 @@ class VisualLoopRunner(
 
             if (executable.type == "open_app") {
                 releaseExecutionLease()
-                handleOpenAppResult(session, executable, turn.snapshot, result, summary)
+                handleOpenAppResult(session, executable, result, summary)
                 return VisualLoopDecision.Continue
             }
             if (executable.type in CloudAgentStep.deviceToolTypes) {
@@ -431,7 +421,7 @@ class VisualLoopRunner(
                 VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
                 session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
                     forceVisual = true,
-                    expectedPackage = session.execution.selectedTargetPackage,
+                    expectedPackage = "",
                 )
                 releaseExecutionLease()
                 return VisualLoopDecision.Continue
@@ -441,19 +431,17 @@ class VisualLoopRunner(
             delayForStep(executable)
             val afterObservation = observationCoordinator.captureTrustedObservation(
                 forceVisual = true,
-                expectedPackage = session.execution.selectedTargetPackage,
+                expectedPackage = "",
             )
             releaseExecutionLease()
             val afterSurface = stabilizeSurfaceObservation(session, afterObservation)
             val after = afterSurface.snapshot
-            val structuralRegressionConfirmed =
-                afterSurface.runtime.surfaceState == VisualSurfaceState.Replanning
             val progress = session.semantic.evaluate(
                 step = executable,
                 before = turn.snapshot,
                 after = after,
-                verifiedTargetPackage = turn.runtime.verifiedTargetPackage,
-                structuralRegressionConfirmed = structuralRegressionConfirmed,
+                verifiedTargetPackage = "",
+                structuralRegressionConfirmed = false,
             )
             val feedback = progress.toFeedbackLine(executable)
             VisualLoopSupport.appendRecent(session.recentActions, feedback)
@@ -464,11 +452,8 @@ class VisualLoopRunner(
                 delay(120L)
                 session.prefetchedObservation = observationCoordinator.captureTrustedObservation(
                     forceVisual = true,
-                    expectedPackage = session.execution.selectedTargetPackage,
+                    expectedPackage = "",
                 )
-            }
-            if (progress.structuralRegression) {
-                session.prefetchedObservation = null
             }
             if (progress.requiresReplan) {
                 VisualLoopSupport.appendRecent(
@@ -479,8 +464,8 @@ class VisualLoopRunner(
             if (progress.shouldPauseForUser) {
                 val continued = pauseForUserAndContinue(
                     session,
-                    "The last action regressed on a non-reversible or repeatedly failing path.",
-                    "semantic_regression",
+                    "GUI Plus requested user participation after reviewing the fresh screen.",
+                    "semantic_user_help",
                     executable,
                 )
                 return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
@@ -524,10 +509,9 @@ class VisualLoopRunner(
         session.state.reobservations += 1
         val summary = VisualLoopSupport.resultSummary(executable, session.state.lastAction, result)
         val feedback = buildString {
-            append("open_app_redundant_verified_target_skipped:package=")
+            append("open_app_current_foreground_skipped:package=")
             append(requestedPackage.take(120))
-            append("|surfaceState=").append(turn.runtime.surfaceState.wireValue)
-            append("|routeEpoch=").append(turn.runtime.routeEpoch)
+            append("|observationId=").append(turn.runtime.observationId)
             append("|replanRequired=false")
         }
         VisualLoopSupport.appendRecent(session.recentActions, summary)
@@ -546,7 +530,7 @@ class VisualLoopRunner(
         return VisualLoopDecision.Return(AgentTaskRunResult(false, false, message, session.logs))
     }
 
-    private suspend fun rejectPlan(
+    private fun rejectPlan(
         session: VisualTaskSession,
         turn: VisualTurn,
         plan: CloudAgentPlan,
@@ -562,32 +546,25 @@ class VisualLoopRunner(
         )
         VisualLoopSupport.appendRecent(session.recentActions, feedback)
         VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
-        if (validation.failureClass == VisualFailureClass.StructuralRoute) {
-            session.execution.markStructuralReplan()
-        }
         session.state.rejectedPlans += 1
         session.state.reobservations += 1
         if (session.state.rejectedPlans < VisualLoopSupport.MAX_REJECTIONS) {
             return VisualLoopDecision.Continue
         }
-        val continued = pauseForUserAndContinue(
+        return fatal(
             session,
-            validation.message,
-            "validation_rejected",
-            step,
+            "Visual action protocol failed after ${session.state.rejectedPlans} retries: ${validation.message}",
         )
-        session.state.rejectedPlans = 0
-        return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
     }
 
-    private suspend fun rejectPrepared(
+    private fun rejectPrepared(
         session: VisualTaskSession,
         turn: VisualTurn,
         plan: CloudAgentPlan,
         prepared: PreparedVisualStep,
     ): VisualLoopDecision {
         val step = plan.step
-        val feedback = "visual_action_rejected:type=${step.type}|failureClass=structural_route|reason=${prepared.message.take(260)}|replanRequired=${prepared.replanRequired}"
+        val feedback = "visual_action_rejected:type=${step.type}|failureClass=protocol_or_capability|reason=${prepared.message.take(260)}|replanRequired=${prepared.replanRequired}"
         session.logs += AgentTaskStepLog(
             session.logs.size + 1,
             turn.snapshot.currentApp,
@@ -596,15 +573,15 @@ class VisualLoopRunner(
         )
         VisualLoopSupport.appendRecent(session.recentActions, feedback)
         VisualLoopMemorySupport.rememberTurn(session.visualHistory, turn.snapshot, plan, feedback)
-        session.execution.markStructuralReplan()
         session.state.rejectedPlans += 1
         session.state.reobservations += 1
         if (prepared.replanRequired && session.state.rejectedPlans < VisualLoopSupport.MAX_REJECTIONS) {
             return VisualLoopDecision.Continue
         }
-        val continued = pauseForUserAndContinue(session, prepared.message, "prepare_blocked", step)
-        session.state.rejectedPlans = 0
-        return if (continued) VisualLoopDecision.Continue else VisualLoopDecision.Stop
+        return fatal(
+            session,
+            "Visual action could not be prepared after ${session.state.rejectedPlans} retries: ${prepared.message}",
+        )
     }
 
     private suspend fun handleFinish(
@@ -665,11 +642,8 @@ class VisualLoopRunner(
             expectedObservationId = turn.runtime.observationId,
             expectedCandidate = expectedCandidate,
         )
-        val workSurfaceValid = session.pendingCompletionPackage == turn.snapshot.currentApp &&
-            session.execution.isVerifiedWorkSurface(turn.snapshot)
-        if (!permit.valid || permit.value == null || !workSurfaceValid) {
-            val reason = if (!workSurfaceValid) "completion_work_surface_changed" else permit.reason
-            val feedback = "finish_permit_rejected:reason=$reason|observationId=${turn.runtime.observationId}|replanRequired=false"
+        if (!permit.valid || permit.value == null) {
+            val feedback = "finish_permit_rejected:reason=${permit.reason}|observationId=${turn.runtime.observationId}|replanRequired=false"
             session.logs += AgentTaskStepLog(
                 session.logs.size + 1,
                 turn.snapshot.currentApp,
@@ -719,7 +693,7 @@ class VisualLoopRunner(
         if (requestedPackage.isBlank()) {
             return PreparedVisualStep(
                 false,
-                "open_app requires a packageName selected by DeepSeek.",
+                "open_app requires a canonical packageName selected from the uploaded app catalog.",
                 replanRequired = true,
             )
         }
@@ -774,50 +748,32 @@ class VisualLoopRunner(
     private suspend fun handleOpenAppResult(
         session: VisualTaskSession,
         step: CloudAgentStep,
-        snapshot: AgentScreenSnapshot,
         result: AgentExecutionResult,
         summary: String,
     ) {
         val expectedPackage = step.packageName.orEmpty()
-        if (!result.ok) {
-            val feedback = "open_app_package_verification_failed:expected=$expectedPackage|actual=${snapshot.packageName.take(100)}|failureClass=structural_route|reason=launch_execution_failed"
-            VisualLoopSupport.appendRecent(session.recentActions, feedback)
-            VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-            session.execution.markStructuralReplan()
-            return
-        }
-        val verification = observationCoordinator.awaitStableTargetPackage(
-            expectedPackage = expectedPackage,
-            isStopped = session::stopped,
+        val observation = observationCoordinator.captureTrustedObservation(
+            forceVisual = true,
+            expectedPackage = "",
+            settleMs = OPEN_APP_CONTINUATION_SETTLE_MS,
         )
-        if (verification.verified) {
-            val accepted = session.execution.markTargetVerified(expectedPackage, verification)
-            if (accepted) {
-                val feedback = "open_app_package_verified:package=$expectedPackage|stableSamples=${verification.stableSamples}|visualFrame=true"
-                VisualLoopSupport.appendRecent(session.recentActions, feedback)
-                VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-                session.semantic.onVerifiedSurface(verification.lastSnapshot ?: snapshot)
-                session.prefetchedObservation = verification.lastObservation
-            } else {
-                val actual = verification.lastSnapshot?.packageName.orEmpty()
-                val feedback = "open_app_package_verification_failed:expected=$expectedPackage|actual=${actual.take(100)}|failureClass=structural_route|reason=verification_proof_invalid"
-                VisualLoopSupport.appendRecent(session.recentActions, feedback)
-                VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-                session.execution.markStructuralReplan()
-            }
-        } else {
-            val actual = verification.lastSnapshot?.packageName.orEmpty()
-            val pending = verification.reason.pending ||
-                VisualSurfacePackagePolicy.requiresForegroundFallback(actual)
-            val reason = verification.reason.wireValue
-            val feedback = if (pending) {
-                "open_app_package_verification_pending:expected=$expectedPackage|actual=${actual.take(100)}|stableSamples=${verification.stableSamples}|reason=$reason"
-            } else {
-                "open_app_package_verification_failed:expected=$expectedPackage|actual=${actual.take(100)}|failureClass=structural_route|stableSamples=${verification.stableSamples}|reason=$reason"
-            }
-            VisualLoopSupport.appendRecent(session.recentActions, feedback)
-            VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
-            if (!pending) session.execution.markStructuralReplan()
+        val snapshot = observation.toAgentScreenSnapshot()
+        session.prefetchedObservation = observation
+        val packageMatched = expectedPackage.isNotBlank() && snapshot.packageName == expectedPackage
+        val feedback = buildString {
+            append("open_app_execution_observed:expected=").append(expectedPackage.take(120))
+            append("|actual=").append(snapshot.packageName.take(120))
+            append("|executionOk=").append(result.ok)
+            append("|packageMatched=").append(packageMatched)
+            append("|hasFreshVisual=").append(snapshot.hasVisualImage)
+            append("|semanticDecisionOwner=gui_plus")
+            append("|replanRequired=false")
+            if (!result.ok) append("|reason=").append(result.message.take(220))
+        }
+        VisualLoopSupport.appendRecent(session.recentActions, feedback)
+        VisualLoopMemorySupport.updateLastHistory(session.visualHistory, "$summary;$feedback")
+        if (packageMatched && snapshot.hasVisualImage) {
+            session.semantic.onVerifiedSurface(snapshot)
         }
     }
 
@@ -904,8 +860,9 @@ class VisualLoopRunner(
 
     companion object {
         private const val FOREIGN_CONFIRMATION_DELAY_MS = 120L
-        private const val MAX_FOREIGN_CONFIRMATION_PROBES = 2
+        private const val MAX_FOREIGN_CONFIRMATION_PROBES = 1
         private const val MAX_WORK_SURFACE_VISUAL_ATTEMPTS = 2
+        private const val OPEN_APP_CONTINUATION_SETTLE_MS = 320L
 
         internal fun requiresAgentSwitch(executionMode: AgentExecutionMode): Boolean =
             executionMode == AgentExecutionMode.VisualForce
