@@ -46,6 +46,8 @@ internal class VisualAgentHudHost(
     private var layoutParams: WindowManager.LayoutParams? = null
     private var pageReady = false
     private var pendingPayload: String? = null
+    private var lastDispatchedPayload: String? = null
+    private var lastDispatchedCaptureSuppressed: Boolean? = null
     private var lastClickRevision = 0L
     private var lastPreviewGeneration = 0L
     private var overlayContentActive = false
@@ -132,6 +134,8 @@ internal class VisualAgentHudHost(
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     pageReady = true
+                    lastDispatchedPayload = null
+                    lastDispatchedCaptureSuppressed = null
                     dispatchCaptureState()
                     pendingPayload?.let { payload ->
                         pendingPayload = null
@@ -194,28 +198,45 @@ internal class VisualAgentHudHost(
     }
 
     private fun suspendOverlay() {
-        overlayContentActive = false
-        captureSuppressed = false
-        pendingPayload = null
-        if (webView == null) {
+        val view = webView
+        if (view == null) {
+            overlayContentActive = false
+            captureSuppressed = false
+            pendingPayload = null
+            lastDispatchedPayload = null
+            lastDispatchedCaptureSuppressed = null
             overlayCreationFailed = false
             return
         }
+
+        val alreadySuspended = !overlayContentActive &&
+            !captureSuppressed &&
+            pendingPayload == null &&
+            view.visibility == View.INVISIBLE &&
+            view.alpha == 0f &&
+            layoutParams?.alpha == 0f
+        if (alreadySuspended) return
+
+        overlayContentActive = false
+        captureSuppressed = false
+        pendingPayload = null
+        lastDispatchedPayload = null
+        lastDispatchedCaptureSuppressed = null
         if (pageReady) {
-            webView?.evaluateJavascript("window.VisualHud&&window.VisualHud.hide();", null)
+            view.evaluateJavascript("window.VisualHud&&window.VisualHud.hide();", null)
         }
-        webView?.let { view ->
-            view.animate().cancel()
-            view.alpha = 0f
-            view.visibility = View.INVISIBLE
-            view.onPause()
-        }
+        view.animate().cancel()
+        view.alpha = 0f
+        view.visibility = View.INVISIBLE
+        view.onPause()
         updateWindowAlpha(0f)
     }
 
     private fun destroyOverlay() {
         pageReady = false
         pendingPayload = null
+        lastDispatchedPayload = null
+        lastDispatchedCaptureSuppressed = null
         overlayContentActive = false
         captureSuppressed = false
         overlayCreationFailed = false
@@ -296,11 +317,13 @@ internal class VisualAgentHudHost(
     }
 
     private fun dispatchCaptureState() {
-        if (!pageReady) return
-        webView?.evaluateJavascript(
+        if (!pageReady || lastDispatchedCaptureSuppressed == captureSuppressed) return
+        val view = webView ?: return
+        view.evaluateJavascript(
             "window.VisualHud&&window.VisualHud.setCaptureSafe(${captureSuppressed});",
             null,
         )
+        lastDispatchedCaptureSuppressed = captureSuppressed
     }
 
     private fun applyPassthroughWindowContract(params: WindowManager.LayoutParams) {
@@ -425,14 +448,17 @@ internal class VisualAgentHudHost(
 
     private fun sendPayload(payload: String) {
         if (!pageReady) {
-            pendingPayload = payload
+            if (pendingPayload != payload) pendingPayload = payload
             return
         }
+        if (payload == lastDispatchedPayload) return
         dispatchPayload(payload)
     }
 
     private fun dispatchPayload(payload: String) {
-        webView?.evaluateJavascript("window.VisualHud&&window.VisualHud.update($payload);", null)
+        val view = webView ?: return
+        view.evaluateJavascript("window.VisualHud&&window.VisualHud.update($payload);", null)
+        lastDispatchedPayload = payload
     }
 
     companion object {
