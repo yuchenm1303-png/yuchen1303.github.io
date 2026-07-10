@@ -30,7 +30,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.yield
 
 private const val SECONDARY_HORIZONTAL_UNBOUNDED_CLIP_PX = 1_000_000f
-private const val SECONDARY_SLOW_SPRING_STIFFNESS = Spring.StiffnessMediumLow * 0.78f
+private val SECONDARY_SLOW_SPRING_STIFFNESS = Spring.StiffnessMediumLow * 0.86f
 
 /**
  * 二级页面统一轻量转场。
@@ -55,10 +55,10 @@ internal fun <T> SecondaryPageTransition(
         contentAlignment = contentAlignment,
         transitionSpec = {
             if (motion <= 0.05f) {
-                fadeIn(tween(durationMillis = 90)) togetherWith fadeOut(tween(durationMillis = 1))
+                fadeIn(tween(durationMillis = 84)) togetherWith fadeOut(tween(durationMillis = 1))
             } else {
                 val enterOffsetRatio = 0.034f + 0.024f * motion
-                val enter = fadeIn(tween(durationMillis = 164, delayMillis = 24)) +
+                val enter = fadeIn(tween(durationMillis = 150, delayMillis = 22)) +
                     slideInVertically(
                         animationSpec = spring(
                             dampingRatio = 0.82f,
@@ -103,9 +103,9 @@ internal fun SecondaryRouteEntrance(
             .fillMaxSize()
             .clipSecondaryPageVertically(),
         enter = if (motion <= 0.05f) {
-            fadeIn(tween(durationMillis = 90))
+            fadeIn(tween(durationMillis = 84))
         } else {
-            fadeIn(tween(durationMillis = 172, delayMillis = 24)) +
+            fadeIn(tween(durationMillis = 156, delayMillis = 22)) +
                 slideInVertically(
                     animationSpec = spring(
                         dampingRatio = 0.80f,
@@ -121,9 +121,9 @@ internal fun SecondaryRouteEntrance(
                     ),
                 )
         },
-        exit = fadeOut(tween(durationMillis = 124)) +
-            slideOutVertically(tween(durationMillis = 150)) { height -> -height.coerceAtMost(18) } +
-            scaleOut(targetScale = 0.986f, animationSpec = tween(durationMillis = 150)),
+        exit = fadeOut(tween(durationMillis = 112)) +
+            slideOutVertically(tween(durationMillis = 138)) { height -> -height.coerceAtMost(18) } +
+            scaleOut(targetScale = 0.986f, animationSpec = tween(durationMillis = 138)),
     ) {
         Box(Modifier.fillMaxSize()) {
             content()
