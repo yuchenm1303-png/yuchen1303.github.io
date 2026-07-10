@@ -46,7 +46,7 @@ object NotificationChatStore {
 
         val merged = LinkedHashMap<String, ChatMessage>()
         current.messages.forEach { merged[it.id] = it }
-        appMessages.forEach { message ->
+        appMessages.takeLast(MAX_STORED_MESSAGES).forEach { message ->
             merged[message.id] = message.toStoredMessage()
         }
 
@@ -267,7 +267,7 @@ object NotificationChatStore {
         preferences(context)
             .edit()
             .putString(NOTIFICATION_CHAT_STATE, encode(snapshot))
-            .commit()
+            .apply()
         return snapshot
     }
 
