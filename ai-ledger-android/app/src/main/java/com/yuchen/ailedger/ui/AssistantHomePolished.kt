@@ -1861,12 +1861,12 @@ private fun rememberCloudProgressLabelV2(messageId: String, hasLiveText: Boolean
         stage = 2
     }
     return if (hasLiveText) {
-        "正在接收"
+        "消息流传输中"
     } else {
         when (stage) {
             0 -> "正在思考"
-            1 -> "继续处理中"
-            else -> "正在整理回复"
+            1 -> "正在跟进"
+            else -> "正在思考"
         }
     }
 }
