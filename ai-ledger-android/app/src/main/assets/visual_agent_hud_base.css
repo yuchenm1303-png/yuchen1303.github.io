@@ -40,11 +40,6 @@
     opacity:0;
     visibility:hidden;
   }
-  .app.capture-safe .edge-aurora{
-    opacity:0;
-    visibility:hidden;
-  }
-  .app.capture-safe .edge-aurora-layer,
   .app.capture-safe .cursor-aura,
   .app.capture-safe .cursor-icon,
   .app.capture-safe .click-wave,
