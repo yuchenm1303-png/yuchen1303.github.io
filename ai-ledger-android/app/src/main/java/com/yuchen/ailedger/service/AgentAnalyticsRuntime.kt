@@ -239,8 +239,8 @@ internal object AgentAnalyticsRuntime {
         response: JSONObject?,
         success: Boolean,
         durationMs: Long,
-        requestBytes: Int,
-        responseBytes: Int,
+        requestBytes: Long,
+        responseBytes: Long,
     ) {
         runCatching {
             val usage = if (success) {
@@ -305,8 +305,8 @@ internal object AgentAnalyticsRuntime {
                 } else {
                     task.estimatedTokens = safeAdd(task.estimatedTokens, usage.normalizedTotal)
                 }
-                task.requestBytes = safeAdd(task.requestBytes, requestBytes.toLong())
-                task.responseBytes = safeAdd(task.responseBytes, responseBytes.toLong())
+                task.requestBytes = safeAdd(task.requestBytes, requestBytes)
+                task.responseBytes = safeAdd(task.responseBytes, responseBytes)
                 task.modelLatencyMs = safeAdd(task.modelLatencyMs, durationMs)
             }
         }
