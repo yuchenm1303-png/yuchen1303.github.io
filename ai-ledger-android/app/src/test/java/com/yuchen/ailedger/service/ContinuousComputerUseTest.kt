@@ -22,8 +22,8 @@ class ContinuousComputerUseTest {
         assertTrue(qq.guiPlusEligible)
         assertTrue(launcher.guiPlusEligible)
         assertTrue(tonghuashun.guiPlusEligible)
-        assertEquals(VisualSurfaceState.Planning, launcher.surfaceState)
-        assertEquals(VisualSurfaceState.Planning, tonghuashun.surfaceState)
+        assertEquals(VisualSurfaceState.WorkSurface, launcher.surfaceState)
+        assertEquals(VisualSurfaceState.WorkSurface, tonghuashun.surfaceState)
         assertEquals(LAUNCHER_PACKAGE, launcher.currentPackage)
         assertEquals(LAUNCHER_PACKAGE, launcher.selectedTargetPackage)
         assertEquals(LAUNCHER_PACKAGE, launcher.verifiedTargetPackage)
@@ -111,7 +111,7 @@ class ContinuousComputerUseTest {
     fun payloadUsesObservationBoundContinuousSurfaceWithoutStructuralRegression() {
         val current = snapshot(LAUNCHER_PACKAGE)
         val runtime = VisualAgentRuntimeContext(
-            surfaceState = VisualSurfaceState.Planning,
+            surfaceState = VisualSurfaceState.WorkSurface,
             selectedTargetPackage = LAUNCHER_PACKAGE,
             verifiedTargetPackage = LAUNCHER_PACKAGE,
             currentPackage = LAUNCHER_PACKAGE,
