@@ -91,8 +91,11 @@ def _cached_stage_module(
 
 
 def _market_refresh_due() -> bool:
-    if not breadth_service.cache_is_fresh(MARKET_REFRESH_SECONDS):
-        return True
+    """只判断发现模块是否需要刷新。
+
+    市场宽度由 market_breadth_server 自己维护非阻塞 singleflight，不能再通过
+    market-home 刷新链重复抓取全市场，否则缓存边界会同时启动两套重任务。
+    """
     if not _cache_is_fresh(
         "sectors",
         "industry",
