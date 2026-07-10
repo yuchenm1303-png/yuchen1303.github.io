@@ -39,7 +39,7 @@ class AgentOrchestrator(
         }
 
         val cloudCall = if (executionMode == AgentExecutionMode.ExplicitAgent) {
-            ClientToolCallRegistry.consumeVisual(goal)
+            aiWorkerClient.consumeVisualClientToolCall(goal)
         } else {
             null
         }
