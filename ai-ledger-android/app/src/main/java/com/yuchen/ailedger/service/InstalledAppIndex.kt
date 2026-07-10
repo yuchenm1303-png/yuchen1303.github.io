@@ -123,12 +123,13 @@ class InstalledAppIndex(
         @Volatile private var sharedLastLoadedAt: Long = 0L
         @Volatile private var sharedCacheLoaded: Boolean = false
         @Volatile private var packageObserverInstalled: Boolean = false
+        @Volatile private var packageRevision: Long = 0L
         private var packageObserver: BroadcastReceiver? = null
 
         /**
-         * Package add/remove/replace broadcasts invalidate the process-wide inventory immediately.
-         * The long fallback TTL only protects against an OEM dropping a broadcast; normal chat no
-         * longer rescans PackageManager every five minutes.
+         * Package add/remove/replace/change broadcasts invalidate every process-wide inventory.
+         * The revision is also consumed by the explicit app-management inventory, so normal chat,
+         * storage ranking and application control share one observer without sharing heavy models.
          */
         private fun ensurePackageChangeObserver(context: Context) {
             if (packageObserverInstalled) return
@@ -143,6 +144,7 @@ class InstalledAppIndex(
                     addAction(Intent.ACTION_PACKAGE_ADDED)
                     addAction(Intent.ACTION_PACKAGE_REMOVED)
                     addAction(Intent.ACTION_PACKAGE_REPLACED)
+                    addAction(Intent.ACTION_PACKAGE_CHANGED)
                     addDataScheme("package")
                 }
                 val registered = runCatching {
@@ -161,11 +163,17 @@ class InstalledAppIndex(
             }
         }
 
+        internal fun currentPackageRevision(context: Context): Long {
+            ensurePackageChangeObserver(context.applicationContext)
+            return packageRevision
+        }
+
         internal fun invalidateCache() {
             synchronized(cacheLock) {
                 sharedCachedApps = emptyList()
                 sharedLastLoadedAt = 0L
                 sharedCacheLoaded = false
+                packageRevision = if (packageRevision == Long.MAX_VALUE) 1L else packageRevision + 1L
             }
         }
 
