@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -20,12 +21,15 @@ import kotlinx.coroutines.delay
  *
  * 每组只做透明度和纵向位移，不缩放玻璃、不绘制 glint，也不会触发普通玻璃自己的
  * 按压光效。最多错开前六组，避免长列表等待过久。
+ *
+ * [tone] 暂时仅为兼容已有调用保留，不参与任何绘制。
  */
 @Composable
 internal fun SecondaryStaggeredReveal(
     index: Int,
     motionIntensity: Float,
     modifier: Modifier = Modifier,
+    @Suppress("UNUSED_PARAMETER") tone: Color = Color.White,
     content: @Composable () -> Unit,
 ) {
     val motion = motionIntensity.coerceIn(0f, 1f)
