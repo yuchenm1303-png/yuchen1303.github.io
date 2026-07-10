@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.data
 
+import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
@@ -12,11 +13,15 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import javax.net.ssl.SSLException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 
 /**
  * 股票模块共享网络传输层。
@@ -56,6 +61,28 @@ internal object StockHttpClient {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedBody>?): Boolean {
             return size > MAX_RECENT_RESPONSES
         }
+    }
+
+    /**
+     * 协程热路径入口。协程取消会中断等待线程，随后立即 cancel 对应 OkHttp Call，
+     * 不再让已经离屏的行情请求继续占用连接直到超时。
+     */
+    suspend fun getCancellable(
+        url: String,
+        timeoutMs: Int,
+        emptyMessage: String,
+        microCacheMs: Long = DEFAULT_MICRO_CACHE_MS,
+        allowColdStartWait: Boolean = false,
+        requestGroup: String? = null
+    ): String = runInterruptible(Dispatchers.IO) {
+        get(
+            url = url,
+            timeoutMs = timeoutMs,
+            emptyMessage = emptyMessage,
+            microCacheMs = microCacheMs,
+            allowColdStartWait = allowColdStartWait,
+            requestGroup = requestGroup
+        )
     }
 
     fun get(
@@ -99,20 +126,12 @@ internal object StockHttpClient {
             val request = requestBuilder.build()
             val call = client.newCall(request)
             call.timeout().timeout(effectiveTimeoutMs.toLong(), TimeUnit.MILLISECONDS)
-            val body = call.execute().use { response ->
-                val text = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    val backendState = response.header("X-Market-Home-State")
-                        ?.takeIf(String::isNotBlank)
-                        ?.let { " state=$it" }
-                        .orEmpty()
-                    throw IllegalStateException(
-                        "HTTP ${response.code}$backendState ${text.take(160)}".trim()
-                    )
-                }
-                if (text.isBlank()) throw IllegalStateException(emptyMessage)
-                text
-            }
+            val body = executeCallBlocking(
+                call = call,
+                timeoutMs = effectiveTimeoutMs,
+                emptyMessage = emptyMessage,
+                url = url
+            )
             synchronized(recentLock) {
                 recentBodies[url] = CachedBody(body, System.currentTimeMillis())
             }
@@ -159,6 +178,63 @@ internal object StockHttpClient {
             }
         }
         if (aggressive) transportFailures.clear()
+    }
+
+    private fun executeCallBlocking(
+        call: Call,
+        timeoutMs: Int,
+        emptyMessage: String,
+        url: String
+    ): String {
+        val responseFuture = CompletableFuture<String>()
+        call.enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, error: IOException) {
+                    responseFuture.completeExceptionally(error)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        response.use {
+                            val text = it.body?.string().orEmpty()
+                            if (!it.isSuccessful) {
+                                val backendState = it.header("X-Market-Home-State")
+                                    ?.takeIf(String::isNotBlank)
+                                    ?.let { state -> " state=$state" }
+                                    .orEmpty()
+                                throw IllegalStateException(
+                                    "HTTP ${it.code}$backendState ${text.take(160)}".trim()
+                                )
+                            }
+                            if (text.isBlank()) throw IllegalStateException(emptyMessage)
+                            responseFuture.complete(text)
+                        }
+                    } catch (error: Throwable) {
+                        responseFuture.completeExceptionally(error)
+                    }
+                }
+            }
+        )
+
+        return try {
+            responseFuture.get(
+                timeoutMs.toLong() + OWNER_WAIT_GRACE_MS,
+                TimeUnit.MILLISECONDS
+            )
+        } catch (error: ExecutionException) {
+            throw (error.cause ?: error)
+        } catch (error: TimeoutException) {
+            call.cancel()
+            throw SocketTimeoutException("行情请求等待超时：${url.take(96)}").apply {
+                initCause(error)
+            }
+        } catch (error: InterruptedException) {
+            call.cancel()
+            Thread.currentThread().interrupt()
+            throw InterruptedIOException("行情请求已取消：${url.take(96)}").apply {
+                initCause(error)
+            }
+        }
     }
 
     private fun cancelLowerPriorityIndexRequests() {
@@ -246,7 +322,7 @@ internal object StockHttpClient {
                 "行情服务读取超时（实际${elapsedSeconds}秒，预算${budgetSeconds}秒）"
             }
             is InterruptedIOException -> {
-                "行情请求整体超时（实际${elapsedSeconds}秒，预算${budgetSeconds}秒）"
+                "行情请求整体超时或已取消（实际${elapsedSeconds}秒，预算${budgetSeconds}秒）"
             }
             else -> return error
         }
@@ -321,7 +397,9 @@ internal object StockHttpClient {
             throw IllegalStateException("共享行情请求等待超时：${url.take(96)}", error)
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw IllegalStateException("共享行情请求已取消：${url.take(96)}", error)
+            throw InterruptedIOException("共享行情请求已取消：${url.take(96)}").apply {
+                initCause(error)
+            }
         }
     }
 
@@ -337,6 +415,7 @@ internal object StockHttpClient {
     private const val MIN_REQUEST_TIMEOUT_MS = 700
     private const val MARKET_HOME_TIMEOUT_MS = 70_000
     private const val MAX_COLD_START_TIMEOUT_MS = 75_000
+    private const val OWNER_WAIT_GRACE_MS = 250L
     private const val SHARED_WAIT_GRACE_MS = 250L
     private const val TRANSPORT_FAILURE_COOLDOWN_MS = 2_500L
     private const val LOW_MEMORY_RECENT_RESPONSES = 12
