@@ -203,7 +203,7 @@ class AgentOrchestrator(
             onSuccess = { response ->
                 val reply = response.reply.trim()
                 if (response.source == FINAL_TOOL_RESULT_SOURCE && reply.isNotBlank()) {
-                    result.copy(message = reply)
+                    if (result.isAccessibilityUnavailable()) result else result.copy(message = reply)
                 } else {
                     AgentRuntimeController.noteDiagnostic("云端没有确认客户端工具结果续写来源。")
                     result
