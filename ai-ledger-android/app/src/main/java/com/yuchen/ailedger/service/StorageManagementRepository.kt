@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.os.CancellationSignal
 import android.os.Environment
 import android.os.Process
 import android.os.UserHandle
@@ -20,12 +21,14 @@ import android.provider.Settings
 import android.system.Os
 import java.util.ArrayDeque
 import java.util.Locale
+import java.util.concurrent.CancellationException
 
 private const val STORAGE_PREFS = "storage_management"
 private const val PREF_TREE_URI = "tree_uri"
 private const val APP_CACHE_TTL_MS = 10L * 60L * 1000L
 private const val FOLDER_SCAN_TTL_MS = 5L * 60L * 1000L
 private const val MB = 1024L * 1024L
+private const val CANCELLATION_CHECK_MASK = 31
 
 data class DeviceStorageOverview(
     val totalBytes: Long,
@@ -101,6 +104,55 @@ data class StorageDeleteResult(
     val failedCount: Int,
     val errors: List<String>,
 )
+
+/**
+ * A page-owned cancellation token for storage scans.
+ *
+ * ContentResolver receives the platform signal so blocked MediaStore/DocumentsProvider queries can
+ * stop immediately. Long package and cursor loops additionally call [throwIfCancelled] without
+ * imposing any result-count limit.
+ */
+class StorageScanCancellationToken internal constructor() {
+    internal val platformSignal = CancellationSignal()
+
+    @Volatile
+    private var cancelled = false
+
+    fun cancel() {
+        if (cancelled) return
+        cancelled = true
+        runCatching { platformSignal.cancel() }
+    }
+
+    fun throwIfCancelled() {
+        if (cancelled || platformSignal.isCanceled) {
+            throw CancellationException("storage scan cancelled")
+        }
+    }
+}
+
+class StorageScanCancellationController {
+    private val lock = Any()
+    private var activeToken: StorageScanCancellationToken? = null
+
+    fun begin(): StorageScanCancellationToken = synchronized(lock) {
+        activeToken?.cancel()
+        StorageScanCancellationToken().also { activeToken = it }
+    }
+
+    fun complete(token: StorageScanCancellationToken) {
+        synchronized(lock) {
+            if (activeToken === token) activeToken = null
+        }
+    }
+
+    fun cancel() {
+        synchronized(lock) {
+            activeToken?.cancel()
+            activeToken = null
+        }
+    }
+}
 
 internal object StorageCandidateClassifier {
     private val installerExtensions = setOf("apk", "apks", "xapk", "apkm", "aab")
@@ -187,7 +239,9 @@ class StorageManagementRepository(context: Context) {
     fun loadAppCacheRanking(
         limit: Int = Int.MAX_VALUE,
         forceRefresh: Boolean = false,
+        cancellation: StorageScanCancellationToken? = null,
     ): List<AppCacheUsage> {
+        cancellation?.throwIfCancelled()
         if (!hasUsageAccess()) return emptyList()
         val now = System.currentTimeMillis()
         if (!forceRefresh && cachedAppCachesAtMs > 0L && now - cachedAppCachesAtMs < APP_CACHE_TTL_MS) {
@@ -195,6 +249,7 @@ class StorageManagementRepository(context: Context) {
         }
         val manager = appContext.getSystemService(StorageStatsManager::class.java) ?: return emptyList()
         val loaded = appRepository.loadApps().mapNotNull { app ->
+            cancellation?.throwIfCancelled()
             val info = runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     packageManager.getApplicationInfo(
@@ -206,6 +261,7 @@ class StorageManagementRepository(context: Context) {
                     packageManager.getApplicationInfo(app.packageName, PackageManager.MATCH_DISABLED_COMPONENTS)
                 }
             }.getOrNull() ?: return@mapNotNull null
+            cancellation?.throwIfCancelled()
             val stats = runCatching {
                 manager.queryStatsForPackage(
                     info.storageUuid ?: StorageManager.UUID_DEFAULT,
@@ -213,6 +269,7 @@ class StorageManagementRepository(context: Context) {
                     UserHandle.getUserHandleForUid(app.uid),
                 )
             }.getOrNull() ?: return@mapNotNull null
+            cancellation?.throwIfCancelled()
             AppCacheUsage(
                 label = app.label,
                 packageName = app.packageName,
@@ -224,16 +281,22 @@ class StorageManagementRepository(context: Context) {
             )
         }.filter { it.cacheBytes > 0L }
             .sortedByDescending { it.cacheBytes }
+        cancellation?.throwIfCancelled()
         cachedAppCaches = loaded
         cachedAppCachesAtMs = now
         return loaded.limitIfRequested(limit)
     }
 
-    fun scanAccessibleMedia(): List<StorageFileCandidate> {
+    fun scanAccessibleMedia(
+        cancellation: StorageScanCancellationToken? = null,
+    ): List<StorageFileCandidate> {
+        cancellation?.throwIfCancelled()
         return buildList {
-            addAll(queryMedia(MediaKind.Video, 100L * MB))
-            addAll(queryMedia(MediaKind.Image, 20L * MB))
-            addAll(queryMedia(MediaKind.Audio, 30L * MB))
+            addAll(queryMedia(MediaKind.Video, 100L * MB, cancellation))
+            cancellation?.throwIfCancelled()
+            addAll(queryMedia(MediaKind.Image, 20L * MB, cancellation))
+            cancellation?.throwIfCancelled()
+            addAll(queryMedia(MediaKind.Audio, 30L * MB, cancellation))
         }.sortedByDescending { it.sizeBytes }
     }
 
@@ -267,7 +330,11 @@ class StorageManagementRepository(context: Context) {
         invalidateFolderCache()
     }
 
-    fun scanSavedFolder(forceRefresh: Boolean = false): AuthorizedFolderScan? {
+    fun scanSavedFolder(
+        forceRefresh: Boolean = false,
+        cancellation: StorageScanCancellationToken? = null,
+    ): AuthorizedFolderScan? {
+        cancellation?.throwIfCancelled()
         val uri = savedTreeUri() ?: return null
         val now = System.currentTimeMillis()
         if (
@@ -278,14 +345,19 @@ class StorageManagementRepository(context: Context) {
         ) {
             return cachedFolderScan
         }
-        return scanFolder(uri).also { result ->
+        return scanFolder(uri, cancellation).also { result ->
+            cancellation?.throwIfCancelled()
             cachedFolderUri = uri.toString()
             cachedFolderAtMs = now
             cachedFolderScan = result
         }
     }
 
-    fun scanFolder(treeUri: Uri): AuthorizedFolderScan {
+    fun scanFolder(
+        treeUri: Uri,
+        cancellation: StorageScanCancellationToken? = null,
+    ): AuthorizedFolderScan {
+        cancellation?.throwIfCancelled()
         val rootDocumentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull()
             ?: return AuthorizedFolderScan(
                 treeUri = treeUri.toString(),
@@ -297,7 +369,7 @@ class StorageManagementRepository(context: Context) {
                 errorMessage = "目录授权已失效，请重新选择目录。",
             )
         val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocumentId)
-        val rootName = queryDocumentName(rootUri).ifBlank { "授权目录" }
+        val rootName = queryDocumentName(rootUri, cancellation).ifBlank { "授权目录" }
         val queue = ArrayDeque<TreeNode>()
         queue.add(TreeNode(rootUri, rootName))
         val candidates = mutableListOf<StorageFileCandidate>()
@@ -306,10 +378,11 @@ class StorageManagementRepository(context: Context) {
         var firstError: String? = null
 
         while (queue.isNotEmpty()) {
+            cancellation?.throwIfCancelled()
             val node = queue.removeFirst()
             val parentId = runCatching { DocumentsContract.getDocumentId(node.uri) }.getOrNull() ?: continue
             val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, parentId)
-            val cursor = runCatching {
+            val cursorResult = runCatching {
                 resolver.query(
                     childrenUri,
                     arrayOf(
@@ -323,8 +396,11 @@ class StorageManagementRepository(context: Context) {
                     null,
                     null,
                     null,
+                    cancellation?.platformSignal,
                 )
-            }.getOrElse { error ->
+            }
+            cancellation?.throwIfCancelled()
+            val cursor = cursorResult.getOrElse { error ->
                 firstError = firstError ?: error.message.orEmpty().ifBlank { "无法读取部分目录。" }
                 null
             } ?: continue
@@ -336,7 +412,9 @@ class StorageManagementRepository(context: Context) {
                 val sizeIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
                 val modifiedIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED)
                 val flagsIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS)
+                var rowIndex = 0
                 while (it.moveToNext()) {
+                    if ((rowIndex++ and CANCELLATION_CHECK_MASK) == 0) cancellation?.throwIfCancelled()
                     val documentId = it.safeString(idIndex) ?: continue
                     val displayName = it.safeString(nameIndex).orEmpty().ifBlank { "未命名文件" }
                     val mimeType = it.safeString(mimeIndex).orEmpty()
@@ -370,6 +448,7 @@ class StorageManagementRepository(context: Context) {
                 }
             }
         }
+        cancellation?.throwIfCancelled()
         return AuthorizedFolderScan(
             treeUri = treeUri.toString(),
             displayName = rootName,
@@ -428,7 +507,12 @@ class StorageManagementRepository(context: Context) {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
-    private fun queryMedia(kind: MediaKind, minimumBytes: Long): List<StorageFileCandidate> {
+    private fun queryMedia(
+        kind: MediaKind,
+        minimumBytes: Long,
+        cancellation: StorageScanCancellationToken?,
+    ): List<StorageFileCandidate> {
+        cancellation?.throwIfCancelled()
         val collection = kind.collectionUri()
         val projection = buildList {
             add(MediaStore.MediaColumns._ID)
@@ -445,15 +529,18 @@ class StorageManagementRepository(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             selectionParts += "${MediaStore.MediaColumns.IS_TRASHED} = 0"
         }
-        val cursor = runCatching {
+        val cursorResult = runCatching {
             resolver.query(
                 collection,
                 projection,
                 selectionParts.joinToString(" AND "),
                 arrayOf(minimumBytes.toString()),
                 "${MediaStore.MediaColumns.SIZE} DESC",
+                cancellation?.platformSignal,
             )
-        }.getOrNull() ?: return emptyList()
+        }
+        cancellation?.throwIfCancelled()
+        val cursor = cursorResult.getOrNull() ?: return emptyList()
         val result = mutableListOf<StorageFileCandidate>()
         cursor.use {
             val idIndex = it.getColumnIndex(MediaStore.MediaColumns._ID)
@@ -466,7 +553,9 @@ class StorageManagementRepository(context: Context) {
             } else {
                 -1
             }
+            var rowIndex = 0
             while (it.moveToNext()) {
+                if ((rowIndex++ and CANCELLATION_CHECK_MASK) == 0) cancellation?.throwIfCancelled()
                 val id = it.safeLong(idIndex)
                 if (id <= 0L) continue
                 val displayName = it.safeString(nameIndex).orEmpty().ifBlank { "未命名媒体" }
@@ -492,21 +581,29 @@ class StorageManagementRepository(context: Context) {
                 )
             }
         }
+        cancellation?.throwIfCancelled()
         return result
     }
 
-    private fun queryDocumentName(documentUri: Uri): String {
-        return runCatching {
+    private fun queryDocumentName(
+        documentUri: Uri,
+        cancellation: StorageScanCancellationToken?,
+    ): String {
+        cancellation?.throwIfCancelled()
+        val result = runCatching {
             resolver.query(
                 documentUri,
                 arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
                 null,
                 null,
                 null,
+                cancellation?.platformSignal,
             )?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.safeString(0).orEmpty() else ""
             }.orEmpty()
-        }.getOrDefault("")
+        }
+        cancellation?.throwIfCancelled()
+        return result.getOrDefault("")
     }
 
     private fun invalidateFolderCache() {
