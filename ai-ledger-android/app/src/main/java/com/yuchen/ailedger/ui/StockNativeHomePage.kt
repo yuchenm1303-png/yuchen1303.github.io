@@ -1,6 +1,5 @@
 package com.yuchen.ailedger.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -232,11 +231,12 @@ internal fun StockNativeHomeScreen(
                         lineHeight = 16.sp
                     )
                     StockDivider()
-                    StockNativeFrostCard(
-                        modifier = Modifier.fillMaxWidth().clickable(onClick = onOpenAssistant),
+                    StockNativeActionGlass(
+                        modifier = Modifier.fillMaxWidth(),
                         radius = 19.dp,
                         frostAlpha = 0.076f,
-                        contentPadding = 13.dp
+                        contentPadding = 13.dp,
+                        onClick = onOpenAssistant
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text(
@@ -343,15 +343,8 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
     ) {
         items(ui.marketHome.indices, key = { it.name }) { item ->
             val tone = if (item.isRising) StockRise else StockFall
-            StockNativeFrostCard(
-                modifier = Modifier
-                    .width(148.dp)
-                    .height(104.dp)
-                    .clickable { indexCode(item)?.let(onOpenIndex) },
-                radius = 21.dp,
-                frostAlpha = 0.084f,
-                contentPadding = 13.dp
-            ) {
+            val indexCode = indexCode(item)
+            val cardContent: @Composable () -> Unit = {
                 Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -384,6 +377,24 @@ private fun NativeIndexRow(ui: StockMarketUiState, onOpenIndex: (String) -> Unit
                         fontWeight = FontWeight.Black
                     )
                 }
+            }
+            if (indexCode != null) {
+                StockNativeActionGlass(
+                    modifier = Modifier.width(148.dp).height(104.dp),
+                    radius = 21.dp,
+                    frostAlpha = 0.084f,
+                    contentPadding = 13.dp,
+                    onClick = { onOpenIndex(indexCode) },
+                    content = cardContent
+                )
+            } else {
+                StockNativeFrostCard(
+                    modifier = Modifier.width(148.dp).height(104.dp),
+                    radius = 21.dp,
+                    frostAlpha = 0.084f,
+                    contentPadding = 13.dp,
+                    content = cardContent
+                )
             }
         }
     }
@@ -491,74 +502,82 @@ private fun NativeRankingEntry(
         frostAlpha = 0.074f
     ) {
         Column(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .clickable { onOpenRanking(type) }
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically
+            StockNativeActionGlass(
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                radius = 18.dp,
+                intensityScale = 0.98f,
+                role = GlassRole.Flex,
+                onClick = { onOpenRanking(type) }
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        type.title,
-                        color = Color.White.copy(alpha = 0.94f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                    Text(
-                        type.subtitle,
-                        color = Color.White.copy(alpha = 0.42f),
-                        fontSize = 9.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Text(
-                    "进入榜单 ›",
-                    color = StockAqua.copy(alpha = 0.90f),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Black
-                )
-            }
-            if (top != null) {
-                StockDivider()
                 Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .clickable { onOpenStock(top.code) }
-                        .padding(horizontal = 14.dp),
+                    Modifier.fillMaxSize().padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "1",
-                        color = StockAqua,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.width(28.dp),
-                        textAlign = TextAlign.Center
-                    )
                     Column(Modifier.weight(1f)) {
                         Text(
-                            top.name,
-                            color = Color.White,
+                            type.title,
+                            color = Color.White.copy(alpha = 0.94f),
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            maxLines = 1
+                            fontWeight = FontWeight.Black
                         )
                         Text(
-                            "${top.code} · ${top.value}",
-                            color = Color.White.copy(alpha = 0.40f),
-                            fontSize = 9.sp
+                            type.subtitle,
+                            color = Color.White.copy(alpha = 0.42f),
+                            fontSize = 9.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                     Text(
-                        top.changePercent,
-                        color = if (top.isRising) StockRise else StockFall,
-                        fontSize = 12.sp,
+                        "进入榜单 ›",
+                        color = StockAqua.copy(alpha = 0.90f),
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Black
                     )
+                }
+            }
+            if (top != null) {
+                StockDivider()
+                StockNativeActionGlass(
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    radius = 17.dp,
+                    intensityScale = 0.96f,
+                    role = GlassRole.Flex,
+                    onClick = { onOpenStock(top.code) }
+                ) {
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "1",
+                            color = StockAqua,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.width(28.dp),
+                            textAlign = TextAlign.Center
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                top.name,
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                maxLines = 1
+                            )
+                            Text(
+                                "${top.code} · ${top.value}",
+                                color = Color.White.copy(alpha = 0.40f),
+                                fontSize = 9.sp
+                            )
+                        }
+                        Text(
+                            top.changePercent,
+                            color = if (top.isRising) StockRise else StockFall,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
                 }
             }
         }
@@ -602,14 +621,12 @@ private fun NativeSectorOverview(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             sectors.take(10).forEach { sector ->
-                StockNativeFrostCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(62.dp)
-                        .clickable { onOpenSector(sector.sectorCode) },
+                StockNativeActionGlass(
+                    modifier = Modifier.fillMaxWidth().height(62.dp),
                     radius = 18.dp,
                     frostAlpha = 0.068f,
-                    contentPadding = 12.dp
+                    contentPadding = 12.dp,
+                    onClick = { onOpenSector(sector.sectorCode) }
                 ) {
                     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -662,14 +679,12 @@ private fun NativeHotPreview(
         "东方财富个股人气榜 · 约10分钟更新",
         "${ui.hotSnapshot.items.size.takeIf { it > 0 } ?: "--"} 只"
     )
-    StockNativeFrostCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(58.dp)
-            .clickable { onOpenHot(StockNativeHotType.Popularity) },
+    StockNativeActionGlass(
+        modifier = Modifier.fillMaxWidth().height(58.dp),
         radius = 19.dp,
         frostAlpha = 0.088f,
-        contentPadding = 13.dp
+        contentPadding = 13.dp,
+        onClick = { onOpenHot(StockNativeHotType.Popularity) }
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -693,14 +708,12 @@ private fun NativeHotPreview(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             ui.hotSnapshot.items.take(6).forEach { item ->
-                StockNativeFrostCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(60.dp)
-                        .clickable { onOpenStock(item.code, false) },
+                StockNativeActionGlass(
+                    modifier = Modifier.fillMaxWidth().height(60.dp),
                     radius = 17.dp,
                     frostAlpha = 0.062f,
-                    contentPadding = 10.dp
+                    contentPadding = 10.dp,
+                    onClick = { onOpenStock(item.code, false) }
                 ) {
                     Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -803,30 +816,34 @@ private fun NativeWatchlistContent(
                 frostAlpha = 0.068f
             ) {
                 Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clickable { onOpenStock(item.code, false) }
-                            .padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    StockNativeActionGlass(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        radius = 17.dp,
+                        intensityScale = 0.98f,
+                        role = GlassRole.Flex,
+                        onClick = { onOpenStock(item.code, false) }
                     ) {
-                        Text("★", color = StockYellow, fontSize = 15.sp)
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                item.name,
-                                color = Color.White.copy(alpha = 0.94f),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Black
-                            )
-                            Text(
-                                "${item.code} · ${item.market.ifBlank { "A股" }}",
-                                color = Color.White.copy(alpha = 0.40f),
-                                fontSize = 9.sp
-                            )
+                        Row(
+                            Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text("★", color = StockYellow, fontSize = 15.sp)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    item.name,
+                                    color = Color.White.copy(alpha = 0.94f),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                                Text(
+                                    "${item.code} · ${item.market.ifBlank { "A股" }}",
+                                    color = Color.White.copy(alpha = 0.40f),
+                                    fontSize = 9.sp
+                                )
+                            }
+                            Text("›", color = StockAqua.copy(alpha = 0.62f), fontSize = 18.sp)
                         }
-                        Text("›", color = StockAqua.copy(alpha = 0.62f), fontSize = 18.sp)
                     }
                     StockNativePill(
                         text = "×",
