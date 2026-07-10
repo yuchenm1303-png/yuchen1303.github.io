@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -17,9 +16,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.yuchen.ailedger.StockMarketViewModel
 import com.yuchen.ailedger.StockNativePageViewModel
+import com.yuchen.ailedger.data.StockHttpClient
 import com.yuchen.ailedger.data.StockWatchlistRepository
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.StockNativeHotType
@@ -80,7 +81,10 @@ fun AStockMarketScreenV2(
 
     DisposableEffect(marketViewModel) {
         marketViewModel.setScreenVisible(true)
-        onDispose { marketViewModel.setScreenVisible(false) }
+        onDispose {
+            StockHttpClient.cancelInteractiveRequests()
+            marketViewModel.setScreenVisible(false)
+        }
     }
 
     fun navigate(next: StockNativeRoute) {
@@ -105,6 +109,7 @@ fun AStockMarketScreenV2(
     fun openStock(code: String, startInCommunity: Boolean = false) {
         val normalized = code.trim()
         if (normalized.isBlank()) return
+        StockHttpClient.cancelInteractiveRequests()
         marketViewModel.openCode(normalized)
         navigate(StockNativeRoute.Detail(normalized, startInCommunity))
     }
@@ -115,7 +120,10 @@ fun AStockMarketScreenV2(
         } else {
             StockNativeRoute.Home
         }
-        if (route is StockNativeRoute.Detail) marketViewModel.backToHome()
+        if (route is StockNativeRoute.Detail) {
+            StockHttpClient.cancelInteractiveRequests()
+            marketViewModel.backToHome()
+        }
         routeDirection = SecondaryMotionDirection.Backward
         routeMotionType = if (previous == StockNativeRoute.Home) {
             SecondaryMotionType.Capsule
@@ -151,9 +159,9 @@ fun AStockMarketScreenV2(
                 ) { current ->
                     when (current) {
                         StockNativeRoute.Home -> {
-                            val marketUi by marketViewModel.uiState.collectAsState()
-                            val nativeUi by nativeViewModel.uiState.collectAsState()
-                            val watchlistState by watchlistRepository.state.collectAsState()
+                            val marketUi by marketViewModel.uiState.collectAsStateWithLifecycle()
+                            val nativeUi by nativeViewModel.uiState.collectAsStateWithLifecycle()
+                            val watchlistState by watchlistRepository.state.collectAsStateWithLifecycle()
                             StockNativeHomeScreen(
                                 marketUi = marketUi,
                                 nativeUi = nativeUi,
@@ -199,7 +207,7 @@ fun AStockMarketScreenV2(
                         }
 
                         is StockNativeRoute.Ranking -> {
-                            val nativeUi by nativeViewModel.uiState.collectAsState()
+                            val nativeUi by nativeViewModel.uiState.collectAsStateWithLifecycle()
                             StockNativeRankingScreen(
                                 ui = nativeUi,
                                 type = current.type,
@@ -214,7 +222,7 @@ fun AStockMarketScreenV2(
                         }
 
                         is StockNativeRoute.Hot -> {
-                            val nativeUi by nativeViewModel.uiState.collectAsState()
+                            val nativeUi by nativeViewModel.uiState.collectAsStateWithLifecycle()
                             StockNativeHotScreen(
                                 ui = nativeUi,
                                 type = current.type,
@@ -229,7 +237,7 @@ fun AStockMarketScreenV2(
                         }
 
                         is StockNativeRoute.Sector -> {
-                            val nativeUi by nativeViewModel.uiState.collectAsState()
+                            val nativeUi by nativeViewModel.uiState.collectAsStateWithLifecycle()
                             StockNativeSectorScreen(
                                 ui = nativeUi,
                                 code = current.code,
@@ -246,7 +254,7 @@ fun AStockMarketScreenV2(
                         }
 
                         is StockNativeRoute.Index -> {
-                            val nativeUi by nativeViewModel.uiState.collectAsState()
+                            val nativeUi by nativeViewModel.uiState.collectAsStateWithLifecycle()
                             StockNativeIndexScreenV2(
                                 ui = nativeUi,
                                 code = current.code,
@@ -260,9 +268,9 @@ fun AStockMarketScreenV2(
                         }
 
                         is StockNativeRoute.Detail -> {
-                            val marketUi by marketViewModel.uiState.collectAsState()
-                            val nativeUi by nativeViewModel.uiState.collectAsState()
-                            val watchlistState by watchlistRepository.state.collectAsState()
+                            val marketUi by marketViewModel.uiState.collectAsStateWithLifecycle()
+                            val nativeUi by nativeViewModel.uiState.collectAsStateWithLifecycle()
+                            val watchlistState by watchlistRepository.state.collectAsStateWithLifecycle()
                             val quote = marketUi.stock.quote
                             StockNativeDetailScreen(
                                 appState = state,
@@ -281,7 +289,11 @@ fun AStockMarketScreenV2(
                                         )
                                     }
                                 },
-                                onSelectTab = marketViewModel::selectTab,
+                                onSelectTab = { tab ->
+                                    StockHttpClient.cancelChartRequests()
+                                    StockHttpClient.cancelRealtimeRequests()
+                                    marketViewModel.selectTab(tab)
+                                },
                                 onLoadCommunity = { reset ->
                                     nativeViewModel.loadDiscussions(quote.code, reset)
                                 },
@@ -297,7 +309,7 @@ fun AStockMarketScreenV2(
                         }
 
                         is StockNativeRoute.Post -> {
-                            val nativeUi by nativeViewModel.uiState.collectAsState()
+                            val nativeUi by nativeViewModel.uiState.collectAsStateWithLifecycle()
                             StockNativePostScreen(
                                 ui = nativeUi,
                                 code = current.code,
