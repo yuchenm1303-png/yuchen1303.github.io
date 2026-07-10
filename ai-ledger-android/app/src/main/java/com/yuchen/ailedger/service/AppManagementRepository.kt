@@ -77,12 +77,40 @@ class AppManagementRepository(context: Context) {
     private val iconCache = object : LruCache<String, Bitmap>(12 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int = (value.byteCount / 1024).coerceAtLeast(1)
     }
+    private var inventoryServedByThisInstance = false
+    private var lastObservedPackageRevision = Long.MIN_VALUE
 
+    /**
+     * The first inventory request from a repository instance may reuse the latest process snapshot.
+     * A subsequent request from the same page always rebuilds, preserving the existing manual and
+     * lifecycle refresh semantics. Package broadcasts invalidate reuse immediately through the
+     * shared [InstalledAppIndex] revision.
+     */
     fun loadApps(): List<ManagedAppSummary> {
+        val now = System.currentTimeMillis()
+        val packageRevision = InstalledAppIndex.currentPackageRevision(appContext)
+        if (packageRevision != lastObservedPackageRevision) {
+            iconCache.evictAll()
+            lastObservedPackageRevision = packageRevision
+        }
+
+        if (!inventoryServedByThisInstance) {
+            val shared = synchronized(sharedInventoryLock) {
+                sharedInventory?.takeIf { snapshot ->
+                    snapshot.packageRevision == packageRevision &&
+                        now - snapshot.loadedAtMillis < FULL_INVENTORY_FALLBACK_TTL_MS
+                }?.apps
+            }
+            if (shared != null) {
+                inventoryServedByThisInstance = true
+                return shared
+            }
+        }
+
         val applications = installedApplications()
         val protectedPackages = protectedPackageReasons(applications)
         val launchablePackages = launchablePackageNames()
-        return applications
+        val apps = applications
             .map { info ->
                 info.toSummary(
                     protectionReason = protectedPackages[info.packageName].orEmpty(),
@@ -93,12 +121,24 @@ class AppManagementRepository(context: Context) {
                 compareBy<ManagedAppSummary> { normalizeLabel(it.label) }
                     .thenBy { it.packageName },
             )
+
+        synchronized(sharedInventoryLock) {
+            sharedInventory = SharedInventorySnapshot(
+                apps = apps,
+                packageRevision = packageRevision,
+                loadedAtMillis = now,
+            )
+        }
+        inventoryServedByThisInstance = true
+        return apps
     }
 
     fun loadDetails(packageName: String): ManagedAppDetails? {
         val packageInfo = packageInfo(packageName, PackageManager.GET_PERMISSIONS) ?: return null
         val applicationInfo = packageInfo.applicationInfo ?: applicationInfo(packageName) ?: return null
-        val protectedReason = protectedPackageReasons(installedApplications())[packageName].orEmpty()
+        // Only this target's UID/persistent flags are needed. Avoid enumerating every installed app
+        // just to rebuild one protection reason.
+        val protectedReason = protectedPackageReasons(listOf(applicationInfo))[packageName].orEmpty()
         val summary = applicationInfo.toSummary(
             protectionReason = protectedReason,
             isLaunchable = packageManager.getLaunchIntentForPackage(packageName) != null,
@@ -322,7 +362,17 @@ class AppManagementRepository(context: Context) {
 
     private fun normalizeLabel(value: String): String = value.trim().lowercase(Locale.ROOT)
 
+    private data class SharedInventorySnapshot(
+        val apps: List<ManagedAppSummary>,
+        val packageRevision: Long,
+        val loadedAtMillis: Long,
+    )
+
     companion object {
+        private val sharedInventoryLock = Any()
+        @Volatile private var sharedInventory: SharedInventorySnapshot? = null
+        private const val FULL_INVENTORY_FALLBACK_TTL_MS = 10L * 60L * 1_000L
+
         private val hardProtectedPackages = setOf(
             "android",
             "com.android.systemui",
