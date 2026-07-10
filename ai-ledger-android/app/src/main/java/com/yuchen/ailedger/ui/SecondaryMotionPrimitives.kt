@@ -25,10 +25,11 @@ internal data class SecondaryMotionVisual(
 )
 
 /**
- * 二级页面只保留位移与透明度动画。
+ * 二级页面的轴向运动语义。
  *
- * 不再对整棵玻璃页面做缩放，也不再绘制任何入场光场、扫光或 glint，避免多个玻璃
- * 同时进入离屏合成和重采样。胶囊感只通过不同轴向的位移节奏与轻微反向惯性表达。
+ * Capsule 只沿页面中心轴轻抬升，避免与内部卡片叠加后形成右下角斜飞感；Push/Pop 只
+ * 保留水平方向，用于表达真实层级；Replace 与 Modal 保持居中的纵向运动。直接使用弹簧
+ * 原始进度，允许极轻的反向越界，因此不需要额外扫光或整页缩放也能保留灵动感。
  */
 internal fun secondaryMotionVisual(
     rawProgress: Float,
@@ -38,37 +39,33 @@ internal fun secondaryMotionVisual(
     verticalTravelPx: Float,
 ): SecondaryMotionVisual {
     val clamped = rawProgress.coerceIn(0f, 1f)
-    val p = secondaryMotionSmoothStep(clamped)
-    val pulse = secondaryMotionArc(p)
+    val springProgress = rawProgress.coerceIn(0f, 1.10f)
     val sign = if (direction == SecondaryMotionDirection.Forward) 1f else -1f
-    val alpha = (clamped * 1.72f).coerceIn(0f, 1f)
+    val alpha = secondaryMotionSmoothStep((clamped * 1.42f).coerceIn(0f, 1f))
 
     return when (type) {
         SecondaryMotionType.Capsule -> SecondaryMotionVisual(
             alpha = alpha,
-            translationX = sign * horizontalTravelPx * (1f - p) -
-                sign * pulse * horizontalTravelPx * 0.045f,
-            translationY = verticalTravelPx * (1f - p) -
-                pulse * verticalTravelPx * 0.08f,
+            translationX = 0f,
+            translationY = verticalTravelPx * (1f - springProgress),
         )
 
         SecondaryMotionType.Push -> SecondaryMotionVisual(
             alpha = alpha,
-            translationX = sign * horizontalTravelPx * (1f - p),
-            translationY = verticalTravelPx * (1f - p),
+            translationX = sign * horizontalTravelPx * (1f - springProgress),
+            translationY = 0f,
         )
 
         SecondaryMotionType.Replace -> SecondaryMotionVisual(
             alpha = alpha,
-            translationX = sign * horizontalTravelPx * (1f - p),
-            translationY = verticalTravelPx * (1f - p),
+            translationX = 0f,
+            translationY = verticalTravelPx * (1f - springProgress),
         )
 
         SecondaryMotionType.Modal -> SecondaryMotionVisual(
             alpha = alpha,
             translationX = 0f,
-            translationY = verticalTravelPx * (1f - p) -
-                pulse * verticalTravelPx * 0.06f,
+            translationY = verticalTravelPx * (1f - springProgress),
         )
     }
 }
@@ -82,11 +79,6 @@ internal fun Modifier.clipSecondaryPageVertically(): Modifier = drawWithContent 
     ) {
         this@drawWithContent.drawContent()
     }
-}
-
-internal fun secondaryMotionArc(progress: Float): Float {
-    val x = progress.coerceIn(0f, 1f)
-    return 4f * x * (1f - x)
 }
 
 internal fun secondaryMotionSmoothStep(value: Float): Float {
