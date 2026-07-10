@@ -33,8 +33,13 @@ object VisualObservationProtocol {
      *
      * Screenshot-native actions are authoritative GUI Plus decisions. Accessibility nodes may be
      * incomplete, delayed, wrapper-only or absent, so they cannot veto click, swipe, navigation or
-     * focused-direct input. Android only verifies that the target app still owns the foreground.
-     * Explicit node actions retain a narrow same-node check because their executor needs that node.
+     * focused-direct input. Android verifies only objective execution continuity:
+     *
+     * 1. A non-empty foreground package change always invalidates the old action.
+     * 2. A temporarily unresolved package may continue only when the current accessibility structure
+     *    still proves the exact same execution surface or explicit node target.
+     * 3. If neither package nor structural evidence is available, Android requests a fresh screenshot
+     *    instead of guessing that the old action is safe.
      */
     internal fun evaluateActionContextFreshness(
         step: CloudAgentStep,
@@ -43,7 +48,33 @@ object VisualObservationProtocol {
     ): VisualActionContextFreshness {
         val observedPackage = observedSnapshot.packageName.trim()
         val currentPackage = currentSnapshot.packageName.trim()
-        if (observedPackage.isBlank() || observedPackage != currentPackage) {
+        if (observedPackage.isBlank()) {
+            return VisualActionContextFreshness(false, "observed_foreground_package_missing", 0f)
+        }
+        if (currentPackage.isBlank()) {
+            targetFreshness(step, observedSnapshot, currentSnapshot)?.let { target ->
+                if (target.fresh) {
+                    return VisualActionContextFreshness(
+                        fresh = true,
+                        reason = "node_target_verified_with_transient_package",
+                        surfaceSimilarity = target.surfaceSimilarity,
+                    )
+                }
+                return target
+            }
+            if (
+                (step.type in VISUAL_AUTHORITATIVE_ACTION_TYPES ||
+                    (step.type == "input_text" && step.shouldUseFocusedDirectInput)) &&
+                hasStablePackagelessStructure(observedSnapshot, currentSnapshot)
+            ) {
+                return VisualActionContextFreshness(
+                    fresh = true,
+                    reason = "visual_action_structure_verified_with_transient_package",
+                )
+            }
+            return VisualActionContextFreshness(false, "foreground_package_unresolved", 0f)
+        }
+        if (observedPackage != currentPackage) {
             return VisualActionContextFreshness(false, "foreground_package_changed", 0f)
         }
 
@@ -105,6 +136,48 @@ object VisualObservationProtocol {
             inputs,
             scrollable,
             visualFrameFingerprint(snapshot),
+        ).joinToString("::")
+    }
+
+    private fun hasStablePackagelessStructure(
+        observedSnapshot: AgentScreenSnapshot,
+        currentSnapshot: AgentScreenSnapshot,
+    ): Boolean {
+        val observed = packagelessStructureFingerprint(observedSnapshot)
+        if (observed.isBlank()) return false
+        val current = packagelessStructureFingerprint(currentSnapshot)
+        return current.isNotBlank() && observed == current
+    }
+
+    private fun packagelessStructureFingerprint(snapshot: AgentScreenSnapshot): String {
+        val nodes = (
+            snapshot.allNodes +
+                snapshot.clickableNodes +
+                snapshot.inputNodes +
+                snapshot.scrollableNodes
+            )
+            .distinctBy { "${it.bounds}|${it.className}|${it.text}|${it.clickable}|${it.editable}|${it.scrollable}" }
+            .take(MAX_NODE_ITEMS)
+        val texts = snapshot.texts
+            .asSequence()
+            .map(::normalizeStableText)
+            .filter(String::isNotBlank)
+            .take(MAX_TEXT_ITEMS)
+            .toList()
+        if (nodes.isEmpty() && texts.isEmpty()) return ""
+        val nodeSignature = nodes.joinToString("|") { node ->
+            listOf(
+                normalizeStableText(node.text),
+                stableClassName(node.className),
+                node.bounds,
+                nodeRole(node),
+            ).joinToString("#")
+        }
+        return listOf(
+            snapshot.nodeCount.toString(),
+            snapshot.capturedNodeCount.toString(),
+            texts.joinToString("|"),
+            nodeSignature,
         ).joinToString("::")
     }
 
