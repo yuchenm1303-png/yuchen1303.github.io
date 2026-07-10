@@ -56,7 +56,7 @@ object NotificationChatStore {
         current.messages.forEach { merged[it.id] = it }
         appMessages.takeLast(MAX_STORED_MESSAGES).forEach { message ->
             val existing = merged[message.id]
-            if (!existing.matchesStoredFields(message)) {
+            if (existing == null || !existing.matchesStoredFields(message)) {
                 merged[message.id] = message.toStoredMessage()
             }
         }
