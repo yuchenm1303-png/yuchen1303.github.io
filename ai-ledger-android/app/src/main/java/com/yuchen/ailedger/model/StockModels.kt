@@ -1,5 +1,8 @@
 package com.yuchen.ailedger.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class StockQuote(
     val name: String,
     val code: String,
@@ -22,12 +25,14 @@ data class StockQuote(
     val popularityRank: String
 )
 
+@Immutable
 data class StockMetric(
     val label: String,
     val value: String,
     val tone: StockTone = StockTone.Neutral
 )
 
+@Immutable
 data class StockMinutePoint(
     val time: String,
     val price: Float,
@@ -40,6 +45,7 @@ data class StockMinutePoint(
     val phase: String = "continuous"
 )
 
+@Immutable
 data class StockKLinePoint(
     val date: String,
     val open: Float,
@@ -54,6 +60,7 @@ data class StockKLinePoint(
     val turnoverRate: String = "--"
 )
 
+@Immutable
 data class StockOrderLevel(
     val label: String,
     val price: String,
@@ -61,6 +68,7 @@ data class StockOrderLevel(
     val isAsk: Boolean
 )
 
+@Immutable
 data class StockTradeTick(
     val time: String,
     val price: String,
@@ -69,6 +77,7 @@ data class StockTradeTick(
     val isBuy: Boolean
 )
 
+@Immutable
 data class StockMoneyFlow(
     val mainInflow: String,
     val superLargeOrder: String,
@@ -77,6 +86,7 @@ data class StockMoneyFlow(
     val smallOrder: String
 )
 
+@Immutable
 data class StockIndexSnapshot(
     val name: String,
     val value: String,
@@ -84,6 +94,7 @@ data class StockIndexSnapshot(
     val isRising: Boolean
 )
 
+@Immutable
 data class StockWatchItem(
     val name: String,
     val code: String,
@@ -92,18 +103,21 @@ data class StockWatchItem(
     val isRising: Boolean
 )
 
+@Immutable
 data class StockFeatureEntry(
     val title: String,
     val subtitle: String,
     val routeKey: String
 )
 
+@Immutable
 data class StockFeatureGroup(
     val title: String,
     val subtitle: String,
     val entries: List<StockFeatureEntry>
 )
 
+@Immutable
 data class StockRankItem(
     val name: String,
     val code: String,
@@ -112,12 +126,14 @@ data class StockRankItem(
     val isRising: Boolean
 )
 
+@Immutable
 data class StockMarketBoard(
     val title: String,
     val subtitle: String,
     val items: List<StockRankItem>
 )
 
+@Immutable
 data class StockDetailUiState(
     val quote: StockQuote,
     val topMetrics: List<StockMetric>,
