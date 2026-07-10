@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicLong
 import org.json.JSONObject
 
 private const val MEMORY_SETTINGS_REFRESH_MAX_SCOPES = 16
+private val STREAM_TERMINAL_TYPES = setOf("done", "final", "complete", "completed")
 
 internal class AiWorkerHttpTransport(
     private val config: AiWorkerConfig,
@@ -26,7 +27,7 @@ internal class AiWorkerHttpTransport(
 
     fun cancelActiveRequests() {
         cancellationGeneration.incrementAndGet()
-        activeConnections.toList().forEach { connection ->
+        activeConnections.forEach { connection ->
             runCatching { connection.disconnect() }
         }
     }
@@ -346,9 +347,7 @@ internal class AiWorkerHttpTransport(
         val sseData = StringBuilder()
         while (true) {
             val line = readLine() ?: break
-            AssistantMemoryUsageBridge.addResponseBytes(
-                line.toByteArray(Charsets.UTF_8).size + 1,
-            )
+            AssistantMemoryUsageBridge.addResponseBytes(line.utf8ByteCount() + 1)
             when {
                 line.isBlank() -> {
                     val payload = sseData.toString().trim()
@@ -402,7 +401,7 @@ internal class AiWorkerHttpTransport(
                 data.optJSONObject("clientToolCall") != null ||
                 data.optJSONObject("deviceIntent")?.optJSONObject("clientToolCall") != null
         val done =
-            type in setOf("done", "final", "complete", "completed") ||
+            type in STREAM_TERMINAL_TYPES ||
                 data.optBoolean("done", false) ||
                 data.optBoolean("completed", false) ||
                 finishReason.isNotBlank() ||
@@ -450,7 +449,7 @@ internal class AiWorkerHttpTransport(
             ?.bufferedReader(Charsets.UTF_8)
             ?.use { reader -> reader.readText() }
             .orEmpty()
-        AssistantMemoryUsageBridge.addResponseBytes(body.toByteArray(Charsets.UTF_8).size)
+        AssistantMemoryUsageBridge.addResponseBytes(body.utf8ByteCount())
         return body
     }
 
@@ -463,6 +462,28 @@ internal class AiWorkerHttpTransport(
     }
 
     private fun String?.notBlankOrNull(): String? = this?.takeIf { it.isNotBlank() }
+}
+
+/** Counts UTF-8 bytes without allocating an intermediate ByteArray. */
+private fun CharSequence.utf8ByteCount(): Int {
+    var bytes = 0
+    var index = 0
+    while (index < length) {
+        val char = this[index]
+        bytes += when {
+            char.code < 0x80 -> 1
+            char.code < 0x800 -> 2
+            char in '\uD800'..'\uDBFF' &&
+                index + 1 < length &&
+                this[index + 1] in '\uDC00'..'\uDFFF' -> {
+                index += 1
+                4
+            }
+            else -> 3
+        }
+        index += 1
+    }
+    return bytes
 }
 
 private object AssistantMemorySettingsRefreshCoordinator {
