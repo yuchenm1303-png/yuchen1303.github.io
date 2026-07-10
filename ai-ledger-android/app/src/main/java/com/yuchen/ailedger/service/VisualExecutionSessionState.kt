@@ -45,9 +45,9 @@ class VisualExecutionSessionState(
     }
 
     /**
-     * Retains the strict package proof used by deterministic open_app bootstrap. Normal visual turns
-     * do not depend on this proof: once Android has a fresh screenshot, GUI Plus may continue across
-     * launcher, system UI, another app, a file picker or any other visible surface.
+     * Retains the strict package proof used by deterministic open_app diagnostics. Normal visual
+     * turns do not depend on this proof: once Android has a fresh screenshot, GUI Plus may continue
+     * across launcher, system UI, another app, a file picker or any other visible surface.
      */
     fun markTargetVerified(
         expectedPackage: String,
@@ -71,6 +71,7 @@ class VisualExecutionSessionState(
         return true
     }
 
+    /** Legacy compatibility entry only. Fresh screenshots never expose Replanning to GUI Plus. */
     fun markStructuralReplan() {
         entryHandoffActive = true
         stateMachine.markStructuralReplan()
@@ -106,45 +107,26 @@ class VisualExecutionSessionState(
             routeEpoch = stateMachine.routeEpoch,
             surfaceEpoch = stateMachine.surfaceEpoch,
         )
-        val hasFreshVisualFrame = snapshot.hasVisualImage
+        val continuousSurface = snapshot.hasVisualImage
         val currentPackage = snapshot.packageName.trim()
-        val legacyVerifiedPackage = stateMachine.verifiedTargetPackage
-        val packageChanged = currentPackage.isNotBlank() &&
-            legacyVerifiedPackage.isNotBlank() &&
-            currentPackage != legacyVerifiedPackage
-        val entryHandoffSurface = isEntryHandoffSurface(snapshot)
-        val continuousSurface = hasFreshVisualFrame
+        val currentOrLegacySelected = currentPackage.takeIf { continuousSurface && it.isNotBlank() }
+            ?: stateMachine.selectedTargetPackage
+        val currentOrLegacyVerified = currentPackage.takeIf { continuousSurface && it.isNotBlank() }
+            ?: stateMachine.verifiedTargetPackage
 
-        // WorkSurface remains visible for the exact deterministic bootstrap target. A package switch
-        // is represented as a new continuous planning frame, never as structural regression.
-        val effectiveSurfaceState = when {
-            continuousSurface && (packageChanged || stateMachine.surfaceState == VisualSurfaceState.Replanning) ->
-                VisualSurfaceState.Planning
-            else -> stateMachine.surfaceState
-        }
-        val effectivePackage = currentPackage.takeIf(String::isNotBlank)
-        val effectiveSelectedPackage = if (continuousSurface) {
-            effectivePackage ?: stateMachine.selectedTargetPackage
-        } else {
-            stateMachine.selectedTargetPackage
-        }
-        val effectiveVerifiedPackage = if (continuousSurface) {
-            effectivePackage ?: stateMachine.verifiedTargetPackage
-        } else {
-            stateMachine.verifiedTargetPackage
-        }
-
+        // A screenshot is always the current work surface. WorkSurface here means only
+        // "observation-bound and executable", never "same app as an earlier frame".
         return VisualAgentRuntimeContext(
-            surfaceState = effectiveSurfaceState,
-            selectedTargetPackage = effectiveSelectedPackage,
-            verifiedTargetPackage = effectiveVerifiedPackage,
+            surfaceState = if (continuousSurface) VisualSurfaceState.WorkSurface else stateMachine.surfaceState,
+            selectedTargetPackage = currentOrLegacySelected,
+            verifiedTargetPackage = currentOrLegacyVerified,
             currentPackage = snapshot.packageName,
             observationId = observationId,
             routeEpoch = stateMachine.routeEpoch,
             surfaceEpoch = stateMachine.surfaceEpoch,
             guiPlusEligible = continuousSurface ||
                 stateMachine.isVerifiedWorkSurface(snapshot.packageName) ||
-                entryHandoffSurface,
+                isEntryHandoffSurface(snapshot),
         )
     }
 
