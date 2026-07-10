@@ -13,6 +13,7 @@ import kotlin.math.roundToInt
 private const val APP_CONTROL_DAY_MS = 24L * 60L * 60L * 1000L
 private const val APP_CONTROL_WEEK_MS = 7L * APP_CONTROL_DAY_MS
 private const val APP_CONTROL_MB = 1024L * 1024L
+private val APP_CONTROL_WHITESPACE_REGEX = Regex("\\s+")
 
 data class AppRuntimeSignal(
     val packageName: String,
@@ -84,23 +85,42 @@ class AppControlInsightsRepository(context: Context) {
         val signals = apps.map { app ->
             val runtime = runtimeByPackage[app.packageName]
             val usage = usageByPackage[app.packageName]
-            buildSignal(app, runtime, usage, usageAccess, shellStatus)
+            buildSignal(app, runtime, usage, usageAccess, shellStatus, now)
         }.sortedWith(
             compareByDescending<AppOptimizationSignal> { it.score }
                 .thenBy { normalize(it.app.label) }
                 .thenBy { it.app.packageName },
         )
-        val estimatedRuntimeBytes = runtimeByPackage.values
-            .mapNotNull { it.estimatedMemoryBytes }
-            .takeIf { it.isNotEmpty() }
-            ?.sum()
+
+        var runningApps = 0
+        var cleanCandidates = 0
+        var storageHeavyApps = 0
+        var lowUseButActiveApps = 0
+        signals.forEach { signal ->
+            if (signal.runtime != null) runningApps += 1
+            if (signal.cleanCandidate) cleanCandidates += 1
+            if (signal.storageHeavy) storageHeavyApps += 1
+            if (signal.lowUseButActive) lowUseButActiveApps += 1
+        }
+
+        var estimatedRuntimeBytesValue = 0L
+        var hasEstimatedRuntimeBytes = false
+        runtimeByPackage.values.forEach { runtime ->
+            val bytes = runtime.estimatedMemoryBytes ?: return@forEach
+            hasEstimatedRuntimeBytes = true
+            estimatedRuntimeBytesValue = if (Long.MAX_VALUE - estimatedRuntimeBytesValue < bytes) {
+                Long.MAX_VALUE
+            } else {
+                estimatedRuntimeBytesValue + bytes
+            }
+        }
         val dashboard = AppControlDashboard(
             totalApps = apps.size,
-            runningApps = signals.count { it.runtime != null },
-            cleanCandidates = signals.count { it.cleanCandidate },
-            storageHeavyApps = signals.count { it.storageHeavy },
-            lowUseButActiveApps = signals.count { it.lowUseButActive },
-            estimatedRuntimeBytes = estimatedRuntimeBytes,
+            runningApps = runningApps,
+            cleanCandidates = cleanCandidates,
+            storageHeavyApps = storageHeavyApps,
+            lowUseButActiveApps = lowUseButActiveApps,
+            estimatedRuntimeBytes = estimatedRuntimeBytesValue.takeIf { hasEstimatedRuntimeBytes },
             memory = memory,
             usageAccessGranted = usageAccess,
             enhancedControlAvailable = shellStatus.isAdbShellLike || shellStatus.shizukuGranted,
@@ -139,11 +159,12 @@ class AppControlInsightsRepository(context: Context) {
         usage: UsageStats?,
         usageAccess: Boolean,
         shellStatus: DeviceShellStatus,
+        now: Long,
     ): AppOptimizationSignal {
         val lastUsed = usage?.lastTimeUsed ?: 0L
         val foregroundMs = usage?.totalTimeInForeground ?: 0L
         val lastUsedDays = if (lastUsed > 0L) {
-            ((System.currentTimeMillis() - lastUsed).coerceAtLeast(0L) / APP_CONTROL_DAY_MS).toInt()
+            ((now - lastUsed).coerceAtLeast(0L) / APP_CONTROL_DAY_MS).toInt()
         } else {
             Int.MAX_VALUE
         }
@@ -161,7 +182,7 @@ class AppControlInsightsRepository(context: Context) {
             if (app.isProtected) add("受保护")
             if (!usageAccess) add("待开启使用情况访问")
             if (shellStatus.shizukuGranted) add("增强可控")
-        }.distinct()
+        }
         val score = buildScore(app, runtime, storageHeavy, lowUseButActive, cleanCandidate)
         val memoryLabel = runtime?.estimatedMemoryBytes?.appControlHumanBytes()
         val recommendation = when {
@@ -172,13 +193,13 @@ class AppControlInsightsRepository(context: Context) {
             runtime != null -> "正在运行，建议先观察用途，必要时再清后台。"
             else -> "暂无明显异常，可保留常规管理入口。"
         }
-        val quickActions = buildList {
-            if (app.isLaunchable) add(ManagedAppAction.Open)
-            if (cleanCandidate) add(ManagedAppAction.ForceStop)
-            if (storageHeavy) add(ManagedAppAction.ManageStorage)
-            add(ManagedAppAction.NotificationSettings)
-            add(ManagedAppAction.PermissionSettings)
-        }.distinct().take(4)
+        val quickActions = buildList(capacity = 4) {
+            if (app.isLaunchable && size < 4) add(ManagedAppAction.Open)
+            if (cleanCandidate && size < 4) add(ManagedAppAction.ForceStop)
+            if (storageHeavy && size < 4) add(ManagedAppAction.ManageStorage)
+            if (size < 4) add(ManagedAppAction.NotificationSettings)
+            if (size < 4) add(ManagedAppAction.PermissionSettings)
+        }
         return AppOptimizationSignal(
             app = app,
             runtime = runtime,
@@ -224,23 +245,38 @@ class AppControlInsightsRepository(context: Context) {
         val processes = runCatching { manager.runningAppProcesses.orEmpty() }.getOrDefault(emptyList())
         val grouped = linkedMapOf<String, MutableList<ActivityManager.RunningAppProcessInfo>>()
         processes.forEach { process ->
-            val packages = process.pkgList?.filter { it.isNotBlank() }?.takeIf { it.isNotEmpty() }
-                ?: listOf(process.processName.substringBefore(':'))
-            packages.forEach { packageName ->
+            var packageAdded = false
+            process.pkgList?.forEach { packageName ->
+                if (packageName.isBlank()) return@forEach
+                packageAdded = true
                 grouped.getOrPut(packageName) { mutableListOf() }.add(process)
+            }
+            if (!packageAdded) {
+                val fallback = process.processName.substringBefore(':').trim()
+                if (fallback.isNotBlank()) grouped.getOrPut(fallback) { mutableListOf() }.add(process)
             }
         }
         return grouped.mapValues { (packageName, items) ->
-            val pids = items.map { it.pid }.filter { it > 0 }.distinct()
-            val memory = estimateMemoryBytes(manager, pids)
-            val bestImportance = items.minOfOrNull { it.importance } ?: ActivityManager.RunningAppProcessInfo.IMPORTANCE_EMPTY
+            val pids = ArrayList<Int>(items.size)
+            val seenPids = HashSet<Int>(items.size)
+            val processNames = ArrayList<String>(minOf(items.size, 4))
+            val seenNames = HashSet<String>(minOf(items.size, 4))
+            var bestImportance = ActivityManager.RunningAppProcessInfo.IMPORTANCE_EMPTY
+            items.forEach { item ->
+                if (item.pid > 0 && seenPids.add(item.pid)) pids += item.pid
+                val processName = item.processName.trim()
+                if (processName.isNotBlank() && processNames.size < 4 && seenNames.add(processName)) {
+                    processNames += processName
+                }
+                if (item.importance < bestImportance) bestImportance = item.importance
+            }
             AppRuntimeSignal(
                 packageName = packageName,
                 processCount = items.size,
-                processNames = items.map { it.processName }.filter { it.isNotBlank() }.distinct().take(4),
+                processNames = processNames,
                 importance = bestImportance,
                 stateLabel = importanceLabel(bestImportance),
-                estimatedMemoryBytes = memory,
+                estimatedMemoryBytes = estimateMemoryBytes(manager, pids),
                 foregroundLike = bestImportance <= ActivityManager.RunningAppProcessInfo.IMPORTANCE_PERCEPTIBLE,
             )
         }
@@ -254,32 +290,53 @@ class AppControlInsightsRepository(context: Context) {
             timeoutMs = 1_600L,
         )
         if (!result.ok || result.output.isBlank()) return emptyMap()
-        val samples = result.output.lineSequence().mapNotNull(::parseShellProcessLine).toList()
-        if (samples.isEmpty()) return emptyMap()
-        return apps.mapNotNull { app ->
-            val matched = samples.filter { processMatchesPackage(it.processName, app.packageName) }
-            if (matched.isEmpty()) return@mapNotNull null
-            val rss = matched.mapNotNull { it.rssBytes }.takeIf { it.isNotEmpty() }?.sum()
-            app.packageName to AppRuntimeSignal(
-                packageName = app.packageName,
+
+        val appPackages = HashSet<String>(apps.size)
+        apps.forEach { app -> appPackages += app.packageName }
+        val grouped = linkedMapOf<String, MutableList<ShellProcessSample>>()
+        result.output.lineSequence().forEach { line ->
+            val sample = parseShellProcessLine(line) ?: return@forEach
+            val packageName = packageNameForProcess(sample.processName)
+            if (packageName !in appPackages) return@forEach
+            grouped.getOrPut(packageName) { mutableListOf() }.add(sample)
+        }
+        if (grouped.isEmpty()) return emptyMap()
+
+        return grouped.mapValues { (packageName, matched) ->
+            var rssBytes = 0L
+            var hasRss = false
+            val processNames = ArrayList<String>(minOf(matched.size, 4))
+            val seenNames = HashSet<String>(minOf(matched.size, 4))
+            matched.forEach { sample ->
+                sample.rssBytes?.let { bytes ->
+                    hasRss = true
+                    rssBytes = if (Long.MAX_VALUE - rssBytes < bytes) Long.MAX_VALUE else rssBytes + bytes
+                }
+                val processName = sample.processName.trim()
+                if (processName.isNotBlank() && processNames.size < 4 && seenNames.add(processName)) {
+                    processNames += processName
+                }
+            }
+            AppRuntimeSignal(
+                packageName = packageName,
                 processCount = matched.size,
-                processNames = matched.map { it.processName }.distinct().take(4),
+                processNames = processNames,
                 importance = ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE,
                 stateLabel = "增强后台",
-                estimatedMemoryBytes = rss,
+                estimatedMemoryBytes = rssBytes.takeIf { hasRss },
                 foregroundLike = false,
             )
-        }.toMap()
+        }
     }
 
     private fun parseShellProcessLine(line: String): ShellProcessSample? {
         val trimmed = line.trim()
         if (trimmed.isBlank() || trimmed.startsWith("PID ", ignoreCase = true) || trimmed.startsWith("USER ", ignoreCase = true)) return null
-        val tokens = trimmed.split(Regex("\\s+"))
+        val tokens = trimmed.split(APP_CONTROL_WHITESPACE_REGEX)
         if (tokens.size < 3) return null
         tokens[0].toIntOrNull()?.let { pid ->
             val rssBytes = tokens.getOrNull(1)?.toLongOrNull()?.times(1024L)
-            val command = tokens.drop(2).joinToString(" ").trim().substringBefore(' ')
+            val command = tokens.getOrNull(2).orEmpty()
             return ShellProcessSample(pid = pid, rssBytes = rssBytes, processName = command)
         }
         val fallbackPid = tokens.getOrNull(1)?.toIntOrNull() ?: return null
@@ -289,9 +346,12 @@ class AppControlInsightsRepository(context: Context) {
         return ShellProcessSample(pid = fallbackPid, rssBytes = fallbackRss, processName = name)
     }
 
-    private fun processMatchesPackage(processName: String, packageName: String): Boolean {
-        val name = processName.trim().substringAfterLast('/').substringBefore(' ')
-        return name == packageName || name.startsWith("$packageName:")
+    private fun packageNameForProcess(processName: String): String {
+        return processName
+            .trim()
+            .substringAfterLast('/')
+            .substringBefore(' ')
+            .substringBefore(':')
     }
 
     private fun memorySnapshot(): AppMemorySnapshot? {
