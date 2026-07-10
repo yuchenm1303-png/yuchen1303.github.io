@@ -28,6 +28,7 @@ internal object ChatAttachmentPayloadStore {
     // tens of megabytes of String payloads indefinitely.
     private const val MAX_MEMORY_CHARS = 16 * 1024 * 1024
     private const val LOW_MEMORY_TARGET_CHARS = 4 * 1024 * 1024
+    private const val MAX_PERSISTED_ID_MARKERS = 128
     private const val MAX_DISK_BYTES = 128L * 1024L * 1024L
     private const val MAX_DISK_AGE_MS = 30L * 24L * 60L * 60L * 1_000L
     private const val DISK_CLEANUP_INTERVAL_MS = 10L * 60L * 1_000L
@@ -43,6 +44,7 @@ internal object ChatAttachmentPayloadStore {
      * writer drains it before exiting, so copies of the same attachment never create parallel writes.
      */
     private val pendingWrites = mutableMapOf<String, String>()
+    private val persistedIds = LinkedHashMap<String, Unit>(16, 0.75f, true)
     private var memoryChars: Int = 0
     private var lastDiskCleanupAtMs: Long = 0L
 
@@ -54,12 +56,12 @@ internal object ChatAttachmentPayloadStore {
             synchronized(lock) {
                 val previousMemory = memoryPayloads[cleanId]
                 val pending = pendingWrites[cleanId]
-                val alreadyAvailable = previousMemory == base64Data && when {
-                    pending != null -> pending == base64Data
-                    else -> payloadFile(cleanId)?.isFile == true
-                }
+                val alreadyAvailable = previousMemory == base64Data && (
+                    pending == base64Data || persistedIds.containsKey(cleanId)
+                    )
                 putMemoryLocked(cleanId, base64Data)
                 if (!alreadyAvailable) {
+                    persistedIds.remove(cleanId)
                     launchWriter = pendingWrites.put(cleanId, base64Data) == null
                 }
             }
@@ -84,6 +86,7 @@ internal object ChatAttachmentPayloadStore {
         if (payload.isNotBlank()) {
             synchronized(lock) {
                 putMemoryLocked(id, payload)
+                markPersistedLocked(id)
             }
         }
         return payload
@@ -91,15 +94,26 @@ internal object ChatAttachmentPayloadStore {
 
     fun hasPayload(ref: ChatAttachmentPayloadRef): Boolean {
         synchronized(lock) {
-            if (memoryPayloads.containsKey(ref.id) || pendingWrites.containsKey(ref.id)) return true
+            if (
+                memoryPayloads.containsKey(ref.id) ||
+                pendingWrites.containsKey(ref.id) ||
+                persistedIds.containsKey(ref.id)
+            ) {
+                return true
+            }
         }
-        return payloadFile(ref.id)?.isFile == true
+        val exists = payloadFile(ref.id)?.isFile == true
+        if (exists) {
+            synchronized(lock) { markPersistedLocked(ref.id) }
+        }
+        return exists
     }
 
     fun remove(ref: ChatAttachmentPayloadRef) {
         synchronized(lock) {
             memoryPayloads.remove(ref.id)?.let { memoryChars -= it.length }
             pendingWrites.remove(ref.id)
+            persistedIds.remove(ref.id)
         }
         ioScope.launch {
             runCatching { payloadFile(ref.id)?.delete() }
@@ -121,6 +135,7 @@ internal object ChatAttachmentPayloadStore {
             while (true) {
                 val payload = synchronized(lock) { pendingWrites[id] } ?: return@launch
                 val target = payloadFile(id)
+                var persisted = false
                 if (target != null) {
                     val directory = target.parentFile
                     try {
@@ -132,6 +147,7 @@ internal object ChatAttachmentPayloadStore {
                             temporary.delete()
                         }
                         target.setLastModified(System.currentTimeMillis())
+                        persisted = true
                         cleanupDiskCache(directory)
                     } catch (_: Throwable) {
                         // The in-memory value remains available for the active request. A future
@@ -142,6 +158,7 @@ internal object ChatAttachmentPayloadStore {
                 val finished = synchronized(lock) {
                     if (pendingWrites[id] === payload) {
                         pendingWrites.remove(id)
+                        if (persisted) markPersistedLocked(id)
                         trimMemoryLocked()
                         true
                     } else {
@@ -150,6 +167,16 @@ internal object ChatAttachmentPayloadStore {
                 }
                 if (finished) return@launch
             }
+        }
+    }
+
+    private fun markPersistedLocked(id: String) {
+        persistedIds[id] = Unit
+        while (persistedIds.size > MAX_PERSISTED_ID_MARKERS) {
+            val iterator = persistedIds.entries.iterator()
+            if (!iterator.hasNext()) return
+            iterator.next()
+            iterator.remove()
         }
     }
 
