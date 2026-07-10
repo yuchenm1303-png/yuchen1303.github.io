@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.ComponentCallbacks2
 import android.content.Context
 import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
+import com.yuchen.ailedger.data.AppCacheMaintenance
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
 import com.yuchen.ailedger.data.AssistantCustomInstructionsRepository
 import com.yuchen.ailedger.data.AssistantMemoryDiagnostics
@@ -104,6 +105,16 @@ class AiLedgerApplication : Application() {
                         }
                     store.observeProgress(progress)
                 }
+            }
+        }
+
+        applicationScope.launch(Dispatchers.IO) {
+            val uiReachedStableWindow = withTimeoutOrNull(10_000L) {
+                StartupPerformanceGate.awaitDeferredBusinessWindow()
+                true
+            } == true
+            if (uiReachedStableWindow) {
+                AppCacheMaintenance.run(applicationContext)
             }
         }
     }
