@@ -2,9 +2,7 @@ package com.yuchen.ailedger.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,11 +10,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,8 +100,11 @@ private class SecondaryKeySequence(initial: Any?) {
 }
 
 /**
- * Capsule 沿中心轴轻抬升；Push/Pop 只保留水平方向；Replace 与 Modal 保持居中纵向。
- * 旧页立即退出，避免半透明玻璃双层叠绘。动画结束后移除整页 graphicsLayer。
+ * 二级页面统一轻量转场。
+ *
+ * 页面外壳与内部 Header / Capsule / Primary / Supporting / List 共用一个时间轴。旧页仍立即
+ * 退出，避免透明玻璃双层叠绘；新页只做极小轴向位移，不做整页缩放。时间轴结束后同时
+ * 移除整页与各阶段 graphicsLayer，静止状态不保留裁切和额外合成层。
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -212,62 +211,53 @@ private fun SecondaryMotionLayer(
 ) {
     val motion = motionIntensity.coerceIn(0f, 1f)
     val shouldAnimate = animate && motion > 0.05f
-    val progress = remember(sequence) { Animatable(if (shouldAnimate) 0f else 1f) }
-    var settled by remember(sequence) { mutableStateOf(!shouldAnimate) }
+    val timeline = remember(sequence) {
+        SecondaryMotionTimelineState(if (shouldAnimate) 0f else 1f)
+    }
     val density = LocalDensity.current
     val horizontalTravelPx = with(density) {
-        when (motionType) {
-            SecondaryMotionType.Push -> 24.dp.toPx()
-            else -> 0.dp.toPx()
-        }
+        if (motionType == SecondaryMotionType.Push) 18.dp.toPx() else 0.dp.toPx()
     }
     val verticalTravelPx = with(density) {
         when (motionType) {
-            SecondaryMotionType.Capsule -> 6.dp.toPx()
-            SecondaryMotionType.Replace -> 4.dp.toPx()
-            SecondaryMotionType.Modal -> 14.dp.toPx()
+            SecondaryMotionType.Capsule -> 4.dp.toPx()
+            SecondaryMotionType.Replace -> 3.dp.toPx()
+            SecondaryMotionType.Modal -> 10.dp.toPx()
             SecondaryMotionType.Push -> 0.dp.toPx()
         }
     }
-
-    LaunchedEffect(progress, shouldAnimate, motionType, motion) {
-        if (!shouldAnimate) {
-            progress.snapTo(1f)
-            settled = true
-            return@LaunchedEffect
-        }
-        settled = false
-        withFrameNanos { }
-        progress.animateTo(
-            targetValue = 1f,
-            animationSpec = when (motionType) {
-                SecondaryMotionType.Capsule -> spring(
-                    dampingRatio = 0.78f,
-                    stiffness = Spring.StiffnessMediumLow,
-                )
-                SecondaryMotionType.Push -> spring(
-                    dampingRatio = 0.84f,
-                    stiffness = Spring.StiffnessMedium,
-                )
-                SecondaryMotionType.Replace -> spring(
-                    dampingRatio = 0.90f,
-                    stiffness = Spring.StiffnessMedium,
-                )
-                SecondaryMotionType.Modal -> spring(
-                    dampingRatio = 0.80f,
-                    stiffness = Spring.StiffnessMediumLow,
-                )
-            },
-        )
-        settled = true
+    val durationMillis = when (motionType) {
+        SecondaryMotionType.Capsule -> 320
+        SecondaryMotionType.Push -> 270
+        SecondaryMotionType.Replace -> 230
+        SecondaryMotionType.Modal -> 310
     }
 
-    val motionModifier = if (settled) {
+    LaunchedEffect(timeline, shouldAnimate, motionType) {
+        if (!shouldAnimate) {
+            timeline.progress.snapTo(1f)
+            timeline.settled = true
+            return@LaunchedEffect
+        }
+        timeline.settled = false
+        timeline.progress.snapTo(0f)
+        withFrameNanos { }
+        timeline.progress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = durationMillis,
+                easing = LinearEasing,
+            ),
+        )
+        timeline.settled = true
+    }
+
+    val motionModifier = if (timeline.settled) {
         Modifier
     } else {
         Modifier.graphicsLayer {
             val visual = secondaryMotionVisual(
-                rawProgress = progress.value,
+                rawProgress = timeline.progress.value,
                 type = motionType,
                 direction = direction,
                 horizontalTravelPx = horizontalTravelPx * motion,
@@ -279,12 +269,15 @@ private fun SecondaryMotionLayer(
             compositingStrategy = CompositingStrategy.ModulateAlpha
         }
     }
+    val clipModifier = if (timeline.settled) Modifier else Modifier.clipSecondaryPageVertically()
 
-    Box(
-        modifier = modifier
-            .clipSecondaryPageVertically()
-            .then(motionModifier),
-    ) {
-        content()
+    CompositionLocalProvider(LocalSecondaryMotionTimeline provides timeline) {
+        Box(
+            modifier = modifier
+                .then(clipModifier)
+                .then(motionModifier),
+        ) {
+            content()
+        }
     }
 }
