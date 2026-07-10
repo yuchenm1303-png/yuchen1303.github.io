@@ -4,7 +4,7 @@ import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timezone
-from threading import Lock
+from threading import Lock, Thread
 from time import monotonic
 from typing import Any
 
@@ -12,7 +12,7 @@ import main as legacy
 import market_home_server as home
 
 
-MARKET_BREADTH_CACHE_VERSION = "v2-full-universe-pagination"
+MARKET_BREADTH_CACHE_VERSION = "v3-full-universe-swr"
 MARKET_BREADTH_FRESH_SECONDS = 45.0
 MARKET_BREADTH_STALE_SECONDS = 6 * 60 * 60.0
 MARKET_BREADTH_PAGE_SIZE = 100
@@ -20,6 +20,8 @@ MARKET_BREADTH_MAX_PAGES = 70
 MARKET_BREADTH_WORKERS = 10
 MARKET_BREADTH_MIN_COVERAGE = 0.95
 MARKET_BREADTH_MIN_ROWS = 3000
+MARKET_BREADTH_REFRESH_BACKOFF_BASE_SECONDS = 3.0
+MARKET_BREADTH_REFRESH_BACKOFF_MAX_SECONDS = 60.0
 
 _CACHE_KEY = legacy._cache_key(
     "market",
@@ -27,7 +29,15 @@ _CACHE_KEY = legacy._cache_key(
     MARKET_BREADTH_CACHE_VERSION,
 )
 _BUILD_LOCK = Lock()
+_REFRESH_STATE_LOCK = Lock()
 _DIAGNOSTICS_LOCK = Lock()
+_PAGE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=MARKET_BREADTH_WORKERS,
+    thread_name_prefix="market-breadth-page",
+)
+_refresh_running = False
+_refresh_failures = 0
+_refresh_retry_after = 0.0
 _last_diagnostics: dict[str, Any] = {
     "version": MARKET_BREADTH_CACHE_VERSION,
     "state": "idle",
@@ -38,6 +48,9 @@ _last_diagnostics: dict[str, Any] = {
     "latencyMs": 0,
     "lastError": "",
     "updatedAt": "",
+    "refreshRunning": False,
+    "refreshFailures": 0,
+    "retryAfterMs": 0,
 }
 
 
@@ -47,7 +60,12 @@ def cache_is_fresh(max_age_seconds: float = MARKET_BREADTH_FRESH_SECONDS) -> boo
 
 def diagnostics() -> dict[str, Any]:
     with _DIAGNOSTICS_LOCK:
-        return deepcopy(_last_diagnostics)
+        snapshot = deepcopy(_last_diagnostics)
+    with _REFRESH_STATE_LOCK:
+        snapshot["refreshRunning"] = _refresh_running
+        snapshot["refreshFailures"] = _refresh_failures
+        snapshot["retryAfterMs"] = max(int((_refresh_retry_after - monotonic()) * 1000), 0)
+    return snapshot
 
 
 def _set_diagnostics(**values: Any) -> None:
@@ -95,32 +113,36 @@ def _load_full_market_universe() -> tuple[list[dict[str, Any]], int, int, list[s
     failed_pages: list[int] = []
 
     if page_count > 1:
-        with ThreadPoolExecutor(
-            max_workers=min(MARKET_BREADTH_WORKERS, page_count - 1),
-            thread_name_prefix="market-breadth",
-        ) as executor:
-            futures = {executor.submit(_request_page, page): page for page in range(2, page_count + 1)}
-            for future in as_completed(futures):
-                page = futures[future]
-                try:
-                    total, page_rows, page_warnings = future.result()
-                    if total > reported_total:
-                        reported_total = total
-                    if page_rows:
-                        rows_by_page[page] = page_rows
-                    else:
-                        failed_pages.append(page)
-                    warnings.extend(page_warnings)
-                except Exception as exc:
+        futures = {
+            _PAGE_EXECUTOR.submit(_request_page, page): page
+            for page in range(2, page_count + 1)
+        }
+        for future in as_completed(futures):
+            page = futures[future]
+            try:
+                total, page_rows, page_warnings = future.result()
+                if total > reported_total:
+                    reported_total = total
+                if page_rows:
+                    rows_by_page[page] = page_rows
+                else:
                     failed_pages.append(page)
-                    warnings.append(
-                        f"market_breadth_page_{page}_failed: {type(exc).__name__}: {exc}"
-                    )
+                warnings.extend(page_warnings)
+            except Exception as exc:
+                failed_pages.append(page)
+                warnings.append(
+                    f"market_breadth_page_{page}_failed: {type(exc).__name__}: {exc}"
+                )
 
     # 并发阶段偶发失败时只重试缺页，不重新抓取成功页。
-    for page in failed_pages:
+    retry_futures = {
+        _PAGE_EXECUTOR.submit(_request_page, page): page
+        for page in failed_pages
+    }
+    for future in as_completed(retry_futures):
+        page = retry_futures[future]
         try:
-            total, page_rows, page_warnings = _request_page(page)
+            total, page_rows, page_warnings = future.result()
             if total > reported_total:
                 reported_total = total
             if page_rows:
@@ -268,31 +290,81 @@ def _build_market_breadth() -> dict[str, Any]:
     return payload
 
 
-def load_market_breadth_cached() -> dict[str, Any]:
-    fresh = legacy._cache_get(_CACHE_KEY, MARKET_BREADTH_FRESH_SECONDS)
-    if fresh is not None:
-        payload, age = fresh
-        return home._mark_cached_module(payload, age, stale=False)
+def _refresh_backoff_seconds(failure_count: int) -> float:
+    exponent = max(failure_count - 1, 0)
+    return min(
+        MARKET_BREADTH_REFRESH_BACKOFF_BASE_SECONDS * (2**exponent),
+        MARKET_BREADTH_REFRESH_BACKOFF_MAX_SECONDS,
+    )
 
-    with _BUILD_LOCK:
+
+def _background_refresh_worker() -> None:
+    global _refresh_running, _refresh_failures, _refresh_retry_after
+    try:
+        with _BUILD_LOCK:
+            fresh = legacy._cache_get(_CACHE_KEY, MARKET_BREADTH_FRESH_SECONDS)
+            if fresh is not None:
+                return
+            payload = _build_market_breadth()
+            legacy._cache_put(_CACHE_KEY, payload)
+        with _REFRESH_STATE_LOCK:
+            _refresh_failures = 0
+            _refresh_retry_after = 0.0
+    except Exception as exc:
+        with _REFRESH_STATE_LOCK:
+            _refresh_failures += 1
+            _refresh_retry_after = monotonic() + _refresh_backoff_seconds(_refresh_failures)
+        _set_diagnostics(
+            state="error",
+            lastError=f"{type(exc).__name__}: {exc}",
+        )
+    finally:
+        with _REFRESH_STATE_LOCK:
+            _refresh_running = False
+
+
+def ensure_background_refresh(force: bool = False) -> bool:
+    global _refresh_running
+    now = monotonic()
+    with _REFRESH_STATE_LOCK:
+        if _refresh_running:
+            return False
+        if not force and now < _refresh_retry_after:
+            return False
+        _refresh_running = True
+    _set_diagnostics(state="refreshing")
+    Thread(
+        target=_background_refresh_worker,
+        name="market-breadth-refresh",
+        daemon=True,
+    ).start()
+    return True
+
+
+def load_market_breadth_cached(force: bool = False) -> dict[str, Any]:
+    if not force:
         fresh = legacy._cache_get(_CACHE_KEY, MARKET_BREADTH_FRESH_SECONDS)
         if fresh is not None:
             payload, age = fresh
             return home._mark_cached_module(payload, age, stale=False)
 
-        stale = legacy._cache_get(_CACHE_KEY, MARKET_BREADTH_STALE_SECONDS)
-        try:
-            payload = _build_market_breadth()
-        except Exception as exc:
-            _set_diagnostics(state="error", lastError=f"{type(exc).__name__}: {exc}")
-            if stale is not None:
-                old, age = stale
-                cached = home._mark_cached_module(old, age, stale=True)
-                cached["warnings"] = list(cached.get("warnings") or []) + [
-                    f"market_breadth_refresh_failed: {type(exc).__name__}: {exc}"
-                ]
-                return cached
-            raise
+    stale = legacy._cache_get(_CACHE_KEY, MARKET_BREADTH_STALE_SECONDS)
+    refresh_started = ensure_background_refresh(force=force)
+    refresh_warning = (
+        "market_breadth_refresh: started"
+        if refresh_started
+        else "market_breadth_refresh: reused_or_backing_off"
+    )
 
-        legacy._cache_put(_CACHE_KEY, payload)
-        return payload
+    if stale is not None:
+        old, age = stale
+        cached = home._mark_cached_module(old, age, stale=True)
+        cached["warnings"] = list(cached.get("warnings") or []) + [refresh_warning]
+        return cached
+
+    unavailable = home._module_unavailable(
+        "marketBreadth",
+        "warming_in_background",
+    )
+    unavailable["warnings"] = list(unavailable.get("warnings") or []) + [refresh_warning]
+    return unavailable
