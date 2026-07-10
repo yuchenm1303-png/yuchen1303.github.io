@@ -32,11 +32,17 @@ data class NotificationChatRequest(
 )
 
 object NotificationChatStore {
+    @Volatile
+    private var cachedSnapshot: NotificationChatSnapshot? = null
+
     @Synchronized
     fun load(context: Context): NotificationChatSnapshot {
-        val raw = preferences(context).getString(NOTIFICATION_CHAT_STATE, null)
-            ?: return NotificationChatSnapshot()
-        return runCatching { decode(raw) }.getOrDefault(NotificationChatSnapshot())
+        cachedSnapshot?.let { return it }
+        val snapshot = preferences(context).getString(NOTIFICATION_CHAT_STATE, null)
+            ?.let { raw -> runCatching { decode(raw) }.getOrDefault(NotificationChatSnapshot()) }
+            ?: NotificationChatSnapshot()
+        cachedSnapshot = snapshot
+        return snapshot
     }
 
     @Synchronized
@@ -264,6 +270,7 @@ object NotificationChatStore {
     }
 
     private fun save(context: Context, snapshot: NotificationChatSnapshot): NotificationChatSnapshot {
+        cachedSnapshot = snapshot
         preferences(context)
             .edit()
             .putString(NOTIFICATION_CHAT_STATE, encode(snapshot))
