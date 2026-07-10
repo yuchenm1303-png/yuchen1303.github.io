@@ -32,6 +32,7 @@ internal fun StorageInlineFeatureSection(
     entries: List<StorageInlineFeatureEntry>,
 ) {
     if (entries.isEmpty()) return
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             "进阶工具",
@@ -39,47 +40,58 @@ internal fun StorageInlineFeatureSection(
             fontSize = 12.sp,
             fontWeight = FontWeight.Black,
         )
-        entries.forEach { entry ->
-            PressableGlass(
-                quality = state.quality,
-                glassIntensity = state.glassIntensity,
+        entries.forEachIndexed { index, entry ->
+            SecondaryStaggeredReveal(
+                index = index,
                 motionIntensity = state.motionIntensity,
-                radius = 22,
-                modifier = Modifier.fillMaxWidth().height(68.dp),
-                role = GlassRole.Card,
-                onClick = entry.onClick,
+                tone = entry.tone,
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 15.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                PressableGlass(
+                    quality = state.quality,
+                    glassIntensity = state.glassIntensity,
+                    motionIntensity = state.motionIntensity,
+                    radius = 22,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(68.dp),
+                    role = GlassRole.Card,
+                    onClick = entry.onClick,
                 ) {
-                    Box(
-                        modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart,
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 15.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text(
-                                entry.title,
-                                color = Color.White.copy(alpha = 0.94f),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Black,
-                            )
-                            Text(
-                                entry.subtitle,
-                                color = Color.White.copy(alpha = 0.48f),
-                                fontSize = 10.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                        Box(
+                            modifier = Modifier.weight(1f),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(
+                                    entry.title,
+                                    color = Color.White.copy(alpha = 0.94f),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Black,
+                                )
+                                Text(
+                                    entry.subtitle,
+                                    color = Color.White.copy(alpha = 0.48f),
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
+                        Text(
+                            "进入 ›",
+                            color = entry.tone.copy(alpha = 0.92f),
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Black,
+                        )
                     }
-                    Text(
-                        "进入 ›",
-                        color = entry.tone.copy(alpha = 0.92f),
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                    )
                 }
             }
         }
