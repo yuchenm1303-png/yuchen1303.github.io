@@ -39,21 +39,38 @@ class AgentOrchestrator(
         }
 
         val cloudCall = if (executionMode == AgentExecutionMode.ExplicitAgent) {
-            ClientToolCallRegistry.consumeVisual()
+            ClientToolCallRegistry.consumeVisual(goal)
         } else {
             null
         }
-        val effectiveExecutionMode = if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall == null) {
-            AgentRuntimeController.noteDiagnostic("云端未携带可消费的视觉工具调用，已回落到稳定 VisualForce 执行入口。")
-            AgentExecutionMode.VisualForce
-        } else {
-            executionMode
+        if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall == null) {
+            val message = "云端视觉工具调用关联失败，已安全停止，未执行任何屏幕操作。"
+            AgentRuntimeController.noteDiagnostic("visual_client_tool_call_missing：目标未匹配到当前 computer_run_task。")
+            return AgentTaskRunResult(
+                completed = false,
+                stoppedForConfirmation = false,
+                message = message,
+                logs = emptyList(),
+            )
+        }
+        if (
+            executionMode == AgentExecutionMode.ExplicitAgent &&
+            (cloudCall?.name != "computer_run_task" || cloudCall.id.isBlank())
+        ) {
+            val message = "云端视觉工具调用格式无效，已安全停止，未执行任何屏幕操作。"
+            AgentRuntimeController.noteDiagnostic("visual_client_tool_call_invalid：工具名或调用编号无效。")
+            return AgentTaskRunResult(
+                completed = false,
+                stoppedForConfirmation = false,
+                message = message,
+                logs = emptyList(),
+            )
         }
         return runVisualLoop(
             goal = goal,
             modelPreference = modelPreference,
             maxSteps = maxSteps,
-            executionMode = effectiveExecutionMode,
+            executionMode = executionMode,
             cloudCall = cloudCall,
         )
     }
@@ -91,11 +108,7 @@ class AgentOrchestrator(
                 )
                 terminalReason = "visual_task_bootstrap_failed"
                 AgentRuntimeController.failTask(bootstrapResult.message)
-                return if (!result.isAccessibilityUnavailable()) {
-                    reportVisualResult(invocation, goal, modelPreference, result)
-                } else {
-                    result
-                }
+                return reportVisualResult(invocation, goal, modelPreference, result)
             }
             bootstrapResult?.let { AgentRuntimeController.noteDiagnostic(it.message.take(120)) }
             val result = withContext(Dispatchers.IO) {
@@ -107,11 +120,7 @@ class AgentOrchestrator(
             }
             terminalReason = "visual_task_${result.visualReceiptStatus()}"
             AgentRuntimeController.finishTask(result.resolvedOutcome())
-            if (
-                executionMode == AgentExecutionMode.ExplicitAgent &&
-                cloudCall != null &&
-                !result.isAccessibilityUnavailable()
-            ) {
+            if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall != null) {
                 reportVisualResult(invocation, goal, modelPreference, result)
             } else {
                 result
@@ -122,9 +131,7 @@ class AgentOrchestrator(
         } finally {
             VisualTaskInvocationRuntime.clear(invocation)
             VisualBootstrapFirstFrameState.clear()
-            if (executionMode == AgentExecutionMode.ExplicitAgent) {
-                VisualSessionCleanupDispatcher.enqueue(invocation, terminalReason)
-            }
+            VisualSessionCleanupDispatcher.enqueue(invocation, terminalReason)
         }
     }
 
@@ -160,12 +167,12 @@ class AgentOrchestrator(
                         put("packageName", log.step.packageName.orEmpty())
                         put(
                             "status",
-                            if (execution?.ok == true) "verified"
+                            if (execution?.ok == true) "executed"
                             else if (execution == null) "state_mismatch"
                             else "failed",
                         )
                         put("ok", execution?.ok == true)
-                        put("verified", execution?.ok == true)
+                        put("verified", false)
                         put("shouldContinue", execution?.shouldContinue == true)
                         put("technicalDetail", (execution?.message ?: log.step.reason).orEmpty().take(1_800))
                         put("undoAvailable", false)
@@ -213,6 +220,7 @@ class AgentOrchestrator(
 private fun AgentTaskRunResult.visualReceiptStatus(): String = when {
     completed -> "verified"
     stoppedForConfirmation -> "confirmation_required"
+    isAccessibilityUnavailable() -> "permission_required"
     message.contains("cancel", ignoreCase = true) ||
         message.contains("用户停止") ||
         message.contains("已暂停") -> "cancelled"
