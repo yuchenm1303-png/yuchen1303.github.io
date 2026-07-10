@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -301,60 +301,114 @@ private fun PlanCenterHomePage(
         contentPadding = PaddingValues(top = 12.dp, bottom = 110.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
-            PlanHeader(
-                state = state,
-                activeCount = activeCount,
-                onBack = onBack,
-            )
-        }
-        item {
-            PlanQuickComposer(
-                state = state,
-                value = quickTitle,
-                onValueChange = onQuickTitleChange,
-                onCreate = { onOpenEditor(null, null) },
-            )
-        }
-        item {
-            PlanTemplateGrid(state = state) { template ->
-                onOpenEditor(null, template)
-            }
-        }
-        if (!exactAlarmReady) {
-            item {
-                PlanInfoBanner(
+        item("plan_header") {
+            SecondaryStageReveal(
+                role = SecondaryStageRole.Header,
+                motionIntensity = state.motionIntensity,
+            ) {
+                PlanHeader(
                     state = state,
-                    onAction = onRequestExactAlarm,
+                    activeCount = activeCount,
+                    onBack = onBack,
                 )
             }
         }
-        item {
-            PlanFilterBar(
-                state = state,
-                selected = filter,
-                onSelect = onFilterChange,
-            )
-        }
-        item { PlanSectionTitle(filter, visibleTasks.size) }
-
-        if (visibleTasks.isEmpty()) {
-            item {
-                PlanEmptyCard(
+        item("plan_quick_composer") {
+            SecondaryStageReveal(
+                role = SecondaryStageRole.Capsule,
+                motionIntensity = state.motionIntensity,
+            ) {
+                PlanQuickComposer(
                     state = state,
-                    filtered = tasks.isNotEmpty(),
+                    value = quickTitle,
+                    onValueChange = onQuickTitleChange,
                     onCreate = { onOpenEditor(null, null) },
                 )
             }
-        } else {
-            items(visibleTasks, key = { it.id }) { task ->
-                PlanTaskCard(
+        }
+        item("plan_templates") {
+            SecondaryStageReveal(
+                role = SecondaryStageRole.Primary,
+                motionIntensity = state.motionIntensity,
+            ) {
+                PlanTemplateGrid(state = state) { template ->
+                    onOpenEditor(null, template)
+                }
+            }
+        }
+        if (!exactAlarmReady) {
+            item("plan_alarm_banner") {
+                SecondaryStageReveal(
+                    role = SecondaryStageRole.Supporting,
+                    index = 0,
+                    motionIntensity = state.motionIntensity,
+                ) {
+                    PlanInfoBanner(
+                        state = state,
+                        onAction = onRequestExactAlarm,
+                    )
+                }
+            }
+        }
+        item("plan_filter") {
+            SecondaryStageReveal(
+                role = SecondaryStageRole.Supporting,
+                index = if (exactAlarmReady) 0 else 1,
+                motionIntensity = state.motionIntensity,
+            ) {
+                PlanFilterBar(
                     state = state,
-                    task = task,
-                    onEdit = { onOpenEditor(task, null) },
-                    onDelete = { onDeleteTask(task) },
-                    onToggle = { enabled -> onToggleTask(task, enabled) },
+                    selected = filter,
+                    onSelect = onFilterChange,
                 )
+            }
+        }
+        item("plan_section_title") {
+            SecondaryStageReveal(
+                role = SecondaryStageRole.List,
+                motionIntensity = state.motionIntensity,
+            ) {
+                PlanSectionTitle(filter, visibleTasks.size)
+            }
+        }
+
+        if (visibleTasks.isEmpty()) {
+            item("plan_empty_${filter.name}") {
+                SecondaryStageReveal(
+                    role = SecondaryStageRole.List,
+                    index = 1,
+                    motionIntensity = state.motionIntensity,
+                    transitionKey = filter,
+                ) {
+                    PlanEmptyCard(
+                        state = state,
+                        filtered = tasks.isNotEmpty(),
+                        onCreate = { onOpenEditor(null, null) },
+                    )
+                }
+            }
+        } else {
+            itemsIndexed(visibleTasks, key = { _, task -> task.id }) { index, task ->
+                val taskContent: @Composable () -> Unit = {
+                    PlanTaskCard(
+                        state = state,
+                        task = task,
+                        onEdit = { onOpenEditor(task, null) },
+                        onDelete = { onDeleteTask(task) },
+                        onToggle = { enabled -> onToggleTask(task, enabled) },
+                    )
+                }
+                if (index < 3) {
+                    SecondaryStageReveal(
+                        role = SecondaryStageRole.List,
+                        index = index,
+                        motionIntensity = state.motionIntensity,
+                        transitionKey = filter,
+                        content = taskContent,
+                    )
+                } else {
+                    taskContent()
+                }
             }
         }
     }
