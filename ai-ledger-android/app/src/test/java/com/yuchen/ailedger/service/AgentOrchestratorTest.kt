@@ -10,16 +10,34 @@ import org.junit.Test
 class AgentOrchestratorTest {
     @Test
     fun cloudVisualCallIsConsumedExactlyOnce() {
-        ClientToolCallRegistry.clearVisual()
+        val client = AiWorkerClient(
+            AiWorkerConfig(
+                endpoint = "https://example.com",
+                fallbackEndpoints = emptyList(),
+                clientId = "agent-orchestrator-test",
+            )
+        )
+        val goal = "打开示例应用"
         val call = CloudClientToolCall(
             schema = AI_WORKER_CLIENT_TOOL_CALL_SCHEMA,
             id = "call_visual_test",
             name = "computer_run_task",
-            arguments = JSONObject().put("goal", "打开示例应用"),
+            arguments = JSONObject().put("goal", goal),
+            originalUserGoal = goal,
+        )
+        client.rememberVisualClientToolCall(
+            AiChatResponse(
+                reply = "",
+                agentAction = CloudAgentAction(
+                    capability = "run_agent_task",
+                    goal = goal,
+                    clientToolCall = call,
+                ),
+            )
         )
 
-        assertEquals(call.id, ClientToolCallRegistry.consumeVisual()?.id)
-        assertNull(ClientToolCallRegistry.consumeVisual())
+        assertEquals(call.id, client.consumeVisualClientToolCall(goal)?.id)
+        assertNull(client.consumeVisualClientToolCall(goal))
     }
 
     @Test
