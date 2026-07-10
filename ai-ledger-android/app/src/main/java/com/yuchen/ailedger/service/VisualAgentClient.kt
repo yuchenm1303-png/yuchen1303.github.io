@@ -70,7 +70,7 @@ fun AiWorkerClient.requestVisualAgentStep(
         taskMemory = taskMemory,
     )
     VisualIntelligenceDiagnosticsStore.currentOrNull()?.recordModelRequestPayload(payload)
-    return postVisualAgentStep(endpointBase, payload, deviceId, agentSessionId)
+    return postVisualAgentStep(endpointBase, payload, appContext, deviceId, agentSessionId)
 }
 
 /**
@@ -151,6 +151,7 @@ internal fun validateVisualAgentResponseObservationId(
 private fun AiWorkerClient.postVisualAgentStep(
     endpoint: String,
     payload: JSONObject,
+    appContext: List<VisualAgentAppContextItem>,
     deviceId: String,
     agentSessionId: String,
 ): CloudAgentPlan {
@@ -257,9 +258,9 @@ private fun AiWorkerClient.postVisualAgentStep(
                 ?: IOException("visual_agent_step observation validation failed", observationValidation.exceptionOrNull()))
         }
 
-        val plan = CloudAgentPlan.fromJson(data)
+        val parsedPlan = CloudAgentPlan.fromJson(data)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
-        if (plan == null) {
+        if (parsedPlan == null) {
             diagnostics?.recordModelTransportResponse(
                 httpStatus = status,
                 body = body,
@@ -276,6 +277,7 @@ private fun AiWorkerClient.postVisualAgentStep(
             recordAnalytics(false, data, responseByteCount, durationMs)
             throw IOException("visual_agent_step did not return one agentStep")
         }
+        val plan = GuiPlusOpenAppProtocolRepair.repair(parsedPlan, appContext)
 
         diagnostics?.recordModelTransportResponse(
             httpStatus = status,
