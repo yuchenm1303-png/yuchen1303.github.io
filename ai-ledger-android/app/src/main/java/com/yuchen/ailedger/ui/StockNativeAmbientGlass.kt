@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -81,7 +80,7 @@ internal fun StockNativeAmbientGlass(
                 glassIntensity = intensity,
                 motionIntensity = state.motionIntensity,
                 radius = radiusValue,
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier.fillMaxSize(),
                 role = GlassRole.Floating,
                 intensity = intensity
             ) {}
@@ -91,14 +90,14 @@ internal fun StockNativeAmbientGlass(
                 backdropAlpha = 1f,
                 frostAlpha = frostAlpha,
                 dimAlpha = 0f,
-                modifier = Modifier.matchParentSize()
+                modifier = Modifier.fillMaxSize()
             ) {}
         }
 
         if (resolvedGlow > 0.001f) {
             Canvas(
                 Modifier
-                    .matchParentSize()
+                    .fillMaxSize()
                     .clip(shape)
             ) {
                 val centerX = size.width * (phase.value + phaseOffset)
