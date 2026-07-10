@@ -1,13 +1,10 @@
-name: Build Compose Android APK
+name: Legacy Compose Prototype APK (Manual)
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - dev-update-1
-    paths:
-      - 'android-compose/**'
-      - '.github/workflows/build-compose-apk.yml'
+
+permissions:
+  contents: read
 
 jobs:
   build-compose-apk:
