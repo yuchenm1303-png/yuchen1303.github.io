@@ -121,6 +121,7 @@ class StockMarketViewModel(
 
     private val minuteCache = LinkedHashMap<String, List<StockMinutePoint>>(16, 0.75f, true)
     private val kLineCache = LinkedHashMap<String, List<StockKLinePoint>>(20, 0.75f, true)
+    private val kLineLoadedAtByKey = LinkedHashMap<String, Long>(20, 0.75f, true)
     private val lastSequenceByStream = LinkedHashMap<String, Long>(28, 0.75f, true)
     private val lastSlowLoadAtByCode = LinkedHashMap<String, Long>(28, 0.75f, true)
 
@@ -269,7 +270,7 @@ class StockMarketViewModel(
                         kLinePoints = cached ?: emptyList(),
                         minutePoints = emptyList()
                     ),
-                    requestMessage = "正在加载真实${tab}"
+                    requestMessage = if (cached == null) "正在加载真实${tab}" else null
                 )
             }
             loadKLineForTab(tab)
@@ -550,9 +551,18 @@ class StockMarketViewModel(
                     !_uiState.value.marketHome.hasDiscoveryData()
 
                 if (needsSupplemental) {
-                    val breadthResult = withContext(Dispatchers.IO) {
-                        marketStageRepository.loadBreadth(forceCycle)
+                    val (breadthResult, discoveryResult) = coroutineScope {
+                        val breadth = async(Dispatchers.IO) {
+                            marketStageRepository.loadBreadth(forceCycle)
+                        }
+                        val discovery = async(Dispatchers.IO) {
+                            marketStageRepository.loadDiscovery(forceCycle)
+                        }
+                        breadth.await() to discovery.await()
                     }
+
+                    if (!pageActive || _uiState.value.showDetail) break
+
                     _uiState.update { state ->
                         breadthResult.fold(
                             onSuccess = { stage ->
@@ -570,11 +580,6 @@ class StockMarketViewModel(
                         )
                     }
 
-                    if (!pageActive || _uiState.value.showDetail) break
-
-                    val discoveryResult = withContext(Dispatchers.IO) {
-                        marketStageRepository.loadDiscovery(forceCycle)
-                    }
                     _uiState.update { state ->
                         discoveryResult.fold(
                             onSuccess = { stage ->
@@ -811,17 +816,43 @@ class StockMarketViewModel(
         val period = periodForTab(tab)
         val cacheKey = kLineKey(target, period)
         val cached = kLineCache[cacheKey]
-        if (!force && cached != null && cached.size >= 2 && _uiState.value.selectedTab != tab) return
+        val cachedAt = kLineLoadedAtByKey[cacheKey] ?: 0L
+        val cacheFresh = cached != null &&
+            cached.size >= 2 &&
+            SystemClock.elapsedRealtime() - cachedAt < kLineCacheTtlMs(period)
+
+        if (!force && cacheFresh) {
+            _uiState.update { state ->
+                val currentView = pageActive &&
+                    state.stock.quote.code == target &&
+                    !isMinuteTab(state.selectedTab) &&
+                    periodForTab(state.selectedTab) == period
+                if (!currentView) {
+                    state
+                } else {
+                    state.copy(
+                        stock = state.stock.copy(
+                            kLinePoints = cached.orEmpty(),
+                            minutePoints = emptyList()
+                        ),
+                        kLineLoading = false,
+                        requestMessage = null
+                    )
+                }
+            }
+            return
+        }
+
         kLineJob?.cancel()
         kLineJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
-                    kLineLoading = true,
+                    kLineLoading = cached == null,
                     stock = it.stock.copy(
                         kLinePoints = cached ?: emptyList(),
                         minutePoints = emptyList()
                     ),
-                    requestMessage = "正在加载真实${tab}"
+                    requestMessage = if (cached == null) "正在加载真实${tab}" else null
                 )
             }
             val result = withContext(Dispatchers.IO) {
@@ -832,6 +863,11 @@ class StockMarketViewModel(
                     onSuccess = { points ->
                         if (points.size >= 2) {
                             kLineCache.putBounded(cacheKey, points, MAX_KLINE_CACHE_ENTRIES)
+                            kLineLoadedAtByKey.putBounded(
+                                cacheKey,
+                                SystemClock.elapsedRealtime(),
+                                MAX_KLINE_CACHE_ENTRIES
+                            )
                         }
                         val currentView = pageActive &&
                             state.stock.quote.code == target &&
@@ -867,7 +903,7 @@ class StockMarketViewModel(
                                 stock = state.stock.copy(kLinePoints = cached ?: emptyList()),
                                 kLineLoading = false,
                                 requestMessage = if (cached != null) {
-                                    "${tab}刷新失败，当前显示本地缓存"
+                                    null
                                 } else {
                                     "${tab}加载失败：${error.message ?: error.javaClass.simpleName}"
                                 }
@@ -990,7 +1026,7 @@ class StockMarketViewModel(
             isSnapshot = frame.minuteIsSnapshot,
             maxSize = if (minuteDays >= 5) MAX_FIVE_DAY_POINTS else MAX_ONE_DAY_POINTS
         )
-        if (mergedMinutes.isNotEmpty()) {
+        if (mergedMinutes.isNotEmpty() && mergedMinutes !== minuteCache[minuteCacheKey]) {
             minuteCache.putBounded(minuteCacheKey, mergedMinutes, MAX_MINUTE_CACHE_ENTRIES)
         }
 
@@ -1004,7 +1040,10 @@ class StockMarketViewModel(
         val nextBuyLevels = if (depthState.canDisplayLevels) frame.buyLevels else emptyList()
         val nextTradeTicks = when {
             frame.tradeTicksDerived -> emptyList()
-            frame.ticksAreSnapshot -> frame.tradeTicks.takeLast(MAX_TRADE_TICKS)
+            frame.ticksAreSnapshot -> {
+                val snapshot = frame.tradeTicks.takeLast(MAX_TRADE_TICKS)
+                if (snapshot == state.stock.tradeTicks) state.stock.tradeTicks else snapshot
+            }
             frame.tradeTicks.isNotEmpty() -> mergeTradeTicks(state.stock.tradeTicks, frame.tradeTicks)
             else -> state.stock.tradeTicks
         }
@@ -1067,12 +1106,53 @@ class StockMarketViewModel(
         maxSize: Int
     ): List<StockMinutePoint> {
         if (incoming.isEmpty()) return previous
+        if (isSnapshot && incoming.size > 1) {
+            return mergeMinutePointsGeneral(emptyList(), incoming, true, maxSize)
+        }
+        if (previous.isEmpty()) return incoming.takeLast(maxSize)
+
+        val merged = ArrayList<StockMinutePoint>(previous.size + incoming.size)
+        merged.addAll(previous)
+        var changed = false
+
+        for (point in incoming) {
+            val key = point.time
+            val last = merged.lastOrNull()
+            if (key.isBlank() || last == null || last.time.isBlank() || key < last.time) {
+                return mergeMinutePointsGeneral(previous, incoming, isSnapshot, maxSize)
+            }
+            when {
+                key == last.time -> {
+                    if (last != point) {
+                        merged[merged.lastIndex] = point
+                        changed = true
+                    }
+                }
+                else -> {
+                    merged.add(point)
+                    changed = true
+                }
+            }
+        }
+
+        if (!changed) return previous
+        if (merged.size <= maxSize) return merged
+        return ArrayList(merged.subList(merged.size - maxSize, merged.size))
+    }
+
+    private fun mergeMinutePointsGeneral(
+        previous: List<StockMinutePoint>,
+        incoming: List<StockMinutePoint>,
+        isSnapshot: Boolean,
+        maxSize: Int
+    ): List<StockMinutePoint> {
         val source = if (isSnapshot && incoming.size > 1) incoming else previous + incoming
-        val merged = LinkedHashMap<String, StockMinutePoint>()
+        val merged = LinkedHashMap<String, StockMinutePoint>(source.size)
         source.forEachIndexed { index, point ->
             merged[point.time.ifBlank { "index:$index:${point.price}" }] = point
         }
-        return merged.values.toList().takeLast(maxSize)
+        val values = merged.values.toList()
+        return if (values.size <= maxSize) values else values.takeLast(maxSize)
     }
 
     private fun mergeTradeTicks(
@@ -1080,11 +1160,15 @@ class StockMarketViewModel(
         incoming: List<StockTradeTick>
     ): List<StockTradeTick> {
         if (incoming.isEmpty()) return previous
-        val merged = LinkedHashMap<String, StockTradeTick>()
-        (previous + incoming).forEach { tick ->
+        val merged = LinkedHashMap<String, StockTradeTick>(previous.size + incoming.size)
+        previous.forEach { tick ->
             merged["${tick.time}|${tick.price}|${tick.volume}|${tick.direction}"] = tick
         }
-        return merged.values.toList().takeLast(MAX_TRADE_TICKS)
+        incoming.forEach { tick ->
+            merged["${tick.time}|${tick.price}|${tick.volume}|${tick.direction}"] = tick
+        }
+        val result = merged.values.toList().takeLast(MAX_TRADE_TICKS)
+        return if (result == previous) previous else result
     }
 
     private fun acceptSequence(code: String, minuteDays: Int, sequence: Long): Boolean {
@@ -1122,6 +1206,12 @@ class StockMarketViewModel(
         failureCount == 2 -> 2_000L
         failureCount == 3 -> 4_000L
         else -> 8_000L
+    }
+
+    private fun kLineCacheTtlMs(period: String): Long = when (period) {
+        "daily" -> KLINE_DAILY_CACHE_TTL_MS
+        "weekly" -> KLINE_WEEKLY_CACHE_TTL_MS
+        else -> KLINE_MONTHLY_CACHE_TTL_MS
     }
 
     private fun <K, V> LinkedHashMap<K, V>.putBounded(
@@ -1186,6 +1276,9 @@ class StockMarketViewModel(
         private const val MARKET_RECOVERY_INTERVAL_MS = 3_000L
         private const val SLOW_DETAIL_DELAY_MS = 900L
         private const val SLOW_DETAIL_REFRESH_TTL_MS = 120_000L
+        private const val KLINE_DAILY_CACHE_TTL_MS = 15_000L
+        private const val KLINE_WEEKLY_CACHE_TTL_MS = 120_000L
+        private const val KLINE_MONTHLY_CACHE_TTL_MS = 300_000L
         private const val MAX_ONE_DAY_POINTS = 600
         private const val MAX_FIVE_DAY_POINTS = 2_600
         private const val MAX_TRADE_TICKS = 120
