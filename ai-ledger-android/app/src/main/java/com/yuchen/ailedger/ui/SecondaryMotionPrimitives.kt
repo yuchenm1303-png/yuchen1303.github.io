@@ -25,11 +25,11 @@ internal data class SecondaryMotionVisual(
 )
 
 /**
- * 二级页面的轴向运动语义。
+ * 二级页面的轻量轴向运动语义。
  *
- * Capsule 只沿页面中心轴轻抬升，避免与内部卡片叠加后形成右下角斜飞感；Push/Pop 只
- * 保留水平方向，用于表达真实层级；Replace 与 Modal 保持居中的纵向运动。直接使用弹簧
- * 原始进度，允许极轻的反向越界，因此不需要额外扫光或整页缩放也能保留灵动感。
+ * 页面本身只承担很小的空间位移。灵动感由共享时间轴上的克制 Back-Out 曲线产生，不再
+ * 依赖多个并行动画、整页缩放或光效。Capsule 沿中心轴抬升，Push/Pop 只表达水平层级，
+ * Replace 与 Modal 保持居中。
  */
 internal fun secondaryMotionVisual(
     rawProgress: Float,
@@ -39,33 +39,44 @@ internal fun secondaryMotionVisual(
     verticalTravelPx: Float,
 ): SecondaryMotionVisual {
     val clamped = rawProgress.coerceIn(0f, 1f)
-    val springProgress = rawProgress.coerceIn(0f, 1.10f)
     val sign = if (direction == SecondaryMotionDirection.Forward) 1f else -1f
-    val alpha = secondaryMotionSmoothStep((clamped * 1.42f).coerceIn(0f, 1f))
+    val progress = when (type) {
+        SecondaryMotionType.Capsule -> secondaryMotionBackOut(clamped, overshoot = 0.34f)
+        SecondaryMotionType.Push -> secondaryMotionBackOut(clamped, overshoot = 0.22f)
+        SecondaryMotionType.Replace -> secondaryMotionBackOut(clamped, overshoot = 0.10f)
+        SecondaryMotionType.Modal -> secondaryMotionBackOut(clamped, overshoot = 0.30f)
+    }
+    val alpha = when (type) {
+        SecondaryMotionType.Capsule,
+        SecondaryMotionType.Push -> 1f
+
+        SecondaryMotionType.Replace -> secondaryMotionSmoothStep((clamped * 1.90f).coerceIn(0f, 1f))
+        SecondaryMotionType.Modal -> secondaryMotionSmoothStep((clamped * 1.65f).coerceIn(0f, 1f))
+    }
 
     return when (type) {
         SecondaryMotionType.Capsule -> SecondaryMotionVisual(
             alpha = alpha,
             translationX = 0f,
-            translationY = verticalTravelPx * (1f - springProgress),
+            translationY = verticalTravelPx * (1f - progress),
         )
 
         SecondaryMotionType.Push -> SecondaryMotionVisual(
             alpha = alpha,
-            translationX = sign * horizontalTravelPx * (1f - springProgress),
+            translationX = sign * horizontalTravelPx * (1f - progress),
             translationY = 0f,
         )
 
         SecondaryMotionType.Replace -> SecondaryMotionVisual(
             alpha = alpha,
             translationX = 0f,
-            translationY = verticalTravelPx * (1f - springProgress),
+            translationY = verticalTravelPx * (1f - progress),
         )
 
         SecondaryMotionType.Modal -> SecondaryMotionVisual(
             alpha = alpha,
             translationX = 0f,
-            translationY = verticalTravelPx * (1f - springProgress),
+            translationY = verticalTravelPx * (1f - progress),
         )
     }
 }
@@ -79,6 +90,14 @@ internal fun Modifier.clipSecondaryPageVertically(): Modifier = drawWithContent 
     ) {
         this@drawWithContent.drawContent()
     }
+}
+
+/**
+ * 低幅度 Back-Out。overshoot 只控制落位后的极小反向越界，不改变布局尺寸。
+ */
+internal fun secondaryMotionBackOut(value: Float, overshoot: Float): Float {
+    val x = value.coerceIn(0f, 1f) - 1f
+    return 1f + (overshoot + 1f) * x * x * x + overshoot * x * x
 }
 
 internal fun secondaryMotionSmoothStep(value: Float): Float {
