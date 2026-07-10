@@ -1,17 +1,32 @@
-# AI Ledger 核心启动、聊天、玻璃与智能体热路径。
+# AI Ledger 核心启动、聊天、玻璃、股票与智能体热路径。
 # 仅影响 ART 预编译与 DEX 布局，不改变任何界面、动画和业务行为。
 
 Lcom/yuchen/ailedger/AiLedgerApplication;
 Lcom/yuchen/ailedger/MainActivity;
 Lcom/yuchen/ailedger/AssistantViewModel;
+Lcom/yuchen/ailedger/StockMarketViewModel;
+Lcom/yuchen/ailedger/StockNativePageViewModel;
+Lcom/yuchen/ailedger/ToolsMarketHeroViewModel;
 Lcom/yuchen/ailedger/model/AssistantUiState;
 Lcom/yuchen/ailedger/model/ChatMessage;
 Lcom/yuchen/ailedger/model/ChatAttachment;
+Lcom/yuchen/ailedger/model/StockDetailUiState;
+Lcom/yuchen/ailedger/model/StockQuote;
+Lcom/yuchen/ailedger/model/StockMinutePoint;
+Lcom/yuchen/ailedger/model/StockKLinePoint;
+Lcom/yuchen/ailedger/model/StockMarketHomeSnapshot;
 
 Lcom/yuchen/ailedger/data/AssistantPreferencesStore;
 Lcom/yuchen/ailedger/data/ProductionAssistantRepository;
 Lcom/yuchen/ailedger/data/AssistantRepositoryKt;
 Lcom/yuchen/ailedger/data/LedgerStore;
+Lcom/yuchen/ailedger/data/StockHttpClient;
+Lcom/yuchen/ailedger/data/StockRepository;
+Lcom/yuchen/ailedger/data/StockRealtimeRepository;
+Lcom/yuchen/ailedger/data/StockMarketDataRepository;
+Lcom/yuchen/ailedger/data/StockMarketStageRepository;
+Lcom/yuchen/ailedger/data/StockMarketSnapshotParser;
+Lcom/yuchen/ailedger/data/StockNativePageRepository;
 
 Lcom/yuchen/ailedger/service/AiWorkerClient;
 Lcom/yuchen/ailedger/service/AiWorkerPayloadBuilder;
@@ -49,6 +64,12 @@ Lcom/yuchen/ailedger/ui/BlurredBackdropBlurKt;
 Lcom/yuchen/ailedger/ui/GlassKt;
 Lcom/yuchen/ailedger/ui/GlassBackdropKt;
 Lcom/yuchen/ailedger/ui/LegacyOpenGLGlassPreviewShellKt;
+Lcom/yuchen/ailedger/ui/StockMarketScreensKt;
+Lcom/yuchen/ailedger/ui/StockNativeRouteHostKt;
+Lcom/yuchen/ailedger/ui/StockNativeHomePagesKt;
+Lcom/yuchen/ailedger/ui/StockNativeDetailPagesKt;
+Lcom/yuchen/ailedger/ui/StockWebMirrorTerminalKt;
+Lcom/yuchen/ailedger/ui/StockFirstToolsHomeScreenKt;
 
 Lcom/yuchen/ailedger/ui/gl/NewOpenGLGlassCardLayerKt;
 Lcom/yuchen/ailedger/ui/gl/OpenGLGlassCardLayerKt;
