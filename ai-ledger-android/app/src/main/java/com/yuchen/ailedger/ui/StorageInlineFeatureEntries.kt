@@ -34,17 +34,22 @@ internal fun StorageInlineFeatureSection(
     if (entries.isEmpty()) return
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            "进阶工具",
-            color = Color.White.copy(alpha = 0.72f),
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Black,
-        )
+        SecondaryStageReveal(
+            role = SecondaryStageRole.Header,
+            motionIntensity = state.motionIntensity,
+        ) {
+            Text(
+                "进阶工具",
+                color = Color.White.copy(alpha = 0.72f),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
         entries.forEachIndexed { index, entry ->
-            SecondaryStaggeredReveal(
-                index = index,
+            SecondaryStageReveal(
+                role = if (index == 0) SecondaryStageRole.Primary else SecondaryStageRole.Supporting,
+                index = (index - 1).coerceAtLeast(0),
                 motionIntensity = state.motionIntensity,
-                tone = entry.tone,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 PressableGlass(
