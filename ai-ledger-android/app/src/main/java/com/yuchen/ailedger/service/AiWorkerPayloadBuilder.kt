@@ -15,6 +15,31 @@ import org.json.JSONObject
 private const val CLIENT_TOOL_RESULT_MARKER = "[[AI_LEDGER_CLIENT_TOOL_RESULT_V1]]"
 private const val AI_WORKER_HISTORY_LIMIT = 24
 
+private object InstalledAppsPayloadJsonCache {
+    private val lock = Any()
+    private var source: List<InstalledAppEntry>? = null
+    private var payload: JSONArray? = null
+
+    fun get(apps: List<InstalledAppEntry>): JSONArray = synchronized(lock) {
+        val cached = payload
+        if (source === apps && cached != null) return@synchronized cached
+
+        JSONArray().apply {
+            apps.asSequence()
+                .take(AI_WORKER_NORMAL_CHAT_DEVICE_PROBE_MAX_APPS)
+                .forEach { app ->
+                    put(JSONObject().apply {
+                        put("label", app.label)
+                        put("packageName", app.packageName)
+                    })
+                }
+        }.also { next ->
+            source = apps
+            payload = next
+        }
+    }
+}
+
 internal object AiWorkerPayloadBuilder {
     fun build(
         messages: List<ChatMessage>,
@@ -46,13 +71,16 @@ internal object AiWorkerPayloadBuilder {
             }
             ?: AssistantMemoryCompiler.compileBackendOwned(latestUserText)
         val stickerPreferences = InlineStickerDisplaySettings.currentExpressionPreferences(appContext)
-        val installedApps = if (hasImage) {
-            emptyList()
+        val installedAppsJson = if (hasImage) {
+            JSONArray()
         } else {
             appContext
-                ?.let { context -> InstalledAppIndex(context).getLaunchableApps() }
-                .orEmpty()
-                .take(AI_WORKER_NORMAL_CHAT_DEVICE_PROBE_MAX_APPS)
+                ?.let { context ->
+                    InstalledAppsPayloadJsonCache.get(
+                        InstalledAppIndex(context).getLaunchableApps(),
+                    )
+                }
+                ?: JSONArray()
         }
         val selectedModelId = when {
             hasImage -> AI_WORKER_QWEN_VISION_ROUTE_ID
@@ -147,7 +175,7 @@ internal object AiWorkerPayloadBuilder {
                 put("deviceTools", JSONArray(supportedDeviceSteps))
                 put("mobileActions", JSONArray(supportedMobileActions))
                 put("preferenceUpdates", JSONArray(supportedPreferenceUpdates))
-                put("installedApps", installedApps.toInstalledAppsJson())
+                put("installedApps", installedAppsJson)
                 put("workspaceModeToggle", true)
                 put("workspaceModeEnabled", workspaceModeEnabled)
                 put("visualDecisionOwner", "gui_plus_exclusive")
@@ -260,15 +288,6 @@ internal object AiWorkerPayloadBuilder {
                 attachment.width?.let { put("width", it) }
                 attachment.height?.let { put("height", it) }
                 attachment.sizeBytes?.let { put("sizeBytes", it) }
-            })
-        }
-    }
-
-    private fun List<InstalledAppEntry>.toInstalledAppsJson(): JSONArray = JSONArray().apply {
-        forEach { app ->
-            put(JSONObject().apply {
-                put("label", app.label)
-                put("packageName", app.packageName)
             })
         }
     }
