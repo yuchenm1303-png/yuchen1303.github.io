@@ -157,7 +157,10 @@ fun AStockMarketScreenV2(
                     direction = routeDirection,
                     modifier = Modifier.fillMaxSize(),
                 ) { current ->
-                    StockNativeEntranceSequenceHost(routeKey = current) {
+                    StockNativeEntranceSequenceHost(
+                        routeKey = current,
+                        direction = routeDirection,
+                    ) {
                         when (current) {
                             StockNativeRoute.Home -> {
                                 val marketUi by marketViewModel.uiState.collectAsStateWithLifecycle()
