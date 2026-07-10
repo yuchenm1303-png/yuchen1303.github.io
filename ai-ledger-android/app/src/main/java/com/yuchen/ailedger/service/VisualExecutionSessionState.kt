@@ -1,8 +1,11 @@
 package com.yuchen.ailedger.service
 
 /**
- * Session facade that applies target-binding side effects around a pure execution state machine.
- * It never reads the user's instruction and never chooses, ranks or substitutes an app.
+ * Session facade for the visual execution loop.
+ *
+ * Package binding is retained as diagnostic/bootstrap metadata, but a fresh visual frame is the
+ * authoritative continuous computer-use surface. Android does not revoke GUI Plus ownership merely
+ * because the foreground package changed between observations.
  */
 class VisualExecutionSessionState(
     targetBinding: VisualTargetBinding = GlobalVisualTargetBinding,
@@ -42,8 +45,9 @@ class VisualExecutionSessionState(
     }
 
     /**
-     * Grants WorkSurface only from the coordinator's complete verification proof: the exact
-     * GUI Plus-selected package, at least two stable samples and a final visual frame.
+     * Retains the strict package proof used by deterministic open_app bootstrap. Normal visual turns
+     * do not depend on this proof: once Android has a fresh screenshot, GUI Plus may continue across
+     * launcher, system UI, another app, a file picker or any other visible surface.
      */
     fun markTargetVerified(
         expectedPackage: String,
@@ -72,31 +76,26 @@ class VisualExecutionSessionState(
         stateMachine.markStructuralReplan()
     }
 
-    /**
-     * Every GUI Plus planning turn must be backed by a fresh Android observation. The request is
-     * accepted by the backend only as either a strict verified work surface or a non-strict entry
-     * handoff surface; therefore Planning/Launching/Replanning must not fall back to node-only
-     * snapshots.
-     */
+    /** Every GUI Plus turn is screenshot-native. This avoids node-only transition turns. */
     fun requiresVisualObservation(): Boolean {
-        if (forceFirstVisualObservation) {
-            forceFirstVisualObservation = false
-            return true
-        }
-        return stateMachine.requiresVisualObservation() ||
-            entryHandoffActive ||
-            stateMachine.surfaceState != VisualSurfaceState.WorkSurface
+        if (forceFirstVisualObservation) forceFirstVisualObservation = false
+        return true
     }
 
     fun synchronizeWith(snapshot: AgentScreenSnapshot? = null) {
-        stateMachine.synchronizeWith(snapshot?.packageName.orEmpty())
+        val value = snapshot ?: return
+        // A complete visual frame is already the authoritative current surface. Do not feed its
+        // package transition into the legacy foreign-package revocation state machine.
+        if (!value.hasVisualImage) stateMachine.synchronizeWith(value.packageName)
     }
 
     fun requiresForeignConfirmation(snapshot: AgentScreenSnapshot): Boolean {
+        if (snapshot.hasVisualImage) return false
         return stateMachine.requiresForeignConfirmation(snapshot.packageName)
     }
 
     fun isVerifiedWorkSurface(snapshot: AgentScreenSnapshot): Boolean {
+        if (snapshot.hasVisualImage) return true
         return stateMachine.isVerifiedWorkSurface(snapshot.packageName) || isEntryHandoffSurface(snapshot)
     }
 
@@ -107,16 +106,45 @@ class VisualExecutionSessionState(
             routeEpoch = stateMachine.routeEpoch,
             surfaceEpoch = stateMachine.surfaceEpoch,
         )
+        val hasFreshVisualFrame = snapshot.hasVisualImage
+        val currentPackage = snapshot.packageName.trim()
+        val legacyVerifiedPackage = stateMachine.verifiedTargetPackage
+        val packageChanged = currentPackage.isNotBlank() &&
+            legacyVerifiedPackage.isNotBlank() &&
+            currentPackage != legacyVerifiedPackage
         val entryHandoffSurface = isEntryHandoffSurface(snapshot)
+        val continuousSurface = hasFreshVisualFrame
+
+        // WorkSurface remains visible for the exact deterministic bootstrap target. A package switch
+        // is represented as a new continuous planning frame, never as structural regression.
+        val effectiveSurfaceState = when {
+            continuousSurface && (packageChanged || stateMachine.surfaceState == VisualSurfaceState.Replanning) ->
+                VisualSurfaceState.Planning
+            else -> stateMachine.surfaceState
+        }
+        val effectivePackage = currentPackage.takeIf(String::isNotBlank)
+        val effectiveSelectedPackage = if (continuousSurface) {
+            effectivePackage ?: stateMachine.selectedTargetPackage
+        } else {
+            stateMachine.selectedTargetPackage
+        }
+        val effectiveVerifiedPackage = if (continuousSurface) {
+            effectivePackage ?: stateMachine.verifiedTargetPackage
+        } else {
+            stateMachine.verifiedTargetPackage
+        }
+
         return VisualAgentRuntimeContext(
-            surfaceState = stateMachine.surfaceState,
-            selectedTargetPackage = stateMachine.selectedTargetPackage,
-            verifiedTargetPackage = stateMachine.verifiedTargetPackage,
+            surfaceState = effectiveSurfaceState,
+            selectedTargetPackage = effectiveSelectedPackage,
+            verifiedTargetPackage = effectiveVerifiedPackage,
             currentPackage = snapshot.packageName,
             observationId = observationId,
             routeEpoch = stateMachine.routeEpoch,
             surfaceEpoch = stateMachine.surfaceEpoch,
-            guiPlusEligible = stateMachine.isVerifiedWorkSurface(snapshot.packageName) || entryHandoffSurface,
+            guiPlusEligible = continuousSurface ||
+                stateMachine.isVerifiedWorkSurface(snapshot.packageName) ||
+                entryHandoffSurface,
         )
     }
 
