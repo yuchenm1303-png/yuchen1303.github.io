@@ -6,7 +6,12 @@ import org.json.JSONObject
 
 private const val VISUAL_INTERACTION_PROTOCOL = "gui_plus_dialogue_v2_bound_turns"
 
-/** The single visual request payload implementation. No legacy payload or cleanup pass exists. */
+/**
+ * The single visual request payload implementation.
+ *
+ * A fresh screenshot is the continuous computer-use surface. Package names remain factual context
+ * for diagnostics, app launching and permit anti-replay, but never decide whether GUI Plus may act.
+ */
 internal fun buildLeanVisualAgentPayload(
     goal: String,
     snapshot: AgentScreenSnapshot,
@@ -38,46 +43,33 @@ internal fun buildLeanVisualAgentPayload(
         .toList()
     val inventoryHash = apps.inventoryHash()
     val visual = snapshot.visual?.takeIf { it.hasImage }
-    val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName }
-    val strictWorkSurface = runtime.surfaceState == VisualSurfaceState.WorkSurface &&
-        runtime.selectedTargetPackage.isNotBlank() &&
-        runtime.verifiedTargetPackage.isNotBlank() &&
-        runtime.selectedTargetPackage == runtime.verifiedTargetPackage &&
-        runtime.guiPlusEligible
-    val entryHandoffSurface = visual != null &&
-        !strictWorkSurface &&
-        reportedPackage.isNotBlank() &&
-        reportedPackage != VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
-        runtime.surfaceState in setOf(
-            VisualSurfaceState.Planning,
-            VisualSurfaceState.Launching,
-            VisualSurfaceState.Replanning,
-        )
-    val effectiveSurfacePackage = if (strictWorkSurface) runtime.verifiedTargetPackage else reportedPackage
-    val packageBindingMode = if (strictWorkSurface) {
-        "strict_android_verified"
-    } else {
-        "final_model_bootstrap_first_frame"
-    }
-    val surfaceRole = if (entryHandoffSurface) "entry_handoff" else "work_surface"
+    val reportedPackage = snapshot.reportedForegroundPackage.trim().ifBlank { snapshot.packageName.trim() }
+    val continuousSurface = visual != null
+    val bootstrapFirstFrame = continuousSurface && runtime.surfaceState != VisualSurfaceState.WorkSurface
+    val effectiveSurfacePackage = reportedPackage
+    val packageBindingMode = "observation_bound_continuous"
+    val surfaceRole = "continuous_computer_use"
     val visualOwnership = JSONObject().apply {
-        put("schema", "android_gui_plus_exclusive_ownership_v2")
+        put("schema", "android_gui_plus_exclusive_ownership_v3_continuous_observation")
         put("owner", "gui_plus")
         put("exclusive", true)
-        put("entryRouterReleased", true)
+        put("entryRouterReleased", continuousSurface)
         put("allowAgentBrain", false)
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
+        put("packageSemanticGate", false)
     }
     val surfaceContext = JSONObject().apply {
         put("role", surfaceRole)
-        put("bootstrapFirstFrame", entryHandoffSurface)
-        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("bootstrapFirstFrame", bootstrapFirstFrame)
+        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
         put("packageBindingMode", packageBindingMode)
-        put("hasFreshVisualFrame", visual != null)
+        put("hasFreshVisualFrame", continuousSurface)
+        put("continuousComputerUse", true)
+        put("packageSemanticGate", false)
     }
     val runtimePayload = JSONObject().apply {
-        put("schema", "android_visual_execution_runtime_v2")
+        put("schema", "android_visual_execution_runtime_v3_continuous_observation")
         put("surfaceState", runtime.surfaceState.wireValue)
         put("selectedTargetPackage", runtime.selectedTargetPackage)
         put("verifiedTargetPackage", runtime.verifiedTargetPackage)
@@ -87,25 +79,30 @@ internal fun buildLeanVisualAgentPayload(
         put("observationId", runtime.observationId)
         put("routeEpoch", runtime.routeEpoch)
         put("surfaceEpoch", runtime.surfaceEpoch)
-        put("guiPlusEligible", strictWorkSurface || entryHandoffSurface)
-        put("targetPackageBound", runtime.verifiedTargetPackage.isNotBlank())
+        put("guiPlusEligible", continuousSurface)
+        put("targetPackageBound", continuousSurface && reportedPackage.isNotBlank())
         put("currentPackageMatchesVerifiedTarget", snapshot.packageName == runtime.verifiedTargetPackage)
         put("decisionOwner", "gui_plus")
         put("allowAgentBrain", false)
-        put("bootstrapFirstFrame", entryHandoffSurface)
-        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("bootstrapFirstFrame", bootstrapFirstFrame)
+        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
         put("surfaceRole", surfaceRole)
         put("packageBindingMode", packageBindingMode)
+        put("continuousComputerUse", true)
+        put("packageSemanticGate", false)
+        put("structuralRegression", false)
     }
     val executionFeedback = taskMemory.toExecutionFeedback(runtime, actions)
     val taskMemoryPayload = taskMemory?.toExecutionLedgerJson()
     val screenPayload = snapshot.toJson(includeImage = false).apply {
         put("reportedForegroundPackage", reportedPackage)
         put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
-        put("bootstrapFirstFrame", entryHandoffSurface)
-        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("bootstrapFirstFrame", bootstrapFirstFrame)
+        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
         put("packageBindingMode", packageBindingMode)
-        put("confidence", JSONObject().apply { put("hasVisualImage", visual != null) })
+        put("continuousComputerUse", true)
+        put("packageSemanticGate", false)
+        put("confidence", JSONObject().apply { put("hasVisualImage", continuousSurface) })
     }
 
     return JSONObject().apply {
@@ -134,9 +131,11 @@ internal fun buildLeanVisualAgentPayload(
         put("allowRoutePlanner", false)
         put("allowSemanticJudge", false)
         put("computerUseOwner", "gui_plus")
+        put("continuousComputerUse", true)
+        put("packageSemanticGate", false)
         put("visualOwnership", JSONObject(visualOwnership.toString()))
-        put("bootstrapFirstFrame", entryHandoffSurface)
-        put("exclusiveEntryHandoffSurface", entryHandoffSurface)
+        put("bootstrapFirstFrame", bootstrapFirstFrame)
+        put("exclusiveEntryHandoffSurface", bootstrapFirstFrame)
         put("surfaceRole", surfaceRole)
         put("runtimeExecutionContext", JSONObject(runtimePayload.toString()))
         put("observationId", runtime.observationId)
@@ -151,7 +150,7 @@ internal fun buildLeanVisualAgentPayload(
         put(
             "appCatalog",
             JSONObject().apply {
-                put("schema", "android_visual_app_catalog_v6_gui_plus_canonical")
+                put("schema", "android_visual_app_catalog_v7_continuous_computer_use")
                 put("identityProtocol", VisualAgentProtocol.appIdentityProtocol)
                 put("identityField", "packageName")
                 put("displayField", "label")
@@ -163,7 +162,7 @@ internal fun buildLeanVisualAgentPayload(
         put(
             "deviceContext",
             JSONObject().apply {
-                put("schema", "android_visual_device_context_v2")
+                put("schema", "android_visual_device_context_v3_continuous_observation")
                 put("currentPackage", snapshot.packageName)
                 put("reportedForegroundPackage", reportedPackage)
                 put("effectiveWorkSurfacePackage", effectiveSurfacePackage)
@@ -191,9 +190,9 @@ internal fun buildLeanVisualAgentPayload(
         put("supportedDeviceTools", JSONArray(CloudAgentStep.deviceToolTypes.toList()))
         put("supportsAgentStepBatch", false)
         put("actionBatchMax", 1)
-        put("hasScreenshot", visual != null)
-        put("hasImage", visual != null)
-        put("imageCount", if (visual != null) 1 else 0)
+        put("hasScreenshot", continuousSurface)
+        put("hasImage", continuousSurface)
+        put("imageCount", if (continuousSurface) 1 else 0)
         visual?.let { frame ->
             put(
                 "screenshot",
@@ -221,7 +220,7 @@ internal fun buildLeanVisualAgentPayload(
             },
         )
         put("client", "android-compose")
-        put("clientVersion", "visual-gui-plus-exclusive-v3-surface-contract")
+        put("clientVersion", "visual-gui-plus-exclusive-v4-continuous-observation")
         put("now", System.currentTimeMillis())
     }
 }
@@ -241,26 +240,25 @@ private fun VisualTaskMemory?.toExecutionFeedback(
         it.startsWith("userInstruction:[LATEST_USER_DIRECTIVE]") ||
             it.startsWith("visual_replan_requested:reason=user_instruction|")
     }
-    put("schema", "android_visual_execution_feedback_v2")
+    val taskRevisionPending = this@toExecutionFeedback?.taskRevisionPending == true
+    put("schema", "android_visual_execution_feedback_v3_continuous_observation")
     put("lastResultOk", lastResult ?: JSONObject.NULL)
     put("latestEvent", actions.lastOrNull().orEmpty())
     put("status", this@toExecutionFeedback?.progressStatus ?: "unknown")
     put("currentMilestoneId", this@toExecutionFeedback?.currentMilestoneId.orEmpty())
     put("completedMilestoneIds", JSONArray(this@toExecutionFeedback?.completedMilestoneIds.orEmpty()))
     put("taskRevision", this@toExecutionFeedback?.taskRevision ?: 0)
-    put("taskRevisionPending", this@toExecutionFeedback?.taskRevisionPending == true)
+    put("taskRevisionPending", taskRevisionPending)
     put("currentMilestoneInvalidated", this@toExecutionFeedback?.currentMilestoneInvalidated == true)
     put("userDirectivePending", userDirectivePending)
-    put(
-        "replanRequested",
-        userDirectivePending ||
-            this@toExecutionFeedback?.taskRevisionPending == true ||
-            runtime.surfaceState == VisualSurfaceState.Replanning,
-    )
-    put("structuralRegression", runtime.surfaceState == VisualSurfaceState.Replanning)
+    put("replanRequested", userDirectivePending || taskRevisionPending)
+    put("structuralRegression", false)
+    put("packageChangedIsProgressSignal", false)
+    put("packageSemanticGate", false)
     put("semanticDecisionOwner", "gui_plus")
     put("localSemanticDecision", false)
     put("executionLedgerOnly", true)
+    put("currentObservationId", runtime.observationId)
 }
 
 private fun VisualTaskMemory.toExecutionLedgerJson(): JSONObject = JSONObject().apply {
@@ -272,8 +270,8 @@ private fun VisualTaskMemory.toExecutionLedgerJson(): JSONObject = JSONObject().
     put("confirmedFacts", JSONArray(confirmedFacts))
     put("lastConfirmedPage", lastConfirmedPage?.toJson() ?: JSONObject.NULL)
     put("progressStatus", progressStatus)
-    put("replanRequested", replanRequested || taskRevisionPending)
-    put("recoveryMode", recoveryMode || taskRevisionPending)
+    put("replanRequested", taskRevisionPending)
+    put("recoveryMode", taskRevisionPending)
     put("legacyMode", legacyMode)
     put("taskContract", taskContract?.toJson() ?: JSONObject.NULL)
     put("taskRevision", taskRevision)
@@ -287,6 +285,7 @@ private fun VisualTaskMemory.toExecutionLedgerJson(): JSONObject = JSONObject().
     put("semanticDecisionOwner", "gui_plus")
     put("localSemanticDecision", false)
     put("executionLedgerOnly", true)
+    put("packageSemanticGate", false)
 }
 
 private fun VisualAgentAppContextItem.toPayloadJson(): JSONObject = JSONObject().apply {
