@@ -161,6 +161,8 @@ internal class VisualAgentCapsuleHost(
         val screenWidth = service.resources.displayMetrics.widthPixels
         val collapsedWidth = min(dp(COLLAPSED_WIDTH_DP), screenWidth - dp(20f))
         val collapsedHeight = dp(COLLAPSED_HEIGHT_DP)
+        val horizontalWindowInset = dp(WINDOW_HORIZONTAL_INSET_DP)
+        val verticalWindowInset = dp(WINDOW_VERTICAL_INSET_DP)
 
         val windowContainer = FrameLayout(service).apply {
             clipChildren = false
@@ -193,19 +195,21 @@ internal class VisualAgentCapsuleHost(
         )
         windowContainer.addView(
             root,
-            FrameLayout.LayoutParams(collapsedWidth, collapsedHeight, Gravity.TOP or Gravity.CENTER_HORIZONTAL),
+            FrameLayout.LayoutParams(collapsedWidth, collapsedHeight, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply {
+                topMargin = verticalWindowInset
+            },
         )
 
         val params = WindowManager.LayoutParams(
-            collapsedWidth,
-            collapsedHeight,
+            collapsedWidth + horizontalWindowInset * 2,
+            collapsedHeight + verticalWindowInset * 2,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             capsuleWindowFlags(hidden = hiddenForCapture, wantsInputFocus = false),
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = 0
-            y = topWindowInsetPx()
+            y = topWindowInsetPx() - verticalWindowInset
             alpha = 1f
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -667,6 +671,10 @@ internal class VisualAgentCapsuleHost(
         val expandedHeight = min(dp(expandedHeightDp(latestPresentation)), maxHeight)
         val targetWidth = if (expanded) expandedWidth else collapsedWidth
         val targetHeight = if (expanded) expandedHeight else collapsedHeight
+        val horizontalWindowInset = dp(WINDOW_HORIZONTAL_INSET_DP)
+        val verticalWindowInset = dp(WINDOW_VERTICAL_INSET_DP)
+        val targetWindowWidth = targetWidth + horizontalWindowInset * 2
+        val targetWindowHeight = targetHeight + verticalWindowInset * 2
 
         if (expanded) bodyView?.visibility = View.VISIBLE
         val rootParams = root.layoutParams as? FrameLayout.LayoutParams ?: return
@@ -674,8 +682,8 @@ internal class VisualAgentCapsuleHost(
             (rootParams.width != targetWidth || rootParams.height != targetHeight || lastAppliedExpanded != expanded)
         if (!needsAnimation) {
             layoutAnimator?.cancel()
-            params.width = targetWidth
-            params.height = targetHeight
+            params.width = targetWindowWidth
+            params.height = targetWindowHeight
             rootParams.width = targetWidth
             rootParams.height = targetHeight
             root.layoutParams = rootParams
@@ -697,8 +705,8 @@ internal class VisualAgentCapsuleHost(
         val startExpansion = root.expansionProgress
         val endExpansion = if (expanded) 1f else 0f
         if (expanded) {
-            params.width = targetWidth
-            params.height = targetHeight
+            params.width = targetWindowWidth
+            params.height = targetWindowHeight
             runCatching { windowManager?.updateViewLayout(container, params) }
         }
         layoutAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
@@ -723,8 +731,8 @@ internal class VisualAgentCapsuleHost(
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     if (!expanded) {
-                        params.width = targetWidth
-                        params.height = targetHeight
+                        params.width = targetWindowWidth
+                        params.height = targetWindowHeight
                         runCatching { windowManager?.updateViewLayout(container, params) }
                     }
                     if (!expanded) bodyView?.visibility = View.INVISIBLE
@@ -1000,6 +1008,8 @@ internal class VisualAgentCapsuleHost(
         private const val COLLAPSED_WIDTH_DP = 232f
         private const val EXPANDED_WIDTH_DP = 352f
         private const val COLLAPSED_HEIGHT_DP = 48f
+        private const val WINDOW_HORIZONTAL_INSET_DP = 10f
+        private const val WINDOW_VERTICAL_INSET_DP = 10f
         private const val CONVERSATION_HEIGHT_DP = 116f
         private const val INPUT_HEIGHT_DP = 68f
         private const val USER_REPLY_MAX_CHARS = 2_000
