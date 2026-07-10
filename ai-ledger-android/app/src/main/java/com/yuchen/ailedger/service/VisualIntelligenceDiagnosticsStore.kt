@@ -13,8 +13,10 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,6 +34,12 @@ private const val MAX_FRAMES_PER_SESSION = 32
 private const val MAX_TRACE_BYTES_PER_SESSION = 5_000_000L
 private const val MAX_COPY_TEXT_CHARS = 900_000
 private const val MAX_RESPONSE_TEXT_CHARS = 80_000
+private const val DIAGNOSTICS_STATE_REFRESH_INTERVAL_MS = 420L
+
+private val VISUAL_DIAGNOSTIC_REDACTION_PATTERNS = listOf(
+    Regex("(?i)(password|passcode|verification\\s*code|otp|pin)\\s*[:=：]?\\s*[^\\s|,，;；]{2,}"),
+    Regex("(密码|验证码|支付密码|口令)\\s*[:=：]?\\s*[^\\s|,，;；]{2,}"),
+)
 
 internal data class VisualDiagnosticSessionSummary(
     val taskId: Long,
@@ -55,6 +63,7 @@ internal data class VisualIntelligenceDiagnosticsState(
 private data class SavedDiagnosticFrame(
     val file: File,
     val analysis: VisualDiagnosticFrameAnalysis,
+    val newlyCreated: Boolean,
 )
 
 private data class LatestDiagnosticFrame(
@@ -91,10 +100,13 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
     private val turnSequenceByTask = mutableMapOf<Long, Int>()
     private val activeTurnByTask = mutableMapOf<Long, String>()
     private val latestFrameByTask = mutableMapOf<Long, LatestDiagnosticFrame>()
+    private val summaryCache = mutableMapOf<String, JSONObject>()
 
     @Volatile
     private var currentTaskId: Long = 0L
     private var lastProgressFingerprint: String = ""
+    private var stateRefreshJob: Job? = null
+    private var lastStateRefreshAtMillis: Long = 0L
 
     init {
         scope.launch {
@@ -128,10 +140,6 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
         }
         scope.launch {
             val session = ensureSessionLocked(taskId, goal, System.currentTimeMillis())
-            updateSummaryLocked(session) { summary ->
-                summary.put("goal", redactText(goal).take(240))
-                summary.put("status", "准备执行")
-            }
             appendEventLocked(
                 session,
                 JSONObject().apply {
@@ -142,8 +150,12 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
                     put("goal", redactText(goal).take(240))
                 },
             )
+            updateSummaryLocked(session) { summary ->
+                summary.put("goal", redactText(goal).take(240))
+                summary.put("status", "准备执行")
+            }
             pruneLocked()
-            refreshStateLocked()
+            requestStateRefreshLocked(immediate = true)
         }
     }
 
@@ -209,8 +221,7 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
                 summary.put("latestResult", redactText(progress.lastResult).take(300))
                 if (!progress.running) summary.put("endedAt", progress.updatedAt)
             }
-            pruneLocked()
-            refreshStateLocked()
+            requestStateRefreshLocked(immediate = !progress.running)
         }
     }
 
@@ -275,10 +286,12 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
             updateSummaryLocked(session) { summary ->
                 summary.put("updatedAt", System.currentTimeMillis())
                 summary.put("observationCount", summary.optInt("observationCount") + 1)
-                summary.put("frameCount", session.listFiles { file -> file.extension.equals("jpg", true) }?.size ?: 0)
+                if (frame?.newlyCreated == true) {
+                    summary.put("frameCount", summary.optInt("frameCount") + 1)
+                }
                 summary.put("latestPackage", observation.packageName.take(160))
             }
-            refreshStateLocked()
+            requestStateRefreshLocked()
         }
     }
 
@@ -323,7 +336,7 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
                 summary.put("latestObservationId", copy.optString("observationId").take(180))
                 summary.put("latestDecisionOwner", copy.optString("visualDecisionOwner").take(80))
             }
-            refreshStateLocked()
+            requestStateRefreshLocked()
         }
         return turnId
     }
@@ -376,7 +389,7 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
                 summary.put("modelDurationMs", summary.optLong("modelDurationMs") + durationMs)
                 summary.put("updatedAt", System.currentTimeMillis())
             }
-            refreshStateLocked()
+            requestStateRefreshLocked()
         }
     }
 
@@ -412,7 +425,7 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
                 summary.put("modelFailureCount", summary.optInt("modelFailureCount") + 1)
                 summary.put("updatedAt", System.currentTimeMillis())
             }
-            refreshStateLocked()
+            requestStateRefreshLocked()
         }
     }
 
@@ -438,16 +451,19 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
             updateSummaryLocked(session) { summary ->
                 summary.put("updatedAt", System.currentTimeMillis())
             }
-            refreshStateLocked()
+            requestStateRefreshLocked()
         }
     }
 
     fun clearAll() {
         scope.launch {
+            stateRefreshJob?.cancel()
+            stateRefreshJob = null
             rootDir.deleteRecursively()
             rootDir.mkdirs()
             exportDir.deleteRecursively()
             exportDir.mkdirs()
+            summaryCache.clear()
             synchronized(correlationLock) {
                 turnSequenceByTask.clear()
                 activeTurnByTask.clear()
@@ -455,7 +471,7 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
             }
             currentTaskId = 0L
             lastProgressFingerprint = ""
-            refreshStateLocked()
+            requestStateRefreshLocked(immediate = true)
         }
     }
 
@@ -534,28 +550,28 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
         val session = sessionDir(taskId).apply { mkdirs() }
         val summaryFile = File(session, "summary.json")
         if (!summaryFile.isFile) {
-            summaryFile.writeText(
-                JSONObject().apply {
-                    put("schema", "visual_intelligence_session_v2")
-                    put("taskId", taskId)
-                    put("goal", redactText(goal).take(240))
-                    put("status", "执行中")
-                    put("startedAt", timestamp.takeIf { it > 0L } ?: System.currentTimeMillis())
-                    put("updatedAt", timestamp.takeIf { it > 0L } ?: System.currentTimeMillis())
-                    put("endedAt", 0L)
-                    put("eventCount", 0)
-                    put("observationCount", 0)
-                    put("frameCount", 0)
-                    put("modelRequestCount", 0)
-                    put("modelResponseCount", 0)
-                    put("modelFailureCount", 0)
-                    put("modelRequestBytes", 0L)
-                    put("modelResponseBytes", 0L)
-                    put("modelDurationMs", 0L)
-                    put("latestAction", "")
-                    put("latestResult", "")
-                }.toString(2)
-            )
+            val summary = JSONObject().apply {
+                put("schema", "visual_intelligence_session_v2")
+                put("taskId", taskId)
+                put("goal", redactText(goal).take(240))
+                put("status", "执行中")
+                put("startedAt", timestamp.takeIf { it > 0L } ?: System.currentTimeMillis())
+                put("updatedAt", timestamp.takeIf { it > 0L } ?: System.currentTimeMillis())
+                put("endedAt", 0L)
+                put("eventCount", 0)
+                put("observationCount", 0)
+                put("frameCount", 0)
+                put("modelRequestCount", 0)
+                put("modelResponseCount", 0)
+                put("modelFailureCount", 0)
+                put("modelRequestBytes", 0L)
+                put("modelResponseBytes", 0L)
+                put("modelDurationMs", 0L)
+                put("latestAction", "")
+                put("latestResult", "")
+            }
+            summaryCache[session.absolutePath] = summary
+            summaryFile.writeText(summary.toString(2))
         } else if (goal.isNotBlank()) {
             updateSummaryLocked(session) { summary ->
                 if (summary.optString("goal").isBlank()) summary.put("goal", redactText(goal).take(240))
@@ -568,36 +584,73 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
         val trace = File(session, "trace.jsonl")
         if (trace.length() >= MAX_TRACE_BYTES_PER_SESSION) return
         trace.appendText(event.toString() + "\n")
-        updateSummaryLocked(session) { summary ->
+        mutateSummaryLocked(session) { summary ->
             summary.put("eventCount", summary.optInt("eventCount") + 1)
             summary.put("updatedAt", event.optLong("capturedAt", System.currentTimeMillis()))
         }
     }
 
+    private fun mutateSummaryLocked(session: File, update: (JSONObject) -> Unit) {
+        update(summaryJsonLocked(session))
+    }
+
     private fun updateSummaryLocked(session: File, update: (JSONObject) -> Unit) {
-        val file = File(session, "summary.json")
-        val summary = runCatching { JSONObject(file.readText()) }.getOrElse { JSONObject() }
+        val summary = summaryJsonLocked(session)
         update(summary)
-        file.writeText(summary.toString(2))
+        File(session, "summary.json").writeText(summary.toString(2))
+    }
+
+    private fun summaryJsonLocked(session: File): JSONObject {
+        val key = session.absolutePath
+        summaryCache[key]?.let { return it }
+        val file = File(session, "summary.json")
+        return runCatching { JSONObject(file.readText()) }
+            .getOrElse { JSONObject() }
+            .also { summaryCache[key] = it }
     }
 
     private fun saveFrameLocked(session: File, observation: ScreenObservation): SavedDiagnosticFrame? {
         val visual = observation.visual?.takeIf { it.hasImage && it.base64Jpeg.isNotBlank() } ?: return null
-        val existing = session.listFiles { file -> file.extension.equals("jpg", true) }.orEmpty()
         val hash = shortHash("${observation.packageName}|${visual.capturedAt}|${visual.base64Jpeg.take(96)}")
         val output = File(session, "frame_${visual.capturedAt}_$hash.jpg")
         if (output.isFile) {
             val bytes = runCatching { output.readBytes() }.getOrNull() ?: return null
-            return SavedDiagnosticFrame(output, VisualDiagnosticFrameAnalyzer.analyze(bytes))
+            return SavedDiagnosticFrame(
+                file = output,
+                analysis = VisualDiagnosticFrameAnalyzer.analyze(bytes),
+                newlyCreated = false,
+            )
         }
-        if (existing.size >= MAX_FRAMES_PER_SESSION) return null
+        if (summaryJsonLocked(session).optInt("frameCount") >= MAX_FRAMES_PER_SESSION) return null
         return runCatching {
             val bytes = Base64.decode(visual.base64Jpeg, Base64.DEFAULT)
             output.writeBytes(bytes)
-            SavedDiagnosticFrame(output, VisualDiagnosticFrameAnalyzer.analyze(bytes))
+            SavedDiagnosticFrame(
+                file = output,
+                analysis = VisualDiagnosticFrameAnalyzer.analyze(bytes),
+                newlyCreated = true,
+            )
         }.getOrElse {
             output.delete()
             null
+        }
+    }
+
+    private fun requestStateRefreshLocked(immediate: Boolean = false) {
+        if (immediate) {
+            stateRefreshJob?.cancel()
+            stateRefreshJob = null
+            refreshStateLocked()
+            return
+        }
+        if (stateRefreshJob?.isActive == true) return
+        val waitMillis = (
+            lastStateRefreshAtMillis + DIAGNOSTICS_STATE_REFRESH_INTERVAL_MS - System.currentTimeMillis()
+            ).coerceAtLeast(0L)
+        stateRefreshJob = scope.launch {
+            if (waitMillis > 0L) delay(waitMillis)
+            refreshStateLocked()
+            stateRefreshJob = null
         }
     }
 
@@ -606,8 +659,7 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
         val summaries = rootDir.listFiles { file -> file.isDirectory && file.name.startsWith("task_") }
             .orEmpty()
             .mapNotNull { dir ->
-                val file = File(dir, "summary.json")
-                val json = runCatching { JSONObject(file.readText()) }.getOrNull() ?: return@mapNotNull null
+                val json = runCatching { summaryJsonLocked(dir) }.getOrNull() ?: return@mapNotNull null
                 VisualDiagnosticSessionSummary(
                     taskId = json.optLong("taskId"),
                     goal = json.optString("goal"),
@@ -627,13 +679,17 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
             enabled = preferences.getBoolean(VISUAL_DIAGNOSTICS_ENABLED, true),
             sessions = summaries,
         )
+        lastStateRefreshAtMillis = System.currentTimeMillis()
     }
 
     private fun pruneLocked() {
         val sessions = rootDir.listFiles { file -> file.isDirectory && file.name.startsWith("task_") }
             .orEmpty()
             .sortedByDescending { File(it, "summary.json").lastModified().coerceAtLeast(it.lastModified()) }
-        sessions.drop(MAX_DIAGNOSTIC_SESSIONS).forEach { it.deleteRecursively() }
+        sessions.drop(MAX_DIAGNOSTIC_SESSIONS).forEach { session ->
+            summaryCache.remove(session.absolutePath)
+            session.deleteRecursively()
+        }
     }
 
     private fun resolveTaskId(): Long =
@@ -693,11 +749,9 @@ internal class VisualIntelligenceDiagnosticsStore private constructor(
             input.contains("PRIVATE_COMPLETION_TOKEN", true)
         ) return "[敏感内容已隐藏]"
         var value = input
-        val patterns = listOf(
-            Regex("(?i)(password|passcode|verification\\s*code|otp|pin)\\s*[:=：]?\\s*[^\\s|,，;；]{2,}"),
-            Regex("(密码|验证码|支付密码|口令)\\s*[:=：]?\\s*[^\\s|,，;；]{2,}"),
-        )
-        patterns.forEach { pattern -> value = value.replace(pattern) { "${it.groupValues[1]}：[敏感内容已隐藏]" } }
+        VISUAL_DIAGNOSTIC_REDACTION_PATTERNS.forEach { pattern ->
+            value = value.replace(pattern) { "${it.groupValues[1]}：[敏感内容已隐藏]" }
+        }
         return value.take(20_000)
     }
 
