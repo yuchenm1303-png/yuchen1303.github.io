@@ -24,19 +24,22 @@ internal object AppCacheMaintenance {
 
     private fun cleanupCameraDirectory(directory: File, nowMillis: Long) {
         if (!directory.isDirectory) return
-        directory.listFiles().orEmpty()
-            .filter(File::isFile)
-            .filter { file ->
-                nowMillis - file.lastModified() > CAMERA_MAX_AGE_MS ||
-                    (file.length() == 0L && nowMillis - file.lastModified() > EMPTY_FILE_MAX_AGE_MS)
+        val retained = ArrayList<File>()
+        directory.listFiles { file -> file.isFile }.orEmpty().forEach { file ->
+            val modifiedAt = file.lastModified()
+            val age = nowMillis - modifiedAt
+            val shouldDelete = age > CAMERA_MAX_AGE_MS ||
+                (file.length() == 0L && age > EMPTY_FILE_MAX_AGE_MS)
+            if (shouldDelete) {
+                runCatching { file.delete() }
+            } else {
+                retained += file
             }
-            .forEach { file -> runCatching { file.delete() } }
+        }
 
-        val newestFirst = directory.listFiles().orEmpty()
-            .filter(File::isFile)
-            .sortedByDescending(File::lastModified)
+        retained.sortByDescending(File::lastModified)
         var retainedBytes = 0L
-        newestFirst.forEachIndexed { index, file ->
+        retained.forEachIndexed { index, file ->
             retainedBytes += file.length()
             if (index >= CAMERA_MAX_FILES || retainedBytes > CAMERA_MAX_BYTES) {
                 runCatching { file.delete() }
