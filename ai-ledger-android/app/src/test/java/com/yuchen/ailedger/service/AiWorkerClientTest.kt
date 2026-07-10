@@ -13,6 +13,7 @@ import org.junit.Test
 class AiWorkerClientTest {
     @Test
     fun chatPayloadIncludesCloudFirstClientToolContract() {
+        AgentRuntimeController.setEnabled(false)
         AgentWorkspaceModeController.setEnabled(false)
         val payload = AiWorkerClient().buildChatPayloadForTest(
             messages = listOf(
@@ -30,6 +31,7 @@ class AiWorkerClientTest {
         val protocol = payload.getJSONObject("commandProtocol")
         val capabilities = payload.getJSONObject("clientCapabilities")
         val memoryRequest = payload.getJSONObject("memoryRequest")
+        val toolExecutionPolicy = payload.getJSONObject("toolExecutionPolicy")
         assertEquals(
             "ai_ledger_chat_expression_preferences_v1",
             preferences.getString("schema"),
@@ -39,9 +41,12 @@ class AiWorkerClientTest {
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-cloud-first-v3-gui-plus-exclusive-visual",
+            "compose-native-cloud-first-v4-required-tool-policy",
             payload.getString("clientVersion"),
         )
+        assertEquals("ai_ledger_tool_execution_policy_v1", toolExecutionPolicy.getString("schema"))
+        assertEquals("auto", toolExecutionPolicy.getString("mode"))
+        assertEquals("normal_chat", toolExecutionPolicy.getString("source"))
         assertEquals("cloud_final_model_v1", payload.getString("autoRouteAuthority"))
         assertEquals("cloud_final_chat_model", protocol.getString("decisionOwner"))
         assertEquals("classic", protocol.getString("workspaceMode"))
@@ -49,6 +54,7 @@ class AiWorkerClientTest {
         assertEquals("android_structured_tool_executor", protocol.getString("executionOwner"))
         assertEquals(AI_WORKER_CLIENT_TOOL_CALL_SCHEMA, protocol.getString("clientToolCallSchema"))
         assertEquals(AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL, protocol.getString("clientToolResultProtocol"))
+        assertEquals("ai_ledger_tool_execution_policy_v1", protocol.getString("toolExecutionPolicySchema"))
         assertEquals("gui_plus_exclusive", payload.getString("visualDecisionOwner"))
         assertFalse(payload.getBoolean("visualAgentBrainEnabled"))
         assertEquals("gui_plus_exclusive", protocol.getString("visualRouteMode"))
@@ -245,6 +251,7 @@ class AiWorkerClientTest {
             userAccessTokenProvider = { null },
         ),
     ).also {
+        AgentRuntimeController.setEnabled(false)
         AgentWorkspaceModeController.setEnabled(workspaceModeEnabled)
     }.buildChatPayloadForTest(
         messages = listOf(
