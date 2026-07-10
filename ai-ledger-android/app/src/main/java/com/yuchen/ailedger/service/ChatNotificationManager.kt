@@ -19,12 +19,14 @@ import com.yuchen.ailedger.MainActivity
 import com.yuchen.ailedger.R
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
+import com.yuchen.ailedger.model.MessageStatus
 import com.yuchen.ailedger.ui.StartupPerformanceGate
 import java.util.concurrent.Executors
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -34,8 +36,10 @@ object ChatNotificationManager {
     private const val NOTIFICATION_ID = 1303
     private const val EMPTY_NOTIFICATION_SIGNATURE = "empty"
     private const val STARTUP_GATE_TIMEOUT_MS = 5_000L
+    private const val STREAMING_NOTIFICATION_COALESCE_MS = 360L
     const val ACTION_OPEN_CHAT = "com.yuchen.ailedger.action.OPEN_CHAT"
 
+    private val notificationWhitespaceRegex = Regex("\\s+")
     private val dispatcher: CoroutineDispatcher = Executors.newSingleThreadExecutor { task ->
         Thread(
             {
@@ -74,6 +78,9 @@ object ChatNotificationManager {
         val appContext = context.applicationContext
         if (!canPostNotifications(appContext)) return
         val deferUntilUiStable = messages != null
+        val coalesceStreamingUpdate = !force && messages?.lastOrNull()?.let { message ->
+            message.role == MessageRole.Assistant && message.status == MessageStatus.Sending
+        } == true
 
         val request = NotificationRequest(
             context = appContext,
@@ -105,6 +112,7 @@ object ChatNotificationManager {
                     StartupPerformanceGate.awaitDeferredBusinessWindow()
                 }
             }
+            if (coalesceStreamingUpdate) delay(STREAMING_NOTIFICATION_COALESCE_MS)
             drainPendingRequests()
         }
     }
@@ -370,7 +378,7 @@ object ChatNotificationManager {
 
     private fun String.toNotificationLine(): String {
         return replace('\n', ' ')
-            .replace(Regex("\\s+"), " ")
+            .replace(notificationWhitespaceRegex, " ")
             .trim()
             .take(180)
             .ifBlank { "点击继续和 AI 助手聊天。" }
