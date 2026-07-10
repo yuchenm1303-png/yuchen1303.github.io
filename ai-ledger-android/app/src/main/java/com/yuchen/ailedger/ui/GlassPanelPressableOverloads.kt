@@ -16,9 +16,10 @@ import com.yuchen.ailedger.model.RenderQuality
 /**
  * Exact-arity overload for ordinary Compose glass panels.
  *
- * Keep the bottom composer input pill animated, restore Card panels to the shared matte-frost
- * material, and keep non-Card popovers on their quiet material. The original GlassPanel remains
- * the source of truth for Shell/OpenGL and advanced callers using viewportTopInset or intensity.
+ * Keep the bottom composer input pill animated, restore ordinary Card panels to the shared
+ * matte-frost material, and keep non-Card popovers on their quiet material. The original
+ * GlassPanel remains the source of truth for Shell/OpenGL and advanced callers using
+ * viewportTopInset or intensity.
  */
 @Composable
 fun GlassPanel(
@@ -45,18 +46,6 @@ fun GlassPanel(
         return
     }
 
-    if (role == GlassRole.Card) {
-        FrostInfoGlassPanel(
-            modifier = modifier,
-            radius = radius.coerceAtLeast(18).toFloat(),
-            backdropAlpha = 1f,
-            frostAlpha = (0.082f * glassIntensity).coerceIn(0.048f, 0.120f),
-            dimAlpha = 0f,
-            content = content
-        )
-        return
-    }
-
     val isComposerInputPill = radius >= 900
     if (isComposerInputPill) {
         PressableGlass(
@@ -68,6 +57,18 @@ fun GlassPanel(
             role = role,
             onClick = {},
             intensity = null,
+            content = content
+        )
+        return
+    }
+
+    if (role == GlassRole.Card) {
+        FrostInfoGlassPanel(
+            modifier = modifier,
+            radius = radius.coerceAtLeast(18).toFloat(),
+            backdropAlpha = 1f,
+            frostAlpha = (0.082f * glassIntensity).coerceIn(0.048f, 0.120f),
+            dimAlpha = 0f,
             content = content
         )
         return
