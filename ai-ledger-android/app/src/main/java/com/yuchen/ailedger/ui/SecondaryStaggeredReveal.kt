@@ -30,17 +30,20 @@ internal enum class SecondaryStageRole {
 
 private data class SecondaryStageSpec(
     val delayMillis: Long,
-    val offsetX: Float,
     val offsetY: Float,
-    val initialScaleX: Float,
-    val initialScaleY: Float,
-    val pulseScaleX: Float,
-    val pulseScaleY: Float,
+    val initialScale: Float,
     val dampingRatio: Float,
     val stiffness: Float,
     val transformOrigin: TransformOrigin,
 )
 
+/**
+ * 二级页面内部的中心对称分阶段入场。
+ *
+ * 顶部内容从正上方轻落，胶囊与卡片沿中心轴从正下方抬升；不再包含任何横向偏移，避免
+ * 与整页转场叠加后形成右下角斜飞。动画直接读取弹簧原始进度，让落位后的极轻反向位移
+ * 和统一缩放自然产生灵动感。静止后移除 graphicsLayer，不保留额外合成层。
+ */
 @Composable
 internal fun SecondaryStageReveal(
     role: SecondaryStageRole,
@@ -48,82 +51,51 @@ internal fun SecondaryStageReveal(
     motionIntensity: Float,
     modifier: Modifier = Modifier,
     transitionKey: Any? = Unit,
-    direction: SecondaryMotionDirection = SecondaryMotionDirection.Forward,
+    @Suppress("UNUSED_PARAMETER") direction: SecondaryMotionDirection = SecondaryMotionDirection.Forward,
     animate: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val motion = motionIntensity.coerceIn(0f, 1f)
     val density = LocalDensity.current
-    val sign = if (direction == SecondaryMotionDirection.Forward) 1f else -1f
-    val spec = remember(role, index, direction, density.density) {
-        val delay = when (role) {
-            SecondaryStageRole.Header -> min(index, 2) * 18L
-            SecondaryStageRole.Capsule -> 48L + min(index, 3) * 26L
-            SecondaryStageRole.Primary -> 92L + min(index, 3) * 30L
-            SecondaryStageRole.Supporting -> 136L + min(index, 4) * 34L
-            SecondaryStageRole.List -> 176L + min(index, 2) * 30L
-        }
-        val originX = when {
-            role != SecondaryStageRole.Capsule -> 0.50f
-            direction == SecondaryMotionDirection.Forward -> 0.22f
-            else -> 0.78f
-        }
+    val spec = remember(role, index, density.density) {
         SecondaryStageSpec(
-            delayMillis = delay,
-            offsetX = with(density) {
-                when (role) {
-                    SecondaryStageRole.Header -> 0.dp.toPx()
-                    SecondaryStageRole.Capsule -> 8.dp.toPx() * sign
-                    SecondaryStageRole.Primary -> 6.dp.toPx() * sign
-                    SecondaryStageRole.Supporting -> 3.dp.toPx() * sign
-                    SecondaryStageRole.List -> 0.dp.toPx()
-                }
+            delayMillis = when (role) {
+                SecondaryStageRole.Header -> min(index, 2) * 12L
+                SecondaryStageRole.Capsule -> 30L + min(index, 3) * 18L
+                SecondaryStageRole.Primary -> 62L + min(index, 3) * 22L
+                SecondaryStageRole.Supporting -> 92L + min(index, 4) * 24L
+                SecondaryStageRole.List -> 112L + min(index, 2) * 20L
             },
             offsetY = with(density) {
                 when (role) {
-                    SecondaryStageRole.Header -> 7.dp.toPx()
-                    SecondaryStageRole.Capsule -> 12.dp.toPx()
-                    SecondaryStageRole.Primary -> 10.dp.toPx()
-                    SecondaryStageRole.Supporting -> 8.dp.toPx()
+                    SecondaryStageRole.Header -> (-9).dp.toPx()
+                    SecondaryStageRole.Capsule -> 14.dp.toPx()
+                    SecondaryStageRole.Primary -> 12.dp.toPx()
+                    SecondaryStageRole.Supporting -> 9.dp.toPx()
                     SecondaryStageRole.List -> 7.dp.toPx()
                 }
             },
-            initialScaleX = when (role) {
-                SecondaryStageRole.Header, SecondaryStageRole.List -> 1f
-                SecondaryStageRole.Capsule -> 0.986f
-                SecondaryStageRole.Primary -> 0.992f
-                SecondaryStageRole.Supporting -> 0.996f
-            },
-            initialScaleY = when (role) {
-                SecondaryStageRole.Header, SecondaryStageRole.List -> 1f
-                SecondaryStageRole.Capsule -> 0.968f
-                SecondaryStageRole.Primary -> 0.980f
+            initialScale = when (role) {
+                SecondaryStageRole.Header -> 1f
+                SecondaryStageRole.Capsule -> 0.972f
+                SecondaryStageRole.Primary -> 0.981f
                 SecondaryStageRole.Supporting -> 0.988f
-            },
-            pulseScaleX = when (role) {
-                SecondaryStageRole.Capsule -> 0.0038f
-                SecondaryStageRole.Primary -> 0.0020f
-                SecondaryStageRole.Supporting -> 0.0010f
-                else -> 0f
-            },
-            pulseScaleY = when (role) {
-                SecondaryStageRole.Capsule -> -0.0028f
-                SecondaryStageRole.Primary -> -0.0014f
-                SecondaryStageRole.Supporting -> -0.0007f
-                else -> 0f
+                SecondaryStageRole.List -> 0.994f
             },
             dampingRatio = when (role) {
-                SecondaryStageRole.Header -> 0.94f
-                SecondaryStageRole.Capsule -> 0.82f
-                SecondaryStageRole.Primary -> 0.86f
-                SecondaryStageRole.Supporting -> 0.91f
-                SecondaryStageRole.List -> 0.94f
+                SecondaryStageRole.Header -> 0.86f
+                SecondaryStageRole.Capsule -> 0.74f
+                SecondaryStageRole.Primary -> 0.78f
+                SecondaryStageRole.Supporting -> 0.84f
+                SecondaryStageRole.List -> 0.90f
             },
             stiffness = when (role) {
-                SecondaryStageRole.Capsule, SecondaryStageRole.Primary -> Spring.StiffnessMediumLow
+                SecondaryStageRole.Capsule,
+                SecondaryStageRole.Primary -> Spring.StiffnessMediumLow
+
                 else -> Spring.StiffnessMedium
             },
-            transformOrigin = TransformOrigin(originX, if (role == SecondaryStageRole.Capsule) 0.52f else 0.58f),
+            transformOrigin = TransformOrigin(0.50f, 0.50f),
         )
     }
     val shouldAnimate = animate && motion > 0.05f
@@ -157,16 +129,15 @@ internal fun SecondaryStageReveal(
         Modifier
     } else {
         Modifier.graphicsLayer {
-            val raw = progress.value
+            val raw = progress.value.coerceIn(0f, 1.10f)
             val clamped = raw.coerceIn(0f, 1f)
-            val p = secondaryMotionSmoothStep(clamped)
-            val pulse = secondaryMotionArc(p)
-            val overshoot = (raw - 1f).coerceIn(0f, 0.08f)
-            alpha = (clamped * if (role == SecondaryStageRole.Header) 1.92f else 1.72f).coerceIn(0f, 1f)
-            translationX = spec.offsetX * (1f - p) - spec.offsetX * pulse * 0.045f
-            translationY = spec.offsetY * (1f - p) - spec.offsetY * pulse * 0.060f
-            scaleX = spec.initialScaleX + (1f - spec.initialScaleX) * p + spec.pulseScaleX * pulse - overshoot * 0.012f
-            scaleY = spec.initialScaleY + (1f - spec.initialScaleY) * p + spec.pulseScaleY * pulse + overshoot * 0.009f
+            val initialScale = 1f - (1f - spec.initialScale) * motion
+
+            alpha = secondaryMotionSmoothStep((clamped * 1.46f).coerceIn(0f, 1f))
+            translationX = 0f
+            translationY = spec.offsetY * motion * (1f - raw)
+            scaleX = initialScale + (1f - initialScale) * raw
+            scaleY = initialScale + (1f - initialScale) * raw
             transformOrigin = spec.transformOrigin
             compositingStrategy = CompositingStrategy.ModulateAlpha
         }
@@ -177,6 +148,10 @@ internal fun SecondaryStageReveal(
     }
 }
 
+/**
+ * 兼容原有按索引调用。新页面优先使用 [SecondaryStageReveal] 明确内容层级。
+ * [tone] 仅为兼容旧调用保留，不参与任何绘制。
+ */
 @Composable
 internal fun SecondaryStaggeredReveal(
     index: Int,
