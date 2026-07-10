@@ -10,6 +10,8 @@ object AgentSafetyPolicy {
         "home",
         "back",
         "recents",
+        "notifications",
+        "quick_settings",
         "tap_node",
         "tap_xy",
         "input_text",
