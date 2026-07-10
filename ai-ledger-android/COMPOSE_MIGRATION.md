@@ -1,84 +1,140 @@
-# AI Assistant Native Compose Migration
+# AI Ledger 原生 Compose 架构说明
 
-This document tracks the native Android direction for the AI assistant. The old
-Capacitor/WebView build remains intact while the Compose app grows to feature
-parity.
+本文档用于区分当前正式运行链路、历史兼容代码和受保护架构。整理代码时必须以本文件和实际入口源码为准，不能仅凭文件名判断是否可删除。
 
-## Goal
+## 当前正式运行链路
 
-Move the app shell, liquid glass surface, animation, navigation, and high-touch
-interactions from WebView/CSS into native Kotlin + Jetpack Compose.
+当前 Android App 使用顶层 `app` 模块构建原生 Kotlin / Jetpack Compose APK。
 
-Keep the useful service layer ideas from the web app:
+正式入口链路：
 
-- Cloudflare Worker AI parsing endpoint.
-- Ledger/chat data model.
-- Sync/account flow.
-- Native actions such as opening apps, alarms, and navigation.
+```text
+app/src/main/AndroidManifest.xml
+    → com.yuchen.ailedger.MainActivity
+    → com.yuchen.ailedger.ui.AiAssistantNativeApp
+    → CachedAppTabHost
+    → Assistant / Tools / Settings
+```
 
-## Current Native Preview
+核心目录：
 
-The top-level `app` module is now a buildable Compose preview app.
+- App 入口：`app/src/main/java/com/yuchen/ailedger/MainActivity.kt`
+- 根 Compose 路由：`app/src/main/java/com/yuchen/ailedger/ui/App.kt`
+- 首页与聊天：`app/src/main/java/com/yuchen/ailedger/ui/AssistantHomePolished.kt`
+- 主状态：`app/src/main/java/com/yuchen/ailedger/AssistantViewModel.kt`
+- 数据模型：`app/src/main/java/com/yuchen/ailedger/model/`
+- 数据层：`app/src/main/java/com/yuchen/ailedger/data/`
+- 服务层：`app/src/main/java/com/yuchen/ailedger/service/`
+- OpenGL 与 Compose UI：`app/src/main/java/com/yuchen/ailedger/ui/`
 
-- Entry: `app/src/main/java/com/yuchen/ailedger/MainActivity.kt`
-- View state: `app/src/main/java/com/yuchen/ailedger/AssistantViewModel.kt`
-- Models: `app/src/main/java/com/yuchen/ailedger/model`
-- Preview data: `app/src/main/java/com/yuchen/ailedger/data`
-- Service placeholders: `app/src/main/java/com/yuchen/ailedger/service`
-- Compose UI: `app/src/main/java/com/yuchen/ailedger/ui`
-- Build command: `npm.cmd run android:build:compose`
-- Direct Gradle command: `android/gradlew.bat -p . :app:assembleDebug`
-- CI workflow: `.github/workflows/build-compose-android-apk.yml`
+顶层 Gradle 工程只包含 `:app` 模块。正式 Compose 构建不依赖旧 `android/` 子工程。
 
-The existing Capacitor app still builds from `ai-ledger-android/android`.
+## 正式构建
 
-## Migration Phases
+正式 APK workflow：
 
-1. Native shell
-   - Compose activity.
-   - Assistant / Tools / Settings tabs.
-   - Starry weather background.
-   - Liquid glass surface primitives.
-   - Render quality settings.
+```text
+.github/workflows/build-compose-android-apk.yml
+```
 
-2. State and models
-   - `LedgerRecord`
-   - `ChatMessage`
-   - `AssistantCommand`
-   - `MobileAction`
-   - `UserPrefs`
+workflow 名称：
 
-3. Persistence
-   - DataStore for settings.
-   - Room or JSON store for ledger/chat history.
-   - Optional one-time migration from Web localStorage export.
+```text
+Build Compose Android APK
+```
 
-4. AI service
-   - Kotlin HTTP client for the existing Cloudflare Worker.
-   - Native command parser result types.
-   - Tool/action capability descriptions passed to the worker.
+主要构建任务：
 
-5. Native actions
-   - Android intents for opening apps.
-   - Alarm intents or AlarmManager flow.
-   - Navigation intents.
-   - Permission prompts only where required.
+```text
+:app:testDebugUnitTest
+:app:assembleDebug
+:app:assemblePerformance
+```
 
-6. Feature parity
-   - Chat and action cards.
-   - Ledger center.
-   - Statistics.
-   - Reminders.
-   - Sync/login.
+统一使用以下文件进行必要的无害构建触发：
 
-7. Replacement
-   - Keep both APK workflows until the Compose app is stable.
-   - Switch release distribution only after parity and real-device performance checks.
+```text
+app/.build-trigger.txt
+```
 
-## Rendering Principles
+不得重新增加 Gradle 文本替换补丁、临时源码 patch 或 workflow 自动修改 Kotlin 源码的链路。
 
-- Prefer one shared starry background instead of many expensive per-card effects.
-- Use thin translucent glass skins with low alpha and crisp text.
-- Use small press-scale feedback instead of large layout-changing animations.
-- Keep high quality mode as an experimental profile.
-- Default to balanced mode for everyday use.
+## 历史兼容区
+
+以下目录和文件来自早期 Capacitor / WebView 混合架构，目前不属于正式 Compose App 入口：
+
+- `android/`
+- 与 `AiLedgerWebViewFactory`、`AiLedgerNativeBridge`、`AiLedgerNativeShell` 相关的旧混合壳代码
+- 旧 Capacitor 构建脚本和网页同步脚本
+
+这些内容暂时作为历史兼容区保留。删除前必须同时满足：
+
+1. 当前入口、Manifest、Compose 路由均无引用。
+2. 全仓引用检查无调用。
+3. Debug 与 Performance APK 均成功构建。
+4. 轻量契约检查通过。
+5. 真机核心功能回归通过。
+
+不能因为文件看起来旧，就直接批量删除整个服务或数据目录。Manifest 注册组件、反射入口、Room/KSP 模型和 JavaScript bridge 必须单独核查。
+
+## 受保护架构
+
+### OpenGL 聊天框稳定链
+
+禁止破坏或移除：
+
+- `FixedHeightOverflowSlot`
+- `modelPanelVisualHeight`
+- `modelExpandDelta`
+- `LocalOpenGLGlassSurfaceAnchor`
+- `ChatPanelV2(viewportTopInset = modelExpandDelta)`
+- `GlassPanel(... viewportTopInset = viewportTopInset)`
+
+模型栏展开高度不得重新参与聊天大玻璃 Host 的真实布局压缩。
+
+### 聊天气泡完整功能链
+
+整理或优化 `AssistantHomePolished.kt` 时必须保留：
+
+- `RichMessageContent`
+- `MessageDataCards`
+- `AnimatedMessageBubbleV2`
+- `revealedMessageIds`
+- `rememberRevealTextStateV2`
+- `GeneratingMessageContentV2`
+- `StreamingAssistantContentV2`
+- `SweepingProgressTextV2`
+- `TypewriterTrailV2`
+- `LongReplyToggleV2`
+- `ThinkingDotsV2`
+- `thinkingPearlSurface`
+- `MessageActionsV2`
+- `MessageAttachmentListV2`
+- `MessageBadgeV2`
+
+性能优化只能缩小状态读取范围、稳定参数或减少无效工作，不能删减视觉和交互能力。
+
+### OpenGL 角色边界
+
+只允许真正的大玻璃容器使用单卡 OpenGL：
+
+```text
+GlassRole.Shell
+```
+
+`Card`、`Chip`、`Floating`、`Nav`、`Flex`、雾面玻璃、凹槽玻璃及普通小组件必须与 OpenGL registry 和 geometry sync 隔离。
+
+### 无障碍低负载基准
+
+`app/src/main/res/xml/ai_agent_accessibility_service.xml` 必须保持 Idle 低负载配置。窗口事件监听只能由 Kotlin 在任务执行期间临时切换，任务结束后必须恢复 Idle。
+
+## 清理原则
+
+代码整理按以下顺序进行：
+
+1. 删除历史触发文件、测试残留和未接入构建的 patch 文件。
+2. 清理不会参与运行的生成中间物和重复文档。
+3. 使用引用检查和构建结果确认旧 Kotlin 文件是否可删除。
+4. 最后再处理包结构和职责拆分。
+
+每一阶段都必须保持 Kotlin / Compose 源码为 APK 的唯一真实实现，不允许通过 Gradle、脚本或 workflow 在构建期间改写核心源码。
