@@ -8,13 +8,16 @@ import org.junit.Test
 
 class VisualAgentClientTest {
     @Test
-    fun verifiedTargetWorkSurfaceBelongsExclusivelyToGuiPlusAndUsesUnifiedProtocol() {
+    fun continuousVisualWorkSurfaceBelongsExclusivelyToGuiPlusAndUsesUnifiedProtocol() {
         val snapshot = testSnapshot(packageName = "com.tencent.mobileqq")
         val runtime = verifiedRuntimeContext(snapshot, snapshot.packageName)
         val payload = buildVisualAgentPayload(
             goal = "打开 QQ 个人主页",
             snapshot = snapshot,
-            recentActions = listOf("open_app:ok", "open_app_package_verified:package=com.tencent.mobileqq"),
+            recentActions = listOf(
+                "open_app:ok",
+                "open_app_execution_observed:expected=com.tencent.mobileqq|actual=com.tencent.mobileqq|hasFreshVisual=true",
+            ),
             visualHistory = listOf(history("one"), history("two"), history("three")),
             appContext = listOf(
                 VisualAgentAppContextItem(
@@ -43,14 +46,26 @@ class VisualAgentClientTest {
         assertEquals("gui_plus_exclusive_visual", payload.getString("decisionOwner"))
         assertTrue(payload.getBoolean("visualAgentDirect"))
         assertTrue(payload.getBoolean("exclusiveVisualSession"))
+        assertTrue(payload.getBoolean("continuousComputerUse"))
         assertFalse(payload.getBoolean("allowAgentBrain"))
+        assertFalse(payload.getBoolean("packageSemanticGate"))
         assertEquals(runtime.observationId, payload.getString("expectedActionObservationId"))
         assertFalse(payload.has("agentMemory"))
         assertEquals("gui_plus", payload.getJSONObject("visualOwnership").getString("owner"))
-        assertEquals("gui_plus", payload.getJSONObject("runtimeExecutionContext").getString("decisionOwner"))
-        assertEquals(runtime.observationId, payload.getJSONObject("runtimeExecutionContext").getString("observationId"))
-        assertEquals("strict_android_verified", payload.getJSONObject("runtimeExecutionContext").getString("packageBindingMode"))
-        assertEquals("strict_android_verified", payload.getJSONObject("deviceContext").getJSONObject("surfaceContext").getString("packageBindingMode"))
+
+        val runtimePayload = payload.getJSONObject("runtimeExecutionContext")
+        assertEquals("gui_plus", runtimePayload.getString("decisionOwner"))
+        assertEquals(runtime.observationId, runtimePayload.getString("observationId"))
+        assertEquals("observation_bound_continuous", runtimePayload.getString("packageBindingMode"))
+        assertEquals("continuous_computer_use", runtimePayload.getString("surfaceRole"))
+        assertTrue(runtimePayload.getBoolean("continuousComputerUse"))
+        assertFalse(runtimePayload.getBoolean("packageSemanticGate"))
+
+        val surfaceContext = payload.getJSONObject("deviceContext").getJSONObject("surfaceContext")
+        assertEquals("observation_bound_continuous", surfaceContext.getString("packageBindingMode"))
+        assertEquals("continuous_computer_use", surfaceContext.getString("role"))
+        assertTrue(surfaceContext.getBoolean("continuousComputerUse"))
+        assertFalse(surfaceContext.getBoolean("packageSemanticGate"))
         assertTrue(payload.isNull("taskMemory"))
 
         val supported = payload.getJSONArray("supportedAgentSteps")
@@ -163,7 +178,7 @@ class VisualAgentClientTest {
     }
 
     @Test
-    fun structuralReplanningUsesRuntimeStateWithoutLegacyRouteFlags() {
+    fun legacyStructuralStateCannotReintroducePackageSemanticReplanning() {
         val snapshot = testSnapshot(packageName = "com.yuchen.ailedger")
         val runtime = VisualAgentRuntimeContext(
             surfaceState = VisualSurfaceState.Replanning,
@@ -186,8 +201,12 @@ class VisualAgentClientTest {
         assertEquals("gui_plus_exclusive", payload.getString("visualDecisionOwner"))
         assertTrue(payload.getBoolean("exclusiveVisualSession"))
         assertFalse(payload.getBoolean("allowAgentBrain"))
-        assertTrue(payload.getJSONObject("executionFeedback").getBoolean("replanRequested"))
-        assertTrue(payload.getJSONObject("executionFeedback").getBoolean("structuralRegression"))
+
+        val feedback = payload.getJSONObject("executionFeedback")
+        assertFalse(feedback.getBoolean("replanRequested"))
+        assertFalse(feedback.getBoolean("structuralRegression"))
+        assertFalse(feedback.getBoolean("packageSemanticGate"))
+        assertEquals("gui_plus", feedback.getString("semanticDecisionOwner"))
     }
 
     @Test
