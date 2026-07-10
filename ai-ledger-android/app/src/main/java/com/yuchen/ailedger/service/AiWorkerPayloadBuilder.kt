@@ -14,6 +14,11 @@ import org.json.JSONObject
 
 private const val CLIENT_TOOL_RESULT_MARKER = "[[AI_LEDGER_CLIENT_TOOL_RESULT_V1]]"
 private const val AI_WORKER_HISTORY_LIMIT = 24
+private const val TOOL_EXECUTION_POLICY_SCHEMA = "ai_ledger_tool_execution_policy_v1"
+private const val TOOL_EXECUTION_POLICY_AUTO = "auto"
+private const val TOOL_EXECUTION_POLICY_REQUIRED_SPECIFIC = "required_specific"
+private const val TOOL_EXECUTION_POLICY_NONE = "none"
+private const val TOOL_COMPUTER_RUN_TASK = "computer_run_task"
 
 private object InstalledAppsPayloadJsonCache {
     private val lock = Any()
@@ -55,8 +60,29 @@ internal object AiWorkerPayloadBuilder {
         val latestUserText = latestUserContext.latestText
         val imageArray = latestUserContext.imageAttachments.toImageJsonArray()
         val hasImage = imageArray.length() > 0
-        val visualAgentModeEnabled = !hasImage && AgentRuntimeController.isEnabled()
+        val agentModeSnapshot = AgentRuntimeController.isEnabled()
+        val visualAgentModeEnabled = !hasImage && agentModeSnapshot
         val workspaceModeEnabled = !hasImage && AgentWorkspaceModeController.isEnabled()
+        val requestId = java.util.UUID.randomUUID().toString()
+        val toolExecutionPolicy = JSONObject().apply {
+            put("schema", TOOL_EXECUTION_POLICY_SCHEMA)
+            when {
+                hasImage -> {
+                    put("mode", TOOL_EXECUTION_POLICY_NONE)
+                    put("source", "vision_attachment")
+                }
+                visualAgentModeEnabled -> {
+                    put("mode", TOOL_EXECUTION_POLICY_REQUIRED_SPECIFIC)
+                    put("requiredTool", TOOL_COMPUTER_RUN_TASK)
+                    put("source", "agent_mode")
+                }
+                else -> {
+                    put("mode", TOOL_EXECUTION_POLICY_AUTO)
+                    put("source", "normal_chat")
+                }
+            }
+            put("messageId", latestUserContext.messageId.ifBlank { requestId })
+        }
         val appContext = AiLedgerApplication.contextOrNull()
         val memoryCompilation = appContext
             ?.let { context ->
@@ -102,11 +128,12 @@ internal object AiWorkerPayloadBuilder {
         val searchMode = if (onlineEnabled) "auto" else "off"
 
         return JSONObject().apply {
-            put("requestId", java.util.UUID.randomUUID().toString())
+            put("requestId", requestId)
             put("action", "chat")
             put("intent", if (hasImage) "vision_chat" else "chat")
             put("messages", messages.toWorkerMessages())
             put("message", latestUserText)
+            put("toolExecutionPolicy", toolExecutionPolicy)
             put("memoryMode", memoryCompilation.requestMode)
             put("memoryEnabled", memoryCompilation.memoryRequested)
             put("memoryRequest", memoryCompilation.diagnosticsJson())
@@ -161,6 +188,7 @@ internal object AiWorkerPayloadBuilder {
                 put("executionOwner", "android_structured_tool_executor")
                 put("clientToolCallSchema", AI_WORKER_CLIENT_TOOL_CALL_SCHEMA)
                 put("clientToolResultProtocol", AI_WORKER_CLIENT_TOOL_RESULT_PROTOCOL)
+                put("toolExecutionPolicySchema", TOOL_EXECUTION_POLICY_SCHEMA)
                 put("workspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
                 put("workspaceModeEnabled", workspaceModeEnabled)
                 put("visualDecisionOwner", "gui_plus_exclusive")
@@ -195,7 +223,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v3-gui-plus-exclusive-visual")
+            put("clientVersion", "compose-native-cloud-first-v4-required-tool-policy")
             put("now", System.currentTimeMillis())
         }
     }
@@ -229,7 +257,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v3-gui-plus-exclusive-visual")
+            put("clientVersion", "compose-native-cloud-first-v4-required-tool-policy")
         }
     }
 
@@ -244,6 +272,7 @@ internal object AiWorkerPayloadBuilder {
     }
 
     private data class LatestUserContext(
+        val messageId: String,
         val latestText: String,
         val imageAttachments: List<ResolvedImageAttachment>,
     )
@@ -273,7 +302,11 @@ internal object AiWorkerPayloadBuilder {
                     ResolvedImageAttachment(attachment = attachment, base64Data = it)
                 }
             }
-        return LatestUserContext(latestText = latestText, imageAttachments = images)
+        return LatestUserContext(
+            messageId = latestUserMessage?.id.orEmpty(),
+            latestText = latestText,
+            imageAttachments = images,
+        )
     }
 
     private fun List<ResolvedImageAttachment>.toImageJsonArray(): JSONArray = JSONArray().apply {
