@@ -88,19 +88,18 @@ internal object AgentAnalyticsRuntime {
         if (progress.taskId <= 0L) return
         runCatching {
             synchronized(lock) {
+                val progressGoal = progress.logs.firstOrNull { it.startsWith("目标：") }
+                    ?.removePrefix("目标：")
+                    ?.trim()
+                    .orEmpty()
                 val task = ensureTaskLocked(
                     taskId = progress.taskId,
-                    goal = progress.logs.firstOrNull { it.startsWith("目标：") }
-                        ?.removePrefix("目标：")
-                        .orEmpty(),
+                    goal = progressGoal,
                     startedAtMillis = progress.updatedAt,
                 )
                 val cursor = cursors.getOrPut(progress.taskId) { ProgressCursor() }
-                if (task.goal.isBlank()) {
-                    task.goal = progress.logs.firstOrNull { it.startsWith("目标：") }
-                        ?.removePrefix("目标：")
-                        ?.trim()
-                        .orEmpty()
+                if (task.goal.isBlank() && progressGoal.isNotBlank()) {
+                    task.goal = progressGoal
                 }
 
                 progress.pendingConfirmation?.let { pending ->
@@ -111,7 +110,9 @@ internal object AgentAnalyticsRuntime {
                 }
                 if (!cursor.takeoverPaused && progress.userTakeoverPaused) task.userTakeovers += 1L
 
-                appendedLogs(cursor.logs, progress.logs).forEach { entry ->
+                val appendedStart = appendedLogStart(cursor.logs, progress.logs)
+                for (index in appendedStart until progress.logs.size) {
+                    val entry = progress.logs[index]
                     when {
                         entry.startsWith("结果：") -> recordActionResultLocked(
                             task = task,
@@ -238,8 +239,8 @@ internal object AgentAnalyticsRuntime {
         response: JSONObject?,
         success: Boolean,
         durationMs: Long,
-        requestBytes: Long,
-        responseBytes: Long,
+        requestBytes: Int,
+        responseBytes: Int,
     ) {
         runCatching {
             val usage = if (success) {
@@ -407,13 +408,17 @@ internal object AgentAnalyticsRuntime {
         failures = failures,
     )
 
-    private fun appendedLogs(previous: List<String>, current: List<String>): List<String> {
-        if (previous.isEmpty()) return current
+    private fun appendedLogStart(previous: List<String>, current: List<String>): Int {
+        if (previous.isEmpty() || current.isEmpty()) return 0
         val maxOverlap = minOf(previous.size, current.size)
-        for (overlap in maxOverlap downTo 1) {
-            if (previous.takeLast(overlap) == current.take(overlap)) return current.drop(overlap)
+        overlapLoop@ for (overlap in maxOverlap downTo 1) {
+            val previousStart = previous.size - overlap
+            for (offset in 0 until overlap) {
+                if (previous[previousStart + offset] != current[offset]) continue@overlapLoop
+            }
+            return overlap
         }
-        return current
+        return 0
     }
 
     private fun isActionLogEntry(entry: String): Boolean {
@@ -431,14 +436,12 @@ internal object AgentAnalyticsRuntime {
         else -> status.trim().lowercase().ifBlank { "failed" }
     }
 
-    private fun isTerminalStatus(status: String): Boolean = status.trim() in setOf(
-        "已完成", "执行失败", "失败", "已暂停", "等待确认", "已手动停止", "已达上限",
-    )
+    private fun isTerminalStatus(status: String): Boolean = status.trim() in TERMINAL_STATUSES
 
     private fun normalizeKey(value: String): String = value
         .trim()
         .lowercase()
-        .replace(Regex("[^0-9a-zA-Z\\u4e00-\\u9fff._-]+"), "_")
+        .replace(KEY_SANITIZER_REGEX, "_")
         .trim('_')
         .take(MAX_KEY_CHARS)
         .ifBlank { "unknown" }
@@ -478,6 +481,10 @@ internal object AgentAnalyticsRuntime {
         return if (Long.MAX_VALUE - safeLeft < safeRight) Long.MAX_VALUE else safeLeft + safeRight
     }
 
+    private val TERMINAL_STATUSES = setOf(
+        "已完成", "执行失败", "失败", "已暂停", "等待确认", "已手动停止", "已达上限",
+    )
+    private val KEY_SANITIZER_REGEX = Regex("[^0-9a-zA-Z\\u4e00-\\u9fff._-]+")
     private val LOG_PREFIXES = listOf(
         "目标：", "结果：", "诊断：", "模型：", "模型续：", "等待确认：", "确认：",
         "等待输入：", "输入：", "接管：", "恢复：", "完成：", "失败：", "暂停：", "停止：", "上限：",
