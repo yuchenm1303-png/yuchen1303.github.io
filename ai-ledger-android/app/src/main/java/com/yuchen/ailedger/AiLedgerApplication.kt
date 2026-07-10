@@ -1,6 +1,7 @@
 package com.yuchen.ailedger
 
 import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Context
 import com.yuchen.ailedger.data.AgentAnalyticsOwnerRuntime
 import com.yuchen.ailedger.data.AssistantAccountSessionRuntime
@@ -11,6 +12,7 @@ import com.yuchen.ailedger.data.AssistantMemoryRepository
 import com.yuchen.ailedger.data.SupabaseAuthRepository
 import com.yuchen.ailedger.data.UserProfileRepository
 import com.yuchen.ailedger.data.switchAccount
+import com.yuchen.ailedger.model.ChatAttachmentPayloadStore
 import com.yuchen.ailedger.service.AgentAnalyticsRuntime
 import com.yuchen.ailedger.service.AgentOverlayProgress
 import com.yuchen.ailedger.service.AgentOverlayService
@@ -97,6 +99,20 @@ class AiLedgerApplication : Application() {
                 }
             }
         }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        val appHiddenOrWorse = level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN
+        val runtimePressure = level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW
+        if (appHiddenOrWorse || runtimePressure) {
+            ChatAttachmentPayloadStore.trimMemory(aggressive = appHiddenOrWorse)
+        }
+    }
+
+    override fun onLowMemory() {
+        ChatAttachmentPayloadStore.trimMemory(aggressive = true)
+        super.onLowMemory()
     }
 
     private data class OverlaySyncKey(
