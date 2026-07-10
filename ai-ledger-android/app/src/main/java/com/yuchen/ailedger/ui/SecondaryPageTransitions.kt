@@ -104,10 +104,10 @@ private class SecondaryKeySequence(initial: Any?) {
 }
 
 /**
- * 二级页面统一液态胶囊转场。
+ * 二级页面统一轻量转场。
  *
- * 旧页面立即退出，避免半透明玻璃双层叠绘；新页面由轻量 Compose 变换和局部光场
- * 完成入场，不调用 OpenGL，不注册玻璃 geometry，也不触发 geometry sync。
+ * 旧页面立即退出，避免半透明玻璃双层叠绘。新页面只做方向位移和透明度，不缩放整棵
+ * 玻璃树，不绘制转场光效，也不触发 OpenGL、geometry registry 或 geometry sync。
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -118,7 +118,6 @@ internal fun <T> SecondaryPageTransition(
     contentAlignment: Alignment = Alignment.TopStart,
     motionType: SecondaryMotionType = SecondaryMotionType.Capsule,
     direction: SecondaryMotionDirection? = null,
-    optics: Boolean = true,
     animateInitial: Boolean = false,
     content: @Composable (T) -> Unit,
 ) {
@@ -145,12 +144,12 @@ internal fun <T> SecondaryPageTransition(
         contentAlignment = contentAlignment,
         transitionSpec = {
             if (motion <= 0.05f) {
-                fadeIn(tween(durationMillis = 70)) togetherWith fadeOut(tween(durationMillis = 1))
+                fadeIn(tween(durationMillis = 60)) togetherWith fadeOut(tween(durationMillis = 1))
             } else {
                 fadeIn(tween(durationMillis = 1)) togetherWith fadeOut(tween(durationMillis = 1))
             }
         },
-        label = "secondary-liquid-page-transition",
+        label = "secondary-page-transition",
     ) { resolved ->
         SecondaryMotionLayer(
             sequence = resolved.sequence,
@@ -158,7 +157,6 @@ internal fun <T> SecondaryPageTransition(
             motionIntensity = motion,
             motionType = resolved.type,
             direction = resolved.direction,
-            optics = optics,
             modifier = Modifier.fillMaxSize(),
         ) {
             content(resolved.value)
@@ -175,7 +173,6 @@ internal fun SecondaryRouteEntrance(
     modifier: Modifier = Modifier,
     motionType: SecondaryMotionType = SecondaryMotionType.Capsule,
     direction: SecondaryMotionDirection = SecondaryMotionDirection.Forward,
-    optics: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     SecondaryMotionLayer(
@@ -184,15 +181,14 @@ internal fun SecondaryRouteEntrance(
         motionIntensity = motionIntensity,
         motionType = motionType,
         direction = direction,
-        optics = optics,
         modifier = modifier.fillMaxSize(),
         content = content,
     )
 }
 
 /**
- * 已经由外部持有页面实例的场景使用，例如预热后的计划编辑器。
- * key 改变时旧内容由调用方立即替换，本容器只负责新内容的形态和光场入场。
+ * 已由外部持有页面实例的场景使用，例如预热后的计划编辑器。
+ * key 改变时旧内容由调用方立即替换，本容器只负责新内容的轻量入场。
  */
 @Composable
 internal fun SecondaryMotionContainer(
@@ -201,7 +197,6 @@ internal fun SecondaryMotionContainer(
     modifier: Modifier = Modifier,
     motionType: SecondaryMotionType = SecondaryMotionType.Capsule,
     direction: SecondaryMotionDirection = SecondaryMotionDirection.Forward,
-    optics: Boolean = true,
     animateInitial: Boolean = false,
     content: @Composable () -> Unit,
 ) {
@@ -214,7 +209,6 @@ internal fun SecondaryMotionContainer(
         motionIntensity = motionIntensity,
         motionType = motionType,
         direction = direction,
-        optics = optics,
         modifier = modifier,
         content = content,
     )
@@ -227,7 +221,6 @@ private fun SecondaryMotionLayer(
     motionIntensity: Float,
     motionType: SecondaryMotionType,
     direction: SecondaryMotionDirection,
-    optics: Boolean,
     modifier: Modifier,
     content: @Composable () -> Unit,
 ) {
@@ -237,18 +230,18 @@ private fun SecondaryMotionLayer(
     val density = LocalDensity.current
     val horizontalTravelPx = with(density) {
         when (motionType) {
-            SecondaryMotionType.Capsule -> 34.dp.toPx()
-            SecondaryMotionType.Push -> 28.dp.toPx()
-            SecondaryMotionType.Replace -> 14.dp.toPx()
+            SecondaryMotionType.Capsule -> 24.dp.toPx()
+            SecondaryMotionType.Push -> 20.dp.toPx()
+            SecondaryMotionType.Replace -> 10.dp.toPx()
             SecondaryMotionType.Modal -> 0.dp.toPx()
         }
     }
     val verticalTravelPx = with(density) {
         when (motionType) {
-            SecondaryMotionType.Capsule -> 13.dp.toPx()
-            SecondaryMotionType.Push -> 7.dp.toPx()
-            SecondaryMotionType.Replace -> 2.dp.toPx()
-            SecondaryMotionType.Modal -> 18.dp.toPx()
+            SecondaryMotionType.Capsule -> 9.dp.toPx()
+            SecondaryMotionType.Push -> 4.dp.toPx()
+            SecondaryMotionType.Replace -> 1.dp.toPx()
+            SecondaryMotionType.Modal -> 14.dp.toPx()
         }
     }
 
@@ -263,23 +256,23 @@ private fun SecondaryMotionLayer(
             targetValue = 1f,
             animationSpec = when (motionType) {
                 SecondaryMotionType.Capsule -> spring(
-                    dampingRatio = 0.76f,
-                    stiffness = Spring.StiffnessMediumLow,
+                    dampingRatio = 0.88f,
+                    stiffness = Spring.StiffnessMedium,
                 )
 
                 SecondaryMotionType.Push -> spring(
-                    dampingRatio = 0.84f,
-                    stiffness = Spring.StiffnessMediumLow,
-                )
-
-                SecondaryMotionType.Replace -> spring(
                     dampingRatio = 0.90f,
                     stiffness = Spring.StiffnessMedium,
                 )
 
+                SecondaryMotionType.Replace -> spring(
+                    dampingRatio = 0.94f,
+                    stiffness = Spring.StiffnessMediumHigh,
+                )
+
                 SecondaryMotionType.Modal -> spring(
-                    dampingRatio = 0.78f,
-                    stiffness = Spring.StiffnessMediumLow,
+                    dampingRatio = 0.86f,
+                    stiffness = Spring.StiffnessMedium,
                 )
             },
         )
@@ -299,29 +292,9 @@ private fun SecondaryMotionLayer(
                 alpha = visual.alpha
                 translationX = visual.translationX
                 translationY = visual.translationY
-                scaleX = visual.scaleX
-                scaleY = visual.scaleY
-                transformOrigin = visual.transformOrigin
                 compositingStrategy = CompositingStrategy.ModulateAlpha
-            }
-            .then(
-                if (optics && shouldAnimate) {
-                    Modifier.secondaryTransitionOptics(
-                        progress = { progress.value },
-                        motionIntensity = motion,
-                        type = motionType,
-                        direction = direction,
-                    )
-                } else {
-                    Modifier
-                },
-            ),
+            },
     ) {
         content()
     }
-}
-
-internal fun secondaryPanelScale(progress: Float): Float {
-    val p = secondaryMotionSmoothStep(progress)
-    return 0.970f + 0.030f * p + 0.006f * secondaryMotionArc(p)
 }
