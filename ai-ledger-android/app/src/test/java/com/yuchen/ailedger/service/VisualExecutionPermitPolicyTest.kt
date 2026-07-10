@@ -14,7 +14,7 @@ class VisualExecutionPermitPolicyTest {
         val result = VisualActionValidator.validatePermit(fixture.step, fixture.snapshot, fixture.runtime)
 
         assertTrue(result.valid)
-        assertEquals("verified", result.reason)
+        assertEquals("verified_current_observation", result.reason)
     }
 
     @Test
@@ -66,7 +66,7 @@ class VisualExecutionPermitPolicyTest {
     }
 
     @Test
-    fun packageMismatchIsRejected() {
+    fun currentObservationPackageMismatchIsRejected() {
         val fixture = permittedTap()
         val args = JSONObject(fixture.step.toolArgs.toString()).apply {
             put("executionPermitPackageName", "com.other.app")
@@ -79,7 +79,7 @@ class VisualExecutionPermitPolicyTest {
         )
 
         assertFalse(result.valid)
-        assertEquals("permit_package_mismatch", result.reason)
+        assertEquals("permit_current_observation_package_mismatch", result.reason)
     }
 
     @Test
