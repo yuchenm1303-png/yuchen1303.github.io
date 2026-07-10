@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val CLIENT_TOOL_RESULT_MARKER = "[[AI_LEDGER_CLIENT_TOOL_RESULT_V1]]"
+private const val AI_WORKER_HISTORY_LIMIT = 24
 
 internal object AiWorkerPayloadBuilder {
     fun build(
@@ -25,8 +26,9 @@ internal object AiWorkerPayloadBuilder {
             AssistantMemoryRequestContextRuntime.clearCurrentThread()
             return buildClientToolResultPayload(receipt, route, resolvedClientId)
         }
-        val latestUserText = messages.latestUserText()
-        val imageArray = messages.latestUserImageAttachments().toImageJsonArray()
+        val latestUserContext = messages.latestUserContext()
+        val latestUserText = latestUserContext.latestText
+        val imageArray = latestUserContext.imageAttachments.toImageJsonArray()
         val hasImage = imageArray.length() > 0
         val visualAgentModeEnabled = !hasImage && AgentRuntimeController.isEnabled()
         val workspaceModeEnabled = !hasImage && AgentWorkspaceModeController.isEnabled()
@@ -213,21 +215,47 @@ internal object AiWorkerPayloadBuilder {
         return runCatching { JSONObject(json) }.getOrNull()
     }
 
-    private fun List<ChatMessage>.latestUserText(): String = lastOrNull {
-        it.role == MessageRole.User && it.status != MessageStatus.Sending && it.text.isNotBlank()
-    }?.text.orEmpty()
+    private data class LatestUserContext(
+        val latestText: String,
+        val imageAttachments: List<ResolvedImageAttachment>,
+    )
 
-    private fun List<ChatMessage>.latestUserMessage(): ChatMessage? = lastOrNull {
-        it.role == MessageRole.User && it.status != MessageStatus.Sending
+    private data class ResolvedImageAttachment(
+        val attachment: ChatAttachment,
+        val base64Data: String,
+    )
+
+    private fun List<ChatMessage>.latestUserContext(): LatestUserContext {
+        var latestUserMessage: ChatMessage? = null
+        var latestText = ""
+        for (index in indices.reversed()) {
+            val message = this[index]
+            if (message.role != MessageRole.User || message.status == MessageStatus.Sending) continue
+            if (latestUserMessage == null) latestUserMessage = message
+            if (latestText.isBlank() && message.text.isNotBlank()) latestText = message.text
+            if (latestUserMessage != null && latestText.isNotBlank()) break
+        }
+        val images = latestUserMessage
+            ?.attachments
+            .orEmpty()
+            .mapNotNull { attachment ->
+                if (!attachment.mimeType.startsWith("image/")) return@mapNotNull null
+                val payload = attachment.base64Data
+                payload.takeIf(String::isNotBlank)?.let {
+                    ResolvedImageAttachment(attachment = attachment, base64Data = it)
+                }
+            }
+        return LatestUserContext(latestText = latestText, imageAttachments = images)
     }
 
-    private fun List<ChatAttachment>.toImageJsonArray(): JSONArray = JSONArray().apply {
-        forEach { attachment ->
+    private fun List<ResolvedImageAttachment>.toImageJsonArray(): JSONArray = JSONArray().apply {
+        forEach { resolved ->
+            val attachment = resolved.attachment
             put(JSONObject().apply {
                 put("id", attachment.id)
                 put("type", "image")
                 put("mimeType", attachment.mimeType)
-                put("base64Data", attachment.base64Data)
+                put("base64Data", resolved.base64Data)
                 put("fileName", attachment.fileName.orEmpty())
                 attachment.width?.let { put("width", it) }
                 attachment.height?.let { put("height", it) }
@@ -235,11 +263,6 @@ internal object AiWorkerPayloadBuilder {
             })
         }
     }
-
-    private fun List<ChatMessage>.latestUserImageAttachments(): List<ChatAttachment> =
-        latestUserMessage()?.attachments?.filter { attachment ->
-            attachment.mimeType.startsWith("image/") && attachment.base64Data.isNotBlank()
-        }.orEmpty()
 
     private fun List<InstalledAppEntry>.toInstalledAppsJson(): JSONArray = JSONArray().apply {
         forEach { app ->
@@ -251,18 +274,29 @@ internal object AiWorkerPayloadBuilder {
     }
 
     private fun List<ChatMessage>.toWorkerMessages(): JSONArray {
-        val recent = filter { message ->
-            when (message.role) {
+        val recentReversed = ArrayList<ChatMessage>(AI_WORKER_HISTORY_LIMIT)
+        for (index in indices.reversed()) {
+            val message = this[index]
+            val eligible = when (message.role) {
                 MessageRole.User ->
                     (message.text.isNotBlank() || message.hasImageAttachments) &&
                         message.status != MessageStatus.Sending
                 MessageRole.Assistant ->
                     message.text.isNotBlank() && message.status == MessageStatus.Sent
             }
-        }.takeLast(24)
-        val clean = recent.dropWhile { it.role != MessageRole.User }
+            if (!eligible) continue
+            recentReversed += message
+            if (recentReversed.size >= AI_WORKER_HISTORY_LIMIT) break
+        }
+
+        var firstUserFound = false
         return JSONArray().apply {
-            clean.forEach { message ->
+            for (index in recentReversed.indices.reversed()) {
+                val message = recentReversed[index]
+                if (!firstUserFound) {
+                    if (message.role != MessageRole.User) continue
+                    firstUserFound = true
+                }
                 put(JSONObject().apply {
                     put("role", if (message.role == MessageRole.User) "user" else "assistant")
                     put("content", message.text)
