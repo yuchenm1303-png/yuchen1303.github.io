@@ -30,6 +30,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.yield
 
 private const val SECONDARY_HORIZONTAL_UNBOUNDED_CLIP_PX = 1_000_000f
+private const val SECONDARY_SLOW_SPRING_STIFFNESS = Spring.StiffnessMediumLow * 0.78f
 
 /**
  * 二级页面统一轻量转场。
@@ -54,14 +55,14 @@ internal fun <T> SecondaryPageTransition(
         contentAlignment = contentAlignment,
         transitionSpec = {
             if (motion <= 0.05f) {
-                fadeIn(tween(durationMillis = 70)) togetherWith fadeOut(tween(durationMillis = 1))
+                fadeIn(tween(durationMillis = 90)) togetherWith fadeOut(tween(durationMillis = 1))
             } else {
                 val enterOffsetRatio = 0.034f + 0.024f * motion
-                val enter = fadeIn(tween(durationMillis = 126, delayMillis = 18)) +
+                val enter = fadeIn(tween(durationMillis = 164, delayMillis = 24)) +
                     slideInVertically(
                         animationSpec = spring(
                             dampingRatio = 0.82f,
-                            stiffness = Spring.StiffnessMediumLow,
+                            stiffness = SECONDARY_SLOW_SPRING_STIFFNESS,
                         ),
                     ) { height ->
                         (height * enterOffsetRatio).roundToInt().coerceIn(14, 30)
@@ -102,13 +103,13 @@ internal fun SecondaryRouteEntrance(
             .fillMaxSize()
             .clipSecondaryPageVertically(),
         enter = if (motion <= 0.05f) {
-            fadeIn(tween(durationMillis = 70))
+            fadeIn(tween(durationMillis = 90))
         } else {
-            fadeIn(tween(durationMillis = 132, delayMillis = 18)) +
+            fadeIn(tween(durationMillis = 172, delayMillis = 24)) +
                 slideInVertically(
                     animationSpec = spring(
                         dampingRatio = 0.80f,
-                        stiffness = Spring.StiffnessMediumLow,
+                        stiffness = SECONDARY_SLOW_SPRING_STIFFNESS,
                     ),
                 ) { height -> height.coerceAtMost(44) } +
                 scaleIn(
@@ -116,13 +117,13 @@ internal fun SecondaryRouteEntrance(
                     transformOrigin = TransformOrigin(0.50f, 0.58f),
                     animationSpec = spring(
                         dampingRatio = 0.78f,
-                        stiffness = Spring.StiffnessMediumLow,
+                        stiffness = SECONDARY_SLOW_SPRING_STIFFNESS,
                     ),
                 )
         },
-        exit = fadeOut(tween(durationMillis = 96)) +
-            slideOutVertically(tween(durationMillis = 118)) { height -> -height.coerceAtMost(18) } +
-            scaleOut(targetScale = 0.986f, animationSpec = tween(durationMillis = 118)),
+        exit = fadeOut(tween(durationMillis = 124)) +
+            slideOutVertically(tween(durationMillis = 150)) { height -> -height.coerceAtMost(18) } +
+            scaleOut(targetScale = 0.986f, animationSpec = tween(durationMillis = 150)),
     ) {
         Box(Modifier.fillMaxSize()) {
             content()
