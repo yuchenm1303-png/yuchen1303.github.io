@@ -121,6 +121,10 @@ class AiWorkerClient(
         AiWorkerHttpTransport(config = config, resolvedClientId = resolvedClientId)
     }
 
+    fun cancelActiveRequests() {
+        transport.cancelActiveRequests()
+    }
+
     @Throws(IOException::class)
     fun sendChat(
         messages: List<ChatMessage>,
