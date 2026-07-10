@@ -56,8 +56,23 @@ class AiLedgerApplication : Application() {
 
         applicationScope.launch {
             var previousAnalyticsProgress = AgentOverlayProgress()
+            var previousOverlaySyncKey: OverlaySyncKey? = null
+            var diagnosticsStore: VisualIntelligenceDiagnosticsStore? = null
+
             AgentRuntimeController.progress.collectLatest { progress ->
-                AgentOverlayService.syncForProgress(this@AiLedgerApplication, progress)
+                val overlaySyncKey = OverlaySyncKey(
+                    enabled = progress.enabled,
+                    running = progress.running,
+                    hasTask = progress.taskId > 0L,
+                    awaitingConfirmation = progress.pendingConfirmation != null,
+                    awaitingUserInput = progress.pendingUserInput != null,
+                    userTakeoverPaused = progress.userTakeoverPaused,
+                )
+                if (overlaySyncKey != previousOverlaySyncKey) {
+                    AgentOverlayService.syncForProgress(this@AiLedgerApplication, progress)
+                    previousOverlaySyncKey = overlaySyncKey
+                }
+
                 val terminalAnalyticsProgress = previousAnalyticsProgress.takeIf { previous ->
                     previous.taskId > 0L &&
                         previous.running &&
@@ -72,13 +87,26 @@ class AiLedgerApplication : Application() {
                 }
                 AgentAnalyticsRuntime.observeProgress(terminalAnalyticsProgress ?: progress)
                 previousAnalyticsProgress = progress
+
                 if (progress.taskId > 0L || progress.running) {
-                    VisualIntelligenceDiagnosticsStore.get(applicationContext)
-                        .observeProgress(progress)
+                    val store = diagnosticsStore
+                        ?: VisualIntelligenceDiagnosticsStore.get(applicationContext).also {
+                            diagnosticsStore = it
+                        }
+                    store.observeProgress(progress)
                 }
             }
         }
     }
+
+    private data class OverlaySyncKey(
+        val enabled: Boolean,
+        val running: Boolean,
+        val hasTask: Boolean,
+        val awaitingConfirmation: Boolean,
+        val awaitingUserInput: Boolean,
+        val userTakeoverPaused: Boolean,
+    )
 
     companion object {
         @Volatile
