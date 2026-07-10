@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import java.text.Normalizer
 
+private val INSTALLED_APP_WHITESPACE_REGEX = Regex("\\s+")
+
 /**
  * Builds a factual index of launchable apps installed on the current device.
  *
@@ -37,7 +39,7 @@ internal fun buildNeutralInstalledAppAliases(label: String): List<String> {
 
 internal fun normalizeInstalledAppLabel(value: String): String {
     return Normalizer.normalize(value.trim().lowercase(), Normalizer.Form.NFKC)
-        .replace(Regex("\\s+"), "")
+        .replace(INSTALLED_APP_WHITESPACE_REGEX, "")
 }
 
 class InstalledAppIndex(
