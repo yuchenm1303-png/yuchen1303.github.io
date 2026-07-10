@@ -48,6 +48,8 @@ internal class VisualAgentHudHost(
     private var pendingPayload: String? = null
     private var lastDispatchedPayload: String? = null
     private var lastDispatchedCaptureSuppressed: Boolean? = null
+    private var cachedParameters: VisualAgentHudParameters? = null
+    private var cachedParametersJson: JSONObject? = null
     private var lastClickRevision = 0L
     private var lastPreviewGeneration = 0L
     private var overlayContentActive = false
@@ -442,8 +444,17 @@ internal class VisualAgentHudHost(
             .put("debugLatency", if (sampleMode) "mode: live_parameter_preview" else "latency_total: —")
             .put("autoClickAfterMs", autoClickAfterMs)
             .put("clickRevision", clickRevision)
-            .put("parameters", tuning.parameters.toJson())
+            .put("parameters", parametersJson(tuning.parameters))
             .toString()
+    }
+
+    private fun parametersJson(parameters: VisualAgentHudParameters): JSONObject {
+        val cached = cachedParametersJson
+        if (cachedParameters == parameters && cached != null) return cached
+        return parameters.toJson().also { json ->
+            cachedParameters = parameters
+            cachedParametersJson = json
+        }
     }
 
     private fun sendPayload(payload: String) {
