@@ -217,6 +217,14 @@ fun NativeLedgerCenterScreen(
     }
 }
 
+/**
+ * 账单中心由外层 SecondaryRouteEntrance 统一负责页面入场。
+ *
+ * 这里必须保持静态，避免每个玻璃卡片和每条 LazyColumn 记录同时创建独立
+ * AnimatedVisibility、延迟协程、spring 与缩放合成层。保留这个轻量容器是为了不改变
+ * 现有页面结构和 LazyColumn key，只移除重复的第二层动画。
+ */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun LedgerAnimatedItem(
     index: Int,
@@ -226,45 +234,7 @@ private fun LedgerAnimatedItem(
     maxDelayMillis: Long = 210L,
     content: @Composable () -> Unit,
 ) {
-    val motion = appState.motionIntensity.coerceIn(0f, 1f)
-    var visible by remember(index) { mutableStateOf(motion <= 0.05f) }
-
-    LaunchedEffect(index, motion) {
-        if (motion <= 0.05f) {
-            visible = true
-            return@LaunchedEffect
-        }
-        visible = false
-        yield()
-        delay((index.coerceAtLeast(0).toLong() * baseDelayMillis).coerceAtMost(maxDelayMillis))
-        visible = true
-    }
-
-    AnimatedVisibility(
-        visible = visible,
-        modifier = modifier.fillMaxWidth(),
-        enter = if (motion <= 0.05f) {
-            fadeIn(tween(durationMillis = 64))
-        } else {
-            fadeIn(tween(durationMillis = 142, delayMillis = 8)) +
-                slideInVertically(
-                    animationSpec = spring(
-                        dampingRatio = 0.82f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                ) { height -> (height * 0.11f).toInt().coerceIn(10, 30) } +
-                scaleIn(
-                    initialScale = 0.982f,
-                    transformOrigin = TransformOrigin(0.50f, 0.70f),
-                    animationSpec = spring(
-                        dampingRatio = 0.86f,
-                        stiffness = Spring.StiffnessMediumLow,
-                    ),
-                )
-        },
-        exit = fadeOut(tween(durationMillis = 82)) +
-            slideOutVertically(tween(durationMillis = 92)) { height -> -(height * 0.04f).toInt().coerceIn(4, 10) },
-    ) {
+    Box(modifier = modifier.fillMaxWidth()) {
         content()
     }
 }
