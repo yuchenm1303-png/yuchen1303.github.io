@@ -58,6 +58,7 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
         postCancellableVisualAgentStep(
             endpoint = endpointBase,
             payload = payload,
+            appContext = appContext,
             deviceId = deviceId,
             agentSessionId = agentSessionId,
             activeConnection = activeConnection,
@@ -95,6 +96,7 @@ internal suspend fun AiWorkerClient.requestVisualAgentStepCancellable(
 private fun postCancellableVisualAgentStep(
     endpoint: String,
     payload: JSONObject,
+    appContext: List<VisualAgentAppContextItem>,
     deviceId: String,
     agentSessionId: String,
     activeConnection: AtomicReference<HttpURLConnection?>,
@@ -135,9 +137,10 @@ private fun postCancellableVisualAgentStep(
         })
         if (status !in 200..299) throw parseVisualAgentHttpFailure(status, body)
         validateVisualAgentResponseObservationId(payload.optString("expectedActionObservationId"), data)
-        CloudAgentPlan.fromJson(data)
+        val parsed = CloudAgentPlan.fromJson(data)
             ?: CloudAgentStep.fromJson(data)?.let { CloudAgentPlan(step = it, state = CloudAgentState.fromJson(data)) }
             ?: throw java.io.IOException("visual_agent_step did not return one agentStep")
+        GuiPlusOpenAppProtocolRepair.repair(parsed, appContext)
     } catch (error: SocketTimeoutException) {
         throw VisualAgentRequestException(
             httpStatus = null,
