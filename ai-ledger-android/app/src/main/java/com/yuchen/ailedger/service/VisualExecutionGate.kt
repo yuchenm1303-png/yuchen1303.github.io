@@ -7,11 +7,11 @@ import kotlin.math.roundToInt
 import org.json.JSONObject
 
 /**
- * Android's single device-local execution gate.
+ * Android's device-local execution-integrity gate.
  *
- * The backend owns GUI Plus action schema, purpose, milestones, evidence and task-contract checks.
- * Android validates only facts that can change after the cloud response: current work surface,
- * observation binding, cloud permit integrity, executable bounds and authoritative user revisions.
+ * GUI Plus owns page meaning, app routing and task progress. Android validates only protocol facts:
+ * supported action shape, current observation binding, signed execution permit, coordinates and
+ * authoritative user-task revisions. A foreground-package change is never a semantic rejection.
  */
 internal object VisualActionValidator {
     private const val PERMIT_VERSION_V2 = "visual_execution_permit_v2"
@@ -29,7 +29,6 @@ internal object VisualActionValidator {
         "tap_xy", "tap_node", "input_text", "scroll", "swipe", "back", "home", "recents",
         "notifications", "quick_settings", "wait",
     )
-    private val preWorkSurfaceActions = CloudAgentStep.deviceToolTypes + "need_user_help"
 
     fun validate(
         step: CloudAgentStep,
@@ -48,24 +47,33 @@ internal object VisualActionValidator {
         if (isRepairableGuiProtocolFailure(step)) {
             return local(
                 "protocolRepairRequired=true; the cloud did not return one executable official mobile_use action. " +
-                    "Keep the task and fresh work surface, then request one corrected action.",
+                    "Keep the task and current screenshot, then request one corrected action.",
             )
         }
         if (step.type == "open_app" && step.packageName.isNullOrBlank()) {
             return structural("open_app requires a packageName from the current device app catalog.")
         }
-        if (runtime?.guiPlusEligible == true && step.type in CloudAgentStep.deviceToolTypes) {
-            return structural("GUI Plus cannot execute internal device tools after visual handoff.")
+
+        // open_app is a first-class computer-use transition. Other internal device tools still use
+        // their dedicated cloud/device-control contract rather than being smuggled into a visual turn.
+        if (
+            runtime?.guiPlusEligible == true &&
+            step.type in CloudAgentStep.deviceToolTypes &&
+            step.type != "open_app"
+        ) {
+            return structural("GUI Plus visual turns cannot execute this internal device tool: ${step.type}")
         }
-        if (runtime != null && !runtime.guiPlusEligible && step.type !in preWorkSurfaceActions) {
-            return structural("A verified target work surface is required before visual actions.")
+
+        // A visual action needs an actual frame. It does not need a package that was verified earlier.
+        if (runtime != null && !runtime.guiPlusEligible && step.type in observationBoundActions) {
+            return structural("A fresh visual observation is required before visual actions.")
         }
         if (
             runtime == null &&
             snapshot.packageName == VisualExecutionSessionState.ASSISTANT_HOST_PACKAGE &&
-            step.type !in preWorkSurfaceActions
+            step.type in observationBoundActions
         ) {
-            return structural("The assistant controller is not a verified target work surface.")
+            return structural("A bound visual observation is required before visual actions.")
         }
         if (step.type == "tap_xy" && (step.x == null || step.y == null || step.x !in 0f..1f || step.y !in 0f..1f)) {
             return local("Invalid tap coordinates.")
@@ -137,11 +145,14 @@ internal object VisualActionValidator {
         ) {
             return VisualExecutionPermitValidation(false, "permit_session_mismatch")
         }
+
+        // Package participates only as part of the exact current observation. It is never compared
+        // with a previously selected/verified target package and therefore cannot block app changes.
         if (
             permitPackageName.isBlank() || permitPackageName != snapshot.packageName ||
             runtime.currentPackage.isNotBlank() && permitPackageName != runtime.currentPackage
         ) {
-            return VisualExecutionPermitValidation(false, "permit_package_mismatch")
+            return VisualExecutionPermitValidation(false, "permit_current_observation_package_mismatch")
         }
         if (step.x != null && (permitX == null || abs(step.x.toDouble() - permitX) > COORDINATE_EPSILON)) {
             return VisualExecutionPermitValidation(false, "permit_coordinate_mismatch")
@@ -162,7 +173,7 @@ internal object VisualActionValidator {
         if (permitHash != expectedHash || permitId != "permit_$expectedHash") {
             return VisualExecutionPermitValidation(false, "permit_hash_mismatch")
         }
-        return VisualExecutionPermitValidation(true, "verified")
+        return VisualExecutionPermitValidation(true, "verified_current_observation")
     }
 
     private fun validateLegacyTapPermit(
@@ -319,6 +330,7 @@ internal object VisualActionValidator {
                 put("observationId", runtime.observationId)
                 put("permitVersion", step.argString("executionPermitVersion").orEmpty())
                 put("permitKind", step.argString("executionPermitKind").orEmpty())
+                put("packageSemanticGate", false)
             },
         )
     }
