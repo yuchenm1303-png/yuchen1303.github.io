@@ -72,12 +72,13 @@ internal fun SecondaryStageReveal(
         SecondaryStageRole.Supporting -> index < 2
         SecondaryStageRole.List -> index == 0
     }
-    val shouldAnimate = animate && stageAllowed && motion > 0.05f && timeline != null && !timeline.settled
+    val canAnimate = animate && stageAllowed && motion > 0.05f
 
-    if (!shouldAnimate) {
+    if (!canAnimate || timeline == null || timeline.settled) {
         Box(modifier = modifier) { content() }
         return
     }
+    val activeTimeline = timeline
 
     val spec = remember(role, index, density.density) {
         val cappedIndex = min(index, 3)
@@ -106,10 +107,10 @@ internal fun SecondaryStageReveal(
                 }
             },
             overshoot = when (role) {
-                SecondaryStageRole.Header -> 0.22f
-                SecondaryStageRole.Capsule -> 0.56f
-                SecondaryStageRole.Primary -> 0.42f
-                SecondaryStageRole.Supporting -> 0.28f
+                SecondaryStageRole.Header -> 0.24f
+                SecondaryStageRole.Capsule -> 0.72f
+                SecondaryStageRole.Primary -> 0.50f
+                SecondaryStageRole.Supporting -> 0.32f
                 SecondaryStageRole.List -> 0.16f
             },
         )
@@ -117,11 +118,17 @@ internal fun SecondaryStageReveal(
 
     Box(
         modifier = modifier.graphicsLayer {
-            val global = timeline.progress.value.coerceIn(0f, 1f)
+            val global = activeTimeline.progress.value.coerceIn(0f, 1f)
             val local = ((global - spec.startFraction) / spec.durationFraction).coerceIn(0f, 1f)
             val eased = secondaryMotionBackOut(local, spec.overshoot)
+            val alphaSpeed = when (role) {
+                SecondaryStageRole.Header,
+                SecondaryStageRole.List -> 2.35f
 
-            alpha = secondaryMotionSmoothStep((local * 1.75f).coerceIn(0f, 1f))
+                else -> 3.10f
+            }
+
+            alpha = secondaryMotionSmoothStep((local * alphaSpeed).coerceIn(0f, 1f))
             translationX = 0f
             translationY = spec.offsetY * motion * (1f - eased)
             compositingStrategy = CompositingStrategy.ModulateAlpha
