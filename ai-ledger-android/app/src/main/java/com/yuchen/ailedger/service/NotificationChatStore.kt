@@ -4,15 +4,16 @@ import android.content.Context
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.MessageStatus
+import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.UUID
 
 private const val NOTIFICATION_CHAT_PREFS = "notification_chat_store"
 private const val NOTIFICATION_CHAT_STATE = "state"
 private const val MAX_STORED_MESSAGES = 24
 private const val MAX_STORED_TEXT_LENGTH = 6_000
 private const val MAX_PROMPT_LENGTH = 2_000
+private const val STREAMING_DISK_PERSIST_INTERVAL_MS = 1_500L
 
 data class NotificationChatSnapshot(
     val messages: List<ChatMessage> = emptyList(),
@@ -34,6 +35,7 @@ data class NotificationChatRequest(
 object NotificationChatStore {
     @Volatile
     private var cachedSnapshot: NotificationChatSnapshot? = null
+    private var lastStreamingPersistAtMs: Long = 0L
 
     @Synchronized
     fun load(context: Context): NotificationChatSnapshot {
@@ -53,13 +55,31 @@ object NotificationChatStore {
         val merged = LinkedHashMap<String, ChatMessage>()
         current.messages.forEach { merged[it.id] = it }
         appMessages.takeLast(MAX_STORED_MESSAGES).forEach { message ->
-            merged[message.id] = message.toStoredMessage()
+            val existing = merged[message.id]
+            if (!existing.matchesStoredFields(message)) {
+                merged[message.id] = message.toStoredMessage()
+            }
         }
 
-        return save(
-            context,
-            current.copy(messages = merged.values.sortedBy { it.createdAt }.takeLast(MAX_STORED_MESSAGES))
+        val next = current.copy(
+            messages = merged.values.sortedBy { it.createdAt }.takeLast(MAX_STORED_MESSAGES),
         )
+        val latest = appMessages.lastOrNull()
+        val streaming = latest?.role == MessageRole.Assistant && latest.status == MessageStatus.Sending
+        val now = System.currentTimeMillis()
+        val persistToDisk = when {
+            !streaming -> {
+                lastStreamingPersistAtMs = 0L
+                true
+            }
+            lastStreamingPersistAtMs <= 0L ||
+                now - lastStreamingPersistAtMs >= STREAMING_DISK_PERSIST_INTERVAL_MS -> {
+                lastStreamingPersistAtMs = now
+                true
+            }
+            else -> false
+        }
+        return save(context, next, persistToDisk = persistToDisk)
     }
 
     @Synchronized
@@ -254,6 +274,7 @@ object NotificationChatStore {
 
     @Synchronized
     fun clear(context: Context): NotificationChatSnapshot {
+        lastStreamingPersistAtMs = 0L
         return save(context, NotificationChatSnapshot())
     }
 
@@ -269,12 +290,18 @@ object NotificationChatStore {
         )
     }
 
-    private fun save(context: Context, snapshot: NotificationChatSnapshot): NotificationChatSnapshot {
+    private fun save(
+        context: Context,
+        snapshot: NotificationChatSnapshot,
+        persistToDisk: Boolean = true,
+    ): NotificationChatSnapshot {
         cachedSnapshot = snapshot
-        preferences(context)
-            .edit()
-            .putString(NOTIFICATION_CHAT_STATE, encode(snapshot))
-            .apply()
+        if (persistToDisk) {
+            preferences(context)
+                .edit()
+                .putString(NOTIFICATION_CHAT_STATE, encode(snapshot))
+                .apply()
+        }
         return snapshot
     }
 
@@ -333,6 +360,18 @@ object NotificationChatStore {
             lastError = root.optNullableString("lastError"),
             failedPrompt = root.optNullableString("failedPrompt")?.take(MAX_PROMPT_LENGTH)
         )
+    }
+
+    private fun ChatMessage.matchesStoredFields(other: ChatMessage): Boolean {
+        return id == other.id &&
+            text == other.text.take(MAX_STORED_TEXT_LENGTH) &&
+            role == other.role &&
+            status == other.status &&
+            source == other.source &&
+            model == other.model &&
+            modelLabel == other.modelLabel &&
+            errorText == other.errorText &&
+            createdAt == other.createdAt
     }
 
     private fun ChatMessage.toStoredMessage(): ChatMessage {
