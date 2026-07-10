@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -108,6 +111,7 @@ private class SecondaryKeySequence(initial: Any?) {
  *
  * 旧页面立即退出，避免半透明玻璃双层叠绘。新页面只做方向位移和透明度，不缩放整棵
  * 玻璃树，不绘制转场光效，也不触发 OpenGL、geometry registry 或 geometry sync。
+ * 动画结束后主动移除整页 graphicsLayer，静止状态不保留额外合成层。
  */
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -227,6 +231,7 @@ private fun SecondaryMotionLayer(
     val motion = motionIntensity.coerceIn(0f, 1f)
     val shouldAnimate = animate && motion > 0.05f
     val progress = remember(sequence) { Animatable(if (shouldAnimate) 0f else 1f) }
+    var settled by remember(sequence) { mutableStateOf(!shouldAnimate) }
     val density = LocalDensity.current
     val horizontalTravelPx = with(density) {
         when (motionType) {
@@ -248,9 +253,11 @@ private fun SecondaryMotionLayer(
     LaunchedEffect(progress, shouldAnimate, motionType, motion) {
         if (!shouldAnimate) {
             progress.snapTo(1f)
+            settled = true
             return@LaunchedEffect
         }
 
+        settled = false
         withFrameNanos { }
         progress.animateTo(
             targetValue = 1f,
@@ -276,24 +283,31 @@ private fun SecondaryMotionLayer(
                 )
             },
         )
+        settled = true
+    }
+
+    val motionModifier = if (settled) {
+        Modifier
+    } else {
+        Modifier.graphicsLayer {
+            val visual = secondaryMotionVisual(
+                rawProgress = progress.value,
+                type = motionType,
+                direction = direction,
+                horizontalTravelPx = horizontalTravelPx,
+                verticalTravelPx = verticalTravelPx,
+            )
+            alpha = visual.alpha
+            translationX = visual.translationX
+            translationY = visual.translationY
+            compositingStrategy = CompositingStrategy.ModulateAlpha
+        }
     }
 
     Box(
         modifier = modifier
             .clipSecondaryPageVertically()
-            .graphicsLayer {
-                val visual = secondaryMotionVisual(
-                    rawProgress = progress.value,
-                    type = motionType,
-                    direction = direction,
-                    horizontalTravelPx = horizontalTravelPx,
-                    verticalTravelPx = verticalTravelPx,
-                )
-                alpha = visual.alpha
-                translationX = visual.translationX
-                translationY = visual.translationY
-                compositingStrategy = CompositingStrategy.ModulateAlpha
-            },
+            .then(motionModifier),
     ) {
         content()
     }
