@@ -34,7 +34,7 @@ internal object ProjectArtifactExportService {
         exportDir.listFiles()
             .orEmpty()
             .filter { it.isFile && System.currentTimeMillis() - it.lastModified() > 24L * 60L * 60L * 1000L }
-            .forEach(File::delete)
+            .forEach { it.delete() }
 
         val safeName = preview.project.name
             .trim()
