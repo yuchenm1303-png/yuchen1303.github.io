@@ -91,8 +91,10 @@ private val NO_ONLINE_INTENT_PATTERN = Regex(
 private class ChatMessageOverlayList private constructor(
     private val source: List<ChatMessage>,
     private val replacedIndex: Int,
-    private val replacement: ChatMessage
+    replacement: ChatMessage
 ) : AbstractList<ChatMessage>(), RandomAccess {
+    private var replacement by mutableStateOf(replacement, referentialEqualityPolicy())
+
     override val size: Int
         get() = source.size
 
@@ -101,22 +103,22 @@ private class ChatMessageOverlayList private constructor(
         return if (index == replacedIndex) replacement else source[index]
     }
 
+    private fun update(next: ChatMessage) {
+        if (replacement != next) replacement = next
+    }
+
     companion object {
         fun replace(
             source: List<ChatMessage>,
             index: Int,
             replacement: ChatMessage
         ): List<ChatMessage> {
-            val stableSource = if (
-                source is ChatMessageOverlayList &&
-                source.replacedIndex == index
-            ) {
-                source.source
-            } else {
-                source
+            if (source is ChatMessageOverlayList && source.replacedIndex == index) {
+                source.update(replacement)
+                return source
             }
             return ChatMessageOverlayList(
-                source = stableSource,
+                source = source,
                 replacedIndex = index,
                 replacement = replacement
             )
@@ -735,7 +737,7 @@ class AssistantViewModel(
                 lastFlushedLength = nextText.length
                 lastFlushAt = now
                 if (activePendingMessageId == pendingMessage.id) {
-                    replaceMessage(
+                    updateStreamingMessage(
                         pendingMessage.id,
                         pendingMessage.copy(
                             text = nextText,
@@ -1119,6 +1121,25 @@ class AssistantViewModel(
         )
     }
 
+    private fun updateStreamingMessage(id: String, next: ChatMessage) {
+        val messages = uiState.messages
+        val lastIndex = messages.lastIndex
+        val index = if (lastIndex >= 0 && messages[lastIndex].id == id) {
+            lastIndex
+        } else {
+            messages.indexOfFirst { it.id == id }
+        }
+        if (index < 0 || messages[index] == next) return
+        val updatedMessages = ChatMessageOverlayList.replace(
+            source = messages,
+            index = index,
+            replacement = next
+        )
+        if (updatedMessages !== messages) {
+            uiState = uiState.copy(messages = updatedMessages)
+        }
+    }
+
     private fun replaceMessage(id: String, next: ChatMessage) {
         val messages = uiState.messages
         val lastIndex = messages.lastIndex
@@ -1128,13 +1149,11 @@ class AssistantViewModel(
             messages.indexOfFirst { it.id == id }
         }
         if (index < 0 || messages[index] == next) return
-        uiState = uiState.copy(
-            messages = ChatMessageOverlayList.replace(
-                source = messages,
-                index = index,
-                replacement = next
-            )
-        )
+        val updatedMessages = ArrayList<ChatMessage>(messages.size)
+        for (messageIndex in messages.indices) {
+            updatedMessages += if (messageIndex == index) next else messages[messageIndex]
+        }
+        uiState = uiState.copy(messages = updatedMessages)
     }
 
     private fun appendStickerMessage(data: StructuredDataCard) {
