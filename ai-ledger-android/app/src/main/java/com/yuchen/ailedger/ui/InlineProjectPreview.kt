@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.ui
 
+import android.content.Context
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
@@ -138,6 +139,7 @@ internal fun InlineProjectPreview(
                     modifier = Modifier.fillMaxSize(),
                     factory = { viewContext ->
                         createInlineProjectWebView(
+                            context = viewContext,
                             preview = resolved,
                             onError = { loadError = true },
                             onRenderProcessGone = {
@@ -177,10 +179,11 @@ internal fun InlineProjectPreview(
 
 @Suppress("SetJavaScriptEnabled", "DEPRECATION")
 private fun createInlineProjectWebView(
+    context: Context,
     preview: ProjectPreviewEntry,
     onError: () -> Unit,
     onRenderProcessGone: () -> Unit,
-): WebView = WebView(preview.entryFile.parentFile?.let { previewContextHolder } ?: previewContextHolder).apply {
+): WebView = WebView(context).apply {
     setBackgroundColor(AndroidColor.TRANSPARENT)
     isVerticalScrollBarEnabled = false
     isHorizontalScrollBarEnabled = false
@@ -213,13 +216,6 @@ private fun createInlineProjectWebView(
         onError = onError,
         onRenderProcessGone = onRenderProcessGone,
     )
-}
-
-private lateinit var previewContextHolder: android.content.Context
-
-@Composable
-private fun rememberPreviewContextHolder() {
-    previewContextHolder = LocalContext.current.applicationContext
 }
 
 private class InlineProjectWebViewClient(
