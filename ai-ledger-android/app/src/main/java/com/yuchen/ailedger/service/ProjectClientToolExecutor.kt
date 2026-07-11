@@ -14,7 +14,8 @@ private const val PROJECT_TOOL_MAX_LIST = 50
  * never rewrites model-authored code, and only applies validated structured arguments.
  */
 internal class ProjectClientToolExecutor(context: Context) {
-    private val store = ProjectWorkspaceStore(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val store = ProjectWorkspaceStore(appContext)
 
     fun execute(call: CloudClientToolCall, fallbackGoal: String = ""): JSONObject {
         val goal = call.originalUserGoal
@@ -48,7 +49,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             }
         }
         if (result.optBoolean("ok")) {
-            ProjectWorkspaceSessionContext.update(result.optJSONObject("project"))
+            ProjectWorkspaceSessionContext.update(appContext, result.optJSONObject("project"))
         }
         return result
     }
