@@ -1,7 +1,5 @@
 package com.yuchen.ailedger.service
 
-import android.content.Context
-import android.test.mock.MockContext
 import java.io.File
 import java.nio.file.Files
 import org.junit.After
@@ -19,7 +17,7 @@ class ProjectWorkspaceStoreTest {
     @Before
     fun setUp() {
         tempRoot = Files.createTempDirectory("ai-ledger-project-workspace-test").toFile()
-        store = ProjectWorkspaceStore(TestContext(tempRoot))
+        store = createStoreForTest(tempRoot)
     }
 
     @After
@@ -108,8 +106,9 @@ class ProjectWorkspaceStoreTest {
         assertEquals("revision_conflict", conflict.code)
     }
 
-    private class TestContext(private val root: File) : MockContext() {
-        override fun getApplicationContext(): Context = this
-        override fun getFilesDir(): File = root
+    private fun createStoreForTest(root: File): ProjectWorkspaceStore {
+        val constructor = ProjectWorkspaceStore::class.java.getDeclaredConstructor(File::class.java)
+        constructor.isAccessible = true
+        return constructor.newInstance(root)
     }
 }
