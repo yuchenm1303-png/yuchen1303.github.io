@@ -16,7 +16,17 @@ internal object AiWorkerResponseParser {
         replyOverride: String? = null,
     ): AiChatResponse {
         val rawReply = (replyOverride?.takeIf { it.isNotBlank() } ?: extractReply(data, body)).trim()
-        val contentBlocks = MessageContentBlockParser.parse(data)
+        val explicitContentBlocks = MessageContentBlockParser.parse(data)
+        val presentation = if (explicitContentBlocks.isNotEmpty()) {
+            MessageContentMarkdownExtraction(
+                reply = rawReply,
+                blocks = explicitContentBlocks,
+            )
+        } else {
+            MessageContentBlockMarkdownExtractor.extract(rawReply)
+        }
+        val visibleReply = presentation.reply
+        val contentBlocks = presentation.blocks
         val clientToolCall = parseClientToolCall(data)
         val projection = clientToolCall?.let(::projectClientToolCall)
         val parsedMobileAction = projection?.mobileAction ?: parseCloudMobileAction(data)
@@ -26,7 +36,7 @@ internal object AiWorkerResponseParser {
             ?: payloadToAgentAction(payload)
 
         if (
-            rawReply.isBlank() &&
+            visibleReply.isBlank() &&
             contentBlocks.isEmpty() &&
             parsedMobileAction == null &&
             parsedPreferenceUpdate == null &&
@@ -52,11 +62,11 @@ internal object AiWorkerResponseParser {
             parsedAgentAction != null -> "已收到结构化手机智能体动作。"
             parsedMobileAction != null -> "已收到结构化手机动作，请确认后执行。"
             parsedPreferenceUpdate != null -> "已收到结构化偏好更新。"
-            else -> rawReply
+            else -> visibleReply
         }
 
         return AiChatResponse(
-            reply = rawReply.ifBlank { fallbackReply },
+            reply = visibleReply.ifBlank { fallbackReply },
             source = data?.optString("source").notBlankOrNull() ?: "cloud_ai",
             model = rawModel,
             modelLabel = displayLabel,
