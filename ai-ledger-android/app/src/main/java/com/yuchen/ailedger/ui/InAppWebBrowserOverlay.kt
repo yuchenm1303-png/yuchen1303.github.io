@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +65,15 @@ fun InAppWebBrowserOverlay(
     onDismiss: () -> Unit
 ) {
     val safeTarget = target ?: return
+    val context = LocalContext.current
+
+    if (ProjectPreviewActivity.canOpen(safeTarget.url)) {
+        LaunchedEffect(safeTarget.url) {
+            context.startActivity(ProjectPreviewActivity.createIntent(context, safeTarget.url))
+            onDismiss()
+        }
+        return
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
