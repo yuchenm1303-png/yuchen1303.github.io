@@ -19,6 +19,18 @@ private const val TOOL_EXECUTION_POLICY_AUTO = "auto"
 private const val TOOL_EXECUTION_POLICY_REQUIRED_SPECIFIC = "required_specific"
 private const val TOOL_EXECUTION_POLICY_NONE = "none"
 private const val TOOL_COMPUTER_RUN_TASK = "computer_run_task"
+private const val MESSAGE_CONTENT_BLOCK_SCHEMA = "ai_ledger_message_content_blocks_v1"
+private val MESSAGE_CONTENT_BLOCK_TYPES = listOf(
+    "rich_text",
+    "code",
+    "table",
+    "chart",
+    "image",
+    "image_gallery",
+    "key_value",
+    "callout",
+    "action_group",
+)
 
 private object InstalledAppsPayloadJsonCache {
     private val lock = Any()
@@ -210,10 +222,16 @@ internal object AiWorkerPayloadBuilder {
                 put("visualAgentBrainEnabled", false)
                 put("visualRouteMode", "gui_plus_exclusive")
                 put("computerUseOwner", "gui_plus")
+                put("messageContentBlockSchema", MESSAGE_CONTENT_BLOCK_SCHEMA)
+                put("messageContentBlocks", JSONArray(MESSAGE_CONTENT_BLOCK_TYPES))
             })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
                 put("includeStructuredData", true)
+                put("includeContentBlocks", true)
+                put("contentBlockSchema", MESSAGE_CONTENT_BLOCK_SCHEMA)
+                put("supportedContentBlockTypes", JSONArray(MESSAGE_CONTENT_BLOCK_TYPES))
+                put("contentBlockPlacement", "supplementary_after_reply")
                 put("includeClientToolCall", true)
                 put("includeEmbeddedCommandMarker", false)
                 put("includeAgentProgress", workspaceModeEnabled)
