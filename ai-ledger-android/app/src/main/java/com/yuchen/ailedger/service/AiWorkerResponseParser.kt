@@ -61,6 +61,7 @@ internal object AiWorkerResponseParser {
             version = data?.optString("version").notBlankOrNull(),
             webSources = parseWebSources(data),
             structuredData = parseStructuredData(data),
+            contentBlocks = MessageContentBlockParser.parse(data),
             mobileAction = parsedMobileAction,
             preferenceUpdate = parsedPreferenceUpdate,
             agentAction = parsedAgentAction,
