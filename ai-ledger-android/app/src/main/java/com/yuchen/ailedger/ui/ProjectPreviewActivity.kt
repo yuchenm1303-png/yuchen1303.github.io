@@ -6,6 +6,7 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.webkit.MimeTypeMap
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -47,9 +48,11 @@ import com.yuchen.ailedger.service.ProjectPreviewEntry
 import com.yuchen.ailedger.service.ProjectWorkspaceStore
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.FileInputStream
 
 private const val PROJECT_PREVIEW_HOST = "project.ai-ledger.local"
 private const val PROJECT_PREVIEW_PATH = "/open"
+private const val PROJECT_RUNTIME_DOMAIN = "project.ai-ledger.local"
 
 class ProjectPreviewActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -182,7 +185,7 @@ private fun ProjectPreviewScreen(
                             onRenderProcessGone = onClose,
                         ).also { webView ->
                             activeWebView = webView
-                            webView.loadUrl(Uri.fromFile(preview.entryFile).toString())
+                            webView.loadUrl(projectRuntimeEntryUrl(preview))
                         }
                     },
                     update = { webView -> activeWebView = webView },
@@ -235,11 +238,11 @@ private fun createProjectWebView(
         domStorageEnabled = true
         databaseEnabled = false
         saveFormData = false
-        allowFileAccess = true
+        allowFileAccess = false
         allowContentAccess = false
         setAllowFileAccessFromFileURLs(false)
         setAllowUniversalAccessFromFileURLs(false)
-        blockNetworkLoads = true
+        blockNetworkLoads = false
         mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         mediaPlaybackRequiresUserGesture = true
         setGeolocationEnabled(false)
@@ -252,6 +255,7 @@ private fun createProjectWebView(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
     }
     webViewClient = LocalProjectWebViewClient(
+        projectId = preview.project.projectId,
         projectRoot = preview.projectRoot,
         onError = onError,
         onRenderProcessGone = onRenderProcessGone,
@@ -259,23 +263,32 @@ private fun createProjectWebView(
 }
 
 private class LocalProjectWebViewClient(
+    projectId: String,
     projectRoot: File,
     private val onError: (String) -> Unit,
     private val onRenderProcessGone: () -> Unit,
 ) : WebViewClient() {
     private val canonicalRoot = projectRoot.canonicalFile
+    private val allowedHost = projectRuntimeHost(projectId)
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-        return !isAllowed(request?.url)
+        return !isAllowedNavigation(request?.url)
     }
 
     @Suppress("DEPRECATION")
     override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-        return !isAllowed(runCatching { Uri.parse(url) }.getOrNull())
+        return !isAllowedNavigation(runCatching { Uri.parse(url) }.getOrNull())
     }
 
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-        return if (isAllowed(request?.url)) null else blockedResponse()
+        val uri = request?.url ?: return blockedResponse()
+        if (uri.scheme == "https" && uri.host == allowedHost && request.method.equals("GET", ignoreCase = true)) {
+            return serveProjectFile(uri)
+        }
+        return when (uri.scheme?.lowercase()) {
+            "about", "data", "blob" -> null
+            else -> blockedResponse()
+        }
     }
 
     override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
@@ -291,22 +304,100 @@ private class LocalProjectWebViewClient(
         return true
     }
 
-    private fun isAllowed(uri: Uri?): Boolean {
+    private fun isAllowedNavigation(uri: Uri?): Boolean {
         if (uri == null) return false
         return when (uri.scheme?.lowercase()) {
             "about", "data", "blob" -> true
-            "file" -> {
-                val path = uri.path ?: return false
-                val file = runCatching { File(path).canonicalFile }.getOrNull() ?: return false
-                file == canonicalRoot || file.path.startsWith(canonicalRoot.path + File.separator)
-            }
+            "https" -> uri.host == allowedHost
             else -> false
         }
     }
 
-    private fun blockedResponse(): WebResourceResponse = WebResourceResponse(
+    private fun serveProjectFile(uri: Uri): WebResourceResponse {
+        val relativePath = Uri.decode(uri.encodedPath.orEmpty())
+            .trimStart('/')
+            .ifBlank { "index.html" }
+        val file = runCatching { File(canonicalRoot, relativePath).canonicalFile }.getOrNull()
+            ?: return blockedResponse(404, "Not Found")
+        if (!file.isFile || (file != canonicalRoot && !file.path.startsWith(canonicalRoot.path + File.separator))) {
+            return blockedResponse(404, "Not Found")
+        }
+        val mimeType = mimeTypeFor(file)
+        val encoding = if (
+            mimeType.startsWith("text/") ||
+            mimeType.contains("javascript") ||
+            mimeType == "application/json" ||
+            mimeType == "image/svg+xml"
+        ) {
+            "utf-8"
+        } else {
+            null
+        }
+        val headers = linkedMapOf(
+            "Cache-Control" to "no-store",
+            "Content-Security-Policy" to "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'",
+            "Cross-Origin-Resource-Policy" to "same-origin",
+            "Referrer-Policy" to "no-referrer",
+            "X-Content-Type-Options" to "nosniff",
+        )
+        return runCatching {
+            WebResourceResponse(
+                mimeType,
+                encoding,
+                200,
+                "OK",
+                headers,
+                FileInputStream(file),
+            )
+        }.getOrElse {
+            blockedResponse(500, "Read Failed")
+        }
+    }
+
+    private fun mimeTypeFor(file: File): String {
+        val extension = file.extension.lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+            ?: when (extension) {
+                "js", "mjs" -> "text/javascript"
+                "json", "map" -> "application/json"
+                "svg" -> "image/svg+xml"
+                "webp" -> "image/webp"
+                "woff" -> "font/woff"
+                "woff2" -> "font/woff2"
+                else -> "application/octet-stream"
+            }
+    }
+
+    private fun blockedResponse(statusCode: Int = 403, reason: String = "Blocked"): WebResourceResponse = WebResourceResponse(
         "text/plain",
         "utf-8",
+        statusCode,
+        reason,
+        mapOf(
+            "Cache-Control" to "no-store",
+            "X-Content-Type-Options" to "nosniff",
+        ),
         ByteArrayInputStream(ByteArray(0)),
     )
+}
+
+private fun projectRuntimeEntryUrl(preview: ProjectPreviewEntry): String {
+    val entryPath = preview.project.entryFile.trim('/').ifBlank { "index.html" }
+    return Uri.Builder()
+        .scheme("https")
+        .authority(projectRuntimeHost(preview.project.projectId))
+        .appendEncodedPath(entryPath.split('/').joinToString("/") { Uri.encode(it) })
+        .build()
+        .toString()
+}
+
+private fun projectRuntimeHost(projectId: String): String {
+    val safeLabel = projectId
+        .lowercase()
+        .replace('_', '-')
+        .filter { it.isLetterOrDigit() || it == '-' }
+        .take(50)
+        .trim('-')
+        .ifBlank { "project" }
+    return "$safeLabel.$PROJECT_RUNTIME_DOMAIN"
 }
