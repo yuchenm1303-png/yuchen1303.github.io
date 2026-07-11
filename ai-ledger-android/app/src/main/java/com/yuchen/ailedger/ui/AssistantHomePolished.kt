@@ -50,6 +50,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,6 +91,7 @@ import com.yuchen.ailedger.model.RenderQuality
 import com.yuchen.ailedger.ui.gl.LocalOpenGLGlassSurfaceAnchor
 import com.yuchen.ailedger.ui.gl.OpenGLGlassSurfaceAnchor
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.yield
 import kotlin.math.PI
 import kotlin.math.max
@@ -118,6 +120,18 @@ private class ChatTailFollowRuntimeV2 {
         dockedFrames = 0
     }
 }
+
+@Immutable
+private data class ChatTailLayoutSignalV2(
+    val totalItemsCount: Int,
+    val viewportEndOffset: Int,
+    val viewportHeight: Int,
+    val lastVisibleIndex: Int,
+    val lastVisibleOffset: Int,
+    val lastVisibleSize: Int,
+    val tailOffset: Int,
+    val tailSize: Int
+)
 
 @Immutable
 private data class ChatPanelUiState(
@@ -532,7 +546,11 @@ private fun ChatPanelV2(
             )
         }
     }
-    val activeMessageIds = remember(messages) { messages.map { it.id }.toSet() }
+    val activeMessageIds = remember(messages) {
+        HashSet<String>(messages.size).apply {
+            messages.forEach { message -> add(message.id) }
+        }
+    }
     LaunchedEffect(activeMessageIds) {
         bubbleLayerState.removeMissing(activeMessageIds)
 
@@ -549,34 +567,30 @@ private fun ChatPanelV2(
             collapsedLongReplyMessageIds = collapsedLongReplyMessageIds.intersect(activeMessageIds)
         }
     }
-    val liveStreamingMessageIds = remember(messages) {
-        messages
-            .filter { message ->
-                message.role == MessageRole.Assistant &&
-                    message.status == MessageStatus.Sending &&
-                    hasStreamingLiveTextV2(messageText(message))
-            }
-            .map { it.id }
-            .toSet()
-    }
-    LaunchedEffect(liveStreamingMessageIds) {
-        if (liveStreamingMessageIds.isNotEmpty()) {
-            streamedMessageIds = streamedMessageIds + liveStreamingMessageIds
-        }
-    }
 
     val lastMessage = messages.lastOrNull()
     val lastMessageId = lastMessage?.id
     val lastMessageStatus = lastMessage?.status
     val lastMessageIndex = messages.lastIndex
-    val lastMessageTextLength = lastMessage?.let { messageText(it).length } ?: 0
+    val liveStreamingMessageId = lastMessage
+        ?.takeIf { message ->
+            message.role == MessageRole.Assistant &&
+                message.status == MessageStatus.Sending &&
+                hasStreamingLiveTextV2(messageText(message))
+        }
+        ?.id
+    LaunchedEffect(liveStreamingMessageId) {
+        if (liveStreamingMessageId != null && liveStreamingMessageId !in streamedMessageIds) {
+            streamedMessageIds = streamedMessageIds + liveStreamingMessageId
+        }
+    }
+
     val lastActionableMessage = remember(messages) {
         messages.lastOrNull { isActionableCloudAssistantMessageV2(it) }
     }
     val lastActionableMessageId = lastActionableMessage?.id
-    val hasSendingAssistantMessage = remember(messages) {
-        messages.any { it.role == MessageRole.Assistant && it.status == MessageStatus.Sending }
-    }
+    val hasSendingAssistantMessage = lastMessage?.role == MessageRole.Assistant &&
+        lastMessageStatus == MessageStatus.Sending
     val pendingStreamMotion = streamedMessageIds.any { it !in streamRevealCompletedMessageIds }
     val pendingRevealMotion = lastActionableMessage?.let { message ->
         message.id !in revealedMessageIds &&
@@ -596,6 +610,36 @@ private fun ChatPanelV2(
     )
     SideEffect { PerformanceRuntimeMetrics.recordAssistantComposition() }
 
+    val latestOnCopyMessage = rememberUpdatedState(onCopyMessage)
+    val latestOnRetryMessage = rememberUpdatedState(onRetryMessage)
+    val stableOnCopyMessage = remember {
+        { text: String -> latestOnCopyMessage.value(text) }
+    }
+    val stableOnRetryMessage = remember {
+        { id: String -> latestOnRetryMessage.value(id) }
+    }
+    val stableOnRevealCompleted = remember {
+        { id: String ->
+            if (id !in revealedMessageIds) revealedMessageIds = revealedMessageIds + id
+        }
+    }
+    val stableOnStreamRevealCompleted = remember {
+        { id: String ->
+            if (id !in streamRevealCompletedMessageIds) {
+                streamRevealCompletedMessageIds = streamRevealCompletedMessageIds + id
+            }
+        }
+    }
+    val stableOnLongReplyExpandedChange = remember {
+        { id: String, expanded: Boolean ->
+            collapsedLongReplyMessageIds = if (expanded) {
+                collapsedLongReplyMessageIds - id
+            } else {
+                collapsedLongReplyMessageIds + id
+            }
+        }
+    }
+
     val tailAnchorIndex = messages.size
     val liveTailFollowActive = state.isSending ||
         lastMessageStatus == MessageStatus.Sending ||
@@ -612,21 +656,19 @@ private fun ChatPanelV2(
         )
     }
 
-    LaunchedEffect(lastMessageId, lastMessageTextLength, tailAnchorIndex, liveTailFollowActive) {
+    LaunchedEffect(lastMessageId, tailAnchorIndex, liveTailFollowActive) {
         tailFollowRuntime.reset()
         if (!liveTailFollowActive || messages.isEmpty() || lastMessageIndex < 0) return@LaunchedEffect
-        while (true) {
-            val frameNanos = withFrameNanos { it }
-            val moved = listState.followChatTailFrameV2(
-                tailIndex = tailAnchorIndex,
-                live = true,
-                runtime = tailFollowRuntime,
-                frameNanos = frameNanos
-            )
-            if (!moved && tailFollowRuntime.dockedFrames >= CHAT_TAIL_FOLLOW_DOCKED_SETTLE_FRAMES) {
-                break
+        snapshotFlow { listState.chatTailLayoutSignalV2(tailAnchorIndex) }
+            .collect {
+                val frameNanos = withFrameNanos { it }
+                listState.followChatTailFrameV2(
+                    tailIndex = tailAnchorIndex,
+                    live = true,
+                    runtime = tailFollowRuntime,
+                    frameNanos = frameNanos
+                )
             }
-        }
     }
 
     GlassPanel(
@@ -687,17 +729,11 @@ private fun ChatPanelV2(
                                 wasStreamed = message.id in streamedMessageIds,
                                 streamRevealAlreadyCompleted = message.id in streamRevealCompletedMessageIds,
                                 longReplyExpanded = message.id !in collapsedLongReplyMessageIds,
-                                onRevealCompleted = { id -> revealedMessageIds = revealedMessageIds + id },
-                                onStreamRevealCompleted = { id -> streamRevealCompletedMessageIds = streamRevealCompletedMessageIds + id },
-                                onLongReplyExpandedChange = { id, expanded ->
-                                    collapsedLongReplyMessageIds = if (expanded) {
-                                        collapsedLongReplyMessageIds - id
-                                    } else {
-                                        collapsedLongReplyMessageIds + id
-                                    }
-                                },
-                                onCopyMessage = onCopyMessage,
-                                onRetryMessage = onRetryMessage
+                                onRevealCompleted = stableOnRevealCompleted,
+                                onStreamRevealCompleted = stableOnStreamRevealCompleted,
+                                onLongReplyExpandedChange = stableOnLongReplyExpandedChange,
+                                onCopyMessage = stableOnCopyMessage,
+                                onRetryMessage = stableOnRetryMessage
                             )
                         }
                         item(key = CHAT_TAIL_ANCHOR_KEY) {
@@ -708,6 +744,23 @@ private fun ChatPanelV2(
             }
         }
     }
+}
+
+private fun LazyListState.chatTailLayoutSignalV2(tailIndex: Int): ChatTailLayoutSignalV2 {
+    val info = layoutInfo
+    val visibleItems = info.visibleItemsInfo
+    val lastVisible = visibleItems.lastOrNull()
+    val tail = visibleItems.firstOrNull { it.index == tailIndex }
+    return ChatTailLayoutSignalV2(
+        totalItemsCount = info.totalItemsCount,
+        viewportEndOffset = info.viewportEndOffset,
+        viewportHeight = info.viewportSize.height,
+        lastVisibleIndex = lastVisible?.index ?: -1,
+        lastVisibleOffset = lastVisible?.offset ?: 0,
+        lastVisibleSize = lastVisible?.size ?: 0,
+        tailOffset = tail?.offset ?: Int.MIN_VALUE,
+        tailSize = tail?.size ?: 0
+    )
 }
 
 private suspend fun LazyListState.settleChatTailV2(
@@ -1168,7 +1221,8 @@ private fun StreamingAssistantContentV2(
                     fontSize = 14.sp,
                     lineHeight = 20.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    cacheResult = false
                 )
             } else {
                 StreamingLivePlainTextV2(
