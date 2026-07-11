@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Base64
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -87,6 +88,42 @@ private val NO_ONLINE_INTENT_PATTERN = Regex(
     option = RegexOption.IGNORE_CASE,
 )
 
+private class ChatMessageOverlayList private constructor(
+    private val source: List<ChatMessage>,
+    private val replacedIndex: Int,
+    private val replacement: ChatMessage
+) : AbstractList<ChatMessage>(), RandomAccess {
+    override val size: Int
+        get() = source.size
+
+    override fun get(index: Int): ChatMessage {
+        if (index !in indices) throw IndexOutOfBoundsException("index=$index, size=$size")
+        return if (index == replacedIndex) replacement else source[index]
+    }
+
+    companion object {
+        fun replace(
+            source: List<ChatMessage>,
+            index: Int,
+            replacement: ChatMessage
+        ): List<ChatMessage> {
+            val stableSource = if (
+                source is ChatMessageOverlayList &&
+                source.replacedIndex == index
+            ) {
+                source.source
+            } else {
+                source
+            }
+            return ChatMessageOverlayList(
+                source = stableSource,
+                replacedIndex = index,
+                replacement = replacement
+            )
+        }
+    }
+}
+
 class AssistantViewModel(
     application: Application,
     private val repository: AssistantRepository,
@@ -102,7 +139,7 @@ class AssistantViewModel(
         CustomBackgroundStore(application)
     )
 
-    var uiState by mutableStateOf(repository.initialState())
+    var uiState by mutableStateOf(repository.initialState(), referentialEqualityPolicy())
         private set
 
     private var activeSendJob: Job? = null
@@ -1091,9 +1128,13 @@ class AssistantViewModel(
             messages.indexOfFirst { it.id == id }
         }
         if (index < 0 || messages[index] == next) return
-        val nextMessages = ArrayList(messages)
-        nextMessages[index] = next
-        uiState = uiState.copy(messages = nextMessages)
+        uiState = uiState.copy(
+            messages = ChatMessageOverlayList.replace(
+                source = messages,
+                index = index,
+                replacement = next
+            )
+        )
     }
 
     private fun appendStickerMessage(data: StructuredDataCard) {
