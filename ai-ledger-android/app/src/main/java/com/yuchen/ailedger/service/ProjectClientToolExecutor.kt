@@ -16,6 +16,7 @@ private const val PROJECT_TOOL_MAX_LIST = 50
 internal class ProjectClientToolExecutor(context: Context) {
     private val appContext = context.applicationContext
     private val store = ProjectWorkspaceStore(appContext)
+    private val validator = ProjectWorkspaceValidator(store)
 
     fun execute(call: CloudClientToolCall, fallbackGoal: String = ""): JSONObject {
         val goal = call.originalUserGoal
@@ -33,6 +34,7 @@ internal class ProjectClientToolExecutor(context: Context) {
                 "project_write_files" -> executeWriteFiles(call, receipt)
                 "project_apply_edits" -> executeApplyEdits(call, receipt)
                 "project_delete_files" -> executeDeleteFiles(call, receipt)
+                "project_validate" -> executeValidate(call, receipt)
                 "project_build_preview" -> executeBuildPreview(call, receipt)
                 "project_list_revisions" -> executeListRevisions(call, receipt)
                 "project_rollback" -> executeRollback(call, receipt)
@@ -161,19 +163,55 @@ internal class ProjectClientToolExecutor(context: Context) {
             .put("revisionId", project.currentRevisionId)
     }
 
+    private fun executeValidate(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
+        val projectId = requireProjectId(call.arguments)
+        val project = store.getProject(projectId)
+        val verification = validator.validate(projectId)
+        val result = if (verification.passed) {
+            receipt.success(verification.status, verification.summary())
+        } else {
+            receipt.fail("validation_failed", verification.summary())
+        }
+        return result
+            .put("project", project.toJson())
+            .put("projectId", project.projectId)
+            .put("revisionId", project.currentRevisionId)
+            .put("verification", verification.toJson())
+    }
+
     private fun executeBuildPreview(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
         val args = call.arguments
         val projectId = requireProjectId(args)
-        val preview = store.buildPreview(
-            projectId = projectId,
-            revisionId = args.optString("revisionId").trim().takeIf(String::isNotBlank),
-        )
-        val blocks = previewContentBlocks(preview)
-        return receipt.success("preview_ready", "项目 ${preview.project.name} 已完成本地校验，可以打开预览。")
+        val project = store.getProject(projectId)
+        val requestedRevisionId = args.optString("revisionId").trim().takeIf(String::isNotBlank)
+        if (requestedRevisionId != null && requestedRevisionId != project.currentRevisionId) {
+            val preview = store.buildPreview(projectId = projectId, revisionId = requestedRevisionId)
+            val blocks = previewContentBlocks(preview, verification = null)
+            return receipt.success("preview_ready", "历史版本 ${preview.revisionId} 已完成本地结构校验，可以打开预览。")
+                .put("project", preview.project.toJson())
+                .put("projectId", preview.project.projectId)
+                .put("revisionId", preview.revisionId)
+                .put("previewUrl", preview.previewUrl)
+                .put("recommendedContentBlocks", blocks)
+                .put("presentationInstruction", "后端会安全接入 recommendedContentBlocks；请只补充简短自然说明，不要展示内部文件路径。")
+        }
+
+        val verification = validator.validate(projectId)
+        if (!verification.passed) {
+            return receipt.fail("validation_failed", "项目未通过确定性验证，不能生成完成预览。${verification.summary()}")
+                .put("project", project.toJson())
+                .put("projectId", project.projectId)
+                .put("revisionId", project.currentRevisionId)
+                .put("verification", verification.toJson())
+        }
+        val preview = store.buildPreview(projectId = projectId, revisionId = requestedRevisionId)
+        val blocks = previewContentBlocks(preview, verification)
+        return receipt.success("preview_ready", "项目 ${preview.project.name} 已通过确定性验证，可以打开预览。")
             .put("project", preview.project.toJson())
             .put("projectId", preview.project.projectId)
             .put("revisionId", preview.revisionId)
             .put("previewUrl", preview.previewUrl)
+            .put("verification", verification.toJson())
             .put("recommendedContentBlocks", blocks)
             .put("presentationInstruction", "后端会安全接入 recommendedContentBlocks；请只补充简短自然说明，不要展示内部文件路径。")
     }
@@ -205,7 +243,10 @@ internal class ProjectClientToolExecutor(context: Context) {
             .put("restoredFromRevisionId", targetRevisionId)
     }
 
-    private fun previewContentBlocks(preview: ProjectPreviewEntry): JSONArray = JSONArray().apply {
+    private fun previewContentBlocks(
+        preview: ProjectPreviewEntry,
+        verification: AgentArtifactVerificationReport?,
+    ): JSONArray = JSONArray().apply {
         put(JSONObject().apply {
             put("type", "key_value")
             put("id", "project-${preview.project.projectId}-${preview.revisionId}-summary")
@@ -213,7 +254,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             put("items", JSONArray().apply {
                 put(JSONObject().put("label", "项目类型").put("value", "静态网页").put("detail", "HTML · CSS · JavaScript"))
                 put(JSONObject().put("label", "当前版本").put("value", preview.revisionId).put("detail", "${preview.project.fileCount} 个文件"))
-                put(JSONObject().put("label", "构建状态").put("value", "预览就绪").put("detail", "本地隔离运行"))
+                put(JSONObject().put("label", "构建状态").put("value", "预览就绪").put("detail", verification?.status ?: "历史版本结构校验"))
             })
         })
         put(JSONObject().apply {
@@ -230,6 +271,18 @@ internal class ProjectClientToolExecutor(context: Context) {
                 })
             })
         })
+        if (verification != null && verification.warningCount > 0) {
+            put(JSONObject().apply {
+                put("type", "callout")
+                put("id", "project-${preview.project.projectId}-${preview.revisionId}-verification")
+                put("tone", "warning")
+                put("title", "验证警告")
+                put("text", verification.issues
+                    .filter { it.severity == AgentVerificationSeverity.Warning }
+                    .take(3)
+                    .joinToString("\n") { "• ${it.message}" })
+            })
+        }
     }
 
     private fun baseReceipt(call: CloudClientToolCall, goal: String): JSONObject = JSONObject().apply {
@@ -298,6 +351,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             "project_write_files",
             "project_apply_edits",
             "project_delete_files",
+            "project_validate",
             "project_build_preview",
             "project_list_revisions",
             "project_rollback",
