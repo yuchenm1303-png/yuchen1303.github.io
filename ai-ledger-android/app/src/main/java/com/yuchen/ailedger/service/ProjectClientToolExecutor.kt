@@ -22,7 +22,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             ?: fallbackGoal.takeIf(String::isNotBlank)
             ?: call.name
         val receipt = baseReceipt(call, goal)
-        return runCatching {
+        val result = runCatching {
             when (call.name) {
                 "project_create" -> executeCreate(call, receipt)
                 "project_list" -> executeList(call, receipt)
@@ -47,6 +47,10 @@ internal class ProjectClientToolExecutor(context: Context) {
                 )
             }
         }
+        if (result.optBoolean("ok")) {
+            ProjectWorkspaceSessionContext.update(result.optJSONObject("project"))
+        }
+        return result
     }
 
     private fun executeCreate(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
@@ -170,7 +174,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             .put("revisionId", preview.revisionId)
             .put("previewUrl", preview.previewUrl)
             .put("recommendedContentBlocks", blocks)
-            .put("presentationInstruction", "请调用 message_content_blocks，并原样提交 recommendedContentBlocks；不要把内部文件路径显示给用户。")
+            .put("presentationInstruction", "后端会安全接入 recommendedContentBlocks；请只补充简短自然说明，不要展示内部文件路径。")
     }
 
     private fun executeListRevisions(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
