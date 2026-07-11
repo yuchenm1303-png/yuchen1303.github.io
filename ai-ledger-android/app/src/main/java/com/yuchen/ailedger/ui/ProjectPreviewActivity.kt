@@ -4,13 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Color as AndroidColor
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.webkit.MimeTypeMap
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
@@ -48,7 +46,6 @@ import com.yuchen.ailedger.service.ProjectPreviewEntry
 import com.yuchen.ailedger.service.ProjectWorkspaceStore
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.FileInputStream
 
 private const val PROJECT_PREVIEW_HOST = "project.ai-ledger.local"
 private const val PROJECT_PREVIEW_PATH = "/open"
@@ -224,36 +221,13 @@ private fun PreviewTopAction(text: String, onClick: () -> Unit) {
     )
 }
 
-@Suppress("SetJavaScriptEnabled", "DEPRECATION")
 private fun createProjectWebView(
     context: Context,
     preview: ProjectPreviewEntry,
     onError: (String) -> Unit,
     onRenderProcessGone: () -> Unit,
 ): WebView = WebView(context).apply {
-    setBackgroundColor(AndroidColor.TRANSPARENT)
-    settings.apply {
-        javaScriptEnabled = true
-        javaScriptCanOpenWindowsAutomatically = false
-        domStorageEnabled = true
-        databaseEnabled = false
-        saveFormData = false
-        allowFileAccess = false
-        allowContentAccess = false
-        setAllowFileAccessFromFileURLs(false)
-        setAllowUniversalAccessFromFileURLs(false)
-        blockNetworkLoads = false
-        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        mediaPlaybackRequiresUserGesture = true
-        setGeolocationEnabled(false)
-        setSupportMultipleWindows(false)
-        setSupportZoom(false)
-        builtInZoomControls = false
-        displayZoomControls = false
-        cacheMode = WebSettings.LOAD_NO_CACHE
-        loadsImagesAutomatically = true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
-    }
+    configureProjectPreviewRuntime(ProjectPreviewDisplayMode.Fullscreen)
     webViewClient = LocalProjectWebViewClient(
         projectId = preview.project.projectId,
         projectRoot = preview.projectRoot,
@@ -347,7 +321,7 @@ private class LocalProjectWebViewClient(
                 200,
                 "OK",
                 headers,
-                FileInputStream(file),
+                file.openProjectPreviewStream(mimeType),
             )
         }.getOrElse {
             blockedResponse(500, "Read Failed")
@@ -358,6 +332,7 @@ private class LocalProjectWebViewClient(
         val extension = file.extension.lowercase()
         return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
             ?: when (extension) {
+                "html", "htm" -> "text/html"
                 "js", "mjs" -> "text/javascript"
                 "json", "map" -> "application/json"
                 "svg" -> "image/svg+xml"
