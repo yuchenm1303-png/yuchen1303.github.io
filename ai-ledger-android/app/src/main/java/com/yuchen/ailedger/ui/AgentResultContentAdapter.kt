@@ -53,15 +53,10 @@ internal fun adaptAgentResultContent(blocks: List<MessageContentBlock>): List<Pr
             .mapNotNull { index -> (blocks[index] as? KeyValueContentBlock)?.let { index to it } }
             .lastOrNull { (_, summary) ->
                 summary.id.contains(projectId, ignoreCase = true) ||
+                    summary.id.startsWith("project-", ignoreCase = true) &&
                     summary.items.any { item -> item.value == revisionId }
             }
             ?.first
-            ?: blocks.indices
-                .asSequence()
-                .filter { index -> index < actionIndex && !consumed[index] }
-                .mapNotNull { index -> (blocks[index] as? KeyValueContentBlock)?.let { index to it } }
-                .lastOrNull()
-                ?.first
             ?: return@forEachIndexed
 
         val summary = blocks[summaryIndex] as KeyValueContentBlock
