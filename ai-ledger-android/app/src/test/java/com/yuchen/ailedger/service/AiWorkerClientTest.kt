@@ -41,7 +41,7 @@ class AiWorkerClientTest {
         assertTrue(preferences.getInt("inlineStickerMaxPerReply") in 0..64)
         assertTrue(preferences.getInt("inlineStickerRepeatCount") in 1..4)
         assertEquals(
-            "compose-native-cloud-first-v4-required-tool-policy",
+            "compose-native-project-workspace-v1",
             payload.getString("clientVersion"),
         )
         assertEquals("ai_ledger_tool_execution_policy_v1", toolExecutionPolicy.getString("schema"))
