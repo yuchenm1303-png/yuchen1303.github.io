@@ -189,4 +189,93 @@ class MessageContentBlockParserTest {
         assertEquals(80, (blocks[0] as TableContentBlock).rows.size)
         assertEquals(8, (blocks[1] as ActionGroupContentBlock).actions.size)
     }
+
+    @Test
+    fun upgradesLegacyMarkdownWithoutDuplicatingHeavyContent() {
+        val reply = """
+            下面是结果。
+
+            ```kotlin Demo.kt
+            val voltage = 220
+            println(voltage)
+            ```
+
+            | 项目 | 数值 |
+            | --- | ---: |
+            | 电压 | 220 V |
+
+            ![接线示意图](https://example.com/wiring.png "实验接线")
+
+            以上内容可直接使用。
+        """.trimIndent()
+        val data = JSONObject().put("reply", reply).put("model", "qwen")
+
+        val response = AiWorkerResponseParser.parse(
+            data = data,
+            body = data.toString(),
+            payload = JSONObject(),
+            route = AiWorkerModelRoute(ChatModel.Kimi, ChatModel.Kimi, "test"),
+        )
+
+        assertEquals("下面是结果。\n\n以上内容可直接使用。", response.reply)
+        assertEquals(3, response.contentBlocks.size)
+        assertEquals("Demo.kt", (response.contentBlocks[0] as CodeContentBlock).fileName)
+        assertEquals("220 V", (response.contentBlocks[1] as TableContentBlock).rows.single()[1])
+        assertEquals("实验接线", (response.contentBlocks[2] as ImageContentBlock).image.caption)
+    }
+
+    @Test
+    fun upgradesChartProtocolFenceToTypedChart() {
+        val reply = """
+            数据趋势如下。
+
+            ```chart
+            {"type":"bar","title":"功率","labels":["A","B"],"values":[12,18]}
+            ```
+        """.trimIndent()
+        val data = JSONObject().put("reply", reply).put("model", "qwen")
+
+        val response = AiWorkerResponseParser.parse(
+            data = data,
+            body = data.toString(),
+            payload = JSONObject(),
+            route = AiWorkerModelRoute(ChatModel.Kimi, ChatModel.Kimi, "test"),
+        )
+
+        assertEquals("数据趋势如下。", response.reply)
+        val chart = response.contentBlocks.single() as ChartContentBlock
+        assertEquals(MessageChartType.Bar, chart.type)
+        assertEquals(listOf(12.0, 18.0), chart.series.single().points.map { it.y })
+    }
+
+    @Test
+    fun explicitServerBlocksTakePriorityOverMarkdownFallback() {
+        val reply = """
+            ```kotlin
+            val shouldRemainText = true
+            ```
+        """.trimIndent()
+        val data = JSONObject()
+            .put("reply", reply)
+            .put(
+                "contentBlocks",
+                JSONArray().put(
+                    JSONObject()
+                        .put("type", "table")
+                        .put("columns", JSONArray(listOf("A", "B")))
+                        .put("rows", JSONArray().put(JSONArray(listOf("1", "2")))),
+                ),
+            )
+
+        val response = AiWorkerResponseParser.parse(
+            data = data,
+            body = data.toString(),
+            payload = JSONObject(),
+            route = AiWorkerModelRoute(ChatModel.Kimi, ChatModel.Kimi, "test"),
+        )
+
+        assertEquals(reply, response.reply)
+        assertEquals(1, response.contentBlocks.size)
+        assertTrue(response.contentBlocks.single() is TableContentBlock)
+    }
 }
