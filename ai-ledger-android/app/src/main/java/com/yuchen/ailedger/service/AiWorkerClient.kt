@@ -3,6 +3,7 @@ package com.yuchen.ailedger.service
 import com.yuchen.ailedger.AiLedgerApplication
 import com.yuchen.ailedger.model.ChatMessage
 import com.yuchen.ailedger.model.ChatModel
+import com.yuchen.ailedger.model.MessageContentBlock
 import com.yuchen.ailedger.model.MessageRole
 import com.yuchen.ailedger.model.StructuredDataCard
 import com.yuchen.ailedger.model.WebSource
@@ -94,6 +95,7 @@ data class AiChatResponse(
     val version: String? = null,
     val webSources: List<WebSource> = emptyList(),
     val structuredData: StructuredDataCard? = null,
+    val contentBlocks: List<MessageContentBlock> = emptyList(),
     val mobileAction: CloudMobileAction? = null,
     val preferenceUpdate: CloudPreferenceUpdate? = null,
     val agentAction: CloudAgentAction? = null,
