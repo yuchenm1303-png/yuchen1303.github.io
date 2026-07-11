@@ -68,16 +68,13 @@ internal fun WebView.configureProjectPreviewRuntime(mode: ProjectPreviewDisplayM
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN,
             MotionEvent.ACTION_POINTER_DOWN,
-            MotionEvent.ACTION_MOVE,
-            -> {
+            MotionEvent.ACTION_MOVE -> {
                 view.requestFocus()
                 view.parent?.requestDisallowInterceptTouchEvent(true)
             }
 
             MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_POINTER_UP,
-            MotionEvent.ACTION_CANCEL,
-            -> view.parent?.requestDisallowInterceptTouchEvent(false)
+            MotionEvent.ACTION_CANCEL -> view.parent?.requestDisallowInterceptTouchEvent(false)
         }
         false
     }
