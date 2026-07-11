@@ -38,14 +38,16 @@ class AgentOrchestrator(
             )
         }
 
+        // 普通聊天同一时刻只允许一个发送任务，因此这里消费唯一待执行的视觉调用，
+        // 不再用自然语言 goal 重新匹配已经具有稳定 callId 的结构化事务。
         val cloudCall = if (executionMode == AgentExecutionMode.ExplicitAgent) {
-            aiWorkerClient.consumeVisualClientToolCall(goal)
+            aiWorkerClient.consumeVisualClientToolCall()
         } else {
             null
         }
         if (executionMode == AgentExecutionMode.ExplicitAgent && cloudCall == null) {
             val message = "云端视觉工具调用关联失败，已安全停止，未执行任何屏幕操作。"
-            AgentRuntimeController.noteDiagnostic("visual_client_tool_call_missing：目标未匹配到当前 computer_run_task。")
+            AgentRuntimeController.noteDiagnostic("visual_client_tool_call_missing：当前没有唯一待执行的 computer_run_task。")
             return AgentTaskRunResult(
                 completed = false,
                 stoppedForConfirmation = false,
@@ -55,7 +57,7 @@ class AgentOrchestrator(
         }
         if (
             executionMode == AgentExecutionMode.ExplicitAgent &&
-            (cloudCall?.name != "computer_run_task" || cloudCall?.id.isNullOrBlank())
+            (cloudCall?.name != "computer_run_task" || cloudCall.id.isBlank())
         ) {
             val message = "云端视觉工具调用格式无效，已安全停止，未执行任何屏幕操作。"
             AgentRuntimeController.noteDiagnostic("visual_client_tool_call_invalid：工具名或调用编号无效。")
@@ -116,6 +118,7 @@ class AgentOrchestrator(
                     goal = goal,
                     maxSteps = maxSteps,
                     executionMode = executionMode,
+                    clientToolCall = cloudCall,
                 )
             }
             terminalReason = "visual_task_${result.visualReceiptStatus()}"
