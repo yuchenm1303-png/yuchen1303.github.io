@@ -347,8 +347,20 @@ class AiWorkerClient(
         response: AiChatResponse,
         modelPreference: ChatModel,
     ): AiChatResponse? {
-        return completePlanClientToolCallIfNeeded(response, modelPreference)
+        return completeProjectClientToolCallIfNeeded(response, modelPreference)
+            ?: completePlanClientToolCallIfNeeded(response, modelPreference)
             ?: completeDeviceClientToolCallIfNeeded(response, modelPreference)
+    }
+
+    private fun completeProjectClientToolCallIfNeeded(
+        response: AiChatResponse,
+        modelPreference: ChatModel,
+    ): AiChatResponse? {
+        val call = response.clientToolCall ?: return null
+        if (!ProjectClientToolExecutor.isProjectTool(call.name)) return null
+        val app = AiLedgerApplication.contextOrNull() ?: return null
+        val receipt = ProjectClientToolExecutor(app).execute(call, response.reply)
+        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
     }
 
     private fun completePlanClientToolCallIfNeeded(
