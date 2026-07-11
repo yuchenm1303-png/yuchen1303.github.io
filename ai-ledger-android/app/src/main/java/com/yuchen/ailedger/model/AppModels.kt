@@ -365,6 +365,7 @@ data class ChatMessage(
     val errorText: String? = null,
     val webSources: List<WebSource> = emptyList(),
     val structuredData: StructuredDataCard? = null,
+    val contentBlocks: List<MessageContentBlock> = emptyList(),
     val searchUsed: Boolean = false,
     val searchProvider: String? = null,
     val attachments: List<ChatAttachment> = emptyList(),
