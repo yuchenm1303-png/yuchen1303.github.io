@@ -298,20 +298,27 @@ object AgentRuntimeController {
 
             val presentation = outcome.toTerminalPresentation()
             val resultText = outcome.message.trim().take(72).ifBlank { presentation.defaultMessage }
+            val terminalAt = System.currentTimeMillis()
+            val terminalProgress = AgentOverlayProgress(
+                taskId = taskId,
+                enabled = mutableEnabled.value,
+                running = false,
+                title = "AI 智能体",
+                status = presentation.status,
+                currentAction = if (mutableEnabled.value) "等待新任务" else "强制视觉智能体已关闭",
+                lastResult = resultText,
+                logs = listOf("${presentation.logPrefix}：$resultText"),
+                pendingConfirmation = null,
+                pendingUserInput = null,
+                userTakeoverPaused = false,
+                updatedAt = terminalAt,
+            )
+            // 诊断记录必须在浮窗 taskId 清零前收到带原任务编号的终态；只读旁路不改变执行状态。
+            VisualIntelligenceDiagnosticsStore.currentOrNull()?.observeProgress(terminalProgress)
             publishProgress(
-                AgentOverlayProgress(
+                terminalProgress.copy(
                     taskId = 0L,
-                    enabled = mutableEnabled.value,
-                    running = false,
-                    title = "AI 智能体",
-                    status = presentation.status,
-                    currentAction = if (mutableEnabled.value) "等待新任务" else "强制视觉智能体已关闭",
-                    lastResult = resultText,
-                    logs = listOf("${presentation.logPrefix}：$resultText"),
-                    pendingConfirmation = null,
-                    pendingUserInput = null,
-                    userTakeoverPaused = false,
-                    updatedAt = System.currentTimeMillis(),
+                    updatedAt = terminalAt + 1L,
                 )
             )
             true
