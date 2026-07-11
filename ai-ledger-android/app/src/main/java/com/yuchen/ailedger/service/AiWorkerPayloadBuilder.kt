@@ -110,6 +110,11 @@ internal object AiWorkerPayloadBuilder {
             put("messageId", latestUserContext.messageId.ifBlank { requestId })
         }
         val appContext = AiLedgerApplication.contextOrNull()
+        val activeProject = if (!hasImage && !visualAgentModeEnabled) {
+            ProjectWorkspaceSessionContext.current(appContext)
+        } else {
+            null
+        }
         val memoryCompilation = appContext
             ?.let { context ->
                 runCatching {
@@ -169,6 +174,7 @@ internal object AiWorkerPayloadBuilder {
             put("workspaceProgressStream", workspaceModeEnabled)
             put("projectWorkspaceEnabled", !hasImage && !visualAgentModeEnabled)
             put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
+            activeProject?.let { put("activeProject", JSONObject(it.toString())) }
             put("visualDecisionOwner", "gui_plus_exclusive")
             put("visualAgentBrainEnabled", false)
             put("visualRouteMode", "gui_plus_exclusive")
@@ -221,6 +227,10 @@ internal object AiWorkerPayloadBuilder {
                 put("workspaceModeEnabled", workspaceModeEnabled)
                 put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
                 put("projectExecutionOwner", "android_local_project_workspace")
+                activeProject?.let {
+                    put("activeProjectId", it.optString("projectId"))
+                    put("activeProjectRevisionId", it.optString("currentRevisionId"))
+                }
                 put("visualDecisionOwner", "gui_plus_exclusive")
                 put("visualAgentBrainEnabled", false)
                 put("visualRouteMode", "gui_plus_exclusive")
@@ -254,6 +264,7 @@ internal object AiWorkerPayloadBuilder {
                     put("networkPolicy", "blocked")
                     put("revisioning", true)
                     put("optimisticRevisionLock", true)
+                    activeProject?.let { put("activeProject", JSONObject(it.toString())) }
                 })
             })
             put("responseFormat", JSONObject().apply {
@@ -285,6 +296,9 @@ internal object AiWorkerPayloadBuilder {
     ): JSONObject {
         val selectedModelId = if (route.isAuto) "auto" else route.resolved.id
         val workspaceModeEnabled = AgentWorkspaceModeController.isEnabled()
+        val activeProject = receipt.optJSONObject("project")
+            ?.also(ProjectWorkspaceSessionContext::update)
+            ?: ProjectWorkspaceSessionContext.current(AiLedgerApplication.contextOrNull())
         return JSONObject().apply {
             put("requestId", java.util.UUID.randomUUID().toString())
             put("action", "internal_control_report")
@@ -299,6 +313,7 @@ internal object AiWorkerPayloadBuilder {
             put("projectWorkspaceEnabled", true)
             put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
             put("projectTools", JSONArray(PROJECT_CLIENT_TOOL_NAMES))
+            activeProject?.let { put("activeProject", JSONObject(it.toString())) }
             put("visualDecisionOwner", "gui_plus_exclusive")
             put("visualAgentBrainEnabled", false)
             put("visualRouteMode", "gui_plus_exclusive")
