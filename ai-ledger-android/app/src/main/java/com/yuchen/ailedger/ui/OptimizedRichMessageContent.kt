@@ -118,7 +118,8 @@ fun OptimizedRichMessageContent(
     color: Color = Color.Unspecified,
     fontSize: TextUnit = TextUnit.Unspecified,
     lineHeight: TextUnit = TextUnit.Unspecified,
-    fontWeight: FontWeight? = null
+    fontWeight: FontWeight? = null,
+    cacheResult: Boolean = true
 ) {
     val context = LocalContext.current
     val hasInlineStickerMarker = remember(text) { InlineStickerAssets.containsProtocolMarker(text) }
@@ -201,8 +202,8 @@ fun OptimizedRichMessageContent(
         )
     }
 
-    val richText = remember(context, renderKey) {
-        OptimizedStickerTextCache.getOrPut(renderKey) {
+    val richText = remember(context, renderKey, cacheResult) {
+        val buildRichText: () -> CharSequence = {
             buildOptimizedStickerSpannable(
                 context = context,
                 raw = text,
@@ -215,6 +216,11 @@ fun OptimizedRichMessageContent(
                 stickerLineExtraPx = stickerLineExtraPx,
                 density = density.density
             )
+        }
+        if (cacheResult) {
+            OptimizedStickerTextCache.getOrPut(renderKey, buildRichText)
+        } else {
+            buildRichText()
         }
     }
 
