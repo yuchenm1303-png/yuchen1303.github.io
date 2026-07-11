@@ -30,11 +30,25 @@ import com.yuchen.ailedger.model.WebSource
 
 @Composable
 fun MessageDataCards(message: ChatMessage) {
-    if (message.structuredData == null && message.webSources.isEmpty()) return
+    if (
+        message.contentBlocks.isEmpty() &&
+        message.structuredData == null &&
+        message.webSources.isEmpty()
+    ) return
 
     var webPreviewSource by remember(message.id) { mutableStateOf<WebPreviewSource?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.fillMaxWidth()) {
+        MessageContentBlockList(
+            blocks = message.contentBlocks,
+            onOpenUrl = { title, url ->
+                webPreviewSource = WebPreviewSource(
+                    title = title.ifBlank { "链接" },
+                    url = url,
+                    domain = url.substringAfter("://").substringBefore('/'),
+                )
+            },
+        )
         message.structuredData?.let { data ->
             if (data.isChatStickerData()) MessageStickerV1(data) else StructuredDataCardView(data)
         }
