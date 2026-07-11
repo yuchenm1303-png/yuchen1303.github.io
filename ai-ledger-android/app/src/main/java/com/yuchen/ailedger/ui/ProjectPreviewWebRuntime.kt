@@ -104,15 +104,20 @@ internal fun File.openProjectPreviewStream(mimeType: String): InputStream {
     }
     val compatibility = viewport + PREVIEW_COMPATIBILITY_SCRIPT
     val patched = when {
-        HEAD_OPEN_PATTERN.containsMatchIn(source) -> HEAD_OPEN_PATTERN.replaceFirst(source) { match ->
-            match.value + compatibility
-        }
-        HTML_OPEN_PATTERN.containsMatchIn(source) -> HTML_OPEN_PATTERN.replaceFirst(source) { match ->
-            match.value + "<head>$compatibility</head>"
-        }
+        HEAD_OPEN_PATTERN.containsMatchIn(source) -> source.insertAfterFirstMatch(HEAD_OPEN_PATTERN, compatibility)
+        HTML_OPEN_PATTERN.containsMatchIn(source) -> source.insertAfterFirstMatch(
+            HTML_OPEN_PATTERN,
+            "<head>$compatibility</head>",
+        )
         else -> "<!doctype html><html><head>$compatibility</head><body>$source</body></html>"
     }
     return ByteArrayInputStream(patched.toByteArray(Charsets.UTF_8))
+}
+
+private fun String.insertAfterFirstMatch(pattern: Regex, addition: String): String {
+    val match = pattern.find(this) ?: return this
+    val insertionIndex = match.range.last + 1
+    return substring(0, insertionIndex) + addition + substring(insertionIndex)
 }
 
 private val VIEWPORT_PATTERN = Regex(
@@ -146,7 +151,7 @@ private const val PREVIEW_COMPATIBILITY_SCRIPT = """
     unlockOverflowWhenNeeded();
     setTimeout(unlockOverflowWhenNeeded, 120);
     setTimeout(unlockOverflowWhenNeeded, 600);
-  }, { once: true });
+  }, false);
   if (window.ResizeObserver) {
     new ResizeObserver(unlockOverflowWhenNeeded).observe(document.documentElement);
   }
