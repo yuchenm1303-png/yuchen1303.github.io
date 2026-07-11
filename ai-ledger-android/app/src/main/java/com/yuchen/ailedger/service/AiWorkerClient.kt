@@ -20,6 +20,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 private const val CLIENT_TOOL_RESULT_MARKER = "[[AI_LEDGER_CLIENT_TOOL_RESULT_V1]]"
+private const val VISUAL_CLIENT_TOOL_CALL_TTL_MS = 30_000L
+private const val MAX_PENDING_VISUAL_CLIENT_TOOL_CALLS = 8
 
 data class AiWorkerConfig(
     val endpoint: String = AiWorkerClient.DEFAULT_ENDPOINT,
@@ -103,6 +105,12 @@ data class AiChatResponse(
     val stickerDiagnosticsJson: String? = null,
 )
 
+private data class PendingVisualClientToolCall(
+    val call: CloudClientToolCall,
+    val goalKey: String,
+    val registeredAt: Long,
+)
+
 class AiWorkerClient(
     private val config: AiWorkerConfig = AiWorkerConfig(),
 ) {
@@ -124,7 +132,7 @@ class AiWorkerClient(
         AiWorkerHttpTransport(config = config, resolvedClientId = resolvedClientId)
     }
     private val visualClientToolCallLock = Any()
-    private var pendingVisualClientToolCall: CloudClientToolCall? = null
+    private val pendingVisualClientToolCalls = mutableListOf<PendingVisualClientToolCall>()
 
     fun cancelActiveRequests() {
         transport.cancelActiveRequests()
@@ -251,28 +259,77 @@ class AiWorkerClient(
     }
 
     internal fun rememberVisualClientToolCall(response: AiChatResponse): AiChatResponse {
-        val call = response.agentAction
+        val action = response.agentAction
+        val call = action
             ?.takeIf { it.capability == "run_agent_task" }
             ?.clientToolCall
             ?.takeIf { it.name == "computer_run_task" && it.id.isNotBlank() }
+            ?: return response
+        val now = System.currentTimeMillis()
+        val pending = PendingVisualClientToolCall(
+            call = call,
+            goalKey = call.visualGoalKey(),
+            registeredAt = now,
+        )
         synchronized(visualClientToolCallLock) {
-            pendingVisualClientToolCall = call
+            pruneExpiredVisualClientToolCalls(now)
+            pendingVisualClientToolCalls.removeAll { it.call.id == call.id }
+            pendingVisualClientToolCalls += pending
+            while (pendingVisualClientToolCalls.size > MAX_PENDING_VISUAL_CLIENT_TOOL_CALLS) {
+                pendingVisualClientToolCalls.removeAt(0)
+            }
         }
         return response
     }
 
-    internal fun consumeVisualClientToolCall(): CloudClientToolCall? =
+    internal fun consumeVisualClientToolCall(goal: String? = null): CloudClientToolCall? =
         synchronized(visualClientToolCallLock) {
-            pendingVisualClientToolCall.also { pendingVisualClientToolCall = null }
+            val now = System.currentTimeMillis()
+            pruneExpiredVisualClientToolCalls(now)
+            val requestedGoalKey = normalizeVisualClientToolGoal(goal.orEmpty())
+            val matchIndex = when {
+                requestedGoalKey.isNotBlank() -> pendingVisualClientToolCalls.indexOfLast {
+                    it.goalKey == requestedGoalKey
+                }
+                pendingVisualClientToolCalls.size == 1 -> 0
+                else -> -1
+            }
+            if (matchIndex < 0) return@synchronized null
+
+            val selected = pendingVisualClientToolCalls.removeAt(matchIndex)
+            if (selected.goalKey.isNotBlank()) {
+                pendingVisualClientToolCalls.removeAll { it.goalKey == selected.goalKey }
+            }
+            selected.call
         }
 
     internal fun clearVisualClientToolCalls(callId: String? = null) {
         synchronized(visualClientToolCallLock) {
-            val current = pendingVisualClientToolCall
-            if (callId.isNullOrBlank() || current?.id == callId) {
-                pendingVisualClientToolCall = null
+            if (callId.isNullOrBlank()) {
+                pendingVisualClientToolCalls.clear()
+            } else {
+                pendingVisualClientToolCalls.removeAll { it.call.id == callId }
             }
         }
+    }
+
+    private fun pruneExpiredVisualClientToolCalls(now: Long) {
+        pendingVisualClientToolCalls.removeAll {
+            now - it.registeredAt > VISUAL_CLIENT_TOOL_CALL_TTL_MS
+        }
+    }
+
+    private fun CloudClientToolCall.visualGoalKey(): String {
+        val toolGoal = arguments.optString("goal").trim()
+        return normalizeVisualClientToolGoal(toolGoal.ifBlank { originalUserGoal.orEmpty() })
+    }
+
+    private fun normalizeVisualClientToolGoal(value: String): String {
+        return value
+            .trim()
+            .lowercase()
+            .replace(Regex("\\s+"), "")
+            .take(300)
     }
 
     private fun buildPayload(
