@@ -797,6 +797,7 @@ class AssistantViewModel(
                                     errorText = null,
                                     webSources = visibleResponse.webSources,
                                     structuredData = regularStructuredData,
+                                    contentBlocks = visibleResponse.contentBlocks,
                                     searchUsed = visibleResponse.searchUsed,
                                     searchProvider = visibleResponse.searchProvider
                                 )
