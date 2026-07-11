@@ -16,6 +16,7 @@ internal object AiWorkerResponseParser {
         replyOverride: String? = null,
     ): AiChatResponse {
         val rawReply = (replyOverride?.takeIf { it.isNotBlank() } ?: extractReply(data, body)).trim()
+        val contentBlocks = MessageContentBlockParser.parse(data)
         val clientToolCall = parseClientToolCall(data)
         val projection = clientToolCall?.let(::projectClientToolCall)
         val parsedMobileAction = projection?.mobileAction ?: parseCloudMobileAction(data)
@@ -26,6 +27,7 @@ internal object AiWorkerResponseParser {
 
         if (
             rawReply.isBlank() &&
+            contentBlocks.isEmpty() &&
             parsedMobileAction == null &&
             parsedPreferenceUpdate == null &&
             parsedAgentAction == null
@@ -61,7 +63,7 @@ internal object AiWorkerResponseParser {
             version = data?.optString("version").notBlankOrNull(),
             webSources = parseWebSources(data),
             structuredData = parseStructuredData(data),
-            contentBlocks = MessageContentBlockParser.parse(data),
+            contentBlocks = contentBlocks,
             mobileAction = parsedMobileAction,
             preferenceUpdate = parsedPreferenceUpdate,
             agentAction = parsedAgentAction,
