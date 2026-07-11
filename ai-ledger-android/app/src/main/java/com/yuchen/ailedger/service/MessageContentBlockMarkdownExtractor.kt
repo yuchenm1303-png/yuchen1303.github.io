@@ -19,6 +19,13 @@ internal data class MessageContentMarkdownExtraction(
     val blocks: List<MessageContentBlock>,
 )
 
+private data class PositionedMessageContentBlock(
+    val lineIndex: Int,
+    val characterIndex: Int,
+    val insertionOrder: Int,
+    val block: MessageContentBlock,
+)
+
 /**
  * Upgrades ordinary model Markdown into typed supplementary blocks without
  * requiring a backend migration. Explicit server contentBlocks always win;
@@ -37,25 +44,35 @@ internal object MessageContentBlockMarkdownExtractor {
         if (reply.isBlank()) return MessageContentMarkdownExtraction(reply, emptyList())
         val normalized = reply.replace("\r\n", "\n").replace('\r', '\n')
         val lines = normalized.lines().toMutableList()
-        val blocks = mutableListOf<MessageContentBlock>()
+        val positionedBlocks = mutableListOf<PositionedMessageContentBlock>()
 
-        extractFencedBlocks(lines, blocks)
-        extractTables(lines, blocks)
-        val imageResult = extractImages(lines.joinToString("\n"), blocks)
-        val cleaned = imageResult
+        extractFencedBlocks(lines, positionedBlocks)
+        extractTables(lines, positionedBlocks)
+        extractImages(lines, positionedBlocks)
+
+        val cleaned = lines
+            .joinToString("\n")
             .replace(Regex("""[ \t]+\n"""), "\n")
             .replace(Regex("""\n{3,}"""), "\n\n")
             .trim()
+        val orderedBlocks = positionedBlocks
+            .sortedWith(
+                compareBy<PositionedMessageContentBlock> { it.lineIndex }
+                    .thenBy { it.characterIndex }
+                    .thenBy { it.insertionOrder },
+            )
+            .map { it.block }
+            .take(MARKDOWN_EXTRACTOR_MAX_BLOCKS)
 
         return MessageContentMarkdownExtraction(
-            reply = if (blocks.isEmpty()) reply else cleaned,
-            blocks = blocks.take(MARKDOWN_EXTRACTOR_MAX_BLOCKS),
+            reply = if (orderedBlocks.isEmpty()) reply else cleaned,
+            blocks = orderedBlocks,
         )
     }
 
     private fun extractFencedBlocks(
         lines: MutableList<String>,
-        blocks: MutableList<MessageContentBlock>,
+        blocks: MutableList<PositionedMessageContentBlock>,
     ) {
         var index = 0
         while (index < lines.size && blocks.size < MARKDOWN_EXTRACTOR_MAX_BLOCKS) {
@@ -89,8 +106,13 @@ internal object MessageContentBlockMarkdownExtractor {
                     },
                 )
             }
+            appendPositionedBlocks(
+                destination = blocks,
+                lineIndex = index,
+                characterIndex = 0,
+                extracted = extracted,
+            )
             if (extracted.isNotEmpty()) {
-                blocks += extracted.take(MARKDOWN_EXTRACTOR_MAX_BLOCKS - blocks.size)
                 for (lineIndex in index..end) lines[lineIndex] = ""
             }
             index = end + 1
@@ -99,7 +121,7 @@ internal object MessageContentBlockMarkdownExtractor {
 
     private fun extractTables(
         lines: MutableList<String>,
-        blocks: MutableList<MessageContentBlock>,
+        blocks: MutableList<PositionedMessageContentBlock>,
     ) {
         var index = 0
         while (index + 1 < lines.size && blocks.size < MARKDOWN_EXTRACTOR_MAX_BLOCKS) {
@@ -127,10 +149,16 @@ internal object MessageContentBlockMarkdownExtractor {
                 index += 1
                 continue
             }
-            blocks += TableContentBlock(
+            val block = TableContentBlock(
                 id = "markdown-table-${blocks.size}-$index",
                 columns = columns.take(MARKDOWN_EXTRACTOR_MAX_TABLE_COLUMNS),
                 rows = rows,
+            )
+            appendPositionedBlocks(
+                destination = blocks,
+                lineIndex = index,
+                characterIndex = 0,
+                extracted = listOf(block),
             )
             for (lineIndex in index until end) lines[lineIndex] = ""
             index = end
@@ -138,31 +166,61 @@ internal object MessageContentBlockMarkdownExtractor {
     }
 
     private fun extractImages(
-        text: String,
-        blocks: MutableList<MessageContentBlock>,
-    ): String {
+        lines: MutableList<String>,
+        blocks: MutableList<PositionedMessageContentBlock>,
+    ) {
         var imageCount = 0
-        return markdownImageRegex.replace(text) { match ->
+        for (lineIndex in lines.indices) {
             if (
                 imageCount >= MARKDOWN_EXTRACTOR_MAX_IMAGES ||
                 blocks.size >= MARKDOWN_EXTRACTOR_MAX_BLOCKS
-            ) {
-                return@replace match.value
+            ) break
+            lines[lineIndex] = markdownImageRegex.replace(lines[lineIndex]) { match ->
+                if (
+                    imageCount >= MARKDOWN_EXTRACTOR_MAX_IMAGES ||
+                    blocks.size >= MARKDOWN_EXTRACTOR_MAX_BLOCKS
+                ) {
+                    return@replace match.value
+                }
+                val alt = match.groupValues[1].trim().take(120).ifBlank { "图片" }
+                val url = match.groupValues[2].trim().take(2_000)
+                val title = match.groupValues[3].trim().take(240).takeIf(String::isNotBlank)
+                val block = ImageContentBlock(
+                    id = "markdown-image-${blocks.size}-$imageCount",
+                    image = MessageImageItem(
+                        id = "markdown-image-item-${blocks.size}-$imageCount",
+                        source = url,
+                        alt = alt,
+                        caption = title ?: alt.takeIf { it != "图片" },
+                    ),
+                )
+                appendPositionedBlocks(
+                    destination = blocks,
+                    lineIndex = lineIndex,
+                    characterIndex = match.range.first,
+                    extracted = listOf(block),
+                )
+                imageCount += 1
+                ""
             }
-            val alt = match.groupValues[1].trim().take(120).ifBlank { "图片" }
-            val url = match.groupValues[2].trim().take(2_000)
-            val title = match.groupValues[3].trim().take(240).takeIf(String::isNotBlank)
-            blocks += ImageContentBlock(
-                id = "markdown-image-${blocks.size}-$imageCount",
-                image = MessageImageItem(
-                    id = "markdown-image-item-${blocks.size}-$imageCount",
-                    source = url,
-                    alt = alt,
-                    caption = title ?: alt.takeIf { it != "图片" },
-                ),
+        }
+    }
+
+    private fun appendPositionedBlocks(
+        destination: MutableList<PositionedMessageContentBlock>,
+        lineIndex: Int,
+        characterIndex: Int,
+        extracted: List<MessageContentBlock>,
+    ) {
+        val remaining = MARKDOWN_EXTRACTOR_MAX_BLOCKS - destination.size
+        if (remaining <= 0) return
+        extracted.take(remaining).forEach { block ->
+            destination += PositionedMessageContentBlock(
+                lineIndex = lineIndex,
+                characterIndex = characterIndex,
+                insertionOrder = destination.size,
+                block = block,
             )
-            imageCount += 1
-            ""
         }
     }
 
