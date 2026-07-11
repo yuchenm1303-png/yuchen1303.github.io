@@ -1,14 +1,11 @@
 package com.yuchen.ailedger.ui
 
 import android.content.Context
-import android.graphics.Color as AndroidColor
 import android.net.Uri
-import android.os.Build
 import android.webkit.MimeTypeMap
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.background
@@ -40,7 +37,6 @@ import com.yuchen.ailedger.service.ProjectPreviewEntry
 import com.yuchen.ailedger.service.ProjectWorkspaceStore
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.io.FileInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -177,39 +173,13 @@ internal fun InlineProjectPreview(
     }
 }
 
-@Suppress("SetJavaScriptEnabled", "DEPRECATION")
 private fun createInlineProjectWebView(
     context: Context,
     preview: ProjectPreviewEntry,
     onError: () -> Unit,
     onRenderProcessGone: () -> Unit,
 ): WebView = WebView(context).apply {
-    setBackgroundColor(AndroidColor.TRANSPARENT)
-    isVerticalScrollBarEnabled = false
-    isHorizontalScrollBarEnabled = false
-    overScrollMode = WebView.OVER_SCROLL_NEVER
-    settings.apply {
-        javaScriptEnabled = true
-        javaScriptCanOpenWindowsAutomatically = false
-        domStorageEnabled = true
-        databaseEnabled = false
-        saveFormData = false
-        allowFileAccess = false
-        allowContentAccess = false
-        setAllowFileAccessFromFileURLs(false)
-        setAllowUniversalAccessFromFileURLs(false)
-        blockNetworkLoads = false
-        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        mediaPlaybackRequiresUserGesture = true
-        setGeolocationEnabled(false)
-        setSupportMultipleWindows(false)
-        setSupportZoom(false)
-        builtInZoomControls = false
-        displayZoomControls = false
-        cacheMode = WebSettings.LOAD_NO_CACHE
-        loadsImagesAutomatically = true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
-    }
+    configureProjectPreviewRuntime(ProjectPreviewDisplayMode.Inline)
     webViewClient = InlineProjectWebViewClient(
         projectId = preview.project.projectId,
         projectRoot = preview.projectRoot,
@@ -271,6 +241,7 @@ private class InlineProjectWebViewClient(
         }
         val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase())
             ?: when (file.extension.lowercase()) {
+                "html", "htm" -> "text/html"
                 "js", "mjs" -> "text/javascript"
                 "json", "map" -> "application/json"
                 "svg" -> "image/svg+xml"
@@ -293,7 +264,7 @@ private class InlineProjectWebViewClient(
                     "Referrer-Policy" to "no-referrer",
                     "X-Content-Type-Options" to "nosniff",
                 ),
-                FileInputStream(file),
+                file.openProjectPreviewStream(mime),
             )
         }.getOrElse { blockedResponse(500, "Read Failed") }
     }
