@@ -6,6 +6,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 
 class VisualLoopRunner(
     private val aiWorkerClient: AiWorkerClient,
@@ -26,17 +27,21 @@ class VisualLoopRunner(
         goal: String,
         maxSteps: Int = Int.MAX_VALUE,
         executionMode: AgentExecutionMode = AgentExecutionMode.VisualForce,
+        clientToolCall: CloudClientToolCall? = null,
     ): AgentTaskRunResult {
         if (requiresAgentSwitch(executionMode) && !AgentRuntimeController.isEnabled()) {
             return AgentTaskRunResult(false, false, "Visual agent is off; forced visual loop was not started.", emptyList())
         }
         val apps = withContext(Dispatchers.IO) { installedAppIndex.getLaunchableApps(forceReload = false) }
         val state = VisualLoopState(goal.trim())
+        val semanticTracker = VisualSemanticProgressTracker(originalGoal = state.goal)
+        val initialTaskContract = initialTaskContract(clientToolCall)
+        initialTaskContract?.let { semanticTracker.updateTaskContract(it, state.goal) }
         val session = VisualTaskSession(
             state = state,
             routeRetry = VisualRouteRetryState(),
             execution = VisualExecutionSessionState(),
-            semantic = VisualSemanticProgressTracker(originalGoal = state.goal),
+            semantic = semanticTracker,
             agentSessionId = AgentClientIdentity.newVisualSessionId(),
             deviceProfile = AgentDeviceProfile.current(),
             installedAppsByPackage = apps.associateBy { it.packageName },
@@ -54,6 +59,12 @@ class VisualLoopRunner(
             session.recentActions,
             "app_identity:v2|machineIdentity=packageName|appNameRole=display_only",
         )
+        clientToolCall?.takeIf { it.name == "computer_run_task" && it.id.isNotBlank() }?.let { call ->
+            VisualLoopSupport.appendRecent(
+                session.recentActions,
+                "visual_task_invocation:v1|clientToolCallId=${call.id.take(120)}|taskContractPresent=${initialTaskContract != null}",
+            )
+        }
         AiAgentAccessibilityService.beginTaskSession()
         session.runtimeTaskId = AgentRuntimeController.startTask(state.goal)
         session.stopGeneration = AgentRuntimeController.currentManualStopGeneration()
@@ -81,6 +92,19 @@ class VisualLoopRunner(
             AiAgentAccessibilityService.endTaskSession()
             AgentRuntimeController.resetCleanVisualCapture()
         }
+    }
+
+    private fun initialTaskContract(clientToolCall: CloudClientToolCall?): VisualTaskContract? {
+        val call = clientToolCall
+            ?.takeIf { it.name == "computer_run_task" && it.id.isNotBlank() }
+            ?: return null
+        val raw = call.arguments.optJSONObject("taskContract") ?: return null
+        return VisualTaskContract.fromJson(
+            root = JSONObject().apply {
+                put("taskContract", JSONObject(raw.toString()))
+            },
+            committedContract = null,
+        )
     }
 
     private fun buildAppContext(
