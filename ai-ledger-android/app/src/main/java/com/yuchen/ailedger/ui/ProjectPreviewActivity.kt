@@ -31,7 +31,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -102,12 +101,14 @@ private fun ProjectPreviewScreen(
 ) {
     BackHandler(onBack = onClose)
     var activeWebView by remember { mutableStateOf<WebView?>(null) }
-    var reloadToken by remember { mutableIntStateOf(0) }
     var pageError by remember(preview?.revisionId) { mutableStateOf<String?>(null) }
 
     DisposableEffect(preview?.project?.projectId, preview?.revisionId) {
         onDispose {
             activeWebView?.stopLoading()
+            activeWebView?.loadUrl("about:blank")
+            activeWebView?.clearHistory()
+            activeWebView?.removeAllViews()
             activeWebView?.destroy()
             activeWebView = null
         }
@@ -149,7 +150,6 @@ private fun ProjectPreviewScreen(
             if (preview != null) {
                 PreviewTopAction("刷新") {
                     pageError = null
-                    reloadToken += 1
                     activeWebView?.reload()
                 }
             }
@@ -185,10 +185,7 @@ private fun ProjectPreviewScreen(
                             webView.loadUrl(Uri.fromFile(preview.entryFile).toString())
                         }
                     },
-                    update = { webView ->
-                        activeWebView = webView
-                        reloadToken
-                    },
+                    update = { webView -> activeWebView = webView },
                 )
                 pageError?.let { error ->
                     Text(
@@ -224,7 +221,7 @@ private fun PreviewTopAction(text: String, onClick: () -> Unit) {
     )
 }
 
-@Suppress("SetJavaScriptEnabled")
+@Suppress("SetJavaScriptEnabled", "DEPRECATION")
 private fun createProjectWebView(
     context: Context,
     preview: ProjectPreviewEntry,
@@ -234,17 +231,24 @@ private fun createProjectWebView(
     setBackgroundColor(AndroidColor.TRANSPARENT)
     settings.apply {
         javaScriptEnabled = true
+        javaScriptCanOpenWindowsAutomatically = false
         domStorageEnabled = true
         databaseEnabled = false
+        saveFormData = false
         allowFileAccess = true
         allowContentAccess = false
+        setAllowFileAccessFromFileURLs(false)
+        setAllowUniversalAccessFromFileURLs(false)
         blockNetworkLoads = true
         mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         mediaPlaybackRequiresUserGesture = true
+        setGeolocationEnabled(false)
         setSupportMultipleWindows(false)
+        setSupportZoom(false)
         builtInZoomControls = false
         displayZoomControls = false
         cacheMode = WebSettings.LOAD_NO_CACHE
+        loadsImagesAutomatically = true
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
     }
     webViewClient = LocalProjectWebViewClient(
