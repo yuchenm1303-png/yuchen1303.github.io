@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -68,6 +67,8 @@ import com.yuchen.ailedger.model.MessageImageItem
 import com.yuchen.ailedger.model.RichTextContentBlock
 import com.yuchen.ailedger.model.TableContentBlock
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -77,6 +78,7 @@ import kotlin.math.max
 import kotlin.math.min
 
 private const val MESSAGE_IMAGE_MAX_BYTES = 12 * 1024 * 1024
+private const val MESSAGE_IMAGE_READ_BUFFER_BYTES = 16 * 1024
 private val messageImageHttpClient: OkHttpClient by lazy {
     OkHttpClient.Builder().build()
 }
@@ -390,8 +392,8 @@ private fun DrawScope.drawBarChart(series: List<MessageChartSeries>, block: Char
     val barWidth = (groupWidth * 0.72f / series.size.coerceAtLeast(1)).coerceAtLeast(2.dp.toPx())
     val zeroY = mapY(0.0, range.minY, range.maxY, bounds)
     series.forEachIndexed { seriesIndex, item ->
-        item.points.forEachIndexed { pointIndex, point ->
-            if (!point.y.isFinite()) return@forEachIndexed
+        item.points.forEachIndexed pointLoop@ { pointIndex, point ->
+            if (!point.y.isFinite()) return@pointLoop
             val centerX = bounds.left + groupWidth * (pointIndex + 0.5f)
             val left = centerX - groupWidth * 0.36f + barWidth * seriesIndex
             val valueY = mapY(point.y, range.minY, range.maxY, bounds)
@@ -454,7 +456,10 @@ private fun resolveChartRange(series: List<MessageChartSeries>, includeZero: Boo
         minY = min(minY, 0.0)
         maxY = max(maxY, 0.0)
     }
-    if (minX == maxX) { minX -= 0.5; maxX += 0.5 }
+    if (minX == maxX) {
+        minX -= 0.5
+        maxX += 0.5
+    }
     if (minY == maxY) {
         val padding = max(abs(minY) * 0.08, 1.0)
         minY -= padding
@@ -500,8 +505,12 @@ private fun DrawScope.drawChartGrid(
             drawChartLabel(label.take(14), x, size.height - 8.dp.toPx(), Paint.Align.CENTER)
         }
     }
-    block.yAxisLabel?.takeIf(String::isNotBlank)?.let { drawChartLabel(it.take(12), 4.dp.toPx(), 10.dp.toPx(), Paint.Align.LEFT) }
-    block.xAxisLabel?.takeIf(String::isNotBlank)?.let { drawChartLabel(it.take(12), bounds.right, size.height - 8.dp.toPx(), Paint.Align.RIGHT) }
+    block.yAxisLabel?.takeIf(String::isNotBlank)?.let {
+        drawChartLabel(it.take(12), 4.dp.toPx(), 10.dp.toPx(), Paint.Align.LEFT)
+    }
+    block.xAxisLabel?.takeIf(String::isNotBlank)?.let {
+        drawChartLabel(it.take(12), bounds.right, size.height - 8.dp.toPx(), Paint.Align.RIGHT)
+    }
 }
 
 private fun DrawScope.drawChartLabel(text: String, x: Float, y: Float, align: Paint.Align) {
@@ -662,13 +671,14 @@ private fun loadMessageImage(context: Context, source: String): MessageImageLoad
                     if (!response.isSuccessful) return MessageImageLoadState.Failed
                     val body = response.body ?: return MessageImageLoadState.Failed
                     if (body.contentLength() > MESSAGE_IMAGE_MAX_BYTES) return MessageImageLoadState.Failed
-                    body.bytes().takeIf { it.size <= MESSAGE_IMAGE_MAX_BYTES }
-                        ?: return MessageImageLoadState.Failed
+                    body.byteStream().use { input ->
+                        input.readMessageImageBytes() ?: return MessageImageLoadState.Failed
+                    }
                 }
             }
             source.startsWith("content://", ignoreCase = true) || source.startsWith("file://", ignoreCase = true) -> {
                 context.contentResolver.openInputStream(Uri.parse(source))?.use { input ->
-                    input.readBytes(MESSAGE_IMAGE_MAX_BYTES + 1).takeIf { it.size <= MESSAGE_IMAGE_MAX_BYTES }
+                    input.readMessageImageBytes()
                 } ?: return MessageImageLoadState.Failed
             }
             else -> {
@@ -680,6 +690,21 @@ private fun loadMessageImage(context: Context, source: String): MessageImageLoad
     if (bytes.isEmpty() || bytes.size > MESSAGE_IMAGE_MAX_BYTES) return MessageImageLoadState.Failed
     val bitmap = ByteArrayInputStream(bytes).use(BitmapFactory::decodeStream) ?: return MessageImageLoadState.Failed
     return MessageImageLoadState.Ready(bitmap.asImageBitmap())
+}
+
+private fun InputStream.readMessageImageBytes(): ByteArray? {
+    val output = ByteArrayOutputStream(minOf(MESSAGE_IMAGE_MAX_BYTES, MESSAGE_IMAGE_READ_BUFFER_BYTES * 4))
+    val buffer = ByteArray(MESSAGE_IMAGE_READ_BUFFER_BYTES)
+    var total = 0
+    while (true) {
+        val count = read(buffer)
+        if (count < 0) break
+        if (count == 0) continue
+        total += count
+        if (total > MESSAGE_IMAGE_MAX_BYTES) return null
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
 }
 
 private fun resolveImageAspectRatio(image: MessageImageItem): Float {
@@ -743,7 +768,7 @@ private fun CalloutBlockView(block: CalloutContentBlock) {
             horizontalArrangement = Arrangement.spacedBy(9.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            Box(Modifier.size(7.dp).clip(RoundedCornerShape(999.dp)).background(accent).padding(0.dp))
+            Box(Modifier.size(7.dp).clip(RoundedCornerShape(999.dp)).background(accent))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 block.title?.takeIf(String::isNotBlank)?.let { title ->
                     Text(title, color = accent.copy(alpha = 0.94f), fontSize = 11.sp, fontWeight = FontWeight.Black)
