@@ -5,6 +5,7 @@ import com.yuchen.ailedger.model.CalloutContentBlock
 import com.yuchen.ailedger.model.ChartContentBlock
 import com.yuchen.ailedger.model.ChatModel
 import com.yuchen.ailedger.model.CodeContentBlock
+import com.yuchen.ailedger.model.ImageContentBlock
 import com.yuchen.ailedger.model.ImageGalleryContentBlock
 import com.yuchen.ailedger.model.KeyValueContentBlock
 import com.yuchen.ailedger.model.MessageActionType
@@ -50,6 +51,12 @@ class MessageContentBlockParserTest {
                 )
                 .put(
                     JSONObject()
+                        .put("type", "image")
+                        .put("url", "https://example.com/preview.png")
+                        .put("caption", "预览图"),
+                )
+                .put(
+                    JSONObject()
                         .put("type", "image_gallery")
                         .put("images", JSONArray(listOf(
                             JSONObject().put("url", "https://example.com/a.png"),
@@ -80,15 +87,16 @@ class MessageContentBlockParserTest {
 
         val blocks = MessageContentBlockParser.parse(payload)
 
-        assertEquals(8, blocks.size)
+        assertEquals(9, blocks.size)
         assertTrue(blocks[0] is RichTextContentBlock)
         assertTrue(blocks[1] is CodeContentBlock)
         assertTrue(blocks[2] is TableContentBlock)
         assertEquals(MessageChartType.Line, (blocks[3] as ChartContentBlock).type)
-        assertEquals(2, (blocks[4] as ImageGalleryContentBlock).images.size)
-        assertEquals("96%", (blocks[5] as KeyValueContentBlock).items.single().value)
-        assertTrue(blocks[6] is CalloutContentBlock)
-        val actions = (blocks[7] as ActionGroupContentBlock).actions
+        assertEquals("预览图", (blocks[4] as ImageContentBlock).image.caption)
+        assertEquals(2, (blocks[5] as ImageGalleryContentBlock).images.size)
+        assertEquals("96%", (blocks[6] as KeyValueContentBlock).items.single().value)
+        assertTrue(blocks[7] is CalloutContentBlock)
+        val actions = (blocks[8] as ActionGroupContentBlock).actions
         assertEquals(listOf(MessageActionType.CopyText, MessageActionType.OpenUrl), actions.map { it.type })
     }
 
@@ -141,5 +149,44 @@ class MessageContentBlockParserTest {
         assertTrue(response.reply.isBlank())
         assertEquals(1, response.contentBlocks.size)
         assertFalse(response.contentBlocks.first() !is TableContentBlock)
+    }
+
+    @Test
+    fun capsLargeTablesAndActionGroups() {
+        val rows = JSONArray().apply {
+            repeat(120) { index ->
+                put(JSONArray(listOf("行 $index", index)))
+            }
+        }
+        val actions = JSONArray().apply {
+            repeat(20) { index ->
+                put(
+                    JSONObject()
+                        .put("type", "copy_text")
+                        .put("label", "复制 $index")
+                        .put("value", index.toString()),
+                )
+            }
+        }
+        val payload = JSONObject().put(
+            "contentBlocks",
+            JSONArray()
+                .put(
+                    JSONObject()
+                        .put("type", "table")
+                        .put("columns", JSONArray(listOf("名称", "值")))
+                        .put("rows", rows),
+                )
+                .put(
+                    JSONObject()
+                        .put("type", "action_group")
+                        .put("actions", actions),
+                ),
+        )
+
+        val blocks = MessageContentBlockParser.parse(payload)
+
+        assertEquals(80, (blocks[0] as TableContentBlock).rows.size)
+        assertEquals(8, (blocks[1] as ActionGroupContentBlock).actions.size)
     }
 }
