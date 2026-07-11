@@ -20,6 +20,7 @@ private const val TOOL_EXECUTION_POLICY_REQUIRED_SPECIFIC = "required_specific"
 private const val TOOL_EXECUTION_POLICY_NONE = "none"
 private const val TOOL_COMPUTER_RUN_TASK = "computer_run_task"
 private const val MESSAGE_CONTENT_BLOCK_SCHEMA = "ai_ledger_message_content_blocks_v1"
+private const val PROJECT_WORKSPACE_CAPABILITY_SCHEMA = "ai_ledger_android_project_workspace_v1"
 private val MESSAGE_CONTENT_BLOCK_TYPES = listOf(
     "rich_text",
     "code",
@@ -30,6 +31,19 @@ private val MESSAGE_CONTENT_BLOCK_TYPES = listOf(
     "key_value",
     "callout",
     "action_group",
+)
+private val PROJECT_CLIENT_TOOL_NAMES = listOf(
+    "project_create",
+    "project_list",
+    "project_get",
+    "project_list_files",
+    "project_read_file",
+    "project_write_files",
+    "project_apply_edits",
+    "project_delete_files",
+    "project_build_preview",
+    "project_list_revisions",
+    "project_rollback",
 )
 
 private object InstalledAppsPayloadJsonCache {
@@ -153,6 +167,8 @@ internal object AiWorkerPayloadBuilder {
             put("agentWorkspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
             put("agentProgressStream", workspaceModeEnabled)
             put("workspaceProgressStream", workspaceModeEnabled)
+            put("projectWorkspaceEnabled", !hasImage && !visualAgentModeEnabled)
+            put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
             put("visualDecisionOwner", "gui_plus_exclusive")
             put("visualAgentBrainEnabled", false)
             put("visualRouteMode", "gui_plus_exclusive")
@@ -203,6 +219,8 @@ internal object AiWorkerPayloadBuilder {
                 put("toolExecutionPolicySchema", TOOL_EXECUTION_POLICY_SCHEMA)
                 put("workspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
                 put("workspaceModeEnabled", workspaceModeEnabled)
+                put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
+                put("projectExecutionOwner", "android_local_project_workspace")
                 put("visualDecisionOwner", "gui_plus_exclusive")
                 put("visualAgentBrainEnabled", false)
                 put("visualRouteMode", "gui_plus_exclusive")
@@ -210,7 +228,7 @@ internal object AiWorkerPayloadBuilder {
                 if (visualAgentModeEnabled) put("agentToolDomain", "visual_only")
             })
             put("clientCapabilities", JSONObject().apply {
-                put("schema", if (visualAgentModeEnabled || workspaceModeEnabled) "ai_ledger_android_client_capabilities_v3" else "ai_ledger_android_client_capabilities_v2")
+                put("schema", "ai_ledger_android_client_capabilities_v4")
                 put("agentActions", JSONArray(supportedAgentActions))
                 put("deviceTools", JSONArray(supportedDeviceSteps))
                 put("mobileActions", JSONArray(supportedMobileActions))
@@ -224,6 +242,19 @@ internal object AiWorkerPayloadBuilder {
                 put("computerUseOwner", "gui_plus")
                 put("messageContentBlockSchema", MESSAGE_CONTENT_BLOCK_SCHEMA)
                 put("messageContentBlocks", JSONArray(MESSAGE_CONTENT_BLOCK_TYPES))
+                put("projectTools", JSONArray(PROJECT_CLIENT_TOOL_NAMES))
+                put("projectWorkspace", JSONObject().apply {
+                    put("schema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
+                    put("enabled", !hasImage && !visualAgentModeEnabled)
+                    put("projectType", "static_web")
+                    put("frameworks", JSONArray(listOf("html_css_javascript")))
+                    put("tools", JSONArray(PROJECT_CLIENT_TOOL_NAMES))
+                    put("executionOwner", "android_local_project_workspace")
+                    put("previewMode", "isolated_local_webview")
+                    put("networkPolicy", "blocked")
+                    put("revisioning", true)
+                    put("optimisticRevisionLock", true)
+                })
             })
             put("responseFormat", JSONObject().apply {
                 put("includeSources", true)
@@ -235,13 +266,14 @@ internal object AiWorkerPayloadBuilder {
                 put("includeClientToolCall", true)
                 put("includeEmbeddedCommandMarker", false)
                 put("includeAgentProgress", workspaceModeEnabled)
+                put("projectPreviewLinkProtocol", "https://project.ai-ledger.local/open")
                 if (workspaceModeEnabled || visualAgentModeEnabled) put("deferClientToolReply", true)
             })
 
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v4-required-tool-policy")
+            put("clientVersion", "compose-native-project-workspace-v1")
             put("now", System.currentTimeMillis())
         }
     }
@@ -264,6 +296,9 @@ internal object AiWorkerPayloadBuilder {
             put("agentWorkspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
             put("agentProgressStream", workspaceModeEnabled)
             put("workspaceProgressStream", workspaceModeEnabled)
+            put("projectWorkspaceEnabled", true)
+            put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
+            put("projectTools", JSONArray(PROJECT_CLIENT_TOOL_NAMES))
             put("visualDecisionOwner", "gui_plus_exclusive")
             put("visualAgentBrainEnabled", false)
             put("visualRouteMode", "gui_plus_exclusive")
@@ -275,7 +310,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-cloud-first-v4-required-tool-policy")
+            put("clientVersion", "compose-native-project-workspace-v1")
         }
     }
 
