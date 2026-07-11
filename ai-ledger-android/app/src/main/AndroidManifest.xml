@@ -80,6 +80,11 @@
         </activity>
 
         <activity
+            android:name=".ui.ProjectPreviewActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|smallestScreenSize|uiMode"
+            android:exported="false" />
+
+        <activity
             android:name=".AgentAccessibilityGuideActivity"
             android:excludeFromRecents="true"
             android:exported="false"
