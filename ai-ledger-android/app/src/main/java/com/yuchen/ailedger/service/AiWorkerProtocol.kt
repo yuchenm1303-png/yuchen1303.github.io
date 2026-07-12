@@ -3,7 +3,7 @@ package com.yuchen.ailedger.service
 import com.yuchen.ailedger.model.ChatModel
 
 internal const val AI_WORKER_DEFAULT_CONNECT_TIMEOUT_MS = 15_000
-internal const val AI_WORKER_DEFAULT_READ_TIMEOUT_MS = 45_000
+internal const val AI_WORKER_DEFAULT_READ_TIMEOUT_MS = 240_000
 internal const val AI_WORKER_QWEN_VISION_ROUTE_ID = "qwen_vision"
 internal const val AI_WORKER_CHAT_CLIENT_NAME = "android-compose"
 internal const val AI_WORKER_CHAT_PROTOCOL_VERSION = 7
