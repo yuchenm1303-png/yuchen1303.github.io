@@ -19,6 +19,7 @@ import com.yuchen.ailedger.service.AgentAnalyticsRuntime
 import com.yuchen.ailedger.service.AgentOverlayProgress
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
+import com.yuchen.ailedger.service.ClientToolReceiptDeliveryRuntime
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
 import com.yuchen.ailedger.ui.StartupPerformanceGate
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,12 @@ class AiLedgerApplication : Application() {
         super.onCreate()
         appContext = applicationContext
         AgentAnalyticsOwnerRuntime.initialize(applicationContext)
+
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching {
+                ClientToolReceiptDeliveryRuntime.reschedulePending(applicationContext)
+            }
+        }
 
         applicationScope.launch {
             var authenticatedSettingsRepositoriesReady = false
