@@ -82,6 +82,9 @@ internal object AiWorkerPayloadBuilder {
     ): JSONObject {
         messages.clientToolResultReceiptOrNull()?.let { receipt ->
             AssistantMemoryRequestContextRuntime.clearCurrentThread()
+            AiLedgerApplication.contextOrNull()?.let { appContext ->
+                runCatching { ClientToolReceiptDeliveryRuntime.enqueue(appContext, receipt) }
+            }
             return buildClientToolResultPayload(receipt, route, resolvedClientId)
         }
         val latestUserContext = messages.latestUserContext()
