@@ -6,6 +6,9 @@ import org.json.JSONObject
 
 private const val PROJECT_TOOL_RESULT_SCHEMA = "ai_ledger_project_tool_result_v1"
 private const val PROJECT_TOOL_MAX_LIST = 50
+private const val PROJECT_SOURCE_BUNDLE_MAX_FILES = 100
+private const val PROJECT_SOURCE_BUNDLE_DEFAULT_CHARS = 360_000
+private const val PROJECT_SOURCE_BUNDLE_MAX_CHARS = 600_000
 
 /**
  * Executes project_* calls selected by the cloud final model.
@@ -89,13 +92,70 @@ internal class ProjectClientToolExecutor(context: Context) {
     }
 
     private fun executeListFiles(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
-        val projectId = requireProjectId(call.arguments)
+        val args = call.arguments
+        val projectId = requireProjectId(args)
         val project = store.getProject(projectId)
-        val files = store.listFiles(projectId)
-        return receipt.success("listed", "项目 ${project.name} 包含 ${files.size} 个文件。")
+        val allPaths = store.listFiles(projectId)
+        if (!args.optBoolean("includeContent", false)) {
+            return receipt.success("listed", "项目 ${project.name} 包含 ${allPaths.size} 个文件。")
+                .put("project", project.toJson())
+                .put("projectId", project.projectId)
+                .put("revisionId", project.currentRevisionId)
+                .put("files", JSONArray(allPaths))
+                .put("count", allPaths.size)
+                .put("includeContent", false)
+        }
+
+        val requestedPaths = args.optJSONArray("paths").toStringList(PROJECT_SOURCE_BUNDLE_MAX_FILES)
+        val selectedPaths = if (requestedPaths.isEmpty()) allPaths else requestedPaths.distinct()
+        val unknownPaths = selectedPaths.filterNot(allPaths::contains)
+        if (unknownPaths.isNotEmpty()) {
+            return receipt.fail(
+                "invalid_arguments",
+                "读取项目源码失败：项目中不存在 ${unknownPaths.joinToString()}。",
+            )
+        }
+        val maxTotalChars = args.optInt("maxTotalChars", PROJECT_SOURCE_BUNDLE_DEFAULT_CHARS)
+            .coerceIn(20_000, PROJECT_SOURCE_BUNDLE_MAX_CHARS)
+        val files = JSONArray()
+        val omittedPaths = JSONArray()
+        var totalContentChars = 0
+        var bundleComplete = true
+        selectedPaths.forEach { path ->
+            val (content, truncated) = store.readFile(projectId, path)
+            if (totalContentChars + content.length > maxTotalChars) {
+                bundleComplete = false
+                omittedPaths.put(path)
+            } else {
+                files.put(JSONObject().apply {
+                    put("path", path)
+                    put("content", content)
+                    put("truncated", truncated)
+                    put("contentChars", content.length)
+                })
+                totalContentChars += content.length
+                if (truncated) bundleComplete = false
+            }
+        }
+        if (files.length() != selectedPaths.size) bundleComplete = false
+
+        val summary = if (bundleComplete) {
+            "已读取项目 ${project.name} 的 ${files.length()} 个完整源码文件。"
+        } else {
+            "项目源码超过安全读取上限或包含被截断文件，已返回可用部分，不能直接用于完整重写。"
+        }
+        return receipt.success("listed", summary)
             .put("project", project.toJson())
-            .put("files", JSONArray(files))
-            .put("count", files.size)
+            .put("projectId", project.projectId)
+            .put("revisionId", project.currentRevisionId)
+            .put("files", files)
+            .put("count", allPaths.size)
+            .put("selectedCount", selectedPaths.size)
+            .put("includeContent", true)
+            .put("bundleComplete", bundleComplete)
+            .put("totalContentChars", totalContentChars)
+            .put("maxTotalChars", maxTotalChars)
+            .put("omittedPaths", omittedPaths)
     }
 
     private fun executeReadFile(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
