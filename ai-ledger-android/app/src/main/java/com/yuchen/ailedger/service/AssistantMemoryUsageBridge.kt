@@ -83,6 +83,11 @@ internal object AssistantMemoryUsageBridge {
 
     fun recordSuccessfulPayload(payload: JSONObject): AssistantMemoryMutationReceipt? {
         recordAnalyticsTransport(payload = payload, success = true)
+        AiLedgerApplication.contextOrNull()?.let { context ->
+            runCatching {
+                ClientToolReceiptDeliveryRuntime.acknowledgeSuccessfulPayload(context, payload)
+            }
+        }
 
         val requestContext = AssistantMemoryRequestContextRuntime.consumeCurrentThread()
         val captured = responseForCurrentThread.get()
