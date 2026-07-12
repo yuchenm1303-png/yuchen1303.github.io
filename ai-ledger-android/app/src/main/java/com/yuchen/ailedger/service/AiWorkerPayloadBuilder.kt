@@ -21,6 +21,7 @@ private const val TOOL_EXECUTION_POLICY_NONE = "none"
 private const val TOOL_COMPUTER_RUN_TASK = "computer_run_task"
 private const val MESSAGE_CONTENT_BLOCK_SCHEMA = "ai_ledger_message_content_blocks_v1"
 private const val PROJECT_WORKSPACE_CAPABILITY_SCHEMA = "ai_ledger_android_project_workspace_v1"
+private const val PROJECT_WORKSPACE_CLIENT_VERSION = "compose-native-project-workspace-v2"
 private val MESSAGE_CONTENT_BLOCK_TYPES = listOf(
     "rich_text",
     "code",
@@ -41,6 +42,7 @@ private val PROJECT_CLIENT_TOOL_NAMES = listOf(
     "project_write_files",
     "project_apply_edits",
     "project_delete_files",
+    "project_validate",
     "project_build_preview",
     "project_list_revisions",
     "project_rollback",
@@ -227,6 +229,7 @@ internal object AiWorkerPayloadBuilder {
                 put("workspaceModeEnabled", workspaceModeEnabled)
                 put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
                 put("projectExecutionOwner", "android_local_project_workspace")
+                put("projectVerificationSchema", AGENT_ARTIFACT_VERIFICATION_SCHEMA)
                 activeProject?.let {
                     put("activeProjectId", it.optString("projectId"))
                     put("activeProjectRevisionId", it.optString("currentRevisionId"))
@@ -264,6 +267,9 @@ internal object AiWorkerPayloadBuilder {
                     put("networkPolicy", "blocked")
                     put("revisioning", true)
                     put("optimisticRevisionLock", true)
+                    put("verificationSchema", AGENT_ARTIFACT_VERIFICATION_SCHEMA)
+                    put("deterministicValidation", true)
+                    put("previewRequiresValidation", true)
                     activeProject?.let { put("activeProject", JSONObject(it.toString())) }
                 })
             })
@@ -284,7 +290,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-project-workspace-v1")
+            put("clientVersion", PROJECT_WORKSPACE_CLIENT_VERSION)
             put("now", System.currentTimeMillis())
         }
     }
@@ -299,6 +305,12 @@ internal object AiWorkerPayloadBuilder {
         val activeProject = receipt.optJSONObject("project")
             ?.also(ProjectWorkspaceSessionContext::update)
             ?: ProjectWorkspaceSessionContext.current(AiLedgerApplication.contextOrNull())
+        val workspaceId = receipt.optString("workspaceId")
+            .ifBlank { receipt.optString("agentWorkspaceId") }
+            .trim()
+        val workspaceSchema = receipt.optString("workspaceSchema")
+            .ifBlank { receipt.optString("agentWorkspaceSchema") }
+            .trim()
         return JSONObject().apply {
             put("requestId", java.util.UUID.randomUUID().toString())
             put("action", "internal_control_report")
@@ -306,12 +318,21 @@ internal object AiWorkerPayloadBuilder {
             put("mode", "internal_control_report")
             put("message", "client_tool_result:${receipt.optString("toolCallId")}")
             put("internalControlReceipt", JSONObject(receipt.toString()))
+            if (workspaceId.isNotBlank()) {
+                put("workspaceId", workspaceId)
+                put("agentWorkspaceId", workspaceId)
+            }
+            if (workspaceSchema.isNotBlank()) {
+                put("workspaceSchema", workspaceSchema)
+                put("agentWorkspaceSchema", workspaceSchema)
+            }
             put("workspaceModeEnabled", workspaceModeEnabled)
             put("agentWorkspaceMode", if (workspaceModeEnabled) "workspace" else "classic")
             put("agentProgressStream", workspaceModeEnabled)
             put("workspaceProgressStream", workspaceModeEnabled)
             put("projectWorkspaceEnabled", true)
             put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
+            put("projectVerificationSchema", AGENT_ARTIFACT_VERIFICATION_SCHEMA)
             put("projectTools", JSONArray(PROJECT_CLIENT_TOOL_NAMES))
             activeProject?.let { put("activeProject", JSONObject(it.toString())) }
             put("visualDecisionOwner", "gui_plus_exclusive")
@@ -325,7 +346,7 @@ internal object AiWorkerPayloadBuilder {
             put("client", AI_WORKER_CHAT_CLIENT_NAME)
             put("clientId", resolvedClientId)
             put("deviceId", resolvedClientId)
-            put("clientVersion", "compose-native-project-workspace-v1")
+            put("clientVersion", PROJECT_WORKSPACE_CLIENT_VERSION)
         }
     }
 
