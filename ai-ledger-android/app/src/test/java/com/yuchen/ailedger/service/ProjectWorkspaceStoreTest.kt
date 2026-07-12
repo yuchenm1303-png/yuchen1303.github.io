@@ -27,16 +27,7 @@ class ProjectWorkspaceStoreTest {
 
     @Test
     fun createsEditsPreviewsAndRollsBackProject() {
-        val created = store.createProject(
-            name = "产品官网",
-            description = "测试项目",
-            files = listOf(
-                ProjectWorkspaceFile("index.html", "<main>第一版</main>"),
-                ProjectWorkspaceFile("styles.css", "main { color: white; }"),
-                ProjectWorkspaceFile("app.js", "document.body.dataset.ready = '1';"),
-            ),
-            revisionSummary = "创建第一版",
-        )
+        val created = createProject("产品官网")
 
         assertEquals("rev_000001", created.currentRevisionId)
         assertEquals(listOf("app.js", "index.html", "styles.css"), store.listFiles(created.projectId))
@@ -68,13 +59,32 @@ class ProjectWorkspaceStoreTest {
     }
 
     @Test
-    fun rejectsPathEscapeAndStaleRevision() {
-        val project = store.createProject(
-            name = "安全测试",
-            description = "",
-            files = emptyList(),
-            revisionSummary = "创建项目",
-        )
+    fun rejectsEmptyInitialProjectAndMissingEntryFile() {
+        val empty = assertThrows(ProjectWorkspaceException::class.java) {
+            store.createProject(
+                name = "空项目",
+                description = "",
+                files = emptyList(),
+                revisionSummary = "创建项目",
+            )
+        }
+        assertEquals("initial_files_required", empty.code)
+
+        val missingEntry = assertThrows(ProjectWorkspaceException::class.java) {
+            store.createProject(
+                name = "无入口项目",
+                description = "",
+                files = listOf(ProjectWorkspaceFile("styles.css", "body{}")),
+                revisionSummary = "创建项目",
+            )
+        }
+        assertEquals("entry_file_missing", missingEntry.code)
+        assertTrue(store.listProjects().isEmpty())
+    }
+
+    @Test
+    fun rejectsPathEscapeMissingRevisionAndStaleRevision() {
+        val project = createProject("安全测试")
 
         val pathError = assertThrows(ProjectWorkspaceException::class.java) {
             store.writeFiles(
@@ -86,6 +96,16 @@ class ProjectWorkspaceStoreTest {
         }
         assertEquals("invalid_path", pathError.code)
         assertFalse(File(tempRoot.parentFile, "outside.html").exists())
+
+        val missingRevision = assertThrows(ProjectWorkspaceException::class.java) {
+            store.writeFiles(
+                projectId = project.projectId,
+                baseRevisionId = null,
+                files = listOf(ProjectWorkspaceFile("styles.css", "body { color: white; }")),
+                revisionSummary = "无版本写入",
+            )
+        }
+        assertEquals("base_revision_required", missingRevision.code)
 
         val updated = store.writeFiles(
             projectId = project.projectId,
@@ -105,6 +125,49 @@ class ProjectWorkspaceStoreTest {
         }
         assertEquals("revision_conflict", conflict.code)
     }
+
+    @Test
+    fun completeFileReplacementRemovesStaleFilesAtomically() {
+        val project = store.createProject(
+            name = "替换测试",
+            description = "",
+            files = listOf(
+                ProjectWorkspaceFile("index.html", "<main>旧版</main>"),
+                ProjectWorkspaceFile("old.css", "body { color: red; }"),
+                ProjectWorkspaceFile("old.js", "window.old = true;"),
+            ),
+            revisionSummary = "创建旧版",
+        )
+
+        val replaced = store.writeFiles(
+            projectId = project.projectId,
+            baseRevisionId = project.currentRevisionId,
+            files = listOf(
+                ProjectWorkspaceFile("index.html", "<main>新版</main>"),
+                ProjectWorkspaceFile("styles.css", "body { color: blue; }"),
+                ProjectWorkspaceFile("app.js", "window.ready = true;"),
+            ),
+            revisionSummary = "完整替换",
+            replaceAllFiles = true,
+        )
+
+        assertEquals("rev_000002", replaced.currentRevisionId)
+        assertEquals(listOf("app.js", "index.html", "styles.css"), store.listFiles(project.projectId))
+        assertThrows(ProjectWorkspaceException::class.java) {
+            store.readFile(project.projectId, "old.css")
+        }
+    }
+
+    private fun createProject(name: String): ProjectWorkspaceSummary = store.createProject(
+        name = name,
+        description = "测试项目",
+        files = listOf(
+            ProjectWorkspaceFile("index.html", "<main>第一版</main>"),
+            ProjectWorkspaceFile("styles.css", "main { color: white; }"),
+            ProjectWorkspaceFile("app.js", "document.body.dataset.ready = '1';"),
+        ),
+        revisionSummary = "创建第一版",
+    )
 
     private fun createStoreForTest(root: File): ProjectWorkspaceStore {
         val constructor = ProjectWorkspaceStore::class.java.getDeclaredConstructor(File::class.java)
