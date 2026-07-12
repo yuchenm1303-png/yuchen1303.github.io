@@ -154,7 +154,7 @@ internal class ClientToolExecutionLedger private constructor(
             .filter { it.isFile && it.extension == "json" }
             .sortedByDescending(File::lastModified)
             .drop(CLIENT_TOOL_LEDGER_MAX_RECORDS)
-            .forEach(File::delete)
+            .forEach { it.delete() }
     }
 
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
