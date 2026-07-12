@@ -30,15 +30,18 @@ class ClientToolReceiptDeliveryTest {
     fun keepsExactReceiptUntilSuccessfulReport() {
         val receipt = receipt("call-1", "created")
         assertEquals("call-1", outbox.enqueue(receipt))
+        val baseTime = System.currentTimeMillis()
 
-        val first = outbox.claim("call-1", now = 1_000L) as ClientToolReceiptClaim.Ready
+        val firstClaim = outbox.claim("call-1", now = baseTime)
+        assertTrue(firstClaim is ClientToolReceiptClaim.Ready)
+        val first = firstClaim as ClientToolReceiptClaim.Ready
         assertEquals("created", first.pending.receipt.getString("status"))
         assertEquals(1, first.pending.attemptCount)
-        assertTrue(outbox.claim("call-1", now = 1_001L) === ClientToolReceiptClaim.Wait)
+        assertTrue(outbox.claim("call-1", now = baseTime + 1L) === ClientToolReceiptClaim.Wait)
 
-        outbox.acknowledge("call-1", "已完成", now = 2_000L)
+        outbox.acknowledge("call-1", "已完成", now = baseTime + 2_000L)
         assertEquals("reported", outbox.statusForTest("call-1"))
-        assertTrue(outbox.claim("call-1", now = 3_000L) === ClientToolReceiptClaim.Done)
+        assertTrue(outbox.claim("call-1", now = baseTime + 3_000L) === ClientToolReceiptClaim.Done)
 
         outbox.enqueue(receipt)
         assertEquals("reported", outbox.statusForTest("call-1"))
@@ -47,12 +50,17 @@ class ClientToolReceiptDeliveryTest {
     @Test
     fun releasesFailedDeliveryWithoutReexecutingTool() {
         outbox.enqueue(receipt("call-2", "updated"))
-        val first = outbox.claim("call-2", now = 10_000L) as ClientToolReceiptClaim.Ready
-        outbox.release("call-2", IOException("offline"), now = 10_100L)
+        val baseTime = System.currentTimeMillis()
+        val firstClaim = outbox.claim("call-2", now = baseTime)
+        assertTrue(firstClaim is ClientToolReceiptClaim.Ready)
+        val first = firstClaim as ClientToolReceiptClaim.Ready
+        outbox.release("call-2", IOException("offline"), now = baseTime + 100L)
 
         assertEquals("pending", outbox.statusForTest("call-2"))
-        assertTrue(outbox.claim("call-2", now = 15_000L) === ClientToolReceiptClaim.Wait)
-        val retried = outbox.claim("call-2", now = 21_000L) as ClientToolReceiptClaim.Ready
+        assertTrue(outbox.claim("call-2", now = baseTime + 5_000L) === ClientToolReceiptClaim.Wait)
+        val retriedClaim = outbox.claim("call-2", now = baseTime + 10_100L)
+        assertTrue(retriedClaim is ClientToolReceiptClaim.Ready)
+        val retried = retriedClaim as ClientToolReceiptClaim.Ready
         assertEquals(2, retried.pending.attemptCount)
         assertEquals(first.pending.receipt.toString(), retried.pending.receipt.toString())
     }
