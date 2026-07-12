@@ -17,7 +17,7 @@ private const val PROJECT_MAX_FILE_BYTES = 512 * 1024
 private const val PROJECT_MAX_TOTAL_BYTES = 5 * 1024 * 1024
 private const val PROJECT_MAX_REVISIONS = 24
 private const val PROJECT_MAX_PATH_CHARS = 180
-private const val PROJECT_MAX_READ_CHARS = 120_000
+private const val PROJECT_MAX_READ_CHARS = 512_000
 
 internal data class ProjectWorkspaceFile(
     val path: String,
@@ -113,6 +113,9 @@ internal class ProjectWorkspaceStore private constructor(
         files: List<ProjectWorkspaceFile>,
         revisionSummary: String,
     ): ProjectWorkspaceSummary = synchronized(globalLock) {
+        if (files.isEmpty()) {
+            throw ProjectWorkspaceException("initial_files_required", "创建项目必须提供完整初版文件。")
+        }
         val existingCount = rootDir.listFiles()?.count { it.isDirectory && it.name.startsWith("project_") } ?: 0
         if (existingCount >= PROJECT_MAX_COUNT) {
             throw ProjectWorkspaceException("project_limit_reached", "本地项目数量已达到上限。")
@@ -121,33 +124,37 @@ internal class ProjectWorkspaceStore private constructor(
         val projectDir = projectDirectory(projectId)
         val currentDir = File(projectDir, "current")
         val now = System.currentTimeMillis()
-        if (!currentDir.mkdirs()) {
-            throw ProjectWorkspaceException("project_create_failed", "无法创建项目目录。")
+        try {
+            if (!currentDir.mkdirs()) {
+                throw ProjectWorkspaceException("project_create_failed", "无法创建项目目录。")
+            }
+            writeFilesInto(currentDir, files)
+            validateProjectTree(currentDir)
+            val revision = 1
+            writeRevisionSnapshot(
+                projectDir = projectDir,
+                sourceDir = currentDir,
+                revision = revision,
+                summary = revisionSummary.ifBlank { "创建项目" },
+                createdAt = now,
+            )
+            val manifest = JSONObject().apply {
+                put("schema", PROJECT_WORKSPACE_SCHEMA)
+                put("projectId", projectId)
+                put("name", name.trim().take(80).ifBlank { "未命名网页项目" })
+                put("description", description.trim().take(400))
+                put("entryFile", PROJECT_ENTRY_FILE)
+                put("currentRevision", revision)
+                put("status", "draft")
+                put("createdAt", now)
+                put("updatedAt", now)
+            }
+            writeManifest(projectDir, manifest)
+            summaryFrom(projectDir, manifest)
+        } catch (error: Throwable) {
+            projectDir.deleteRecursively()
+            throw error
         }
-        val initialFiles = files.ifEmpty { defaultProjectFiles(name) }
-        writeFilesInto(currentDir, initialFiles)
-        validateProjectTree(currentDir)
-        val revision = 1
-        writeRevisionSnapshot(
-            projectDir = projectDir,
-            sourceDir = currentDir,
-            revision = revision,
-            summary = revisionSummary.ifBlank { "创建项目" },
-            createdAt = now,
-        )
-        val manifest = JSONObject().apply {
-            put("schema", PROJECT_WORKSPACE_SCHEMA)
-            put("projectId", projectId)
-            put("name", name.trim().take(80).ifBlank { "未命名网页项目" })
-            put("description", description.trim().take(400))
-            put("entryFile", PROJECT_ENTRY_FILE)
-            put("currentRevision", revision)
-            put("status", "draft")
-            put("createdAt", now)
-            put("updatedAt", now)
-        }
-        writeManifest(projectDir, manifest)
-        summaryFrom(projectDir, manifest)
     }
 
     fun listProjects(limit: Int = 20): List<ProjectWorkspaceSummary> = synchronized(globalLock) {
@@ -155,7 +162,9 @@ internal class ProjectWorkspaceStore private constructor(
             .orEmpty()
             .asSequence()
             .filter { it.isDirectory && it.name.startsWith("project_") }
-            .mapNotNull { projectDir -> runCatching { readManifest(projectDir) }.getOrNull()?.let { summaryFrom(projectDir, it) } }
+            .mapNotNull { projectDir ->
+                runCatching { readManifest(projectDir) }.getOrNull()?.let { summaryFrom(projectDir, it) }
+            }
             .sortedByDescending(ProjectWorkspaceSummary::updatedAt)
             .take(limit.coerceIn(1, PROJECT_MAX_COUNT))
             .toList()
@@ -184,8 +193,14 @@ internal class ProjectWorkspaceStore private constructor(
         baseRevisionId: String?,
         files: List<ProjectWorkspaceFile>,
         revisionSummary: String,
-    ): ProjectWorkspaceSummary = mutateProject(projectId, baseRevisionId, revisionSummary.ifBlank { "更新项目文件" }) { staging ->
+        replaceAllFiles: Boolean = false,
+    ): ProjectWorkspaceSummary = mutateProject(
+        projectId = projectId,
+        baseRevisionId = baseRevisionId,
+        revisionSummary = revisionSummary.ifBlank { "更新项目文件" },
+    ) { staging ->
         if (files.isEmpty()) throw ProjectWorkspaceException("files_required", "没有提供需要写入的文件。")
+        if (replaceAllFiles) clearProjectFiles(staging)
         writeFilesInto(staging, files)
     }
 
@@ -194,7 +209,11 @@ internal class ProjectWorkspaceStore private constructor(
         baseRevisionId: String?,
         edits: List<ProjectWorkspaceEdit>,
         revisionSummary: String,
-    ): ProjectWorkspaceSummary = mutateProject(projectId, baseRevisionId, revisionSummary.ifBlank { "修改项目代码" }) { staging ->
+    ): ProjectWorkspaceSummary = mutateProject(
+        projectId = projectId,
+        baseRevisionId = baseRevisionId,
+        revisionSummary = revisionSummary.ifBlank { "修改项目代码" },
+    ) { staging ->
         if (edits.isEmpty()) throw ProjectWorkspaceException("edits_required", "没有提供需要应用的代码修改。")
         edits.forEach { edit ->
             val file = resolveSafeFile(staging, edit.path)
@@ -216,7 +235,11 @@ internal class ProjectWorkspaceStore private constructor(
         baseRevisionId: String?,
         paths: List<String>,
         revisionSummary: String,
-    ): ProjectWorkspaceSummary = mutateProject(projectId, baseRevisionId, revisionSummary.ifBlank { "删除项目文件" }) { staging ->
+    ): ProjectWorkspaceSummary = mutateProject(
+        projectId = projectId,
+        baseRevisionId = baseRevisionId,
+        revisionSummary = revisionSummary.ifBlank { "删除项目文件" },
+    ) { staging ->
         if (paths.isEmpty()) throw ProjectWorkspaceException("paths_required", "没有提供需要删除的文件。")
         paths.distinct().forEach { path ->
             val file = resolveSafeFile(staging, path)
@@ -260,16 +283,33 @@ internal class ProjectWorkspaceStore private constructor(
         targetRevisionId: String,
         baseRevisionId: String?,
         revisionSummary: String,
-    ): ProjectWorkspaceSummary = mutateProject(projectId, baseRevisionId, revisionSummary.ifBlank { "恢复到 $targetRevisionId" }) { staging ->
+    ): ProjectWorkspaceSummary = mutateProject(
+        projectId = projectId,
+        baseRevisionId = baseRevisionId,
+        revisionSummary = revisionSummary.ifBlank { "恢复到 $targetRevisionId" },
+    ) { staging ->
         val projectDir = requireProjectDirectory(projectId)
         val targetDir = revisionDirectory(projectDir, targetRevisionId)
         if (!targetDir.isDirectory) throw ProjectWorkspaceException("revision_not_found", "没有找到版本：$targetRevisionId")
-        staging.deleteRecursively()
-        if (!staging.mkdirs()) throw ProjectWorkspaceException("staging_create_failed", "无法准备版本恢复目录。")
+        clearProjectFiles(staging)
         copyProjectFiles(targetDir, staging, excludeRevisionMetadata = true)
     }
 
     fun buildPreview(projectId: String, revisionId: String? = null): ProjectPreviewEntry = synchronized(globalLock) {
+        resolvePreviewEntryLocked(projectId, revisionId, markPreviewReady = true)
+    }
+
+    fun resolveRuntimeEntry(projectId: String, revisionId: String? = null): ProjectPreviewEntry = synchronized(globalLock) {
+        resolvePreviewEntryLocked(projectId, revisionId, markPreviewReady = false)
+    }
+
+    fun resolvePreviewEntry(projectId: String, revisionId: String?): ProjectPreviewEntry = buildPreview(projectId, revisionId)
+
+    private fun resolvePreviewEntryLocked(
+        projectId: String,
+        revisionId: String?,
+        markPreviewReady: Boolean,
+    ): ProjectPreviewEntry {
         val projectDir = requireProjectDirectory(projectId)
         val manifest = readManifest(projectDir)
         val currentRevisionId = revisionId(manifest.optInt("currentRevision"))
@@ -283,12 +323,12 @@ internal class ProjectWorkspaceStore private constructor(
         validateProjectTree(sourceDir, ignoreRevisionMetadata = true)
         val entry = resolveSafeFile(sourceDir, manifest.optString("entryFile", PROJECT_ENTRY_FILE))
         if (!entry.isFile) throw ProjectWorkspaceException("entry_file_missing", "项目缺少 index.html，无法生成预览。")
-        if (resolvedRevisionId == currentRevisionId) {
+        if (markPreviewReady && resolvedRevisionId == currentRevisionId) {
             manifest.put("status", "preview_ready")
             manifest.put("updatedAt", System.currentTimeMillis())
             writeManifest(projectDir, manifest)
         }
-        ProjectPreviewEntry(
+        return ProjectPreviewEntry(
             project = summaryFrom(projectDir, manifest),
             revisionId = resolvedRevisionId,
             entryFile = entry,
@@ -296,8 +336,6 @@ internal class ProjectWorkspaceStore private constructor(
             previewUrl = previewUrl(manifest.optString("projectId"), resolvedRevisionId),
         )
     }
-
-    fun resolvePreviewEntry(projectId: String, revisionId: String?): ProjectPreviewEntry = buildPreview(projectId, revisionId)
 
     private fun mutateProject(
         projectId: String,
@@ -309,7 +347,10 @@ internal class ProjectWorkspaceStore private constructor(
         val manifest = readManifest(projectDir)
         val currentRevision = manifest.optInt("currentRevision", 1).coerceAtLeast(1)
         val currentRevisionId = revisionId(currentRevision)
-        if (!baseRevisionId.isNullOrBlank() && baseRevisionId != currentRevisionId) {
+        if (baseRevisionId.isNullOrBlank()) {
+            throw ProjectWorkspaceException("base_revision_required", "修改项目必须提供当前 baseRevisionId。")
+        }
+        if (baseRevisionId != currentRevisionId) {
             throw ProjectWorkspaceException("revision_conflict", "项目已经更新到 $currentRevisionId，请先读取最新版本后再修改。")
         }
         val currentDir = File(projectDir, "current")
@@ -347,6 +388,14 @@ internal class ProjectWorkspaceStore private constructor(
         }
     }
 
+    private fun clearProjectFiles(root: File) {
+        root.listFiles().orEmpty().forEach { child ->
+            if (!child.deleteRecursively()) {
+                throw ProjectWorkspaceException("project_clear_failed", "无法清理旧项目文件：${child.name}")
+            }
+        }
+    }
+
     private fun writeFilesInto(root: File, files: List<ProjectWorkspaceFile>) {
         if (files.size > PROJECT_MAX_FILES) throw ProjectWorkspaceException("too_many_files", "单次写入文件数量过多。")
         files.forEach { source ->
@@ -367,6 +416,8 @@ internal class ProjectWorkspaceStore private constructor(
     }
 
     private fun validateProjectTree(root: File, ignoreRevisionMetadata: Boolean = false) {
+        val entry = File(root, PROJECT_ENTRY_FILE)
+        if (!entry.isFile) throw ProjectWorkspaceException("entry_file_missing", "项目缺少入口文件 index.html。")
         val files = root.walkTopDown()
             .filter(File::isFile)
             .filterNot { ignoreRevisionMetadata && it.name == "_revision.json" }
@@ -511,45 +562,6 @@ internal class ProjectWorkspaceStore private constructor(
         return clean
     }
 
-    private fun defaultProjectFiles(name: String): List<ProjectWorkspaceFile> {
-        val safeTitle = escapeHtml(name.trim().take(80).ifBlank { "AI Ledger Project" })
-        return listOf(
-            ProjectWorkspaceFile(
-                path = "index.html",
-                content = """<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>$safeTitle</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <main class="app-shell">
-    <p class="eyebrow">AI LEDGER PROJECT</p>
-    <h1>$safeTitle</h1>
-    <p>项目工作区已经创建，可以继续让 AI 完成页面设计。</p>
-  </main>
-  <script src="app.js"></script>
-</body>
-</html>
-""",
-            ),
-            ProjectWorkspaceFile(
-                path = "styles.css",
-                content = """* { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
-body { display: grid; place-items: center; min-height: 100vh; padding: 32px; color: #eef5ff; background: #070a12; font-family: system-ui, sans-serif; }
-.app-shell { width: min(760px, 100%); padding: 48px; border: 1px solid rgba(255,255,255,.14); border-radius: 28px; background: rgba(255,255,255,.06); box-shadow: 0 24px 80px rgba(0,0,0,.35); }
-.eyebrow { letter-spacing: .18em; opacity: .55; font-size: 12px; }
-h1 { margin: 14px 0; font-size: clamp(40px, 8vw, 76px); line-height: .98; }
-p { color: rgba(238,245,255,.68); line-height: 1.7; }
-""",
-            ),
-            ProjectWorkspaceFile(path = "app.js", content = "document.documentElement.dataset.projectReady = 'true';\n"),
-        )
-    }
-
     private fun previewUrl(projectId: String, revisionId: String): String {
         val encodedProject = URLEncoder.encode(projectId, StandardCharsets.UTF_8.name())
         val encodedRevision = URLEncoder.encode(revisionId, StandardCharsets.UTF_8.name())
@@ -559,13 +571,6 @@ p { color: rgba(238,245,255,.68); line-height: 1.7; }
     private fun revisionId(revision: Int): String = "rev_${revision.coerceAtLeast(1).toString().padStart(6, '0')}"
 
     private fun parseRevision(value: String): Int = value.removePrefix("rev_").toIntOrNull() ?: 0
-
-    private fun escapeHtml(value: String): String = value
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("\"", "&quot;")
-        .replace("'", "&#39;")
 
     companion object {
         private val globalLock = Any()
