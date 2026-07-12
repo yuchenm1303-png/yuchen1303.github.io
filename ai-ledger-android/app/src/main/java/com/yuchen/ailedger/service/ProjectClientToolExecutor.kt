@@ -9,48 +9,67 @@ private const val PROJECT_TOOL_MAX_LIST = 50
 private const val PROJECT_SOURCE_BUNDLE_MAX_FILES = 100
 private const val PROJECT_SOURCE_BUNDLE_DEFAULT_CHARS = 360_000
 private const val PROJECT_SOURCE_BUNDLE_MAX_CHARS = 600_000
+private const val PROJECT_VERIFICATION_MAX_ISSUES = 40
 
 /**
  * Executes project_* calls selected by the cloud final model.
  *
  * This class is intentionally mechanical: it never infers a project request from natural language,
- * never rewrites model-authored code, and only applies validated structured arguments.
+ * never rewrites model-authored code, and only applies validated structured arguments. Mutating
+ * calls are protected by a persistent at-most-once ledger, while delivery requires both static and
+ * real WebView runtime verification.
  */
 internal class ProjectClientToolExecutor(context: Context) {
     private val appContext = context.applicationContext
     private val store = ProjectWorkspaceStore(appContext)
     private val validator = ProjectWorkspaceValidator(store)
+    private val runtimeVerifier = ProjectWorkspaceRuntimeVerifier(appContext, store)
+    private val executionLedger = ClientToolExecutionLedger(appContext)
 
     fun execute(call: CloudClientToolCall, fallbackGoal: String = ""): JSONObject {
         val goal = call.originalUserGoal
             ?.takeIf(String::isNotBlank)
             ?: fallbackGoal.takeIf(String::isNotBlank)
             ?: call.name
-        val receipt = baseReceipt(call, goal)
-        val result = runCatching {
-            when (call.name) {
-                "project_create" -> executeCreate(call, receipt)
-                "project_list" -> executeList(call, receipt)
-                "project_get" -> executeGet(call, receipt)
-                "project_list_files" -> executeListFiles(call, receipt)
-                "project_read_file" -> executeReadFile(call, receipt)
-                "project_write_files" -> executeWriteFiles(call, receipt)
-                "project_apply_edits" -> executeApplyEdits(call, receipt)
-                "project_delete_files" -> executeDeleteFiles(call, receipt)
-                "project_validate" -> executeValidate(call, receipt)
-                "project_build_preview" -> executeBuildPreview(call, receipt)
-                "project_list_revisions" -> executeListRevisions(call, receipt)
-                "project_rollback" -> executeRollback(call, receipt)
-                else -> receipt.fail("unsupported", "Android 当前不支持项目工具：${call.name}。")
-            }
-        }.getOrElse { error ->
-            when (error) {
-                is ProjectWorkspaceException -> receipt.fail(error.code, error.message)
-                else -> receipt.fail(
-                    status = "failed",
-                    summary = "项目工具执行异常：${error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName}",
-                    technical = "project_tool_exception:${error::class.java.simpleName}",
+
+        val decision = if (call.name in MUTATING_PROJECT_TOOLS) {
+            runCatching { executionLedger.begin(call) }.getOrElse { error ->
+                return baseReceipt(call, goal).fail(
+                    status = "idempotency_unavailable",
+                    summary = "客户端工具幂等保护暂时不可用，已停止写入以避免重复副作用。",
+                    technical = "client_tool_ledger_begin_failed:${error::class.java.simpleName}",
                 )
+            }
+        } else {
+            ClientToolExecutionDecision.Execute
+        }
+
+        when (decision) {
+            is ClientToolExecutionDecision.Replay -> {
+                val replay = JSONObject(decision.receipt.toString())
+                if (replay.optBoolean("ok")) {
+                    ProjectWorkspaceSessionContext.update(appContext, replay.optJSONObject("project"))
+                }
+                return replay
+            }
+            is ClientToolExecutionDecision.Reject -> {
+                return baseReceipt(call, goal).fail(decision.code, decision.summary)
+                    .put("idempotencyProtected", true)
+            }
+            ClientToolExecutionDecision.Execute -> Unit
+        }
+
+        val receipt = baseReceipt(call, goal)
+        val result = executeUncached(call, receipt)
+        if (call.name in MUTATING_PROJECT_TOOLS) {
+            runCatching { executionLedger.complete(call, result) }.onFailure { error ->
+                result.put("idempotencyPersisted", false)
+                result.put(
+                    "idempotencyWarning",
+                    "本次本地操作已经完成，但幂等回执保存失败：${error::class.java.simpleName}",
+                )
+            }.onSuccess {
+                result.put("idempotencyPersisted", true)
             }
         }
         if (result.optBoolean("ok")) {
@@ -59,14 +78,46 @@ internal class ProjectClientToolExecutor(context: Context) {
         return result
     }
 
+    private fun executeUncached(call: CloudClientToolCall, receipt: JSONObject): JSONObject = runCatching {
+        when (call.name) {
+            "project_create" -> executeCreate(call, receipt)
+            "project_list" -> executeList(call, receipt)
+            "project_get" -> executeGet(call, receipt)
+            "project_list_files" -> executeListFiles(call, receipt)
+            "project_read_file" -> executeReadFile(call, receipt)
+            "project_write_files" -> executeWriteFiles(call, receipt)
+            "project_apply_edits" -> executeApplyEdits(call, receipt)
+            "project_delete_files" -> executeDeleteFiles(call, receipt)
+            "project_validate" -> executeValidate(call, receipt)
+            "project_build_preview" -> executeBuildPreview(call, receipt)
+            "project_list_revisions" -> executeListRevisions(call, receipt)
+            "project_rollback" -> executeRollback(call, receipt)
+            else -> receipt.fail("unsupported", "Android 当前不支持项目工具：${call.name}。")
+        }
+    }.getOrElse { error ->
+        when (error) {
+            is ProjectWorkspaceException -> receipt.fail(error.code, error.message)
+            else -> receipt.fail(
+                status = "failed",
+                summary = "项目工具执行异常：${error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName}",
+                technical = "project_tool_exception:${error::class.java.simpleName}",
+            )
+        }
+    }
+
     private fun executeCreate(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
         val args = call.arguments
         val name = args.optString("name").trim().take(80)
         if (name.isBlank()) return receipt.fail("invalid_arguments", "创建项目失败：缺少项目名称。")
+        val files = ProjectWorkspaceStore.filesFromJson(args.optJSONArray("files"))
+        if (files.isEmpty()) return receipt.fail("initial_files_required", "创建项目失败：必须提供完整初版 files。")
+        if (files.none { it.path == "index.html" }) {
+            return receipt.fail("entry_file_missing", "创建项目失败：files 必须包含入口文件 index.html。")
+        }
         val project = store.createProject(
             name = name,
             description = args.optString("description").trim().take(400),
-            files = ProjectWorkspaceStore.filesFromJson(args.optJSONArray("files")),
+            files = files,
             revisionSummary = args.optString("revisionSummary", "创建项目").trim().take(240),
         )
         return receipt.success("created", "已创建网页项目：${project.name}。")
@@ -119,6 +170,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             .coerceIn(20_000, PROJECT_SOURCE_BUNDLE_MAX_CHARS)
         val files = JSONArray()
         val omittedPaths = JSONArray()
+        val truncatedPaths = JSONArray()
         var totalContentChars = 0
         var bundleComplete = true
         selectedPaths.forEach { path ->
@@ -134,7 +186,10 @@ internal class ProjectClientToolExecutor(context: Context) {
                     put("contentChars", content.length)
                 })
                 totalContentChars += content.length
-                if (truncated) bundleComplete = false
+                if (truncated) {
+                    bundleComplete = false
+                    truncatedPaths.put(path)
+                }
             }
         }
         if (files.length() != selectedPaths.size) bundleComplete = false
@@ -148,6 +203,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             .put("project", project.toJson())
             .put("projectId", project.projectId)
             .put("revisionId", project.currentRevisionId)
+            .put("sourceBundleSchema", "ai_ledger_project_source_bundle_v2")
             .put("files", files)
             .put("count", allPaths.size)
             .put("selectedCount", selectedPaths.size)
@@ -156,6 +212,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             .put("totalContentChars", totalContentChars)
             .put("maxTotalChars", maxTotalChars)
             .put("omittedPaths", omittedPaths)
+            .put("truncatedPaths", truncatedPaths)
     }
 
     private fun executeReadFile(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
@@ -177,15 +234,28 @@ internal class ProjectClientToolExecutor(context: Context) {
         val projectId = requireProjectId(args)
         val files = ProjectWorkspaceStore.filesFromJson(args.optJSONArray("files"))
         if (files.isEmpty()) return receipt.fail("invalid_arguments", "写入项目失败：files 不能为空。")
+        val replaceAllFiles = args.optBoolean("replaceAllFiles", false)
+        if (replaceAllFiles && files.none { it.path == "index.html" }) {
+            return receipt.fail("entry_file_missing", "完整替换项目时 files 必须包含 index.html。")
+        }
         val project = store.writeFiles(
             projectId = projectId,
             baseRevisionId = args.optString("baseRevisionId").trim().takeIf(String::isNotBlank),
             files = files,
             revisionSummary = args.optString("revisionSummary", "更新项目文件").trim().take(240),
+            replaceAllFiles = replaceAllFiles,
         )
-        return receipt.success("updated", "已写入 ${files.size} 个项目文件，当前版本为 ${project.currentRevisionId}。")
+        return receipt.success(
+            "updated",
+            if (replaceAllFiles) {
+                "已原子替换完整项目文件集（${files.size} 个文件），当前版本为 ${project.currentRevisionId}。"
+            } else {
+                "已写入 ${files.size} 个项目文件，当前版本为 ${project.currentRevisionId}。"
+            },
+        )
             .put("project", project.toJson())
             .put("writtenFiles", JSONArray(files.map(ProjectWorkspaceFile::path)))
+            .put("replaceAllFiles", replaceAllFiles)
             .put("revisionId", project.currentRevisionId)
     }
 
@@ -226,7 +296,7 @@ internal class ProjectClientToolExecutor(context: Context) {
     private fun executeValidate(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
         val projectId = requireProjectId(call.arguments)
         val project = store.getProject(projectId)
-        val verification = validator.validate(projectId)
+        val verification = validateCurrentProject(projectId, project)
         val result = if (verification.passed) {
             receipt.success(verification.status, verification.summary())
         } else {
@@ -237,6 +307,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             .put("projectId", project.projectId)
             .put("revisionId", project.currentRevisionId)
             .put("verification", verification.toJson())
+            .put("runtimeVerified", verification.issues.any { it.code == "runtime_smoke_test_passed" })
     }
 
     private fun executeBuildPreview(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
@@ -245,20 +316,36 @@ internal class ProjectClientToolExecutor(context: Context) {
         val project = store.getProject(projectId)
         val requestedRevisionId = args.optString("revisionId").trim().takeIf(String::isNotBlank)
         if (requestedRevisionId != null && requestedRevisionId != project.currentRevisionId) {
+            val runtimeIssues = runtimeVerifier.validate(projectId, requestedRevisionId)
+            val verification = AgentArtifactVerificationReport(
+                domain = "project.static_web.runtime",
+                workspaceId = projectId,
+                revisionId = requestedRevisionId,
+                issues = runtimeIssues.take(PROJECT_VERIFICATION_MAX_ISSUES),
+            )
+            if (!verification.passed) {
+                return receipt.fail("validation_failed", "历史版本未通过真实运行时验证，不能打开预览。${verification.summary()}")
+                    .put("project", project.toJson())
+                    .put("projectId", project.projectId)
+                    .put("revisionId", requestedRevisionId)
+                    .put("verification", verification.toJson())
+            }
             val preview = store.buildPreview(projectId = projectId, revisionId = requestedRevisionId)
-            val blocks = previewContentBlocks(preview, verification = null)
-            return receipt.success("preview_ready", "历史版本 ${preview.revisionId} 已完成本地结构校验，可以打开预览。")
+            val blocks = previewContentBlocks(preview, verification)
+            return receipt.success("preview_ready", "历史版本 ${preview.revisionId} 已完成真实 WebView 运行时验证，可以打开预览。")
                 .put("project", preview.project.toJson())
                 .put("projectId", preview.project.projectId)
                 .put("revisionId", preview.revisionId)
                 .put("previewUrl", preview.previewUrl)
+                .put("verification", verification.toJson())
+                .put("runtimeVerified", true)
                 .put("recommendedContentBlocks", blocks)
                 .put("presentationInstruction", "后端会安全接入 recommendedContentBlocks；请只补充简短自然说明，不要展示内部文件路径。")
         }
 
-        val verification = validator.validate(projectId)
+        val verification = validateCurrentProject(projectId, project)
         if (!verification.passed) {
-            return receipt.fail("validation_failed", "项目未通过确定性验证，不能生成完成预览。${verification.summary()}")
+            return receipt.fail("validation_failed", "项目未通过静态与真实运行时验证，不能生成完成预览。${verification.summary()}")
                 .put("project", project.toJson())
                 .put("projectId", project.projectId)
                 .put("revisionId", project.currentRevisionId)
@@ -266,14 +353,32 @@ internal class ProjectClientToolExecutor(context: Context) {
         }
         val preview = store.buildPreview(projectId = projectId, revisionId = requestedRevisionId)
         val blocks = previewContentBlocks(preview, verification)
-        return receipt.success("preview_ready", "项目 ${preview.project.name} 已通过确定性验证，可以打开预览。")
+        return receipt.success("preview_ready", "项目 ${preview.project.name} 已通过静态与真实 WebView 运行时验证，可以打开预览。")
             .put("project", preview.project.toJson())
             .put("projectId", preview.project.projectId)
             .put("revisionId", preview.revisionId)
             .put("previewUrl", preview.previewUrl)
             .put("verification", verification.toJson())
+            .put("runtimeVerified", true)
             .put("recommendedContentBlocks", blocks)
             .put("presentationInstruction", "后端会安全接入 recommendedContentBlocks；请只补充简短自然说明，不要展示内部文件路径。")
+    }
+
+    private fun validateCurrentProject(
+        projectId: String,
+        project: ProjectWorkspaceSummary = store.getProject(projectId),
+    ): AgentArtifactVerificationReport {
+        val staticReport = validator.validate(projectId)
+        if (!staticReport.passed) return staticReport
+        val runtimeIssues = runtimeVerifier.validate(projectId, project.currentRevisionId)
+        return AgentArtifactVerificationReport(
+            domain = "project.static_web",
+            workspaceId = projectId,
+            revisionId = project.currentRevisionId,
+            issues = (staticReport.issues + runtimeIssues)
+                .distinctBy { "${it.code}|${it.message}|${it.file}|${it.line}" }
+                .take(PROJECT_VERIFICATION_MAX_ISSUES),
+        )
     }
 
     private fun executeListRevisions(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
@@ -314,7 +419,7 @@ internal class ProjectClientToolExecutor(context: Context) {
             put("items", JSONArray().apply {
                 put(JSONObject().put("label", "项目类型").put("value", "静态网页").put("detail", "HTML · CSS · JavaScript"))
                 put(JSONObject().put("label", "当前版本").put("value", preview.revisionId).put("detail", "${preview.project.fileCount} 个文件"))
-                put(JSONObject().put("label", "构建状态").put("value", "预览就绪").put("detail", verification?.status ?: "历史版本结构校验"))
+                put(JSONObject().put("label", "构建状态").put("value", "预览就绪").put("detail", verification?.status ?: "运行时验证"))
             })
         })
         put(JSONObject().apply {
@@ -414,6 +519,13 @@ internal class ProjectClientToolExecutor(context: Context) {
             "project_validate",
             "project_build_preview",
             "project_list_revisions",
+            "project_rollback",
+        )
+        private val MUTATING_PROJECT_TOOLS = setOf(
+            "project_create",
+            "project_write_files",
+            "project_apply_edits",
+            "project_delete_files",
             "project_rollback",
         )
 
