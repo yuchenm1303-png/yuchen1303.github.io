@@ -262,9 +262,20 @@ internal class VisualAgentHudHost(
         val realHudActive = shouldPresentRuntime(progress)
         val sampleMode = tuning.previewEnabled && !realHudActive
         val contentActive = realHudActive || sampleMode
+        val capsuleOnlyActive = progress.enabled && !contentActive
+
+        if (capsuleOnlyActive) {
+            // Agent O 待命时只保留紧尺寸交互浮球。全屏 HUD 先建立同类型窗口层级，
+            // 随即暂停并隐藏，不派发 JS 帧，也不触发节点读取或截图。
+            if (!createOverlay()) return
+            suspendOverlay()
+            return
+        }
 
         if (!contentActive) {
             suspendOverlay()
+            // 浮球与任务都关闭后释放休眠 WebView，空闲态回到最低渲染和内存占用。
+            destroyOverlay()
             return
         }
         if (!createOverlay()) return
