@@ -19,6 +19,7 @@ import com.yuchen.ailedger.service.AgentAnalyticsRuntime
 import com.yuchen.ailedger.service.AgentOverlayProgress
 import com.yuchen.ailedger.service.AgentOverlayService
 import com.yuchen.ailedger.service.AgentRuntimeController
+import com.yuchen.ailedger.service.AssistantFloatingChatBridge
 import com.yuchen.ailedger.service.ClientToolReceiptDeliveryRuntime
 import com.yuchen.ailedger.service.VisualIntelligenceDiagnosticsStore
 import com.yuchen.ailedger.ui.StartupPerformanceGate
@@ -32,10 +33,25 @@ import kotlinx.coroutines.withTimeoutOrNull
 class AiLedgerApplication : Application() {
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /**
+     * 普通聊天的进程级唯一 ViewModel。
+     *
+     * 首页和 Agent O 无障碍浮窗共享同一实例，因此退出 Activity 后流式请求、消息、附件和
+     * 联网状态仍保持同一条业务链，不会出现两套聊天状态。
+     */
+    val assistantViewModel: AssistantViewModel by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        AssistantViewModel(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         appContext = applicationContext
         AgentAnalyticsOwnerRuntime.initialize(applicationContext)
+        AssistantFloatingChatBridge.attach(
+            viewModel = assistantViewModel,
+            scope = applicationScope,
+            appContext = applicationContext,
+        )
 
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
