@@ -1,48 +1,62 @@
 package com.yuchen.ailedger.service
 
 import android.content.Context
+import java.security.MessageDigest
 import org.json.JSONObject
 
-private const val PROJECT_SESSION_PREFS = "project-workspace-session-v1"
-private const val PROJECT_SESSION_ACTIVE_ID = "active-project-id"
+private const val PROJECT_SESSION_PREFS = "project-workspace-session-v2"
+private const val PROJECT_SESSION_ACTIVE_ID_PREFIX = "active-project-id-"
+private const val PROJECT_SESSION_LEGACY_SCOPE = "legacy"
+private const val PROJECT_SESSION_MAX_SCOPES = 24
 
 /**
- * Keeps the explicitly used project visible to later chat turns.
+ * Keeps the explicitly used project visible to later turns in the same chat thread.
  *
- * The project source remains in [ProjectWorkspaceStore]. This bridge stores only the active
- * project id and a compact in-memory summary, so phrases such as “继续修改这个网页” can be
- * grounded after the previous Agent Workspace or app process has completed. It never guesses
- * that the newest project is active when no explicit selection has been recorded.
+ * Project source remains in [ProjectWorkspaceStore]. This bridge stores only a project id per
+ * conversation scope plus a bounded in-memory summary cache. It never falls back to the newest
+ * project and never exposes one chat thread's active project to another thread.
  */
 internal object ProjectWorkspaceSessionContext {
     private val lock = Any()
-    private var activeProject: JSONObject? = null
+    private val activeProjects = LinkedHashMap<String, JSONObject>(16, 0.75f, true)
 
+    /** Legacy compatibility for callers that do not yet carry a conversation id. */
     fun update(project: JSONObject?) {
-        update(context = null, project = project)
+        update(context = null, conversationId = PROJECT_SESSION_LEGACY_SCOPE, project = project)
     }
 
+    /** Legacy compatibility for callers that do not yet carry a conversation id. */
     fun update(context: Context?, project: JSONObject?) {
+        update(context = context, conversationId = PROJECT_SESSION_LEGACY_SCOPE, project = project)
+    }
+
+    fun update(context: Context?, conversationId: String?, project: JSONObject?) {
         val projectId = project?.optString("projectId")?.trim().orEmpty()
         if (projectId.isBlank()) return
+        val scope = normalizeScope(conversationId)
         synchronized(lock) {
-            activeProject = JSONObject(project.toString())
+            activeProjects[scope] = JSONObject(project.toString())
+            trimLocked()
         }
         context?.applicationContext
             ?.getSharedPreferences(PROJECT_SESSION_PREFS, Context.MODE_PRIVATE)
             ?.edit()
-            ?.putString(PROJECT_SESSION_ACTIVE_ID, projectId)
+            ?.putString(preferenceKey(scope), projectId)
             ?.apply()
     }
 
-    fun current(context: Context?): JSONObject? {
+    /** Legacy compatibility for callers that do not yet carry a conversation id. */
+    fun current(context: Context?): JSONObject? = current(context, PROJECT_SESSION_LEGACY_SCOPE)
+
+    fun current(context: Context?, conversationId: String?): JSONObject? {
+        val scope = normalizeScope(conversationId)
         synchronized(lock) {
-            activeProject?.let { return JSONObject(it.toString()) }
+            activeProjects[scope]?.let { return JSONObject(it.toString()) }
         }
         val appContext = context?.applicationContext ?: return null
         val projectId = appContext
             .getSharedPreferences(PROJECT_SESSION_PREFS, Context.MODE_PRIVATE)
-            .getString(PROJECT_SESSION_ACTIVE_ID, null)
+            .getString(preferenceKey(scope), null)
             ?.trim()
             .orEmpty()
         if (projectId.isBlank()) return null
@@ -50,19 +64,48 @@ internal object ProjectWorkspaceSessionContext {
         if (project == null) {
             appContext.getSharedPreferences(PROJECT_SESSION_PREFS, Context.MODE_PRIVATE)
                 .edit()
-                .remove(PROJECT_SESSION_ACTIVE_ID)
+                .remove(preferenceKey(scope))
                 .apply()
             return null
         }
-        return project.toJson().also { update(appContext, it) }
+        return project.toJson().also { update(appContext, scope, it) }
     }
 
+    /** Legacy compatibility for callers that do not yet carry a conversation id. */
     fun clear(context: Context? = null) {
-        synchronized(lock) { activeProject = null }
+        clear(context, PROJECT_SESSION_LEGACY_SCOPE)
+    }
+
+    fun clear(context: Context?, conversationId: String?) {
+        val scope = normalizeScope(conversationId)
+        synchronized(lock) { activeProjects.remove(scope) }
         context?.applicationContext
             ?.getSharedPreferences(PROJECT_SESSION_PREFS, Context.MODE_PRIVATE)
             ?.edit()
-            ?.remove(PROJECT_SESSION_ACTIVE_ID)
+            ?.remove(preferenceKey(scope))
             ?.apply()
+    }
+
+    private fun normalizeScope(value: String?): String = value
+        ?.trim()
+        ?.take(180)
+        ?.takeIf(String::isNotBlank)
+        ?: PROJECT_SESSION_LEGACY_SCOPE
+
+    private fun preferenceKey(scope: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(scope.toByteArray(Charsets.UTF_8))
+            .take(12)
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return PROJECT_SESSION_ACTIVE_ID_PREFIX + digest
+    }
+
+    private fun trimLocked() {
+        while (activeProjects.size > PROJECT_SESSION_MAX_SCOPES) {
+            val iterator = activeProjects.entries.iterator()
+            if (!iterator.hasNext()) return
+            iterator.next()
+            iterator.remove()
+        }
     }
 }
