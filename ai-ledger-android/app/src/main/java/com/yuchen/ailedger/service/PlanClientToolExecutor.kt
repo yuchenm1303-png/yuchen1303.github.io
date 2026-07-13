@@ -22,12 +22,13 @@ import org.json.JSONObject
  * The cloud model owns intent parsing and tool selection. Android owns the durable plan state,
  * AlarmManager scheduling, exact-alarm permission state, and the structured receipt returned to
  * the final model. This executor deliberately does not call backend APIs and does not infer intent
- * from natural language.
+ * from natural language. Mutating calls reuse the shared persistent client-tool execution ledger.
  */
 internal class PlanClientToolExecutor(context: Context) {
     private val appContext = context.applicationContext
     private val store = PlanTaskStore(appContext)
     private val scheduler = PlanScheduler(appContext)
+    private val executionLedger = ClientToolExecutionLedger(appContext)
     private val zone: ZoneId = ZoneId.systemDefault()
 
     fun execute(call: CloudClientToolCall, fallbackGoal: String = ""): JSONObject {
@@ -36,24 +37,60 @@ internal class PlanClientToolExecutor(context: Context) {
             ?: fallbackGoal.takeIf(String::isNotBlank)
             ?: call.arguments.optString("sourceText").takeIf(String::isNotBlank)
             ?: call.name
-        val receipt = baseReceipt(call, goal)
-        return runCatching {
-            when (call.name) {
-                "plan_create_task" -> executeCreate(call, receipt)
-                "plan_list_tasks" -> executeList(call, receipt)
-                "plan_get_task" -> executeGet(call, receipt)
-                "plan_update_task" -> executeUpdate(call, receipt)
-                "plan_delete_task" -> executeDelete(call, receipt)
-                "plan_toggle_task" -> executeToggle(call, receipt)
-                else -> receipt.fail("unsupported", "Android 当前不支持计划工具：${call.name}。")
+        val requiresAtMostOnce = ClientToolMutationPolicy.requiresAtMostOnce(call)
+        val decision = if (requiresAtMostOnce) {
+            runCatching { executionLedger.begin(call) }.getOrElse { error ->
+                return baseReceipt(call, goal).fail(
+                    status = "idempotency_unavailable",
+                    summary = "计划工具幂等保护暂时不可用，已停止写入以避免重复创建或修改计划。",
+                    technical = "client_tool_ledger_begin_failed:${error::class.java.simpleName}",
+                )
             }
-        }.getOrElse { error ->
-            receipt.fail(
-                status = "failed",
-                summary = "计划工具执行异常：${error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName}",
-                technical = "plan_tool_exception:${error::class.java.simpleName}",
-            )
+        } else {
+            ClientToolExecutionDecision.Execute
         }
+
+        when (decision) {
+            is ClientToolExecutionDecision.Replay -> return JSONObject(decision.receipt.toString())
+            is ClientToolExecutionDecision.Reject -> {
+                return baseReceipt(call, goal).fail(decision.code, decision.summary)
+                    .put("idempotencyProtected", true)
+            }
+            ClientToolExecutionDecision.Execute -> Unit
+        }
+
+        val receipt = baseReceipt(call, goal)
+        val result = executeUncached(call, receipt)
+        if (requiresAtMostOnce) {
+            runCatching { executionLedger.complete(call, result) }.onFailure { error ->
+                result.put("idempotencyPersisted", false)
+                result.put(
+                    "idempotencyWarning",
+                    "本次计划操作已经完成，但幂等回执保存失败：${error::class.java.simpleName}",
+                )
+            }.onSuccess {
+                result.put("idempotencyPersisted", true)
+            }
+        }
+        return result
+    }
+
+    private fun executeUncached(call: CloudClientToolCall, receipt: JSONObject): JSONObject = runCatching {
+        when (call.name) {
+            "plan_create_task" -> executeCreate(call, receipt)
+            "plan_list_tasks" -> executeList(call, receipt)
+            "plan_get_task" -> executeGet(call, receipt)
+            "plan_update_task" -> executeUpdate(call, receipt)
+            "plan_delete_task" -> executeDelete(call, receipt)
+            "plan_toggle_task" -> executeToggle(call, receipt)
+            else -> receipt.fail("unsupported", "Android 当前不支持计划工具：${call.name}。")
+        }
+    }.getOrElse { error ->
+        receipt.fail(
+            status = "failed",
+            summary = "计划工具执行异常：${error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName}",
+            technical = "plan_tool_exception:${error::class.java.simpleName}",
+        )
     }
 
     private fun executeCreate(call: CloudClientToolCall, receipt: JSONObject): JSONObject {
