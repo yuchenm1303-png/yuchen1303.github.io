@@ -194,10 +194,10 @@ internal object AiWorkerPayloadBuilder {
 
             put("chatExpressionPreferences", JSONObject().apply {
                 put("schema", "ai_ledger_chat_expression_preferences_v1")
-                put("inlineStickerFrequency", stickerPreferences.frequency)
-                put("inlineStickerIntensity", stickerPreferences.intensity)
-                put("inlineStickerMaxPerReply", stickerPreferences.maxPerReply)
-                put("inlineStickerRepeatCount", stickerPreferences.repeatCount)
+                put("inlineStickerFrequency", stickerPreferences.frequency.coerceIn(0, 100))
+                put("inlineStickerIntensity", stickerPreferences.intensity.coerceIn(0, 100))
+                put("inlineStickerMaxPerReply", stickerPreferences.maxPerReply.coerceIn(0, 64))
+                put("inlineStickerRepeatCount", stickerPreferences.repeatCount.coerceIn(1, 4))
             })
 
             put("modelPreference", selectedModelId)
