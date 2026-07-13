@@ -47,6 +47,9 @@ private data class AgentORenderSnapshot(
  * - Agent O 开关只控制本窗口；
  * - 无限符号 Agent 开关继续控制视觉智能体 HUD 与原生智能体浮窗；
  * - 聊天请求和消息状态始终来自 [AssistantFloatingChatBridge]，本类不建立网络链。
+ *
+ * WebView 只承载网页版的原始视觉和动效。窗口定位、屏幕边界、输入法和跨应用拖动由
+ * Android 宿主负责，不在网页中重画第二套界面。
  */
 internal class AgentOFloatingChatHost(
     private val service: AccessibilityService,
@@ -175,7 +178,9 @@ internal class AgentOFloatingChatHost(
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = (metrics.widthPixels - size - dp(12f)).coerceAtLeast(0)
-            y = (topWindowInsetPx() + dp(72f)).coerceAtMost((metrics.heightPixels - size).coerceAtLeast(0))
+            y = (topWindowInsetPx() + dp(72f)).coerceAtMost(
+                (metrics.heightPixels - bottomWindowInsetPx() - size).coerceAtLeast(topWindowInsetPx())
+            )
             alpha = if (hiddenForCapture) 0f else 1f
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -184,10 +189,6 @@ internal class AgentOFloatingChatHost(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 setFitInsetsTypes(0)
                 setFitInsetsIgnoringVisibility(true)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
-                blurBehindRadius = dp(9f)
             }
         }
 
@@ -350,13 +351,13 @@ internal class AgentOFloatingChatHost(
     }
 
     private fun scheduleDrag(x: Int, y: Int) {
-        if (expanded) return
         val params = layoutParams ?: return
         val metrics = service.resources.displayMetrics
         pendingDragX = x.coerceIn(0, (metrics.widthPixels - params.width).coerceAtLeast(0))
         pendingDragY = y.coerceIn(
             topWindowInsetPx(),
-            (metrics.heightPixels - params.height - dp(6f)).coerceAtLeast(topWindowInsetPx()),
+            (metrics.heightPixels - bottomWindowInsetPx() - params.height)
+                .coerceAtLeast(topWindowInsetPx()),
         )
         if (dragFramePosted) return
         dragFramePosted = true
@@ -380,26 +381,43 @@ internal class AgentOFloatingChatHost(
         val view = webView ?: return
         val params = layoutParams ?: return
         val metrics = service.resources.displayMetrics
+        val topInset = topWindowInsetPx()
+        val bottomInset = bottomWindowInsetPx()
+        val margin = dp(EXPANDED_SCREEN_MARGIN_DP)
+        val availableWidth = (metrics.widthPixels - margin * 2).coerceAtLeast(dp(1f))
+        val availableHeight = (metrics.heightPixels - topInset - bottomInset - margin * 2)
+            .coerceAtLeast(dp(1f))
         val oldCenterX = params.x + params.width / 2
         val oldCenterY = params.y + params.height / 2
+
         val targetWidth = if (value) {
-            minOf(dp(EXPANDED_MAX_WIDTH_DP), metrics.widthPixels - dp(4f)).coerceAtLeast(dp(300f))
+            minOf(dp(EXPANDED_MAX_WIDTH_DP), availableWidth)
         } else {
             dp(COLLAPSED_WINDOW_DP)
         }
         val targetHeight = if (value) {
-            minOf(dp(EXPANDED_HEIGHT_DP), metrics.heightPixels - topWindowInsetPx() - dp(8f))
-                .coerceAtLeast(dp(320f))
+            minOf(dp(EXPANDED_HEIGHT_DP), availableHeight)
         } else {
             dp(COLLAPSED_WINDOW_DP)
         }
+
         params.width = targetWidth
         params.height = targetHeight
-        params.x = (oldCenterX - targetWidth / 2).coerceIn(0, (metrics.widthPixels - targetWidth).coerceAtLeast(0))
-        params.y = (oldCenterY - targetHeight / 2).coerceIn(
-            topWindowInsetPx(),
-            (metrics.heightPixels - targetHeight - dp(4f)).coerceAtLeast(topWindowInsetPx()),
-        )
+        if (value) {
+            // 展开窗口始终放进安全显示区中间。网页版面板在窗口内部保持原始比例，
+            // 不再沿珠态右上角坐标硬撑开，从根源上避免顶部和右侧被屏幕裁掉。
+            params.x = margin + ((availableWidth - targetWidth) / 2).coerceAtLeast(0)
+            params.y = topInset + margin + ((availableHeight - targetHeight) / 2).coerceAtLeast(0)
+        } else {
+            params.x = (oldCenterX - targetWidth / 2)
+                .coerceIn(0, (metrics.widthPixels - targetWidth).coerceAtLeast(0))
+            params.y = (oldCenterY - targetHeight / 2).coerceIn(
+                topInset,
+                (metrics.heightPixels - bottomInset - targetHeight).coerceAtLeast(topInset),
+            )
+        }
+        pendingDragX = params.x
+        pendingDragY = params.y
         expanded = value
         if (!value) disableInputFocus()
         params.flags = windowFlags(hiddenForCapture, wantsInputFocus)
@@ -422,11 +440,11 @@ internal class AgentOFloatingChatHost(
     private fun applyRuntimePauseState() {
         val view = webView ?: return
         if (hiddenForCapture) {
-            view.evaluateJavascript("window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.suspend();", null)
+            view.evaluateJavascript("window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.suspend&&window.GuiPlusFloatingChat.suspend();", null)
             view.onPause()
         } else {
             view.onResume()
-            view.evaluateJavascript("window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.resume();", null)
+            view.evaluateJavascript("window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.resume&&window.GuiPlusFloatingChat.resume();", null)
         }
     }
 
@@ -470,7 +488,8 @@ internal class AgentOFloatingChatHost(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         if (!wantsInputFocus) flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         if (hidden) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+        // FLAG_BLUR_BEHIND 会让部分 Android / OEM 把整块显示屏作为模糊区域。
+        // 局部玻璃质感只由网页版 glass-shell 自身承担，宿主绝不再开启全屏系统模糊。
         return flags
     }
 
@@ -478,6 +497,11 @@ internal class AgentOFloatingChatHost(
         val resourceId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
         val statusBar = if (resourceId > 0) service.resources.getDimensionPixelSize(resourceId) else dp(24f)
         return statusBar + dp(4f)
+    }
+
+    private fun bottomWindowInsetPx(): Int {
+        val resourceId = service.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        return if (resourceId > 0) service.resources.getDimensionPixelSize(resourceId) else 0
     }
 
     private fun dp(value: Float): Int = (value * density).roundToInt()
@@ -503,7 +527,8 @@ internal class AgentOFloatingChatHost(
         private const val NATIVE_BRIDGE_NAME = "GuiPlusNative"
         private const val BRIDGE_SOURCE = "gui-plus-floating-chat"
         private const val COLLAPSED_WINDOW_DP = 170f
-        private const val EXPANDED_MAX_WIDTH_DP = 500f
+        private const val EXPANDED_MAX_WIDTH_DP = 528f
         private const val EXPANDED_HEIGHT_DP = 430f
+        private const val EXPANDED_SCREEN_MARGIN_DP = 6f
     }
 }
