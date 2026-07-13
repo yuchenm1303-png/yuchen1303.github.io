@@ -29,9 +29,9 @@ private data class VisualHudRenderSnapshot(
 )
 
 /**
- * Owns the presentation-only full-screen visual HUD and its tightly-sized interactive capsule.
- * Both windows are TYPE_ACCESSIBILITY_OVERLAY, so GUI Plus communication no longer depends on the
- * ordinary SYSTEM_ALERT_WINDOW permission.
+ * Owns the presentation-only full-screen visual HUD and the independent visual-agent capsule.
+ * Agent O ordinary floating chat is hosted by [AgentOFloatingChatHost]. All three windows use
+ * TYPE_ACCESSIBILITY_OVERLAY and do not depend on SYSTEM_ALERT_WINDOW permission.
  */
 internal class VisualAgentHudHost(
     private val service: AccessibilityService,
@@ -40,6 +40,7 @@ internal class VisualAgentHudHost(
     private val tuningStore = VisualAgentHudTuningStore.get(service.applicationContext)
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
     private val capsuleHost = VisualAgentCapsuleHost(service)
+    private val agentOFloatingChatHost = AgentOFloatingChatHost(service)
     private val recordingOverlayHost = OperationRecordingOverlayHost(service)
 
     private var webView: WebView? = null
@@ -60,6 +61,7 @@ internal class VisualAgentHudHost(
     fun start() {
         if (started) return
         started = true
+        agentOFloatingChatHost.start()
         recordingOverlayHost.start()
         scope.launch {
             combine(
@@ -76,12 +78,14 @@ internal class VisualAgentHudHost(
     fun destroy() {
         if (!started && webView == null) {
             capsuleHost.destroy()
+            agentOFloatingChatHost.destroy()
             recordingOverlayHost.destroy()
             return
         }
         started = false
         tuningStore.setPreviewEnabled(false)
         capsuleHost.destroy()
+        agentOFloatingChatHost.destroy()
         recordingOverlayHost.destroy()
         scope.cancel()
         destroyOverlay()
@@ -178,9 +182,8 @@ internal class VisualAgentHudHost(
                 overlayCreationFailed = false
                 webView = view
                 layoutParams = params
-                // Add the interactive capsule only after the full-screen layer is attached. Windows
-                // with the same accessibility-overlay type are ordered by attach time, so this keeps
-                // the tightly-sized control surface reliably above the presentation WebView.
+                // Add the interactive visual-agent capsule only after the full-screen layer is attached.
+                // Agent O owns a separate later window and is not coupled to this capsule lifecycle.
                 capsuleHost.start()
                 // Some vendor window managers reconstruct accessibility-overlay attributes after the
                 // first attach. Reassert the non-touchable contract once the ViewRoot is established.
@@ -265,8 +268,8 @@ internal class VisualAgentHudHost(
         val capsuleOnlyActive = progress.enabled && !contentActive
 
         if (capsuleOnlyActive) {
-            // Agent O 待命时只保留紧尺寸交互浮球。全屏 HUD 先建立同类型窗口层级，
-            // 随即暂停并隐藏，不派发 JS 帧，也不触发节点读取或截图。
+            // 无限符号 Agent 待命时只保留其紧尺寸智能体浮窗。全屏 HUD 先建立同类型
+            // 窗口层级，随即暂停并隐藏，不派发 JS 帧，也不触发节点读取或截图。
             if (!createOverlay()) return
             suspendOverlay()
             return
@@ -274,7 +277,7 @@ internal class VisualAgentHudHost(
 
         if (!contentActive) {
             suspendOverlay()
-            // 浮球与任务都关闭后释放休眠 WebView，空闲态回到最低渲染和内存占用。
+            // 智能体浮窗和任务都关闭后释放休眠 HUD WebView。
             destroyOverlay()
             return
         }
