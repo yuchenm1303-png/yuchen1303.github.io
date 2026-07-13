@@ -50,7 +50,10 @@ internal object VisualAgentCapsuleStateResolver {
             progress.running -> VisualAgentCapsuleMode.Running
             else -> VisualAgentCapsuleMode.Idle
         }
-        val active = progress.running ||
+        // 首页 Agent O 手动开启后，浮球在没有任务时保持 Idle 待命；任务、确认、
+        // 输入和接管状态无论开关如何都继续显示，避免关键交互入口突然消失。
+        val active = progress.enabled ||
+            progress.running ||
             pendingInput != null ||
             pendingConfirmation != null ||
             progress.userTakeoverPaused
