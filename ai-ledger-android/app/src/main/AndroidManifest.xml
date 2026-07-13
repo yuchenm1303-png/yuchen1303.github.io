@@ -90,6 +90,12 @@
             android:exported="false"
             android:theme="@style/Theme.AiLedger.AgentPermissionDialog" />
 
+        <activity
+            android:name=".AgentOAttachmentPickerActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <receiver
             android:name=".service.NotificationReplyReceiver"
             android:enabled="true"
