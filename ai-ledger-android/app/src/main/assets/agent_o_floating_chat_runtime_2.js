@@ -105,19 +105,21 @@
   }
 
   function updateDesiredGeometry(value,target=geometryTarget){
+    // 展开态尺寸、圆角、间距全部恢复为 V8.4 网页原值；原生层只负责把窗口放进安全区。
     const bead=Math.min(ORB_MAX,Math.max(1,stageSize.width-18),Math.max(1,stageSize.height-18));
     const inputHeight=P.capsuleHeight;
     const inputWidth=Math.min(P.capsuleWidth,stageSize.width-34);
-    const panelInset=nativeProduction?74:28;
-    const panelVerticalInset=nativeProduction?58:30;
-    const panelWidth=Math.min(500,stageSize.width-panelInset);
-    const panelHeight=Math.min(stageSize.width<540?Math.max(P.panelHeight,360):P.panelHeight,stageSize.height-panelVerticalInset);
+    const panelWidth=Math.min(500,stageSize.width-28);
+    const panelHeight=Math.min(stageSize.width<540?Math.max(P.panelHeight,390):P.panelHeight,stageSize.height-30);
     if(value===0){
       target.width=bead;target.height=bead;target.topRadius=bead*.5;target.bottomRadius=bead*.5;target.anchorY=0;
     }else if(value===1){
       target.width=inputWidth;target.height=inputHeight;target.topRadius=inputHeight*.5;target.bottomRadius=inputHeight*.5;target.anchorY=0;
     }else{
-      target.width=panelWidth;target.height=panelHeight;target.topRadius=P.panelTopRadius;target.bottomRadius=P.panelBottomRadius;target.anchorY=-(panelHeight-inputHeight)*.5;
+      target.width=panelWidth;target.height=panelHeight;target.topRadius=P.panelTopRadius;target.bottomRadius=P.panelBottomRadius;
+      // 网页演示中的负锚点依赖 550px 以上的舞台。原生悬浮窗是紧尺寸窗口，保持面板
+      // 中心对齐才能完整呈现同一套网页版内容，不会把上半部分推出屏幕。
+      target.anchorY=nativeProduction?0:-(panelHeight-inputHeight)*.5;
     }
     return target;
   }
