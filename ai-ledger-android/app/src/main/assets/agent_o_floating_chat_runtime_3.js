@@ -87,8 +87,13 @@
       }
       if(form===0){
         scheduleTransition(()=>{
-          if(token===transitionToken){root.dataset.orbOptics='1';postChatAction('window.form',{form:0});}
+          if(token===transitionToken)root.dataset.orbOptics='1';
         },Math.max(140,morphDuration*.55));
+        // 先完整播放网页版的面板→玻璃珠弹簧收束，再缩小 Android 原生窗口。
+        // 这样不会在动画中途被宿主裁切，也保证每次点击减号都能可靠回到珠态。
+        scheduleTransition(()=>{
+          if(token===transitionToken)postChatAction('window.form',{form:0});
+        },Math.max(420,morphDuration*1.15));
       }
       scheduleTransition(()=>{
         if(token!==transitionToken)return;
