@@ -50,10 +50,11 @@ class MainActivity : ComponentActivity() {
         installAccessibilityPerformanceShield(window.decorView)
         if (ENABLE_STARTUP_FRAME_MONITOR) installFirstFrameProbe(window.decorView)
         if (ENABLE_STARTUP_METRICS_OVERLAY) installStartupMetricsOverlay(window.decorView)
+        val sharedAssistantViewModel = (application as AiLedgerApplication).assistantViewModel
         setContent {
             if (ENABLE_STARTUP_FRAME_MONITOR) StartupMetrics.markOnce("Compose 首次进入")
             AccessibilitySilentComposeRoot {
-                AiAssistantNativeApp()
+                AiAssistantNativeApp(viewModel = sharedAssistantViewModel)
             }
         }
         reinforceAccessibilityPerformanceShield(window.decorView)
