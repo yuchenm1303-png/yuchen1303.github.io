@@ -413,8 +413,8 @@ internal object AiWorkerPayloadBuilder {
             val message = this[index]
             if (message.role != MessageRole.User || message.status == MessageStatus.Sending) continue
             if (latestUserMessage == null) latestUserMessage = message
-            if (latestText.isBlank() && message.text.isNotBlank()) latestUserText = message.text
-            if (latestUserMessage != null && latestUserText.isNotBlank()) break
+            if (latestText.isBlank() && message.text.isNotBlank()) latestText = message.text
+            if (latestUserMessage != null && latestText.isNotBlank()) break
         }
         val images = latestUserMessage
             ?.attachments
@@ -428,7 +428,7 @@ internal object AiWorkerPayloadBuilder {
             }
         return LatestUserContext(
             messageId = latestUserMessage?.id.orEmpty(),
-            latestText = latestUserText,
+            latestText = latestText,
             imageAttachments = images,
         )
     }
