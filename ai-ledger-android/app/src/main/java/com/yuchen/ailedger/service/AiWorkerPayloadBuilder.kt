@@ -22,7 +22,6 @@ private const val TOOL_COMPUTER_RUN_TASK = "computer_run_task"
 private const val MESSAGE_CONTENT_BLOCK_SCHEMA = "ai_ledger_message_content_blocks_v1"
 private const val PROJECT_WORKSPACE_CAPABILITY_SCHEMA = "ai_ledger_android_project_workspace_v1"
 private const val PROJECT_WORKSPACE_CLIENT_VERSION = "compose-native-project-workspace-v3-thread-scoped"
-private const val CONVERSATION_ID_PREFIX = "chat_"
 private val MESSAGE_CONTENT_BLOCK_TYPES = listOf(
     "rich_text",
     "code",
@@ -383,16 +382,8 @@ internal object AiWorkerPayloadBuilder {
         return runCatching { JSONObject(json) }.getOrNull()
     }
 
-    private fun List<ChatMessage>.conversationId(): String {
-        val firstUserId = firstOrNull { message ->
-            message.role == MessageRole.User && message.id.isNotBlank()
-        }?.id.orEmpty()
-        val safeId = firstUserId
-            .trim()
-            .filter { char -> char.isLetterOrDigit() || char == '-' || char == '_' || char == '.' }
-            .take(100)
-        return safeId.takeIf(String::isNotBlank)?.let { CONVERSATION_ID_PREFIX + it }.orEmpty()
-    }
+    private fun List<ChatMessage>.conversationId(): String =
+        AgentConversationScopeResolver.resolve(AiLedgerApplication.contextOrNull(), this)
 
     private fun JSONObject.clientConversationId(): String {
         val toolArguments = optJSONObject("toolArguments")
@@ -422,8 +413,8 @@ internal object AiWorkerPayloadBuilder {
             val message = this[index]
             if (message.role != MessageRole.User || message.status == MessageStatus.Sending) continue
             if (latestUserMessage == null) latestUserMessage = message
-            if (latestText.isBlank() && message.text.isNotBlank()) latestText = message.text
-            if (latestUserMessage != null && latestText.isNotBlank()) break
+            if (latestText.isBlank() && message.text.isNotBlank()) latestUserText = message.text
+            if (latestUserMessage != null && latestUserText.isNotBlank()) break
         }
         val images = latestUserMessage
             ?.attachments
@@ -437,7 +428,7 @@ internal object AiWorkerPayloadBuilder {
             }
         return LatestUserContext(
             messageId = latestUserMessage?.id.orEmpty(),
-            latestText = latestText,
+            latestText = latestUserText,
             imageAttachments = images,
         )
     }
