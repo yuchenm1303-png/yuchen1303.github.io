@@ -15,18 +15,61 @@ import org.json.JSONObject
  * Pure transaction executor for cloud-selected ledger tools.
  *
  * It accepts only canonical JSON fields and enum values. It never reads user text, accepts aliases,
- * translates synonyms, or guesses a missing transaction intent.
+ * translates synonyms, or guesses a missing transaction intent. Mutating client-tool calls reuse
+ * the shared persistent at-most-once ledger before touching local or cloud-backed ledger state.
  */
 class LedgerInternalToolExecutor(context: Context) {
     private val appContext = context.applicationContext
     private val store = LedgerStore(appContext)
     private val sessionStore = SupabaseSessionStore(appContext)
     private val cloudClient = SupabaseLedgerClient()
+    private val executionLedger = ClientToolExecutionLedger(appContext)
     private val idSeed = AtomicLong(System.currentTimeMillis())
 
     fun canExecute(step: CloudAgentStep): Boolean = step.type in CloudAgentStep.ledgerToolTypes
 
-    fun execute(step: CloudAgentStep): AgentExecutionResult = runCatching {
+    fun execute(step: CloudAgentStep): AgentExecutionResult {
+        val call = ClientToolCallRegistry.consume(step)
+        if (call == null || !ClientToolMutationPolicy.requiresAtMostOnce(call, step.type)) {
+            return executeUncached(step)
+        }
+
+        val decision = runCatching { executionLedger.begin(call) }.getOrElse { error ->
+            return AgentExecutionResult(
+                ok = false,
+                message = "账本工具幂等保护暂时不可用，已停止写入以避免重复记账或重复修改预算。",
+                shouldContinue = false,
+                diagnostics = "client_tool_ledger_begin_failed:${error::class.java.simpleName}",
+            )
+        }
+        when (decision) {
+            is ClientToolExecutionDecision.Replay -> return decision.receipt.toAgentExecutionResult()
+            is ClientToolExecutionDecision.Reject -> {
+                return AgentExecutionResult(
+                    ok = false,
+                    message = decision.summary,
+                    shouldContinue = false,
+                    diagnostics = decision.code,
+                )
+            }
+            ClientToolExecutionDecision.Execute -> Unit
+        }
+
+        val result = executeUncached(step)
+        val persisted = runCatching {
+            executionLedger.complete(call, result.toExecutionLedgerReceipt(call, step))
+        }.isSuccess
+        return if (persisted) {
+            result
+        } else {
+            result.copy(
+                message = result.message + "\n\n本次账本操作已经结束，但幂等回执保存失败；系统不会自动重复执行这次写操作。",
+                diagnostics = result.diagnostics.appendDiagnostic("idempotency_receipt_persist_failed"),
+            )
+        }
+    }
+
+    private fun executeUncached(step: CloudAgentStep): AgentExecutionResult = runCatching {
         validateEnvelope(step)?.let { return failure(it) }
         when (step.type) {
             "ledger_add_record" -> addRecord(step)
@@ -276,6 +319,35 @@ class LedgerInternalToolExecutor(context: Context) {
         val value = number.toDouble()
         if (!value.isFinite() || value % 1.0 != 0.0) return null
         return value.toInt()
+    }
+
+    private fun AgentExecutionResult.toExecutionLedgerReceipt(
+        call: CloudClientToolCall,
+        step: CloudAgentStep,
+    ): JSONObject = JSONObject().apply {
+        put("schema", "ai_ledger_ledger_execution_result_v1")
+        put("protocol", call.resultProtocol)
+        put("toolCallId", call.id)
+        put("toolName", call.name)
+        put("toolArguments", JSONObject(call.arguments.toString()))
+        put("stepType", step.type)
+        put("ok", ok)
+        put("message", message.take(4_000))
+        put("shouldContinue", shouldContinue)
+        put("diagnostics", diagnostics.take(1_000))
+    }
+
+    private fun JSONObject.toAgentExecutionResult(): AgentExecutionResult = AgentExecutionResult(
+        ok = optBoolean("ok", false),
+        message = optString("message").ifBlank { "已重放此前完成的账本工具结果。" },
+        shouldContinue = optBoolean("shouldContinue", false),
+        diagnostics = optString("diagnostics").appendDiagnostic("idempotent_replay"),
+    )
+
+    private fun String.appendDiagnostic(value: String): String = when {
+        isBlank() -> value
+        contains(value) -> this
+        else -> "$this;$value"
     }
 
     private fun nextRecordId(): String = "record-agent-${idSeed.incrementAndGet()}"
