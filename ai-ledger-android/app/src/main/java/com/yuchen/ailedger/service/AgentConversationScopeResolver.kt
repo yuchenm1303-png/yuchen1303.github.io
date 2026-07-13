@@ -27,7 +27,7 @@ internal object AgentConversationScopeResolver {
 
     private val lock = Any()
     private val entries = LinkedHashMap<String, Entry>(32, 0.75f, true)
-    private var loaded = false
+    private var diskStateLoaded = false
 
     fun resolve(context: Context?, messages: List<ChatMessage>): String {
         val userMessageIds = messages.asSequence()
@@ -41,10 +41,14 @@ internal object AgentConversationScopeResolver {
         return synchronized(lock) {
             ensureLoadedLocked(context)
             val now = System.currentTimeMillis()
-            val mappedConversation = userMessageIds.asReversed()
-                .mapNotNull { messageId -> entries[messageId] }
-                .maxByOrNull(Entry::updatedAt)
-                ?.conversationId
+            var mappedConversation: String? = null
+            for (index in userMessageIds.indices.reversed()) {
+                val candidate = entries[userMessageIds[index]]?.conversationId
+                if (!candidate.isNullOrBlank()) {
+                    mappedConversation = candidate
+                    break
+                }
+            }
             val conversationId = mappedConversation ?: createConversationId(userMessageIds.first())
             var changed = false
             userMessageIds.forEach { messageId ->
@@ -60,15 +64,16 @@ internal object AgentConversationScopeResolver {
 
     internal fun clearForTest() = synchronized(lock) {
         entries.clear()
-        loaded = false
+        diskStateLoaded = false
     }
 
     private fun ensureLoadedLocked(context: Context?) {
-        if (loaded) return
-        loaded = true
-        val raw = context?.applicationContext
-            ?.getSharedPreferences(AGENT_CONVERSATION_SCOPE_PREFS, Context.MODE_PRIVATE)
-            ?.getString(AGENT_CONVERSATION_SCOPE_STATE, null)
+        if (diskStateLoaded) return
+        val appContext = context?.applicationContext ?: return
+        diskStateLoaded = true
+        val raw = appContext
+            .getSharedPreferences(AGENT_CONVERSATION_SCOPE_PREFS, Context.MODE_PRIVATE)
+            .getString(AGENT_CONVERSATION_SCOPE_STATE, null)
             ?: return
         val root = runCatching { JSONObject(raw) }.getOrNull() ?: return
         if (root.optString("schema") != AGENT_CONVERSATION_SCOPE_SCHEMA) return
