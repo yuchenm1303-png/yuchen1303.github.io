@@ -56,10 +56,11 @@ object AssistantFloatingChatBridge {
         scope.launch {
             AgentOFloatingChatController.enabled.collect { enabled ->
                 if (enabled && !AiAgentAccessibilityService.isConnected()) {
+                    // 保留开启请求。用户在系统设置中启用无障碍后，Service 连接会直接启动
+                    // Agent O 浮窗，不要求回到首页再次点击开关。
                     AgentAccessibilityGuideActivity.open(appContext)
-                    AgentOFloatingChatController.setEnabled(false)
                     viewModel.appendAssistantNotice(
-                        text = "Agent O 悬浮对话需要先开启无障碍服务。它不需要额外的普通悬浮窗权限。",
+                        text = "Agent O 悬浮对话需要先开启无障碍服务。授权完成后会自动显示，不需要普通悬浮窗权限。",
                         source = "local_agent",
                     )
                 }
