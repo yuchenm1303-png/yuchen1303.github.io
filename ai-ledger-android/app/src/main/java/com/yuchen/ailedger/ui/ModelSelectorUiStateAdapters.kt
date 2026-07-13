@@ -8,7 +8,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import com.yuchen.ailedger.model.AssistantUiState
 import com.yuchen.ailedger.model.ChatModel
-import com.yuchen.ailedger.service.AgentRuntimeController
+import com.yuchen.ailedger.service.AgentOFloatingChatController
 
 @Composable
 internal fun UnifiedParentModelStackSelector(
@@ -43,10 +43,9 @@ internal fun UnifiedParentModelStackSelector(
 }
 
 /**
- * 保留原右上角水滴玻璃的唯一绘制入口，只交换业务职责。
+ * 保留原右上角水滴玻璃的唯一绘制入口，只把业务职责切换为 Agent O 普通聊天悬浮窗。
  *
- * 旧调用点仍传入联网回调以保持 Assistant 首页布局链不动；这里不再消费该回调，
- * 而是直接绑定视觉智能体状态。水滴的 OpenGL 材质、尺寸和按压动画均沿用原组件。
+ * 无限符号 Agent 开关仍由聊天大玻璃标题栏控制视觉智能体；两者完全独立。
  */
 @Suppress("UNUSED_PARAMETER")
 @Composable
@@ -56,23 +55,16 @@ internal fun NetworkDropletCapsule(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val agentEnabled by AgentRuntimeController.enabled.collectAsState()
-    val progress by AgentRuntimeController.progress.collectAsState()
-    val interactionRequired = progress.running ||
-        progress.pendingConfirmation != null ||
-        progress.pendingUserInput != null ||
-        progress.userTakeoverPaused
-    val visuallyActive = agentEnabled || interactionRequired
-    val visualState = remember(state, visuallyActive) {
-        state.asAssistantUiState().copy(onlineEnabled = visuallyActive)
+    val agentOEnabled by AgentOFloatingChatController.enabled.collectAsState()
+    val visualState = remember(state, agentOEnabled) {
+        state.asAssistantUiState().copy(onlineEnabled = agentOEnabled)
     }
 
     NetworkDropletCapsule(
         state = visualState,
         modifier = modifier,
-        // 智能浮球入口与普通聊天发送状态解耦。
         enabled = true,
-        onClick = { AgentRuntimeController.setEnabled(!agentEnabled) },
+        onClick = AgentOFloatingChatController::toggle,
         label = "Agent O",
     )
 }
