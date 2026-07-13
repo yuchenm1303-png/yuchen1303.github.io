@@ -32,7 +32,8 @@ internal class ProjectClientToolExecutor(context: Context) {
             ?: fallbackGoal.takeIf(String::isNotBlank)
             ?: call.name
 
-        val decision = if (call.name in MUTATING_PROJECT_TOOLS) {
+        val requiresAtMostOnce = ClientToolMutationPolicy.requiresAtMostOnce(call)
+        val decision = if (requiresAtMostOnce) {
             runCatching { executionLedger.begin(call) }.getOrElse { error ->
                 return baseReceipt(call, goal).fail(
                     status = "idempotency_unavailable",
@@ -61,7 +62,7 @@ internal class ProjectClientToolExecutor(context: Context) {
 
         val receipt = baseReceipt(call, goal)
         val result = executeUncached(call, receipt)
-        if (call.name in MUTATING_PROJECT_TOOLS) {
+        if (requiresAtMostOnce) {
             runCatching { executionLedger.complete(call, result) }.onFailure { error ->
                 result.put("idempotencyPersisted", false)
                 result.put(
@@ -519,13 +520,6 @@ internal class ProjectClientToolExecutor(context: Context) {
             "project_validate",
             "project_build_preview",
             "project_list_revisions",
-            "project_rollback",
-        )
-        private val MUTATING_PROJECT_TOOLS = setOf(
-            "project_create",
-            "project_write_files",
-            "project_apply_edits",
-            "project_delete_files",
             "project_rollback",
         )
 
