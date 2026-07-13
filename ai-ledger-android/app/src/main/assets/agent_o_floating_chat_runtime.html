@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent O Floating Chat</title>
+<link rel="stylesheet" href="agent_o_floating_chat_runtime.css">
+</head>
+<body>
+<div id="glass-blur-motion-lab-v2" data-form="0" data-content="0" data-phase="idle" data-orb-optics="1" data-uploaded="false" data-dragging="false">
+  <div class="blur-stage card">
+    <div class="bead-aura" aria-hidden="true"></div>
+    <div class="glass-shell" role="button" aria-label="可拖动玻璃浮窗；点击循环展开" aria-pressed="false">
+      <canvas class="optical-canvas" aria-label="程序化计算的玻璃珠内部光场"></canvas>
+      <div class="bead-volume" aria-hidden="true"></div>
+      <div class="input-copy" aria-hidden="true">
+        <div><span>GUI PLUS</span><strong>输入你想完成的任务…</strong></div>
+        <i data-lucide="arrow-up" aria-hidden="true"></i>
+      </div>
+      <div class="chat-copy" aria-hidden="true" aria-label="GUI Plus 悬浮对话">
+        <header class="chat-toolbar" aria-label="对话控制">
+          <button class="chat-icon-button workspace-button" type="button" data-chat-action="workspace.toggle" aria-label="切换工作区模式" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 17h15L12 3Zm0 0v14M4.5 17 16 10M19.5 17 8 10"/></svg>
+          </button>
+          <button class="chat-pill agent-button" type="button" data-chat-action="agent.toggle" aria-pressed="true">
+            <span>Agent</span><strong aria-hidden="true">∞</strong>
+          </button>
+          <button class="chat-pill online-button" type="button" data-chat-action="online.toggle" aria-pressed="false">
+            <span>联网</span><i aria-hidden="true"></i><strong class="toggle-label">关</strong>
+          </button>
+          <button class="chat-icon-button memory-button" type="button" data-chat-action="memory.toggle" aria-label="打开记忆" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5h6l1.8 2h9.2v8.8a2.2 2.2 0 0 1-2.2 2.2H5.7a2.2 2.2 0 0 1-2.2-2.2V7.5Z"/><path d="M3.5 9.5h17"/></svg>
+          </button>
+          <button class="chat-icon-button skill-button" type="button" data-chat-action="skill.toggle" aria-label="打开 Skill" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.8 8 4.6v9.2l-8 4.6-8-4.6V7.4l8-4.6Z"/><path d="m4 7.4 8 4.7 8-4.7M12 12.1v9.1"/></svg>
+          </button>
+          <span class="chat-toolbar-spacer"></span>
+          <span class="bridge-status" data-state="preview" title="当前使用网页预览数据"><i></i><span>预览</span></span>
+          <button class="clear-chat-button" type="button" data-chat-action="chat.clear">清空</button>
+          <button class="collapse-chat-button" type="button" data-chat-action="panel.collapse" aria-label="收起为玻璃珠">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>
+          </button>
+        </header>
+
+        <div class="quick-panel memory-quick-panel" hidden aria-label="记忆快捷面板">
+          <div class="quick-panel-head"><div><strong>记忆</strong><span class="memory-summary">准备接入真实记忆</span></div><button type="button" data-chat-action="memory.refresh">刷新</button></div>
+          <div class="quick-panel-list memory-list"></div>
+          <button class="quick-panel-footer" type="button" data-chat-action="memory.manage">管理全部记忆</button>
+        </div>
+        <div class="quick-panel skill-quick-panel" hidden aria-label="Skill 快捷面板">
+          <div class="quick-panel-head"><div><strong>Skill</strong><span class="skill-summary">准备接入可运行 Skill</span></div><button type="button" data-chat-action="skill.refresh">刷新</button></div>
+          <div class="quick-panel-list skill-list"></div>
+          <button class="quick-panel-footer" type="button" data-chat-action="skill.manage">打开 Skill 管理</button>
+        </div>
+
+        <main class="chat-message-viewport" tabindex="0" aria-label="对话消息">
+          <div class="chat-message-list" role="log" aria-live="polite" aria-relevant="additions text"></div>
+          <button class="scroll-latest-button" type="button" aria-label="滚动到最新消息" hidden>↓</button>
+        </main>
+
+        <form class="chat-composer" autocomplete="off">
+          <div class="composer-attachment" hidden>
+            <span class="attachment-preview" aria-hidden="true">图</span>
+            <div><strong class="attachment-name"></strong><span class="attachment-status"></span></div>
+            <button type="button" data-chat-action="attachment.remove" aria-label="移除附件">×</button>
+          </div>
+          <button class="composer-attach-button" type="button" data-chat-action="attachment.pick" aria-label="添加图片">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <textarea class="composer-input" rows="1" maxlength="2000" placeholder="继续输入…" aria-label="消息输入"></textarea>
+          <span class="composer-hint" aria-hidden="true">Enter 发送 · Shift+Enter 换行</span>
+          <button class="composer-send-button" type="submit" aria-label="发送消息" disabled>
+            <svg class="send-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6.5 10.5 12 5l5.5 5.5"/></svg>
+            <svg class="stop-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>
+          </button>
+        </form>
+        <div class="chat-toast" role="status" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="flight-echo echo-a" aria-hidden="true"></div>
+    <div class="flight-echo echo-b" aria-hidden="true"></div>
+  </div>
+  <div class="selected-detail text-small" aria-live="polite">V8.4 · 高亮单一边缘光场 · 等亮七彩主题</div>
+</div>
+<script src="agent_o_floating_chat_runtime.js"></script>
+</body>
+</html>
