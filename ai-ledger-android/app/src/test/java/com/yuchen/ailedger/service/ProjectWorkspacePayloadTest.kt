@@ -8,39 +8,61 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class ProjectWorkspacePayloadTest {
+    private val conversationScope = "chat_user-1"
+
+    @Before
+    fun setUp() {
+        AgentRuntimeController.setEnabled(false)
+        AgentWorkspaceModeController.setEnabled(false)
+        AgentConversationScopeResolver.clearForTest()
+        ProjectWorkspaceSessionContext.clear(null, conversationScope)
+        ProjectWorkspaceSessionContext.clear()
+    }
+
     @After
     fun clearProjectContext() {
+        AgentRuntimeController.setEnabled(false)
+        AgentWorkspaceModeController.setEnabled(false)
+        AgentConversationScopeResolver.clearForTest()
+        ProjectWorkspaceSessionContext.clear(null, conversationScope)
         ProjectWorkspaceSessionContext.clear()
     }
 
     @Test
     fun advertisesStaticWebProjectWorkspaceAndTools() {
+        val messages = listOf(
+            ChatMessage(
+                id = "user-1",
+                text = "继续修改这个产品官网",
+                role = MessageRole.User,
+            )
+        )
+        val resolvedScope = AgentConversationScopeResolver.resolve(null, messages)
+        assertEquals(conversationScope, resolvedScope)
         ProjectWorkspaceSessionContext.update(
-            JSONObject()
+            context = null,
+            conversationId = resolvedScope,
+            project = JSONObject()
                 .put("projectId", "project_12345678")
                 .put("name", "产品官网")
                 .put("currentRevisionId", "rev_000007")
-                .put("status", "preview_ready")
+                .put("status", "preview_ready"),
         )
 
         val payload = testClient().buildChatPayloadForTest(
-            messages = listOf(
-                ChatMessage(
-                    id = "user-1",
-                    text = "继续修改这个产品官网",
-                    role = MessageRole.User,
-                )
-            ),
+            messages = messages,
             modelPreference = ChatModel.Auto,
             onlineEnabled = false,
         )
 
         assertTrue(payload.optBoolean("projectWorkspaceEnabled"))
         assertEquals("ai_ledger_android_project_workspace_v1", payload.optString("projectWorkspaceSchema"))
-        assertEquals("compose-native-project-workspace-v2", payload.optString("clientVersion"))
+        assertEquals("compose-native-project-workspace-v3-thread-scoped", payload.optString("clientVersion"))
+        assertEquals(conversationScope, payload.optString("conversationId"))
         assertEquals("project_12345678", payload.getJSONObject("activeProject").optString("projectId"))
         assertEquals("rev_000007", payload.getJSONObject("activeProject").optString("currentRevisionId"))
 
@@ -54,6 +76,7 @@ class ProjectWorkspacePayloadTest {
         assertEquals(AGENT_ARTIFACT_VERIFICATION_SCHEMA, workspace.optString("verificationSchema"))
         assertTrue(workspace.optBoolean("deterministicValidation"))
         assertTrue(workspace.optBoolean("previewRequiresValidation"))
+        assertEquals(conversationScope, workspace.optString("conversationId"))
         assertEquals("project_12345678", workspace.getJSONObject("activeProject").optString("projectId"))
 
         val tools = capabilities.getJSONArray("projectTools").asStrings()
