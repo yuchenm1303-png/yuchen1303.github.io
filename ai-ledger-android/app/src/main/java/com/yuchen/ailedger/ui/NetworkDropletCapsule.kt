@@ -109,7 +109,8 @@ fun NetworkDropletCapsule(
     state: AssistantUiState,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    onClick: Any
+    onClick: Any,
+    label: String? = null,
 ) {
     val clickAction = remember(onClick) { (onClick as? () -> Unit) ?: {} }
     val pageVisible = LocalPageVisible.current
@@ -121,7 +122,8 @@ fun NetworkDropletCapsule(
         enabled = enabled,
         motionEnabled = motionEnabled,
         modifier = modifier,
-        onClick = clickAction
+        onClick = clickAction,
+        label = label,
     )
 }
 
@@ -131,7 +133,8 @@ private fun OptimizedNetworkDroplet(
     enabled: Boolean,
     motionEnabled: Boolean,
     modifier: Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    label: String?,
 ) {
     val coordinates = remember { GlassCoordinateSource() }
     val pressAnim = remember { Animatable(0f) }
@@ -214,7 +217,8 @@ private fun OptimizedNetworkDroplet(
         onClick = onClick,
         scope = scope,
         settleJobHolder = settleJobHolder,
-        modifier = modifier
+        modifier = modifier,
+        label = label,
     )
 }
 
@@ -238,7 +242,8 @@ private fun NetworkDropletVisual(
     onClick: () -> Unit,
     scope: kotlinx.coroutines.CoroutineScope,
     settleJobHolder: Array<Job?>,
-    modifier: Modifier
+    modifier: Modifier,
+    label: String?,
 ) {
     val pressValue = pressAnim.value.coerceIn(-0.28f, 1.35f)
     val pressPositive = pressValue.coerceAtLeast(0f)
@@ -552,7 +557,7 @@ private fun NetworkDropletVisual(
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
-                    text = if (online) "在线" else "联网",
+                    text = label ?: if (online) "在线" else "联网",
                     color = Color.White,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.ExtraBold,
