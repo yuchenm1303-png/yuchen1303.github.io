@@ -144,20 +144,8 @@
     composerText:'',
     attachment:null,
     messages:[],
-    memory:{
-      loading:false,
-      items:[
-        {id:'memory-1',title:'偏好 · 回答风格',content:'优先给出简洁结论，再补充必要细节',active:true,accent:'#8dfff4'},
-        {id:'memory-2',title:'项目 · GUI Plus',content:'正在制作跨应用悬浮对话面板',active:true,accent:'#b99cff'}
-      ]
-    },
-    skills:{
-      loading:false,
-      items:[
-        {id:'skill-1',title:'页面重点整理',description:'读取当前页面并生成结构化摘要',enabled:true},
-        {id:'skill-2',title:'当前页面继续操作',description:'根据自然语言完成下一步操作',enabled:true}
-      ]
-    }
+    memory:{loading:false,items:[]},
+    skills:{loading:false,items:[]}
   };
 
   function safeClone(value){
