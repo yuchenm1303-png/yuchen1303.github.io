@@ -11,10 +11,10 @@ class AgentAccessibilityGuideActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AlertDialog.Builder(this)
-            .setTitle("开启手机智能体")
+            .setTitle("开启悬浮交互能力")
             .setMessage(
-                "手机智能体需要你手动开启无障碍服务，才能在主动发起任务时读取当前页面、执行手势，并显示 Agent O 智能浮球与只读视觉 HUD。\n\n" +
-                    "浮球和视觉 HUD 均由无障碍服务承载，不需要额外开启“显示在其他应用上层”。空闲时不会监听窗口事件、持续扫描节点或持续截图。"
+                "Agent O 普通聊天悬浮窗，以及带无限符号 Agent 开关控制的视觉智能体浮窗，都由同一个无障碍服务承载。视觉智能体只有在你主动发起任务时才会读取页面和执行手势。\n\n" +
+                    "不需要额外开启“显示在其他应用上层”。空闲时不会监听窗口事件、持续扫描节点或持续截图。"
             )
             .setPositiveButton("去开启") { _, _ ->
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
