@@ -103,6 +103,48 @@ function handleChatAction(action,payload={}){
   window.addEventListener('gui-plus-state',event=>hydrateFloatingChat(event.detail,{connected:true}));
   window.addEventListener('keydown',event=>{if(event.key==='Escape'&&form===2){if(!memoryPanel.hidden||!skillPanel.hidden)closeQuickPanels();else handleChatAction('panel.collapse');}});
 
+  /* 展开态只把原网页版顶部工具栏的空白区域作为拖动手柄，不覆盖任何按钮。 */
+  const chatToolbar=chatCopy.querySelector('.chat-toolbar');
+  let panelDragPointer=-1;
+  let panelDragStartX=0;
+  let panelDragStartY=0;
+  let panelDragging=false;
+  function finishPanelDrag(event){
+    if(!panelDragging||event.pointerId!==panelDragPointer)return;
+    if(chatToolbar.hasPointerCapture(panelDragPointer))chatToolbar.releasePointerCapture(panelDragPointer);
+    postChatAction('window.dragEnd',{});
+    panelDragging=false;
+    panelDragPointer=-1;
+    chatToolbar.dataset.dragging='false';
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  chatToolbar.addEventListener('pointerdown',event=>{
+    if(form!==2||!bridgeIsAvailable()||event.button!==0)return;
+    if(event.target.closest('button,input,textarea,a,[role="button"]'))return;
+    panelDragging=true;
+    panelDragPointer=event.pointerId;
+    panelDragStartX=event.clientX;
+    panelDragStartY=event.clientY;
+    chatToolbar.dataset.dragging='true';
+    chatToolbar.setPointerCapture(panelDragPointer);
+    postChatAction('window.dragStart',{pointerId:panelDragPointer,expanded:true});
+    event.preventDefault();
+    event.stopPropagation();
+  },true);
+  chatToolbar.addEventListener('pointermove',event=>{
+    if(!panelDragging||event.pointerId!==panelDragPointer)return;
+    postChatAction('window.drag',{
+      dx:event.clientX-panelDragStartX,
+      dy:event.clientY-panelDragStartY,
+      expanded:true
+    });
+    event.preventDefault();
+    event.stopPropagation();
+  },true);
+  chatToolbar.addEventListener('pointerup',finishPanelDrag,true);
+  chatToolbar.addEventListener('pointercancel',finishPanelDrag,true);
+
   root.querySelectorAll('.form-btn').forEach(button=>button.addEventListener('click',()=>setForm(Number(button.dataset.form))));
 
 
