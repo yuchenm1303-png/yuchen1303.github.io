@@ -21,7 +21,8 @@ private const val TOOL_EXECUTION_POLICY_NONE = "none"
 private const val TOOL_COMPUTER_RUN_TASK = "computer_run_task"
 private const val MESSAGE_CONTENT_BLOCK_SCHEMA = "ai_ledger_message_content_blocks_v1"
 private const val PROJECT_WORKSPACE_CAPABILITY_SCHEMA = "ai_ledger_android_project_workspace_v1"
-private const val PROJECT_WORKSPACE_CLIENT_VERSION = "compose-native-project-workspace-v2"
+private const val PROJECT_WORKSPACE_CLIENT_VERSION = "compose-native-project-workspace-v3-thread-scoped"
+private const val CONVERSATION_ID_PREFIX = "chat_"
 private val MESSAGE_CONTENT_BLOCK_TYPES = listOf(
     "rich_text",
     "code",
@@ -89,6 +90,7 @@ internal object AiWorkerPayloadBuilder {
         }
         val latestUserContext = messages.latestUserContext()
         val latestUserText = latestUserContext.latestText
+        val conversationId = messages.conversationId()
         val imageArray = latestUserContext.imageAttachments.toImageJsonArray()
         val hasImage = imageArray.length() > 0
         val agentModeSnapshot = AgentRuntimeController.isEnabled()
@@ -113,10 +115,11 @@ internal object AiWorkerPayloadBuilder {
                 }
             }
             put("messageId", latestUserContext.messageId.ifBlank { requestId })
+            if (conversationId.isNotBlank()) put("conversationId", conversationId)
         }
         val appContext = AiLedgerApplication.contextOrNull()
         val activeProject = if (!hasImage && !visualAgentModeEnabled) {
-            ProjectWorkspaceSessionContext.current(appContext)
+            ProjectWorkspaceSessionContext.current(appContext, conversationId)
         } else {
             null
         }
@@ -167,6 +170,11 @@ internal object AiWorkerPayloadBuilder {
             put("requestId", requestId)
             put("action", "chat")
             put("intent", if (hasImage) "vision_chat" else "chat")
+            if (conversationId.isNotBlank()) {
+                put("conversationId", conversationId)
+                put("sessionId", conversationId)
+                put("chatThreadId", conversationId)
+            }
             put("messages", messages.toWorkerMessages())
             put("message", latestUserText)
             put("toolExecutionPolicy", toolExecutionPolicy)
@@ -233,6 +241,7 @@ internal object AiWorkerPayloadBuilder {
                 put("projectWorkspaceSchema", PROJECT_WORKSPACE_CAPABILITY_SCHEMA)
                 put("projectExecutionOwner", "android_local_project_workspace")
                 put("projectVerificationSchema", AGENT_ARTIFACT_VERIFICATION_SCHEMA)
+                if (conversationId.isNotBlank()) put("conversationId", conversationId)
                 activeProject?.let {
                     put("activeProjectId", it.optString("projectId"))
                     put("activeProjectRevisionId", it.optString("currentRevisionId"))
@@ -273,6 +282,8 @@ internal object AiWorkerPayloadBuilder {
                     put("verificationSchema", AGENT_ARTIFACT_VERIFICATION_SCHEMA)
                     put("deterministicValidation", true)
                     put("previewRequiresValidation", true)
+                    put("conversationScoped", true)
+                    if (conversationId.isNotBlank()) put("conversationId", conversationId)
                     activeProject?.let { put("activeProject", JSONObject(it.toString())) }
                 })
             })
@@ -305,9 +316,13 @@ internal object AiWorkerPayloadBuilder {
     ): JSONObject {
         val selectedModelId = if (route.isAuto) "auto" else route.resolved.id
         val workspaceModeEnabled = AgentWorkspaceModeController.isEnabled()
+        val appContext = AiLedgerApplication.contextOrNull()
+        val conversationId = receipt.clientConversationId()
         val activeProject = receipt.optJSONObject("project")
-            ?.also(ProjectWorkspaceSessionContext::update)
-            ?: ProjectWorkspaceSessionContext.current(AiLedgerApplication.contextOrNull())
+            ?.also { project ->
+                ProjectWorkspaceSessionContext.update(appContext, conversationId, project)
+            }
+            ?: ProjectWorkspaceSessionContext.current(appContext, conversationId)
         val workspaceId = receipt.optString("workspaceId")
             .ifBlank { receipt.optString("agentWorkspaceId") }
             .trim()
@@ -319,6 +334,11 @@ internal object AiWorkerPayloadBuilder {
             put("action", "internal_control_report")
             put("intent", "internal_control_report")
             put("mode", "internal_control_report")
+            if (conversationId.isNotBlank()) {
+                put("conversationId", conversationId)
+                put("sessionId", conversationId)
+                put("chatThreadId", conversationId)
+            }
             put("message", "client_tool_result:${receipt.optString("toolCallId")}")
             put("internalControlReceipt", JSONObject(receipt.toString()))
             if (workspaceId.isNotBlank()) {
@@ -361,6 +381,27 @@ internal object AiWorkerPayloadBuilder {
         val json = text.removePrefix(CLIENT_TOOL_RESULT_MARKER).trim()
         if (json.isBlank()) return null
         return runCatching { JSONObject(json) }.getOrNull()
+    }
+
+    private fun List<ChatMessage>.conversationId(): String {
+        val firstUserId = firstOrNull { message ->
+            message.role == MessageRole.User && message.id.isNotBlank()
+        }?.id.orEmpty()
+        val safeId = firstUserId
+            .trim()
+            .filter { char -> char.isLetterOrDigit() || char == '-' || char == '_' || char == '.' }
+            .take(100)
+        return safeId.takeIf(String::isNotBlank)?.let { CONVERSATION_ID_PREFIX + it }.orEmpty()
+    }
+
+    private fun JSONObject.clientConversationId(): String {
+        val toolArguments = optJSONObject("toolArguments")
+        return optString("conversationId")
+            .ifBlank { optString("chatThreadId") }
+            .ifBlank { toolArguments?.optString("clientConversationId").orEmpty() }
+            .ifBlank { toolArguments?.optString("conversationId").orEmpty() }
+            .trim()
+            .take(180)
     }
 
     private data class LatestUserContext(
