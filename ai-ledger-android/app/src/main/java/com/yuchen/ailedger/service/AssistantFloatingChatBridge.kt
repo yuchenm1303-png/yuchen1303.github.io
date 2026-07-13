@@ -1,5 +1,6 @@
 package com.yuchen.ailedger.service
 
+import android.app.Application
 import android.content.Context
 import android.net.Uri
 import android.os.Handler
@@ -84,7 +85,7 @@ object AssistantFloatingChatBridge {
                 "chat.stop" -> target.stopGenerating()
                 "chat.retry" -> payload.optString("messageId").takeIf(String::isNotBlank)?.let(target::retryMessage)
                 "chat.clear" -> target.clearChat()
-                "attachment.pick" -> AgentOAttachmentPickerActivity.open(target.getApplication())
+                "attachment.pick" -> AgentOAttachmentPickerActivity.open(target.getApplication<Application>())
                 "attachment.remove" -> {
                     val requestedId = payload.optString("attachmentId")
                     val id = requestedId.takeIf(String::isNotBlank)
