@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import com.yuchen.ailedger.service.AgentOFloatingChatController
 
 class AgentAccessibilityGuideActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,8 +21,14 @@ class AgentAccessibilityGuideActivity : Activity() {
                 startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                 finish()
             }
-            .setNegativeButton("暂不开启") { _, _ -> finish() }
-            .setOnCancelListener { finish() }
+            .setNegativeButton("暂不开启") { _, _ ->
+                AgentOFloatingChatController.setEnabled(false)
+                finish()
+            }
+            .setOnCancelListener {
+                AgentOFloatingChatController.setEnabled(false)
+                finish()
+            }
             .show()
     }
 
