@@ -17,6 +17,12 @@
   transform-origin: top center;
 }
 
+/* 展开态的兼容边缘光使用固定 sRGB 色带，不再运行不可见的珠态色相主题动画。 */
+#glass-blur-motion-lab-v2[data-form="1"] .blur-stage,
+#glass-blur-motion-lab-v2[data-form="2"] .blur-stage {
+  animation-play-state: paused;
+}
+
 /* 手机端只等比缩放整张 V8.4 舞台，撤销窄屏对内部控件的二次重排。 */
 #glass-blur-motion-lab-v2[data-form="2"] .chat-copy {
   padding: 13px 15px 14px;
@@ -33,7 +39,8 @@
 
 /*
  * Android WebView 对 relative-color / color-mix 支持不一致。这里只为原始薄膜边缘光提供
- * 等价的 sRGB 回退，不改变面板结构、圆角、内边距或动画几何。
+ * 等价的 sRGB 回退，不改变面板结构、圆角、内边距或动画几何。背景模糊仅由面板自身
+ * backdrop-filter 约束在 glass-shell 内部，不使用 Android FLAG_BLUR_BEHIND。
  */
 #glass-blur-motion-lab-v2[data-form="1"] .glass-shell,
 #glass-blur-motion-lab-v2[data-form="2"] .glass-shell {
