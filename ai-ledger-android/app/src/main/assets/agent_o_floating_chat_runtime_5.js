@@ -79,6 +79,55 @@ function connectFloatingChat(adapter){
   return window.GuiPlusFloatingChat;
 }
 
+function nativeOrbDown(){
+  ensureAnimationLoop();
+  dragging=true;
+  moved=false;
+  root.dataset.dragging='true';
+  root.dataset.phase='drag';
+  targetScale=P.dragPressScale;
+}
+
+function nativeOrbMove(velocity){
+  if(!dragging)return;
+  ensureAnimationLoop();
+  const safeVelocity=Number.isFinite(Number(velocity))?Number(velocity):0;
+  poseTarget.skew=Math.max(-P.dragSkewMax,Math.min(P.dragSkewMax,safeVelocity*P.dragSkewGain));
+  poseTarget.stretchX=1+Math.min(P.dragStretchMax,Math.abs(safeVelocity)*.018);
+  poseTarget.stretchY=2-poseTarget.stretchX;
+}
+
+function nativeOrbUp(wasMoved){
+  dragging=false;
+  targetScale=1;
+  resetPoseTarget();
+  root.dataset.dragging='false';
+  root.dataset.phase='idle';
+  ensureAnimationLoop();
+  if(!wasMoved)setForm(2);
+}
+
+function nativeOrbCancel(){
+  dragging=false;
+  targetScale=1;
+  resetPoseTarget();
+  root.dataset.dragging='false';
+  root.dataset.phase='idle';
+  ensureAnimationLoop();
+}
+
+function nativeOrbTap(rebaseX,rebaseY){
+  const x=Number(rebaseX);
+  const y=Number(rebaseY);
+  if(Number.isFinite(x)&&Number.isFinite(y)){
+    offsetX=x;
+    offsetY=y;
+    offsetDirty=true;
+    applyOffset();
+  }
+  nativeOrbUp(false);
+}
+
 window.GuiPlusFloatingChat=Object.freeze({
   version:CHAT_BRIDGE_VERSION,
   source:CHAT_BRIDGE_SOURCE,
@@ -91,6 +140,11 @@ window.GuiPlusFloatingChat=Object.freeze({
   dispatch:handleChatAction,
   expand:()=>setForm(2),
   collapse:()=>setForm(0),
+  nativeOrbDown,
+  nativeOrbMove,
+  nativeOrbUp,
+  nativeOrbCancel,
+  nativeOrbTap,
   suspend:()=>{pageActive=false;pauseAnimationLoop();},
   resume:()=>{pageActive=!document.hidden;if(pageActive)ensureAnimationLoop();}
 });
@@ -102,8 +156,7 @@ chatCopy.addEventListener('click',event=>{
   if(!quickToggle&&!event.target.closest('.quick-panel'))closeQuickPanels();
   const messageAction=event.target.closest('[data-message-action]');
   if(messageAction){handleChatAction(`chat.${messageAction.dataset.messageAction}`,{messageId:messageAction.dataset.messageId});return;}
-  const trigger=event.target.closest('[data-chat-action]');
-  if(!trigger)return;
+  const trigger=event.target.closest('[data-chat-action]');if(!trigger)return;
   const action=trigger.dataset.chatAction;
   if(action==='memory.toggle'){
     const visible=memoryPanel.hidden;setQuickPanel('memory',visible);if(visible)handleChatAction('memory.open');return;
@@ -145,14 +198,29 @@ window.addEventListener('keydown',event=>{
   }
 });
 
-/* 展开态仅使用 V8.4 原工具栏空白处拖动，screenX/Y 不受窗口自身移动影响。 */
+/* 展开态仅使用 V8.4 原工具栏空白处拖动；跨桥消息每个显示帧最多一次。 */
 const chatToolbar=chatCopy.querySelector('.chat-toolbar');
 let panelDragPointer=-1;
 let panelDragStartX=0;
 let panelDragStartY=0;
 let panelDragging=false;
+let panelDragFrame=0;
+let pendingPanelDragX=0;
+let pendingPanelDragY=0;
+
+function dispatchPendingPanelDrag(){
+  panelDragFrame=0;
+  if(!panelDragging)return;
+  postChatAction('window.drag',{dx:pendingPanelDragX,dy:pendingPanelDragY,expanded:true});
+}
+
 function finishPanelDrag(event){
   if(!panelDragging||event.pointerId!==panelDragPointer)return;
+  if(panelDragFrame){
+    cancelAnimationFrame(panelDragFrame);
+    panelDragFrame=0;
+    postChatAction('window.drag',{dx:pendingPanelDragX,dy:pendingPanelDragY,expanded:true});
+  }
   if(chatToolbar.hasPointerCapture(panelDragPointer))chatToolbar.releasePointerCapture(panelDragPointer);
   postChatAction('window.dragEnd',{expanded:true});
   panelDragging=false;
@@ -162,12 +230,14 @@ function finishPanelDrag(event){
   event.stopPropagation();
 }
 chatToolbar.addEventListener('pointerdown',event=>{
-  if(form!==2||!bridgeIsAvailable()||event.button!==0)return;
+  if(form!==2||morphState!=='expanded'||!bridgeIsAvailable()||event.button!==0)return;
   if(event.target.closest('button,input,textarea,a,[role="button"]'))return;
   panelDragging=true;
   panelDragPointer=event.pointerId;
   panelDragStartX=event.screenX;
   panelDragStartY=event.screenY;
+  pendingPanelDragX=0;
+  pendingPanelDragY=0;
   chatToolbar.dataset.dragging='true';
   chatToolbar.setPointerCapture(panelDragPointer);
   postChatAction('window.dragStart',{pointerId:panelDragPointer,expanded:true});
@@ -176,11 +246,9 @@ chatToolbar.addEventListener('pointerdown',event=>{
 },true);
 chatToolbar.addEventListener('pointermove',event=>{
   if(!panelDragging||event.pointerId!==panelDragPointer)return;
-  postChatAction('window.drag',{
-    dx:event.screenX-panelDragStartX,
-    dy:event.screenY-panelDragStartY,
-    expanded:true
-  });
+  pendingPanelDragX=event.screenX-panelDragStartX;
+  pendingPanelDragY=event.screenY-panelDragStartY;
+  if(!panelDragFrame)panelDragFrame=requestAnimationFrame(dispatchPendingPanelDrag);
   event.preventDefault();
   event.stopPropagation();
 },true);
@@ -189,17 +257,15 @@ chatToolbar.addEventListener('pointercancel',finishPanelDrag,true);
 
 root.querySelectorAll('.form-btn').forEach(button=>button.addEventListener('click',()=>setForm(Number(button.dataset.form))));
 
-/*
- * 珠态窗口由 Android raw MotionEvent 直接移动。JS 只计算原版形变，不再每帧跨桥更新窗口，
- * 从根源上消除窗口移动后 clientX 反向变化造成的来回振荡。
- */
+/* 网页预览仍使用原始 DOM 拖动；App 珠态由独立原生紧尺寸触摸窗驱动。 */
 const nativeWindowDrag=Boolean(window.__agentONativeWindowDrag);
 shell.addEventListener('pointerdown',event=>{
+  if(nativeWindowDrag)return;
   ensureAnimationLoop();
   pointerId=event.pointerId;
   moved=false;
-  startClientX=nativeWindowDrag?event.screenX:event.clientX;
-  startClientY=nativeWindowDrag?event.screenY:event.clientY;
+  startClientX=event.clientX;
+  startClientY=event.clientY;
   startOffsetX=offsetX;
   startOffsetY=offsetY;
   lastPointerX=startClientX;
@@ -218,46 +284,38 @@ shell.addEventListener('pointerdown',event=>{
 });
 
 shell.addEventListener('pointermove',event=>{
-  if(!dragging||event.pointerId!==pointerId)return;
-  const pointerX=nativeWindowDrag?event.screenX:event.clientX;
-  const pointerY=nativeWindowDrag?event.screenY:event.clientY;
-  const dx=pointerX-startClientX;
-  const dy=pointerY-startClientY;
+  if(nativeWindowDrag||!dragging||event.pointerId!==pointerId)return;
+  const dx=event.clientX-startClientX;
+  const dy=event.clientY-startClientY;
   if(Math.hypot(dx,dy)>4)moved=true;
-  if(nativeWindowDrag){
-    offsetX=0;offsetY=0;
-  }else{
-    offsetX=Math.max(-dragMaxX,Math.min(dragMaxX,startOffsetX+dx));
-    offsetY=Math.max(-dragMaxY,Math.min(dragMaxY,startOffsetY+dy));
-  }
+  offsetX=Math.max(-dragMaxX,Math.min(dragMaxX,startOffsetX+dx));
+  offsetY=Math.max(-dragMaxY,Math.min(dragMaxY,startOffsetY+dy));
   const now=performance.now();
-  const pointerVelocity=(pointerX-lastPointerX)/Math.max(8,now-lastPointerTime);
+  const pointerVelocity=(event.clientX-lastPointerX)/Math.max(8,now-lastPointerTime);
   poseTarget.skew=Math.max(-P.dragSkewMax,Math.min(P.dragSkewMax,pointerVelocity*P.dragSkewGain));
   poseTarget.stretchX=1+Math.min(P.dragStretchMax,Math.abs(pointerVelocity)*.018);
   poseTarget.stretchY=2-poseTarget.stretchX;
-  lastPointerX=pointerX;
+  lastPointerX=event.clientX;
   lastPointerTime=now;
   offsetDirty=true;
 });
 
 shell.addEventListener('pointerup',event=>{
+  if(nativeWindowDrag)return;
   const shouldAdvance=!dragging||!moved;
   if(dragging&&shell.hasPointerCapture(event.pointerId))shell.releasePointerCapture(event.pointerId);
   dragging=false;
   targetScale=1;
-  Object.assign(poseTarget,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
+  resetPoseTarget();
   root.dataset.dragging='false';
   root.dataset.phase='idle';
   if(shouldAdvance)setForm(form===0?2:0);
 });
 
 shell.addEventListener('pointercancel',event=>{
+  if(nativeWindowDrag)return;
   if(shell.hasPointerCapture(event.pointerId))shell.releasePointerCapture(event.pointerId);
-  dragging=false;
-  targetScale=1;
-  Object.assign(poseTarget,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
-  root.dataset.dragging='false';
-  root.dataset.phase='idle';
+  nativeOrbCancel();
 });
 
 renderFloatingChat(true);
