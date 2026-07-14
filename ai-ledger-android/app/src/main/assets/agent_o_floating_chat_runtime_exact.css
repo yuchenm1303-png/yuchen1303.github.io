@@ -1,19 +1,22 @@
-/* Android 只缩放 V8.4 的原始 560×720 设计舞台，不重排、不重画面板内部。 */
+/*
+ * V8.4 原版 Android 接入适配层。
+ * 只处理紧边界舞台、WebView 兼容的边缘光回退与局部玻璃承载，不重排面板内部。
+ */
 #glass-blur-motion-lab-v2[data-form="1"] .blur-stage,
 #glass-blur-motion-lab-v2[data-form="2"] .blur-stage {
   left: 50%;
-  top: 50%;
+  top: var(--native-stage-offset-y, 0px);
   right: auto;
   bottom: auto;
   width: 560px;
   height: 720px;
   min-height: 720px;
   overflow: visible;
-  transform: translate(-50%,-50%) scale(var(--native-stage-scale,1));
-  transform-origin: center center;
+  transform: translateX(-50%) scale(var(--native-stage-scale, 1));
+  transform-origin: top center;
 }
 
-/* 手机只做整舞台等比缩放，撤销原文件的窄屏重排，保持网页版原始间距。 */
+/* 手机端只等比缩放整张 V8.4 舞台，撤销窄屏对内部控件的二次重排。 */
 #glass-blur-motion-lab-v2[data-form="2"] .chat-copy {
   padding: 13px 15px 14px;
 }
@@ -25,4 +28,50 @@
 }
 #glass-blur-motion-lab-v2[data-form="2"] .composer-hint {
   display: inline;
+}
+
+/*
+ * Android WebView 对 relative-color / color-mix 支持不一致。这里仅为原始薄膜边缘光提供
+ * 等价的 sRGB 回退，避免整条 background / box-shadow 声明失效。
+ */
+#glass-blur-motion-lab-v2[data-form="1"] .glass-shell,
+#glass-blur-motion-lab-v2[data-form="2"] .glass-shell {
+  background: rgba(2, 9, 21, .34);
+  -webkit-backdrop-filter: blur(var(--blur-radius)) saturate(.88) brightness(.86);
+  backdrop-filter: blur(var(--blur-radius)) saturate(.88) brightness(.86);
+  box-shadow:
+    0 0 48px 3px rgba(177, 112, 255, .34),
+    0 0 30px 1px rgba(86, 225, 255, .25),
+    0 0 18px 0 rgba(255, 130, 210, .20),
+    inset 0 0 0 1px rgba(238, 249, 255, .08);
+}
+
+#glass-blur-motion-lab-v2[data-form="1"] .glass-shell::before,
+#glass-blur-motion-lab-v2[data-form="2"] .glass-shell::before {
+  opacity: var(--edge-flow-opacity);
+  background: linear-gradient(
+    100deg,
+    rgba(87, 222, 255, .96) 0%,
+    rgba(229, 251, 255, 1) 16%,
+    rgba(205, 133, 255, .98) 36%,
+    rgba(255, 121, 211, .98) 58%,
+    rgba(255, 221, 148, .98) 78%,
+    rgba(111, 230, 255, .96) 100%
+  );
+  background-size: 230% 100%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  filter:
+    brightness(var(--edge-brightness))
+    saturate(var(--edge-flow-saturation))
+    drop-shadow(0 0 5px rgba(221, 178, 255, .75))
+    drop-shadow(0 0 9px rgba(94, 222, 255, .48));
+  animation: panel-edge-flow-compatible var(--edge-flow-duration) cubic-bezier(.45, .05, .55, .95) infinite alternate;
+}
+
+@keyframes panel-edge-flow-compatible {
+  from { background-position: 0% 50%; }
+  to { background-position: 100% 50%; }
 }
