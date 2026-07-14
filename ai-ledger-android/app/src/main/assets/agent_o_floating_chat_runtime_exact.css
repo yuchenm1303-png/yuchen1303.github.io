@@ -1,9 +1,10 @@
 /*
  * V8.4 原版 Android 接入适配层。
- * 只处理紧边界舞台、WebView 兼容的边缘光回退与局部玻璃承载，不重排面板内部。
+ *
+ * 整个生命周期始终使用同一个 560×720 原始设计舞台。Android 只承载固定的 620×490
+ * 逻辑窗口并整体缩放舞台，不在展开/折叠途中改变 viewport、重排内部控件或重建 WebGL。
  */
-#glass-blur-motion-lab-v2[data-form="1"] .blur-stage,
-#glass-blur-motion-lab-v2[data-form="2"] .blur-stage {
+#glass-blur-motion-lab-v2 .blur-stage {
   left: 50%;
   top: var(--native-stage-offset-y, 0px);
   right: auto;
@@ -31,8 +32,8 @@
 }
 
 /*
- * Android WebView 对 relative-color / color-mix 支持不一致。这里仅为原始薄膜边缘光提供
- * 等价的 sRGB 回退，避免整条 background / box-shadow 声明失效。
+ * Android WebView 对 relative-color / color-mix 支持不一致。这里只为原始薄膜边缘光提供
+ * 等价的 sRGB 回退，不改变面板结构、圆角、内边距或动画几何。
  */
 #glass-blur-motion-lab-v2[data-form="1"] .glass-shell,
 #glass-blur-motion-lab-v2[data-form="2"] .glass-shell {
