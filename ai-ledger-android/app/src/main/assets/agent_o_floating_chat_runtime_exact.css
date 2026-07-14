@@ -1,0 +1,28 @@
+/* Android 只缩放 V8.4 的原始 560×720 设计舞台，不重排、不重画面板内部。 */
+#glass-blur-motion-lab-v2[data-form="1"] .blur-stage,
+#glass-blur-motion-lab-v2[data-form="2"] .blur-stage {
+  left: 50%;
+  top: 50%;
+  right: auto;
+  bottom: auto;
+  width: 560px;
+  height: 720px;
+  min-height: 720px;
+  overflow: visible;
+  transform: translate(-50%,-50%) scale(var(--native-stage-scale,1));
+  transform-origin: center center;
+}
+
+/* 手机只做整舞台等比缩放，撤销原文件的窄屏重排，保持网页版原始间距。 */
+#glass-blur-motion-lab-v2[data-form="2"] .chat-copy {
+  padding: 13px 15px 14px;
+}
+#glass-blur-motion-lab-v2[data-form="2"] .chat-toolbar {
+  gap: 5px;
+}
+#glass-blur-motion-lab-v2[data-form="2"] .chat-pill {
+  padding-inline: 8px;
+}
+#glass-blur-motion-lab-v2[data-form="2"] .composer-hint {
+  display: inline;
+}
