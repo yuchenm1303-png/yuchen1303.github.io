@@ -42,12 +42,28 @@ private data class AgentORenderSnapshot(
     val hiddenForCapture: Boolean,
 )
 
+private data class AgentOFixedFrame(
+    val width: Int,
+    val height: Int,
+    val scale: Float,
+    val safeX: Int,
+    val safeY: Int,
+)
+
+private enum class AgentOWindowPhase {
+    Collapsed,
+    Expanding,
+    Expanded,
+    Collapsing,
+}
+
 /**
  * Agent O 普通聊天悬浮窗。
  *
- * WebView 直接运行用户确认的 V8.4 网页视觉；Android 只负责紧边界系统窗口、局部跨窗口
- * 模糊、屏幕边界、输入法、截图隐藏和真实跨应用拖动。无限符号 Agent 仍由
- * VisualAgentCapsuleHost 独立控制。
+ * V8.4 WebView 在创建后始终使用同一个固定舞台和同一个 Surface。展开/折叠只改变网页内部
+ * 原版几何，不再在动画中修改 WindowManager 宽高、重建 WebView viewport 或触发 WebGL
+ * surface 重分配。珠态使用独立紧尺寸触摸窗，主 WebView 在珠态完全不可触摸，因此固定舞台
+ * 的透明区域不会阻挡下方 App。
  */
 internal class AgentOFloatingChatHost(
     private val service: AccessibilityService,
@@ -61,10 +77,16 @@ internal class AgentOFloatingChatHost(
     private val touchSlop = ViewConfiguration.get(service).scaledTouchSlop
 
     private var webView: WebView? = null
+    private var orbTouchView: View? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var orbTouchParams: WindowManager.LayoutParams? = null
+    private var fixedFrame: AgentOFixedFrame? = null
+
     private var started = false
     private var pageReady = false
-    private var expanded = false
+    private var phase = AgentOWindowPhase.Collapsed
+    private var panelVisualVisible = false
+    private var transitionRevision = 0L
     private var hiddenForCapture = false
     private var wantsInputFocus = false
 
@@ -79,10 +101,13 @@ internal class AgentOFloatingChatHost(
     private var pendingDragX = 0
     private var pendingDragY = 0
     private var dragFramePosted = false
+    private var pendingOrbVelocity = 0f
 
     private var collapsedPointerId = MotionEvent.INVALID_POINTER_ID
     private var collapsedStartRawX = 0f
     private var collapsedStartRawY = 0f
+    private var collapsedLastRawX = 0f
+    private var collapsedLastEventTime = 0L
     private var collapsedDragStartX = 0
     private var collapsedDragStartY = 0
     private var collapsedMoved = false
@@ -117,16 +142,15 @@ internal class AgentOFloatingChatHost(
         }
         if (!createWindow()) return
         applyCaptureVisibility(snapshot.hiddenForCapture)
-        // 珠态不序列化完整聊天记录，不跨 JS 桥派发不可见状态。
-        if (expanded) scheduleSnapshotDispatch()
+        if (phase == AgentOWindowPhase.Expanded) scheduleSnapshotDispatch()
     }
 
     @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface", "ClickableViewAccessibility")
     private fun createWindow(): Boolean {
         if (webView != null) return true
         val wm = windowManager ?: return false
-        val size = dp(COLLAPSED_WINDOW_DP)
-        val metrics = service.resources.displayMetrics
+        val frame = calculateFixedFrame()
+        fixedFrame = frame
 
         val view = WebView(service).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -142,11 +166,6 @@ internal class AgentOFloatingChatHost(
             setOnLongClickListener { true }
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             contentDescription = "Agent O 悬浮对话"
-            setOnTouchListener { _, event ->
-                handleCollapsedWindowTouch(event)
-                // WebView 同时接收事件，保留 V8.4 珠态按压和点击展开形变。
-                false
-            }
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = false
@@ -185,7 +204,9 @@ internal class AgentOFloatingChatHost(
                     pageReady = true
                     lastDispatchedPayload = null
                     lastDispatchedSnapshot = null
-                    if (expanded) scheduleSnapshotDispatch(force = true)
+                    if (phase == AgentOWindowPhase.Expanded) {
+                        scheduleSnapshotDispatch(force = true)
+                    }
                     applyRuntimePauseState()
                 }
             }
@@ -195,50 +216,85 @@ internal class AgentOFloatingChatHost(
         }
 
         val params = WindowManager.LayoutParams(
-            size,
-            size,
+            frame.width,
+            frame.height,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            windowFlags(hidden = hiddenForCapture, wantsInputFocus = false),
+            mainWindowFlags(),
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = (metrics.widthPixels - size - dp(12f)).coerceAtLeast(0)
-            y = (topWindowInsetPx() + dp(72f)).coerceAtMost(
-                (metrics.heightPixels - bottomWindowInsetPx() - size)
-                    .coerceAtLeast(topWindowInsetPx())
-            )
+            x = frame.safeX
+            y = frame.safeY
             alpha = if (hiddenForCapture) 0f else 1f
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode =
-                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                setFitInsetsTypes(0)
-                setFitInsetsIgnoringVisibility(true)
-            }
+            applyCutoutContract()
             applyLocalBlur(this)
         }
 
-        return runCatching { wm.addView(view, params) }
-            .onSuccess {
-                webView = view
-                layoutParams = params
-                pendingDragX = params.x
-                pendingDragY = params.y
-                view.visibility = if (hiddenForCapture) View.INVISIBLE else View.VISIBLE
-                view.alpha = if (hiddenForCapture) 0f else 1f
-                if (!hiddenForCapture) view.onResume()
-            }
-            .onFailure { error ->
-                view.removeJavascriptInterface(NATIVE_BRIDGE_NAME)
-                view.stopLoading()
-                view.destroy()
-                AgentRuntimeController.noteDiagnostic(
-                    "Agent O 悬浮对话创建失败：${error.message ?: error.javaClass.simpleName}"
-                )
-            }
-            .isSuccess
+        val touchSize = orbTouchSizePx(frame)
+        val touchView = View(service).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            contentDescription = "Agent O 玻璃珠，拖动移动，点击展开"
+            isClickable = true
+            isFocusable = false
+            setOnTouchListener { _, event -> handleCollapsedTouch(event) }
+        }
+        val touchParams = WindowManager.LayoutParams(
+            touchSize,
+            touchSize,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            orbTouchWindowFlags(),
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            alpha = 1f
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            applyCutoutContract()
+        }
+
+        return runCatching {
+            wm.addView(view, params)
+            webView = view
+            layoutParams = params
+            pendingDragX = params.x
+            pendingDragY = params.y
+
+            updateOrbTouchCoordinates(touchParams, params, frame)
+            wm.addView(touchView, touchParams)
+            orbTouchView = touchView
+            orbTouchParams = touchParams
+
+            view.visibility = if (hiddenForCapture) View.INVISIBLE else View.VISIBLE
+            view.alpha = if (hiddenForCapture) 0f else 1f
+            if (!hiddenForCapture) view.onResume()
+            applyOrbTouchState()
+        }.onFailure { error ->
+            runCatching { wm.removeView(touchView) }
+            runCatching { wm.removeView(view) }
+            view.removeJavascriptInterface(NATIVE_BRIDGE_NAME)
+            view.stopLoading()
+            view.destroy()
+            webView = null
+            orbTouchView = null
+            layoutParams = null
+            orbTouchParams = null
+            fixedFrame = null
+            AgentRuntimeController.noteDiagnostic(
+                "Agent O 悬浮对话创建失败：${error.message ?: error.javaClass.simpleName}"
+            )
+        }.isSuccess
+    }
+
+    private fun WindowManager.LayoutParams.applyCutoutContract() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            setFitInsetsTypes(0)
+            setFitInsetsIgnoringVisibility(true)
+        }
     }
 
     private fun destroyWindow() {
@@ -246,12 +302,21 @@ internal class AgentOFloatingChatHost(
         pendingSnapshot = null
         lastDispatchedSnapshot = null
         lastDispatchedPayload = null
-        expanded = false
+        phase = AgentOWindowPhase.Collapsed
+        panelVisualVisible = false
+        transitionRevision = 0L
         wantsInputFocus = false
         snapshotFramePosted = false
         forceSnapshotDispatch = false
         dragFramePosted = false
         collapsedPointerId = MotionEvent.INVALID_POINTER_ID
+
+        orbTouchView?.let { touch ->
+            runCatching { windowManager?.removeView(touch) }
+        }
+        orbTouchView = null
+        orbTouchParams = null
+
         webView?.let { view ->
             view.animate().cancel()
             inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
@@ -265,10 +330,11 @@ internal class AgentOFloatingChatHost(
         }
         webView = null
         layoutParams = null
+        fixedFrame = null
     }
 
     private fun scheduleSnapshotDispatch(force: Boolean = false) {
-        if (!expanded || !pageReady) return
+        if (phase != AgentOWindowPhase.Expanded || !pageReady) return
         forceSnapshotDispatch = forceSnapshotDispatch || force
         if (snapshotFramePosted) return
         snapshotFramePosted = true
@@ -282,7 +348,7 @@ internal class AgentOFloatingChatHost(
     }
 
     private fun dispatchSnapshotNow(snapshot: AgentORenderSnapshot, force: Boolean) {
-        if (!expanded || !pageReady) return
+        if (phase != AgentOWindowPhase.Expanded || !pageReady) return
         val previous = lastDispatchedSnapshot
         if (!force && previous != null && canPatchLastMessage(previous, snapshot)) {
             val message = snapshot.assistantState.messages.last()
@@ -429,11 +495,22 @@ internal class AgentOFloatingChatHost(
         val action = envelope.optString("action")
         val payload = envelope.optJSONObject("payload") ?: JSONObject()
         when (action) {
-            "window.ready" -> if (expanded) scheduleSnapshotDispatch(force = true)
-            "window.form" -> setExpanded(payload.optInt("form", 0) == 2)
+            "window.ready" -> if (phase == AgentOWindowPhase.Expanded) {
+                scheduleSnapshotDispatch(force = true)
+            }
+            "window.transition" -> handleWindowTransition(payload)
+            // 兼容旧资源的最终状态回调；新动画链不再依赖 window.form。
+            "window.form" -> {
+                val expanded = payload.optInt("form", 0) == 2
+                handleWindowTransition(
+                    JSONObject()
+                        .put("revision", transitionRevision + 1L)
+                        .put("state", if (expanded) "expanded" else "collapsed")
+                        .put("panelVisible", expanded)
+                )
+            }
             "window.dragStart" -> {
-                // 珠态由 Android raw MotionEvent 直接拖动；桥接拖动只服务展开工具栏。
-                if (!expanded) return
+                if (phase != AgentOWindowPhase.Expanded) return
                 layoutParams?.let { params ->
                     dragStartX = params.x
                     dragStartY = params.y
@@ -442,69 +519,198 @@ internal class AgentOFloatingChatHost(
                 }
             }
             "window.drag" -> {
-                if (!expanded) return
-                scheduleDragPixels(
+                if (phase != AgentOWindowPhase.Expanded) return
+                scheduleExpandedDrag(
                     x = dragStartX + dp(payload.optDouble("dx", 0.0).toFloat()),
                     y = dragStartY + dp(payload.optDouble("dy", 0.0).toFloat()),
                 )
             }
-            "window.dragEnd" -> if (expanded) applyPendingDrag()
-            "composer.focus" -> enableInputFocus()
+            "window.dragEnd" -> if (phase == AgentOWindowPhase.Expanded) applyPendingDrag()
+            "composer.focus" -> if (phase == AgentOWindowPhase.Expanded) enableInputFocus()
             "composer.blur" -> disableInputFocus()
             else -> AssistantFloatingChatBridge.dispatch(action, payload)
         }
     }
 
-    private fun handleCollapsedWindowTouch(event: MotionEvent) {
-        if (expanded || hiddenForCapture) return
-        val params = layoutParams ?: return
+    private fun handleWindowTransition(payload: JSONObject) {
+        val revision = payload.optLong("revision", transitionRevision)
+        if (revision < transitionRevision) return
+        transitionRevision = revision
+        when (payload.optString("state")) {
+            "expanding" -> {
+                phase = AgentOWindowPhase.Expanding
+                panelVisualVisible = payload.optBoolean("panelVisible", panelVisualVisible)
+                wantsInputFocus = false
+                applyMainWindowState()
+                applyOrbTouchState()
+            }
+            "expanded" -> {
+                phase = AgentOWindowPhase.Expanded
+                panelVisualVisible = true
+                applyMainWindowState()
+                applyOrbTouchState()
+                scheduleSnapshotDispatch(force = true)
+            }
+            "collapsing" -> {
+                phase = AgentOWindowPhase.Collapsing
+                panelVisualVisible = payload.optBoolean("panelVisible", false)
+                disableInputFocus()
+                applyMainWindowState()
+                applyOrbTouchState()
+            }
+            "collapsed" -> {
+                phase = AgentOWindowPhase.Collapsed
+                panelVisualVisible = false
+                wantsInputFocus = false
+                applyMainWindowState()
+                applyOrbTouchState()
+            }
+        }
+    }
+
+    private fun handleCollapsedTouch(event: MotionEvent): Boolean {
+        if (phase != AgentOWindowPhase.Collapsed || hiddenForCapture) return false
+        val params = layoutParams ?: return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 collapsedPointerId = event.getPointerId(0)
                 collapsedStartRawX = event.rawX
                 collapsedStartRawY = event.rawY
+                collapsedLastRawX = event.rawX
+                collapsedLastEventTime = event.eventTime
                 collapsedDragStartX = params.x
                 collapsedDragStartY = params.y
                 collapsedMoved = false
+                evaluateOrbScript("nativeOrbDown&&window.GuiPlusFloatingChat.nativeOrbDown();")
+                return true
             }
             MotionEvent.ACTION_MOVE -> {
                 val index = event.findPointerIndex(collapsedPointerId)
-                if (index < 0) return
+                if (index < 0) return true
                 val dx = event.rawX - collapsedStartRawX
                 val dy = event.rawY - collapsedStartRawY
                 if (!collapsedMoved && dx * dx + dy * dy >= touchSlop * touchSlop) {
                     collapsedMoved = true
                 }
+                val dt = (event.eventTime - collapsedLastEventTime).coerceAtLeast(8L)
+                pendingOrbVelocity = ((event.rawX - collapsedLastRawX) / density / dt.toFloat())
+                collapsedLastRawX = event.rawX
+                collapsedLastEventTime = event.eventTime
                 if (collapsedMoved) {
-                    scheduleDragPixels(
+                    scheduleCollapsedDrag(
                         x = collapsedDragStartX + dx.roundToInt(),
                         y = collapsedDragStartY + dy.roundToInt(),
                     )
                 }
+                return true
             }
-            MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_CANCEL -> {
-                if (collapsedMoved) applyPendingDrag()
+            MotionEvent.ACTION_UP -> {
+                if (collapsedMoved) {
+                    applyPendingDrag()
+                    evaluateOrbScript(
+                        "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.nativeOrbUp&&" +
+                            "window.GuiPlusFloatingChat.nativeOrbUp(true);"
+                    )
+                } else {
+                    beginExpansionFromCurrentBeadPosition()
+                }
                 collapsedPointerId = MotionEvent.INVALID_POINTER_ID
                 collapsedMoved = false
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                evaluateOrbScript(
+                    "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.nativeOrbCancel&&" +
+                        "window.GuiPlusFloatingChat.nativeOrbCancel();"
+                )
+                collapsedPointerId = MotionEvent.INVALID_POINTER_ID
+                collapsedMoved = false
+                return true
             }
         }
+        return true
     }
 
-    private fun scheduleDragPixels(x: Int, y: Int) {
+    private fun beginExpansionFromCurrentBeadPosition() {
+        val view = webView ?: return
+        val params = layoutParams ?: return
+        val frame = fixedFrame ?: return
+        val oldX = params.x
+        val oldY = params.y
+        val rebaseXCss = (oldX - frame.safeX) / (density * frame.scale)
+        val rebaseYCss = (oldY - frame.safeY) / (density * frame.scale)
+
+        phase = AgentOWindowPhase.Expanding
+        panelVisualVisible = false
+        params.x = frame.safeX
+        params.y = frame.safeY
+        pendingDragX = params.x
+        pendingDragY = params.y
+        runCatching { windowManager?.updateViewLayout(view, params) }
+        updateOrbTouchLayout()
+        applyMainWindowState()
+        applyOrbTouchState()
+
+        evaluateOrbScript(
+            "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.nativeOrbTap&&" +
+                "window.GuiPlusFloatingChat.nativeOrbTap($rebaseXCss,$rebaseYCss);"
+        )
+    }
+
+    private fun evaluateOrbScript(script: String) {
+        if (!pageReady) return
+        webView?.evaluateJavascript(script, null)
+    }
+
+    private fun scheduleCollapsedDrag(x: Int, y: Int) {
+        val params = layoutParams ?: return
+        val frame = fixedFrame ?: return
+        val metrics = service.resources.displayMetrics
+        val margin = dp(COLLAPSED_SCREEN_MARGIN_DP)
+        val radius = orbVisualRadiusPx(frame)
+        val centerX = frame.width / 2
+        val centerY = orbCenterYPx(frame)
+        pendingDragX = x.coerceIn(
+            margin + radius - centerX,
+            metrics.widthPixels - margin - radius - centerX,
+        )
+        pendingDragY = y.coerceIn(
+            topWindowInsetPx() + margin + radius - centerY,
+            metrics.heightPixels - bottomWindowInsetPx() - margin - radius - centerY,
+        )
+        scheduleDragFrame()
+    }
+
+    private fun scheduleExpandedDrag(x: Int, y: Int) {
         val params = layoutParams ?: return
         val metrics = service.resources.displayMetrics
-        pendingDragX = x.coerceIn(0, (metrics.widthPixels - params.width).coerceAtLeast(0))
-        pendingDragY = y.coerceIn(
-            topWindowInsetPx(),
-            (metrics.heightPixels - bottomWindowInsetPx() - params.height)
-                .coerceAtLeast(topWindowInsetPx()),
+        val margin = dp(EXPANDED_SCREEN_MARGIN_DP)
+        pendingDragX = x.coerceIn(
+            margin,
+            (metrics.widthPixels - margin - params.width).coerceAtLeast(margin),
         )
+        pendingDragY = y.coerceIn(
+            topWindowInsetPx() + margin,
+            (metrics.heightPixels - bottomWindowInsetPx() - margin - params.height)
+                .coerceAtLeast(topWindowInsetPx() + margin),
+        )
+        scheduleDragFrame()
+    }
+
+    private fun scheduleDragFrame() {
         if (dragFramePosted) return
         dragFramePosted = true
         webView?.postOnAnimation {
             dragFramePosted = false
             applyPendingDrag()
+            if (phase == AgentOWindowPhase.Collapsed) {
+                val velocity = pendingOrbVelocity
+                pendingOrbVelocity = 0f
+                evaluateOrbScript(
+                    "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.nativeOrbMove&&" +
+                        "window.GuiPlusFloatingChat.nativeOrbMove($velocity);"
+                )
+            }
         }
     }
 
@@ -515,12 +721,10 @@ internal class AgentOFloatingChatHost(
         params.x = pendingDragX
         params.y = pendingDragY
         runCatching { windowManager?.updateViewLayout(view, params) }
+        updateOrbTouchLayout()
     }
 
-    private fun setExpanded(value: Boolean) {
-        if (expanded == value) return
-        val view = webView ?: return
-        val params = layoutParams ?: return
+    private fun calculateFixedFrame(): AgentOFixedFrame {
         val metrics = service.resources.displayMetrics
         val topInset = topWindowInsetPx()
         val bottomInset = bottomWindowInsetPx()
@@ -528,48 +732,49 @@ internal class AgentOFloatingChatHost(
         val availableWidth = (metrics.widthPixels - margin * 2).coerceAtLeast(dp(1f))
         val availableHeight =
             (metrics.heightPixels - topInset - bottomInset - margin * 2).coerceAtLeast(dp(1f))
-        val oldCenterX = params.x + params.width / 2
-        val oldCenterY = params.y + params.height / 2
+        val logicalWidth = dp(FIXED_LOGICAL_WIDTH_DP)
+        val logicalHeight = dp(FIXED_LOGICAL_HEIGHT_DP)
+        val scale = minOf(
+            1f,
+            availableWidth / logicalWidth.toFloat(),
+            availableHeight / logicalHeight.toFloat(),
+        )
+        val width = (logicalWidth * scale).roundToInt().coerceAtLeast(dp(250f))
+        val height = (logicalHeight * scale).roundToInt().coerceAtLeast(dp(198f))
+        return AgentOFixedFrame(
+            width = width,
+            height = height,
+            scale = scale,
+            safeX = margin + ((availableWidth - width) / 2).coerceAtLeast(0),
+            safeY = topInset + margin + ((availableHeight - height) / 2).coerceAtLeast(0),
+        )
+    }
 
-        val targetWidth: Int
-        val targetHeight: Int
-        if (value) {
-            val logicalWidth = dp(EXPANDED_LOGICAL_WIDTH_DP)
-            val logicalHeight = dp(EXPANDED_LOGICAL_HEIGHT_DP)
-            val scale = minOf(
-                1f,
-                availableWidth / logicalWidth.toFloat(),
-                availableHeight / logicalHeight.toFloat(),
-            )
-            targetWidth = (logicalWidth * scale).roundToInt().coerceAtLeast(dp(250f))
-            targetHeight = (logicalHeight * scale).roundToInt().coerceAtLeast(dp(198f))
-        } else {
-            targetWidth = dp(COLLAPSED_WINDOW_DP)
-            targetHeight = dp(COLLAPSED_WINDOW_DP)
-        }
+    private fun orbTouchSizePx(frame: AgentOFixedFrame): Int =
+        (dp(ORB_TOUCH_LOGICAL_DP) * frame.scale).roundToInt().coerceAtLeast(dp(56f))
 
-        params.width = targetWidth
-        params.height = targetHeight
-        if (value) {
-            params.x = margin + ((availableWidth - targetWidth) / 2).coerceAtLeast(0)
-            params.y = topInset + margin +
-                ((availableHeight - targetHeight) / 2).coerceAtLeast(0)
-        } else {
-            params.x = (oldCenterX - targetWidth / 2)
-                .coerceIn(0, (metrics.widthPixels - targetWidth).coerceAtLeast(0))
-            params.y = (oldCenterY - targetHeight / 2).coerceIn(
-                topInset,
-                (metrics.heightPixels - bottomInset - targetHeight).coerceAtLeast(topInset),
-            )
-        }
-        pendingDragX = params.x
-        pendingDragY = params.y
-        expanded = value
-        if (!value) disableInputFocus()
-        params.flags = windowFlags(hiddenForCapture, wantsInputFocus)
-        applyLocalBlur(params)
-        runCatching { windowManager?.updateViewLayout(view, params) }
-        if (value) view.post { scheduleSnapshotDispatch(force = true) }
+    private fun orbVisualRadiusPx(frame: AgentOFixedFrame): Int =
+        (dp(ORB_VISUAL_DIAMETER_DP) * frame.scale * 0.5f).roundToInt()
+
+    private fun orbCenterYPx(frame: AgentOFixedFrame): Int =
+        (dp(ORB_CENTER_Y_LOGICAL_DP) * frame.scale).roundToInt()
+
+    private fun updateOrbTouchCoordinates(
+        touchParams: WindowManager.LayoutParams,
+        mainParams: WindowManager.LayoutParams,
+        frame: AgentOFixedFrame,
+    ) {
+        touchParams.x = mainParams.x + frame.width / 2 - touchParams.width / 2
+        touchParams.y = mainParams.y + orbCenterYPx(frame) - touchParams.height / 2
+    }
+
+    private fun updateOrbTouchLayout() {
+        val touch = orbTouchView ?: return
+        val touchParams = orbTouchParams ?: return
+        val mainParams = layoutParams ?: return
+        val frame = fixedFrame ?: return
+        updateOrbTouchCoordinates(touchParams, mainParams, frame)
+        runCatching { windowManager?.updateViewLayout(touch, touchParams) }
     }
 
     private fun applyCaptureVisibility(hidden: Boolean) {
@@ -579,12 +784,11 @@ internal class AgentOFloatingChatHost(
         hiddenForCapture = hidden
         val view = webView ?: return
         val params = layoutParams ?: return
-        params.flags = windowFlags(hidden, wantsInputFocus && !hidden)
-        applyLocalBlur(params)
         params.alpha = if (hidden) 0f else 1f
         view.alpha = params.alpha
         view.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
-        runCatching { windowManager?.updateViewLayout(view, params) }
+        applyMainWindowState()
+        applyOrbTouchState()
         applyRuntimePauseState()
     }
 
@@ -608,9 +812,9 @@ internal class AgentOFloatingChatHost(
     }
 
     private fun enableInputFocus() {
-        if (hiddenForCapture) return
+        if (hiddenForCapture || phase != AgentOWindowPhase.Expanded) return
         wantsInputFocus = true
-        updateWindowFlags()
+        applyMainWindowState()
         val view = webView ?: return
         view.isFocusable = true
         view.isFocusableInTouchMode = true
@@ -629,37 +833,58 @@ internal class AgentOFloatingChatHost(
         inputMethodManager?.hideSoftInputFromWindow(view?.windowToken, 0)
         view?.clearFocus()
         wantsInputFocus = false
-        updateWindowFlags()
+        applyMainWindowState()
     }
 
-    private fun updateWindowFlags() {
+    private fun applyMainWindowState() {
         val view = webView ?: return
         val params = layoutParams ?: return
-        val next = windowFlags(hiddenForCapture, wantsInputFocus && !hiddenForCapture)
+        params.flags = mainWindowFlags()
         applyLocalBlur(params)
-        if (params.flags == next) return
-        params.flags = next
         runCatching { windowManager?.updateViewLayout(view, params) }
     }
 
-    private fun windowFlags(hidden: Boolean, wantsInputFocus: Boolean): Int {
+    private fun applyOrbTouchState() {
+        val touch = orbTouchView ?: return
+        val params = orbTouchParams ?: return
+        val active = phase == AgentOWindowPhase.Collapsed && !hiddenForCapture
+        val nextFlags = orbTouchWindowFlags()
+        params.flags = nextFlags
+        params.alpha = if (active) 1f else 0f
+        touch.visibility = if (active) View.VISIBLE else View.INVISIBLE
+        touch.alpha = params.alpha
+        runCatching { windowManager?.updateViewLayout(touch, params) }
+    }
+
+    private fun mainWindowFlags(): Int {
         var flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-        if (!wantsInputFocus) flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        if (hidden) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        if (shouldUseLocalBlur(hidden)) flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+        val touchable = phase == AgentOWindowPhase.Expanded && !hiddenForCapture
+        val focusable = touchable && wantsInputFocus
+        if (!touchable) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (!focusable) flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        if (shouldUseLocalBlur()) flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
         return flags
     }
 
-    private fun shouldUseLocalBlur(hidden: Boolean): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && expanded && !hidden
+    private fun orbTouchWindowFlags(): Int {
+        var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
+        if (phase != AgentOWindowPhase.Collapsed || hiddenForCapture) {
+            flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        }
+        return flags
+    }
+
+    private fun shouldUseLocalBlur(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && panelVisualVisible && !hiddenForCapture
 
     private fun applyLocalBlur(params: WindowManager.LayoutParams) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            params.setBlurBehindRadius(
-                if (shouldUseLocalBlur(hiddenForCapture)) dp(EXPANDED_BLUR_RADIUS_DP) else 0
-            )
+            params.setBlurBehindRadius(if (shouldUseLocalBlur()) dp(EXPANDED_BLUR_RADIUS_DP) else 0)
         }
     }
 
@@ -707,12 +932,15 @@ internal class AgentOFloatingChatHost(
         private const val NATIVE_BRIDGE_NAME = "GuiPlusNative"
         private const val BRIDGE_SOURCE = "gui-plus-floating-chat"
 
-        private const val COLLAPSED_WINDOW_DP = 170f
-        // 560×720 的原始 V8.4 舞台只在紧边界 620×490 窗口内平移缩放；后者正好包住
-        // 500×360 面板及其原始外辉光，不再让系统模糊扩散到整屏。
-        private const val EXPANDED_LOGICAL_WIDTH_DP = 620f
-        private const val EXPANDED_LOGICAL_HEIGHT_DP = 490f
+        private const val FIXED_LOGICAL_WIDTH_DP = 620f
+        private const val FIXED_LOGICAL_HEIGHT_DP = 490f
         private const val EXPANDED_SCREEN_MARGIN_DP = 8f
+        private const val COLLAPSED_SCREEN_MARGIN_DP = 8f
         private const val EXPANDED_BLUR_RADIUS_DP = 22f
+
+        // V8.4 原舞台坐标：固定舞台顶部偏移 30，珠态中心位于 720 高舞台的中线。
+        private const val ORB_CENTER_Y_LOGICAL_DP = 390f
+        private const val ORB_VISUAL_DIAMETER_DP = 116f
+        private const val ORB_TOUCH_LOGICAL_DP = 146f
     }
 }
