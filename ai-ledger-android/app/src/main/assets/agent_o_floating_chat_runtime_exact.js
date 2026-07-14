@@ -1,5 +1,6 @@
 /*
- * V8.4 原版接入适配层：只处理 Android 舞台缩放与宿主能力，不修改面板视觉参数。
+ * V8.4 原版接入适配层：Android 只提供紧边界 620×490 窗口，网页仍使用原始 560×720
+ * 设计舞台和 500×360 面板。舞台只整体等比缩放，不修改任何内部视觉参数。
  */
 window.__agentONativeWindowDrag=Boolean(
   window.GuiPlusNative&&
@@ -9,13 +10,14 @@ window.__agentONativeWindowDrag=Boolean(
 
 function updateAgentONativeStageScale(){
   if(!nativeProduction)return;
-  const scale=Math.min(window.innerWidth/560,window.innerHeight/720,1);
-  root.style.setProperty('--native-stage-scale',String(Math.max(.1,scale)));
+  const scale=Math.min(window.innerWidth/620,window.innerHeight/490,1);
+  const safeScale=Math.max(.1,scale);
+  root.style.setProperty('--native-stage-scale',String(safeScale));
+  root.style.setProperty('--native-stage-offset-y',`${30*safeScale}px`);
 }
 
 /*
- * 珠态继续使用紧尺寸窗口；展开态严格恢复原网页 500×360 面板、圆角和负锚点。
- * 原生窗口使用 560×720 同比例安全区，因此不再触发手机窄屏的高瘦重排。
+ * 继续直接使用 V8.4 原始几何：面板 500×360、圆角、负锚点与弹簧路径均不改。
  */
 updateDesiredGeometry=function(value,target=geometryTarget){
   const bead=nativeProduction
