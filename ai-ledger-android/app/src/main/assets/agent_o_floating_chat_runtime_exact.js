@@ -1,6 +1,6 @@
 /*
- * V8.4 原版接入适配层：Android 只提供紧边界 620×490 窗口，网页仍使用原始 560×720
- * 设计舞台和 500×360 面板。舞台只整体等比缩放，不修改任何内部视觉参数。
+ * V8.4 原版接入适配层：Android 固定承载 620×490 逻辑窗口，网页始终运行原始
+ * 560×720 设计舞台和 500×360 面板。这里只整体等比缩放舞台，不修改内部视觉参数。
  */
 window.__agentONativeWindowDrag=Boolean(
   window.GuiPlusNative&&
@@ -8,12 +8,25 @@ window.__agentONativeWindowDrag=Boolean(
   window.GuiPlusNative.usesNativeWindowDrag()
 );
 
+let agentONativeStageScale=-1;
+let agentONativeStageResizeFrame=0;
+
 function updateAgentONativeStageScale(){
+  agentONativeStageResizeFrame=0;
   if(!nativeProduction)return;
   const scale=Math.min(window.innerWidth/620,window.innerHeight/490,1);
   const safeScale=Math.max(.1,scale);
+  if(Math.abs(safeScale-agentONativeStageScale)<.0005)return;
+  agentONativeStageScale=safeScale;
   root.style.setProperty('--native-stage-scale',String(safeScale));
   root.style.setProperty('--native-stage-offset-y',`${30*safeScale}px`);
+  opticalSurfaceDirty=true;
+  ensureAnimationLoop();
+}
+
+function scheduleAgentONativeStageScale(){
+  if(agentONativeStageResizeFrame)return;
+  agentONativeStageResizeFrame=requestAnimationFrame(updateAgentONativeStageScale);
 }
 
 /*
@@ -40,4 +53,4 @@ updateDesiredGeometry=function(value,target=geometryTarget){
 };
 
 updateAgentONativeStageScale();
-window.addEventListener('resize',updateAgentONativeStageScale,{passive:true});
+window.addEventListener('resize',scheduleAgentONativeStageScale,{passive:true});
