@@ -43,3 +43,4 @@ Build Compose Android APK verification
 2026-07-14 Agent O授权回流与悬浮窗自动显示构建验证
 2026-07-14 Agent O局部玻璃、原版面板、折叠与拖动修复构建验证
 2026-07-14 Agent O原版舞台缩放、原生拖动与流式增量刷新构建验证
+2026-07-14 Agent O局部模糊与WebView兼容边缘光构建验证
