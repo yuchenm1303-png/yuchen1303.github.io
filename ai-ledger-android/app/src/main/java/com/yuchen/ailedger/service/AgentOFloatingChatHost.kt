@@ -9,7 +9,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.webkit.JavascriptInterface
@@ -43,22 +45,19 @@ private data class AgentORenderSnapshot(
 /**
  * Agent O 普通聊天悬浮窗。
  *
- * 这是独立于 [VisualAgentCapsuleHost] 的第二个紧尺寸 TYPE_ACCESSIBILITY_OVERLAY：
- * - Agent O 开关只控制本窗口；
- * - 无限符号 Agent 开关继续控制视觉智能体 HUD 与原生智能体浮窗；
- * - 聊天请求和消息状态始终来自 [AssistantFloatingChatBridge]，本类不建立网络链。
- *
- * WebView 只承载网页版的原始视觉和动效。窗口定位、屏幕边界、输入法和跨应用拖动由
- * Android 宿主负责，不在网页中重画第二套界面。
+ * WebView 直接运行用户确认的 V8.4 网页视觉；Android 只负责系统窗口、屏幕边界、输入法、
+ * 截图隐藏和真实跨应用拖动。无限符号 Agent 仍由 VisualAgentCapsuleHost 独立控制。
  */
 internal class AgentOFloatingChatHost(
     private val service: AccessibilityService,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val windowManager = service.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-    private val inputMethodManager = service.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+    private val inputMethodManager =
+        service.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private val density = service.resources.displayMetrics.density.coerceAtLeast(1f)
+    private val touchSlop = ViewConfiguration.get(service).scaledTouchSlop
 
     private var webView: WebView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
@@ -67,13 +66,25 @@ internal class AgentOFloatingChatHost(
     private var expanded = false
     private var hiddenForCapture = false
     private var wantsInputFocus = false
+
     private var pendingSnapshot: AgentORenderSnapshot? = null
+    private var lastDispatchedSnapshot: AgentORenderSnapshot? = null
     private var lastDispatchedPayload: String? = null
+    private var snapshotFramePosted = false
+    private var forceSnapshotDispatch = false
+
     private var dragStartX = 0
     private var dragStartY = 0
     private var pendingDragX = 0
     private var pendingDragY = 0
     private var dragFramePosted = false
+
+    private var collapsedPointerId = MotionEvent.INVALID_POINTER_ID
+    private var collapsedStartRawX = 0f
+    private var collapsedStartRawY = 0f
+    private var collapsedDragStartX = 0
+    private var collapsedDragStartY = 0
+    private var collapsedMoved = false
 
     fun start() {
         if (started) return
@@ -105,10 +116,11 @@ internal class AgentOFloatingChatHost(
         }
         if (!createWindow()) return
         applyCaptureVisibility(snapshot.hiddenForCapture)
-        dispatchSnapshot(snapshot)
+        // 珠态不可见任何聊天内容，不序列化消息，也不跨 JS 桥派发状态。
+        if (expanded) scheduleSnapshotDispatch()
     }
 
-    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface")
+    @SuppressLint("SetJavaScriptEnabled", "AddJavascriptInterface", "ClickableViewAccessibility")
     private fun createWindow(): Boolean {
         if (webView != null) return true
         val wm = windowManager ?: return false
@@ -119,6 +131,9 @@ internal class AgentOFloatingChatHost(
             setBackgroundColor(Color.TRANSPARENT)
             background?.alpha = 0
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_BOUND, true)
+            }
             isHorizontalScrollBarEnabled = false
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -126,6 +141,11 @@ internal class AgentOFloatingChatHost(
             setOnLongClickListener { true }
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             contentDescription = "Agent O 悬浮对话"
+            setOnTouchListener { _, event ->
+                handleCollapsedWindowTouch(event)
+                // WebView 仍需收到同一事件流，用于原版珠态形变与点击展开。
+                false
+            }
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = false
@@ -152,7 +172,10 @@ internal class AgentOFloatingChatHost(
             }
             addJavascriptInterface(NativeBridge(), NATIVE_BRIDGE_NAME)
             webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = true
+                override fun shouldOverrideUrlLoading(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                ): Boolean = true
 
                 @Suppress("DEPRECATION")
                 override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean = true
@@ -160,7 +183,8 @@ internal class AgentOFloatingChatHost(
                 override fun onPageFinished(view: WebView?, url: String?) {
                     pageReady = true
                     lastDispatchedPayload = null
-                    pendingSnapshot?.let(::dispatchSnapshot)
+                    lastDispatchedSnapshot = null
+                    if (expanded) scheduleSnapshotDispatch(force = true)
                     applyRuntimePauseState()
                 }
             }
@@ -179,12 +203,14 @@ internal class AgentOFloatingChatHost(
             gravity = Gravity.TOP or Gravity.START
             x = (metrics.widthPixels - size - dp(12f)).coerceAtLeast(0)
             y = (topWindowInsetPx() + dp(72f)).coerceAtMost(
-                (metrics.heightPixels - bottomWindowInsetPx() - size).coerceAtLeast(topWindowInsetPx())
+                (metrics.heightPixels - bottomWindowInsetPx() - size)
+                    .coerceAtLeast(topWindowInsetPx())
             )
             alpha = if (hiddenForCapture) 0f else 1f
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 setFitInsetsTypes(0)
@@ -196,6 +222,8 @@ internal class AgentOFloatingChatHost(
             .onSuccess {
                 webView = view
                 layoutParams = params
+                pendingDragX = params.x
+                pendingDragY = params.y
                 view.visibility = if (hiddenForCapture) View.INVISIBLE else View.VISIBLE
                 view.alpha = if (hiddenForCapture) 0f else 1f
                 if (!hiddenForCapture) view.onResume()
@@ -214,10 +242,14 @@ internal class AgentOFloatingChatHost(
     private fun destroyWindow() {
         pageReady = false
         pendingSnapshot = null
+        lastDispatchedSnapshot = null
         lastDispatchedPayload = null
         expanded = false
         wantsInputFocus = false
+        snapshotFramePosted = false
+        forceSnapshotDispatch = false
         dragFramePosted = false
+        collapsedPointerId = MotionEvent.INVALID_POINTER_ID
         webView?.let { view ->
             view.animate().cancel()
             inputMethodManager?.hideSoftInputFromWindow(view.windowToken, 0)
@@ -233,18 +265,76 @@ internal class AgentOFloatingChatHost(
         layoutParams = null
     }
 
-    private fun dispatchSnapshot(snapshot: AgentORenderSnapshot, force: Boolean = false) {
-        val payload = buildSnapshotJson(snapshot).toString()
-        if (!pageReady) {
-            pendingSnapshot = snapshot
+    private fun scheduleSnapshotDispatch(force: Boolean = false) {
+        if (!expanded || !pageReady) return
+        forceSnapshotDispatch = forceSnapshotDispatch || force
+        if (snapshotFramePosted) return
+        snapshotFramePosted = true
+        webView?.postOnAnimation {
+            snapshotFramePosted = false
+            val snapshot = pendingSnapshot ?: return@postOnAnimation
+            val shouldForce = forceSnapshotDispatch
+            forceSnapshotDispatch = false
+            dispatchSnapshotNow(snapshot, shouldForce)
+        }
+    }
+
+    private fun dispatchSnapshotNow(snapshot: AgentORenderSnapshot, force: Boolean) {
+        if (!expanded || !pageReady) return
+        val previous = lastDispatchedSnapshot
+        if (!force && previous != null && canPatchLastMessage(previous, snapshot)) {
+            val message = snapshot.assistantState.messages.last()
+            val script = buildString {
+                append("window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.patchMessage&&")
+                append("window.GuiPlusFloatingChat.patchMessage(")
+                append(JSONObject.quote(message.id)).append(',')
+                append(JSONObject.quote(message.text)).append(',')
+                append(JSONObject.quote(message.status.webValue))
+                append(");")
+            }
+            webView?.evaluateJavascript(script, null)
+            lastDispatchedSnapshot = snapshot
             return
         }
+
+        val payload = buildSnapshotJson(snapshot).toString()
         if (!force && payload == lastDispatchedPayload) return
         webView?.evaluateJavascript(
-            "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.hydrate($payload,{connected:true,forceBottom:${force}});",
+            "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.hydrate(" +
+                "$payload,{connected:true,forceBottom:$force});",
             null,
         )
         lastDispatchedPayload = payload
+        lastDispatchedSnapshot = snapshot
+    }
+
+    private fun canPatchLastMessage(
+        previous: AgentORenderSnapshot,
+        next: AgentORenderSnapshot,
+    ): Boolean {
+        if (previous.visualAgentEnabled != next.visualAgentEnabled ||
+            previous.hiddenForCapture != next.hiddenForCapture
+        ) return false
+        val oldState = previous.assistantState
+        val newState = next.assistantState
+        if (oldState.onlineEnabled != newState.onlineEnabled ||
+            oldState.isSending != newState.isSending ||
+            oldState.selectedModelLabel != newState.selectedModelLabel ||
+            oldState.composerText != newState.composerText ||
+            oldState.composerAttachments != newState.composerAttachments ||
+            oldState.messages.size != newState.messages.size ||
+            oldState.messages.isEmpty()
+        ) return false
+        if (oldState.messages.dropLast(1) != newState.messages.dropLast(1)) return false
+
+        val oldLast = oldState.messages.last()
+        val newLast = newState.messages.last()
+        return oldLast.id == newLast.id &&
+            oldLast.copy(
+                text = newLast.text,
+                status = newLast.status,
+                errorText = newLast.errorText,
+            ) == newLast
     }
 
     private fun buildSnapshotJson(snapshot: AgentORenderSnapshot): JSONObject {
@@ -256,8 +346,13 @@ internal class AgentOFloatingChatHost(
             .put("isSending", state.isSending)
             .put("selectedModelLabel", state.selectedModelLabel)
             .put("composerText", state.composerText)
-            .put("attachment", state.composerAttachments.firstOrNull()?.toJson() ?: JSONObject.NULL)
-            .put("messages", JSONArray().apply { state.messages.forEach { put(it.toJson()) } })
+            .put(
+                "attachment",
+                state.composerAttachments.firstOrNull()?.toJson() ?: JSONObject.NULL,
+            )
+            .put("messages", JSONArray().apply {
+                state.messages.forEach { put(it.toJson()) }
+            })
             .put("memory", JSONObject().put("loading", false).put("items", JSONArray()))
             .put("skills", JSONObject().put("loading", false).put("items", JSONArray()))
     }
@@ -266,11 +361,7 @@ internal class AgentOFloatingChatHost(
         .put("id", id)
         .put("role", if (role == MessageRole.User) "user" else "assistant")
         .put("text", text)
-        .put("status", when (status) {
-            MessageStatus.Sending -> "sending"
-            MessageStatus.Failed -> "failed"
-            MessageStatus.Sent -> "sent"
-        })
+        .put("status", status.webValue)
         .put("source", source.orEmpty())
         .put("modelLabel", modelLabel ?: model.orEmpty())
         .put("createdAt", createdAt)
@@ -311,6 +402,13 @@ internal class AgentOFloatingChatHost(
             }
         })
 
+    private val MessageStatus.webValue: String
+        get() = when (this) {
+            MessageStatus.Sending -> "sending"
+            MessageStatus.Failed -> "failed"
+            MessageStatus.Sent -> "sent"
+        }
+
     private fun ComposerAttachment.toJson(): JSONObject = JSONObject()
         .put("id", id)
         .put("fileName", fileName ?: "视觉附件")
@@ -329,9 +427,11 @@ internal class AgentOFloatingChatHost(
         val action = envelope.optString("action")
         val payload = envelope.optJSONObject("payload") ?: JSONObject()
         when (action) {
-            "window.ready" -> pendingSnapshot?.let { dispatchSnapshot(it, force = true) }
+            "window.ready" -> if (expanded) scheduleSnapshotDispatch(force = true)
             "window.form" -> setExpanded(payload.optInt("form", 0) == 2)
             "window.dragStart" -> {
+                // 珠态由 Android raw MotionEvent 直接拖动；桥接拖动只服务展开工具栏。
+                if (!expanded) return
                 layoutParams?.let { params ->
                     dragStartX = params.x
                     dragStartY = params.y
@@ -339,18 +439,57 @@ internal class AgentOFloatingChatHost(
                     pendingDragY = params.y
                 }
             }
-            "window.drag" -> scheduleDrag(
-                x = dragStartX + dp(payload.optDouble("dx", 0.0).toFloat()),
-                y = dragStartY + dp(payload.optDouble("dy", 0.0).toFloat()),
-            )
-            "window.dragEnd" -> applyPendingDrag()
+            "window.drag" -> {
+                if (!expanded) return
+                scheduleDragPixels(
+                    x = dragStartX + dp(payload.optDouble("dx", 0.0).toFloat()),
+                    y = dragStartY + dp(payload.optDouble("dy", 0.0).toFloat()),
+                )
+            }
+            "window.dragEnd" -> if (expanded) applyPendingDrag()
             "composer.focus" -> enableInputFocus()
             "composer.blur" -> disableInputFocus()
             else -> AssistantFloatingChatBridge.dispatch(action, payload)
         }
     }
 
-    private fun scheduleDrag(x: Int, y: Int) {
+    private fun handleCollapsedWindowTouch(event: MotionEvent) {
+        if (expanded || hiddenForCapture) return
+        val params = layoutParams ?: return
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                collapsedPointerId = event.getPointerId(0)
+                collapsedStartRawX = event.rawX
+                collapsedStartRawY = event.rawY
+                collapsedDragStartX = params.x
+                collapsedDragStartY = params.y
+                collapsedMoved = false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val index = event.findPointerIndex(collapsedPointerId)
+                if (index < 0) return
+                val dx = event.rawX - collapsedStartRawX
+                val dy = event.rawY - collapsedStartRawY
+                if (!collapsedMoved && dx * dx + dy * dy >= touchSlop * touchSlop) {
+                    collapsedMoved = true
+                }
+                if (collapsedMoved) {
+                    scheduleDragPixels(
+                        x = collapsedDragStartX + dx.roundToInt(),
+                        y = collapsedDragStartY + dy.roundToInt(),
+                    )
+                }
+            }
+            MotionEvent.ACTION_UP,
+            MotionEvent.ACTION_CANCEL -> {
+                if (collapsedMoved) applyPendingDrag()
+                collapsedPointerId = MotionEvent.INVALID_POINTER_ID
+                collapsedMoved = false
+            }
+        }
+    }
+
+    private fun scheduleDragPixels(x: Int, y: Int) {
         val params = layoutParams ?: return
         val metrics = service.resources.displayMetrics
         pendingDragX = x.coerceIn(0, (metrics.widthPixels - params.width).coerceAtLeast(0))
@@ -385,29 +524,34 @@ internal class AgentOFloatingChatHost(
         val bottomInset = bottomWindowInsetPx()
         val margin = dp(EXPANDED_SCREEN_MARGIN_DP)
         val availableWidth = (metrics.widthPixels - margin * 2).coerceAtLeast(dp(1f))
-        val availableHeight = (metrics.heightPixels - topInset - bottomInset - margin * 2)
-            .coerceAtLeast(dp(1f))
+        val availableHeight =
+            (metrics.heightPixels - topInset - bottomInset - margin * 2).coerceAtLeast(dp(1f))
         val oldCenterX = params.x + params.width / 2
         val oldCenterY = params.y + params.height / 2
 
-        val targetWidth = if (value) {
-            minOf(dp(EXPANDED_MAX_WIDTH_DP), availableWidth)
+        val targetWidth: Int
+        val targetHeight: Int
+        if (value) {
+            val logicalWidth = dp(EXPANDED_LOGICAL_WIDTH_DP)
+            val logicalHeight = dp(EXPANDED_LOGICAL_HEIGHT_DP)
+            val scale = minOf(
+                1f,
+                availableWidth / logicalWidth.toFloat(),
+                availableHeight / logicalHeight.toFloat(),
+            )
+            targetWidth = (logicalWidth * scale).roundToInt().coerceAtLeast(dp(240f))
+            targetHeight = (logicalHeight * scale).roundToInt().coerceAtLeast(dp(309f))
         } else {
-            dp(COLLAPSED_WINDOW_DP)
-        }
-        val targetHeight = if (value) {
-            minOf(dp(EXPANDED_HEIGHT_DP), availableHeight)
-        } else {
-            dp(COLLAPSED_WINDOW_DP)
+            targetWidth = dp(COLLAPSED_WINDOW_DP)
+            targetHeight = dp(COLLAPSED_WINDOW_DP)
         }
 
         params.width = targetWidth
         params.height = targetHeight
         if (value) {
-            // 展开窗口始终放进安全显示区中间。网页版面板在窗口内部保持原始比例，
-            // 不再沿珠态右上角坐标硬撑开，从根源上避免顶部和右侧被屏幕裁掉。
             params.x = margin + ((availableWidth - targetWidth) / 2).coerceAtLeast(0)
-            params.y = topInset + margin + ((availableHeight - targetHeight) / 2).coerceAtLeast(0)
+            params.y = topInset + margin +
+                ((availableHeight - targetHeight) / 2).coerceAtLeast(0)
         } else {
             params.x = (oldCenterX - targetWidth / 2)
                 .coerceIn(0, (metrics.widthPixels - targetWidth).coerceAtLeast(0))
@@ -422,10 +566,13 @@ internal class AgentOFloatingChatHost(
         if (!value) disableInputFocus()
         params.flags = windowFlags(hiddenForCapture, wantsInputFocus)
         runCatching { windowManager?.updateViewLayout(view, params) }
+        if (value) view.post { scheduleSnapshotDispatch(force = true) }
     }
 
     private fun applyCaptureVisibility(hidden: Boolean) {
-        if (hiddenForCapture == hidden && webView?.visibility == if (hidden) View.INVISIBLE else View.VISIBLE) return
+        if (hiddenForCapture == hidden &&
+            webView?.visibility == if (hidden) View.INVISIBLE else View.VISIBLE
+        ) return
         hiddenForCapture = hidden
         val view = webView ?: return
         val params = layoutParams ?: return
@@ -440,11 +587,19 @@ internal class AgentOFloatingChatHost(
     private fun applyRuntimePauseState() {
         val view = webView ?: return
         if (hiddenForCapture) {
-            view.evaluateJavascript("window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.suspend&&window.GuiPlusFloatingChat.suspend();", null)
+            view.evaluateJavascript(
+                "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.suspend&&" +
+                    "window.GuiPlusFloatingChat.suspend();",
+                null,
+            )
             view.onPause()
         } else {
             view.onResume()
-            view.evaluateJavascript("window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.resume&&window.GuiPlusFloatingChat.resume();", null)
+            view.evaluateJavascript(
+                "window.GuiPlusFloatingChat&&window.GuiPlusFloatingChat.resume&&" +
+                    "window.GuiPlusFloatingChat.resume();",
+                null,
+            )
         }
     }
 
@@ -488,19 +643,20 @@ internal class AgentOFloatingChatHost(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         if (!wantsInputFocus) flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         if (hidden) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        // FLAG_BLUR_BEHIND 会让部分 Android / OEM 把整块显示屏作为模糊区域。
-        // 局部玻璃质感只由网页版 glass-shell 自身承担，宿主绝不再开启全屏系统模糊。
         return flags
     }
 
     private fun topWindowInsetPx(): Int {
-        val resourceId = service.resources.getIdentifier("status_bar_height", "dimen", "android")
-        val statusBar = if (resourceId > 0) service.resources.getDimensionPixelSize(resourceId) else dp(24f)
+        val resourceId =
+            service.resources.getIdentifier("status_bar_height", "dimen", "android")
+        val statusBar =
+            if (resourceId > 0) service.resources.getDimensionPixelSize(resourceId) else dp(24f)
         return statusBar + dp(4f)
     }
 
     private fun bottomWindowInsetPx(): Int {
-        val resourceId = service.resources.getIdentifier("navigation_bar_height", "dimen", "android")
+        val resourceId =
+            service.resources.getIdentifier("navigation_bar_height", "dimen", "android")
         return if (resourceId > 0) service.resources.getDimensionPixelSize(resourceId) else 0
     }
 
@@ -517,18 +673,26 @@ internal class AgentOFloatingChatHost(
             val envelope = JSONObject()
                 .put("source", BRIDGE_SOURCE)
                 .put("action", action)
-                .put("payload", runCatching { JSONObject(payload) }.getOrDefault(JSONObject()))
+                .put(
+                    "payload",
+                    runCatching { JSONObject(payload) }.getOrDefault(JSONObject()),
+                )
             mainHandler.post { handleNativeEnvelope(envelope.toString()) }
         }
+
+        @JavascriptInterface
+        fun usesNativeWindowDrag(): Boolean = true
     }
 
     companion object {
-        private const val ASSET_URL = "file:///android_asset/agent_o_floating_chat_runtime.html"
+        private const val ASSET_URL =
+            "file:///android_asset/agent_o_floating_chat_runtime.html"
         private const val NATIVE_BRIDGE_NAME = "GuiPlusNative"
         private const val BRIDGE_SOURCE = "gui-plus-floating-chat"
+
         private const val COLLAPSED_WINDOW_DP = 170f
-        private const val EXPANDED_MAX_WIDTH_DP = 528f
-        private const val EXPANDED_HEIGHT_DP = 430f
-        private const val EXPANDED_SCREEN_MARGIN_DP = 6f
+        private const val EXPANDED_LOGICAL_WIDTH_DP = 560f
+        private const val EXPANDED_LOGICAL_HEIGHT_DP = 720f
+        private const val EXPANDED_SCREEN_MARGIN_DP = 8f
     }
 }
