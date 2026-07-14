@@ -5,108 +5,206 @@
     transitionTimers.clear();
   }
 
-  function scheduleTransition(callback,delay){
-    const timerId=setTimeout(()=>{
-      transitionTimers.delete(timerId);
-      callback();
-    },Math.max(0,delay));
-    transitionTimers.add(timerId);
-    return timerId;
+  let morphState='collapsed';
+  let morphRevision=0;
+  let morphStartedAt=0;
+  let morphMilestone=0;
+
+  function notifyMorphState(state,panelVisible){
+    postChatAction('window.transition',{
+      revision:morphRevision,
+      state,
+      panelVisible:Boolean(panelVisible)
+    });
+  }
+
+  function resetPoseTarget(){
+    Object.assign(poseTarget,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
   }
 
   function setForm(value){
-    if(value===form)return;
+    const targetForm=value===2?2:0;
+    if(targetForm===2&&(morphState==='expanding'||morphState==='expanded'))return;
+    if(targetForm===0&&(morphState==='collapsing'||morphState==='collapsed'))return;
+
     clearTransitionTimers();
     ensureAnimationLoop();
-    const previous=form;
-    form=value;
-    root.dataset.orbOptics='0';
-    const transitionStretch=E.stretch/100;
-    const token=++transitionToken;
+    morphRevision+=1;
+    morphStartedAt=performance.now();
+    morphMilestone=0;
     root.dataset.content='0';
-    if(form>0&&previous===0){
-      pose.x+=offsetX;pose.y+=offsetY;
-      offsetX=0;offsetY=0;offsetDirty=true;applyOffset();
-    }
-    updateSelection();
-    if(previous===0&&form>0){
-      const destinationForm=form;
+    root.dataset.orbOptics='0';
+
+    if(targetForm===2){
+      morphState='expanding';
+      form=2;
+      if(offsetX||offsetY){
+        pose.x+=offsetX;
+        pose.y+=offsetY;
+        offsetX=0;
+        offsetY=0;
+        offsetDirty=true;
+        applyOffset();
+      }
       root.dataset.flight='1';
       root.dataset.phase='shrink';
       targetScale=P.shrinkScale;
-      Object.assign(poseTarget,{x:pose.x+P.retreatX,y:pose.y+P.retreatY,skew:P.retreatSkew,stretchX:P.retreatSX,stretchY:P.retreatSY});
-      scheduleTransition(()=>{
-        if(token!==transitionToken)return;
+      Object.assign(poseTarget,{
+        x:pose.x+P.retreatX,
+        y:pose.y+P.retreatY,
+        skew:P.retreatSkew,
+        stretchX:P.retreatSX,
+        stretchY:P.retreatSY
+      });
+      updateSelection();
+      notifyMorphState('expanding',false);
+      return;
+    }
+
+    morphState='collapsing';
+    form=0;
+    geometryForm=0;
+    root.dataset.form='0';
+    root.dataset.flight='0';
+    root.dataset.phase='settle';
+    targetScale=.99;
+    Object.assign(poseTarget,{
+      x:-3,
+      y:-3,
+      skew:-.8,
+      stretchX:1.012,
+      stretchY:.994
+    });
+    updateSelection();
+    notifyMorphState('collapsing',false);
+  }
+
+  function advanceMorphTimeline(now){
+    const elapsed=now-morphStartedAt;
+    if(morphState==='expanding'){
+      if(morphMilestone<1&&elapsed>=P.launchDelay){
+        morphMilestone=1;
         root.dataset.phase='flight';
         targetScale=P.launchScale;
-        Object.assign(poseTarget,{x:P.launchX,y:P.launchY,skew:P.launchSkew,stretchX:P.launchSX,stretchY:P.launchSY});
-      },P.launchDelay);
-      scheduleTransition(()=>{
-        if(token!==transitionToken)return;
+        Object.assign(poseTarget,{
+          x:P.launchX,
+          y:P.launchY,
+          skew:P.launchSkew,
+          stretchX:P.launchSX,
+          stretchY:P.launchSY
+        });
+      }
+      if(morphMilestone<2&&elapsed>=P.impactDelay){
+        morphMilestone=2;
         root.dataset.phase='impact';
-        postChatAction('window.form',{form:destinationForm});
-        geometryForm=destinationForm;
-        root.dataset.form=String(destinationForm);
+        geometryForm=2;
+        root.dataset.form='2';
         targetScale=P.impactScale;
-        Object.assign(poseTarget,{x:P.impactX,y:0,skew:P.impactSkew,stretchX:P.impactSX,stretchY:P.impactSY});
-      },P.impactDelay);
-      scheduleTransition(()=>{
-        if(token!==transitionToken)return;
+        Object.assign(poseTarget,{
+          x:P.impactX,
+          y:0,
+          skew:P.impactSkew,
+          stretchX:P.impactSX,
+          stretchY:P.impactSY
+        });
+        notifyMorphState('expanding',true);
+      }
+      if(morphMilestone<3&&elapsed>=P.settleDelay){
+        morphMilestone=3;
         root.dataset.flight='0';
         root.dataset.phase='settle';
         targetScale=1;
-        Object.assign(poseTarget,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
-      },P.settleDelay);
-      scheduleTransition(()=>{if(token===transitionToken){root.dataset.content=String(destinationForm);root.dataset.phase='idle';}},P.contentDelay);
+        resetPoseTarget();
+      }
+      if(morphMilestone<4&&elapsed>=P.contentDelay){
+        morphMilestone=4;
+        root.dataset.content='2';
+      }
       return;
     }
-    const opening=form>geometryForm;
-    const anticipation=Math.min(105,morphDuration*.22);
-    targetScale=.975;
-    if(previous===0&&form===1){
-      Object.assign(poseTarget,{x:-7,y:1,skew:-1.8,stretchX:.94,stretchY:1.035});
-    }else if(previous===1&&form===2){
-      root.dataset.phase='panel-press';
-      Object.assign(poseTarget,{x:0,y:P.panelPrepressY,skew:0,stretchX:1+.018*transitionStretch,stretchY:1-.06*transitionStretch});
-    }else if(form<previous){
-      Object.assign(poseTarget,{x:0,y:-3,skew:0,stretchX:1-.025*transitionStretch,stretchY:1+.025*transitionStretch});
+
+    if(morphState==='collapsing'&&morphMilestone<1&&elapsed>=Math.min(110,morphDuration*.34)){
+      morphMilestone=1;
+      root.dataset.phase='idle';
+      targetScale=1;
+      resetPoseTarget();
     }
-    scheduleTransition(()=>{
-      if(token!==transitionToken)return;
-      geometryForm=form;
-      root.dataset.form=String(form);
-      if(form>0)postChatAction('window.form',{form});
-      targetScale=opening?1.012:.99;
-      if(previous===0&&form===1){
-        Object.assign(poseTarget,{x:9,y:0,skew:1.7,stretchX:1.026,stretchY:.985});
-      }else if(previous===1&&form===2){
-        root.dataset.phase='panel-lift';
-        Object.assign(poseTarget,{x:0,y:P.panelLiftY,skew:0,stretchX:1-.008*transitionStretch,stretchY:1+.018*transitionStretch});
-      }else{
-        Object.assign(poseTarget,{x:form===0?-3:0,y:0,skew:form===0?-.8:0,stretchX:1+.012*transitionStretch,stretchY:1-.006*transitionStretch});
-      }
-      if(form===0){
-        scheduleTransition(()=>{
-          if(token===transitionToken)root.dataset.orbOptics='1';
-        },Math.max(140,morphDuration*.55));
-        // 先完整播放网页版的面板→玻璃珠弹簧收束，再缩小 Android 原生窗口。
-        // 这样不会在动画中途被宿主裁切，也保证每次点击减号都能可靠回到珠态。
-        scheduleTransition(()=>{
-          if(token===transitionToken)postChatAction('window.form',{form:0});
-        },Math.max(420,morphDuration*1.15));
-      }
-      scheduleTransition(()=>{
-        if(token!==transitionToken)return;
-        root.dataset.phase='idle';
-        targetScale=1;
-        Object.assign(poseTarget,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
-      },Math.min(165,morphDuration*.34));
-      if(form>0){
-        scheduleTransition(()=>{
-          if(token===transitionToken)root.dataset.content=String(form);
-        },Math.max(175,morphDuration*.64));
-      }
-    },opening?anticipation:0);
+  }
+
+  function snapMorphGeometry(targetForm){
+    const target=updateDesiredGeometry(targetForm);
+    for(const key of geometryKeys){
+      geometry[key]=target[key];
+      velocity[key]=0;
+    }
+    shellScale=1;
+    shellScaleVelocity=0;
+    targetScale=1;
+    Object.assign(pose,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
+    Object.assign(poseVelocity,{x:0,y:0,skew:0,stretchX:0,stretchY:0});
+    resetPoseTarget();
+
+    const widthPx=`${Math.max(1,geometry.width)}px`;
+    const heightPx=`${Math.max(1,geometry.height)}px`;
+    const radiusPx=`${Math.max(0,geometry.topRadius)}px ${Math.max(0,geometry.topRadius)}px ${Math.max(0,geometry.bottomRadius)}px ${Math.max(0,geometry.bottomRadius)}px`;
+    shell.style.width=widthPx;
+    shell.style.height=heightPx;
+    shell.style.borderRadius=radiusPx;
+    if(beadAura){
+      beadAura.style.width=widthPx;
+      beadAura.style.height=heightPx;
+      beadAura.style.borderRadius=radiusPx;
+    }
+    lastWidthPx=widthPx;
+    lastHeightPx=heightPx;
+    lastRadiusPx=radiusPx;
+    setCachedRootVariable('--anchor-y',`${geometry.anchorY}px`);
+    setCachedRootVariable('--shell-scale','1');
+    setCachedRootVariable('--bubble-breath','1');
+    setCachedRootVariable('--choreo-x','0px');
+    setCachedRootVariable('--choreo-y','0px');
+    setCachedRootVariable('--shell-skew','0deg');
+    setCachedRootVariable('--stretch-x','1');
+    setCachedRootVariable('--stretch-y','1');
+  }
+
+  function finishMorphTransitionIfReady(now,perceptuallySettled){
+    const elapsed=now-morphStartedAt;
+    if(morphState==='expanding'){
+      const earliest=Math.max(P.contentDelay,P.settleDelay)+45;
+      const deadline=Math.max(720,morphDuration*2.45);
+      if(elapsed<earliest||(!perceptuallySettled&&elapsed<deadline))return;
+      geometryForm=2;
+      form=2;
+      snapMorphGeometry(2);
+      root.dataset.form='2';
+      root.dataset.content='2';
+      root.dataset.flight='0';
+      root.dataset.phase='idle';
+      opticalForm=1;
+      opticalState=0;
+      morphState='expanded';
+      notifyMorphState('expanded',true);
+      return;
+    }
+
+    if(morphState==='collapsing'){
+      const earliest=Math.max(160,morphDuration*.52);
+      const deadline=Math.max(620,morphDuration*2.15);
+      if(elapsed<earliest||(!perceptuallySettled&&elapsed<deadline))return;
+      geometryForm=0;
+      form=0;
+      snapMorphGeometry(0);
+      root.dataset.form='0';
+      root.dataset.content='0';
+      root.dataset.flight='0';
+      root.dataset.phase='idle';
+      root.dataset.orbOptics='1';
+      opticalForm=0;
+      opticalState=0;
+      morphState='collapsed';
+      notifyMorphState('collapsed',false);
+    }
   }
 
   /*
@@ -115,7 +213,7 @@
    * user intent through GuiPlusNative.postMessage(JSON) or a custom bridge registered with
    * GuiPlusFloatingChat.connect(adapter). This file deliberately performs no network request.
    */
-  const CHAT_BRIDGE_VERSION='1.0.0';
+  const CHAT_BRIDGE_VERSION='1.1.0';
   const CHAT_BRIDGE_SOURCE='gui-plus-floating-chat';
   const chatCopy=root.querySelector('.chat-copy');
   const chatMessageViewport=chatCopy.querySelector('.chat-message-viewport');
@@ -136,7 +234,7 @@
     'workspace.toggle','agent.toggle','online.toggle','memory.open','memory.refresh','memory.manage',
     'skill.open','skill.refresh','skill.manage','skill.run','attachment.pick','attachment.remove','composer.change',
     'chat.send','chat.stop','chat.copy','chat.retry','chat.clear','panel.collapse',
-    'window.ready','window.form','window.dragStart','window.drag','window.dragEnd','composer.focus','composer.blur'
+    'window.ready','window.transition','window.dragStart','window.drag','window.dragEnd','composer.focus','composer.blur'
   ]);
   const chatState={
     schemaVersion:CHAT_BRIDGE_VERSION,
