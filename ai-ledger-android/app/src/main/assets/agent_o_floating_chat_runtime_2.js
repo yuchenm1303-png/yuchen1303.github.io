@@ -1,12 +1,17 @@
 
 
-  function drawOptical(now){
+  function drawOptical(now,delta){
     if(!gl||!opticalProgram||!opticalUniforms)return;
     if(opticalSurfaceDirty)syncOpticalSurface();
     const target=opticalPhaseValues[root.dataset.phase]||0;
     const opticalTarget=geometryForm===0?0:1;
-    opticalState+=(target-opticalState)*.16;
-    opticalForm+=(opticalTarget-opticalForm)*(opticalTarget===0?.16:.08);
+    const stateAlpha=1-Math.exp(-12*Math.max(.001,delta));
+    const formRate=opticalTarget===0?15:9;
+    const formAlpha=1-Math.exp(-formRate*Math.max(.001,delta));
+    opticalState+=(target-opticalState)*stateAlpha;
+    opticalForm+=(opticalTarget-opticalForm)*formAlpha;
+    if(Math.abs(target-opticalState)<.0015)opticalState=target;
+    if(Math.abs(opticalTarget-opticalForm)<.0025)opticalForm=opticalTarget;
     /* V8.4 shader is mathematically transparent above this form threshold. */
     if(opticalForm>=.32){
       if(opticalWasVisible){gl.clear(gl.COLOR_BUFFER_BIT);opticalWasVisible=false;}
@@ -105,21 +110,19 @@
   }
 
   function updateDesiredGeometry(value,target=geometryTarget){
-    // 展开态尺寸、圆角、间距全部恢复为 V8.4 网页原值；原生层只负责把窗口放进安全区。
     const bead=Math.min(ORB_MAX,Math.max(1,stageSize.width-18),Math.max(1,stageSize.height-18));
     const inputHeight=P.capsuleHeight;
     const inputWidth=Math.min(P.capsuleWidth,stageSize.width-34);
     const panelWidth=Math.min(500,stageSize.width-28);
-    const panelHeight=Math.min(stageSize.width<540?Math.max(P.panelHeight,390):P.panelHeight,stageSize.height-30);
+    const panelHeight=Math.min(P.panelHeight,stageSize.height-30);
     if(value===0){
       target.width=bead;target.height=bead;target.topRadius=bead*.5;target.bottomRadius=bead*.5;target.anchorY=0;
     }else if(value===1){
       target.width=inputWidth;target.height=inputHeight;target.topRadius=inputHeight*.5;target.bottomRadius=inputHeight*.5;target.anchorY=0;
     }else{
-      target.width=panelWidth;target.height=panelHeight;target.topRadius=P.panelTopRadius;target.bottomRadius=P.panelBottomRadius;
-      // 网页演示中的负锚点依赖 550px 以上的舞台。原生悬浮窗是紧尺寸窗口，保持面板
-      // 中心对齐才能完整呈现同一套网页版内容，不会把上半部分推出屏幕。
-      target.anchorY=nativeProduction?0:-(panelHeight-inputHeight)*.5;
+      target.width=panelWidth;target.height=panelHeight;
+      target.topRadius=P.panelTopRadius;target.bottomRadius=P.panelBottomRadius;
+      target.anchorY=-(panelHeight-inputHeight)*.5;
     }
     return target;
   }
@@ -130,12 +133,20 @@
     values[key]+=nextVelocity*delta;
   }
 
-  function propertiesSettled(values,velocities,targets,keys,epsilon){
-    for(let index=0;index<keys.length;index++){
-      const key=keys[index];
-      if(Math.abs(values[key]-targets[key])>=epsilon||Math.abs(velocities[key])>=epsilon)return false;
-    }
-    return true;
+  function geometryPerceptuallySettled(target){
+    return Math.abs(geometry.width-target.width)<.12&&Math.abs(velocity.width)<.35&&
+      Math.abs(geometry.height-target.height)<.12&&Math.abs(velocity.height)<.35&&
+      Math.abs(geometry.topRadius-target.topRadius)<.08&&Math.abs(velocity.topRadius)<.25&&
+      Math.abs(geometry.bottomRadius-target.bottomRadius)<.08&&Math.abs(velocity.bottomRadius)<.25&&
+      Math.abs(geometry.anchorY-target.anchorY)<.08&&Math.abs(velocity.anchorY)<.25;
+  }
+
+  function posePerceptuallySettled(){
+    return Math.abs(pose.x-poseTarget.x)<.04&&Math.abs(poseVelocity.x)<.16&&
+      Math.abs(pose.y-poseTarget.y)<.04&&Math.abs(poseVelocity.y)<.16&&
+      Math.abs(pose.skew-poseTarget.skew)<.003&&Math.abs(poseVelocity.skew)<.012&&
+      Math.abs(pose.stretchX-poseTarget.stretchX)<.0005&&Math.abs(poseVelocity.stretchX)<.002&&
+      Math.abs(pose.stretchY-poseTarget.stretchY)<.0005&&Math.abs(poseVelocity.stretchY)<.002;
   }
 
   function ensureAnimationLoop(){
@@ -154,11 +165,12 @@
     animationFrameId=0;
     const delta=Math.min(.032,(now-previousFrame)/1000||.016);
     previousFrame=now;
+    advanceMorphTimeline(now);
     const target=updateDesiredGeometry(geometryForm);
     const speed=360/Math.max(160,morphDuration);
-    const collapsingToOrb=form===0&&geometryForm===0;
-    const geometrySpeed=speed*(collapsingToOrb?.88:1);
-    const collapseDamping=collapsingToOrb?.32:0;
+    const collapsingToOrb=morphState==='collapsing';
+    const geometrySpeed=speed*(collapsingToOrb?.90:1);
+    const collapseDamping=collapsingToOrb?.26:0;
     springProperty(geometry,velocity,'width',target.width,P.widthFrequency*geometrySpeed,P.widthDamping+collapseDamping,delta);
     springProperty(geometry,velocity,'height',target.height,P.heightFrequency*geometrySpeed,P.heightDamping+collapseDamping,delta);
     springProperty(geometry,velocity,'topRadius',target.topRadius,P.topRadiusFrequency*geometrySpeed,P.topRadiusDamping+collapseDamping,delta);
@@ -180,7 +192,7 @@
       Math.sin(now*.00031+1.7)*.27+
       Math.sin(now*.00017+4.2)*.15;
     const livingAmplitude=.002+.00886*Math.min(2,O.idleBreath/54);
-    const bubbleBreath=geometryForm===0 ? 1+livingWave*livingAmplitude : 1;
+    const bubbleBreath=geometryForm===0?1+livingWave*livingAmplitude:1;
     applyOffset();
     setCachedRootVariable('--anchor-y',`${geometry.anchorY}px`);
     setCachedRootVariable('--shell-scale',String(shellScale));
@@ -190,14 +202,15 @@
     setCachedRootVariable('--shell-skew',`${pose.skew}deg`);
     setCachedRootVariable('--stretch-x',String(pose.stretchX));
     setCachedRootVariable('--stretch-y',String(pose.stretchY));
-    drawOptical(now);
-    const epsilon=1e-5;
-    const geometrySettled=propertiesSettled(geometry,velocity,target,geometryKeys,epsilon);
-    const poseSettled=propertiesSettled(pose,poseVelocity,poseTarget,poseKeys,epsilon);
-    const canSleep=form>0&&geometryForm===form&&!dragging&&root.dataset.phase==='idle'&&
-      geometrySettled&&poseSettled&&Math.abs(shellScale-targetScale)<epsilon&&Math.abs(shellScaleVelocity)<epsilon&&
-      Math.abs(opticalForm-(geometryForm===0?0:1))<epsilon&&Math.abs(opticalState)<epsilon;
-    if(!canSleep&&pageActive&&stageInView)animationFrameId=requestAnimationFrame(renderGeometry);
+    drawOptical(now,delta);
+
+    const geometrySettled=geometryPerceptuallySettled(target);
+    const poseSettled=posePerceptuallySettled();
+    const scaleSettled=Math.abs(shellScale-targetScale)<.0005&&Math.abs(shellScaleVelocity)<.004;
+    finishMorphTransitionIfReady(now,geometrySettled&&poseSettled&&scaleSettled);
+
+    const stableExpanded=morphState==='expanded'&&geometrySettled&&poseSettled&&scaleSettled&&opticalForm===1&&opticalState===0;
+    if(!stableExpanded&&pageActive&&stageInView)animationFrameId=requestAnimationFrame(renderGeometry);
   }
 
   function updateSelection(){
