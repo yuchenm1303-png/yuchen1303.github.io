@@ -556,6 +556,7 @@ internal class AgentOFloatingChatHost(
             "collapsing" -> {
                 phase = AgentOWindowPhase.Collapsing
                 disableInputFocus()
+                applyMainWindowState()
                 applyOrbTouchState()
             }
             "collapsed" -> {
