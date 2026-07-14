@@ -45,8 +45,9 @@ private data class AgentORenderSnapshot(
 /**
  * Agent O 普通聊天悬浮窗。
  *
- * WebView 直接运行用户确认的 V8.4 网页视觉；Android 只负责系统窗口、屏幕边界、输入法、
- * 截图隐藏和真实跨应用拖动。无限符号 Agent 仍由 VisualAgentCapsuleHost 独立控制。
+ * WebView 直接运行用户确认的 V8.4 网页视觉；Android 只负责紧边界系统窗口、局部跨窗口
+ * 模糊、屏幕边界、输入法、截图隐藏和真实跨应用拖动。无限符号 Agent 仍由
+ * VisualAgentCapsuleHost 独立控制。
  */
 internal class AgentOFloatingChatHost(
     private val service: AccessibilityService,
@@ -116,7 +117,7 @@ internal class AgentOFloatingChatHost(
         }
         if (!createWindow()) return
         applyCaptureVisibility(snapshot.hiddenForCapture)
-        // 珠态不可见任何聊天内容，不序列化消息，也不跨 JS 桥派发状态。
+        // 珠态不序列化完整聊天记录，不跨 JS 桥派发不可见状态。
         if (expanded) scheduleSnapshotDispatch()
     }
 
@@ -143,7 +144,7 @@ internal class AgentOFloatingChatHost(
             contentDescription = "Agent O 悬浮对话"
             setOnTouchListener { _, event ->
                 handleCollapsedWindowTouch(event)
-                // WebView 仍需收到同一事件流，用于原版珠态形变与点击展开。
+                // WebView 同时接收事件，保留 V8.4 珠态按压和点击展开形变。
                 false
             }
             settings.apply {
@@ -216,6 +217,7 @@ internal class AgentOFloatingChatHost(
                 setFitInsetsTypes(0)
                 setFitInsetsIgnoringVisibility(true)
             }
+            applyLocalBlur(this)
         }
 
         return runCatching { wm.addView(view, params) }
@@ -539,8 +541,8 @@ internal class AgentOFloatingChatHost(
                 availableWidth / logicalWidth.toFloat(),
                 availableHeight / logicalHeight.toFloat(),
             )
-            targetWidth = (logicalWidth * scale).roundToInt().coerceAtLeast(dp(240f))
-            targetHeight = (logicalHeight * scale).roundToInt().coerceAtLeast(dp(309f))
+            targetWidth = (logicalWidth * scale).roundToInt().coerceAtLeast(dp(250f))
+            targetHeight = (logicalHeight * scale).roundToInt().coerceAtLeast(dp(198f))
         } else {
             targetWidth = dp(COLLAPSED_WINDOW_DP)
             targetHeight = dp(COLLAPSED_WINDOW_DP)
@@ -565,6 +567,7 @@ internal class AgentOFloatingChatHost(
         expanded = value
         if (!value) disableInputFocus()
         params.flags = windowFlags(hiddenForCapture, wantsInputFocus)
+        applyLocalBlur(params)
         runCatching { windowManager?.updateViewLayout(view, params) }
         if (value) view.post { scheduleSnapshotDispatch(force = true) }
     }
@@ -577,6 +580,7 @@ internal class AgentOFloatingChatHost(
         val view = webView ?: return
         val params = layoutParams ?: return
         params.flags = windowFlags(hidden, wantsInputFocus && !hidden)
+        applyLocalBlur(params)
         params.alpha = if (hidden) 0f else 1f
         view.alpha = params.alpha
         view.visibility = if (hidden) View.INVISIBLE else View.VISIBLE
@@ -632,6 +636,7 @@ internal class AgentOFloatingChatHost(
         val view = webView ?: return
         val params = layoutParams ?: return
         val next = windowFlags(hiddenForCapture, wantsInputFocus && !hiddenForCapture)
+        applyLocalBlur(params)
         if (params.flags == next) return
         params.flags = next
         runCatching { windowManager?.updateViewLayout(view, params) }
@@ -643,7 +648,19 @@ internal class AgentOFloatingChatHost(
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         if (!wantsInputFocus) flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         if (hidden) flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        if (shouldUseLocalBlur(hidden)) flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
         return flags
+    }
+
+    private fun shouldUseLocalBlur(hidden: Boolean): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && expanded && !hidden
+
+    private fun applyLocalBlur(params: WindowManager.LayoutParams) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            params.setBlurBehindRadius(
+                if (shouldUseLocalBlur(hiddenForCapture)) dp(EXPANDED_BLUR_RADIUS_DP) else 0
+            )
+        }
     }
 
     private fun topWindowInsetPx(): Int {
@@ -691,8 +708,11 @@ internal class AgentOFloatingChatHost(
         private const val BRIDGE_SOURCE = "gui-plus-floating-chat"
 
         private const val COLLAPSED_WINDOW_DP = 170f
-        private const val EXPANDED_LOGICAL_WIDTH_DP = 560f
-        private const val EXPANDED_LOGICAL_HEIGHT_DP = 720f
+        // 560×720 的原始 V8.4 舞台只在紧边界 620×490 窗口内平移缩放；后者正好包住
+        // 500×360 面板及其原始外辉光，不再让系统模糊扩散到整屏。
+        private const val EXPANDED_LOGICAL_WIDTH_DP = 620f
+        private const val EXPANDED_LOGICAL_HEIGHT_DP = 490f
         private const val EXPANDED_SCREEN_MARGIN_DP = 8f
+        private const val EXPANDED_BLUR_RADIUS_DP = 22f
     }
 }
