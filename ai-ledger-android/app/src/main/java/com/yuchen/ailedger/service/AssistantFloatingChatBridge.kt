@@ -48,110 +48,106 @@ object AssistantFloatingChatBridge {
         this.viewModel = viewModel
 
         scope.launch {
-            AgentOFloatingChatController.enabled
-                .distinctUntilChanged()
-                .collectLatest { enabled ->
-                    if (!enabled) {
-                        localComposerEcho = null
-                        mutableState.value = AssistantUiState()
-                        return@collectLatest
-                    }
-
-                    var lastMessagesSource: List<ChatMessage>? = null
-                    var lastMessagesSize = -1
-                    var lastMessageTail: ChatMessage? = null
-                    var stableMessages: List<ChatMessage> = emptyList()
-
-                    var lastAttachmentsSource: List<ComposerAttachment>? = null
-                    var lastAttachmentsSize = -1
-                    var lastAttachmentTail: ComposerAttachment? = null
-                    var stableAttachments: List<ComposerAttachment> = emptyList()
-
-                    snapshotFlow {
-                        val source = viewModel.uiState
-
-                        val messagesSource = source.messages
-                        val messageTail = messagesSource.lastOrNull()
-                        val messages = if (
-                            messagesSource === lastMessagesSource &&
-                            messagesSource.size == lastMessagesSize &&
-                            messageTail === lastMessageTail
-                        ) {
-                            stableMessages
-                        } else {
-                            messagesSource.toList().also {
-                                lastMessagesSource = messagesSource
-                                lastMessagesSize = messagesSource.size
-                                lastMessageTail = messageTail
-                                stableMessages = it
-                            }
-                        }
-
-                        val attachmentsSource = source.composerAttachments
-                        val attachmentTail = attachmentsSource.lastOrNull()
-                        val attachments = if (
-                            attachmentsSource === lastAttachmentsSource &&
-                            attachmentsSource.size == lastAttachmentsSize &&
-                            attachmentTail === lastAttachmentTail
-                        ) {
-                            stableAttachments
-                        } else {
-                            attachmentsSource.toList().also {
-                                lastAttachmentsSource = attachmentsSource
-                                lastAttachmentsSize = attachmentsSource.size
-                                lastAttachmentTail = attachmentTail
-                                stableAttachments = it
-                            }
-                        }
-
-                        val previous = mutableState.value
-                        val otherStateChanged = previous.messages !== messages ||
-                            previous.composerAttachments !== attachments ||
-                            previous.selectedModel != source.selectedModel ||
-                            previous.selectedModelLabel != source.selectedModelLabel ||
-                            previous.onlineEnabled != source.onlineEnabled ||
-                            previous.isSending != source.isSending
-                        val composerEcho = localComposerEcho
-                        val composerText = if (
-                            composerEcho != null &&
-                            source.composerText == composerEcho &&
-                            !otherStateChanged
-                        ) {
-                            previous.composerText
-                        } else {
-                            if (composerEcho != null) localComposerEcho = null
-                            source.composerText
-                        }
-
-                        AssistantUiState(
-                            messages = messages,
-                            composerText = composerText,
-                            composerAttachments = attachments,
-                            selectedModel = source.selectedModel,
-                            selectedModelLabel = source.selectedModelLabel,
-                            onlineEnabled = source.onlineEnabled,
-                            isSending = source.isSending,
-                        )
-                    }
-                        .distinctUntilChanged()
-                        .collect { mutableState.value = it }
+            AgentOFloatingChatController.enabled.collectLatest { enabled ->
+                if (!enabled) {
+                    localComposerEcho = null
+                    mutableState.value = AssistantUiState()
+                    return@collectLatest
                 }
+
+                var lastMessagesSource: List<ChatMessage>? = null
+                var lastMessagesSize = -1
+                var lastMessageTail: ChatMessage? = null
+                var stableMessages: List<ChatMessage> = emptyList()
+
+                var lastAttachmentsSource: List<ComposerAttachment>? = null
+                var lastAttachmentsSize = -1
+                var lastAttachmentTail: ComposerAttachment? = null
+                var stableAttachments: List<ComposerAttachment> = emptyList()
+
+                snapshotFlow {
+                    val source = viewModel.uiState
+
+                    val messagesSource = source.messages
+                    val messageTail = messagesSource.lastOrNull()
+                    val messages = if (
+                        messagesSource === lastMessagesSource &&
+                        messagesSource.size == lastMessagesSize &&
+                        messageTail === lastMessageTail
+                    ) {
+                        stableMessages
+                    } else {
+                        messagesSource.toList().also {
+                            lastMessagesSource = messagesSource
+                            lastMessagesSize = messagesSource.size
+                            lastMessageTail = messageTail
+                            stableMessages = it
+                        }
+                    }
+
+                    val attachmentsSource = source.composerAttachments
+                    val attachmentTail = attachmentsSource.lastOrNull()
+                    val attachments = if (
+                        attachmentsSource === lastAttachmentsSource &&
+                        attachmentsSource.size == lastAttachmentsSize &&
+                        attachmentTail === lastAttachmentTail
+                    ) {
+                        stableAttachments
+                    } else {
+                        attachmentsSource.toList().also {
+                            lastAttachmentsSource = attachmentsSource
+                            lastAttachmentsSize = attachmentsSource.size
+                            lastAttachmentTail = attachmentTail
+                            stableAttachments = it
+                        }
+                    }
+
+                    val previous = mutableState.value
+                    val otherStateChanged = previous.messages !== messages ||
+                        previous.composerAttachments !== attachments ||
+                        previous.selectedModel != source.selectedModel ||
+                        previous.selectedModelLabel != source.selectedModelLabel ||
+                        previous.onlineEnabled != source.onlineEnabled ||
+                        previous.isSending != source.isSending
+                    val composerEcho = localComposerEcho
+                    val composerText = if (
+                        composerEcho != null &&
+                        source.composerText == composerEcho &&
+                        !otherStateChanged
+                    ) {
+                        previous.composerText
+                    } else {
+                        if (composerEcho != null) localComposerEcho = null
+                        source.composerText
+                    }
+
+                    AssistantUiState(
+                        messages = messages,
+                        composerText = composerText,
+                        composerAttachments = attachments,
+                        selectedModel = source.selectedModel,
+                        selectedModelLabel = source.selectedModelLabel,
+                        onlineEnabled = source.onlineEnabled,
+                        isSending = source.isSending,
+                    )
+                }
+                    .distinctUntilChanged()
+                    .collect { mutableState.value = it }
+            }
         }
 
         scope.launch {
-            AgentOFloatingChatController.enabled
-                .distinctUntilChanged()
-                .collect { enabled ->
-                    if (enabled && !AiAgentAccessibilityService.isConnected()) {
-                        // 保留开启请求。用户在系统设置中启用无障碍后，Service 连接会直接启动
-                        // Agent O 浮窗，不要求回到首页再次点击开关。
-                        AgentAccessibilityGuideActivity.open(appContext)
-                        viewModel.appendAssistantNotice(
-                            text = "Agent O 悬浮对话需要先开启无障碍服务。授权完成后会自动显示，不需要普通悬浮窗权限。",
-                            source = "local_agent",
-                        )
-                    }
+            AgentOFloatingChatController.enabled.collect { enabled ->
+                if (enabled && !AiAgentAccessibilityService.isConnected()) {
+                    // 保留开启请求。用户在系统设置中启用无障碍后，Service 连接会直接启动
+                    // Agent O 浮窗，不要求回到首页再次点击开关。
+                    AgentAccessibilityGuideActivity.open(appContext)
+                    viewModel.appendAssistantNotice(
+                        text = "Agent O 悬浮对话需要先开启无障碍服务。授权完成后会自动显示，不需要普通悬浮窗权限。",
+                        source = "local_agent",
+                    )
                 }
+            }
         }
     }
 
