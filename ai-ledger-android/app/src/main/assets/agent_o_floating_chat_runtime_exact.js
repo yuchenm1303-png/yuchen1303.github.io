@@ -122,27 +122,19 @@ renderGeometry=function(now){
 /* Android 生产态不广播 iframe / CustomEvent 预览副本，用户意图只经过唯一原生桥。 */
 if(nativeProduction){
   postChatAction=function(action,payload={}){
-    const envelope={
-      source:CHAT_BRIDGE_SOURCE,
-      version:CHAT_BRIDGE_VERSION,
-      type:'action',
-      id:`web-${Date.now()}-${++actionSequence}`,
-      action,
-      payload,
-      timestamp:Date.now()
-    };
     let delivered=false;
     try{
       if(chatBridgeAdapter){
+        const envelope={source:CHAT_BRIDGE_SOURCE,action,payload};
         if(typeof chatBridgeAdapter==='function')chatBridgeAdapter(envelope);
         else if(typeof chatBridgeAdapter.postMessage==='function')chatBridgeAdapter.postMessage(envelope);
         else if(typeof chatBridgeAdapter.dispatch==='function')chatBridgeAdapter.dispatch(envelope);
         delivered=true;
-      }else if(window.GuiPlusNative&&typeof window.GuiPlusNative.postMessage==='function'){
-        window.GuiPlusNative.postMessage(JSON.stringify(envelope));
-        delivered=true;
       }else if(window.GuiPlusNative&&typeof window.GuiPlusNative.dispatch==='function'){
         window.GuiPlusNative.dispatch(action,JSON.stringify(payload));
+        delivered=true;
+      }else if(window.GuiPlusNative&&typeof window.GuiPlusNative.postMessage==='function'){
+        window.GuiPlusNative.postMessage(JSON.stringify({source:CHAT_BRIDGE_SOURCE,action,payload}));
         delivered=true;
       }
     }catch(error){
