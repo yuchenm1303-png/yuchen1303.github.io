@@ -1,6 +1,9 @@
 /*
- * V8.4 原版接入适配层：Android 固定承载 620×490 逻辑窗口，网页始终运行原始
- * 560×720 设计舞台和 500×360 面板。这里只整体等比缩放舞台，不修改内部视觉参数。
+ * V8.4 Android 生产接入层。
+ *
+ * 固定 620×490 逻辑窗口与原始 560×720 舞台，展开/折叠不修改 viewport，避免 WebGL
+ * Surface 重建。生产态只保留原生桥所需路径，并在稳定珠态跳过已经收敛的弹簧与几何写入；
+ * WebGL 光场、呼吸、色相和全部视觉参数保持原值。
  */
 window.__agentONativeWindowDrag=Boolean(
   window.GuiPlusNative&&
@@ -29,9 +32,7 @@ function scheduleAgentONativeStageScale(){
   agentONativeStageResizeFrame=requestAnimationFrame(updateAgentONativeStageScale);
 }
 
-/*
- * 继续直接使用 V8.4 原始几何：面板 500×360、圆角、负锚点与弹簧路径均不改。
- */
+/* 继续直接使用 V8.4 原始几何，不改变面板、圆角、锚点和弹簧路径。 */
 updateDesiredGeometry=function(value,target=geometryTarget){
   const bead=nativeProduction
     ? Math.min(ORB_MAX,Math.max(1,stageSize.width-18),Math.max(1,stageSize.height-18))
@@ -51,6 +52,106 @@ updateDesiredGeometry=function(value,target=geometryTarget){
   }
   return target;
 };
+
+/*
+ * 稳定珠态仍逐帧绘制完全相同的 WebGL 活体光场，但不再重复积分已经收敛的 11 个弹簧量，
+ * 也不再重复构造宽高、圆角和静态 transform 字符串。交互、变形与展开阶段自动恢复完整路径。
+ */
+renderGeometry=function(now){
+  animationFrameId=0;
+  const delta=Math.min(.032,(now-previousFrame)/1000||.016);
+  previousFrame=now;
+  advanceMorphTimeline(now);
+
+  const target=updateDesiredGeometry(geometryForm);
+  const settledBefore=geometryPerceptuallySettled(target)&&
+    posePerceptuallySettled()&&
+    Math.abs(shellScale-targetScale)<.0005&&Math.abs(shellScaleVelocity)<.004;
+  const stableCollapsed=morphState==='collapsed'&&settledBefore;
+
+  if(!stableCollapsed){
+    const speed=360/Math.max(160,morphDuration);
+    const collapsingToOrb=morphState==='collapsing';
+    const geometrySpeed=speed*(collapsingToOrb?.90:1);
+    const collapseDamping=collapsingToOrb?.26:0;
+    springProperty(geometry,velocity,'width',target.width,P.widthFrequency*geometrySpeed,P.widthDamping+collapseDamping,delta);
+    springProperty(geometry,velocity,'height',target.height,P.heightFrequency*geometrySpeed,P.heightDamping+collapseDamping,delta);
+    springProperty(geometry,velocity,'topRadius',target.topRadius,P.topRadiusFrequency*geometrySpeed,P.topRadiusDamping+collapseDamping,delta);
+    springProperty(geometry,velocity,'bottomRadius',target.bottomRadius,P.bottomRadiusFrequency*geometrySpeed,P.bottomRadiusDamping+collapseDamping,delta);
+    springProperty(geometry,velocity,'anchorY',target.anchorY,P.anchorFrequency*geometrySpeed,P.anchorDamping+collapseDamping,delta);
+    shellScaleVelocity+=(P.scaleFrequency*P.scaleFrequency*speed*speed*(targetScale-shellScale)-2*P.scaleDamping*P.scaleFrequency*speed*shellScaleVelocity)*delta;
+    shellScale+=shellScaleVelocity*delta;
+    for(const key of poseKeys){
+      springProperty(pose,poseVelocity,key,poseTarget[key],P.poseFrequency*speed,P.poseDamping,delta);
+    }
+
+    const widthPx=`${Math.max(1,geometry.width)}px`;
+    const heightPx=`${Math.max(1,geometry.height)}px`;
+    const radiusPx=`${Math.max(0,geometry.topRadius)}px ${Math.max(0,geometry.topRadius)}px ${Math.max(0,geometry.bottomRadius)}px ${Math.max(0,geometry.bottomRadius)}px`;
+    if(widthPx!==lastWidthPx){shell.style.width=widthPx;if(beadAura)beadAura.style.width=widthPx;lastWidthPx=widthPx;}
+    if(heightPx!==lastHeightPx){shell.style.height=heightPx;if(beadAura)beadAura.style.height=heightPx;lastHeightPx=heightPx;}
+    if(radiusPx!==lastRadiusPx){shell.style.borderRadius=radiusPx;if(beadAura)beadAura.style.borderRadius=radiusPx;lastRadiusPx=radiusPx;}
+  }
+
+  const livingWave=
+    Math.sin(now*.00069)*.58+
+    Math.sin(now*.00031+1.7)*.27+
+    Math.sin(now*.00017+4.2)*.15;
+  const livingAmplitude=.002+.00886*Math.min(2,O.idleBreath/54);
+  const bubbleBreath=geometryForm===0?1+livingWave*livingAmplitude:1;
+  applyOffset();
+  setCachedRootVariable('--anchor-y',`${geometry.anchorY}px`);
+  setCachedRootVariable('--shell-scale',String(shellScale));
+  setCachedRootVariable('--bubble-breath',String(bubbleBreath));
+  setCachedRootVariable('--choreo-x',`${pose.x}px`);
+  setCachedRootVariable('--choreo-y',`${pose.y}px`);
+  setCachedRootVariable('--shell-skew',`${pose.skew}deg`);
+  setCachedRootVariable('--stretch-x',String(pose.stretchX));
+  setCachedRootVariable('--stretch-y',String(pose.stretchY));
+  drawOptical(now,delta);
+
+  const geometrySettled=stableCollapsed||geometryPerceptuallySettled(target);
+  const poseSettled=stableCollapsed||posePerceptuallySettled();
+  const scaleSettled=stableCollapsed||Math.abs(shellScale-targetScale)<.0005&&Math.abs(shellScaleVelocity)<.004;
+  finishMorphTransitionIfReady(now,geometrySettled&&poseSettled&&scaleSettled);
+
+  const stableExpanded=morphState==='expanded'&&geometrySettled&&poseSettled&&scaleSettled&&opticalForm===1&&opticalState===0;
+  if(!stableExpanded&&pageActive&&stageInView)animationFrameId=requestAnimationFrame(renderGeometry);
+};
+
+/* Android 生产态不广播 iframe / CustomEvent 预览副本，用户意图只经过唯一原生桥。 */
+if(nativeProduction){
+  postChatAction=function(action,payload={}){
+    const envelope={
+      source:CHAT_BRIDGE_SOURCE,
+      version:CHAT_BRIDGE_VERSION,
+      type:'action',
+      id:`web-${Date.now()}-${++actionSequence}`,
+      action,
+      payload,
+      timestamp:Date.now()
+    };
+    let delivered=false;
+    try{
+      if(chatBridgeAdapter){
+        if(typeof chatBridgeAdapter==='function')chatBridgeAdapter(envelope);
+        else if(typeof chatBridgeAdapter.postMessage==='function')chatBridgeAdapter.postMessage(envelope);
+        else if(typeof chatBridgeAdapter.dispatch==='function')chatBridgeAdapter.dispatch(envelope);
+        delivered=true;
+      }else if(window.GuiPlusNative&&typeof window.GuiPlusNative.postMessage==='function'){
+        window.GuiPlusNative.postMessage(JSON.stringify(envelope));
+        delivered=true;
+      }else if(window.GuiPlusNative&&typeof window.GuiPlusNative.dispatch==='function'){
+        window.GuiPlusNative.dispatch(action,JSON.stringify(payload));
+        delivered=true;
+      }
+    }catch(error){
+      showChatToast('原生桥暂时不可用');
+    }
+    if(delivered!==chatState.bridgeConnected){chatState.bridgeConnected=delivered;renderBridgeStatus();}
+    return delivered;
+  };
+}
 
 updateAgentONativeStageScale();
 window.addEventListener('resize',scheduleAgentONativeStageScale,{passive:true});
