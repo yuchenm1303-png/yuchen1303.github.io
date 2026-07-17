@@ -26,7 +26,9 @@ function sameAgentOAttachment(raw,current){
   if(!raw||!current)return false;
   return String(raw.id||'')===String(current.id||'')&&
     String(raw.fileName||raw.name||'视觉附件')===String(current.fileName||'视觉附件')&&
-    String(raw.mimeType||'')===String(current.mimeType||'');
+    String(raw.mimeType||'')===String(current.mimeType||'')&&
+    String(raw.status||'')===String(current.status||'')&&
+    String(raw.statusLabel||'')===String(current.statusLabel||'');
 }
 
 function sameAgentOStructuredData(raw,current){
