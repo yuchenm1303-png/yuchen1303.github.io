@@ -53,15 +53,15 @@
     proxyFadeAnimation=null;
   }
 
-  function commitCompositeAnimation(){
+  function commitCompositeAnimation(finalTransform,finalRadius){
+    // 先把终点写入内联样式，再取消 fill 动画；旧版 WebView 无 commitStyles 也不会跳回起点。
+    proxy.style.transform=finalTransform;
+    proxy.style.borderRadius=finalRadius;
     const animation=compositeAnimation;
     compositeAnimation=null;
     if(!animation)return;
     animation.onfinish=null;
     animation.oncancel=null;
-    try{
-      if(typeof animation.commitStyles==='function')animation.commitStyles();
-    }catch(error){/* WebView 旧版本不支持 commitStyles 时保留当前内联终点。 */}
     animation.cancel();
   }
 
@@ -141,7 +141,10 @@
 
   function finishExpansion(serial){
     if(serial!==transitionSerial||compositeTargetForm!==2)return;
-    commitCompositeAnimation();
+    const panel=updateDesiredGeometry(2,{});
+    const finalTransform=transformFor(0,0,1,1);
+    const finalRadius=`${panel.topRadius}px ${panel.topRadius}px ${panel.bottomRadius}px ${panel.bottomRadius}px`;
+    commitCompositeAnimation(finalTransform,finalRadius);
     snapStableState(2);
     compositeActive=false;
     notifyMorphState('expanded',true);
@@ -150,7 +153,10 @@
 
   function finishCollapse(serial){
     if(serial!==transitionSerial||compositeTargetForm!==0)return;
-    commitCompositeAnimation();
+    const bead=updateDesiredGeometry(0,{});
+    const panel=updateDesiredGeometry(2,{});
+    const finalTransform=transformFor(0,-panel.anchorY,bead.width/panel.width,bead.height/panel.height);
+    commitCompositeAnimation(finalTransform,'50%');
     snapStableState(0);
     compositeActive=false;
     notifyMorphState('collapsed',false);
