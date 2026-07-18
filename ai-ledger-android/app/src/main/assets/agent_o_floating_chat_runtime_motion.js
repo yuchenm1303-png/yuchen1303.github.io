@@ -59,6 +59,7 @@
     panelDragBudgetHeld=false;
     orbDragBudgetHeld=false;
     root.dataset.motionBudget='active';
+    root.dataset.windowDragging='false';
   };
 
   setForm=function(value){
