@@ -24,29 +24,106 @@
 }
 
 /*
- * 几何过渡和整窗拖动期间，冻结与交互无关的独立色相/边缘流动循环，把合成预算留给
- * 玻璃真实尺寸、圆角和 WindowManager 位移。动画暂停后从原进度继续，不改变光效参数。
+ * 几何过渡已由独立合成代理层接管。过渡和拖动期间暂停无关的色相、边缘流和珠态光晕
+ * CSS 循环；参数与稳定态视觉不变，结束后从原进度继续。
  */
-#glass-blur-motion-lab-v2[data-phase="shrink"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="flight"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="impact"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="settle"] .blur-stage,
+#glass-blur-motion-lab-v2[data-composite-active="true"] .blur-stage,
+#glass-blur-motion-lab-v2[data-composite-active="true"] .bead-aura,
+#glass-blur-motion-lab-v2[data-composite-active="true"] .glass-shell::before,
 #glass-blur-motion-lab-v2[data-window-dragging="true"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="shrink"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-phase="flight"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-phase="impact"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-phase="settle"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell::before {
+#glass-blur-motion-lab-v2[data-window-dragging="true"] .bead-aura,
+#glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell::before,
+#glass-blur-motion-lab-v2[data-dragging="true"] .blur-stage,
+#glass-blur-motion-lab-v2[data-dragging="true"] .bead-aura {
   animation-play-state: paused !important;
 }
 
-#glass-blur-motion-lab-v2[data-phase="shrink"] .glass-shell,
-#glass-blur-motion-lab-v2[data-phase="flight"] .glass-shell,
-#glass-blur-motion-lab-v2[data-phase="impact"] .glass-shell,
-#glass-blur-motion-lab-v2[data-phase="settle"] .glass-shell,
-#glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell {
-  will-change: width, height, border-radius, transform;
+#glass-blur-motion-lab-v2[data-composite-active="true"] .glass-shell,
+#glass-blur-motion-lab-v2[data-composite-active="true"] .bead-aura {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+#glass-blur-motion-lab-v2[data-composite-active="true"] .flight-echo {
+  display: none !important;
+}
+
+/*
+ * 展开/收回代理层只有固定背景、固定边缘和合成 transform，不包含聊天 DOM、WebGL、
+ * backdrop-filter 或动态布局。其形状变化只影响这一张轻量图层。
+ */
+#glass-blur-motion-lab-v2 .composite-transition-shell {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 8;
+  width: 500px;
+  height: 360px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 1;
+  transform: translate(-50%, -50%) translate3d(0, 0, 0) scale3d(1, 1, 1);
+  transform-origin: center center;
+  contain: layout paint style;
   backface-visibility: hidden;
+  will-change: transform, opacity;
+  background:
+    radial-gradient(circle at 74% 18%, rgba(234, 200, 255, .16), transparent 32%),
+    radial-gradient(circle at 20% 74%, rgba(91, 226, 255, .12), transparent 38%),
+    linear-gradient(145deg, rgba(12, 22, 42, .91), rgba(3, 10, 24, .94) 58%, rgba(21, 8, 34, .91));
+  box-shadow:
+    0 0 48px 3px rgba(177, 112, 255, .34),
+    0 0 30px 1px rgba(86, 225, 255, .25),
+    0 0 18px 0 rgba(255, 130, 210, .20),
+    inset 0 0 0 1px rgba(238, 249, 255, .10),
+    inset 18px 22px 52px rgba(105, 184, 255, .035),
+    inset -16px -20px 48px rgba(236, 119, 255, .035);
+}
+
+#glass-blur-motion-lab-v2 .composite-transition-shell[hidden] {
+  display: none !important;
+}
+
+#glass-blur-motion-lab-v2 .composite-transition-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: var(--edge-thickness);
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    rgba(87, 222, 255, .98) 0%,
+    rgba(229, 251, 255, 1) 16%,
+    rgba(205, 133, 255, .99) 36%,
+    rgba(255, 121, 211, .99) 58%,
+    rgba(255, 221, 148, .99) 78%,
+    rgba(111, 230, 255, .98) 100%
+  );
+  background-size: 230% 100%;
+  background-position: 48% 50%;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  filter:
+    brightness(var(--edge-brightness))
+    saturate(var(--edge-flow-saturation))
+    drop-shadow(0 0 5px rgba(221, 178, 255, .72))
+    drop-shadow(0 0 9px rgba(94, 222, 255, .44));
+}
+
+#glass-blur-motion-lab-v2 .composite-transition-shell::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(118deg, rgba(255,255,255,.10), transparent 18% 72%, rgba(205,145,255,.08)),
+    radial-gradient(circle at 68% 22%, rgba(255,255,255,.09), transparent 28%);
+  mix-blend-mode: screen;
+  opacity: .72;
 }
 
 /* 手机端只等比缩放整张 V8.4 舞台，撤销窄屏对内部控件的二次重排。 */
