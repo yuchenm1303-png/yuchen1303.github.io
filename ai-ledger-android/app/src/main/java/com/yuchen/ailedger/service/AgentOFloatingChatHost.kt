@@ -50,6 +50,13 @@ private data class AgentOFixedFrame(
     val safeY: Int,
 )
 
+private data class AgentOVisibleBounds(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int,
+)
+
 private enum class AgentOWindowPhase {
     Collapsed,
     Expanding,
@@ -685,18 +692,17 @@ internal class AgentOFloatingChatHost(
     }
 
     private fun scheduleExpandedDrag(x: Int, y: Int) {
-        val params = layoutParams ?: return
+        val frame = fixedFrame ?: return
         val metrics = service.resources.displayMetrics
         val margin = dp(EXPANDED_SCREEN_MARGIN_DP)
-        pendingDragX = x.coerceIn(
-            margin,
-            (metrics.widthPixels - margin - params.width).coerceAtLeast(margin),
-        )
-        pendingDragY = y.coerceIn(
-            topWindowInsetPx() + margin,
-            (metrics.heightPixels - bottomWindowInsetPx() - margin - params.height)
-                .coerceAtLeast(topWindowInsetPx() + margin),
-        )
+        val panel = expandedPanelBoundsPx(frame)
+        val minX = margin - panel.left
+        val maxX = metrics.widthPixels - margin - panel.right
+        val minY = topWindowInsetPx() + margin - panel.top
+        val maxY = metrics.heightPixels - bottomWindowInsetPx() - margin - panel.bottom
+
+        pendingDragX = if (minX <= maxX) x.coerceIn(minX, maxX) else (minX + maxX) / 2
+        pendingDragY = if (minY <= maxY) y.coerceIn(minY, maxY) else (minY + maxY) / 2
         scheduleDragFrame()
     }
 
@@ -760,6 +766,20 @@ internal class AgentOFloatingChatHost(
 
     private fun orbCenterYPx(frame: AgentOFixedFrame): Int =
         (dp(ORB_CENTER_Y_LOGICAL_DP) * frame.scale).roundToInt()
+
+    private fun expandedPanelBoundsPx(frame: AgentOFixedFrame): AgentOVisibleBounds {
+        val panelWidth = (EXPANDED_PANEL_WIDTH_LOGICAL_DP * density * frame.scale).roundToInt()
+        val panelHeight = (EXPANDED_PANEL_HEIGHT_LOGICAL_DP * density * frame.scale).roundToInt()
+        val left = ((frame.width - panelWidth) / 2).coerceAtLeast(0)
+        val top = (EXPANDED_PANEL_TOP_LOGICAL_DP * density * frame.scale).roundToInt()
+            .coerceAtLeast(0)
+        return AgentOVisibleBounds(
+            left = left,
+            top = top,
+            right = left + panelWidth,
+            bottom = top + panelHeight,
+        )
+    }
 
     private fun updateOrbTouchCoordinates(
         touchParams: WindowManager.LayoutParams,
@@ -866,6 +886,7 @@ internal class AgentOFloatingChatHost(
     private fun mainWindowFlags(): Int {
         var flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         val touchable = phase == AgentOWindowPhase.Expanded && !hiddenForCapture
         val focusable = touchable && wantsInputFocus
@@ -878,6 +899,7 @@ internal class AgentOFloatingChatHost(
         var flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
         if (phase != AgentOWindowPhase.Collapsed || hiddenForCapture) {
             flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -933,6 +955,11 @@ internal class AgentOFloatingChatHost(
         private const val FIXED_LOGICAL_HEIGHT_DP = 490f
         private const val EXPANDED_SCREEN_MARGIN_DP = 8f
         private const val COLLAPSED_SCREEN_MARGIN_DP = 8f
+
+        // V8.4 固定舞台内的真实可见面板为 500×360，顶部位于 71；边界按面板而非透明舞台计算。
+        private const val EXPANDED_PANEL_WIDTH_LOGICAL_DP = 500f
+        private const val EXPANDED_PANEL_HEIGHT_LOGICAL_DP = 360f
+        private const val EXPANDED_PANEL_TOP_LOGICAL_DP = 71f
 
         // V8.4 原舞台坐标：固定舞台顶部偏移 30，珠态中心位于 720 高舞台的中线。
         private const val ORB_CENTER_Y_LOGICAL_DP = 390f
