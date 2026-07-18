@@ -38,15 +38,31 @@
     if(compositeAnimation){
       compositeAnimation.onfinish=null;
       compositeAnimation.oncancel=null;
-      compositeAnimation.cancel();
-      compositeAnimation=null;
     }
     if(proxyFadeAnimation){
       proxyFadeAnimation.onfinish=null;
       proxyFadeAnimation.oncancel=null;
-      proxyFadeAnimation.cancel();
-      proxyFadeAnimation=null;
     }
+    if(typeof proxy.getAnimations==='function'){
+      proxy.getAnimations().forEach(animation=>animation.cancel());
+    }else{
+      if(compositeAnimation)compositeAnimation.cancel();
+      if(proxyFadeAnimation)proxyFadeAnimation.cancel();
+    }
+    compositeAnimation=null;
+    proxyFadeAnimation=null;
+  }
+
+  function commitCompositeAnimation(){
+    const animation=compositeAnimation;
+    compositeAnimation=null;
+    if(!animation)return;
+    animation.onfinish=null;
+    animation.oncancel=null;
+    try{
+      if(typeof animation.commitStyles==='function')animation.commitStyles();
+    }catch(error){/* WebView 旧版本不支持 commitStyles 时保留当前内联终点。 */}
+    animation.cancel();
   }
 
   function configureProxy(panel){
@@ -57,8 +73,7 @@
     proxy.style.opacity='1';
   }
 
-  function hideProxy(){
-    cancelProxyAnimations();
+  function resetProxyStyles(){
     proxy.hidden=true;
     proxy.style.removeProperty('transform');
     proxy.style.removeProperty('border-radius');
@@ -70,24 +85,29 @@
 
   function revealStableLayer(onComplete){
     root.dataset.compositeActive='false';
+    if(typeof proxy.animate!=='function'){
+      resetProxyStyles();
+      if(onComplete)onComplete();
+      return;
+    }
     proxyFadeAnimation=proxy.animate(
       [{opacity:1},{opacity:0}],
       {duration:72,easing:'linear',fill:'forwards'}
     );
     proxyFadeAnimation.onfinish=()=>{
+      const animation=proxyFadeAnimation;
       proxyFadeAnimation=null;
-      proxy.hidden=true;
-      proxy.style.removeProperty('opacity');
-      proxy.style.removeProperty('transform');
-      proxy.style.removeProperty('border-radius');
-      proxy.style.removeProperty('width');
-      proxy.style.removeProperty('height');
-      proxy.style.removeProperty('top');
+      if(animation){
+        animation.onfinish=null;
+        animation.oncancel=null;
+        animation.cancel();
+      }
+      resetProxyStyles();
       if(onComplete)onComplete();
     };
     proxyFadeAnimation.oncancel=()=>{
       proxyFadeAnimation=null;
-      proxy.hidden=true;
+      resetProxyStyles();
       if(onComplete)onComplete();
     };
   }
@@ -121,7 +141,7 @@
 
   function finishExpansion(serial){
     if(serial!==transitionSerial||compositeTargetForm!==2)return;
-    compositeAnimation=null;
+    commitCompositeAnimation();
     snapStableState(2);
     compositeActive=false;
     notifyMorphState('expanded',true);
@@ -130,7 +150,7 @@
 
   function finishCollapse(serial){
     if(serial!==transitionSerial||compositeTargetForm!==0)return;
-    compositeAnimation=null;
+    commitCompositeAnimation();
     snapStableState(0);
     compositeActive=false;
     notifyMorphState('collapsed',false);
@@ -329,7 +349,7 @@
     snapStableState(target);
     compositeActive=false;
     root.dataset.compositeActive='false';
-    proxy.hidden=true;
+    resetProxyStyles();
     if(target===2)notifyMorphState('expanded',true);
     else{
       notifyMorphState('collapsed',false);
