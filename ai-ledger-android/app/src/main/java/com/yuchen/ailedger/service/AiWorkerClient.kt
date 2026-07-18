@@ -155,7 +155,11 @@ class AiWorkerClient(
                 try {
                     val rawResponse = transport.postChat(candidate, payload, route)
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
-                    val completedResponse = completeClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
+                    val completedResponse = completeClientToolCallIfNeeded(
+                        response = rawResponse,
+                        modelPreference = modelPreference,
+                        onDelta = null,
+                    ) ?: rawResponse
                     return rememberVisualClientToolCall(completedResponse)
                 } catch (error: IOException) {
                     lastError = error
@@ -224,7 +228,11 @@ class AiWorkerClient(
                         onDelta = onDelta,
                     )
                     AssistantMemoryUsageBridge.recordSuccessfulPayload(payload)
-                    val completedResponse = completeClientToolCallIfNeeded(rawResponse, modelPreference) ?: rawResponse
+                    val completedResponse = completeClientToolCallIfNeeded(
+                        response = rawResponse,
+                        modelPreference = modelPreference,
+                        onDelta = onDelta,
+                    ) ?: rawResponse
                     return rememberVisualClientToolCall(completedResponse)
                 } catch (error: IOException) {
                     lastError = error
@@ -346,43 +354,47 @@ class AiWorkerClient(
     private fun completeClientToolCallIfNeeded(
         response: AiChatResponse,
         modelPreference: ChatModel,
+        onDelta: ((String) -> Unit)?,
     ): AiChatResponse? {
-        return completeProjectClientToolCallIfNeeded(response, modelPreference)
-            ?: completePlanClientToolCallIfNeeded(response, modelPreference)
-            ?: completeDeviceClientToolCallIfNeeded(response, modelPreference)
+        return completeProjectClientToolCallIfNeeded(response, modelPreference, onDelta)
+            ?: completePlanClientToolCallIfNeeded(response, modelPreference, onDelta)
+            ?: completeDeviceClientToolCallIfNeeded(response, modelPreference, onDelta)
     }
 
     private fun completeProjectClientToolCallIfNeeded(
         response: AiChatResponse,
         modelPreference: ChatModel,
+        onDelta: ((String) -> Unit)?,
     ): AiChatResponse? {
         val call = response.clientToolCall ?: return null
         if (!ProjectClientToolExecutor.isProjectTool(call.name)) return null
         val app = AiLedgerApplication.contextOrNull() ?: return null
         val receipt = ProjectClientToolExecutor(app).execute(call, response.reply)
-        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference, onDelta)
     }
 
     private fun completePlanClientToolCallIfNeeded(
         response: AiChatResponse,
         modelPreference: ChatModel,
+        onDelta: ((String) -> Unit)?,
     ): AiChatResponse? {
         val call = response.clientToolCall ?: return null
         if (!PlanClientToolExecutor.isPlanTool(call.name)) return null
         val app = AiLedgerApplication.contextOrNull() ?: return null
         val receipt = PlanClientToolExecutor(app).execute(call, response.reply)
-        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference, onDelta)
     }
 
     private fun completeDeviceClientToolCallIfNeeded(
         response: AiChatResponse,
         modelPreference: ChatModel,
+        onDelta: ((String) -> Unit)?,
     ): AiChatResponse? {
         val call = response.clientToolCall ?: return null
         val action = response.agentAction ?: return null
         if (action.capability != "run_device_control") return null
         val step = action.deviceControlStep ?: DeviceControlRouter.fromClientToolCall(call.toJson()) ?: return null
-        return completeDeviceClientToolCall(call, action, step, response, modelPreference)
+        return completeDeviceClientToolCall(call, action, step, response, modelPreference, onDelta)
     }
 
     private fun completeDeviceClientToolCall(
@@ -391,6 +403,7 @@ class AiWorkerClient(
         step: CloudAgentStep,
         response: AiChatResponse,
         modelPreference: ChatModel,
+        onDelta: ((String) -> Unit)?,
     ): AiChatResponse? {
         val app = AiLedgerApplication.contextOrNull() ?: return null
         val goal = call.originalUserGoal
@@ -408,7 +421,7 @@ class AiWorkerClient(
             receipt.put("actions", JSONArray().apply {
                 put(deviceToolActionReceipt(call, step, null, "unsupported", "Android 当前不支持云端选择的客户端工具：${step.type}。"))
             })
-            return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+            return sendClientToolResultForFinalReply(call, receipt, response, modelPreference, onDelta)
         }
 
         val requiresConfirmation = call.requiresConfirmation || action.requiresConfirmation || AgentSafetyPolicy.requiresConfirmation(goal, step)
@@ -426,7 +439,7 @@ class AiWorkerClient(
             receipt.put("actions", JSONArray().apply {
                 put(deviceToolActionReceipt(call, step, null, "cancelled", "用户没有确认该客户端工具调用。"))
             })
-            return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+            return sendClientToolResultForFinalReply(call, receipt, response, modelPreference, onDelta)
         }
 
         val raw = executor.execute(step, confirmedHighRisk = confirmedHighRisk)
@@ -444,7 +457,7 @@ class AiWorkerClient(
         receipt.put("actions", JSONArray().apply {
             put(deviceToolActionReceipt(call, step, verified, status, summary))
         })
-        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference)
+        return sendClientToolResultForFinalReply(call, receipt, response, modelPreference, onDelta)
     }
 
     private fun baseClientToolReceipt(call: CloudClientToolCall, goal: String): JSONObject = JSONObject().apply {
@@ -484,24 +497,35 @@ class AiWorkerClient(
         receipt: JSONObject,
         originalResponse: AiChatResponse,
         modelPreference: ChatModel,
+        onDelta: ((String) -> Unit)?,
     ): AiChatResponse {
         val resolvedModel = call.finalModel
             ?.takeIf(String::isNotBlank)
             ?.let(ChatModel::fromId)
             ?: modelPreference
         val marker = "$CLIENT_TOOL_RESULT_MARKER$receipt"
+        val continuationMessages = listOf(
+            ChatMessage(
+                id = "client-tool-result-${call.id}",
+                text = marker,
+                role = MessageRole.User,
+            ),
+        )
         return runCatching {
-            sendChat(
-                messages = listOf(
-                    ChatMessage(
-                        id = "client-tool-result-${call.id}",
-                        text = marker,
-                        role = MessageRole.User,
-                    ),
-                ),
-                modelPreference = resolvedModel,
-                onlineEnabled = false,
-            )
+            if (onDelta != null) {
+                streamChatBlocking(
+                    messages = continuationMessages,
+                    modelPreference = resolvedModel,
+                    onlineEnabled = false,
+                    onDelta = onDelta,
+                )
+            } else {
+                sendChat(
+                    messages = continuationMessages,
+                    modelPreference = resolvedModel,
+                    onlineEnabled = false,
+                )
+            }
         }.getOrElse { error ->
             originalResponse.copy(
                 reply = "客户端工具已返回结构化结果，但最终模型续写失败：${error.message.orEmpty().take(120)}",
