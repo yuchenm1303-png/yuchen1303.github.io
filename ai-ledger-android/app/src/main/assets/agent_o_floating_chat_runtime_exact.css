@@ -64,7 +64,7 @@
   opacity: 1;
   transform: translate(-50%, -50%) translate3d(0, 0, 0) scale3d(1, 1, 1);
   transform-origin: center center;
-  contain: layout paint style;
+  contain: layout style;
   backface-visibility: hidden;
   will-change: transform, opacity;
   background:
