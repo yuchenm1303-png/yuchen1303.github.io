@@ -24,23 +24,23 @@ enum class BackendEndpointMode(
         label = "腾讯云服务器",
         shortLabel = "服务器",
         endpoint = AI_WORKER_TENCENT_SERVER_ENDPOINT,
-        description = "默认 · 腾讯云轻量服务器",
+        description = "备用 · 腾讯云轻量服务器",
     ),
     AliyunFunction(
         id = "aliyun",
         label = "阿里云函数计算",
         shortLabel = "阿里云",
         endpoint = AI_WORKER_ALIYUN_CN_ENDPOINT,
-        description = "旧后端 · 函数计算",
+        description = "默认 · 阿里云函数计算",
     );
 
     companion object {
-        fun fromId(id: String?): BackendEndpointMode = entries.firstOrNull { it.id == id } ?: TencentServer
+        fun fromId(id: String?): BackendEndpointMode = entries.firstOrNull { it.id == id } ?: AliyunFunction
     }
 }
 
 data class BackendEndpointState(
-    val mode: BackendEndpointMode = BackendEndpointMode.TencentServer,
+    val mode: BackendEndpointMode = BackendEndpointMode.AliyunFunction,
 ) {
     val endpoint: String = mode.endpoint
     val label: String = mode.label
@@ -81,8 +81,8 @@ class BackendEndpointStore private constructor(context: Context) {
             }
         }
 
-        fun currentEndpointOrDefault(defaultEndpoint: String = AI_WORKER_TENCENT_SERVER_ENDPOINT): String {
-            val fallback = defaultEndpoint.ifBlank { AI_WORKER_TENCENT_SERVER_ENDPOINT }
+        fun currentEndpointOrDefault(defaultEndpoint: String = AI_WORKER_ALIYUN_CN_ENDPOINT): String {
+            val fallback = defaultEndpoint.ifBlank { AI_WORKER_ALIYUN_CN_ENDPOINT }
             val context = AiLedgerApplication.contextOrNull()?.applicationContext ?: return fallback
             return get(context).currentState().endpoint.ifBlank { fallback }
         }
