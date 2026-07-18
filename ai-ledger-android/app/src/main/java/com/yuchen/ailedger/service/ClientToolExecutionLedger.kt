@@ -110,6 +110,22 @@ internal class ClientToolExecutionLedger private constructor(
         pruneLocked()
     }
 
+    /**
+     * Removes only the matching inflight marker when execution stopped before any durable or
+     * externally visible side effect. Completed or conflicting records are never removed.
+     */
+    fun releaseInflight(call: CloudClientToolCall): Boolean = synchronized(lock) {
+        val file = recordFile(call.id)
+        if (!file.isFile) return@synchronized false
+        val existing = runCatching { JSONObject(file.readText(Charsets.UTF_8)) }.getOrNull()
+            ?: return@synchronized false
+        val matches = existing.optString("toolCallId") == call.id &&
+            existing.optString("toolName") == call.name &&
+            existing.optString("argumentsHash") == argumentsHash(call) &&
+            existing.optString("status") == "inflight"
+        matches && file.delete()
+    }
+
     private fun recordFile(toolCallId: String): File = File(rootDir, "${sha256(toolCallId)}.json")
 
     private fun argumentsHash(call: CloudClientToolCall): String = sha256(
