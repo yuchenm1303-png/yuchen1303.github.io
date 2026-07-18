@@ -20,7 +20,10 @@
     }
     #glass-blur-motion-lab-v2[data-motion-budget="paused"] .blur-stage,
     #glass-blur-motion-lab-v2[data-motion-budget="paused"] .bead-aura,
-    #glass-blur-motion-lab-v2[data-motion-budget="paused"] .glass-shell::before{
+    #glass-blur-motion-lab-v2[data-motion-budget="paused"] .glass-shell::before,
+    #glass-blur-motion-lab-v2[data-window-dragging="true"] .blur-stage,
+    #glass-blur-motion-lab-v2[data-window-dragging="true"] .bead-aura,
+    #glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell::before{
       animation-play-state:paused!important;
     }
   `;
