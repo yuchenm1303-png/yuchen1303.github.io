@@ -35,10 +35,6 @@
     pauseDepth=Math.max(0,pauseDepth-1);
     if(pauseDepth===0)root.dataset.motionBudget='active';
   };
-  const resetMotionBudget=()=>{
-    pauseDepth=0;
-    root.dataset.motionBudget='active';
-  };
 
   const baseSetForm=setForm;
   const baseFinishMorphTransitionIfReady=finishMorphTransitionIfReady;
@@ -48,10 +44,19 @@
   const baseNativeOrbMove=baseFloatingChat.nativeOrbMove;
   const baseNativeOrbUp=baseFloatingChat.nativeOrbUp;
   const baseNativeOrbCancel=baseFloatingChat.nativeOrbCancel;
+  const baseNativeOrbTap=baseFloatingChat.nativeOrbTap;
 
   let transitionBudgetHeld=false;
   let panelDragBudgetHeld=false;
   let orbDragBudgetHeld=false;
+
+  const resetMotionBudget=()=>{
+    pauseDepth=0;
+    transitionBudgetHeld=false;
+    panelDragBudgetHeld=false;
+    orbDragBudgetHeld=false;
+    root.dataset.motionBudget='active';
+  };
 
   setForm=function(value){
     const targetForm=value===2?2:0;
@@ -101,25 +106,26 @@
     baseNativeOrbMove(velocity);
   }
 
+  function releaseOrbDragBudget(){
+    if(!orbDragBudgetHeld)return;
+    orbDragBudgetHeld=false;
+    resumeMotionBudget();
+  }
+
   function coordinatedNativeOrbUp(wasMoved){
     baseNativeOrbUp(wasMoved);
-    if(wasMoved&&orbDragBudgetHeld){
-      orbDragBudgetHeld=false;
-      resumeMotionBudget();
-    }
-    // 点击展开时 setForm 已接管同一份预算；这里只释放珠态按压占用。
-    if(!wasMoved&&orbDragBudgetHeld){
-      orbDragBudgetHeld=false;
-      resumeMotionBudget();
-    }
+    releaseOrbDragBudget();
   }
 
   function coordinatedNativeOrbCancel(){
     baseNativeOrbCancel();
-    if(orbDragBudgetHeld){
-      orbDragBudgetHeld=false;
-      resumeMotionBudget();
-    }
+    releaseOrbDragBudget();
+  }
+
+  function coordinatedNativeOrbTap(rebaseX,rebaseY){
+    // 原实现会同步进入 setForm，先取得过渡预算，再释放珠态按压预算，二者不会出现空窗。
+    baseNativeOrbTap(rebaseX,rebaseY);
+    releaseOrbDragBudget();
   }
 
   window.GuiPlusFloatingChat=Object.freeze({
@@ -130,6 +136,7 @@
     nativeOrbMove:coordinatedNativeOrbMove,
     nativeOrbUp:coordinatedNativeOrbUp,
     nativeOrbCancel:coordinatedNativeOrbCancel,
+    nativeOrbTap:coordinatedNativeOrbTap,
   });
 
   document.addEventListener('visibilitychange',()=>{
