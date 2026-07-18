@@ -1,8 +1,8 @@
 /*
- * V8.4 原版 Android 接入适配层。
+ * Agent O Android 生产样式。
  *
- * 整个生命周期始终使用同一个 560×720 原始设计舞台。Android 只承载固定的 620×490
- * 逻辑窗口并整体缩放舞台，不在展开/折叠途中改变 viewport、重排内部控件或重建 WebGL。
+ * 稳定珠态保留原 WebGL 光场，稳定展开态保留原玻璃模糊与边缘光。展开/收回过程中，
+ * 真实玻璃壳只在切换点改变一次尺寸，其余帧仅由 motion-shell 做 transform 合成。
  */
 #glass-blur-motion-lab-v2 .blur-stage {
   left: 50%;
@@ -17,59 +17,72 @@
   transform-origin: top center;
 }
 
-/* 展开态的兼容边缘光使用固定 sRGB 色带，不再运行不可见的珠态色相主题动画。 */
-#glass-blur-motion-lab-v2[data-form="1"] .blur-stage,
-#glass-blur-motion-lab-v2[data-form="2"] .blur-stage {
-  animation-play-state: paused;
-}
-
-/*
- * 几何过渡和整窗拖动期间，冻结与交互无关的独立色相/边缘流动循环，把合成预算留给
- * 玻璃真实尺寸、圆角和 WindowManager 位移。动画暂停后从原进度继续，不改变光效参数。
- */
-#glass-blur-motion-lab-v2[data-phase="shrink"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="flight"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="impact"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="settle"] .blur-stage,
-#glass-blur-motion-lab-v2[data-window-dragging="true"] .blur-stage,
-#glass-blur-motion-lab-v2[data-phase="shrink"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-phase="flight"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-phase="impact"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-phase="settle"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell::before {
-  animation-play-state: paused !important;
-}
-
-#glass-blur-motion-lab-v2[data-phase="shrink"] .glass-shell,
-#glass-blur-motion-lab-v2[data-phase="flight"] .glass-shell,
-#glass-blur-motion-lab-v2[data-phase="impact"] .glass-shell,
-#glass-blur-motion-lab-v2[data-phase="settle"] .glass-shell,
-#glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell {
-  will-change: width, height, border-radius, transform;
+#glass-blur-motion-lab-v2 .motion-shell {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 3;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+  transform-origin: center;
+  will-change: transform;
   backface-visibility: hidden;
 }
 
-/* 手机端只等比缩放整张 V8.4 舞台，撤销窄屏对内部控件的二次重排。 */
-#glass-blur-motion-lab-v2[data-form="2"] .chat-copy {
-  padding: 13px 15px 14px;
-}
-#glass-blur-motion-lab-v2[data-form="2"] .chat-toolbar {
-  gap: 5px;
-}
-#glass-blur-motion-lab-v2[data-form="2"] .chat-pill {
-  padding-inline: 8px;
-}
-#glass-blur-motion-lab-v2[data-form="2"] .composer-hint {
-  display: inline;
+#glass-blur-motion-lab-v2 .motion-shell > .glass-shell,
+#glass-blur-motion-lab-v2 .motion-shell > .bead-aura {
+  left: 0;
+  top: var(--anchor-y);
 }
 
-/*
- * Android WebView 对 relative-color / color-mix 支持不一致。这里只为原始薄膜边缘光提供
- * 等价的 sRGB 回退，不改变面板结构、圆角、内边距或动画几何。背景模糊仅由面板自身
- * backdrop-filter 约束在 glass-shell 内部，不使用 Android FLAG_BLUR_BEHIND。
- */
-#glass-blur-motion-lab-v2[data-form="1"] .glass-shell,
-#glass-blur-motion-lab-v2[data-form="2"] .glass-shell {
+#glass-blur-motion-lab-v2 .motion-shell > .glass-shell {
+  pointer-events: auto;
+  transform:
+    translate(-50%, -50%)
+    scale(var(--bubble-breath));
+  transform-origin: center;
+  will-change: opacity;
+  backface-visibility: hidden;
+}
+
+#glass-blur-motion-lab-v2 .motion-shell > .bead-aura {
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+
+/* 珠态只保留 WebGL 和原光晕；面板内容与边缘膜完全不参与珠态绘制。 */
+#glass-blur-motion-lab-v2[data-form="0"] .glass-shell {
+  background: radial-gradient(circle at 66% 28%, rgba(149, 61, 166, .035), transparent 48%),
+              radial-gradient(circle at 32% 60%, rgba(21, 116, 151, .028), transparent 54%),
+              rgba(18, 8, 30, .035);
+  -webkit-backdrop-filter: blur(calc(var(--blur-radius) * .45)) saturate(1.03) brightness(.88);
+  backdrop-filter: blur(calc(var(--blur-radius) * .45)) saturate(1.03) brightness(.88);
+  box-shadow: inset 0 0 0 1px rgba(248, 173, 255, .018),
+              inset 14px 18px 44px rgba(7, 2, 20, .045),
+              0 22px 60px rgba(2, 0, 13, .20);
+}
+
+#glass-blur-motion-lab-v2[data-form="0"] .glass-shell::before {
+  opacity: 0;
+  animation: none;
+}
+
+#glass-blur-motion-lab-v2[data-form="0"][data-orb-optics="1"] .optical-canvas,
+#glass-blur-motion-lab-v2[data-form="0"][data-orb-optics="1"] .bead-aura {
+  opacity: 1;
+  visibility: visible;
+}
+
+#glass-blur-motion-lab-v2[data-form="2"] .optical-canvas,
+#glass-blur-motion-lab-v2[data-form="2"] .bead-aura {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* 稳定展开态使用完整真实玻璃。 */
+#glass-blur-motion-lab-v2[data-form="2"][data-transitioning="false"] .glass-shell {
   background: rgba(2, 9, 21, .34);
   -webkit-backdrop-filter: blur(var(--blur-radius)) saturate(.88) brightness(.86);
   backdrop-filter: blur(var(--blur-radius)) saturate(.88) brightness(.86);
@@ -80,8 +93,7 @@
     inset 0 0 0 1px rgba(238, 249, 255, .08);
 }
 
-#glass-blur-motion-lab-v2[data-form="1"] .glass-shell::before,
-#glass-blur-motion-lab-v2[data-form="2"] .glass-shell::before {
+#glass-blur-motion-lab-v2[data-form="2"][data-transitioning="false"] .glass-shell::before {
   opacity: var(--edge-flow-opacity);
   background: linear-gradient(
     100deg,
@@ -104,6 +116,71 @@
     drop-shadow(0 0 9px rgba(94, 222, 255, .48));
   animation: panel-edge-flow-compatible var(--edge-flow-duration) cubic-bezier(.45, .05, .55, .95) infinite alternate;
 }
+
+/* 运动阶段只绘制固定纹理并由合成器缩放，不实时重采样背景。 */
+#glass-blur-motion-lab-v2[data-transitioning="true"] .blur-stage,
+#glass-blur-motion-lab-v2[data-transitioning="true"] .glass-shell::before {
+  animation-play-state: paused !important;
+}
+
+#glass-blur-motion-lab-v2[data-transitioning="true"][data-form="2"] .glass-shell {
+  background:
+    radial-gradient(circle at 18% 18%, rgba(91, 223, 255, .10), transparent 34%),
+    radial-gradient(circle at 82% 78%, rgba(226, 111, 255, .12), transparent 38%),
+    rgba(2, 9, 21, .68);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow:
+    0 0 24px 1px rgba(177, 112, 255, .24),
+    0 0 14px rgba(86, 225, 255, .18),
+    inset 0 0 0 1px rgba(238, 249, 255, .08);
+}
+
+#glass-blur-motion-lab-v2[data-transitioning="true"][data-form="2"] .glass-shell::before {
+  opacity: .84;
+  background: linear-gradient(
+    100deg,
+    rgba(87, 222, 255, .96),
+    rgba(229, 251, 255, 1) 22%,
+    rgba(205, 133, 255, .98) 48%,
+    rgba(255, 121, 211, .98) 72%,
+    rgba(111, 230, 255, .96)
+  );
+  background-size: 100% 100%;
+  filter: drop-shadow(0 0 6px rgba(116, 221, 255, .38));
+  animation: none;
+}
+
+/* 内容只在真实面板稳定后淡入，不再对整棵聊天树执行 clip-path。 */
+#glass-blur-motion-lab-v2 .chat-copy {
+  clip-path: none !important;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(7px) scale(.996);
+  transition: opacity 120ms ease, transform 150ms cubic-bezier(.2, .8, .2, 1);
+  contain: layout paint style;
+}
+
+#glass-blur-motion-lab-v2[data-content="2"][data-form="2"][data-transitioning="false"] .chat-copy {
+  visibility: visible;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+#glass-blur-motion-lab-v2[data-content="0"] .chat-copy,
+#glass-blur-motion-lab-v2[data-transitioning="true"] .chat-copy {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#glass-blur-motion-lab-v2[data-form="2"] .chat-copy { padding: 13px 15px 14px; }
+#glass-blur-motion-lab-v2[data-form="2"] .chat-toolbar { gap: 5px; }
+#glass-blur-motion-lab-v2[data-form="2"] .chat-pill { padding-inline: 8px; }
+#glass-blur-motion-lab-v2[data-form="2"] .composer-hint { display: inline; }
+
+#glass-blur-motion-lab-v2 .flight-echo { display: none !important; }
 
 @keyframes panel-edge-flow-compatible {
   from { background-position: 0% 50%; }
