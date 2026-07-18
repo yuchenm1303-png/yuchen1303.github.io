@@ -6,6 +6,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -60,6 +61,24 @@ class ClientToolExecutionLedgerTest {
         val conflicting = call.copy(arguments = JSONObject(call.arguments.toString()).put("baseRevisionId", "rev_000002"))
         val conflict = ledger.begin(conflicting) as ClientToolExecutionDecision.Reject
         assertEquals("tool_call_id_conflict", conflict.code)
+    }
+
+    @Test
+    fun releasesOnlyMatchingInflightMarkerBeforeAnySideEffect() {
+        val call = projectCall(
+            id = "call-permission-1",
+            name = "device_control",
+            arguments = JSONObject()
+                .put("action", "set_brightness")
+                .put("args", JSONObject().put("percent", 40)),
+        )
+        assertTrue(ledger.begin(call) === ClientToolExecutionDecision.Execute)
+        assertTrue(ledger.releaseInflight(call))
+        assertTrue(ledger.begin(call) === ClientToolExecutionDecision.Execute)
+
+        ledger.complete(call, JSONObject().put("ok", true).put("status", "verified"))
+        assertFalse(ledger.releaseInflight(call))
+        assertTrue(ledger.begin(call) is ClientToolExecutionDecision.Replay)
     }
 
     private fun projectCall(id: String, name: String, arguments: JSONObject) = CloudClientToolCall(
