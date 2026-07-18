@@ -33,6 +33,7 @@ class DeviceToolExecutor(
     private val appContext = context.applicationContext
     private val shellBridge = DeviceShellBridge(appContext)
     private val ledgerToolExecutor = LedgerInternalToolExecutor(appContext)
+    private val executionLedger = ClientToolExecutionLedger(appContext)
 
     fun canExecute(step: CloudAgentStep): Boolean {
         return step.type in executableDeviceToolTypes || ledgerToolExecutor.canExecute(step)
@@ -41,6 +42,7 @@ class DeviceToolExecutor(
     fun execute(step: CloudAgentStep, confirmedHighRisk: Boolean = false): AgentExecutionResult {
         if (ledgerToolExecutor.canExecute(step)) return ledgerToolExecutor.execute(step)
 
+        val call = ClientToolCallRegistry.consume(step)
         val validation = DeviceControlSpecs.validate(step)
         if (!validation.ok) {
             return AgentExecutionResult(
@@ -51,38 +53,115 @@ class DeviceToolExecutor(
             )
         }
 
-        return runCatching {
-            when (step.type) {
-                "open_app" -> executeOpenApp(step)
-                "open_system_settings" -> executeOpenSystemSettings(step)
-                "open_app_settings" -> executeOpenAppSettings(step)
-                "set_brightness" -> executeSetBrightness(step)
-                "set_screen_timeout" -> executeSetScreenTimeout(step)
-                "set_auto_rotate" -> executeSetAutoRotate(step)
-                "set_media_volume" -> executeSetMediaVolume(step)
-                "set_wifi_enabled" -> executeSetWifiEnabled(step)
-                "set_bluetooth_enabled" -> executeSetBluetoothEnabled(step)
-                "set_mobile_data_enabled" -> executeSetMobileDataEnabled(step)
-                "set_dark_mode" -> executeSetDarkMode(step)
-                "device_status" -> deviceStatus()
-                "shizuku_status" -> shellStatus()
-                "request_shizuku_permission" -> requestShizukuPermission()
-                "set_animation_scale" -> executeAnimationScale(step, confirmedHighRisk)
-                "force_stop_app" -> executePrivilegedAppTool(step, PrivilegedTool.ForceStop, confirmedHighRisk)
-                "clear_app_data" -> executePrivilegedAppTool(step, PrivilegedTool.ClearData, confirmedHighRisk)
-                "uninstall_app" -> executePrivilegedAppTool(step, PrivilegedTool.UninstallForUser, confirmedHighRisk)
-                "disable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Disable, confirmedHighRisk)
-                "enable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Enable, confirmedHighRisk)
-                else -> AgentExecutionResult(false, "不支持的内部设备工具：${step.type}", false)
-            }
-        }.getOrElse { error ->
-            AgentExecutionResult(
+        if (call == null || !ClientToolMutationPolicy.requiresAtMostOnce(call, step.type)) {
+            return executeUncached(step, confirmedHighRisk)
+        }
+
+        val decision = runCatching { executionLedger.begin(call) }.getOrElse { error ->
+            return AgentExecutionResult(
                 ok = false,
-                message = "内部设备工具运行异常：${error.message?.takeIf { it.isNotBlank() } ?: error::class.java.simpleName}",
+                message = "设备工具幂等保护暂时不可用，已停止执行以避免重复修改系统状态。",
                 shouldContinue = false,
-                diagnostics = "device_control_execution_exception:${error::class.java.simpleName}",
+                diagnostics = "client_tool_ledger_begin_failed:${error::class.java.simpleName}",
             )
         }
+        when (decision) {
+            is ClientToolExecutionDecision.Replay -> {
+                return ClientToolExecutionResultCodec.decode(
+                    receipt = decision.receipt,
+                    fallbackMessage = "已重放此前完成的设备工具结果。",
+                )
+            }
+            is ClientToolExecutionDecision.Reject -> {
+                return AgentExecutionResult(
+                    ok = false,
+                    message = decision.summary,
+                    shouldContinue = false,
+                    diagnostics = decision.code,
+                )
+            }
+            ClientToolExecutionDecision.Execute -> Unit
+        }
+
+        val result = executeUncached(step, confirmedHighRisk)
+        if (result.stoppedBeforeDeviceSideEffect()) {
+            val released = runCatching { executionLedger.releaseInflight(call) }.getOrDefault(false)
+            return if (released) {
+                result
+            } else {
+                result.copy(
+                    message = result.message + "\n\n未能释放本次安全占位；为避免误重复，后续相同调用将保持阻断。",
+                    diagnostics = ClientToolExecutionResultCodec.appendDiagnostic(
+                        result.diagnostics,
+                        "idempotency_inflight_release_failed",
+                    ),
+                )
+            }
+        }
+
+        val persisted = runCatching {
+            executionLedger.complete(
+                call = call,
+                receipt = ClientToolExecutionResultCodec.encode(
+                    call = call,
+                    step = step,
+                    result = result,
+                    executionOwner = "android_structured_device_tool",
+                ),
+            )
+        }.isSuccess
+        return if (persisted) {
+            result
+        } else {
+            result.copy(
+                message = result.message + "\n\n本次设备操作已经结束，但幂等回执保存失败；系统不会自动重复执行这次操作。",
+                diagnostics = ClientToolExecutionResultCodec.appendDiagnostic(
+                    result.diagnostics,
+                    "idempotency_receipt_persist_failed",
+                ),
+            )
+        }
+    }
+
+    private fun executeUncached(
+        step: CloudAgentStep,
+        confirmedHighRisk: Boolean,
+    ): AgentExecutionResult = runCatching {
+        when (step.type) {
+            "open_app" -> executeOpenApp(step)
+            "open_system_settings" -> executeOpenSystemSettings(step)
+            "open_app_settings" -> executeOpenAppSettings(step)
+            "set_brightness" -> executeSetBrightness(step)
+            "set_screen_timeout" -> executeSetScreenTimeout(step)
+            "set_auto_rotate" -> executeSetAutoRotate(step)
+            "set_media_volume" -> executeSetMediaVolume(step)
+            "set_wifi_enabled" -> executeSetWifiEnabled(step)
+            "set_bluetooth_enabled" -> executeSetBluetoothEnabled(step)
+            "set_mobile_data_enabled" -> executeSetMobileDataEnabled(step)
+            "set_dark_mode" -> executeSetDarkMode(step)
+            "device_status" -> deviceStatus()
+            "shizuku_status" -> shellStatus()
+            "request_shizuku_permission" -> requestShizukuPermission()
+            "set_animation_scale" -> executeAnimationScale(step, confirmedHighRisk)
+            "force_stop_app" -> executePrivilegedAppTool(step, PrivilegedTool.ForceStop, confirmedHighRisk)
+            "clear_app_data" -> executePrivilegedAppTool(step, PrivilegedTool.ClearData, confirmedHighRisk)
+            "uninstall_app" -> executePrivilegedAppTool(step, PrivilegedTool.UninstallForUser, confirmedHighRisk)
+            "disable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Disable, confirmedHighRisk)
+            "enable_app" -> executePrivilegedAppTool(step, PrivilegedTool.Enable, confirmedHighRisk)
+            else -> AgentExecutionResult(false, "不支持的内部设备工具：${step.type}", false)
+        }
+    }.getOrElse { error ->
+        AgentExecutionResult(
+            ok = false,
+            message = "内部设备工具运行异常：${error.message?.takeIf { it.isNotBlank() } ?: error::class.java.simpleName}",
+            shouldContinue = false,
+            diagnostics = "device_control_execution_exception:${error::class.java.simpleName}",
+        )
+    }
+
+    private fun AgentExecutionResult.stoppedBeforeDeviceSideEffect(): Boolean {
+        return diagnostics.startsWith("internal_control_waiting_permission") ||
+            diagnostics.startsWith("internal_control_waiting_confirmation")
     }
 
     private fun executeOpenApp(step: CloudAgentStep): AgentExecutionResult {
@@ -928,7 +1007,7 @@ class DeviceToolExecutor(
         private const val ACTION_WIFI_SETTINGS_COMPAT = "android.settings.WIFI_SETTINGS"
         private const val ACTION_BLUETOOTH_SETTINGS_COMPAT = "android.settings.BLUETOOTH_SETTINGS"
         private const val ACTION_NOTIFICATION_SETTINGS_COMPAT = "android.settings.NOTIFICATION_SETTINGS"
-        private const val ACTION_ZEN_MODE_SETTINGS_COMPAT = "android.settings.ZEN_MODE_SETTINGS"
+        private const val ACTION_ZEN_MODE_SETTINGS_COMPAT = "android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS"
         private const val ACTION_APP_NOTIFICATION_SETTINGS_COMPAT = "android.settings.APP_NOTIFICATION_SETTINGS"
         private const val ACTION_BATTERY_SETTINGS_COMPAT = "android.settings.BATTERY_SETTINGS"
         private const val ACTION_INTERNAL_STORAGE_SETTINGS_COMPAT = "android.settings.INTERNAL_STORAGE_SETTINGS"
