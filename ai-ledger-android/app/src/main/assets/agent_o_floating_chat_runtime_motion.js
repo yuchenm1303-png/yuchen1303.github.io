@@ -43,10 +43,33 @@
   };
   const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
 
+  /*
+   * safeX/safeY 在原生侧把固定 viewport 居中到可用显示区。这里用 screen 与 viewport 的差值
+   * 还原中心两侧的额外空间。纵向预留 96 CSS px 给状态栏、导航栏和厂商手势区；最终位置仍会
+   * 再经过原生真实边界 coerce，因此不会越过系统安全区。
+   */
+  function expansionSafeRange(){
+    const scale=Math.max(.1,agentONativeStageScale||1);
+    const screenWidth=Math.max(window.innerWidth,Number(window.screen&&window.screen.availWidth)||Number(window.screen&&window.screen.width)||window.innerWidth);
+    const screenHeight=Math.max(window.innerHeight,Number(window.screen&&window.screen.availHeight)||Number(window.screen&&window.screen.height)||window.innerHeight);
+    const extraX=Math.max(0,(screenWidth-window.innerWidth-16)/(2*scale));
+    const extraY=Math.max(0,(screenHeight-window.innerHeight-96)/(2*scale));
+    return {
+      minX:-60-extraX,
+      maxX:60+extraX,
+      minY:-71-extraY,
+      maxY:59+extraY,
+    };
+  }
+
   const baseSetForm=setForm;
   const baseAdvanceMorphTimeline=advanceMorphTimeline;
   const baseFinishMorphTransitionIfReady=finishMorphTransitionIfReady;
   const baseFloatingChat=window.GuiPlusFloatingChat;
+  const baseNativeOrbDown=baseFloatingChat.nativeOrbDown;
+  const baseNativeOrbMove=baseFloatingChat.nativeOrbMove;
+  const baseNativeOrbUp=baseFloatingChat.nativeOrbUp;
+  const baseNativeOrbCancel=baseFloatingChat.nativeOrbCancel;
 
   let anchoredExpansion=false;
   let expansionTargetX=0;
@@ -55,6 +78,8 @@
 
   setForm=function(value){
     const targetForm=value===2?2:0;
+    if(targetForm===2&&(morphState==='expanding'||morphState==='expanded'))return;
+    if(targetForm===0&&(morphState==='collapsing'||morphState==='collapsed'))return;
     if(targetForm===2){
       setMotionBudgetPaused(true);
       if(anchoredExpansion){
@@ -114,13 +139,13 @@
     dispatchNative('window.drag',{dx:x*scale,dy:y*scale,expanded:true});
     // dragEnd 在原生主线程立即提交 pending 坐标，避免再等待第二层 RAF。
     dispatchNative('window.dragEnd',{expanded:true});
-    requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
       offsetX=0;
       offsetY=0;
       offsetDirty=true;
       applyOffset();
       setMotionBudgetPaused(false);
-    });
+    }));
   }
 
   finishMorphTransitionIfReady=function(now,perceptuallySettled){
@@ -151,15 +176,35 @@
     }
   };
 
+  function coordinatedNativeOrbDown(){
+    setMotionBudgetPaused(true);
+    baseNativeOrbDown();
+  }
+
+  function coordinatedNativeOrbMove(velocity){
+    baseNativeOrbMove(velocity);
+  }
+
+  function coordinatedNativeOrbUp(wasMoved){
+    baseNativeOrbUp(wasMoved);
+    if(wasMoved)setMotionBudgetPaused(false);
+  }
+
+  function coordinatedNativeOrbCancel(){
+    baseNativeOrbCancel();
+    setMotionBudgetPaused(false);
+  }
+
   function anchoredNativeOrbTap(rebaseX,rebaseY){
     const x=Number(rebaseX);
     const y=Number(rebaseY);
     const originX=Number.isFinite(x)?x:0;
     const originY=Number.isFinite(y)?y:0;
-    // 500×360 可见面板在 620×490 固定舞台内的安全落点范围。
-    expansionTargetX=clamp(originX,-60,60);
-    expansionTargetY=clamp(originY,-71,59);
+    const safe=expansionSafeRange();
+    expansionTargetX=clamp(originX,safe.minX,safe.maxX);
+    expansionTargetY=clamp(originY,safe.minY,safe.maxY);
     anchoredExpansion=true;
+    setMotionBudgetPaused(true);
     offsetX=originX;
     offsetY=originY;
     offsetDirty=true;
@@ -171,6 +216,10 @@
     ...baseFloatingChat,
     expand:()=>setForm(2),
     collapse:()=>setForm(0),
+    nativeOrbDown:coordinatedNativeOrbDown,
+    nativeOrbMove:coordinatedNativeOrbMove,
+    nativeOrbUp:coordinatedNativeOrbUp,
+    nativeOrbCancel:coordinatedNativeOrbCancel,
     nativeOrbTap:anchoredNativeOrbTap,
   });
 
