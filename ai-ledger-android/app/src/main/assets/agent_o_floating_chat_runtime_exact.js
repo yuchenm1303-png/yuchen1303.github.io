@@ -53,13 +53,18 @@ updateDesiredGeometry=function(value,target=geometryTarget){
   return target;
 };
 
+const agentOPx=value=>`${Math.round(value*10)/10}px`;
+const agentODeg=value=>`${Math.round(value*100)/100}deg`;
+const agentONumber=value=>String(Math.round(value*10000)/10000);
+
 /*
- * 稳定珠态仍逐帧绘制完全相同的 WebGL 活体光场，但不再重复积分已经收敛的 11 个弹簧量，
- * 也不再重复构造宽高、圆角和静态 transform 字符串。交互、变形与展开阶段自动恢复完整路径。
+ * 稳定珠态仍逐帧绘制完全相同的 WebGL 活体光场，但不再重复积分已经收敛的 11 个弹簧量。
+ * 过渡态使用最多三个固定物理子步追赶真实帧间隔，并把不可见的亚像素抖动量化到 0.1px，
+ * 避免掉帧后弹簧变慢和同一视觉像素被反复触发布局、重绘。
  */
 renderGeometry=function(now){
   animationFrameId=0;
-  const delta=Math.min(.032,(now-previousFrame)/1000||.016);
+  const elapsed=Math.min(.05,(now-previousFrame)/1000||.016);
   previousFrame=now;
   advanceMorphTimeline(now);
 
@@ -74,20 +79,26 @@ renderGeometry=function(now){
     const collapsingToOrb=morphState==='collapsing';
     const geometrySpeed=speed*(collapsingToOrb?.90:1);
     const collapseDamping=collapsingToOrb?.26:0;
-    springProperty(geometry,velocity,'width',target.width,P.widthFrequency*geometrySpeed,P.widthDamping+collapseDamping,delta);
-    springProperty(geometry,velocity,'height',target.height,P.heightFrequency*geometrySpeed,P.heightDamping+collapseDamping,delta);
-    springProperty(geometry,velocity,'topRadius',target.topRadius,P.topRadiusFrequency*geometrySpeed,P.topRadiusDamping+collapseDamping,delta);
-    springProperty(geometry,velocity,'bottomRadius',target.bottomRadius,P.bottomRadiusFrequency*geometrySpeed,P.bottomRadiusDamping+collapseDamping,delta);
-    springProperty(geometry,velocity,'anchorY',target.anchorY,P.anchorFrequency*geometrySpeed,P.anchorDamping+collapseDamping,delta);
-    shellScaleVelocity+=(P.scaleFrequency*P.scaleFrequency*speed*speed*(targetScale-shellScale)-2*P.scaleDamping*P.scaleFrequency*speed*shellScaleVelocity)*delta;
-    shellScale+=shellScaleVelocity*delta;
-    for(const key of poseKeys){
-      springProperty(pose,poseVelocity,key,poseTarget[key],P.poseFrequency*speed,P.poseDamping,delta);
+    const stepCount=Math.max(1,Math.min(3,Math.ceil(elapsed/.016667)));
+    const delta=elapsed/stepCount;
+    for(let step=0;step<stepCount;step+=1){
+      springProperty(geometry,velocity,'width',target.width,P.widthFrequency*geometrySpeed,P.widthDamping+collapseDamping,delta);
+      springProperty(geometry,velocity,'height',target.height,P.heightFrequency*geometrySpeed,P.heightDamping+collapseDamping,delta);
+      springProperty(geometry,velocity,'topRadius',target.topRadius,P.topRadiusFrequency*geometrySpeed,P.topRadiusDamping+collapseDamping,delta);
+      springProperty(geometry,velocity,'bottomRadius',target.bottomRadius,P.bottomRadiusFrequency*geometrySpeed,P.bottomRadiusDamping+collapseDamping,delta);
+      springProperty(geometry,velocity,'anchorY',target.anchorY,P.anchorFrequency*geometrySpeed,P.anchorDamping+collapseDamping,delta);
+      shellScaleVelocity+=(P.scaleFrequency*P.scaleFrequency*speed*speed*(targetScale-shellScale)-2*P.scaleDamping*P.scaleFrequency*speed*shellScaleVelocity)*delta;
+      shellScale+=shellScaleVelocity*delta;
+      for(const key of poseKeys){
+        springProperty(pose,poseVelocity,key,poseTarget[key],P.poseFrequency*speed,P.poseDamping,delta);
+      }
     }
 
-    const widthPx=`${Math.max(1,geometry.width)}px`;
-    const heightPx=`${Math.max(1,geometry.height)}px`;
-    const radiusPx=`${Math.max(0,geometry.topRadius)}px ${Math.max(0,geometry.topRadius)}px ${Math.max(0,geometry.bottomRadius)}px ${Math.max(0,geometry.bottomRadius)}px`;
+    const widthPx=agentOPx(Math.max(1,geometry.width));
+    const heightPx=agentOPx(Math.max(1,geometry.height));
+    const topRadius=agentOPx(Math.max(0,geometry.topRadius));
+    const bottomRadius=agentOPx(Math.max(0,geometry.bottomRadius));
+    const radiusPx=`${topRadius} ${topRadius} ${bottomRadius} ${bottomRadius}`;
     if(widthPx!==lastWidthPx){shell.style.width=widthPx;if(beadAura)beadAura.style.width=widthPx;lastWidthPx=widthPx;}
     if(heightPx!==lastHeightPx){shell.style.height=heightPx;if(beadAura)beadAura.style.height=heightPx;lastHeightPx=heightPx;}
     if(radiusPx!==lastRadiusPx){shell.style.borderRadius=radiusPx;if(beadAura)beadAura.style.borderRadius=radiusPx;lastRadiusPx=radiusPx;}
@@ -100,15 +111,15 @@ renderGeometry=function(now){
   const livingAmplitude=.002+.00886*Math.min(2,O.idleBreath/54);
   const bubbleBreath=geometryForm===0?1+livingWave*livingAmplitude:1;
   applyOffset();
-  setCachedRootVariable('--anchor-y',`${geometry.anchorY}px`);
-  setCachedRootVariable('--shell-scale',String(shellScale));
-  setCachedRootVariable('--bubble-breath',String(bubbleBreath));
-  setCachedRootVariable('--choreo-x',`${pose.x}px`);
-  setCachedRootVariable('--choreo-y',`${pose.y}px`);
-  setCachedRootVariable('--shell-skew',`${pose.skew}deg`);
-  setCachedRootVariable('--stretch-x',String(pose.stretchX));
-  setCachedRootVariable('--stretch-y',String(pose.stretchY));
-  drawOptical(now,delta);
+  setCachedRootVariable('--anchor-y',agentOPx(geometry.anchorY));
+  setCachedRootVariable('--shell-scale',agentONumber(shellScale));
+  setCachedRootVariable('--bubble-breath',agentONumber(bubbleBreath));
+  setCachedRootVariable('--choreo-x',agentOPx(pose.x));
+  setCachedRootVariable('--choreo-y',agentOPx(pose.y));
+  setCachedRootVariable('--shell-skew',agentODeg(pose.skew));
+  setCachedRootVariable('--stretch-x',agentONumber(pose.stretchX));
+  setCachedRootVariable('--stretch-y',agentONumber(pose.stretchY));
+  drawOptical(now,elapsed);
 
   const geometrySettled=stableCollapsed||geometryPerceptuallySettled(target);
   const poseSettled=stableCollapsed||posePerceptuallySettled();
