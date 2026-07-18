@@ -1,9 +1,8 @@
 /*
- * V8.4 Android 生产接入层。
+ * Agent O Android 生产控制器。
  *
- * 固定 620×490 逻辑窗口与原始 560×720 舞台，展开/折叠不修改 viewport，避免 WebGL
- * Surface 重建。生产态只保留原生桥所需路径，并在稳定珠态跳过已经收敛的弹簧与几何写入；
- * WebGL 光场、呼吸、色相和全部视觉参数保持原值。
+ * 生产态只保留一个真实 glass-shell：尺寸在形态切换点修改一次，运动帧全部交给
+ * motion-shell 的 transform 合成。稳定珠态继续绘制原 WebGL，稳定展开态继续使用完整玻璃。
  */
 window.__agentONativeWindowDrag=Boolean(
   window.GuiPlusNative&&
@@ -32,106 +31,281 @@ function scheduleAgentONativeStageScale(){
   agentONativeStageResizeFrame=requestAnimationFrame(updateAgentONativeStageScale);
 }
 
-/* 继续直接使用 V8.4 原始几何，不改变面板、圆角、锚点和弹簧路径。 */
-updateDesiredGeometry=function(value,target=geometryTarget){
-  const bead=nativeProduction
-    ? Math.min(ORB_MAX,Math.max(1,stageSize.width-18),Math.max(1,stageSize.height-18))
-    : Math.min(190,stageSize.width*.46,stageSize.height*.38);
-  const inputHeight=P.capsuleHeight;
-  const inputWidth=Math.min(P.capsuleWidth,stageSize.width-34);
-  const panelWidth=Math.min(500,stageSize.width-28);
-  const panelHeight=Math.min(P.panelHeight,stageSize.height-30);
-  if(value===0){
-    target.width=bead;target.height=bead;target.topRadius=bead*.5;target.bottomRadius=bead*.5;target.anchorY=0;
-  }else if(value===1){
-    target.width=inputWidth;target.height=inputHeight;target.topRadius=inputHeight*.5;target.bottomRadius=inputHeight*.5;target.anchorY=0;
-  }else{
-    target.width=panelWidth;target.height=panelHeight;
-    target.topRadius=P.panelTopRadius;target.bottomRadius=P.panelBottomRadius;
-    target.anchorY=-(panelHeight-inputHeight)*.5;
-  }
-  return target;
-};
+updateAgentONativeStageScale();
+window.addEventListener('resize',scheduleAgentONativeStageScale,{passive:true});
 
-const agentOPx=value=>`${Math.round(value*10)/10}px`;
-const agentODeg=value=>`${Math.round(value*100)/100}deg`;
-const agentONumber=value=>String(Math.round(value*10000)/10000);
-
-/*
- * 稳定珠态仍逐帧绘制完全相同的 WebGL 活体光场，但不再重复积分已经收敛的 11 个弹簧量。
- * 过渡态使用最多三个固定物理子步追赶真实帧间隔，并把不可见的亚像素抖动量化到 0.1px，
- * 避免掉帧后弹簧变慢和同一视觉像素被反复触发布局、重绘。
- */
-renderGeometry=function(now){
-  animationFrameId=0;
-  const elapsed=Math.min(.05,(now-previousFrame)/1000||.016);
-  previousFrame=now;
-  advanceMorphTimeline(now);
-
-  const target=updateDesiredGeometry(geometryForm);
-  const settledBefore=geometryPerceptuallySettled(target)&&
-    posePerceptuallySettled()&&
-    Math.abs(shellScale-targetScale)<.0005&&Math.abs(shellScaleVelocity)<.004;
-  const stableCollapsed=morphState==='collapsed'&&settledBefore;
-
-  if(!stableCollapsed){
-    const speed=360/Math.max(160,morphDuration);
-    const collapsingToOrb=morphState==='collapsing';
-    const geometrySpeed=speed*(collapsingToOrb?.90:1);
-    const collapseDamping=collapsingToOrb?.26:0;
-    const stepCount=Math.max(1,Math.min(3,Math.ceil(elapsed/.016667)));
-    const delta=elapsed/stepCount;
-    for(let step=0;step<stepCount;step+=1){
-      springProperty(geometry,velocity,'width',target.width,P.widthFrequency*geometrySpeed,P.widthDamping+collapseDamping,delta);
-      springProperty(geometry,velocity,'height',target.height,P.heightFrequency*geometrySpeed,P.heightDamping+collapseDamping,delta);
-      springProperty(geometry,velocity,'topRadius',target.topRadius,P.topRadiusFrequency*geometrySpeed,P.topRadiusDamping+collapseDamping,delta);
-      springProperty(geometry,velocity,'bottomRadius',target.bottomRadius,P.bottomRadiusFrequency*geometrySpeed,P.bottomRadiusDamping+collapseDamping,delta);
-      springProperty(geometry,velocity,'anchorY',target.anchorY,P.anchorFrequency*geometrySpeed,P.anchorDamping+collapseDamping,delta);
-      shellScaleVelocity+=(P.scaleFrequency*P.scaleFrequency*speed*speed*(targetScale-shellScale)-2*P.scaleDamping*P.scaleFrequency*speed*shellScaleVelocity)*delta;
-      shellScale+=shellScaleVelocity*delta;
-      for(const key of poseKeys){
-        springProperty(pose,poseVelocity,key,poseTarget[key],P.poseFrequency*speed,P.poseDamping,delta);
-      }
-    }
-
-    const widthPx=agentOPx(Math.max(1,geometry.width));
-    const heightPx=agentOPx(Math.max(1,geometry.height));
-    const topRadius=agentOPx(Math.max(0,geometry.topRadius));
-    const bottomRadius=agentOPx(Math.max(0,geometry.bottomRadius));
-    const radiusPx=`${topRadius} ${topRadius} ${bottomRadius} ${bottomRadius}`;
-    if(widthPx!==lastWidthPx){shell.style.width=widthPx;if(beadAura)beadAura.style.width=widthPx;lastWidthPx=widthPx;}
-    if(heightPx!==lastHeightPx){shell.style.height=heightPx;if(beadAura)beadAura.style.height=heightPx;lastHeightPx=heightPx;}
-    if(radiusPx!==lastRadiusPx){shell.style.borderRadius=radiusPx;if(beadAura)beadAura.style.borderRadius=radiusPx;lastRadiusPx=radiusPx;}
-  }
-
-  const livingWave=
-    Math.sin(now*.00069)*.58+
-    Math.sin(now*.00031+1.7)*.27+
-    Math.sin(now*.00017+4.2)*.15;
-  const livingAmplitude=.002+.00886*Math.min(2,O.idleBreath/54);
-  const bubbleBreath=geometryForm===0?1+livingWave*livingAmplitude:1;
-  applyOffset();
-  setCachedRootVariable('--anchor-y',agentOPx(geometry.anchorY));
-  setCachedRootVariable('--shell-scale',agentONumber(shellScale));
-  setCachedRootVariable('--bubble-breath',agentONumber(bubbleBreath));
-  setCachedRootVariable('--choreo-x',agentOPx(pose.x));
-  setCachedRootVariable('--choreo-y',agentOPx(pose.y));
-  setCachedRootVariable('--shell-skew',agentODeg(pose.skew));
-  setCachedRootVariable('--stretch-x',agentONumber(pose.stretchX));
-  setCachedRootVariable('--stretch-y',agentONumber(pose.stretchY));
-  drawOptical(now,elapsed);
-
-  const geometrySettled=stableCollapsed||geometryPerceptuallySettled(target);
-  const poseSettled=stableCollapsed||posePerceptuallySettled();
-  const scaleSettled=stableCollapsed||Math.abs(shellScale-targetScale)<.0005&&Math.abs(shellScaleVelocity)<.004;
-  finishMorphTransitionIfReady(now,geometrySettled&&poseSettled&&scaleSettled);
-
-  const stableExpanded=morphState==='expanded'&&geometrySettled&&poseSettled&&scaleSettled&&opticalForm===1&&opticalState===0;
-  if(!stableExpanded&&pageActive&&stageInView)animationFrameId=requestAnimationFrame(renderGeometry);
-};
-
-/* Android 生产态不广播 iframe / CustomEvent 预览副本，用户意图只经过唯一原生桥。 */
 if(nativeProduction){
+  const agentOMotionShell=root.querySelector('.motion-shell');
+  const agentOIdentity='translate3d(0px,0px,0) scale3d(1,1,1)';
+  const agentORetreatY=-10;
+  const agentOPreScale=.78;
+  const agentOState={
+    token:0,
+    animation:null,
+    preparedX:0,
+    preparedY:0,
+    suspended:false,
+  };
+
+  function agentOTransform(x,y,scaleX=1,scaleY=scaleX,skew=0){
+    return `translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,0) skewX(${skew.toFixed(2)}deg) scale3d(${scaleX.toFixed(5)},${scaleY.toFixed(5)},1)`;
+  }
+
+  function runCatchingCancel(animation){
+    try{animation.cancel();}catch(error){/* 已结束的动画无需处理。 */}
+  }
+
+  function agentOCancelMotion(){
+    const animation=agentOState.animation;
+    agentOState.animation=null;
+    if(animation)runCatchingCancel(animation);
+  }
+
+  function agentOSetMotionTransform(transform){
+    agentOMotionShell.style.transform=transform;
+  }
+
+  function agentOAnimate(keyframes,options,token){
+    agentOCancelMotion();
+    const finalTransform=keyframes[keyframes.length-1].transform;
+    if(typeof agentOMotionShell.animate!=='function'){
+      agentOSetMotionTransform(finalTransform);
+      return new Promise(resolve=>setTimeout(()=>resolve(token===agentOState.token),Number(options.duration)||0));
+    }
+    return new Promise(resolve=>{
+      const animation=agentOMotionShell.animate(keyframes,{...options,fill:'forwards'});
+      agentOState.animation=animation;
+      if(agentOState.suspended)animation.pause();
+      const finish=valid=>{
+        if(agentOState.animation===animation)agentOState.animation=null;
+        if(valid)agentOSetMotionTransform(finalTransform);
+        runCatchingCancel(animation);
+        resolve(valid&&token===agentOState.token);
+      };
+      animation.onfinish=()=>finish(true);
+      animation.oncancel=()=>resolve(false);
+    });
+  }
+
+  function agentOResetPhysics(){
+    shellScale=1;
+    shellScaleVelocity=0;
+    targetScale=1;
+    Object.assign(pose,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
+    Object.assign(poseTarget,{x:0,y:0,skew:0,stretchX:1,stretchY:1});
+    Object.assign(poseVelocity,{x:0,y:0,skew:0,stretchX:0,stretchY:0});
+  }
+
+  function agentOSetGeometry(targetForm){
+    const target=updateDesiredGeometry(targetForm);
+    geometryForm=targetForm;
+    for(const key of geometryKeys){
+      geometry[key]=target[key];
+      velocity[key]=0;
+    }
+    agentOResetPhysics();
+    const widthPx=`${Math.max(1,target.width)}px`;
+    const heightPx=`${Math.max(1,target.height)}px`;
+    const radiusPx=`${Math.max(0,target.topRadius)}px ${Math.max(0,target.topRadius)}px ${Math.max(0,target.bottomRadius)}px ${Math.max(0,target.bottomRadius)}px`;
+    shell.style.width=widthPx;
+    shell.style.height=heightPx;
+    shell.style.borderRadius=radiusPx;
+    if(beadAura){
+      beadAura.style.width=widthPx;
+      beadAura.style.height=heightPx;
+      beadAura.style.borderRadius=radiusPx;
+    }
+    lastWidthPx=widthPx;
+    lastHeightPx=heightPx;
+    lastRadiusPx=radiusPx;
+    setCachedRootVariable('--anchor-y',`${target.anchorY}px`);
+    setCachedRootVariable('--bubble-breath','1');
+    return target;
+  }
+
+  function agentOClearOptical(){
+    opticalForm=1;
+    opticalState=0;
+    if(gl&&opticalWasVisible){
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      opticalWasVisible=false;
+    }
+  }
+
+  function agentOFinishExpanded(){
+    form=2;
+    geometryForm=2;
+    morphState='expanded';
+    root.dataset.form='2';
+    root.dataset.content='2';
+    root.dataset.phase='idle';
+    root.dataset.flight='0';
+    root.dataset.orbOptics='0';
+    root.dataset.transitioning='false';
+    agentOSetMotionTransform(agentOIdentity);
+    updateSelection();
+    notifyMorphState('expanded',true);
+  }
+
+  function agentOFinishCollapsed(){
+    form=0;
+    geometryForm=0;
+    morphState='collapsed';
+    opticalForm=0;
+    opticalState=0;
+    root.dataset.form='0';
+    root.dataset.content='0';
+    root.dataset.phase='idle';
+    root.dataset.flight='0';
+    root.dataset.orbOptics='1';
+    root.dataset.transitioning='false';
+    agentOSetMotionTransform(agentOIdentity);
+    updateSelection();
+    notifyMorphState('collapsed',false);
+    ensureAnimationLoop();
+  }
+
+  async function agentORunExpand(){
+    if(morphState==='expanding'||morphState==='expanded')return;
+    const token=++agentOState.token;
+    morphRevision+=1;
+    morphState='expanding';
+    root.dataset.content='0';
+    root.dataset.transitioning='true';
+    root.dataset.phase='shrink';
+    root.dataset.flight='0';
+    root.dataset.orbOptics='1';
+    notifyMorphState('expanding',false);
+
+    const rebaseX=agentOState.preparedX;
+    const rebaseY=agentOState.preparedY;
+    agentOState.preparedX=0;
+    agentOState.preparedY=0;
+    const orbStart=agentOTransform(rebaseX,rebaseY,1,1);
+    const orbRetreat=agentOTransform(rebaseX,rebaseY+agentORetreatY,agentOPreScale,agentOPreScale);
+    agentOSetMotionTransform(orbStart);
+    ensureAnimationLoop();
+    const shrunk=await agentOAnimate([
+      {transform:orbStart,offset:0},
+      {transform:orbRetreat,offset:1},
+    ],{duration:78,easing:'cubic-bezier(.42,0,.58,1)'},token);
+    if(!shrunk)return;
+
+    pauseAnimationLoop();
+    root.dataset.orbOptics='0';
+    agentOClearOptical();
+    const panel=agentOSetGeometry(2);
+    root.dataset.form='2';
+    root.dataset.phase='flight';
+    const scaleX=(ORB_MAX*agentOPreScale)/Math.max(1,panel.width);
+    const scaleY=(ORB_MAX*agentOPreScale)/Math.max(1,panel.height);
+    const startY=rebaseY+agentORetreatY-panel.anchorY;
+    const panelStart=agentOTransform(rebaseX,startY,scaleX,scaleY);
+    const panelOvershoot=agentOTransform(0,-3,1.018,.986);
+    agentOSetMotionTransform(panelStart);
+    void agentOMotionShell.offsetWidth;
+    notifyMorphState('expanding',true);
+
+    const expanded=await agentOAnimate([
+      {transform:panelStart,offset:0},
+      {transform:agentOTransform(rebaseX*.28,startY*.22,.66,.70),offset:.46},
+      {transform:panelOvershoot,offset:.84},
+      {transform:agentOIdentity,offset:1},
+    ],{duration:258,easing:'cubic-bezier(.18,.72,.2,1)'},token);
+    if(!expanded)return;
+    agentOFinishExpanded();
+  }
+
+  async function agentORunCollapse(){
+    if(morphState==='collapsing'||morphState==='collapsed')return;
+    const token=++agentOState.token;
+    morphRevision+=1;
+    morphState='collapsing';
+    root.dataset.content='0';
+    root.dataset.transitioning='true';
+    root.dataset.phase='settle';
+    notifyMorphState('collapsing',false);
+
+    const panel=updateDesiredGeometry(2);
+    const scaleX=(ORB_MAX*agentOPreScale)/Math.max(1,panel.width);
+    const scaleY=(ORB_MAX*agentOPreScale)/Math.max(1,panel.height);
+    const panelEnd=agentOTransform(0,agentORetreatY-panel.anchorY,scaleX,scaleY);
+    const collapsedPanel=await agentOAnimate([
+      {transform:agentOIdentity,offset:0},
+      {transform:agentOTransform(0,3,.985,1.012),offset:.16},
+      {transform:panelEnd,offset:1},
+    ],{duration:222,easing:'cubic-bezier(.42,0,.72,.28)'},token);
+    if(!collapsedPanel)return;
+
+    agentOSetGeometry(0);
+    root.dataset.form='0';
+    root.dataset.orbOptics='1';
+    opticalForm=0;
+    opticalState=0;
+    const orbStart=agentOTransform(0,agentORetreatY,agentOPreScale,agentOPreScale);
+    agentOSetMotionTransform(orbStart);
+    void agentOMotionShell.offsetWidth;
+    ensureAnimationLoop();
+    const restored=await agentOAnimate([
+      {transform:orbStart,offset:0},
+      {transform:agentOTransform(0,1,1.025,1.025),offset:.72},
+      {transform:agentOIdentity,offset:1},
+    ],{duration:104,easing:'cubic-bezier(.2,.8,.2,1)'},token);
+    if(!restored)return;
+    agentOFinishCollapsed();
+  }
+
+  function agentOSnapForOppositeTransition(targetForm){
+    agentOCancelMotion();
+    if(targetForm===0){
+      agentOSetGeometry(2);
+      root.dataset.form='2';
+      agentOSetMotionTransform(agentOIdentity);
+      morphState='expanded';
+      form=2;
+    }else{
+      agentOSetGeometry(0);
+      root.dataset.form='0';
+      root.dataset.orbOptics='1';
+      agentOSetMotionTransform(agentOIdentity);
+      morphState='collapsed';
+      form=0;
+    }
+  }
+
+  setForm=function(value){
+    const targetForm=value===2?2:0;
+    if(targetForm===2){
+      if(morphState==='collapsing')agentOSnapForOppositeTransition(2);
+      void agentORunExpand();
+    }else{
+      if(morphState==='expanding')agentOSnapForOppositeTransition(0);
+      void agentORunCollapse();
+    }
+  };
+
+  advanceMorphTimeline=function(){};
+  finishMorphTransitionIfReady=function(){};
+  snapMorphGeometry=agentOSetGeometry;
+
+  pauseAnimationLoop();
+  renderGeometry=function(now){
+    animationFrameId=0;
+    const delta=Math.min(.05,(now-previousFrame)/1000||.016);
+    previousFrame=now;
+    const orbVisible=root.dataset.form==='0'&&root.dataset.orbOptics==='1';
+    if(!orbVisible||!pageActive||!stageInView)return;
+    const livingWave=
+      Math.sin(now*.00069)*.58+
+      Math.sin(now*.00031+1.7)*.27+
+      Math.sin(now*.00017+4.2)*.15;
+    const livingAmplitude=.002+.00886*Math.min(2,O.idleBreath/54);
+    setCachedRootVariable('--bubble-breath',String(1+livingWave*livingAmplitude));
+    drawOptical(now,delta);
+    animationFrameId=requestAnimationFrame(renderGeometry);
+  };
+
+  /* 生产态只经过唯一原生桥。 */
   postChatAction=function(action,payload={}){
     let delivered=false;
     try{
@@ -154,7 +328,117 @@ if(nativeProduction){
     if(delivered!==chatState.bridgeConnected){chatState.bridgeConnected=delivered;renderBridgeStatus();}
     return delivered;
   };
-}
 
-updateAgentONativeStageScale();
-window.addEventListener('resize',scheduleAgentONativeStageScale,{passive:true});
+  /* WebView 舞台整体缩放后，拖动位移需要按相同比例回传给原生窗口。 */
+  const agentOBaseMovePanelWindowDrag=movePanelWindowDrag;
+  movePanelWindowDrag=function(dx,dy){
+    const scale=agentONativeStageScale>0?agentONativeStageScale:1;
+    agentOBaseMovePanelWindowDrag(dx*scale,dy*scale);
+  };
+
+  function agentONativeOrbDown(){
+    if(morphState!=='collapsed')return;
+    dragging=true;
+    root.dataset.dragging='true';
+    root.dataset.phase='drag';
+    agentOCancelMotion();
+    agentOSetMotionTransform(agentOTransform(0,0,.965,.965));
+    ensureAnimationLoop();
+  }
+
+  function agentONativeOrbMove(velocity){
+    if(!dragging||morphState!=='collapsed')return;
+    const safeVelocity=Number.isFinite(Number(velocity))?Number(velocity):0;
+    const skew=Math.max(-3.2,Math.min(3.2,safeVelocity*2.4));
+    const stretch=Math.min(.026,Math.abs(safeVelocity)*.018);
+    agentOSetMotionTransform(agentOTransform(0,0,1+stretch,1-stretch,skew));
+  }
+
+  function agentORestoreOrbTransform(){
+    const from=agentOMotionShell.style.transform||agentOIdentity;
+    const token=++agentOState.token;
+    void agentOAnimate([
+      {transform:from,offset:0},
+      {transform:agentOIdentity,offset:1},
+    ],{duration:118,easing:'cubic-bezier(.2,.8,.2,1)'},token);
+  }
+
+  function agentONativeOrbUp(wasMoved){
+    dragging=false;
+    root.dataset.dragging='false';
+    root.dataset.phase='idle';
+    if(wasMoved)agentORestoreOrbTransform();
+    else void agentORunExpand();
+  }
+
+  function agentONativeOrbCancel(){
+    dragging=false;
+    root.dataset.dragging='false';
+    root.dataset.phase='idle';
+    agentORestoreOrbTransform();
+  }
+
+  function agentONativePrepareExpand(rebaseX,rebaseY){
+    if(morphState!=='collapsed')return false;
+    const x=Number(rebaseX);
+    const y=Number(rebaseY);
+    agentOState.preparedX=Number.isFinite(x)?x:0;
+    agentOState.preparedY=Number.isFinite(y)?y:0;
+    agentOSetMotionTransform(agentOTransform(agentOState.preparedX,agentOState.preparedY,1,1));
+    return true;
+  }
+
+  function agentONativeCommitExpand(){
+    if(morphState!=='collapsed')return false;
+    void agentORunExpand();
+    return true;
+  }
+
+  function agentONativeOrbTap(rebaseX,rebaseY){
+    agentONativePrepareExpand(rebaseX,rebaseY);
+    return agentONativeCommitExpand();
+  }
+
+  const agentOBaseFloatingChat=window.GuiPlusFloatingChat;
+  window.GuiPlusFloatingChat=Object.freeze({
+    ...agentOBaseFloatingChat,
+    expand:()=>setForm(2),
+    collapse:()=>setForm(0),
+    nativeOrbDown:agentONativeOrbDown,
+    nativeOrbMove:agentONativeOrbMove,
+    nativeOrbUp:agentONativeOrbUp,
+    nativeOrbCancel:agentONativeOrbCancel,
+    nativeOrbTap:agentONativeOrbTap,
+    nativePrepareExpand:agentONativePrepareExpand,
+    nativeCommitExpand:agentONativeCommitExpand,
+    suspend:()=>{
+      pageActive=false;
+      pauseAnimationLoop();
+      agentOState.suspended=true;
+      if(agentOState.animation)agentOState.animation.pause();
+      if(agentOTailFrame){cancelAnimationFrame(agentOTailFrame);agentOTailFrame=0;}
+    },
+    resume:()=>{
+      pageActive=!document.hidden;
+      agentOState.suspended=false;
+      if(agentOState.animation)agentOState.animation.play();
+      if(pageActive)ensureAnimationLoop();
+    },
+  });
+
+  document.addEventListener('visibilitychange',()=>{
+    agentOState.suspended=document.hidden;
+    if(agentOState.animation){
+      if(document.hidden)agentOState.animation.pause();
+      else agentOState.animation.play();
+    }
+  },{passive:true});
+
+  agentOSetGeometry(0);
+  root.dataset.form='0';
+  root.dataset.content='0';
+  root.dataset.orbOptics='1';
+  root.dataset.transitioning='false';
+  agentOSetMotionTransform(agentOIdentity);
+  ensureAnimationLoop();
+}
