@@ -1007,7 +1007,7 @@ class DeviceToolExecutor(
         private const val ACTION_WIFI_SETTINGS_COMPAT = "android.settings.WIFI_SETTINGS"
         private const val ACTION_BLUETOOTH_SETTINGS_COMPAT = "android.settings.BLUETOOTH_SETTINGS"
         private const val ACTION_NOTIFICATION_SETTINGS_COMPAT = "android.settings.NOTIFICATION_SETTINGS"
-        private const val ACTION_ZEN_MODE_SETTINGS_COMPAT = "android.settings.NOTIFICATION_POLICY_ACCESS_SETTINGS"
+        private const val ACTION_ZEN_MODE_SETTINGS_COMPAT = "android.settings.ZEN_MODE_SETTINGS"
         private const val ACTION_APP_NOTIFICATION_SETTINGS_COMPAT = "android.settings.APP_NOTIFICATION_SETTINGS"
         private const val ACTION_BATTERY_SETTINGS_COMPAT = "android.settings.BATTERY_SETTINGS"
         private const val ACTION_INTERNAL_STORAGE_SETTINGS_COMPAT = "android.settings.INTERNAL_STORAGE_SETTINGS"
