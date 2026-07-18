@@ -38,7 +38,7 @@ internal object ClientToolExecutionResultCodec {
         ok = receipt.optBoolean("ok", false),
         message = receipt.optString("message").ifBlank { fallbackMessage },
         shouldContinue = receipt.optBoolean("shouldContinue", false),
-        undoStep = receipt.optJSONObject("undoStep")?.let(CloudAgentStep::fromJson),
+        undoStep = receipt.optJSONObject("undoStep")?.let { CloudAgentStep.fromJson(it) },
         diagnostics = appendDiagnostic(receipt.optString("diagnostics"), "idempotent_replay"),
     )
 
