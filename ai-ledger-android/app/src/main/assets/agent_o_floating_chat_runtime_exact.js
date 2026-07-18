@@ -76,13 +76,13 @@ if(nativeProduction){
       const animation=agentOMotionShell.animate(keyframes,{...options,fill:'forwards'});
       agentOState.animation=animation;
       if(agentOState.suspended)animation.pause();
-      const finish=valid=>{
+      animation.onfinish=()=>{
+        animation.oncancel=null;
         if(agentOState.animation===animation)agentOState.animation=null;
-        if(valid)agentOSetMotionTransform(finalTransform);
+        agentOSetMotionTransform(finalTransform);
         runCatchingCancel(animation);
-        resolve(valid&&token===agentOState.token);
+        resolve(token===agentOState.token);
       };
-      animation.onfinish=()=>finish(true);
       animation.oncancel=()=>resolve(false);
     });
   }
@@ -327,13 +327,6 @@ if(nativeProduction){
     }
     if(delivered!==chatState.bridgeConnected){chatState.bridgeConnected=delivered;renderBridgeStatus();}
     return delivered;
-  };
-
-  /* WebView 舞台整体缩放后，拖动位移需要按相同比例回传给原生窗口。 */
-  const agentOBaseMovePanelWindowDrag=movePanelWindowDrag;
-  movePanelWindowDrag=function(dx,dy){
-    const scale=agentONativeStageScale>0?agentONativeStageScale:1;
-    agentOBaseMovePanelWindowDrag(dx*scale,dy*scale);
   };
 
   function agentONativeOrbDown(){
