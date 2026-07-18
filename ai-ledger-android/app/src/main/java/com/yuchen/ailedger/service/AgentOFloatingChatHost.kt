@@ -321,6 +321,7 @@ internal class AgentOFloatingChatHost(
         snapshotFramePosted = false
         forceSnapshotDispatch = false
         dragFramePosted = false
+        pendingOrbVelocity = 0f
         collapsedPointerId = MotionEvent.INVALID_POINTER_ID
 
         orbTouchView?.let { touch ->
@@ -520,23 +521,12 @@ internal class AgentOFloatingChatHost(
                         .put("state", if (expanded) "expanded" else "collapsed")
                 )
             }
-            "window.dragStart" -> {
-                if (phase != AgentOWindowPhase.Expanded) return
-                layoutParams?.let { params ->
-                    dragStartX = params.x
-                    dragStartY = params.y
-                    pendingDragX = params.x
-                    pendingDragY = params.y
-                }
-            }
-            "window.drag" -> {
-                if (phase != AgentOWindowPhase.Expanded) return
-                scheduleExpandedDrag(
-                    x = dragStartX + dp(payload.optDouble("dx", 0.0).toFloat()),
-                    y = dragStartY + dp(payload.optDouble("dy", 0.0).toFloat()),
-                )
-            }
-            "window.dragEnd" -> if (phase == AgentOWindowPhase.Expanded) applyPendingDrag()
+            "window.dragStart" -> beginExpandedPanelDrag()
+            "window.drag" -> moveExpandedPanelDrag(
+                dxCss = payload.optDouble("dx", 0.0),
+                dyCss = payload.optDouble("dy", 0.0),
+            )
+            "window.dragEnd" -> endExpandedPanelDrag()
             "composer.focus" -> if (phase == AgentOWindowPhase.Expanded) enableInputFocus()
             "composer.blur" -> disableInputFocus()
             else -> AssistantFloatingChatBridge.dispatch(action, payload)
@@ -651,15 +641,17 @@ internal class AgentOFloatingChatHost(
         val frame = fixedFrame ?: return
         val oldX = params.x
         val oldY = params.y
-        val rebaseXCss = (oldX - frame.safeX) / (density * frame.scale)
-        val rebaseYCss = (oldY - frame.safeY) / (density * frame.scale)
+        val (targetX, targetY) = clampExpandedWindowPosition(oldX, oldY, frame)
+        val scalePx = density * frame.scale
+        val rebaseXCss = (oldX - targetX) / scalePx
+        val rebaseYCss = (oldY - targetY) / scalePx
 
         phase = AgentOWindowPhase.Expanding
         applyOrbTouchState()
-        params.x = frame.safeX
-        params.y = frame.safeY
-        pendingDragX = params.x
-        pendingDragY = params.y
+        params.x = targetX
+        params.y = targetY
+        pendingDragX = targetX
+        pendingDragY = targetY
         runCatching { windowManager?.updateViewLayout(view, params) }
 
         evaluateOrbScript(
@@ -671,6 +663,32 @@ internal class AgentOFloatingChatHost(
     private fun evaluateOrbScript(script: String) {
         if (!pageReady) return
         webView?.evaluateJavascript(script, null)
+    }
+
+    private fun beginExpandedPanelDrag() {
+        if (phase != AgentOWindowPhase.Expanded) return
+        layoutParams?.let { params ->
+            dragStartX = params.x
+            dragStartY = params.y
+            pendingDragX = params.x
+            pendingDragY = params.y
+        }
+    }
+
+    private fun moveExpandedPanelDrag(dxCss: Double, dyCss: Double) {
+        if (phase != AgentOWindowPhase.Expanded) return
+        val frame = fixedFrame ?: return
+        val x = dragStartX + dp(dxCss.toFloat())
+        val y = dragStartY + dp(dyCss.toFloat())
+        val (clampedX, clampedY) = clampExpandedWindowPosition(x, y, frame)
+        pendingDragX = clampedX
+        pendingDragY = clampedY
+        // 网页端已按 requestAnimationFrame 合并；这里直接提交，避免再延迟一帧。
+        applyPendingDrag()
+    }
+
+    private fun endExpandedPanelDrag() {
+        if (phase == AgentOWindowPhase.Expanded) applyPendingDrag()
     }
 
     private fun scheduleCollapsedDrag(x: Int, y: Int) {
@@ -688,21 +706,6 @@ internal class AgentOFloatingChatHost(
             topWindowInsetPx() + margin + radius - centerY,
             metrics.heightPixels - bottomWindowInsetPx() - margin - radius - centerY,
         )
-        scheduleDragFrame()
-    }
-
-    private fun scheduleExpandedDrag(x: Int, y: Int) {
-        val frame = fixedFrame ?: return
-        val metrics = service.resources.displayMetrics
-        val margin = dp(EXPANDED_SCREEN_MARGIN_DP)
-        val panel = expandedPanelBoundsPx(frame)
-        val minX = margin - panel.left
-        val maxX = metrics.widthPixels - margin - panel.right
-        val minY = topWindowInsetPx() + margin - panel.top
-        val maxY = metrics.heightPixels - bottomWindowInsetPx() - margin - panel.bottom
-
-        pendingDragX = if (minX <= maxX) x.coerceIn(minX, maxX) else (minX + maxX) / 2
-        pendingDragY = if (minY <= maxY) y.coerceIn(minY, maxY) else (minY + maxY) / 2
         scheduleDragFrame()
     }
 
@@ -779,6 +782,23 @@ internal class AgentOFloatingChatHost(
             right = left + panelWidth,
             bottom = top + panelHeight,
         )
+    }
+
+    private fun clampExpandedWindowPosition(
+        x: Int,
+        y: Int,
+        frame: AgentOFixedFrame,
+    ): Pair<Int, Int> {
+        val metrics = service.resources.displayMetrics
+        val margin = dp(EXPANDED_SCREEN_MARGIN_DP)
+        val panel = expandedPanelBoundsPx(frame)
+        val minX = margin - panel.left
+        val maxX = metrics.widthPixels - margin - panel.right
+        val minY = topWindowInsetPx() + margin - panel.top
+        val maxY = metrics.heightPixels - bottomWindowInsetPx() - margin - panel.bottom
+        val clampedX = if (minX <= maxX) x.coerceIn(minX, maxX) else (minX + maxX) / 2
+        val clampedY = if (minY <= maxY) y.coerceIn(minY, maxY) else (minY + maxY) / 2
+        return clampedX to clampedY
     }
 
     private fun updateOrbTouchCoordinates(
@@ -939,6 +959,21 @@ internal class AgentOFloatingChatHost(
                     runCatching { JSONObject(payload) }.getOrDefault(JSONObject()),
                 )
             mainHandler.post { handleNativeEnvelope(envelope.toString()) }
+        }
+
+        @JavascriptInterface
+        fun beginPanelDrag() {
+            mainHandler.post(::beginExpandedPanelDrag)
+        }
+
+        @JavascriptInterface
+        fun movePanelDrag(dx: Double, dy: Double) {
+            mainHandler.post { moveExpandedPanelDrag(dx, dy) }
+        }
+
+        @JavascriptInterface
+        fun endPanelDrag() {
+            mainHandler.post(::endExpandedPanelDrag)
         }
 
         @JavascriptInterface
