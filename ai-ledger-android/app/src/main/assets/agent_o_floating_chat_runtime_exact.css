@@ -23,6 +23,32 @@
   animation-play-state: paused;
 }
 
+/*
+ * 几何过渡和整窗拖动期间，冻结与交互无关的独立色相/边缘流动循环，把合成预算留给
+ * 玻璃真实尺寸、圆角和 WindowManager 位移。动画暂停后从原进度继续，不改变光效参数。
+ */
+#glass-blur-motion-lab-v2[data-phase="shrink"] .blur-stage,
+#glass-blur-motion-lab-v2[data-phase="flight"] .blur-stage,
+#glass-blur-motion-lab-v2[data-phase="impact"] .blur-stage,
+#glass-blur-motion-lab-v2[data-phase="settle"] .blur-stage,
+#glass-blur-motion-lab-v2[data-window-dragging="true"] .blur-stage,
+#glass-blur-motion-lab-v2[data-phase="shrink"] .glass-shell::before,
+#glass-blur-motion-lab-v2[data-phase="flight"] .glass-shell::before,
+#glass-blur-motion-lab-v2[data-phase="impact"] .glass-shell::before,
+#glass-blur-motion-lab-v2[data-phase="settle"] .glass-shell::before,
+#glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell::before {
+  animation-play-state: paused !important;
+}
+
+#glass-blur-motion-lab-v2[data-phase="shrink"] .glass-shell,
+#glass-blur-motion-lab-v2[data-phase="flight"] .glass-shell,
+#glass-blur-motion-lab-v2[data-phase="impact"] .glass-shell,
+#glass-blur-motion-lab-v2[data-phase="settle"] .glass-shell,
+#glass-blur-motion-lab-v2[data-window-dragging="true"] .glass-shell {
+  will-change: width, height, border-radius, transform;
+  backface-visibility: hidden;
+}
+
 /* 手机端只等比缩放整张 V8.4 舞台，撤销窄屏对内部控件的二次重排。 */
 #glass-blur-motion-lab-v2[data-form="2"] .chat-copy {
   padding: 13px 15px 14px;
