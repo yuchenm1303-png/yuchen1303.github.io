@@ -341,7 +341,7 @@ window.addEventListener('keydown',event=>{
   }
 });
 
-/* 展开态仅使用 V8.4 原工具栏空白处拖动；跨桥消息每个显示帧最多一次。 */
+/* 展开态仅使用 V8.4 原工具栏空白处拖动；网页每帧只跨桥一次，原生收到后直接提交窗口位置。 */
 const chatToolbar=chatCopy.querySelector('.chat-toolbar');
 let panelDragPointer=-1;
 let panelDragStartX=0;
@@ -350,11 +350,38 @@ let panelDragging=false;
 let panelDragFrame=0;
 let pendingPanelDragX=0;
 let pendingPanelDragY=0;
+let panelDragUsesDirectBridge=false;
+
+function beginPanelWindowDrag(){
+  panelDragUsesDirectBridge=false;
+  try{
+    if(nativeProduction&&window.GuiPlusNative&&typeof window.GuiPlusNative.beginPanelDrag==='function'){
+      window.GuiPlusNative.beginPanelDrag();
+      panelDragUsesDirectBridge=true;
+      return;
+    }
+  }catch(error){panelDragUsesDirectBridge=false;}
+  postChatAction('window.dragStart',{expanded:true});
+}
+
+function movePanelWindowDrag(dx,dy){
+  if(panelDragUsesDirectBridge){
+    try{window.GuiPlusNative.movePanelDrag(dx,dy);return;}catch(error){panelDragUsesDirectBridge=false;}
+  }
+  postChatAction('window.drag',{dx,dy,expanded:true});
+}
+
+function endPanelWindowDrag(){
+  if(panelDragUsesDirectBridge){
+    try{window.GuiPlusNative.endPanelDrag();return;}catch(error){panelDragUsesDirectBridge=false;}
+  }
+  postChatAction('window.dragEnd',{expanded:true});
+}
 
 function dispatchPendingPanelDrag(){
   panelDragFrame=0;
   if(!panelDragging)return;
-  postChatAction('window.drag',{dx:pendingPanelDragX,dy:pendingPanelDragY,expanded:true});
+  movePanelWindowDrag(pendingPanelDragX,pendingPanelDragY);
 }
 
 function finishPanelDrag(event){
@@ -362,13 +389,15 @@ function finishPanelDrag(event){
   if(panelDragFrame){
     cancelAnimationFrame(panelDragFrame);
     panelDragFrame=0;
-    postChatAction('window.drag',{dx:pendingPanelDragX,dy:pendingPanelDragY,expanded:true});
+    movePanelWindowDrag(pendingPanelDragX,pendingPanelDragY);
   }
   if(chatToolbar.hasPointerCapture(panelDragPointer))chatToolbar.releasePointerCapture(panelDragPointer);
-  postChatAction('window.dragEnd',{expanded:true});
+  endPanelWindowDrag();
   panelDragging=false;
   panelDragPointer=-1;
+  panelDragUsesDirectBridge=false;
   chatToolbar.dataset.dragging='false';
+  root.dataset.windowDragging='false';
   event.preventDefault();
   event.stopPropagation();
 }
@@ -382,8 +411,9 @@ chatToolbar.addEventListener('pointerdown',event=>{
   pendingPanelDragX=0;
   pendingPanelDragY=0;
   chatToolbar.dataset.dragging='true';
+  root.dataset.windowDragging='true';
   chatToolbar.setPointerCapture(panelDragPointer);
-  postChatAction('window.dragStart',{pointerId:panelDragPointer,expanded:true});
+  beginPanelWindowDrag();
   event.preventDefault();
   event.stopPropagation();
 },true);
