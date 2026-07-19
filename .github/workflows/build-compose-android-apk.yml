@@ -33,6 +33,8 @@ jobs:
         run: npm test
       - name: Verify Android lightweight contracts
         run: python ai-ledger-android/scripts/verify_lightweight_contracts.py
+      - name: Verify real-time streaming contracts
+        run: python ai-ledger-android/scripts/verify_streaming_contracts.py
 
   debug_test:
     name: Test and build debug APK
