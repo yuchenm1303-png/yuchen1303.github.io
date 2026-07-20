@@ -692,13 +692,7 @@ private fun ChatPanelV2(
                 modifier = Modifier.matchParentSize()
             )
             Column(Modifier.fillMaxSize().padding(11.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.weight(1f))
-                    ClearChatButtonV2(
-                        enabled = sourceMessages.isNotEmpty(),
-                        onClick = onClearMessages
-                    )
-                }
+                Spacer(Modifier.fillMaxWidth().height(24.dp))
                 Box(
                     Modifier
                         .weight(1f)
@@ -1109,86 +1103,86 @@ private fun MessageBubbleV2(
                 .clip(RoundedCornerShape(bubbleRadius.dp))
         ) {
             Column(
-            modifier = Modifier
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .animateContentSize(
-                    animationSpec = spring(
-                        dampingRatio = if (sending || revealActive || streamRevealShouldAnimate) 0.88f else 0.86f,
-                        stiffness = Spring.StiffnessMediumLow
-                    )
-                ),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            if (sending) {
-                StreamingAssistantContentV2(
-                    message = message,
-                    motionClock = motionClock,
-                    smoothState = if (streamRevealShouldAnimate) smoothStreamingState else null,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .graphicsLayer { alpha = contentAlpha }
-                )
-            } else {
-                if (streamRevealShouldAnimate && !smoothStreamingFinished) {
-                    StreamingLivePlainTextV2(
-                        text = displayText,
-                        revealHead = smoothStreamingState.revealHead,
-                        color = textColor,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                modifier = Modifier
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = if (sending || revealActive || streamRevealShouldAnimate) 0.88f else 0.86f,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    ),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                if (sending) {
+                    StreamingAssistantContentV2(
+                        message = message,
                         motionClock = motionClock,
+                        smoothState = if (streamRevealShouldAnimate) smoothStreamingState else null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer { alpha = contentAlpha }
                     )
                 } else {
-                    GeneratingMessageContentV2(
-                        text = displayText,
-                        color = textColor,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
-                        active = revealActive,
-                        motionClock = motionClock,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer { alpha = contentAlpha }
-                    )
-                }
-                if (revealActive) {
-                    TypewriterTrailV2(motionClock)
-                }
-                if (longReply && revealFinished) {
-                    LongReplyToggleV2(expanded = expanded) {
-                        onLongReplyExpandedChange(message.id, !expanded)
+                    if (streamRevealShouldAnimate && !smoothStreamingFinished) {
+                        StreamingLivePlainTextV2(
+                            text = displayText,
+                            revealHead = smoothStreamingState.revealHead,
+                            color = textColor,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                            motionClock = motionClock,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer { alpha = contentAlpha }
+                        )
+                    } else {
+                        GeneratingMessageContentV2(
+                            text = displayText,
+                            color = textColor,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            fontWeight = if (fromUser) FontWeight.Bold else FontWeight.Medium,
+                            active = revealActive,
+                            motionClock = motionClock,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer { alpha = contentAlpha }
+                        )
+                    }
+                    if (revealActive) {
+                        TypewriterTrailV2(motionClock)
+                    }
+                    if (longReply && revealFinished) {
+                        LongReplyToggleV2(expanded = expanded) {
+                            onLongReplyExpandedChange(message.id, !expanded)
+                        }
                     }
                 }
-            }
 
-            if (message.attachments.isNotEmpty()) {
-                MessageAttachmentListV2(message.attachments)
-            }
+                if (message.attachments.isNotEmpty()) {
+                    MessageAttachmentListV2(message.attachments)
+                }
 
-            if (!fromUser) {
-                MessageBadgeV2(message)
-            } else if (message.hasImageAttachments) {
-                MessageUserAttachmentBadgeV2(message)
-            }
+                if (!fromUser) {
+                    MessageBadgeV2(message)
+                } else if (message.hasImageAttachments) {
+                    MessageUserAttachmentBadgeV2(message)
+                }
 
-            if (fromUser && rawText.isNotBlank()) {
-                UserMessageActionsV2(copyText = rawText, onCopyMessage = onCopyMessage)
-            }
+                if (fromUser && rawText.isNotBlank()) {
+                    UserMessageActionsV2(copyText = rawText, onCopyMessage = onCopyMessage)
+                }
 
-            if (!fromUser && !sending && revealFinished && message.status == MessageStatus.Sent) {
-                MessageDataCards(message)
-            }
+                if (!fromUser && !sending && revealFinished && message.status == MessageStatus.Sent) {
+                    MessageDataCards(message)
+                }
 
-            if (showActions && !fromUser && !sending && revealFinished) {
-                MessageActionsV2(message, copyText = rawText, onCopyMessage = onCopyMessage, onRetryMessage = onRetryMessage)
+                if (showActions && !fromUser && !sending && revealFinished) {
+                    MessageActionsV2(message, copyText = rawText, onCopyMessage = onCopyMessage, onRetryMessage = onRetryMessage)
+                }
             }
         }
-    }
     }
 }
 
@@ -2168,7 +2162,6 @@ private fun MessageBadgeV2(message: ChatMessage) {
         badgeColorV2(message)
     }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-
         Box(Modifier.size(5.dp).clip(RoundedCornerShape(999.dp)).background(badgeColor.copy(alpha = 0.82f)))
         Text(text, color = badgeColor.copy(alpha = 0.70f), fontSize = 9.sp, lineHeight = 12.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -2459,24 +2452,6 @@ private fun RoundIconButtonV2(
             Text(text, color = Color.White.copy(alpha = 0.92f), fontSize = if (text == "+") 25.sp else 15.sp, fontWeight = FontWeight.Black)
         }
     }
-}
-
-@Composable
-private fun ClearChatButtonV2(enabled: Boolean, onClick: () -> Unit) {
-    val alpha = if (enabled) 0.64f else 0.26f
-    Text(
-        text = "清空",
-        color = Color.White.copy(alpha = alpha),
-        fontSize = 11.sp,
-        lineHeight = 14.sp,
-        fontWeight = FontWeight.ExtraBold,
-        modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color.White.copy(alpha = if (enabled) 0.075f else 0.035f))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        maxLines = 1
-    )
 }
 
 @Composable
