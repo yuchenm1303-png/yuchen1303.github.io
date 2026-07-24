@@ -46,3 +46,4 @@ Build Compose Android APK verification
 2026-07-14 Agent O局部模糊与WebView兼容边缘光构建验证
 2026-07-14 Agent O固定舞台单一状态机与原版形变构建验证
 2026-07-14 Agent O禁用系统整屏模糊与热路径收紧构建验证
+2026-07-24 修复自适应图标前景资源解码并触发构建验证
