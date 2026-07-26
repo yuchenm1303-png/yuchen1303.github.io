@@ -1,5 +1,4 @@
 name: Build Compose Android APK
-# 新版自适应与 Legacy 应用图标资源构建验证
 
 on:
   workflow_dispatch:
@@ -13,6 +12,7 @@ on:
 permissions:
   contents: read
   actions: read
+  statuses: write
 
 jobs:
   backend_contract:
@@ -38,7 +38,7 @@ jobs:
         run: python ai-ledger-android/scripts/verify_streaming_contracts.py
 
   debug_test:
-    name: Test and build debug APK
+    name: Test, build and verify debug APK
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Android project
@@ -61,6 +61,89 @@ jobs:
         env:
           AI_LEDGER_CLIENT_TOKEN: ${{ secrets.AI_LEDGER_CLIENT_TOKEN }}
         run: gradle -p . :app:testDebugUnitTest :app:assembleDebug --build-cache --max-workers=4 --stacktrace
+      - name: Unpack and verify launcher resources
+        id: launcher_verify
+        run: |
+          set -euo pipefail
+
+          apk="ai-ledger-android/app/build/outputs/apk/debug/app-debug.apk"
+          report_dir="ai-ledger-android/app/build/reports/launcher-verification"
+          report="$report_dir/report.md"
+          listing="$report_dir/apk-entries.txt"
+          resources="$report_dir/resources.txt"
+          manifest="$report_dir/manifest.txt"
+          mkdir -p "$report_dir"
+
+          test -s "$apk"
+          unzip -l "$apk" > "$listing"
+
+          required_entries=(
+            "res/mipmap-anydpi-v26/ic_launcher.xml"
+            "res/mipmap-anydpi-v26/ic_launcher_round.xml"
+            "res/mipmap-anydpi/ic_launcher.xml"
+            "res/mipmap-anydpi/ic_launcher_round.xml"
+          )
+          for entry in "${required_entries[@]}"; do
+            grep -Fq "$entry" "$listing" || {
+              echo "Missing packaged launcher entry: $entry" >&2
+              exit 1
+            }
+          done
+
+          aapt2="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}/build-tools" -type f -name aapt2 2>/dev/null | sort -V | tail -n 1)"
+          test -x "$aapt2"
+          "$aapt2" dump resources "$apk" > "$resources"
+
+          required_resources=(
+            "drawable/ic_launcher_background_v2"
+            "drawable/ic_launcher_foreground_v2"
+            "drawable/ic_launcher_legacy_v2"
+            "drawable/ic_launcher_legacy_round_v2"
+            "drawable/ic_launcher_legacy_round_background_v2"
+            "mipmap/ic_launcher"
+            "mipmap/ic_launcher_round"
+          )
+          for resource in "${required_resources[@]}"; do
+            grep -Fq "$resource" "$resources" || {
+              echo "Missing packaged launcher resource: $resource" >&2
+              exit 1
+            }
+          done
+
+          apkanalyzer="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}" -type f -name apkanalyzer 2>/dev/null | head -n 1 || true)"
+          if [ -n "$apkanalyzer" ] && [ -x "$apkanalyzer" ]; then
+            "$apkanalyzer" manifest print "$apk" > "$manifest"
+            grep -Eq 'android:icon="(@mipmap/)?ic_launcher"' "$manifest"
+            grep -Eq 'android:roundIcon="(@mipmap/)?ic_launcher_round"' "$manifest"
+          else
+            "$aapt2" dump xmltree "$apk" AndroidManifest.xml > "$manifest"
+            grep -Fq "android:icon" "$manifest"
+            grep -Fq "android:roundIcon" "$manifest"
+          fi
+
+          {
+            echo "# Launcher APK verification"
+            echo
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- APK: \`$apk\`"
+            echo "- APK size: $(stat -c '%s bytes' "$apk")"
+            echo "- Adaptive icon XML: present"
+            echo "- Round adaptive icon XML: present"
+            echo "- Legacy icon XML: present"
+            echo "- Dedicated round legacy icon XML: present"
+            echo "- Foreground/background resources: present in compiled resource table"
+            echo "- Manifest icon and roundIcon declarations: present"
+            echo
+            echo "Result: PASS"
+          } > "$report"
+          cat "$report" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload launcher verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-apk-verification
+          path: ai-ledger-android/app/build/reports/launcher-verification
+          if-no-files-found: warn
       - name: Upload Compose debug APK
         uses: actions/upload-artifact@v4
         with:
@@ -68,6 +151,26 @@ jobs:
           path: ai-ledger-android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           compression-level: 0
+      - name: Publish launcher verification status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERIFY_OUTCOME: ${{ steps.launcher_verify.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$VERIFY_OUTCOME" = "success" ]; then
+            state="success"
+            description="APK launcher resources unpacked and verified"
+          else
+            state="failure"
+            description="APK launcher verification failed"
+          fi
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state="$state" \
+            -f context="launcher-apk-self-check" \
+            -f description="$description" \
+            -f target_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
   performance:
     name: Build performance APK
