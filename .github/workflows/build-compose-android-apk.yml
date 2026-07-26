@@ -80,10 +80,6 @@ jobs:
           required_entries=(
             "res/mipmap-anydpi-v26/ic_launcher.xml"
             "res/mipmap-anydpi-v26/ic_launcher_round.xml"
-            "res/drawable/ic_launcher_background_v2.xml"
-            "res/drawable/ic_launcher_foreground_v2.xml"
-            "res/drawable/ic_launcher_legacy_v2.xml"
-            "res/drawable/ic_launcher_legacy_round_v2.xml"
           )
           for entry in "${required_entries[@]}"; do
             grep -Fq "$entry" "$listing" || {
@@ -92,16 +88,37 @@ jobs:
             }
           done
 
+          grep -Eq 'res/drawable[^/]*/ic_launcher_background_art\.(webp|png)' "$listing" || {
+            echo "Missing packaged launcher bitmap: ic_launcher_background_art" >&2
+            exit 1
+          }
+          grep -Eq 'res/drawable[^/]*/ic_launcher_foreground_art\.(webp|png)' "$listing" || {
+            echo "Missing packaged launcher bitmap: ic_launcher_foreground_art" >&2
+            exit 1
+          }
+
+          forbidden_entries=(
+            "app_icon_master"
+            "ic_launcher_background_v2"
+            "ic_launcher_foreground_v2"
+            "ic_launcher_legacy_v2"
+            "ic_launcher_legacy_round_v2"
+            "ic_launcher_legacy_round_background_v2"
+          )
+          for entry in "${forbidden_entries[@]}"; do
+            if grep -Fq "$entry" "$listing"; then
+              echo "Unexpected obsolete launcher entry remains packaged: $entry" >&2
+              exit 1
+            fi
+          done
+
           aapt2="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}/build-tools" -type f -name aapt2 2>/dev/null | sort -V | tail -n 1)"
           test -x "$aapt2"
           "$aapt2" dump resources "$apk" > "$resources"
 
           required_resources=(
-            "drawable/ic_launcher_background_v2"
-            "drawable/ic_launcher_foreground_v2"
-            "drawable/ic_launcher_legacy_v2"
-            "drawable/ic_launcher_legacy_round_v2"
-            "drawable/ic_launcher_legacy_round_background_v2"
+            "drawable/ic_launcher_background_art"
+            "drawable/ic_launcher_foreground_art"
             "mipmap/ic_launcher"
             "mipmap/ic_launcher_round"
           )
@@ -110,6 +127,20 @@ jobs:
               echo "Missing packaged launcher resource: $resource" >&2
               exit 1
             }
+          done
+
+          forbidden_resources=(
+            "drawable/ic_launcher_background_v2"
+            "drawable/ic_launcher_foreground_v2"
+            "drawable/ic_launcher_legacy_v2"
+            "drawable/ic_launcher_legacy_round_v2"
+            "drawable/ic_launcher_legacy_round_background_v2"
+          )
+          for resource in "${forbidden_resources[@]}"; do
+            if grep -Fq "$resource" "$resources"; then
+              echo "Unexpected obsolete launcher resource remains compiled: $resource" >&2
+              exit 1
+            fi
           done
 
           apkanalyzer="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}" -type f -name apkanalyzer 2>/dev/null | head -n 1 || true)"
@@ -131,9 +162,9 @@ jobs:
             echo "- APK size: $(stat -c '%s bytes' "$apk")"
             echo "- Adaptive icon XML: present"
             echo "- Round adaptive icon XML: present"
-            echo "- Legacy icon XML: present"
-            echo "- Dedicated round legacy icon XML: present"
-            echo "- Foreground/background resources: present in compiled resource table"
+            echo "- Original background bitmap: present"
+            echo "- Original transparent foreground bitmap: present"
+            echo "- Obsolete v2/vector/legacy launcher chain: absent"
             echo "- Manifest icon and roundIcon declarations: present"
             echo
             echo "Result: PASS"
