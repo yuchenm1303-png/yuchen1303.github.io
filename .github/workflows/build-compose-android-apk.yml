@@ -115,8 +115,8 @@ jobs:
           apkanalyzer="$(find "${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}" -type f -name apkanalyzer 2>/dev/null | head -n 1 || true)"
           if [ -n "$apkanalyzer" ] && [ -x "$apkanalyzer" ]; then
             "$apkanalyzer" manifest print "$apk" > "$manifest"
-            grep -Eq 'android:icon="(@mipmap/)?ic_launcher"' "$manifest"
-            grep -Eq 'android:roundIcon="(@mipmap/)?ic_launcher_round"' "$manifest"
+            grep -Eq 'android:icon="(@mipmap/ic_launcher|@ref/0x[0-9a-fA-F]+)"' "$manifest"
+            grep -Eq 'android:roundIcon="(@mipmap/ic_launcher_round|@ref/0x[0-9a-fA-F]+)"' "$manifest"
           else
             "$aapt2" dump xmltree "$apk" AndroidManifest.xml > "$manifest"
             grep -Fq "android:icon" "$manifest"
