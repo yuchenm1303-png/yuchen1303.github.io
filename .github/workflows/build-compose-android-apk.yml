@@ -1,4 +1,5 @@
 name: Build Compose Android APK
+# 新版自适应与 Legacy 应用图标资源构建验证
 
 on:
   workflow_dispatch:
