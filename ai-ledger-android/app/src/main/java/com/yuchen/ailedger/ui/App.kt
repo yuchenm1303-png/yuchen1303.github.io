@@ -167,6 +167,7 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
     val systemActionRouter = remember(context) { (context as? Activity)?.let { SystemActionRouter(it) } }
     var pendingMobileAction by remember { mutableStateOf<PendingMobileAction?>(null) }
     val currentMessages by rememberUpdatedState(state.messages)
+    val hasComposerAttachments by rememberUpdatedState(state.composerAttachments.isNotEmpty())
     val commandSnapshot by rememberUpdatedState(
         MobileCommandSnapshot(
             composerText = state.composerText,
@@ -241,24 +242,30 @@ fun AiAssistantNativeApp(viewModel: AssistantViewModel = viewModel()) {
             val snapshot = commandSnapshot
             val text = snapshot.composerText.trim()
             val pending = pendingMobileAction
+            val forceVisual = AgentRuntimeController.isEnabled() && !hasComposerAttachments
             when {
-                text.isNotBlank() && !snapshot.isSending && pending != null && isConfirmMobileActionText(text) -> {
+                !forceVisual && text.isNotBlank() && !snapshot.isSending && pending != null && isConfirmMobileActionText(text) -> {
                     val result = executeMobileCommand(systemActionRouter, pending.command)
                     pendingMobileAction = null
                     viewModel.acceptExecutedMobileCommand(text, pending.command, result.first, result.second)
                 }
-                text.isNotBlank() && !snapshot.isSending && pending != null && isCancelMobileActionText(text) -> {
+                !forceVisual && text.isNotBlank() && !snapshot.isSending && pending != null && isCancelMobileActionText(text) -> {
                     pendingMobileAction = null
                     viewModel.cancelMobileCommand(text, pending.command)
                 }
                 text.isNotBlank() && !snapshot.isSending && !text.startsWith(VISUAL_ATTACHMENT_STATUS_PREFIX) -> {
-                    val command = parseInstalledAppOpenCommand(text, installedAppIndex.value)
-                        ?: MobileCommandParser.parse(text)?.resolveNavigationAddress(snapshot)
-                    if (command != null) {
-                        pendingMobileAction = PendingMobileAction(originalText = text, command = command)
-                        viewModel.previewMobileCommand(text, command)
+                    if (forceVisual) {
+                        pendingMobileAction = null
+                        viewModel.requestAgentNextStep(text)
                     } else {
-                        viewModel.submitComposer()
+                        val command = parseInstalledAppOpenCommand(text, installedAppIndex.value)
+                            ?: MobileCommandParser.parse(text)?.resolveNavigationAddress(snapshot)
+                        if (command != null) {
+                            pendingMobileAction = PendingMobileAction(originalText = text, command = command)
+                            viewModel.previewMobileCommand(text, command)
+                        } else {
+                            viewModel.submitComposer()
+                        }
                     }
                 }
                 else -> viewModel.submitComposer()
