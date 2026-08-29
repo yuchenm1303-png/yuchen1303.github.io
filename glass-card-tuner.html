@@ -1,374 +1,198 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Glass Card 调色器</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Glass Card 调色器 Pro</title>
 <style>
-  :root{
-    --bg:#0f1220;
-    --panel:rgba(20,24,38,.82);
-    --line:rgba(255,255,255,.10);
-    --text:#f5f7ff;
-    --muted:#aeb6c9;
-    --accent:#ff9dca;
-    --normal:.25098;
-    --hover:.4;
-    --blur:18px;
-    --radius:18px;
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;min-height:100%;background:
-    radial-gradient(circle at 20% 0%,#263762 0,transparent 35%),
-    linear-gradient(180deg,#0d1020,#111625 55%,#0a0d17);
-    color:var(--text);font-family:Inter,"Microsoft YaHei UI",system-ui,sans-serif}
-  body{padding:22px}
-  .app{max-width:1440px;margin:auto}
-  .top{display:flex;gap:14px;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
-  h1{font-size:24px;margin:0 0 4px}
-  .sub{color:var(--muted);font-size:13px}
-  .grid{display:grid;grid-template-columns:390px 1fr;gap:18px}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 60px rgba(0,0,0,.28)}
-  .controls{padding:18px}
-  .section{padding:14px 0;border-bottom:1px solid var(--line)}
-  .section:first-child{padding-top:0}.section:last-child{border-bottom:0;padding-bottom:0}
-  .section-title{font-size:12px;font-weight:800;letter-spacing:.08em;color:#cfd6e8;margin-bottom:12px}
-  .row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin:10px 0}
-  label{font-size:13px;color:#dfe4f1}
-  input[type=range]{width:100%}
-  input[type=color]{width:46px;height:36px;border:0;border-radius:9px;padding:0;background:none;cursor:pointer}
-  input[type=text],input[type=number]{
-    background:rgba(0,0,0,.24);border:1px solid var(--line);color:white;border-radius:9px;
-    height:36px;padding:0 10px;outline:none
-  }
-  input[type=text]:focus,input[type=number]:focus{border-color:rgba(255,255,255,.28)}
-  .hexline{display:grid;grid-template-columns:48px 1fr 94px;gap:8px}
-  .sliderline{display:grid;grid-template-columns:1fr 66px;gap:10px;align-items:center}
-  .btn{
-    border:1px solid var(--line);background:rgba(255,255,255,.07);color:white;border-radius:10px;
-    padding:9px 12px;cursor:pointer;font-weight:700;font-size:12px
-  }
-  .btn:hover{background:rgba(255,255,255,.12)}
-  .btn.primary{background:rgba(255,157,202,.18);border-color:rgba(255,157,202,.32)}
-  .preset-wrap{display:flex;flex-wrap:wrap;gap:8px}
-  .preset{
-    width:72px;height:34px;border-radius:9px;border:1px solid var(--line);cursor:pointer;position:relative;overflow:hidden
-  }
-  .preset span{position:absolute;inset:auto 0 0;background:rgba(0,0,0,.46);font-size:9px;padding:3px 4px;text-align:center}
-  .preview-panel{padding:14px;min-height:760px}
-  .scene{
-    position:relative;min-height:730px;border-radius:16px;overflow:hidden;background:
-      linear-gradient(180deg,rgba(255,255,255,.04),rgba(0,0,0,.12)),
-      radial-gradient(circle at 68% 18%,rgba(255,182,211,.95),transparent 19%),
-      radial-gradient(circle at 20% 70%,rgba(86,161,134,.75),transparent 22%),
-      linear-gradient(165deg,#53b8f2 0 29%,#a9def7 29% 45%,#6e8fc0 45% 58%,#52766e 58% 72%,#27365e 72%);
-    background-size:cover;background-position:center;
-  }
-  .scene::after{
-    content:"";position:absolute;inset:0;pointer-events:none;
-    background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(0,0,0,.06))
-  }
-  .toolbar{position:absolute;left:24px;right:24px;top:22px;display:flex;justify-content:space-between;z-index:4}
-  .ghost-title{font-size:22px;font-weight:900;text-shadow:0 2px 14px rgba(0,0,0,.25)}
-  .ghost-pill{padding:9px 14px;border-radius:10px;background:rgba(0,0,0,.26);border:1px solid rgba(255,255,255,.13)}
-  .cards{position:absolute;left:22px;right:22px;top:88px;bottom:22px;display:grid;grid-template-columns:2fr .78fr;grid-template-rows:150px 1fr 170px;gap:10px;z-index:3}
-  .glass{
-    position:relative;border-radius:var(--radius);overflow:hidden;border:1px solid rgba(255,255,255,.08);
-    box-shadow:0 8px 32px rgba(0,0,0,.10);
-    backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
-    isolation:isolate;
-  }
-  .glass::before{
-    content:"";position:absolute;inset:0;z-index:-1;background:var(--accent);opacity:var(--normal);
-  }
-  .glass.hover::before{opacity:var(--hover)}
-  .glass.hover{transform:scale(1.02)}
-  .glass{transition:transform 300ms cubic-bezier(.25,.1,.25,1)}
-  .glass::before{transition:opacity 300ms cubic-bezier(.25,.1,.25,1)}
-  .hero{grid-column:1/3}
-  .bottom{grid-column:1/3}
-  .card-content{padding:16px;color:white;text-shadow:0 1px 4px rgba(0,0,0,.24)}
-  .eyebrow{font-size:10px;letter-spacing:.12em;font-weight:800;opacity:.7}
-  .ctitle{font-size:19px;font-weight:850;margin:5px 0 10px}
-  .line{height:34px;border-radius:8px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.08);margin-top:8px}
-  .mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
-  .mini{height:48px;border-radius:9px;background:rgba(0,0,0,.15);border:1px solid rgba(255,255,255,.06)}
-  .tag{display:inline-block;padding:7px 11px;border-radius:8px;background:rgba(0,0,0,.22);margin-right:6px;font-size:12px}
-  .compare{position:absolute;right:18px;bottom:16px;z-index:6;background:rgba(8,10,16,.72);border:1px solid var(--line);
-    padding:9px 12px;border-radius:10px;font-size:11px;color:#dce2ef}
-  .drop{
-    border:1px dashed rgba(255,255,255,.20);border-radius:12px;padding:12px;text-align:center;color:var(--muted);font-size:12px
-  }
-  .drop.drag{border-color:#ff9dca;background:rgba(255,157,202,.06)}
-  .code{
-    margin-top:10px;background:#0a0d15;border:1px solid var(--line);border-radius:12px;padding:12px;
-    font:12px/1.65 "Cascadia Mono",Consolas,monospace;color:#e9edf7;white-space:pre-wrap
-  }
-  .copyrow{display:flex;gap:8px;margin-top:8px}
-  .hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px}
-  .value{font:12px "Cascadia Mono",monospace;color:#fff}
-  .modebar{display:flex;gap:8px}
-  .modebar button.active{background:rgba(255,255,255,.16)}
-  @media (max-width:980px){.grid{grid-template-columns:1fr}.preview-panel{min-height:650px}.scene{min-height:620px}}
+:root{
+  --tint:#FF6BB3;
+  --normal:.1019607843;
+  --hover:.5019607843;
+  --scale:1.02;
+  --press-scale:1;
+  --duration:300ms;
+  --easing:cubic-bezier(.25,.10,.25,1);
+  --radius:6px;
+  --blur:18px;
+  --border-a:.09;
+  --border-w:1px;
+  --scene-brightness:1;
+  --scene-saturation:1;
+  --ink:#f7f8ff;
+  --muted:#9fa9bd;
+  --line:rgba(255,255,255,.10);
+  --panel:rgba(15,18,29,.88);
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:#090c14;color:var(--ink);font-family:Inter,"Microsoft YaHei UI",system-ui,sans-serif}
+body{background:radial-gradient(circle at 15% 0,#252c49 0,transparent 33%),linear-gradient(180deg,#0d101a,#080a11);padding:18px}
+button,input,select{font:inherit}
+.app{max-width:1600px;margin:auto}
+.header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin:0 0 16px}
+h1{font-size:24px;margin:0 0 5px}.sub{font-size:12px;color:var(--muted)}
+.live-badge{font:700 11px/1.2 ui-monospace,SFMono-Regular,Consolas,monospace;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:rgba(255,255,255,.05)}
+.layout{display:grid;grid-template-columns:410px minmax(0,1fr);gap:16px;align-items:start}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 55px rgba(0,0,0,.28)}
+.controls{padding:16px;max-height:calc(100vh - 105px);overflow:auto;position:sticky;top:12px}
+.section{padding:14px 0;border-bottom:1px solid var(--line)}.section:first-child{padding-top:0}.section:last-child{border-bottom:0;padding-bottom:0}
+.stitle{font-size:11px;letter-spacing:.09em;font-weight:800;color:#d2d9ea;margin:0 0 10px}
+.hint{color:var(--muted);font-size:10px;line-height:1.55;margin-top:6px}
+.row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;margin:9px 0}.label{font-size:12px;color:#dfe4ef}.value{font:11px ui-monospace,Consolas,monospace;color:#fff}
+.range-row{display:grid;grid-template-columns:1fr 70px;gap:9px;align-items:center;margin:7px 0 12px}
+input[type=range]{width:100%;accent-color:#ff6bb3}
+input[type=number],input[type=text],select{height:34px;border-radius:8px;border:1px solid var(--line);background:rgba(0,0,0,.25);color:white;padding:0 9px;outline:none;min-width:0}
+input[type=number]{width:70px} input[type=text]{width:100%}
+input:focus,select:focus{border-color:rgba(255,255,255,.28)}
+.color-row{display:grid;grid-template-columns:44px 1fr 92px;gap:8px}input[type=color]{width:44px;height:34px;border:0;padding:0;background:none;cursor:pointer}
+.btn{height:34px;padding:0 11px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.06);color:#fff;cursor:pointer;font-size:11px;font-weight:750}.btn:hover{background:rgba(255,255,255,.11)}.btn.primary{background:rgba(255,107,179,.17);border-color:rgba(255,107,179,.30)}
+.mode-row{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.mode-btn{padding:8px 4px;height:auto}.mode-btn.active{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.21)}
+.swatches{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.swatch{min-height:74px;border-radius:10px;border:1px solid var(--line);padding:9px;display:flex;flex-direction:column;justify-content:flex-end;text-shadow:0 1px 5px rgba(0,0,0,.45)}.swatch b{font-size:11px}.swatch span{font:10px ui-monospace,Consolas,monospace;margin-top:3px}
+.preset-wrap{display:flex;flex-wrap:wrap;gap:6px}.preset{height:31px;padding:0 10px;border-radius:8px;border:1px solid var(--line);color:#fff;cursor:pointer;font:10px ui-monospace,Consolas,monospace;text-shadow:0 1px 4px #0008}
+.drop{border:1px dashed rgba(255,255,255,.20);border-radius:10px;padding:10px;text-align:center;font-size:10px;color:var(--muted)}.drop.drag{border-color:#ff6bb3;background:rgba(255,107,179,.07)}
+.code{background:#090b11;border:1px solid var(--line);border-radius:10px;padding:10px;font:10.5px/1.55 ui-monospace,Consolas,monospace;white-space:pre-wrap;color:#eef1f8;margin-top:8px}.copy-row{display:flex;gap:7px;margin-top:7px;flex-wrap:wrap}
+.preview{padding:12px}.preview-stack{display:grid;gap:12px}
+.compare-wrap{border:1px solid var(--line);border-radius:13px;padding:12px;background:rgba(255,255,255,.025)}
+.compare-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px}.compare-head b{font-size:12px}.compare-head span{font-size:10px;color:var(--muted)}
+.compare-stage{position:relative;overflow:visible;border-radius:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px;background:linear-gradient(150deg,#6ec5f1 0 31%,#a2d7f0 31% 43%,#d7bdd4 43% 55%,#7298cf 55% 70%,#314a72 70%);min-height:132px;filter:brightness(var(--scene-brightness)) saturate(var(--scene-saturation))}
+.card-shell{position:relative;transform-origin:center;will-change:transform;transition:transform var(--duration) var(--easing);overflow:visible;z-index:1}
+.card-shell.is-hover{transform:scale(var(--scale));z-index:5}.card-shell.is-press{transform:scale(var(--press-scale));z-index:6}
+.surface{position:absolute;inset:0;border-radius:var(--radius);overflow:hidden;border:var(--border-w) solid rgb(255 255 255 / var(--border-a));backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));box-shadow:0 6px 22px rgba(0,0,0,.08)}
+.surface:after{content:"";position:absolute;inset:0;background:var(--tint);opacity:var(--normal);transition:opacity var(--duration) var(--easing);pointer-events:none}
+.card-shell.is-hover .surface:after,.card-shell.is-press .surface:after{opacity:var(--hover)}
+.card-body{position:relative;z-index:2;padding:15px;color:white;pointer-events:none}.dash{width:34px;height:3px;border-radius:2px;background:#fff;margin-bottom:12px}.status-title{font-weight:800;font-size:14px}.status-sub{font-size:10px;opacity:.75;margin-top:4px}
+.fixed-normal .surface:after{opacity:var(--normal)!important}.fixed-hover .surface:after{opacity:var(--hover)!important}.fixed-hover{transform:scale(var(--scale))!important}
+.scene{position:relative;min-height:710px;border-radius:13px;overflow:hidden;background:linear-gradient(165deg,#49afe9 0 25%,#9fdaf5 25% 39%,#e4c4db 39% 49%,#7fa4d6 49% 61%,#47706a 61% 72%,#27365c 72%);background-size:cover;background-position:center;filter:brightness(var(--scene-brightness)) saturate(var(--scene-saturation))}
+.scene:before{content:"";position:absolute;inset:0;background:radial-gradient(circle at 73% 8%,rgba(255,188,217,.92),transparent 16%),radial-gradient(circle at 22% 72%,rgba(43,90,61,.75),transparent 22%),linear-gradient(180deg,rgba(255,255,255,.02),rgba(0,0,0,.04));pointer-events:none}
+.appbar{position:absolute;left:18px;right:18px;top:14px;height:48px;display:flex;align-items:center;justify-content:space-between;z-index:10;color:white}.app-title{font-size:21px;font-weight:850}.app-kicker{font-size:8px;letter-spacing:.12em;opacity:.7}.pill{background:rgba(0,0,0,.24);border:1px solid rgba(255,255,255,.10);border-radius:8px;padding:8px 12px;font-size:10px;font-weight:700}
+.ui{position:absolute;left:13px;right:13px;top:72px;bottom:13px;display:grid;grid-template-columns:2fr .78fr;grid-template-rows:215px 54px 1fr 166px;gap:7px;overflow:visible;z-index:3}.hero{grid-column:1/3}.statuses{grid-column:1/3;display:grid;grid-template-columns:repeat(4,1fr);gap:7px;overflow:visible}.field{grid-column:1/2}.runtime{grid-column:2/3}.indicator{grid-column:1/3}
+.hero .card-body{padding:14px}.eyebrow{font-size:8px;font-weight:800;letter-spacing:.08em;opacity:.68}.title{font-size:14px;font-weight:800;margin:4px 0 8px}.fake-input{height:29px;border-radius:7px;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.08);margin:6px 0}.fake-row{display:grid;grid-template-columns:1.2fr 1fr .8fr;gap:8px}.fake-btn{height:28px;border-radius:7px;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.08)}
+.field-table{height:calc(100% - 58px);border-radius:7px;background:rgba(0,0,0,.20);margin:8px 13px 12px;border:1px solid rgba(255,255,255,.06)}.tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:10px}.tab{height:31px;border-radius:7px;background:rgba(0,0,0,.20);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700}.runtime-box{height:95px;border-radius:7px;background:rgba(0,0,0,.22);margin:8px 12px}.indicator .card-body{padding:10px 13px}.stage-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.stage{height:39px;border-radius:7px;background:rgba(0,0,0,.20);padding:7px;font-size:9px}.progress{height:13px;border-radius:7px;background:rgba(0,0,0,.20);margin-top:9px}.console-tabs{display:flex;gap:6px;margin-top:8px}.console-tab{padding:7px 14px;border-radius:7px;background:rgba(0,0,0,.22);font-size:9px}
+.state-chip{position:absolute;right:15px;bottom:13px;z-index:20;background:rgba(7,9,15,.76);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font:10px ui-monospace,Consolas,monospace;pointer-events:none}
+@media(max-width:1050px){body{padding:10px}.layout{grid-template-columns:1fr}.controls{position:static;max-height:none}.scene{min-height:650px}.header{align-items:flex-start}.live-badge{display:none}}
 </style>
 </head>
 <body>
 <div class="app">
-  <div class="top">
-    <div>
-      <h1>Glass Card 调色器</h1>
-      <div class="sub">专门对应你项目里的 <b>colorizationColor + 64/102 强度</b>。调好后直接复制参数发给我。</div>
-    </div>
-    <div class="modebar">
-      <button class="btn active" id="normalBtn">预览 Normal</button>
-      <button class="btn" id="hoverBtn">预览 Hover</button>
-    </div>
+  <div class="header">
+    <div><h1>Glass Card 调色器 Pro</h1><div class="sub">按实际程序逻辑模拟：单层玻璃本体 + Hover 颜色强度 + 1.02 GPU scale + Press 回落。</div></div>
+    <div class="live-badge" id="headerBadge">#FF6BB3 · N 26 · H 128 · ×1.020</div>
   </div>
-
-  <div class="grid">
-    <div class="panel controls">
+  <div class="layout">
+    <aside class="panel controls">
       <div class="section">
-        <div class="section-title">玻璃本体颜色</div>
-        <div class="hexline">
-          <input id="colorPicker" type="color" value="#ff9dca">
-          <input id="hexInput" type="text" value="#FF9DCA" maxlength="7">
-          <button class="btn" id="eyedropperBtn">吸取颜色</button>
-        </div>
-        <div class="hint">颜色本身不带透明度；透明强度由下面的 0–255 数值单独控制。</div>
+        <div class="stitle">01 · 玻璃本体颜色</div>
+        <div class="color-row"><input id="colorPicker" type="color" value="#ff6bb3"><input id="hexInput" type="text" value="#FF6BB3"><button class="btn" id="eyedropperBtn">吸色</button></div>
+        <div class="hint">对应 QML 的 <b>colorizationColor</b>。Normal / Hover 使用同一个 RGB，仅强度不同。</div>
       </div>
 
       <div class="section">
-        <div class="section-title">Normal 强度</div>
-        <div class="sliderline">
-          <input id="normalRange" type="range" min="0" max="255" step="1" value="64">
-          <input id="normalNum" type="number" min="0" max="255" value="64">
-        </div>
-        <div class="hint">当前：<span class="value" id="normalPct">64 / 255 = 25.1%</span></div>
-
-        <div class="section-title" style="margin-top:16px">Hover / Press 强度</div>
-        <div class="sliderline">
-          <input id="hoverRange" type="range" min="0" max="255" step="1" value="102">
-          <input id="hoverNum" type="number" min="0" max="255" value="102">
-        </div>
-        <div class="hint">当前：<span class="value" id="hoverPct">102 / 255 = 40.0%</span></div>
+        <div class="stitle">02 · Normal / Hover 强度</div>
+        <div class="row"><span class="label">Normal</span><span class="value" id="normalText">26 / 255</span></div>
+        <div class="range-row"><input id="normalRange" type="range" min="0" max="255" value="26"><input id="normalNum" type="number" min="0" max="255" value="26"></div>
+        <div class="row"><span class="label">Hover / Press</span><span class="value" id="hoverText">128 / 255</span></div>
+        <div class="range-row"><input id="hoverRange" type="range" min="0" max="255" value="128"><input id="hoverNum" type="number" min="0" max="255" value="128"></div>
+        <div class="row"><span class="label">结果色计算底色</span><input id="sampleBase" type="color" value="#78B8E1"></div>
+        <div class="swatches"><div class="swatch" id="normalSwatch"><b>Normal 最终视觉色</b><span id="normalResult"></span></div><div class="swatch" id="hoverSwatch"><b>Hover 最终视觉色</b><span id="hoverResult"></span></div></div>
+        <div class="hint">结果色用于直观看“交互后到底变成什么色”。真实程序会因壁纸每个像素不同而略有变化。</div>
       </div>
 
       <div class="section">
-        <div class="section-title">预览设置</div>
-        <div class="row">
-          <label>玻璃模糊</label><span class="value" id="blurVal">18px</span>
-        </div>
-        <input id="blurRange" type="range" min="0" max="40" step="1" value="18">
-        <div class="row">
-          <label>圆角</label><span class="value" id="radiusVal">18px</span>
-        </div>
-        <input id="radiusRange" type="range" min="0" max="30" step="1" value="18">
-        <div class="hint">这两个仅帮助网页预览，不会写进你复制的 QML 参数。</div>
+        <div class="stitle">03 · 真实交互参数</div>
+        <div class="row"><span class="label">Hover Scale</span><span class="value" id="scaleText">1.020</span></div><div class="range-row"><input id="scaleRange" type="range" min="1" max="1.08" step="0.001" value="1.02"><input id="scaleNum" type="number" min="1" max="1.08" step="0.001" value="1.02"></div>
+        <div class="row"><span class="label">Press Scale</span><span class="value" id="pressText">1.000</span></div><div class="range-row"><input id="pressRange" type="range" min="0.96" max="1.04" step="0.001" value="1"><input id="pressNum" type="number" min="0.96" max="1.04" step="0.001" value="1"></div>
+        <div class="row"><span class="label">动画时长</span><span class="value" id="durationText">300 ms</span></div><div class="range-row"><input id="durationRange" type="range" min="0" max="700" step="10" value="300"><input id="durationNum" type="number" min="0" max="700" step="10" value="300"></div>
+        <div class="row"><span class="label">Easing</span><select id="easingSelect"><option value="cubic-bezier(.25,.10,.25,1)">原卡片 · .25 .10 .25 1</option><option value="cubic-bezier(.645,.045,.355,1)">原开关 · .645 .045 .355 1</option><option value="ease-out">Ease Out</option><option value="linear">Linear</option></select></div>
       </div>
 
       <div class="section">
-        <div class="section-title">历史颜色预设</div>
-        <div class="preset-wrap">
-          <div class="preset" data-c="#FF9DCA" style="background:#FF9DCA"><span>#FF9DCA</span></div>
-          <div class="preset" data-c="#9B6F8D" style="background:#9B6F8D"><span>#9B6F8D</span></div>
-          <div class="preset" data-c="#68425E" style="background:#68425E"><span>#68425E</span></div>
-          <div class="preset" data-c="#56354E" style="background:#56354E"><span>#56354E</span></div>
-        </div>
+        <div class="stitle">04 · 玻璃外观细节</div>
+        <div class="row"><span class="label">圆角</span><span class="value" id="radiusText">6 px</span></div><div class="range-row"><input id="radiusRange" type="range" min="0" max="28" value="6"><input id="radiusNum" type="number" min="0" max="28" value="6"></div>
+        <div class="row"><span class="label">Blur 预览</span><span class="value" id="blurText">18 px</span></div><div class="range-row"><input id="blurRange" type="range" min="0" max="50" value="18"><input id="blurNum" type="number" min="0" max="50" value="18"></div>
+        <div class="row"><span class="label">边框 Alpha</span><span class="value" id="borderText">23 / 255</span></div><div class="range-row"><input id="borderRange" type="range" min="0" max="120" value="23"><input id="borderNum" type="number" min="0" max="120" value="23"></div>
+        <div class="row"><span class="label">边框宽度</span><span class="value" id="borderWidthText">1 px</span></div><div class="range-row"><input id="borderWidthRange" type="range" min="0" max="3" step=".25" value="1"><input id="borderWidthNum" type="number" min="0" max="3" step=".25" value="1"></div>
       </div>
 
       <div class="section">
-        <div class="section-title">背景图片</div>
-        <div class="drop" id="dropZone">
-          拖入截图 / 壁纸，或
-          <button class="btn" id="chooseBg">选择图片</button>
-          <input id="bgInput" type="file" accept="image/*" hidden>
-        </div>
-        <div class="copyrow">
-          <button class="btn" id="clearBg">恢复默认背景</button>
-        </div>
+        <div class="stitle">05 · 交互测试模式</div>
+        <div class="mode-row"><button class="btn mode-btn active" data-mode="live">真实鼠标</button><button class="btn mode-btn" data-mode="normal">锁 Normal</button><button class="btn mode-btn" data-mode="hover">锁 Hover</button><button class="btn mode-btn" data-mode="auto">自动循环</button></div>
+        <div class="hint">“真实鼠标”下直接把鼠标放到右侧任意卡片。按住鼠标时会按程序逻辑回落到 Press Scale。</div>
       </div>
 
       <div class="section">
-        <div class="section-title">可直接发给 ChatGPT 的参数</div>
+        <div class="stitle">06 · 预览环境</div>
+        <div class="row"><span class="label">背景亮度</span><span class="value" id="brightnessText">100%</span></div><div class="range-row"><input id="brightnessRange" type="range" min="50" max="150" value="100"><input id="brightnessNum" type="number" min="50" max="150" value="100"></div>
+        <div class="row"><span class="label">背景饱和度</span><span class="value" id="saturationText">100%</span></div><div class="range-row"><input id="saturationRange" type="range" min="40" max="180" value="100"><input id="saturationNum" type="number" min="40" max="180" value="100"></div>
+        <div class="drop" id="dropZone">拖入程序截图 / 壁纸，或 <button class="btn" id="chooseBg">选择图片</button><input id="bgInput" type="file" accept="image/*" hidden></div><div class="copy-row"><button class="btn" id="clearBg">恢复默认背景</button></div>
+      </div>
+
+      <div class="section">
+        <div class="stitle">07 · 快速预设</div>
+        <div class="preset-wrap"><button class="preset" data-c="#FF6BB3" data-n="26" data-h="128" style="background:#FF6BB3">当前 26/128</button><button class="preset" data-c="#FF9DCA" data-n="64" data-h="102" style="background:#FF9DCA">旧遮罩 64/102</button><button class="preset" data-c="#FFB3D6" data-n="35" data-h="128" style="background:#FFB3D6">浅粉 35/128</button><button class="preset" data-c="#56354E" data-n="64" data-h="102" style="background:#56354E">深紫 64/102</button></div>
+      </div>
+
+      <div class="section">
+        <div class="stitle">08 · 复制给 ChatGPT</div>
         <div class="code" id="codeOut"></div>
-        <div class="copyrow">
-          <button class="btn primary" id="copyBtn">复制 QML 参数</button>
-          <button class="btn" id="copyShortBtn">复制简短参数</button>
-        </div>
+        <div class="copy-row"><button class="btn primary" id="copyAppBtn">复制源码参数</button><button class="btn" id="copyFullBtn">复制完整调参</button></div>
       </div>
-    </div>
+    </aside>
 
-    <div class="panel preview-panel">
-      <div class="scene" id="scene">
-        <div class="toolbar">
-          <div>
-            <div class="eyebrow">MAKRO LISTING AUTOMATION</div>
-            <div class="ghost-title">Listing Studio</div>
-          </div>
-          <div class="ghost-pill">SINGLE · READY</div>
-        </div>
+    <main class="panel preview">
+      <div class="preview-stack">
+        <section class="compare-wrap"><div class="compare-head"><b>同背景 Normal / Hover 直接对比</b><span>右侧永久使用 Hover 强度 + Hover Scale</span></div><div class="compare-stage"><div class="card-shell fixed-normal"><div class="surface"></div><div class="card-body"><div class="dash"></div><div class="status-title">READY</div><div class="status-sub">Normal · <span id="normalCompareText">26 / 255</span></div></div></div><div class="card-shell fixed-hover"><div class="surface"></div><div class="card-body"><div class="dash"></div><div class="status-title">READY</div><div class="status-sub">Hover · <span id="hoverCompareText">128 / 255</span></div></div></div></div></section>
 
-        <div class="cards">
-          <div class="glass hero sampleGlass">
-            <div class="card-content">
-              <div class="eyebrow">PRODUCT SOURCE</div>
-              <div class="ctitle">商品链接</div>
-              <div class="line"></div><div class="line" style="width:72%"></div>
-              <div class="mini-grid"><div class="mini"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div></div>
+        <section class="scene" id="scene">
+          <div class="appbar"><div><div class="app-kicker">MAKRO LISTING AUTOMATION</div><div class="app-title">Listing Studio</div></div><div class="pill">SINGLE · READY</div></div>
+          <div class="ui">
+            <div class="card-shell hero interactive"><div class="surface"></div><div class="card-body"><div class="eyebrow">PRODUCT SOURCE</div><div class="title">商品链接</div><div class="fake-input"></div><div class="fake-row"><div class="fake-input"></div><div class="fake-input"></div><div class="fake-input"></div></div><div class="fake-row"><div class="fake-btn"></div><div class="fake-btn"></div><div class="fake-btn"></div></div></div></div>
+            <div class="statuses">
+              <div class="card-shell interactive"><div class="surface"></div><div class="card-body"><div class="dash"></div><div class="status-title">READY</div><div class="status-sub">可直接填写</div></div></div>
+              <div class="card-shell interactive"><div class="surface"></div><div class="card-body"><div class="dash"></div><div class="status-title">MISSING</div><div class="status-sub">缺少商品信息</div></div></div>
+              <div class="card-shell interactive"><div class="surface"></div><div class="card-body"><div class="dash"></div><div class="status-title">CONFLICT</div><div class="status-sub">需要确认信息</div></div></div>
+              <div class="card-shell interactive"><div class="surface"></div><div class="card-body"><div class="dash"></div><div class="status-title">BLOCKED</div><div class="status-sub">暂不可填写</div></div></div>
             </div>
+            <div class="card-shell field interactive"><div class="surface"></div><div class="card-body"><div class="eyebrow">FIELD REVIEW</div><div class="title">字段检查</div></div><div class="field-table"></div></div>
+            <div class="card-shell runtime interactive"><div class="surface"></div><div class="tabs"><div class="tab">Runtime</div><div class="tab">Reference</div><div class="tab">Safety</div></div><div class="card-body"><div class="eyebrow">RUNTIME</div><div class="title">处理状态</div></div><div class="runtime-box"></div></div>
+            <div class="card-shell indicator interactive"><div class="surface"></div><div class="card-body"><div class="eyebrow">指示器</div><div class="stage-row"><div class="stage">01<br><b>Source Capture</b></div><div class="stage">02<br><b>Category Match</b></div><div class="stage">03<br><b>Brand Match</b></div><div class="stage">04<br><b>Listing Plan</b></div></div><div class="progress"></div><div class="console-tabs"><div class="console-tab">Console</div><div class="console-tab">Timeline</div><div class="console-tab">Artifacts</div><div class="console-tab">Diagnostics</div></div></div></div>
           </div>
-
-          <div class="glass sampleGlass">
-            <div class="card-content">
-              <div class="eyebrow">FIELD REVIEW</div>
-              <div class="ctitle">字段检查</div>
-              <span class="tag">字段</span><span class="tag">识别状态</span><span class="tag">建议值</span>
-              <div class="line" style="height:190px;margin-top:12px"></div>
-            </div>
-          </div>
-
-          <div class="glass sampleGlass">
-            <div class="card-content">
-              <div class="eyebrow">RUNTIME</div>
-              <div class="ctitle">处理状态</div>
-              <div class="line" style="height:155px"></div>
-            </div>
-          </div>
-
-          <div class="glass bottom sampleGlass">
-            <div class="card-content">
-              <div class="eyebrow">INDICATOR</div>
-              <div class="mini-grid">
-                <div class="mini"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div>
-              </div>
-              <div class="line"></div>
-            </div>
-          </div>
-        </div>
-
-        <div class="compare" id="compareLabel">Normal · #FF9DCA · 64/255</div>
+          <div class="state-chip" id="stateChip">REAL HOVER · move pointer over a card</div>
+        </section>
       </div>
-    </div>
+    </main>
   </div>
 </div>
-
 <script>
-(() => {
-  const $ = s => document.querySelector(s);
-  const $$ = s => [...document.querySelectorAll(s)];
-  const root = document.documentElement;
-  const scene = $('#scene');
-  const colorPicker = $('#colorPicker');
-  const hexInput = $('#hexInput');
-  const normalRange = $('#normalRange'), normalNum = $('#normalNum');
-  const hoverRange = $('#hoverRange'), hoverNum = $('#hoverNum');
-  const blurRange = $('#blurRange'), radiusRange = $('#radiusRange');
-  let mode = 'normal';
-
-  function validHex(v){ return /^#[0-9A-F]{6}$/i.test(v); }
-  function syncColor(v){
-    v = v.toUpperCase();
-    if(!validHex(v)) return;
-    colorPicker.value = v.toLowerCase();
-    hexInput.value = v;
-    root.style.setProperty('--accent', v);
-    update();
-  }
-  function clamp255(v){ return Math.max(0,Math.min(255,parseInt(v || 0,10))); }
-  function update(){
-    const n = clamp255(normalRange.value), h = clamp255(hoverRange.value);
-    normalRange.value = normalNum.value = n;
-    hoverRange.value = hoverNum.value = h;
-    root.style.setProperty('--normal', n/255);
-    root.style.setProperty('--hover', h/255);
-    root.style.setProperty('--blur', blurRange.value+'px');
-    root.style.setProperty('--radius', radiusRange.value+'px');
-    $('#normalPct').textContent = `${n} / 255 = ${(n/255*100).toFixed(1)}%`;
-    $('#hoverPct').textContent = `${h} / 255 = ${(h/255*100).toFixed(1)}%`;
-    $('#blurVal').textContent = blurRange.value+'px';
-    $('#radiusVal').textContent = radiusRange.value+'px';
-    $$('.sampleGlass').forEach(x => x.classList.toggle('hover', mode==='hover'));
-    $('#normalBtn').classList.toggle('active', mode==='normal');
-    $('#hoverBtn').classList.toggle('active', mode==='hover');
-    $('#compareLabel').textContent = `${mode==='hover'?'Hover':'Normal'} · ${hexInput.value.toUpperCase()} · ${mode==='hover'?h:n}/255`;
-    $('#codeOut').textContent =
-`colorizationColor: "${hexInput.value.toUpperCase()}"
-colorization: (cardHover.hovered || cardClick.pressed) ? ${h}/255 : ${n}/255`;
-    localStorage.setItem('glassTuner', JSON.stringify({
-      color:hexInput.value.toUpperCase(), normal:n, hover:h,
-      blur:+blurRange.value, radius:+radiusRange.value
-    }));
-  }
-
-  colorPicker.addEventListener('input', e => syncColor(e.target.value));
-  hexInput.addEventListener('input', e => {
-    let v=e.target.value.trim();
-    if(v && !v.startsWith('#')) v='#'+v;
-    if(validHex(v)) syncColor(v);
-  });
-  [normalRange,normalNum].forEach(el=>el.addEventListener('input', e=>{
-    const v=clamp255(e.target.value); normalRange.value=normalNum.value=v; update();
-  }));
-  [hoverRange,hoverNum].forEach(el=>el.addEventListener('input', e=>{
-    const v=clamp255(e.target.value); hoverRange.value=hoverNum.value=v; update();
-  }));
-  blurRange.addEventListener('input', update);
-  radiusRange.addEventListener('input', update);
-
-  $('#normalBtn').onclick=()=>{mode='normal';update()};
-  $('#hoverBtn').onclick=()=>{mode='hover';update()};
-
-  $$('.preset').forEach(p=>p.onclick=()=>syncColor(p.dataset.c));
-
-  $('#eyedropperBtn').onclick = async ()=>{
-    if(!window.EyeDropper){ alert('当前浏览器不支持 EyeDropper API，请使用 Chrome / Edge 新版本。'); return; }
-    try{
-      const r = await new EyeDropper().open();
-      syncColor(r.sRGBHex);
-    }catch{}
-  };
-
-  const bgInput=$('#bgInput'), drop=$('#dropZone');
-  $('#chooseBg').onclick=()=>bgInput.click();
-  function useFile(file){
-    if(!file || !file.type.startsWith('image/')) return;
-    const reader=new FileReader();
-    reader.onload=()=>{scene.style.backgroundImage=`url("${reader.result}")`;scene.style.backgroundSize='cover';scene.style.backgroundPosition='center'};
-    reader.readAsDataURL(file);
-  }
-  bgInput.onchange=e=>useFile(e.target.files[0]);
-  ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')}));
-  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')}));
-  drop.addEventListener('drop',e=>useFile(e.dataTransfer.files[0]));
-  $('#clearBg').onclick=()=>{scene.style.backgroundImage='';bgInput.value=''};
-
-  async function copyText(t){
-    try{await navigator.clipboard.writeText(t)}
-    catch{
-      const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();
-    }
-  }
-  $('#copyBtn').onclick=async()=>{
-    await copyText($('#codeOut').textContent);
-    const b=$('#copyBtn'), old=b.textContent;b.textContent='已复制';setTimeout(()=>b.textContent=old,900);
-  };
-  $('#copyShortBtn').onclick=async()=>{
-    const n=normalRange.value,h=hoverRange.value,c=hexInput.value.toUpperCase();
-    await copyText(`玻璃参数：颜色 ${c}，Normal ${n}/255，Hover ${h}/255。`);
-    const b=$('#copyShortBtn'),old=b.textContent;b.textContent='已复制';setTimeout(()=>b.textContent=old,900);
-  };
-
-  try{
-    const saved=JSON.parse(localStorage.getItem('glassTuner')||'null');
-    if(saved){
-      if(saved.color) syncColor(saved.color);
-      if(saved.normal!=null) normalRange.value=normalNum.value=saved.normal;
-      if(saved.hover!=null) hoverRange.value=hoverNum.value=saved.hover;
-      if(saved.blur!=null) blurRange.value=saved.blur;
-      if(saved.radius!=null) radiusRange.value=saved.radius;
-    }
-  }catch{}
-  update();
+(()=>{
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)], root=document.documentElement;
+const el={color:$('#colorPicker'),hex:$('#hexInput'),normalR:$('#normalRange'),normalN:$('#normalNum'),hoverR:$('#hoverRange'),hoverN:$('#hoverNum'),scaleR:$('#scaleRange'),scaleN:$('#scaleNum'),pressR:$('#pressRange'),pressN:$('#pressNum'),durR:$('#durationRange'),durN:$('#durationNum'),radiusR:$('#radiusRange'),radiusN:$('#radiusNum'),blurR:$('#blurRange'),blurN:$('#blurNum'),borderR:$('#borderRange'),borderN:$('#borderNum'),bwR:$('#borderWidthRange'),bwN:$('#borderWidthNum'),brightR:$('#brightnessRange'),brightN:$('#brightnessNum'),satR:$('#saturationRange'),satN:$('#saturationNum'),base:$('#sampleBase'),easing:$('#easingSelect'),scene:$('#scene')};
+let mode='live', autoHover=false, autoTimer=null;
+function clamp(v,a,b){return Math.max(a,Math.min(b,Number(v)||0))} function validHex(v){return /^#[0-9a-f]{6}$/i.test(v)}
+function rgb(hex){return [parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16),parseInt(hex.slice(5,7),16)]} function hex3(a){return '#'+a.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('').toUpperCase()}
+function mix(base,tint,k){const a=rgb(base),b=rgb(tint);return hex3(a.map((v,i)=>v*(1-k)+b[i]*k))}
+function syncPair(r,n,min,max,dec=0){const v=clamp(r.value,min,max);r.value=v;n.value=dec?Number(v).toFixed(dec):Math.round(v);return v}
+function setColor(v){v=v.trim();if(!v.startsWith('#'))v='#'+v;if(!validHex(v))return;v=v.toUpperCase();el.hex.value=v;el.color.value=v.toLowerCase();root.style.setProperty('--tint',v);update()}
+function clearStates(){ $$('.interactive').forEach(c=>c.classList.remove('is-hover','is-press')) }
+function applyMode(){clearStates();if(mode==='hover'||(mode==='auto'&&autoHover))$$('.interactive').forEach(c=>c.classList.add('is-hover'));$('#stateChip').textContent=mode==='live'?'REAL HOVER · move pointer / hold mouse to test Press':mode==='normal'?'LOCKED NORMAL':mode==='hover'?'LOCKED HOVER':'AUTO LOOP · '+(autoHover?'HOVER':'NORMAL');$$('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode))}
+function setMode(m){mode=m;if(autoTimer){clearInterval(autoTimer);autoTimer=null}if(m==='auto'){autoHover=false;autoTimer=setInterval(()=>{autoHover=!autoHover;applyMode()},1200)}applyMode();save()}
+function update(){
+ const n=syncPair(el.normalR,el.normalN,0,255),h=syncPair(el.hoverR,el.hoverN,0,255),sc=syncPair(el.scaleR,el.scaleN,1,1.08,3),ps=syncPair(el.pressR,el.pressN,.96,1.04,3),dur=syncPair(el.durR,el.durN,0,700),rad=syncPair(el.radiusR,el.radiusN,0,28),bl=syncPair(el.blurR,el.blurN,0,50),ba=syncPair(el.borderR,el.borderN,0,120),bw=syncPair(el.bwR,el.bwN,0,3,2),br=syncPair(el.brightR,el.brightN,50,150),sat=syncPair(el.satR,el.satN,40,180);let c=el.hex.value.toUpperCase();if(!validHex(c))c='#FF6BB3';
+ root.style.setProperty('--tint',c);root.style.setProperty('--normal',n/255);root.style.setProperty('--hover',h/255);root.style.setProperty('--scale',sc);root.style.setProperty('--press-scale',ps);root.style.setProperty('--duration',dur+'ms');root.style.setProperty('--easing',el.easing.value);root.style.setProperty('--radius',rad+'px');root.style.setProperty('--blur',bl+'px');root.style.setProperty('--border-a',ba/255);root.style.setProperty('--border-w',bw+'px');root.style.setProperty('--scene-brightness',br/100);root.style.setProperty('--scene-saturation',sat/100);
+ $('#normalText').textContent=`${n} / 255 · ${(n/255*100).toFixed(1)}%`;$('#hoverText').textContent=`${h} / 255 · ${(h/255*100).toFixed(1)}%`;$('#scaleText').textContent=Number(sc).toFixed(3);$('#pressText').textContent=Number(ps).toFixed(3);$('#durationText').textContent=dur+' ms';$('#radiusText').textContent=rad+' px';$('#blurText').textContent=bl+' px';$('#borderText').textContent=ba+' / 255';$('#borderWidthText').textContent=bw+' px';$('#brightnessText').textContent=br+'%';$('#saturationText').textContent=sat+'%';$('#normalCompareText').textContent=n+' / 255';$('#hoverCompareText').textContent=h+' / 255';$('#headerBadge').textContent=`${c} · N ${n} · H ${h} · ×${Number(sc).toFixed(3)}`;
+ const base=el.base.value.toUpperCase(),nr=mix(base,c,n/255),hr=mix(base,c,h/255);$('#normalSwatch').style.background=nr;$('#hoverSwatch').style.background=hr;$('#normalResult').textContent=`${nr}  ← ${base} + ${n}/255`;$('#hoverResult').textContent=`${hr}  ← ${base} + ${h}/255`;
+ $('#codeOut').textContent=`colorizationColor: "${c}"\ncolorization: (cardHover.hovered || cardClick.pressed) ? ${h}/255 : ${n}/255\n\nscale: cardClick.pressed ? ${Number(ps).toFixed(3)} : cardHover.hovered ? ${Number(sc).toFixed(3)} : 1.0\nduration: ${dur}\nradius: ${rad}`;save();
+}
+function save(){try{localStorage.setItem('glassTunerPro',JSON.stringify({c:el.hex.value,n:el.normalR.value,h:el.hoverR.value,sc:el.scaleR.value,ps:el.pressR.value,d:el.durR.value,r:el.radiusR.value,bl:el.blurR.value,ba:el.borderR.value,bw:el.bwR.value,br:el.brightR.value,sat:el.satR.value,e:el.easing.value,base:el.base.value,mode}))}catch{}}
+function bindPair(r,n,min,max,dec=0){r.oninput=()=>{n.value=r.value;update()};n.oninput=()=>{r.value=clamp(n.value,min,max);update()}}
+el.color.oninput=e=>setColor(e.target.value);el.hex.oninput=e=>{let v=e.target.value.trim();if(v&&!v.startsWith('#'))v='#'+v;if(validHex(v))setColor(v)};$('#eyedropperBtn').onclick=async()=>{if(!window.EyeDropper){alert('请用新版 Chrome / Edge 使用吸色器');return}try{const r=await new EyeDropper().open();setColor(r.sRGBHex)}catch{}};
+bindPair(el.normalR,el.normalN,0,255);bindPair(el.hoverR,el.hoverN,0,255);bindPair(el.scaleR,el.scaleN,1,1.08,3);bindPair(el.pressR,el.pressN,.96,1.04,3);bindPair(el.durR,el.durN,0,700);bindPair(el.radiusR,el.radiusN,0,28);bindPair(el.blurR,el.blurN,0,50);bindPair(el.borderR,el.borderN,0,120);bindPair(el.bwR,el.bwN,0,3,2);bindPair(el.brightR,el.brightN,50,150);bindPair(el.satR,el.satN,40,180);el.base.oninput=update;el.easing.onchange=update;$$('.mode-btn').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+$$('.interactive').forEach(card=>{card.addEventListener('pointerenter',()=>{if(mode==='live'){card.classList.add('is-hover');$('#stateChip').textContent='HOVER · color '+el.hoverR.value+'/255 · scale ×'+Number(el.scaleR.value).toFixed(3)}});card.addEventListener('pointerleave',()=>{if(mode==='live'){card.classList.remove('is-hover','is-press');$('#stateChip').textContent='REAL HOVER · move pointer / hold mouse to test Press'}});card.addEventListener('pointerdown',()=>{if(mode==='live'){card.classList.add('is-hover','is-press');$('#stateChip').textContent='PRESS · color '+el.hoverR.value+'/255 · scale ×'+Number(el.pressR.value).toFixed(3)}});card.addEventListener('pointerup',()=>{if(mode==='live'){card.classList.remove('is-press');card.classList.add('is-hover');$('#stateChip').textContent='HOVER · color '+el.hoverR.value+'/255 · scale ×'+Number(el.scaleR.value).toFixed(3)}})});
+$$('.preset').forEach(p=>p.onclick=()=>{setColor(p.dataset.c);el.normalR.value=el.normalN.value=p.dataset.n;el.hoverR.value=el.hoverN.value=p.dataset.h;update()});
+const bg=$('#bgInput'),drop=$('#dropZone');$('#chooseBg').onclick=()=>bg.click();function useFile(f){if(!f||!f.type.startsWith('image/'))return;const rd=new FileReader();rd.onload=()=>{el.scene.style.backgroundImage=`url("${rd.result}")`;el.scene.style.backgroundSize='cover';el.scene.style.backgroundPosition='center'};rd.readAsDataURL(f)}bg.onchange=e=>useFile(e.target.files[0]);['dragenter','dragover'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.add('drag')}));['dragleave','drop'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.remove('drag')}));drop.addEventListener('drop',e=>useFile(e.dataTransfer.files[0]));$('#clearBg').onclick=()=>{el.scene.style.backgroundImage='';bg.value=''};
+async function copy(t,b){try{await navigator.clipboard.writeText(t)}catch{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()}const old=b.textContent;b.textContent='已复制';setTimeout(()=>b.textContent=old,850)}
+$('#copyAppBtn').onclick=()=>copy($('#codeOut').textContent,$('#copyAppBtn'));$('#copyFullBtn').onclick=()=>{const t=`玻璃参数：颜色 ${el.hex.value.toUpperCase()}，Normal ${el.normalR.value}/255，Hover ${el.hoverR.value}/255，Hover Scale ${Number(el.scaleR.value).toFixed(3)}，Press Scale ${Number(el.pressR.value).toFixed(3)}，Duration ${el.durR.value}ms，Radius ${el.radiusR.value}px，Border ${el.borderR.value}/255 @ ${el.bwR.value}px，Blur预览 ${el.blurR.value}px，Easing ${el.easing.value}。`;copy(t,$('#copyFullBtn'))};
+try{const s=JSON.parse(localStorage.getItem('glassTunerPro')||'null');if(s){if(s.c){el.hex.value=s.c;el.color.value=s.c.toLowerCase()}[['n',el.normalR,el.normalN],['h',el.hoverR,el.hoverN],['sc',el.scaleR,el.scaleN],['ps',el.pressR,el.pressN],['d',el.durR,el.durN],['r',el.radiusR,el.radiusN],['bl',el.blurR,el.blurN],['ba',el.borderR,el.borderN],['bw',el.bwR,el.bwN],['br',el.brightR,el.brightN],['sat',el.satR,el.satN]].forEach(([k,r,n])=>{if(s[k]!=null)r.value=n.value=s[k]});if(s.e)el.easing.value=s.e;if(s.base)el.base.value=s.base;if(s.mode)mode=s.mode}}catch{}
+update();setMode(mode);
 })();
 </script>
 </body>
