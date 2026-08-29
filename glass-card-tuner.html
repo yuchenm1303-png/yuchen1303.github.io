@@ -116,7 +116,7 @@ input:focus,select:focus{border-color:rgba(255,255,255,.28)}
       <div class="section">
         <div class="stitle">05 · 交互测试模式</div>
         <div class="mode-row"><button class="btn mode-btn active" data-mode="live">真实鼠标</button><button class="btn mode-btn" data-mode="normal">锁 Normal</button><button class="btn mode-btn" data-mode="hover">锁 Hover</button><button class="btn mode-btn" data-mode="auto">自动循环</button></div>
-        <div class="hint">“真实鼠标”下直接把鼠标放到右侧任意卡片。按住鼠标时会按程序逻辑回落到 Press Scale。</div>
+        <div class="hint">“真实鼠标”下直接把鼠标放到右侧任意卡片。按住鼠标时会按程序逻辑回落到 Press Scale；拖出卡片后仍保持 Press，直到松开。</div>
       </div>
 
       <div class="section">
@@ -172,6 +172,15 @@ function rgb(hex){return [parseInt(hex.slice(1,3),16),parseInt(hex.slice(3,5),16
 function mix(base,tint,k){const a=rgb(base),b=rgb(tint);return hex3(a.map((v,i)=>v*(1-k)+b[i]*k))}
 function syncPair(r,n,min,max,dec=0){const v=clamp(r.value,min,max);r.value=v;n.value=dec?Number(v).toFixed(dec):Math.round(v);return v}
 function setColor(v){v=v.trim();if(!v.startsWith('#'))v='#'+v;if(!validHex(v))return;v=v.toUpperCase();el.hex.value=v;el.color.value=v.toLowerCase();root.style.setProperty('--tint',v);update()}
+function qmlEasing(value){
+ if(value==='linear')return 'easing.type: Easing.Linear';
+ const curves={
+  'cubic-bezier(.25,.10,.25,1)':'[0.25, 0.10, 0.25, 1.00, 1.00, 1.00]',
+  'cubic-bezier(.645,.045,.355,1)':'[0.645, 0.045, 0.355, 1.00, 1.00, 1.00]',
+  'ease-out':'[0.00, 0.00, 0.58, 1.00, 1.00, 1.00]'
+ };
+ return `easing.type: Easing.BezierSpline\neasing.bezierCurve: ${curves[value]||curves['cubic-bezier(.25,.10,.25,1)']}`;
+}
 function clearStates(){ $$('.interactive').forEach(c=>c.classList.remove('is-hover','is-press')) }
 function applyMode(){clearStates();if(mode==='hover'||(mode==='auto'&&autoHover))$$('.interactive').forEach(c=>c.classList.add('is-hover'));$('#stateChip').textContent=mode==='live'?'REAL HOVER · move pointer / hold mouse to test Press':mode==='normal'?'LOCKED NORMAL':mode==='hover'?'LOCKED HOVER':'AUTO LOOP · '+(autoHover?'HOVER':'NORMAL');$$('.mode-btn').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode))}
 function setMode(m){mode=m;if(autoTimer){clearInterval(autoTimer);autoTimer=null}if(m==='auto'){autoHover=false;autoTimer=setInterval(()=>{autoHover=!autoHover;applyMode()},1200)}applyMode();save()}
@@ -180,13 +189,22 @@ function update(){
  root.style.setProperty('--tint',c);root.style.setProperty('--normal',n/255);root.style.setProperty('--hover',h/255);root.style.setProperty('--scale',sc);root.style.setProperty('--press-scale',ps);root.style.setProperty('--duration',dur+'ms');root.style.setProperty('--easing',el.easing.value);root.style.setProperty('--radius',rad+'px');root.style.setProperty('--blur',bl+'px');root.style.setProperty('--border-a',ba/255);root.style.setProperty('--border-w',bw+'px');root.style.setProperty('--scene-brightness',br/100);root.style.setProperty('--scene-saturation',sat/100);
  $('#normalText').textContent=`${n} / 255 · ${(n/255*100).toFixed(1)}%`;$('#hoverText').textContent=`${h} / 255 · ${(h/255*100).toFixed(1)}%`;$('#scaleText').textContent=Number(sc).toFixed(3);$('#pressText').textContent=Number(ps).toFixed(3);$('#durationText').textContent=dur+' ms';$('#radiusText').textContent=rad+' px';$('#blurText').textContent=bl+' px';$('#borderText').textContent=ba+' / 255';$('#borderWidthText').textContent=bw+' px';$('#brightnessText').textContent=br+'%';$('#saturationText').textContent=sat+'%';$('#normalCompareText').textContent=n+' / 255';$('#hoverCompareText').textContent=h+' / 255';$('#headerBadge').textContent=`${c} · N ${n} · H ${h} · ×${Number(sc).toFixed(3)}`;
  const base=el.base.value.toUpperCase(),nr=mix(base,c,n/255),hr=mix(base,c,h/255);$('#normalSwatch').style.background=nr;$('#hoverSwatch').style.background=hr;$('#normalResult').textContent=`${nr}  ← ${base} + ${n}/255`;$('#hoverResult').textContent=`${hr}  ← ${base} + ${h}/255`;
- $('#codeOut').textContent=`colorizationColor: "${c}"\ncolorization: (cardHover.hovered || cardClick.pressed) ? ${h}/255 : ${n}/255\n\nscale: cardClick.pressed ? ${Number(ps).toFixed(3)} : cardHover.hovered ? ${Number(sc).toFixed(3)} : 1.0\nduration: ${dur}\nradius: ${rad}`;save();
+ $('#codeOut').textContent=`colorizationColor: "${c}"\ncolorization: (cardHover.hovered || cardClick.pressed) ? ${h}/255 : ${n}/255\n\nscale: cardClick.pressed ? ${Number(ps).toFixed(3)} : cardHover.hovered ? ${Number(sc).toFixed(3)} : 1.0\nduration: ${dur}\n${qmlEasing(el.easing.value)}\nradius: ${rad}`;save();
 }
 function save(){try{localStorage.setItem('glassTunerPro',JSON.stringify({c:el.hex.value,n:el.normalR.value,h:el.hoverR.value,sc:el.scaleR.value,ps:el.pressR.value,d:el.durR.value,r:el.radiusR.value,bl:el.blurR.value,ba:el.borderR.value,bw:el.bwR.value,br:el.brightR.value,sat:el.satR.value,e:el.easing.value,base:el.base.value,mode}))}catch{}}
 function bindPair(r,n,min,max,dec=0){r.oninput=()=>{n.value=r.value;update()};n.oninput=()=>{r.value=clamp(n.value,min,max);update()}}
 el.color.oninput=e=>setColor(e.target.value);el.hex.oninput=e=>{let v=e.target.value.trim();if(v&&!v.startsWith('#'))v='#'+v;if(validHex(v))setColor(v)};$('#eyedropperBtn').onclick=async()=>{if(!window.EyeDropper){alert('请用新版 Chrome / Edge 使用吸色器');return}try{const r=await new EyeDropper().open();setColor(r.sRGBHex)}catch{}};
 bindPair(el.normalR,el.normalN,0,255);bindPair(el.hoverR,el.hoverN,0,255);bindPair(el.scaleR,el.scaleN,1,1.08,3);bindPair(el.pressR,el.pressN,.96,1.04,3);bindPair(el.durR,el.durN,0,700);bindPair(el.radiusR,el.radiusN,0,28);bindPair(el.blurR,el.blurN,0,50);bindPair(el.borderR,el.borderN,0,120);bindPair(el.bwR,el.bwN,0,3,2);bindPair(el.brightR,el.brightN,50,150);bindPair(el.satR,el.satN,40,180);el.base.oninput=update;el.easing.onchange=update;$$('.mode-btn').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
-$$('.interactive').forEach(card=>{card.addEventListener('pointerenter',()=>{if(mode==='live'){card.classList.add('is-hover');$('#stateChip').textContent='HOVER · color '+el.hoverR.value+'/255 · scale ×'+Number(el.scaleR.value).toFixed(3)}});card.addEventListener('pointerleave',()=>{if(mode==='live'){card.classList.remove('is-hover','is-press');$('#stateChip').textContent='REAL HOVER · move pointer / hold mouse to test Press'}});card.addEventListener('pointerdown',()=>{if(mode==='live'){card.classList.add('is-hover','is-press');$('#stateChip').textContent='PRESS · color '+el.hoverR.value+'/255 · scale ×'+Number(el.pressR.value).toFixed(3)}});card.addEventListener('pointerup',()=>{if(mode==='live'){card.classList.remove('is-press');card.classList.add('is-hover');$('#stateChip').textContent='HOVER · color '+el.hoverR.value+'/255 · scale ×'+Number(el.scaleR.value).toFixed(3)}})});
+$$('.interactive').forEach(card=>{
+ let pressedPointer=null;
+ const showHover=()=>{$('#stateChip').textContent='HOVER · color '+el.hoverR.value+'/255 · scale ×'+Number(el.scaleR.value).toFixed(3)};
+ const showNormal=()=>{$('#stateChip').textContent='REAL HOVER · move pointer / hold mouse to test Press'};
+ card.addEventListener('pointerenter',()=>{if(mode!=='live')return;card.classList.add('is-hover');if(pressedPointer===null)showHover()});
+ card.addEventListener('pointerleave',()=>{if(mode!=='live')return;card.classList.remove('is-hover');if(pressedPointer===null){card.classList.remove('is-press');showNormal()}else{$('#stateChip').textContent='PRESS · color '+el.hoverR.value+'/255 · scale ×'+Number(el.pressR.value).toFixed(3)+' · pointer outside'}});
+ card.addEventListener('pointerdown',e=>{if(mode!=='live'||e.button!==0)return;pressedPointer=e.pointerId;try{card.setPointerCapture(e.pointerId)}catch{}card.classList.add('is-hover','is-press');$('#stateChip').textContent='PRESS · color '+el.hoverR.value+'/255 · scale ×'+Number(el.pressR.value).toFixed(3)});
+ card.addEventListener('pointerup',e=>{if(mode!=='live'||pressedPointer!==e.pointerId)return;pressedPointer=null;try{if(card.hasPointerCapture(e.pointerId))card.releasePointerCapture(e.pointerId)}catch{}card.classList.remove('is-press');if(card.matches(':hover')){card.classList.add('is-hover');showHover()}else{card.classList.remove('is-hover');showNormal()}});
+ card.addEventListener('pointercancel',e=>{if(pressedPointer!==e.pointerId)return;pressedPointer=null;card.classList.remove('is-hover','is-press');if(mode==='live')showNormal()});
+});
 $$('.preset').forEach(p=>p.onclick=()=>{setColor(p.dataset.c);el.normalR.value=el.normalN.value=p.dataset.n;el.hoverR.value=el.hoverN.value=p.dataset.h;update()});
 const bg=$('#bgInput'),drop=$('#dropZone');$('#chooseBg').onclick=()=>bg.click();function useFile(f){if(!f||!f.type.startsWith('image/'))return;const rd=new FileReader();rd.onload=()=>{el.scene.style.backgroundImage=`url("${rd.result}")`;el.scene.style.backgroundSize='cover';el.scene.style.backgroundPosition='center'};rd.readAsDataURL(f)}bg.onchange=e=>useFile(e.target.files[0]);['dragenter','dragover'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.add('drag')}));['dragleave','drop'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.remove('drag')}));drop.addEventListener('drop',e=>useFile(e.dataTransfer.files[0]));$('#clearBg').onclick=()=>{el.scene.style.backgroundImage='';bg.value=''};
 async function copy(t,b){try{await navigator.clipboard.writeText(t)}catch{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()}const old=b.textContent;b.textContent='已复制';setTimeout(()=>b.textContent=old,850)}
