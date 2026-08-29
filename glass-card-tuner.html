@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Glass Card 调色器</title>
+<style>
+  :root{
+    --bg:#0f1220;
+    --panel:rgba(20,24,38,.82);
+    --line:rgba(255,255,255,.10);
+    --text:#f5f7ff;
+    --muted:#aeb6c9;
+    --accent:#ff9dca;
+    --normal:.25098;
+    --hover:.4;
+    --blur:18px;
+    --radius:18px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%;background:
+    radial-gradient(circle at 20% 0%,#263762 0,transparent 35%),
+    linear-gradient(180deg,#0d1020,#111625 55%,#0a0d17);
+    color:var(--text);font-family:Inter,"Microsoft YaHei UI",system-ui,sans-serif}
+  body{padding:22px}
+  .app{max-width:1440px;margin:auto}
+  .top{display:flex;gap:14px;align-items:flex-end;justify-content:space-between;margin-bottom:18px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px}
+  .grid{display:grid;grid-template-columns:390px 1fr;gap:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:0 18px 60px rgba(0,0,0,.28)}
+  .controls{padding:18px}
+  .section{padding:14px 0;border-bottom:1px solid var(--line)}
+  .section:first-child{padding-top:0}.section:last-child{border-bottom:0;padding-bottom:0}
+  .section-title{font-size:12px;font-weight:800;letter-spacing:.08em;color:#cfd6e8;margin-bottom:12px}
+  .row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;margin:10px 0}
+  label{font-size:13px;color:#dfe4f1}
+  input[type=range]{width:100%}
+  input[type=color]{width:46px;height:36px;border:0;border-radius:9px;padding:0;background:none;cursor:pointer}
+  input[type=text],input[type=number]{
+    background:rgba(0,0,0,.24);border:1px solid var(--line);color:white;border-radius:9px;
+    height:36px;padding:0 10px;outline:none
+  }
+  input[type=text]:focus,input[type=number]:focus{border-color:rgba(255,255,255,.28)}
+  .hexline{display:grid;grid-template-columns:48px 1fr 94px;gap:8px}
+  .sliderline{display:grid;grid-template-columns:1fr 66px;gap:10px;align-items:center}
+  .btn{
+    border:1px solid var(--line);background:rgba(255,255,255,.07);color:white;border-radius:10px;
+    padding:9px 12px;cursor:pointer;font-weight:700;font-size:12px
+  }
+  .btn:hover{background:rgba(255,255,255,.12)}
+  .btn.primary{background:rgba(255,157,202,.18);border-color:rgba(255,157,202,.32)}
+  .preset-wrap{display:flex;flex-wrap:wrap;gap:8px}
+  .preset{
+    width:72px;height:34px;border-radius:9px;border:1px solid var(--line);cursor:pointer;position:relative;overflow:hidden
+  }
+  .preset span{position:absolute;inset:auto 0 0;background:rgba(0,0,0,.46);font-size:9px;padding:3px 4px;text-align:center}
+  .preview-panel{padding:14px;min-height:760px}
+  .scene{
+    position:relative;min-height:730px;border-radius:16px;overflow:hidden;background:
+      linear-gradient(180deg,rgba(255,255,255,.04),rgba(0,0,0,.12)),
+      radial-gradient(circle at 68% 18%,rgba(255,182,211,.95),transparent 19%),
+      radial-gradient(circle at 20% 70%,rgba(86,161,134,.75),transparent 22%),
+      linear-gradient(165deg,#53b8f2 0 29%,#a9def7 29% 45%,#6e8fc0 45% 58%,#52766e 58% 72%,#27365e 72%);
+    background-size:cover;background-position:center;
+  }
+  .scene::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(0,0,0,.06))
+  }
+  .toolbar{position:absolute;left:24px;right:24px;top:22px;display:flex;justify-content:space-between;z-index:4}
+  .ghost-title{font-size:22px;font-weight:900;text-shadow:0 2px 14px rgba(0,0,0,.25)}
+  .ghost-pill{padding:9px 14px;border-radius:10px;background:rgba(0,0,0,.26);border:1px solid rgba(255,255,255,.13)}
+  .cards{position:absolute;left:22px;right:22px;top:88px;bottom:22px;display:grid;grid-template-columns:2fr .78fr;grid-template-rows:150px 1fr 170px;gap:10px;z-index:3}
+  .glass{
+    position:relative;border-radius:var(--radius);overflow:hidden;border:1px solid rgba(255,255,255,.08);
+    box-shadow:0 8px 32px rgba(0,0,0,.10);
+    backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
+    isolation:isolate;
+  }
+  .glass::before{
+    content:"";position:absolute;inset:0;z-index:-1;background:var(--accent);opacity:var(--normal);
+  }
+  .glass.hover::before{opacity:var(--hover)}
+  .glass.hover{transform:scale(1.02)}
+  .glass{transition:transform 300ms cubic-bezier(.25,.1,.25,1)}
+  .glass::before{transition:opacity 300ms cubic-bezier(.25,.1,.25,1)}
+  .hero{grid-column:1/3}
+  .bottom{grid-column:1/3}
+  .card-content{padding:16px;color:white;text-shadow:0 1px 4px rgba(0,0,0,.24)}
+  .eyebrow{font-size:10px;letter-spacing:.12em;font-weight:800;opacity:.7}
+  .ctitle{font-size:19px;font-weight:850;margin:5px 0 10px}
+  .line{height:34px;border-radius:8px;background:rgba(0,0,0,.18);border:1px solid rgba(255,255,255,.08);margin-top:8px}
+  .mini-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
+  .mini{height:48px;border-radius:9px;background:rgba(0,0,0,.15);border:1px solid rgba(255,255,255,.06)}
+  .tag{display:inline-block;padding:7px 11px;border-radius:8px;background:rgba(0,0,0,.22);margin-right:6px;font-size:12px}
+  .compare{position:absolute;right:18px;bottom:16px;z-index:6;background:rgba(8,10,16,.72);border:1px solid var(--line);
+    padding:9px 12px;border-radius:10px;font-size:11px;color:#dce2ef}
+  .drop{
+    border:1px dashed rgba(255,255,255,.20);border-radius:12px;padding:12px;text-align:center;color:var(--muted);font-size:12px
+  }
+  .drop.drag{border-color:#ff9dca;background:rgba(255,157,202,.06)}
+  .code{
+    margin-top:10px;background:#0a0d15;border:1px solid var(--line);border-radius:12px;padding:12px;
+    font:12px/1.65 "Cascadia Mono",Consolas,monospace;color:#e9edf7;white-space:pre-wrap
+  }
+  .copyrow{display:flex;gap:8px;margin-top:8px}
+  .hint{font-size:11px;color:var(--muted);line-height:1.6;margin-top:8px}
+  .value{font:12px "Cascadia Mono",monospace;color:#fff}
+  .modebar{display:flex;gap:8px}
+  .modebar button.active{background:rgba(255,255,255,.16)}
+  @media (max-width:980px){.grid{grid-template-columns:1fr}.preview-panel{min-height:650px}.scene{min-height:620px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div>
+      <h1>Glass Card 调色器</h1>
+      <div class="sub">专门对应你项目里的 <b>colorizationColor + 64/102 强度</b>。调好后直接复制参数发给我。</div>
+    </div>
+    <div class="modebar">
+      <button class="btn active" id="normalBtn">预览 Normal</button>
+      <button class="btn" id="hoverBtn">预览 Hover</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel controls">
+      <div class="section">
+        <div class="section-title">玻璃本体颜色</div>
+        <div class="hexline">
+          <input id="colorPicker" type="color" value="#ff9dca">
+          <input id="hexInput" type="text" value="#FF9DCA" maxlength="7">
+          <button class="btn" id="eyedropperBtn">吸取颜色</button>
+        </div>
+        <div class="hint">颜色本身不带透明度；透明强度由下面的 0–255 数值单独控制。</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Normal 强度</div>
+        <div class="sliderline">
+          <input id="normalRange" type="range" min="0" max="255" step="1" value="64">
+          <input id="normalNum" type="number" min="0" max="255" value="64">
+        </div>
+        <div class="hint">当前：<span class="value" id="normalPct">64 / 255 = 25.1%</span></div>
+
+        <div class="section-title" style="margin-top:16px">Hover / Press 强度</div>
+        <div class="sliderline">
+          <input id="hoverRange" type="range" min="0" max="255" step="1" value="102">
+          <input id="hoverNum" type="number" min="0" max="255" value="102">
+        </div>
+        <div class="hint">当前：<span class="value" id="hoverPct">102 / 255 = 40.0%</span></div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">预览设置</div>
+        <div class="row">
+          <label>玻璃模糊</label><span class="value" id="blurVal">18px</span>
+        </div>
+        <input id="blurRange" type="range" min="0" max="40" step="1" value="18">
+        <div class="row">
+          <label>圆角</label><span class="value" id="radiusVal">18px</span>
+        </div>
+        <input id="radiusRange" type="range" min="0" max="30" step="1" value="18">
+        <div class="hint">这两个仅帮助网页预览，不会写进你复制的 QML 参数。</div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">历史颜色预设</div>
+        <div class="preset-wrap">
+          <div class="preset" data-c="#FF9DCA" style="background:#FF9DCA"><span>#FF9DCA</span></div>
+          <div class="preset" data-c="#9B6F8D" style="background:#9B6F8D"><span>#9B6F8D</span></div>
+          <div class="preset" data-c="#68425E" style="background:#68425E"><span>#68425E</span></div>
+          <div class="preset" data-c="#56354E" style="background:#56354E"><span>#56354E</span></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">背景图片</div>
+        <div class="drop" id="dropZone">
+          拖入截图 / 壁纸，或
+          <button class="btn" id="chooseBg">选择图片</button>
+          <input id="bgInput" type="file" accept="image/*" hidden>
+        </div>
+        <div class="copyrow">
+          <button class="btn" id="clearBg">恢复默认背景</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">可直接发给 ChatGPT 的参数</div>
+        <div class="code" id="codeOut"></div>
+        <div class="copyrow">
+          <button class="btn primary" id="copyBtn">复制 QML 参数</button>
+          <button class="btn" id="copyShortBtn">复制简短参数</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel preview-panel">
+      <div class="scene" id="scene">
+        <div class="toolbar">
+          <div>
+            <div class="eyebrow">MAKRO LISTING AUTOMATION</div>
+            <div class="ghost-title">Listing Studio</div>
+          </div>
+          <div class="ghost-pill">SINGLE · READY</div>
+        </div>
+
+        <div class="cards">
+          <div class="glass hero sampleGlass">
+            <div class="card-content">
+              <div class="eyebrow">PRODUCT SOURCE</div>
+              <div class="ctitle">商品链接</div>
+              <div class="line"></div><div class="line" style="width:72%"></div>
+              <div class="mini-grid"><div class="mini"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div></div>
+            </div>
+          </div>
+
+          <div class="glass sampleGlass">
+            <div class="card-content">
+              <div class="eyebrow">FIELD REVIEW</div>
+              <div class="ctitle">字段检查</div>
+              <span class="tag">字段</span><span class="tag">识别状态</span><span class="tag">建议值</span>
+              <div class="line" style="height:190px;margin-top:12px"></div>
+            </div>
+          </div>
+
+          <div class="glass sampleGlass">
+            <div class="card-content">
+              <div class="eyebrow">RUNTIME</div>
+              <div class="ctitle">处理状态</div>
+              <div class="line" style="height:155px"></div>
+            </div>
+          </div>
+
+          <div class="glass bottom sampleGlass">
+            <div class="card-content">
+              <div class="eyebrow">INDICATOR</div>
+              <div class="mini-grid">
+                <div class="mini"></div><div class="mini"></div><div class="mini"></div><div class="mini"></div>
+              </div>
+              <div class="line"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="compare" id="compareLabel">Normal · #FF9DCA · 64/255</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+  const root = document.documentElement;
+  const scene = $('#scene');
+  const colorPicker = $('#colorPicker');
+  const hexInput = $('#hexInput');
+  const normalRange = $('#normalRange'), normalNum = $('#normalNum');
+  const hoverRange = $('#hoverRange'), hoverNum = $('#hoverNum');
+  const blurRange = $('#blurRange'), radiusRange = $('#radiusRange');
+  let mode = 'normal';
+
+  function validHex(v){ return /^#[0-9A-F]{6}$/i.test(v); }
+  function syncColor(v){
+    v = v.toUpperCase();
+    if(!validHex(v)) return;
+    colorPicker.value = v.toLowerCase();
+    hexInput.value = v;
+    root.style.setProperty('--accent', v);
+    update();
+  }
+  function clamp255(v){ return Math.max(0,Math.min(255,parseInt(v || 0,10))); }
+  function update(){
+    const n = clamp255(normalRange.value), h = clamp255(hoverRange.value);
+    normalRange.value = normalNum.value = n;
+    hoverRange.value = hoverNum.value = h;
+    root.style.setProperty('--normal', n/255);
+    root.style.setProperty('--hover', h/255);
+    root.style.setProperty('--blur', blurRange.value+'px');
+    root.style.setProperty('--radius', radiusRange.value+'px');
+    $('#normalPct').textContent = `${n} / 255 = ${(n/255*100).toFixed(1)}%`;
+    $('#hoverPct').textContent = `${h} / 255 = ${(h/255*100).toFixed(1)}%`;
+    $('#blurVal').textContent = blurRange.value+'px';
+    $('#radiusVal').textContent = radiusRange.value+'px';
+    $$('.sampleGlass').forEach(x => x.classList.toggle('hover', mode==='hover'));
+    $('#normalBtn').classList.toggle('active', mode==='normal');
+    $('#hoverBtn').classList.toggle('active', mode==='hover');
+    $('#compareLabel').textContent = `${mode==='hover'?'Hover':'Normal'} · ${hexInput.value.toUpperCase()} · ${mode==='hover'?h:n}/255`;
+    $('#codeOut').textContent =
+`colorizationColor: "${hexInput.value.toUpperCase()}"
+colorization: (cardHover.hovered || cardClick.pressed) ? ${h}/255 : ${n}/255`;
+    localStorage.setItem('glassTuner', JSON.stringify({
+      color:hexInput.value.toUpperCase(), normal:n, hover:h,
+      blur:+blurRange.value, radius:+radiusRange.value
+    }));
+  }
+
+  colorPicker.addEventListener('input', e => syncColor(e.target.value));
+  hexInput.addEventListener('input', e => {
+    let v=e.target.value.trim();
+    if(v && !v.startsWith('#')) v='#'+v;
+    if(validHex(v)) syncColor(v);
+  });
+  [normalRange,normalNum].forEach(el=>el.addEventListener('input', e=>{
+    const v=clamp255(e.target.value); normalRange.value=normalNum.value=v; update();
+  }));
+  [hoverRange,hoverNum].forEach(el=>el.addEventListener('input', e=>{
+    const v=clamp255(e.target.value); hoverRange.value=hoverNum.value=v; update();
+  }));
+  blurRange.addEventListener('input', update);
+  radiusRange.addEventListener('input', update);
+
+  $('#normalBtn').onclick=()=>{mode='normal';update()};
+  $('#hoverBtn').onclick=()=>{mode='hover';update()};
+
+  $$('.preset').forEach(p=>p.onclick=()=>syncColor(p.dataset.c));
+
+  $('#eyedropperBtn').onclick = async ()=>{
+    if(!window.EyeDropper){ alert('当前浏览器不支持 EyeDropper API，请使用 Chrome / Edge 新版本。'); return; }
+    try{
+      const r = await new EyeDropper().open();
+      syncColor(r.sRGBHex);
+    }catch{}
+  };
+
+  const bgInput=$('#bgInput'), drop=$('#dropZone');
+  $('#chooseBg').onclick=()=>bgInput.click();
+  function useFile(file){
+    if(!file || !file.type.startsWith('image/')) return;
+    const reader=new FileReader();
+    reader.onload=()=>{scene.style.backgroundImage=`url("${reader.result}")`;scene.style.backgroundSize='cover';scene.style.backgroundPosition='center'};
+    reader.readAsDataURL(file);
+  }
+  bgInput.onchange=e=>useFile(e.target.files[0]);
+  ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')}));
+  ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')}));
+  drop.addEventListener('drop',e=>useFile(e.dataTransfer.files[0]));
+  $('#clearBg').onclick=()=>{scene.style.backgroundImage='';bgInput.value=''};
+
+  async function copyText(t){
+    try{await navigator.clipboard.writeText(t)}
+    catch{
+      const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();
+    }
+  }
+  $('#copyBtn').onclick=async()=>{
+    await copyText($('#codeOut').textContent);
+    const b=$('#copyBtn'), old=b.textContent;b.textContent='已复制';setTimeout(()=>b.textContent=old,900);
+  };
+  $('#copyShortBtn').onclick=async()=>{
+    const n=normalRange.value,h=hoverRange.value,c=hexInput.value.toUpperCase();
+    await copyText(`玻璃参数：颜色 ${c}，Normal ${n}/255，Hover ${h}/255。`);
+    const b=$('#copyShortBtn'),old=b.textContent;b.textContent='已复制';setTimeout(()=>b.textContent=old,900);
+  };
+
+  try{
+    const saved=JSON.parse(localStorage.getItem('glassTuner')||'null');
+    if(saved){
+      if(saved.color) syncColor(saved.color);
+      if(saved.normal!=null) normalRange.value=normalNum.value=saved.normal;
+      if(saved.hover!=null) hoverRange.value=hoverNum.value=saved.hover;
+      if(saved.blur!=null) blurRange.value=saved.blur;
+      if(saved.radius!=null) radiusRange.value=saved.radius;
+    }
+  }catch{}
+  update();
+})();
+</script>
+</body>
+</html>
