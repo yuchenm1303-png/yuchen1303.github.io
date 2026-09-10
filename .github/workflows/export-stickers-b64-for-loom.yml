@@ -1,0 +1,41 @@
+name: Export sticker base64 for Loom
+
+on:
+  push:
+    branches:
+      - tmp/export-stickers-for-loom
+    paths:
+      - .github/workflows/export-stickers-b64-for-loom.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  export:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export exact WebP assets as base64 text
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='ai-ledger-android/app/src/main/assets/inline_stickers_v1.zip'
+          OUT='loom-sticker-export'
+          rm -rf "$OUT" /tmp/loom-stickers
+          mkdir -p "$OUT" /tmp/loom-stickers
+          unzip -q "$SRC" -d /tmp/loom-stickers
+          count=0
+          for f in /tmp/loom-stickers/*.webp; do
+            name="$(basename "$f")"
+            base64 -w0 "$f" > "$OUT/$name.b64"
+            printf '\n' >> "$OUT/$name.b64"
+            count=$((count + 1))
+          done
+          test "$count" -eq 19
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'chore: materialize sticker base64 export for Loom'
+          git push
