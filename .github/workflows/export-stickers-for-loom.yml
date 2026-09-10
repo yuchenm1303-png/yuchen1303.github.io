@@ -1,0 +1,32 @@
+name: Export stickers for Loom
+
+on:
+  push:
+    branches:
+      - dev-update-1
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract original sticker pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/loom-stickers
+          mkdir -p /tmp/loom-stickers
+          unzip -j ai-ledger-android/app/src/main/assets/inline_stickers_v1.zip '*.webp' -d /tmp/loom-stickers
+          test "$(find /tmp/loom-stickers -maxdepth 1 -type f -name '*.webp' | wc -l)" -eq 19
+          find /tmp/loom-stickers -maxdepth 1 -type f -name '*.webp' -print | sort
+      - name: Upload extracted assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: loom-original-chat-stickers
+          path: /tmp/loom-stickers/*.webp
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
