@@ -1,4 +1,4 @@
-name: Export sticker base64 for Loom
+name: Export sticker assets for Loom
 
 on:
   push:
@@ -17,16 +17,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Test scoped token access to Loom
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Materialize exact WebP assets on transfer branch
+        shell: bash
         run: |
           set -euo pipefail
-          status="$(curl -sS -o /tmp/loom.json -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' https://api.github.com/repos/yuchenm1303-png/Loom)"
-          echo "loom_api_status=$status"
-          if [ "$status" = 200 ]; then
-            python - <<'PY'
-          import json
-          print(json.load(open('/tmp/loom.json'))['full_name'])
-          PY
-          fi
+          SRC='ai-ledger-android/app/src/main/assets/inline_stickers_v1.zip'
+          OUT='loom-sticker-export-webp'
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+          unzip -q "$SRC" -d "$OUT"
+          test "$(find "$OUT" -maxdepth 1 -type f -name '*.webp' | wc -l)" -eq 19
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$OUT"
+          git commit -m 'chore: materialize exact sticker WebPs for Loom transfer'
+          git push
