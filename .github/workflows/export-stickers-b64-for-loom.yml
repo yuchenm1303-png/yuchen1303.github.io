@@ -30,12 +30,12 @@ jobs:
           for f in /tmp/loom-stickers/*.webp; do
             name="$(basename "$f")"
             base64 -w0 "$f" > "/tmp/loom-b64/$name.b64"
-            split -b 20000 -d -a 2 "/tmp/loom-b64/$name.b64" "$OUT/$name.part"
+            split -b 8000 -d -a 2 "/tmp/loom-b64/$name.b64" "$OUT/$name.part"
             count=$((count + 1))
           done
           test "$count" -eq 19
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$OUT"
-          git commit -m 'chore: split exact sticker export for Loom transfer'
+          git add -A "$OUT"
+          git commit -m 'chore: split exact sticker export into transfer-safe parts'
           git push
