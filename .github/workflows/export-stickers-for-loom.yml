@@ -6,27 +6,32 @@ on:
       - dev-update-1
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Extract original sticker pack
+      - name: Extract and stage original sticker pack
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/loom-stickers
-          mkdir -p /tmp/loom-stickers
-          unzip -j ai-ledger-android/app/src/main/assets/inline_stickers_v1.zip '*.webp' -d /tmp/loom-stickers
-          test "$(find /tmp/loom-stickers -maxdepth 1 -type f -name '*.webp' | wc -l)" -eq 19
-          find /tmp/loom-stickers -maxdepth 1 -type f -name '*.webp' -print | sort
-      - name: Upload extracted assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: loom-original-chat-stickers
-          path: /tmp/loom-stickers/*.webp
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 1
+          rm -rf .tmp-loom-stickers
+          mkdir -p .tmp-loom-stickers
+          unzip -j ai-ledger-android/app/src/main/assets/inline_stickers_v1.zip '*.webp' -d .tmp-loom-stickers
+          test "$(find .tmp-loom-stickers -maxdepth 1 -type f -name '*.webp' | wc -l)" -eq 19
+          for f in .tmp-loom-stickers/*.webp; do
+            test "$(dd if="$f" bs=1 count=4 2>/dev/null)" = RIFF
+            test "$(dd if="$f" bs=1 skip=8 count=4 2>/dev/null)" = WEBP
+          done
+      - name: Commit temporary transfer files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .tmp-loom-stickers
+          git commit -m 'chore: stage original stickers for Loom transfer [skip ci]'
+          git push
